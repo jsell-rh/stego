@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"go/format"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/stego-project/stego/internal/gen"
@@ -48,7 +47,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, fmt.Errorf("expose references unknown entity %q", eb.Entity)
 		}
 
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap)
+		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating handler for %s: %w", eb.Entity, err)
 		}
@@ -57,12 +56,34 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		lower := strings.ToLower(entity.Name)
 		wiring.Constructors = append(wiring.Constructors,
 			fmt.Sprintf("api.New%sHandler(store)", entity.Name))
-		wiring.Routes = append(wiring.Routes,
-			fmt.Sprintf("mux.Handle(\"%s\", %sHandler)", entityBasePath(eb, exposeMap), lower))
+
+		basePath := entityBasePath(eb, exposeMap)
+		for _, op := range eb.Operations {
+			switch op {
+			case types.OpCreate:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.create)", basePath, lower))
+			case types.OpRead:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.read)", basePath, lower))
+			case types.OpUpdate:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.update)", basePath, lower))
+			case types.OpDelete:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.delete)", basePath, lower))
+			case types.OpList:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.list)", basePath, lower))
+			case types.OpUpsert:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.upsert)", basePath, lower))
+			}
+		}
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Expose, exposeMap)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Expose, exposeMap)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
@@ -103,7 +124,9 @@ func entityBasePath(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock
 }
 
 // generateHandler produces a single Go handler file for an exposed entity.
-func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, _ map[string]types.ExposeBlock) (gen.File, error) {
+// Each operation is a separate method with http.HandlerFunc signature, registered
+// individually in the router via Go 1.22 method+pattern routes.
+func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.File, error) {
 	var buf bytes.Buffer
 
 	lower := strings.ToLower(entity.Name)
@@ -127,67 +150,24 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, _ map
 	fmt.Fprintf(&buf, "\treturn &%s{store: store}\n", handlerType)
 	fmt.Fprintf(&buf, "}\n\n")
 
-	// ServeHTTP dispatcher.
-	fmt.Fprintf(&buf, "// ServeHTTP dispatches to the appropriate operation handler.\n")
-	fmt.Fprintf(&buf, "func (h *%s) ServeHTTP(w http.ResponseWriter, r *http.Request) {\n", handlerType)
-
+	// Parent verification helper for nested routing.
 	if eb.Parent != "" {
-		// Nested routing: verify parent exists.
-		parentLower := strings.ToLower(eb.Parent)
-		parentIDParam := parentLower + "_id"
-		fmt.Fprintf(&buf, "\t// Verify parent %s exists.\n", eb.Parent)
-		fmt.Fprintf(&buf, "\t%s := extractPathParam(r, %q)\n", parentIDParam, parentIDParam)
-		fmt.Fprintf(&buf, "\tif %s == \"\" {\n", parentIDParam)
+		parentIDVar := strings.ToLower(eb.Parent) + "ID"
+		parentIDParam := strings.ToLower(eb.Parent) + "_id"
+		fmt.Fprintf(&buf, "// checkParent verifies the parent %s exists.\n", eb.Parent)
+		fmt.Fprintf(&buf, "func (h *%s) checkParent(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
+		fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
+		fmt.Fprintf(&buf, "\tif %s == \"\" {\n", parentIDVar)
 		fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", parentIDParam)
-		fmt.Fprintf(&buf, "\t\treturn\n")
+		fmt.Fprintf(&buf, "\t\treturn false\n")
 		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\tif !h.store.Exists(%q, %s) {\n", eb.Parent, parentIDParam)
-		fmt.Fprintf(&buf, "\t\thttp.Error(w, \"%s not found\", http.StatusNotFound)\n", eb.Parent)
-		fmt.Fprintf(&buf, "\t\treturn\n")
-		fmt.Fprintf(&buf, "\t}\n\n")
+		fmt.Fprintf(&buf, "\tif !h.store.Exists(%q, %s) {\n", eb.Parent, parentIDVar)
+		fmt.Fprintf(&buf, "\t\thttp.Error(w, %q, http.StatusNotFound)\n", eb.Parent+" not found")
+		fmt.Fprintf(&buf, "\t\treturn false\n")
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "\treturn true\n")
+		fmt.Fprintf(&buf, "}\n\n")
 	}
-
-	fmt.Fprintf(&buf, "\tswitch r.Method {\n")
-
-	for _, op := range eb.Operations {
-		switch op {
-		case types.OpCreate:
-			fmt.Fprintf(&buf, "\tcase http.MethodPost:\n")
-			fmt.Fprintf(&buf, "\t\th.create(w, r)\n")
-		case types.OpRead:
-			fmt.Fprintf(&buf, "\tcase http.MethodGet:\n")
-			fmt.Fprintf(&buf, "\t\tid := extractID(r)\n")
-			fmt.Fprintf(&buf, "\t\tif id != \"\" {\n")
-			fmt.Fprintf(&buf, "\t\t\th.read(w, r, id)\n")
-			fmt.Fprintf(&buf, "\t\t} else {\n")
-			if hasOp(eb.Operations, types.OpList) {
-				fmt.Fprintf(&buf, "\t\t\th.list(w, r)\n")
-			} else {
-				fmt.Fprintf(&buf, "\t\t\thttp.Error(w, \"id required\", http.StatusBadRequest)\n")
-			}
-			fmt.Fprintf(&buf, "\t\t}\n")
-		case types.OpUpdate:
-			fmt.Fprintf(&buf, "\tcase http.MethodPut:\n")
-			fmt.Fprintf(&buf, "\t\th.update(w, r)\n")
-		case types.OpDelete:
-			fmt.Fprintf(&buf, "\tcase http.MethodDelete:\n")
-			fmt.Fprintf(&buf, "\t\th.delete(w, r)\n")
-		case types.OpList:
-			// Handled via GET without ID above if read is also present.
-			if !hasOp(eb.Operations, types.OpRead) {
-				fmt.Fprintf(&buf, "\tcase http.MethodGet:\n")
-				fmt.Fprintf(&buf, "\t\th.list(w, r)\n")
-			}
-		case types.OpUpsert:
-			fmt.Fprintf(&buf, "\tcase http.MethodPut:\n")
-			fmt.Fprintf(&buf, "\t\th.upsert(w, r)\n")
-		}
-	}
-
-	fmt.Fprintf(&buf, "\tdefault:\n")
-	fmt.Fprintf(&buf, "\t\thttp.Error(w, \"method not allowed\", http.StatusMethodNotAllowed)\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "}\n\n")
 
 	// Generate operation methods.
 	for _, op := range eb.Operations {
@@ -218,9 +198,18 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, _ map
 	}, nil
 }
 
+func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
+	if eb.Parent != "" {
+		fmt.Fprintf(buf, "\tif !h.checkParent(w, r) {\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+	}
+}
+
 func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
 	fmt.Fprintf(buf, "func (h *%sHandler) create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
@@ -228,7 +217,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	if eb.Parent != "" {
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		fmt.Fprintf(buf, "\t%s.%s = extractPathParam(r, %q)\n", lower, parentFieldName(eb.Parent), parentIDParam)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentRefFieldName(entity, eb.Parent), parentIDParam)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -239,9 +228,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, _ types.ExposeBlock) {
+func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) read(w http.ResponseWriter, r *http.Request, id string) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	emitParentCheck(buf, eb)
+	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\t%s, err := h.store.Read(%q, id)\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusNotFound)\n")
@@ -251,14 +242,11 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, _ types.ExposeBl
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, _ types.ExposeBlock) {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
 	fmt.Fprintf(buf, "func (h *%sHandler) update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
-	fmt.Fprintf(buf, "\tid := extractID(r)\n")
-	fmt.Fprintf(buf, "\tif id == \"\" {\n")
-	fmt.Fprintf(buf, "\t\thttp.Error(w, \"id required\", http.StatusBadRequest)\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
+	emitParentCheck(buf, eb)
+	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
@@ -272,13 +260,10 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, _ types.Expose
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, _ types.ExposeBlock) {
+func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	fmt.Fprintf(buf, "func (h *%sHandler) delete(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
-	fmt.Fprintf(buf, "\tid := extractID(r)\n")
-	fmt.Fprintf(buf, "\tif id == \"\" {\n")
-	fmt.Fprintf(buf, "\t\thttp.Error(w, \"id required\", http.StatusBadRequest)\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t}\n")
+	emitParentCheck(buf, eb)
+	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(%q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
@@ -290,16 +275,18 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, _ types.Expose
 func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) list(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	emitParentCheck(buf, eb)
 
 	// Scope filtering.
 	if eb.Scope != "" {
-		fmt.Fprintf(buf, "\tscopeValue := extractPathParam(r, %q)\n", eb.Scope)
+		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", eb.Scope)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
 	} else if eb.Parent != "" {
+		parentIDVar := strings.ToLower(eb.Parent) + "ID"
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		parentField := parentFieldName(eb.Parent)
-		fmt.Fprintf(buf, "\t%s := extractPathParam(r, %q)\n", parentIDParam, parentIDParam)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDParam)
+		parentField := parentRefFieldName(entity, eb.Parent)
+		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, \"\", \"\")\n", lower, entity.Name)
 	}
@@ -315,6 +302,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
 	fmt.Fprintf(buf, "func (h *%sHandler) upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
@@ -344,14 +332,41 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// generateRouter produces the router.go file with route registration and helper functions.
-func generateRouter(ns string, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (gen.File, error) {
+// generateRouter produces the router.go file with entity type definitions,
+// the Storage interface, Go 1.22 method+pattern route registration, and
+// helper functions.
+func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (gen.File, error) {
 	var buf bytes.Buffer
+
+	// Build entity map and determine needed imports from entity field types.
+	entityMap := make(map[string]types.Entity, len(entities))
+	needTime := false
+	needJSON := false
+	for _, e := range entities {
+		entityMap[e.Name] = e
+	}
+	for _, eb := range expose {
+		if entity, ok := entityMap[eb.Entity]; ok {
+			for _, f := range entity.Fields {
+				if f.Type == types.FieldTypeTimestamp {
+					needTime = true
+				}
+				if f.Type == types.FieldTypeJsonb {
+					needJSON = true
+				}
+			}
+		}
+	}
 
 	fmt.Fprintf(&buf, "package api\n\n")
 	fmt.Fprintf(&buf, "import (\n")
+	if needJSON {
+		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
-	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	if needTime {
+		fmt.Fprintf(&buf, "\t\"time\"\n")
+	}
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Storage interface used by all handlers.
@@ -366,13 +381,20 @@ func generateRouter(ns string, expose []types.ExposeBlock, exposeMap map[string]
 	fmt.Fprintf(&buf, "\tExists(entity string, id string) bool\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	// Entity types (minimal struct for each exposed entity).
+	// Entity types with fields from the entity definitions.
 	for _, eb := range expose {
+		entity := entityMap[eb.Entity]
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", eb.Entity, eb.Entity)
-		fmt.Fprintf(&buf, "type %s struct{}\n\n", eb.Entity)
+		fmt.Fprintf(&buf, "type %s struct {\n", eb.Entity)
+		for _, f := range entity.Fields {
+			goName := toPascalCase(f.Name)
+			goType := fieldTypeToGo(f.Type)
+			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
+		}
+		fmt.Fprintf(&buf, "}\n\n")
 	}
 
-	// NewRouter function.
+	// NewRouter function with Go 1.22 method+pattern routes.
 	fmt.Fprintf(&buf, "// NewRouter creates an http.Handler with all routes registered.\n")
 	fmt.Fprintf(&buf, "func NewRouter(auth func(http.Handler) http.Handler, store Storage) http.Handler {\n")
 	fmt.Fprintf(&buf, "\tmux := http.NewServeMux()\n\n")
@@ -381,28 +403,28 @@ func generateRouter(ns string, expose []types.ExposeBlock, exposeMap map[string]
 		basePath := entityBasePath(eb, exposeMap)
 		lower := strings.ToLower(eb.Entity)
 		fmt.Fprintf(&buf, "\t%sHandler := New%sHandler(store)\n", lower, eb.Entity)
-		fmt.Fprintf(&buf, "\tmux.Handle(\"%s/\", http.StripPrefix(\"%s\", %sHandler))\n\n",
-			basePath, basePath, lower)
+
+		for _, op := range eb.Operations {
+			switch op {
+			case types.OpCreate:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"POST %s\", %sHandler.create)\n", basePath, lower)
+			case types.OpRead:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s/{id}\", %sHandler.read)\n", basePath, lower)
+			case types.OpUpdate:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s/{id}\", %sHandler.update)\n", basePath, lower)
+			case types.OpDelete:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"DELETE %s/{id}\", %sHandler.delete)\n", basePath, lower)
+			case types.OpList:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s\", %sHandler.list)\n", basePath, lower)
+			case types.OpUpsert:
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s\", %sHandler.upsert)\n", basePath, lower)
+			}
+		}
+		fmt.Fprintf(&buf, "\n")
 	}
 
 	fmt.Fprintf(&buf, "\treturn auth(mux)\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// Helper functions.
-	fmt.Fprintf(&buf, "// extractID extracts the trailing path segment as the resource ID.\n")
-	fmt.Fprintf(&buf, "func extractID(r *http.Request) string {\n")
-	fmt.Fprintf(&buf, "\tp := strings.TrimPrefix(r.URL.Path, \"/\")\n")
-	fmt.Fprintf(&buf, "\tif p == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\treturn \"\"\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\tparts := strings.Split(p, \"/\")\n")
-	fmt.Fprintf(&buf, "\treturn parts[len(parts)-1]\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	fmt.Fprintf(&buf, "// extractPathParam extracts a named path parameter from the request URL.\n")
-	fmt.Fprintf(&buf, "func extractPathParam(r *http.Request, name string) string {\n")
-	fmt.Fprintf(&buf, "\treturn r.PathValue(name)\n")
-	fmt.Fprintf(&buf, "}\n\n")
+	fmt.Fprintf(&buf, "}\n")
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -597,11 +619,14 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	return s
 }
 
-func hasOp(ops []types.Operation, target types.Operation) bool {
-	return slices.Contains(ops, target)
-}
-
-func parentFieldName(parent string) string {
+// parentRefFieldName finds the Go field name for the ref field that points to
+// the parent entity. Falls back to Parent+"ID" if no matching ref is found.
+func parentRefFieldName(entity types.Entity, parent string) string {
+	for _, f := range entity.Fields {
+		if f.Type == types.FieldTypeRef && f.To == parent {
+			return toPascalCase(f.Name)
+		}
+	}
 	return parent + "ID"
 }
 
@@ -611,13 +636,52 @@ func jsonContent(schema openAPISchema) map[string]openAPIMediaType {
 	}
 }
 
+// toPascalCase converts a snake_case string to PascalCase, treating "id" as
+// the acronym "ID" per Go conventions.
+func toPascalCase(s string) string {
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if strings.EqualFold(p, "id") {
+			parts[i] = "ID"
+		} else if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+// fieldTypeToGo maps a types.FieldType to its Go type representation.
+func fieldTypeToGo(ft types.FieldType) string {
+	switch ft {
+	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
+		return "string"
+	case types.FieldTypeInt32:
+		return "int32"
+	case types.FieldTypeInt64:
+		return "int64"
+	case types.FieldTypeFloat:
+		return "float32"
+	case types.FieldTypeDouble:
+		return "float64"
+	case types.FieldTypeBool:
+		return "bool"
+	case types.FieldTypeBytes:
+		return "[]byte"
+	case types.FieldTypeTimestamp:
+		return "time.Time"
+	case types.FieldTypeJsonb:
+		return "json.RawMessage"
+	}
+	return "any"
+}
+
 // OpenAPI types for JSON marshaling.
 
 type openAPISpec struct {
-	OpenAPI    string                       `json:"openapi"`
-	Info       openAPIInfo                  `json:"info"`
-	Paths      map[string]openAPIPathItem   `json:"paths"`
-	Components openAPIComponents            `json:"components"`
+	OpenAPI    string                     `json:"openapi"`
+	Info       openAPIInfo                `json:"info"`
+	Paths      map[string]openAPIPathItem `json:"paths"`
+	Components openAPIComponents          `json:"components"`
 }
 
 type openAPIInfo struct {
@@ -635,12 +699,12 @@ func (p openAPIPathItem) MarshalJSON() ([]byte, error) {
 }
 
 type openAPIOperation struct {
-	Summary     string                       `json:"summary"`
-	OperationID string                       `json:"operationId"`
-	Tags        []string                     `json:"tags,omitempty"`
-	Parameters  []openAPIParam               `json:"parameters,omitempty"`
-	RequestBody *openAPIRequestBody          `json:"requestBody,omitempty"`
-	Responses   map[string]openAPIResponse   `json:"responses"`
+	Summary     string                     `json:"summary"`
+	OperationID string                     `json:"operationId"`
+	Tags        []string                   `json:"tags,omitempty"`
+	Parameters  []openAPIParam             `json:"parameters,omitempty"`
+	RequestBody *openAPIRequestBody        `json:"requestBody,omitempty"`
+	Responses   map[string]openAPIResponse `json:"responses"`
 }
 
 type openAPIParam struct {
@@ -651,8 +715,8 @@ type openAPIParam struct {
 }
 
 type openAPIRequestBody struct {
-	Required bool                          `json:"required"`
-	Content  map[string]openAPIMediaType   `json:"content"`
+	Required bool                       `json:"required"`
+	Content  map[string]openAPIMediaType `json:"content"`
 }
 
 type openAPIMediaType struct {
@@ -660,8 +724,8 @@ type openAPIMediaType struct {
 }
 
 type openAPIResponse struct {
-	Description string                        `json:"description"`
-	Content     map[string]openAPIMediaType   `json:"content,omitempty"`
+	Description string                     `json:"description"`
+	Content     map[string]openAPIMediaType `json:"content,omitempty"`
 }
 
 type openAPIComponents struct {
@@ -669,10 +733,10 @@ type openAPIComponents struct {
 }
 
 type openAPISchema struct {
-	Type       string                    `json:"type,omitempty"`
-	Format     string                    `json:"format,omitempty"`
-	Properties map[string]openAPISchema  `json:"properties,omitempty"`
-	Items      *openAPISchema            `json:"items,omitempty"`
-	Ref        string                    `json:"$ref,omitempty"`
-	Enum       []string                  `json:"enum,omitempty"`
+	Type       string                   `json:"type,omitempty"`
+	Format     string                   `json:"format,omitempty"`
+	Properties map[string]openAPISchema `json:"properties,omitempty"`
+	Items      *openAPISchema           `json:"items,omitempty"`
+	Ref        string                   `json:"$ref,omitempty"`
+	Enum       []string                 `json:"enum,omitempty"`
 }

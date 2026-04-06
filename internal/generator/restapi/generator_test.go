@@ -2,6 +2,9 @@ package restapi
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -92,11 +95,17 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 	if !strings.Contains(wiring.Constructors[0], "NewUserHandler") {
 		t.Errorf("constructor should reference NewUserHandler, got: %s", wiring.Constructors[0])
 	}
-	if len(wiring.Routes) != 1 {
-		t.Fatalf("expected 1 route, got %d", len(wiring.Routes))
+	if len(wiring.Routes) == 0 {
+		t.Fatal("expected routes, got none")
 	}
-	if !strings.Contains(wiring.Routes[0], "/users") {
-		t.Errorf("route should contain /users, got: %s", wiring.Routes[0])
+	foundUsers := false
+	for _, r := range wiring.Routes {
+		if strings.Contains(r, "/users") {
+			foundUsers = true
+		}
+	}
+	if !foundUsers {
+		t.Errorf("expected a route containing /users, got: %v", wiring.Routes)
 	}
 }
 
@@ -123,9 +132,6 @@ func TestGenerate_HandlerContainsCRUDMethods(t *testing.T) {
 	if !strings.Contains(handlerContent, "func NewUserHandler(") {
 		t.Error("handler missing NewUserHandler constructor")
 	}
-	if !strings.Contains(handlerContent, "func (h *UserHandler) ServeHTTP(") {
-		t.Error("handler missing ServeHTTP dispatcher")
-	}
 }
 
 func TestGenerate_RouterContainsStorageInterface(t *testing.T) {
@@ -147,6 +153,67 @@ func TestGenerate_RouterContainsStorageInterface(t *testing.T) {
 	}
 	if !strings.Contains(router, "auth") {
 		t.Error("router should reference auth middleware parameter")
+	}
+}
+
+func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	// Entity struct must have real fields, not be empty.
+	if !strings.Contains(router, "type User struct") {
+		t.Error("router missing User struct")
+	}
+	if !strings.Contains(router, `Email string`) {
+		t.Error("User struct missing Email field")
+	}
+	if !strings.Contains(router, `Role  string`) || !strings.Contains(router, `Role string`) {
+		// go/format may adjust spacing
+		if !strings.Contains(router, "Role") {
+			t.Error("User struct missing Role field")
+		}
+	}
+	if !strings.Contains(router, `OrgID string`) {
+		t.Error("User struct missing OrgID field")
+	}
+	if !strings.Contains(router, `json:"email"`) {
+		t.Error("User struct missing email json tag")
+	}
+}
+
+func TestGenerate_RouterUsesMethodPatternRoutes(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	// Go 1.22 method+pattern routes.
+	if !strings.Contains(router, `"POST /users"`) {
+		t.Error("router missing POST /users route")
+	}
+	if !strings.Contains(router, `"GET /users/{id}"`) {
+		t.Error("router missing GET /users/{id} route")
+	}
+	if !strings.Contains(router, `"PUT /users/{id}"`) {
+		t.Error("router missing PUT /users/{id} route")
+	}
+	if !strings.Contains(router, `"DELETE /users/{id}"`) {
+		t.Error("router missing DELETE /users/{id} route")
+	}
+	if !strings.Contains(router, `"GET /users"`) {
+		t.Error("router missing GET /users route")
 	}
 }
 
@@ -174,10 +241,10 @@ func TestGenerate_NestedRouting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// NodePool handler should verify parent Cluster exists.
+	// NodePool handler should verify parent Cluster exists via checkParent.
 	npHandler := findFileContent(t, files, "internal/api/handler_nodepool.go")
-	if !strings.Contains(npHandler, "Verify parent Cluster exists") {
-		t.Error("nested handler missing parent existence verification comment")
+	if !strings.Contains(npHandler, "checkParent") {
+		t.Error("nested handler missing checkParent method")
 	}
 	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
 		t.Error("nested handler missing parent Exists check")
@@ -186,7 +253,7 @@ func TestGenerate_NestedRouting(t *testing.T) {
 		t.Error("nested handler missing parent not-found error")
 	}
 
-	// Route should contain nested path.
+	// Route should contain nested path with parent param.
 	if wiring == nil {
 		t.Fatal("expected wiring")
 	}
@@ -317,6 +384,51 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 	}
 	if !strings.Contains(handler, `"optimistic"`) {
 		t.Error("upsert handler missing optimistic concurrency mode")
+	}
+}
+
+func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
+	// Verifies that update (PUT /path/{id}) and upsert (PUT /path) use
+	// different route patterns and do not create duplicate switch cases.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "key", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Item",
+				Operations: []types.Operation{types.OpUpdate, types.OpUpsert},
+				UpsertKey:  []string{"key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_item.go")
+	if !strings.Contains(handler, "func (h *ItemHandler) update(") {
+		t.Error("handler missing update method")
+	}
+	if !strings.Contains(handler, "func (h *ItemHandler) upsert(") {
+		t.Error("handler missing upsert method")
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+	// Update uses PUT /items/{id}, upsert uses PUT /items — different patterns.
+	if !strings.Contains(router, `"PUT /items/{id}"`) {
+		t.Error("router missing PUT /items/{id} for update")
+	}
+	if !strings.Contains(router, `"PUT /items"`) {
+		t.Error("router missing PUT /items for upsert")
 	}
 }
 
@@ -577,24 +689,68 @@ func TestGenerate_ListOnlyGETRoute(t *testing.T) {
 	}
 }
 
-func TestGenerate_GeneratedGoCodeCompiles(t *testing.T) {
-	// Verify Go files are valid Go by checking they contain package declaration.
+func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
+	// Verify all generated Go files compile together as a single package.
+	// This catches cross-file errors: duplicate case branches, references to
+	// undefined types, field assignments on empty structs, etc.
 	g := &Generator{}
-	ctx := basicContext()
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "created_at", Type: types.FieldTypeTimestamp},
+				{Name: "metadata", Type: types.FieldTypeJsonb, Optional: true},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString, Unique: true},
+				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
+				Parent:     "Organization",
+				Scope:      "org_id",
+				UpsertKey:  []string{"email"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
 
 	files, _, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	tmpDir := t.TempDir()
+
+	// Write go.mod for the temp package.
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	// Write all generated Go files to the temp directory.
 	for _, f := range files {
 		if !strings.HasSuffix(f.Path, ".go") {
 			continue
 		}
-		content := string(f.Content)
-		if !strings.Contains(content, "package api") {
-			t.Errorf("file %s missing package declaration", f.Path)
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
 		}
+	}
+
+	// Build the package — any cross-file compile error will be caught here.
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code does not compile:\n%s\n%s", err, output)
 	}
 }
 
@@ -622,6 +778,52 @@ func TestEntityBasePath_Nested(t *testing.T) {
 	got := entityBasePath(eb, exposeMap)
 	if got != "/clusters/{cluster_id}/nodepools" {
 		t.Errorf("expected /clusters/{cluster_id}/nodepools, got %s", got)
+	}
+}
+
+func TestToPascalCase(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"email", "Email"},
+		{"org_id", "OrgID"},
+		{"cluster_id", "ClusterID"},
+		{"resource_type", "ResourceType"},
+		{"name", "Name"},
+		{"id", "ID"},
+		{"status_conditions", "StatusConditions"},
+	}
+	for _, tt := range tests {
+		got := toPascalCase(tt.input)
+		if got != tt.want {
+			t.Errorf("toPascalCase(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestFieldTypeToGo(t *testing.T) {
+	tests := []struct {
+		ft   types.FieldType
+		want string
+	}{
+		{types.FieldTypeString, "string"},
+		{types.FieldTypeInt32, "int32"},
+		{types.FieldTypeInt64, "int64"},
+		{types.FieldTypeFloat, "float32"},
+		{types.FieldTypeDouble, "float64"},
+		{types.FieldTypeBool, "bool"},
+		{types.FieldTypeBytes, "[]byte"},
+		{types.FieldTypeTimestamp, "time.Time"},
+		{types.FieldTypeEnum, "string"},
+		{types.FieldTypeRef, "string"},
+		{types.FieldTypeJsonb, "json.RawMessage"},
+	}
+	for _, tt := range tests {
+		got := fieldTypeToGo(tt.ft)
+		if got != tt.want {
+			t.Errorf("fieldTypeToGo(%q) = %q, want %q", tt.ft, got, tt.want)
+		}
 	}
 }
 

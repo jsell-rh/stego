@@ -15,7 +15,7 @@ config:
       operations:
         type: list
         items:
-          enum: [create, read, update, delete, list]
+          enum: [create, read, update, delete, list, upsert]
       scope:
         type: field-ref
         optional: true
