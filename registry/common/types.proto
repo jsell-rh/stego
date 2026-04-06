@@ -1,0 +1,24 @@
+syntax = "proto3";
+package stego.common;
+
+// Identity represents the caller's identity in slot invocations.
+message Identity {
+  string user_id = 1;
+  string role = 2;
+  map<string, string> attributes = 3;
+}
+
+// CreateRequest represents the input for a create operation.
+message CreateRequest {
+  string entity = 1;
+  map<string, string> fields = 2;
+}
+
+// SlotResult is the standard return type for slot RPC methods.
+// Supports short-circuit chain semantics via halt and status_code.
+message SlotResult {
+  bool ok = 1;
+  string error_message = 2;
+  bool halt = 3;           // stop the chain, return this result
+  int32 status_code = 4;   // HTTP status for the halted response
+}
