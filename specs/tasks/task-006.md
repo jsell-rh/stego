@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Code Generation Mechanism", "Generated Code Structure"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 **Review:** [specs/reviews/task-006.md](../reviews/task-006.md)
 
 ## Description

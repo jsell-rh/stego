@@ -407,6 +407,7 @@ func TestComponentUnmarshal(t *testing.T) {
 kind: component
 name: rest-api
 version: 2.1.0
+output_namespace: internal/api
 requires:
   - auth-provider
   - storage-adapter
@@ -427,6 +428,9 @@ slots:
 	}
 	if c.Name != "rest-api" {
 		t.Errorf("name = %q, want %q", c.Name, "rest-api")
+	}
+	if c.OutputNamespace != "internal/api" {
+		t.Errorf("output_namespace = %q, want %q", c.OutputNamespace, "internal/api")
 	}
 	if len(c.Requires) != 2 {
 		t.Errorf("requires count = %d, want 2", len(c.Requires))

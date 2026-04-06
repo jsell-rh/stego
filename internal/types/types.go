@@ -196,13 +196,14 @@ type ConfigField struct {
 
 // Component represents a deterministic code generator with its metadata.
 type Component struct {
-	Kind     string                 `yaml:"kind"`
-	Name     string                 `yaml:"name"`
-	Version  string                 `yaml:"version"`
-	Config   map[string]ConfigField `yaml:"config,omitempty"`
-	Requires []Port                  `yaml:"requires"`
-	Provides []Port                  `yaml:"provides"`
-	Slots    []SlotDefinition       `yaml:"slots"`
+	Kind            string                 `yaml:"kind"`
+	Name            string                 `yaml:"name"`
+	Version         string                 `yaml:"version"`
+	Config          map[string]ConfigField `yaml:"config,omitempty"`
+	Requires        []Port                 `yaml:"requires"`
+	Provides        []Port                 `yaml:"provides"`
+	Slots           []SlotDefinition       `yaml:"slots"`
+	OutputNamespace string                 `yaml:"output_namespace,omitempty"`
 }
 
 // Mixin adds components and slots to an archetype.
