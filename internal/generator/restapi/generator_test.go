@@ -486,12 +486,13 @@ func TestGenerate_OpenAPISpec(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	openapiContent := findFileContent(t, files, "internal/api/openapi.json")
+	// Use rendered Bytes() output to verify the JSON is valid after rendering.
+	openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
 
-	// Parse the OpenAPI spec.
+	// Parse the rendered OpenAPI spec.
 	var spec map[string]any
-	if err := json.Unmarshal([]byte(openapiContent), &spec); err != nil {
-		t.Fatalf("failed to parse openapi spec: %v", err)
+	if err := json.Unmarshal(openapiBytes, &spec); err != nil {
+		t.Fatalf("rendered openapi.json is not valid JSON: %v", err)
 	}
 
 	// Verify basic structure.
@@ -868,8 +869,20 @@ func TestGenerate_FilesBytesIncludesHeader(t *testing.T) {
 
 	for _, f := range files {
 		content := string(f.Bytes())
-		if !strings.HasPrefix(content, gen.Header) {
-			t.Errorf("file %s missing generated header", f.Path)
+		if strings.HasSuffix(f.Path, ".go") {
+			if !strings.HasPrefix(content, gen.Header) {
+				t.Errorf("Go file %s missing generated header", f.Path)
+			}
+		} else if strings.HasSuffix(f.Path, ".json") {
+			// JSON files must NOT have Go-comment header — it makes them unparseable.
+			if strings.HasPrefix(content, "//") {
+				t.Errorf("JSON file %s has Go-comment header, which makes it invalid JSON", f.Path)
+			}
+			// Verify the rendered JSON is parseable.
+			var parsed any
+			if err := json.Unmarshal(f.Bytes(), &parsed); err != nil {
+				t.Errorf("JSON file %s rendered via Bytes() is not valid JSON: %v", f.Path, err)
+			}
 		}
 	}
 }
@@ -1095,6 +1108,107 @@ func TestFieldTypeToGo(t *testing.T) {
 	}
 }
 
+func TestGenerate_UpsertWithParentSetsParentID(t *testing.T) {
+	// When an entity has a parent and exposes upsert, the handler must assign
+	// the parent's path parameter to the entity's ref field (same as create).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpUpsert},
+				Parent:     "Cluster",
+				UpsertKey:  []string{"name"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	// Upsert must assign parent ID from path parameter, just like create does.
+	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
+		t.Error("upsert handler must assign parent ID from path parameter")
+	}
+}
+
+func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
+	// A delete-only entity must not import encoding/json (unused import = compile error).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Session", Fields: []types.Field{{Name: "token", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Session", Operations: []types.Operation{types.OpDelete}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_session.go")
+	if strings.Contains(handler, `"encoding/json"`) {
+		t.Error("delete-only handler must not import encoding/json (unused import)")
+	}
+
+	// Verify the generated code actually compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("delete-only entity does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
+	// Verify that openapi.json rendered via File.Bytes() is valid JSON.
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rendered := findFileBytes(t, files, "internal/api/openapi.json")
+	var parsed any
+	if err := json.Unmarshal(rendered, &parsed); err != nil {
+		t.Fatalf("openapi.json rendered via Bytes() is not valid JSON: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
@@ -1105,4 +1219,16 @@ func findFileContent(t *testing.T, files []gen.File, path string) string {
 	}
 	t.Fatalf("file %s not found in output", path)
 	return ""
+}
+
+// findFileBytes finds a file by path and returns its rendered output via Bytes().
+func findFileBytes(t *testing.T, files []gen.File, path string) []byte {
+	t.Helper()
+	for _, f := range files {
+		if f.Path == path {
+			return f.Bytes()
+		}
+	}
+	t.Fatalf("file %s not found in output", path)
+	return nil
 }

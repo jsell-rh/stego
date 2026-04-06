@@ -53,12 +53,17 @@ type File struct {
 	Content []byte
 }
 
-// Bytes returns the complete file content ready to be written to disk: the
-// required generated-file header followed by a blank line and the body.
-// This is the only way to obtain the file's rendered output, which enforces
-// that all generated files carry the header — generators cannot bypass it.
+// Bytes returns the complete file content ready to be written to disk.
+// For Go source files, it prepends the required generated-file header.
+// For non-Go files (JSON, YAML, etc.), the content is returned as-is
+// because Go-comment syntax would make them unparseable by their format's
+// standard tooling.
 func (f File) Bytes() []byte {
-	return []byte(Header + "\n\n" + string(f.Content))
+	ext := filepath.Ext(f.Path)
+	if ext == ".go" {
+		return []byte(Header + "\n\n" + string(f.Content))
+	}
+	return f.Content
 }
 
 // Wiring captures what a component needs wired into shared generated files

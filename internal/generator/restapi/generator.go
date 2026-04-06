@@ -132,9 +132,21 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 	lower := strings.ToLower(entity.Name)
 	handlerType := entity.Name + "Handler"
 
+	// Determine whether encoding/json is needed. It is used by all operations
+	// except delete (which only sends status codes, no JSON body).
+	needJSON := false
+	for _, op := range eb.Operations {
+		if op != types.OpDelete {
+			needJSON = true
+			break
+		}
+	}
+
 	fmt.Fprintf(&buf, "package api\n\n")
 	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	if needJSON {
+		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
@@ -317,6 +329,10 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
+	if eb.Parent != "" {
+		parentIDParam := strings.ToLower(eb.Parent) + "_id"
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentRefFieldName(entity, eb.Parent), parentIDParam)
+	}
 
 	if len(eb.UpsertKey) > 0 {
 		keyFields := make([]string, len(eb.UpsertKey))

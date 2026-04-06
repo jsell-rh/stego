@@ -107,6 +107,18 @@ func TestFileBytes_EmptyContent(t *testing.T) {
 	}
 }
 
+func TestFileBytes_JSONNoHeader(t *testing.T) {
+	// Non-Go files must not get a Go-comment header (it makes them unparseable).
+	f := File{
+		Path:    "internal/api/openapi.json",
+		Content: []byte(`{"openapi":"3.0.3"}`),
+	}
+	got := string(f.Bytes())
+	if got != `{"openapi":"3.0.3"}` {
+		t.Errorf("JSON file Bytes() should return content as-is, got:\n%s", got)
+	}
+}
+
 func TestNamespaceErrorMessage(t *testing.T) {
 	e := &NamespaceError{
 		Namespace:  "internal/api",
