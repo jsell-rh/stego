@@ -30,7 +30,12 @@ func (e *ResolutionError) Error() string {
 		parts = append(parts, ib.Error())
 	}
 	for _, u := range e.Unresolved {
-		parts = append(parts, fmt.Sprintf("unresolved port %q required by %q: no component provides it", u.Port, u.Component))
+		if len(u.Providers) > 0 {
+			parts = append(parts, fmt.Sprintf("unresolved port %q required by %q: provided by %s but no binding is configured",
+				u.Port, u.Component, strings.Join(u.Providers, ", ")))
+		} else {
+			parts = append(parts, fmt.Sprintf("unresolved port %q required by %q: no component provides it", u.Port, u.Component))
+		}
 	}
 	for _, a := range e.Ambiguous {
 		parts = append(parts, fmt.Sprintf("ambiguous port %q required by %q: provided by %s", a.Port, a.Component, strings.Join(a.Providers, ", ")))
@@ -42,11 +47,12 @@ func (e *ResolutionError) hasErrors() bool {
 	return len(e.Unresolved) > 0 || len(e.Ambiguous) > 0 || len(e.InvalidBinding) > 0
 }
 
-// UnresolvedPort describes a required port that has no binding and no component
-// provides it.
+// UnresolvedPort describes a required port that has no binding configured.
+// Providers lists any components that provide the port (for diagnostic context).
 type UnresolvedPort struct {
 	Component string
 	Port      string
+	Providers []string
 }
 
 // AmbiguousPort describes a required port provided by more than one component
@@ -159,6 +165,7 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 					resErr.Unresolved = append(resErr.Unresolved, UnresolvedPort{
 						Component: compName,
 						Port:      portName,
+						Providers: otherProviders,
 					})
 				}
 				continue

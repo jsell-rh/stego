@@ -133,6 +133,13 @@ func TestResolveNoBindingIsUnresolved(t *testing.T) {
 		t.Fatalf("expected 2 unresolved ports, got %d: %+v", len(resErr.Unresolved), resErr.Unresolved)
 	}
 
+	// Each unresolved port should list its providers since they exist.
+	for _, u := range resErr.Unresolved {
+		if len(u.Providers) == 0 {
+			t.Errorf("unresolved port %q should list providers, got none", u.Port)
+		}
+	}
+
 	ports := map[string]bool{}
 	for _, u := range resErr.Unresolved {
 		ports[u.Port] = true
@@ -142,6 +149,22 @@ func TestResolveNoBindingIsUnresolved(t *testing.T) {
 	}
 	if !ports["auth-provider"] || !ports["storage-adapter"] {
 		t.Errorf("expected unresolved ports auth-provider and storage-adapter, got: %+v", resErr.Unresolved)
+	}
+
+	// Error message should mention the existing providers and say "no binding
+	// is configured" — NOT "no component provides it".
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "no binding is configured") {
+		t.Errorf("error should say 'no binding is configured' when providers exist, got: %v", errMsg)
+	}
+	if strings.Contains(errMsg, "no component provides it") {
+		t.Errorf("error should NOT say 'no component provides it' when providers exist, got: %v", errMsg)
+	}
+	if !strings.Contains(errMsg, "postgres-adapter") {
+		t.Errorf("error should mention provider 'postgres-adapter', got: %v", errMsg)
+	}
+	if !strings.Contains(errMsg, "jwt-auth") {
+		t.Errorf("error should mention provider 'jwt-auth', got: %v", errMsg)
 	}
 }
 
@@ -172,14 +195,23 @@ func TestResolveUnresolvedPort(t *testing.T) {
 	for _, u := range resErr.Unresolved {
 		if u.Port == "storage-adapter" && u.Component == "rest-api" {
 			found = true
+			if len(u.Providers) != 0 {
+				t.Errorf("expected no providers for truly unresolved port, got %v", u.Providers)
+			}
 		}
 	}
 	if !found {
 		t.Errorf("expected unresolved port storage-adapter for rest-api, got: %+v", resErr.Unresolved)
 	}
 
-	if !strings.Contains(err.Error(), "unresolved port") {
-		t.Errorf("error message should contain 'unresolved port', got: %v", err)
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "unresolved port") {
+		t.Errorf("error message should contain 'unresolved port', got: %v", errMsg)
+	}
+	// No component provides storage-adapter (postgres-adapter was deleted),
+	// so the message should say "no component provides it".
+	if !strings.Contains(errMsg, "no component provides it") {
+		t.Errorf("error should say 'no component provides it' when no provider exists, got: %v", errMsg)
 	}
 }
 
