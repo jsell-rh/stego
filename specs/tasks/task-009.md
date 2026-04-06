@@ -37,3 +37,6 @@ Implement the `rest-api` component as a Go package with a `Generator`.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- b9c3bc5 feat(task-009): implement rest-api component generator
+- 4be9256 chore(task-009): mark task ready-for-review
