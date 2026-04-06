@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stego-project/stego/internal/types"
@@ -566,6 +567,34 @@ func TestParseErrorLineInfoStruct(t *testing.T) {
 	want := `test.yaml:5: unmarshal failed (near "bad_field: [")`
 	if got != want {
 		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestParseErrorLineInfoFromRealYAML(t *testing.T) {
+	// Feed a YAML file with a type mismatch (version: [1,2,3] where string expected)
+	// through the real parser and verify that parseErrorWithLineInfo populates
+	// Line and Context from the yaml.TypeError.
+	_, err := Parse(fixture("type_mismatch.yaml"))
+	if err == nil {
+		t.Fatal("expected error for type mismatch YAML, got nil")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error type = %T, want *ParseError", err)
+	}
+	if pe.Path != fixture("type_mismatch.yaml") {
+		t.Errorf("path = %q, want %q", pe.Path, fixture("type_mismatch.yaml"))
+	}
+	if pe.Line <= 0 {
+		t.Errorf("Line = %d, want > 0 (line info should be extracted from yaml.TypeError)", pe.Line)
+	}
+	if pe.Context == "" {
+		t.Errorf("Context = %q, want non-empty (should contain snippet of offending line)", pe.Context)
+	}
+	// The error message should include the line number and context
+	errMsg := pe.Error()
+	if pe.Line > 0 && !strings.Contains(errMsg, fmt.Sprintf(":%d:", pe.Line)) {
+		t.Errorf("Error() = %q, should contain line number %d", errMsg, pe.Line)
 	}
 }
 

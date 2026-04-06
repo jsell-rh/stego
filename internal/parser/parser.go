@@ -4,6 +4,7 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -47,7 +48,9 @@ func parseErrorWithLineInfo(data []byte, path string, underlying error) *ParseEr
 	pe := &ParseError{Path: path, Err: underlying}
 
 	// yaml.TypeError contains per-line error details we can extract line numbers from.
-	if te, ok := underlying.(*yaml.TypeError); ok && len(te.Errors) > 0 {
+	// Use errors.As to unwrap through fmt.Errorf wrapping layers.
+	var te *yaml.TypeError
+	if errors.As(underlying, &te) && len(te.Errors) > 0 {
 		// Try to extract line info from the first error string.
 		// yaml.v3 TypeError errors look like: "line N: ..."
 		for _, msg := range te.Errors {
