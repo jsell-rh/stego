@@ -1,0 +1,13 @@
+syntax = "proto3";
+package stego.mixins.event_publisher.slots;
+
+import "stego/common/types.proto";
+
+service OnEntityChanged {
+  rpc Evaluate(OnEntityChangedRequest) returns (stego.common.SlotResult);
+}
+
+message OnEntityChangedRequest {
+  string entity = 1;
+  string action = 2;
+}

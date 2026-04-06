@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Registry"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-004.md](../reviews/task-004.md)
 

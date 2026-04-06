@@ -58,6 +58,10 @@ func (r *Registry) Mixin(name string) *types.Mixin {
 //	<dir>/components/<name>/slots/*.proto
 //	<dir>/mixins/<name>/mixin.yaml
 func Load(dir string) (*Registry, error) {
+	if _, err := os.Stat(dir); err != nil {
+		return nil, fmt.Errorf("registry directory: %w", err)
+	}
+
 	r := &Registry{
 		archetypes: make(map[string]*types.Archetype),
 		components: make(map[string]*types.Component),
@@ -95,9 +99,6 @@ func (r *Registry) loadArchetypes(dir string) error {
 		if a.Name != dirName {
 			return fmt.Errorf("archetype name mismatch: directory %q but YAML name %q in %s", dirName, a.Name, path)
 		}
-		if _, exists := r.archetypes[a.Name]; exists {
-			return fmt.Errorf("duplicate archetype name %q: found in directory %q", a.Name, dirName)
-		}
 		r.archetypes[a.Name] = a
 	}
 	return nil
@@ -120,9 +121,6 @@ func (r *Registry) loadComponents(dir string) error {
 		}
 		if c.Name != dirName {
 			return fmt.Errorf("component name mismatch: directory %q but YAML name %q in %s", dirName, c.Name, path)
-		}
-		if _, exists := r.components[c.Name]; exists {
-			return fmt.Errorf("duplicate component name %q: found in directory %q", c.Name, dirName)
 		}
 		// Verify that slot proto files exist on disk.
 		for _, slot := range c.Slots {
@@ -154,8 +152,12 @@ func (r *Registry) loadMixins(dir string) error {
 		if m.Name != dirName {
 			return fmt.Errorf("mixin name mismatch: directory %q but YAML name %q in %s", dirName, m.Name, path)
 		}
-		if _, exists := r.mixins[m.Name]; exists {
-			return fmt.Errorf("duplicate mixin name %q: found in directory %q", m.Name, dirName)
+		// Verify that adds_slots proto files exist on disk.
+		for _, slot := range m.AddsSlots {
+			protoPath := filepath.Join(dir, dirName, "slots", slot.Name+".proto")
+			if _, err := os.Stat(protoPath); err != nil {
+				return fmt.Errorf("mixin %s slot %q: proto file missing at %s", dirName, slot.Name, protoPath)
+			}
 		}
 		r.mixins[m.Name] = m
 	}

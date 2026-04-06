@@ -179,6 +179,13 @@ func TestLoadEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestLoadNonExistentDirectory(t *testing.T) {
+	_, err := registry.Load("/nonexistent/registry/path")
+	if err == nil {
+		t.Fatal("expected error for non-existent registry directory, got nil")
+	}
+}
+
 func TestLoadInvalidArchetype(t *testing.T) {
 	dir := t.TempDir()
 	archDir := filepath.Join(dir, "archetypes", "bad")
@@ -303,20 +310,13 @@ func TestLoadSkipsNonDirectoryEntries(t *testing.T) {
 	}
 }
 
-func TestLoadDuplicateArchetypeName(t *testing.T) {
+func TestLoadArchetypeNameMismatch(t *testing.T) {
 	dir := t.TempDir()
-	archDir := filepath.Join(dir, "archetypes")
-	// Create two directories with the same YAML name. Since directory names
-	// must match YAML names, we create one valid and one mismatched to test
-	// the duplicate detection path indirectly. But the name mismatch check
-	// fires first. Instead, test with a simulated scenario by creating two
-	// directories with the same name — which is impossible on disk. So we
-	// test that the name-mismatch check fires.
-	dir1 := filepath.Join(archDir, "foo")
-	if err := os.MkdirAll(dir1, 0o755); err != nil {
+	archDir := filepath.Join(dir, "archetypes", "foo")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir1, "archetype.yaml"), []byte("kind: archetype\nname: bar\nversion: 1.0.0\nlanguage: go\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte("kind: archetype\nname: bar\nversion: 1.0.0\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err := registry.Load(dir)
@@ -328,7 +328,7 @@ func TestLoadDuplicateArchetypeName(t *testing.T) {
 	}
 }
 
-func TestLoadDuplicateComponentName(t *testing.T) {
+func TestLoadComponentNameMismatch(t *testing.T) {
 	dir := t.TempDir()
 	compDir := filepath.Join(dir, "components", "foo")
 	if err := os.MkdirAll(compDir, 0o755); err != nil {
@@ -346,7 +346,7 @@ func TestLoadDuplicateComponentName(t *testing.T) {
 	}
 }
 
-func TestLoadDuplicateMixinName(t *testing.T) {
+func TestLoadMixinNameMismatch(t *testing.T) {
 	dir := t.TempDir()
 	mixDir := filepath.Join(dir, "mixins", "foo")
 	if err := os.MkdirAll(mixDir, 0o755); err != nil {
@@ -361,6 +361,66 @@ func TestLoadDuplicateMixinName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "name mismatch") {
 		t.Errorf("expected name mismatch error, got: %v", err)
+	}
+}
+
+func TestLoadMixinMissingProtoFile(t *testing.T) {
+	dir := t.TempDir()
+	mixDir := filepath.Join(dir, "mixins", "my-mixin")
+	if err := os.MkdirAll(mixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `kind: mixin
+name: my-mixin
+version: 1.0.0
+adds_slots:
+  - name: on_change
+    proto: stego.mixins.my_mixin.slots.OnChange
+    default: noop
+`
+	if err := os.WriteFile(filepath.Join(mixDir, "mixin.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for missing mixin proto file, got nil")
+	}
+	if !strings.Contains(err.Error(), "proto file missing") {
+		t.Errorf("expected proto file missing error, got: %v", err)
+	}
+}
+
+func TestLoadMixinWithProtoFiles(t *testing.T) {
+	dir := t.TempDir()
+	mixDir := filepath.Join(dir, "mixins", "my-mixin")
+	slotsDir := filepath.Join(mixDir, "slots")
+	if err := os.MkdirAll(slotsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `kind: mixin
+name: my-mixin
+version: 1.0.0
+adds_slots:
+  - name: on_change
+    proto: stego.mixins.my_mixin.slots.OnChange
+    default: noop
+`
+	if err := os.WriteFile(filepath.Join(mixDir, "mixin.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(slotsDir, "on_change.proto"), []byte("syntax = \"proto3\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	m := reg.Mixin("my-mixin")
+	if m == nil {
+		t.Fatal("Mixin(my-mixin) returned nil")
+	}
+	if len(m.AddsSlots) != 1 {
+		t.Errorf("AddsSlots count = %d, want 1", len(m.AddsSlots))
 	}
 }
 
