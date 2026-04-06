@@ -41,3 +41,5 @@ Operations enum: create, read, update, delete, list, upsert.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- `752f6e8` feat: define core domain types for all five nouns and supporting types
