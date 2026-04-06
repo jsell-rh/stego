@@ -33,3 +33,5 @@ Define the `Generator` interface and supporting types that components implement.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- 2b23632 feat(gen): add Generator interface, Context, File, Wiring, and namespace validation
