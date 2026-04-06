@@ -1,0 +1,37 @@
+# Task 010: postgres-adapter Component Generator
+
+**Spec Reference:** "File Types — Component", "Migration Diffing", "MVP Scope"
+
+**Status:** `not-started`
+
+## Description
+
+Implement the `postgres-adapter` component as a Go package with a `Generator`.
+
+- `registry/components/postgres-adapter/component.yaml`
+- Generator produces:
+  - Model structs from entity definitions
+  - Query functions (CRUD + list + upsert)
+  - Migration SQL files (desired state diffing is component-owned)
+  - Upsert with natural-key conflict resolution and optimistic concurrency
+  - Computed/derived field support (read-only, populated by fills)
+- Output namespace: `internal/storage`
+- Provides: `storage-adapter`
+
+## Spec Excerpt
+
+> Migration generation is a component concern, not a stego concern. The compiler passes entity definitions (desired state) to the storage component's generator. The component owns the diffing strategy.
+
+## Acceptance Criteria
+
+- Generator produces compilable Go model and query code
+- Migration SQL generated for entity definitions
+- Upsert support with conflict resolution
+- Computed fields are read-only in generated queries
+- Tests verify generated code compiles
+
+## Task Completion
+
+When done, update this file's Status to `complete` and list relevant commits below.
+
+## Commits

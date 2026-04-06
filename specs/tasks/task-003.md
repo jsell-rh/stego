@@ -1,0 +1,40 @@
+# Task 003: YAML Schema Parsing
+
+**Spec Reference:** "File Types" (all subsections)
+
+**Status:** `not-started`
+
+## Description
+
+Implement YAML parsing for all file types into the core domain types from Task 002.
+
+Parsers needed:
+- `archetype.yaml` → `Archetype`
+- `component.yaml` → `Component`
+- `mixin.yaml` → `Mixin`
+- `service.yaml` → `ServiceDeclaration`
+- `fill.yaml` → `Fill`
+
+Each parser should:
+- Validate `kind:` field matches expected type
+- Return structured errors with file path and line context
+- Handle all fields shown in spec examples
+
+Create a unified `Parse(path string) (interface{}, error)` that dispatches on `kind`.
+
+## Spec Excerpt
+
+> The spec "File Types" section shows the complete YAML schema for each kind.
+
+## Acceptance Criteria
+
+- All five file types parse correctly from YAML
+- Round-trip test: marshal → unmarshal → compare
+- Error messages include file path
+- Test fixtures for each file type based on spec examples
+
+## Task Completion
+
+When done, update this file's Status to `complete` and list relevant commits below.
+
+## Commits
