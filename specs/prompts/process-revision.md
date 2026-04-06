@@ -29,7 +29,8 @@ There is the software\. And then there are the databases beneath the software, t
         3. testing infrastructure
         4. observability infrastructure 
 6. For all addressed flaws, place a check in the relevant checkbox in the review file\.
-7. Commit your work, using conventional commits, and author: &quot;Process Revision &lt;process\-revision@redhat\.com&gt;&quot;
-8. Call \``kill $PPID\`` this will transfer control over to the implementation team\.
+7. Remove the reference to the review file in the task (but keep the review file for posterity.)
+8. Commit your work, using conventional commits, and author: &quot;Process Revision &lt;process\-revision@redhat\.com&gt;&quot;
+9. Call \``kill $PPID\`` this will transfer control over to the implementation team\.
 
 
