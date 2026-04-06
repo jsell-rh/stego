@@ -47,3 +47,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 - `28c6579` feat(registry): implement registry loading and config parsing
 - `47ed95d` fix(registry): address review findings for duplicate names, identity consistency, proto validation, and config validation
+- `ff020ed` fix(registry): address round-2 review findings for mixin proto validation, non-existent dir, and dead code
