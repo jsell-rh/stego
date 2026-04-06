@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Port Resolution"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-005.md](../reviews/task-005.md)
 
