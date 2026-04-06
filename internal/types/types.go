@@ -132,15 +132,54 @@ type Archetype struct {
 	Bindings         map[string]string `yaml:"bindings,omitempty"`
 }
 
+// ConfigFieldItems supports two YAML forms for a config field's items:
+//   - A map of named sub-fields: items: { entity: {type: entity-ref}, ... }
+//   - A single inline ConfigField: items: { enum: [create, read, ...] }
+type ConfigFieldItems struct {
+	// Fields holds named sub-fields when items is a map of ConfigField values.
+	Fields map[string]ConfigField
+	// Inline holds a single ConfigField when items is an inline object.
+	Inline *ConfigField
+}
+
+// UnmarshalYAML detects whether items is a map of named sub-fields or a single
+// inline ConfigField, and deserializes accordingly.
+func (i *ConfigFieldItems) UnmarshalYAML(unmarshal func(any) error) error {
+	// Try map-of-named-fields first.
+	var fields map[string]ConfigField
+	if err := unmarshal(&fields); err == nil {
+		// Disambiguate: if every value has a non-empty Type, treat as map of
+		// named sub-fields. Otherwise it could be a single ConfigField that
+		// has no Type (e.g. {enum: [...]}).
+		allHaveType := len(fields) > 0
+		for _, f := range fields {
+			if f.Type == "" {
+				allHaveType = false
+				break
+			}
+		}
+		if allHaveType {
+			i.Fields = fields
+			return nil
+		}
+	}
+	// Fall back to single inline ConfigField.
+	var single ConfigField
+	if err := unmarshal(&single); err != nil {
+		return err
+	}
+	i.Inline = &single
+	return nil
+}
+
 // ConfigField represents a single field in a component's config schema.
-// Items is recursive to support nested config structures (e.g. expose.items
-// containing typed sub-fields like entity, operations, scope).
+// Items is recursive to support nested config structures.
 type ConfigField struct {
-	Type     string                  `yaml:"type"`
-	Default  any                     `yaml:"default,omitempty"`
-	Items    map[string]ConfigField  `yaml:"items,omitempty"`
-	Optional bool                    `yaml:"optional,omitempty"`
-	Enum     []string                `yaml:"enum,omitempty"`
+	Type     string            `yaml:"type"`
+	Default  any               `yaml:"default,omitempty"`
+	Items    *ConfigFieldItems `yaml:"items,omitempty"`
+	Optional bool              `yaml:"optional,omitempty"`
+	Enum     []string          `yaml:"enum,omitempty"`
 }
 
 // Component represents a deterministic code generator with its metadata.
@@ -182,8 +221,8 @@ type ExposeBlock struct {
 	Concurrency ConcurrencyMode `yaml:"concurrency,omitempty"`
 }
 
-// SlotBinding describes how a slot is bound in a service declaration.
-type SlotBinding struct {
+// SlotDeclaration describes how a slot is bound in a service declaration.
+type SlotDeclaration struct {
 	Slot         string   `yaml:"slot"`
 	Entity       string   `yaml:"entity,omitempty"`
 	Gate         []string `yaml:"gate,omitempty"`
@@ -200,7 +239,7 @@ type ServiceDeclaration struct {
 	Language  string            `yaml:"language"`
 	Entities  []Entity          `yaml:"entities"`
 	Expose    []ExposeBlock     `yaml:"expose"`
-	Slots     []SlotBinding     `yaml:"slots"`
+	Slots     []SlotDeclaration `yaml:"slots"`
 	Mixins    []string          `yaml:"mixins,omitempty"`
 	Overrides map[string]any    `yaml:"overrides,omitempty"`
 }

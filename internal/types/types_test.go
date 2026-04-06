@@ -167,7 +167,7 @@ parent: NodePool
 	}
 }
 
-func TestSlotBindingUnmarshal(t *testing.T) {
+func TestSlotDeclarationUnmarshal(t *testing.T) {
 	input := `
 slot: before_create
 entity: User
@@ -175,7 +175,7 @@ gate:
   - rbac-policy
   - admin-creation-policy
 `
-	var sb SlotBinding
+	var sb SlotDeclaration
 	if err := yaml.Unmarshal([]byte(input), &sb); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -190,7 +190,7 @@ gate:
 	}
 }
 
-func TestSlotBindingChainUnmarshal(t *testing.T) {
+func TestSlotDeclarationChainUnmarshal(t *testing.T) {
 	input := `
 slot: process_adapter_status
 chain:
@@ -200,7 +200,7 @@ chain:
   - aggregate-resource-status
 short_circuit: true
 `
-	var sb SlotBinding
+	var sb SlotDeclaration
 	if err := yaml.Unmarshal([]byte(input), &sb); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -327,6 +327,8 @@ bindings:
 }
 
 func TestComponentUnmarshalWithConfig(t *testing.T) {
+	// Uses the spec's full component YAML, including nested items for both
+	// map-of-fields (expose.items) and leaf-list (operations.items) forms.
 	input := `
 kind: component
 name: rest-api
@@ -342,6 +344,8 @@ config:
         type: entity-ref
       operations:
         type: list
+        items:
+          enum: [create, read, update, delete, list]
       scope:
         type: field-ref
         optional: true
@@ -361,19 +365,40 @@ provides:
 	if expose.Type != "list" {
 		t.Errorf("config.expose.type = %q, want %q", expose.Type, "list")
 	}
-	if len(expose.Items) != 3 {
-		t.Fatalf("config.expose.items count = %d, want 3", len(expose.Items))
+	// expose.items is a map of named sub-fields
+	if expose.Items == nil || expose.Items.Fields == nil {
+		t.Fatal("config.expose.items.Fields is nil, want map with 3 entries")
 	}
-	entityItem, ok := expose.Items["entity"]
+	if len(expose.Items.Fields) != 3 {
+		t.Fatalf("config.expose.items.Fields count = %d, want 3", len(expose.Items.Fields))
+	}
+	entityItem, ok := expose.Items.Fields["entity"]
 	if !ok {
 		t.Fatal("config.expose.items missing 'entity'")
 	}
 	if entityItem.Type != "entity-ref" {
 		t.Errorf("config.expose.items.entity.type = %q, want %q", entityItem.Type, "entity-ref")
 	}
-	scopeItem := expose.Items["scope"]
+	scopeItem := expose.Items.Fields["scope"]
 	if !scopeItem.Optional {
 		t.Error("config.expose.items.scope.optional = false, want true")
+	}
+	// operations.items is a single inline ConfigField (leaf-list)
+	opsItem, ok := expose.Items.Fields["operations"]
+	if !ok {
+		t.Fatal("config.expose.items missing 'operations'")
+	}
+	if opsItem.Type != "list" {
+		t.Errorf("config.expose.items.operations.type = %q, want %q", opsItem.Type, "list")
+	}
+	if opsItem.Items == nil || opsItem.Items.Inline == nil {
+		t.Fatal("config.expose.items.operations.items.Inline is nil, want inline ConfigField")
+	}
+	if len(opsItem.Items.Inline.Enum) != 5 {
+		t.Errorf("operations.items.enum count = %d, want 5", len(opsItem.Items.Inline.Enum))
+	}
+	if opsItem.Items.Inline.Enum[0] != "create" {
+		t.Errorf("operations.items.enum[0] = %q, want %q", opsItem.Items.Inline.Enum[0], "create")
 	}
 }
 
