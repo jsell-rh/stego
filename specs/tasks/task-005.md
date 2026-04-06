@@ -40,3 +40,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - `3aa54b7` chore(tasks): mark task-005 ready-for-review
 - `584f764` fix(ports): wire AmbiguousPort into resolution and add test
 - `b474f8b` chore(tasks): mark task-005 ready-for-review
+- `d284771` fix(ports): differentiate UnresolvedPort error when provider exists
+- `79d7d47` chore(tasks): mark task-005 ready-for-review
