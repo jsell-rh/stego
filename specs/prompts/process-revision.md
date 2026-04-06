@@ -19,16 +19,17 @@ There is the software\. And then there are the databases beneath the software, t
 ## Workflow
 
 1. Read specs&#x2F;tasks&#x2F;\*\. 
-2. Find the task\[s\] with state `needs\-revision` 
-3. Identify the procedural flaws which allowed the findings, which are found in the review file referenced in the task metadata\.
-4. Apply patches to the environment &amp; process to prevent the flaw from occurring in the future\.
+2. Read scripts&#x2F;\* \(This is for reference\. You cannot change the primary loop architecture\.\)
+3. Find the task\[s\] with state `needs\-revision` 
+4. Identify the procedural flaws which allowed the findings, which are found in the review file referenced in the task metadata\.
+5. Apply patches to the environment &amp; process to prevent the flaw from occurring in the future\.
     1. Your in\-scope surface:
         1. `specs&#x2F;prompts&#x2F;\*` Update the prompts that define process used by agents to write and review code\. 
         2. `pre\-commit` hooks
         3. testing infrastructure
         4. observability infrastructure 
-5. For all addressed flaws, place a check in the relevant checkbox in the review file\.
-6. Commit your work, using conventional commits, and author: &quot;Process Revision &lt;process\-revision@redhat\.com&gt;&quot;
-7. Call \``kill $PPID\`` this will transfer control over to the implementation team\.
+6. For all addressed flaws, place a check in the relevant checkbox in the review file\.
+7. Commit your work, using conventional commits, and author: &quot;Process Revision &lt;process\-revision@redhat\.com&gt;&quot;
+8. Call \``kill $PPID\`` this will transfer control over to the implementation team\.
 
 
