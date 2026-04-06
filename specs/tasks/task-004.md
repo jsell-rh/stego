@@ -34,3 +34,5 @@ Implement the registry as a local directory structure (git-based, but for MVP we
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- `28c6579` feat(registry): implement registry loading and config parsing
