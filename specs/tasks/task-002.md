@@ -43,3 +43,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - `752f6e8` feat: define core domain types for all five nouns and supporting types
+- `2845b57` fix: wire Port into Component and make ConfigField.Items recursive
+- `97ed22a` chore: mark task-002 ready-for-review
