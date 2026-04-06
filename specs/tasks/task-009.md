@@ -42,3 +42,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 
 - b9c3bc5 feat(task-009): implement rest-api component generator
 - 4be9256 chore(task-009): mark task ready-for-review
+- 9751749 fix(task-009): address all 5 review findings on rest-api component generator
