@@ -2,7 +2,7 @@
 
 **Spec Reference:** "File Types" (all subsections)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-003.md](../reviews/task-003.md)
 
