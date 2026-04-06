@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Stego is Written in Go", "Generated Code Structure"
 
-**Status:** `not-started`
+**Status:** `complete`
 
 ## Description
 
