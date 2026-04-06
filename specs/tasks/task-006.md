@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Code Generation Mechanism", "Generated Code Structure"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
