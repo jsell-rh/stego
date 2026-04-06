@@ -2,7 +2,9 @@
 
 **Spec Reference:** "File Types — Component", "Code Generation Mechanism", "MVP Scope"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-009.md](../reviews/task-009.md)
 
 ## Description
 
