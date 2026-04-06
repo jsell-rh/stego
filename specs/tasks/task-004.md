@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Registry"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

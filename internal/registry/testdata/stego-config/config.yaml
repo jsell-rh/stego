@@ -1,0 +1,7 @@
+registry:
+  - url: git.corp.com/platform/stego-registry
+    ref: a1b2c3d4e5f6
+
+pins:
+  rest-api: f4e5d6c7b8a9
+  postgres-adapter: 3a2b1c0d

@@ -1,0 +1,14 @@
+kind: component
+name: postgres-adapter
+version: 1.4.0
+
+config:
+  connection_string:
+    type: string
+
+requires: []
+
+provides:
+  - storage-adapter
+
+slots: []

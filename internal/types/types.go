@@ -265,3 +265,15 @@ type Fill struct {
 	QualifiedBy string    `yaml:"qualified_by"`
 	QualifiedAt time.Time `yaml:"qualified_at"`
 }
+
+// RegistrySource describes a single registry origin in .stego/config.yaml.
+type RegistrySource struct {
+	URL string `yaml:"url"`
+	Ref string `yaml:"ref"`
+}
+
+// RegistryConfig represents the .stego/config.yaml file.
+type RegistryConfig struct {
+	Registry []RegistrySource  `yaml:"registry"`
+	Pins     map[string]string `yaml:"pins,omitempty"`
+}
