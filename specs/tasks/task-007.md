@@ -35,3 +35,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - d2d2a4e feat(slot): implement slot/fill proto contract and interface generation
+- 5882734 fix(slot): route GenerateInterface through gen.File pipeline for header enforcement
