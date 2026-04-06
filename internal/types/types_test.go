@@ -326,6 +326,57 @@ bindings:
 	}
 }
 
+func TestComponentUnmarshalWithConfig(t *testing.T) {
+	input := `
+kind: component
+name: rest-api
+version: 2.1.0
+config:
+  port:
+    type: int
+    default: 8080
+  expose:
+    type: list
+    items:
+      entity:
+        type: entity-ref
+      operations:
+        type: list
+      scope:
+        type: field-ref
+        optional: true
+requires:
+  - auth-provider
+provides:
+  - http-server
+`
+	var c Component
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	expose, ok := c.Config["expose"]
+	if !ok {
+		t.Fatal("config missing 'expose' key")
+	}
+	if expose.Type != "list" {
+		t.Errorf("config.expose.type = %q, want %q", expose.Type, "list")
+	}
+	if len(expose.Items) != 3 {
+		t.Fatalf("config.expose.items count = %d, want 3", len(expose.Items))
+	}
+	entityItem, ok := expose.Items["entity"]
+	if !ok {
+		t.Fatal("config.expose.items missing 'entity'")
+	}
+	if entityItem.Type != "entity-ref" {
+		t.Errorf("config.expose.items.entity.type = %q, want %q", entityItem.Type, "entity-ref")
+	}
+	scopeItem := expose.Items["scope"]
+	if !scopeItem.Optional {
+		t.Error("config.expose.items.scope.optional = false, want true")
+	}
+}
+
 func TestComponentUnmarshal(t *testing.T) {
 	input := `
 kind: component
@@ -355,8 +406,17 @@ slots:
 	if len(c.Requires) != 2 {
 		t.Errorf("requires count = %d, want 2", len(c.Requires))
 	}
+	if c.Requires[0].Name != "auth-provider" {
+		t.Errorf("requires[0].name = %q, want %q", c.Requires[0].Name, "auth-provider")
+	}
+	if c.Requires[1].Name != "storage-adapter" {
+		t.Errorf("requires[1].name = %q, want %q", c.Requires[1].Name, "storage-adapter")
+	}
 	if len(c.Provides) != 2 {
 		t.Errorf("provides count = %d, want 2", len(c.Provides))
+	}
+	if c.Provides[0].Name != "http-server" {
+		t.Errorf("provides[0].name = %q, want %q", c.Provides[0].Name, "http-server")
 	}
 	if len(c.Slots) != 2 {
 		t.Errorf("slots count = %d, want 2", len(c.Slots))

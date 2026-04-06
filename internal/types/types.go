@@ -82,8 +82,26 @@ type Entity struct {
 }
 
 // Port represents a named capability that a component requires or provides.
+// It unmarshals from either a bare string or a mapping with a "name" key.
 type Port struct {
 	Name string `yaml:"name"`
+}
+
+// UnmarshalYAML allows Port to be unmarshaled from a bare string (e.g. "- auth-provider")
+// or from a mapping (e.g. "- name: auth-provider").
+func (p *Port) UnmarshalYAML(unmarshal func(any) error) error {
+	var s string
+	if err := unmarshal(&s); err == nil {
+		p.Name = s
+		return nil
+	}
+	type raw Port
+	var r raw
+	if err := unmarshal(&r); err != nil {
+		return err
+	}
+	*p = Port(r)
+	return nil
 }
 
 // SlotDefinition represents a slot defined by a component.
@@ -115,10 +133,14 @@ type Archetype struct {
 }
 
 // ConfigField represents a single field in a component's config schema.
+// Items is recursive to support nested config structures (e.g. expose.items
+// containing typed sub-fields like entity, operations, scope).
 type ConfigField struct {
-	Type    string      `yaml:"type"`
-	Default any         `yaml:"default,omitempty"`
-	Items   any         `yaml:"items,omitempty"`
+	Type     string                  `yaml:"type"`
+	Default  any                     `yaml:"default,omitempty"`
+	Items    map[string]ConfigField  `yaml:"items,omitempty"`
+	Optional bool                    `yaml:"optional,omitempty"`
+	Enum     []string                `yaml:"enum,omitempty"`
 }
 
 // Component represents a deterministic code generator with its metadata.
@@ -127,8 +149,8 @@ type Component struct {
 	Name     string                 `yaml:"name"`
 	Version  string                 `yaml:"version"`
 	Config   map[string]ConfigField `yaml:"config,omitempty"`
-	Requires []string               `yaml:"requires"`
-	Provides []string               `yaml:"provides"`
+	Requires []Port                  `yaml:"requires"`
+	Provides []Port                  `yaml:"provides"`
 	Slots    []SlotDefinition       `yaml:"slots"`
 }
 
