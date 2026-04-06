@@ -1,0 +1,3 @@
+kind: mixin
+name: rest-crud
+version: 3.0.0

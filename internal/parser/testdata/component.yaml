@@ -1,0 +1,36 @@
+kind: component
+name: rest-api
+version: 2.1.0
+
+config:
+  port:
+    type: int
+    default: 8080
+  expose:
+    type: list
+    items:
+      entity:
+        type: entity-ref
+      operations:
+        type: list
+        items:
+          enum: [create, read, update, delete, list]
+      scope:
+        type: field-ref
+        optional: true
+
+requires:
+  - auth-provider
+  - storage-adapter
+
+provides:
+  - http-server
+  - openapi-spec
+
+slots:
+  - name: before_create
+    proto: stego.components.rest_api.slots.BeforeCreate
+    default: passthrough
+  - name: validate
+    proto: stego.components.rest_api.slots.Validate
+    default: passthrough
