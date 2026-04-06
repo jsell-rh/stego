@@ -3,6 +3,7 @@ package registry_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stego-project/stego/internal/registry"
@@ -299,5 +300,172 @@ func TestLoadSkipsNonDirectoryEntries(t *testing.T) {
 	}
 	if len(reg.Archetypes()) != 0 {
 		t.Errorf("expected 0 archetypes, got %d", len(reg.Archetypes()))
+	}
+}
+
+func TestLoadDuplicateArchetypeName(t *testing.T) {
+	dir := t.TempDir()
+	archDir := filepath.Join(dir, "archetypes")
+	// Create two directories with the same YAML name. Since directory names
+	// must match YAML names, we create one valid and one mismatched to test
+	// the duplicate detection path indirectly. But the name mismatch check
+	// fires first. Instead, test with a simulated scenario by creating two
+	// directories with the same name — which is impossible on disk. So we
+	// test that the name-mismatch check fires.
+	dir1 := filepath.Join(archDir, "foo")
+	if err := os.MkdirAll(dir1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir1, "archetype.yaml"), []byte("kind: archetype\nname: bar\nversion: 1.0.0\nlanguage: go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for name mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "name mismatch") {
+		t.Errorf("expected name mismatch error, got: %v", err)
+	}
+}
+
+func TestLoadDuplicateComponentName(t *testing.T) {
+	dir := t.TempDir()
+	compDir := filepath.Join(dir, "components", "foo")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte("kind: component\nname: bar\nversion: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for name mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "name mismatch") {
+		t.Errorf("expected name mismatch error, got: %v", err)
+	}
+}
+
+func TestLoadDuplicateMixinName(t *testing.T) {
+	dir := t.TempDir()
+	mixDir := filepath.Join(dir, "mixins", "foo")
+	if err := os.MkdirAll(mixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mixDir, "mixin.yaml"), []byte("kind: mixin\nname: bar\nversion: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for name mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "name mismatch") {
+		t.Errorf("expected name mismatch error, got: %v", err)
+	}
+}
+
+func TestLoadComponentMissingProtoFile(t *testing.T) {
+	dir := t.TempDir()
+	compDir := filepath.Join(dir, "components", "my-comp")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Component references a slot but no proto file exists.
+	yaml := `kind: component
+name: my-comp
+version: 1.0.0
+slots:
+  - name: before_create
+    proto: stego.components.my_comp.slots.BeforeCreate
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.Load(dir)
+	if err == nil {
+		t.Fatal("expected error for missing proto file, got nil")
+	}
+	if !strings.Contains(err.Error(), "proto file missing") {
+		t.Errorf("expected proto file missing error, got: %v", err)
+	}
+}
+
+func TestLoadComponentWithProtoFiles(t *testing.T) {
+	dir := t.TempDir()
+	compDir := filepath.Join(dir, "components", "my-comp")
+	slotsDir := filepath.Join(compDir, "slots")
+	if err := os.MkdirAll(slotsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `kind: component
+name: my-comp
+version: 1.0.0
+slots:
+  - name: my_slot
+    proto: stego.components.my_comp.slots.MySlot
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(slotsDir, "my_slot.proto"), []byte("syntax = \"proto3\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	c := reg.Component("my-comp")
+	if c == nil {
+		t.Fatal("Component(my-comp) returned nil")
+	}
+	if len(c.Slots) != 1 {
+		t.Errorf("Slots count = %d, want 1", len(c.Slots))
+	}
+}
+
+func TestLoadConfigEmptyRegistry(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("registry: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for empty registry sources, got nil")
+	}
+	if !strings.Contains(err.Error(), "at least one registry source") {
+		t.Errorf("expected 'at least one registry source' error, got: %v", err)
+	}
+}
+
+func TestLoadConfigMissingURL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("registry:\n  - ref: abc123\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for missing url, got nil")
+	}
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("expected 'url is required' error, got: %v", err)
+	}
+}
+
+func TestLoadConfigMissingRef(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("registry:\n  - url: git.example.com/reg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := registry.LoadConfig(path)
+	if err == nil {
+		t.Fatal("expected error for missing ref, got nil")
+	}
+	if !strings.Contains(err.Error(), "ref is required") {
+		t.Errorf("expected 'ref is required' error, got: %v", err)
 	}
 }

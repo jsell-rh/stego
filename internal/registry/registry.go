@@ -55,6 +55,7 @@ func (r *Registry) Mixin(name string) *types.Mixin {
 //
 //	<dir>/archetypes/<name>/archetype.yaml
 //	<dir>/components/<name>/component.yaml
+//	<dir>/components/<name>/slots/*.proto
 //	<dir>/mixins/<name>/mixin.yaml
 func Load(dir string) (*Registry, error) {
 	r := &Registry{
@@ -85,10 +86,17 @@ func (r *Registry) loadArchetypes(dir string) error {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name(), "archetype.yaml")
+		dirName := entry.Name()
+		path := filepath.Join(dir, dirName, "archetype.yaml")
 		a, err := parser.ParseArchetype(path)
 		if err != nil {
-			return fmt.Errorf("loading archetype %s: %w", entry.Name(), err)
+			return fmt.Errorf("loading archetype %s: %w", dirName, err)
+		}
+		if a.Name != dirName {
+			return fmt.Errorf("archetype name mismatch: directory %q but YAML name %q in %s", dirName, a.Name, path)
+		}
+		if _, exists := r.archetypes[a.Name]; exists {
+			return fmt.Errorf("duplicate archetype name %q: found in directory %q", a.Name, dirName)
 		}
 		r.archetypes[a.Name] = a
 	}
@@ -104,10 +112,24 @@ func (r *Registry) loadComponents(dir string) error {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name(), "component.yaml")
+		dirName := entry.Name()
+		path := filepath.Join(dir, dirName, "component.yaml")
 		c, err := parser.ParseComponent(path)
 		if err != nil {
-			return fmt.Errorf("loading component %s: %w", entry.Name(), err)
+			return fmt.Errorf("loading component %s: %w", dirName, err)
+		}
+		if c.Name != dirName {
+			return fmt.Errorf("component name mismatch: directory %q but YAML name %q in %s", dirName, c.Name, path)
+		}
+		if _, exists := r.components[c.Name]; exists {
+			return fmt.Errorf("duplicate component name %q: found in directory %q", c.Name, dirName)
+		}
+		// Verify that slot proto files exist on disk.
+		for _, slot := range c.Slots {
+			protoPath := filepath.Join(dir, dirName, "slots", slot.Name+".proto")
+			if _, err := os.Stat(protoPath); err != nil {
+				return fmt.Errorf("component %s slot %q: proto file missing at %s", dirName, slot.Name, protoPath)
+			}
 		}
 		r.components[c.Name] = c
 	}
@@ -123,10 +145,17 @@ func (r *Registry) loadMixins(dir string) error {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name(), "mixin.yaml")
+		dirName := entry.Name()
+		path := filepath.Join(dir, dirName, "mixin.yaml")
 		m, err := parser.ParseMixin(path)
 		if err != nil {
-			return fmt.Errorf("loading mixin %s: %w", entry.Name(), err)
+			return fmt.Errorf("loading mixin %s: %w", dirName, err)
+		}
+		if m.Name != dirName {
+			return fmt.Errorf("mixin name mismatch: directory %q but YAML name %q in %s", dirName, m.Name, path)
+		}
+		if _, exists := r.mixins[m.Name]; exists {
+			return fmt.Errorf("duplicate mixin name %q: found in directory %q", m.Name, dirName)
 		}
 		r.mixins[m.Name] = m
 	}
@@ -153,5 +182,24 @@ func LoadConfig(path string) (*types.RegistryConfig, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing registry config %s: %w", path, err)
 	}
+	if err := validateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid registry config %s: %w", path, err)
+	}
 	return &cfg, nil
+}
+
+// validateConfig checks that a parsed RegistryConfig has required fields.
+func validateConfig(cfg *types.RegistryConfig) error {
+	if len(cfg.Registry) == 0 {
+		return fmt.Errorf("at least one registry source is required")
+	}
+	for i, src := range cfg.Registry {
+		if src.URL == "" {
+			return fmt.Errorf("registry[%d]: url is required", i)
+		}
+		if src.Ref == "" {
+			return fmt.Errorf("registry[%d]: ref is required", i)
+		}
+	}
+	return nil
 }

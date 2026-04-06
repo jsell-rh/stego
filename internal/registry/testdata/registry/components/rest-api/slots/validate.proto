@@ -1,0 +1,9 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+
+service Validate {
+  rpc Evaluate(ValidateRequest) returns (ValidateResponse);
+}
+
+message ValidateRequest {}
+message ValidateResponse {}
