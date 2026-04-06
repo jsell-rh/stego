@@ -146,6 +146,7 @@ When external dependencies are needed, leverage testcontainers to download and r
 2. Read specs&#x2F;tasks&#x2F;\*\. See what work has been done, and determine the next task to complete\. Valid progress is `not\-started` `in\-progress` `ready\-for\-review` `complete` `needs\-revision` \. You should pick the tasks with the lowest number in its name that is either `not\-started` or `needs\-revision` \. Prioritize `needs\-revision` tasks over `not\-started` ALWAYS\.
 3. Complete the task\. Completion criteria is alignment with the task &amp; relevant portion of the spec\. A separate team is working in competition with you trying to find bugs &amp; inconsistencies with your work\. Your jobs is to make them not have anything to find\.
 4. Commit your work, using conventional commits, and author: &quot;Implementation &lt;implementation@redhat\.com&gt;&quot;
-5. CRITICAL: Call \``kill $PPID\`` this will transfer control over to the implementation team, who will work on a task\.
+5. List the commits you added to the task.
+6. CRITICAL: Call \``kill $PPID\`` this will transfer control over to the implementation team, who will work on a task\.
 
 
