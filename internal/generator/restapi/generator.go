@@ -215,6 +215,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
 		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentRefFieldName(entity, eb.Parent), parentIDParam)
@@ -252,6 +253,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	emitClearComputedFields(buf, lower, entity)
 	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
@@ -277,9 +279,15 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "func (h *%sHandler) list(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 
-	// Scope filtering.
-	if eb.Scope != "" {
-		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", eb.Scope)
+	// Scope filtering: when a parent is set the scope value comes from the
+	// parent's path parameter (already present in the route pattern). Without
+	// a parent, scope is passed as a query parameter.
+	if eb.Scope != "" && eb.Parent != "" {
+		parentIDParam := strings.ToLower(eb.Parent) + "_id"
+		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentIDParam)
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
+	} else if eb.Scope != "" {
+		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.Scope)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
 	} else if eb.Parent != "" {
 		parentIDVar := strings.ToLower(eb.Parent) + "ID"
@@ -308,6 +316,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	emitClearComputedFields(buf, lower, entity)
 
 	if len(eb.UpsertKey) > 0 {
 		keyFields := make([]string, len(eb.UpsertKey))
@@ -472,6 +481,9 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 		collectionPath := basePath
 		itemPath := basePath + "/{id}"
 
+		// Extract parent path parameters from the URL template.
+		parentParams := pathParamsToOpenAPI(extractPathParams(basePath))
+
 		collectionOps := make(map[string]openAPIOperation)
 		itemOps := make(map[string]openAPIOperation)
 
@@ -481,10 +493,11 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 
 			switch op {
 			case types.OpList:
-				collectionOps["get"] = openAPIOperation{
+				listOp := openAPIOperation{
 					Summary:     "List " + eb.Entity + " entities",
 					OperationID: "list" + eb.Entity,
 					Tags:        []string{tag},
+					Parameters:  append([]openAPIParam{}, parentParams...),
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Successful response", Content: jsonContent(openAPISchema{
 							Type:  "array",
@@ -492,11 +505,16 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						})},
 					},
 				}
+				if len(listOp.Parameters) == 0 {
+					listOp.Parameters = nil
+				}
+				collectionOps["get"] = listOp
 			case types.OpCreate:
-				collectionOps["post"] = openAPIOperation{
+				createOp := openAPIOperation{
 					Summary:     "Create " + eb.Entity,
 					OperationID: "create" + eb.Entity,
 					Tags:        []string{tag},
+					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
 						Content:  jsonContent(openAPISchema{Ref: ref}),
@@ -505,17 +523,21 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						"201": {Description: "Created"},
 					},
 				}
+				if len(createOp.Parameters) == 0 {
+					createOp.Parameters = nil
+				}
+				collectionOps["post"] = createOp
 			case types.OpRead:
 				itemOps["get"] = openAPIOperation{
 					Summary:     "Read " + eb.Entity,
 					OperationID: "read" + eb.Entity,
 					Tags:        []string{tag},
-					Parameters: []openAPIParam{{
+					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
 						In:       "path",
 						Required: true,
 						Schema:   openAPISchema{Type: "string"},
-					}},
+					}),
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Successful response", Content: jsonContent(openAPISchema{Ref: ref})},
 						"404": {Description: "Not found"},
@@ -526,12 +548,12 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 					Summary:     "Update " + eb.Entity,
 					OperationID: "update" + eb.Entity,
 					Tags:        []string{tag},
-					Parameters: []openAPIParam{{
+					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
 						In:       "path",
 						Required: true,
 						Schema:   openAPISchema{Type: "string"},
-					}},
+					}),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
 						Content:  jsonContent(openAPISchema{Ref: ref}),
@@ -545,21 +567,22 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 					Summary:     "Delete " + eb.Entity,
 					OperationID: "delete" + eb.Entity,
 					Tags:        []string{tag},
-					Parameters: []openAPIParam{{
+					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
 						In:       "path",
 						Required: true,
 						Schema:   openAPISchema{Type: "string"},
-					}},
+					}),
 					Responses: map[string]openAPIResponse{
 						"204": {Description: "Deleted"},
 					},
 				}
 			case types.OpUpsert:
-				collectionOps["put"] = openAPIOperation{
+				upsertOp := openAPIOperation{
 					Summary:     "Upsert " + eb.Entity,
 					OperationID: "upsert" + eb.Entity,
 					Tags:        []string{tag},
+					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
 						Content:  jsonContent(openAPISchema{Ref: ref}),
@@ -568,6 +591,10 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						"200": {Description: "Upserted"},
 					},
 				}
+				if len(upsertOp.Parameters) == 0 {
+					upsertOp.Parameters = nil
+				}
+				collectionOps["put"] = upsertOp
 			}
 		}
 
@@ -588,6 +615,35 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 		Path:    path.Join(ns, "openapi.json"),
 		Content: data,
 	}, nil
+}
+
+// extractPathParams returns the list of {param} placeholders in a URL template,
+// excluding {id} which is handled separately by item-level operations.
+func extractPathParams(path string) []string {
+	var params []string
+	for _, segment := range strings.Split(path, "/") {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			name := segment[1 : len(segment)-1]
+			if name != "id" {
+				params = append(params, name)
+			}
+		}
+	}
+	return params
+}
+
+// pathParamsToOpenAPI converts path parameter names to OpenAPI parameter objects.
+func pathParamsToOpenAPI(names []string) []openAPIParam {
+	params := make([]openAPIParam, len(names))
+	for i, name := range names {
+		params[i] = openAPIParam{
+			Name:     name,
+			In:       "path",
+			Required: true,
+			Schema:   openAPISchema{Type: "string"},
+		}
+	}
+	return params
 }
 
 // fieldToOpenAPISchema converts a types.Field to an OpenAPI schema.
@@ -616,7 +672,32 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	case types.FieldTypeJsonb:
 		s.Type = "object"
 	}
+	if f.Computed {
+		s.ReadOnly = true
+	}
 	return s
+}
+
+// emitClearComputedFields emits code that zeroes computed fields using their
+// zero values. This is simpler: we know the Go types from the field definitions.
+func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Entity) {
+	for _, f := range entity.Fields {
+		if f.Computed {
+			goName := toPascalCase(f.Name)
+			goType := fieldTypeToGo(f.Type)
+			switch goType {
+			case "string":
+				fmt.Fprintf(buf, "\t%s.%s = \"\"\n", varName, goName)
+			case "bool":
+				fmt.Fprintf(buf, "\t%s.%s = false\n", varName, goName)
+			case "int32", "int64", "float32", "float64":
+				fmt.Fprintf(buf, "\t%s.%s = 0\n", varName, goName)
+			default:
+				// For complex types ([]byte, time.Time, json.RawMessage), use nil or zero.
+				fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
+			}
+		}
+	}
 }
 
 // parentRefFieldName finds the Go field name for the ref field that points to
@@ -739,4 +820,5 @@ type openAPISchema struct {
 	Items      *openAPISchema           `json:"items,omitempty"`
 	Ref        string                   `json:"$ref,omitempty"`
 	Enum       []string                 `json:"enum,omitempty"`
+	ReadOnly   bool                     `json:"readOnly,omitempty"`
 }

@@ -308,7 +308,51 @@ func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 	}
 }
 
-func TestGenerate_ScopeFiltering(t *testing.T) {
+func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
+	// When scope is set with a parent, the scope value must come from the
+	// parent's path parameter (which is already in the route pattern).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "org_id",
+				Parent:     "Organization",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	// Must use PathValue with the parent path parameter name, not the scope field name.
+	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
+		t.Error("scope with parent must extract value from parent path parameter (organization_id)")
+	}
+	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
+		t.Error("scope filtering must pass the scope field name to store.List")
+	}
+}
+
+func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
+	// When scope is set without a parent, the scope value must come from
+	// a query parameter since no path parameter exists.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -334,11 +378,12 @@ func TestGenerate_ScopeFiltering(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_user.go")
-	if !strings.Contains(handler, "org_id") {
-		t.Error("handler list method should reference scope field org_id")
+	// Must use URL query parameter, not PathValue (no path param exists).
+	if !strings.Contains(handler, `r.URL.Query().Get("org_id")`) {
+		t.Error("scope without parent must extract value from query parameter")
 	}
-	if !strings.Contains(handler, "scopeValue") {
-		t.Error("handler list method should extract scope value")
+	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
+		t.Error("scope filtering must pass the scope field name to store.List")
 	}
 }
 
@@ -489,6 +534,89 @@ func TestGenerate_OpenAPISpec(t *testing.T) {
 	}
 }
 
+func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
+	// Every {param} placeholder in an OpenAPI path must have a corresponding
+	// parameter declaration. Nested routes must declare parent path parameters.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+				Parent:     "Cluster",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+
+	// Check nested collection path: /clusters/{cluster_id}/nodepools
+	npCollection, ok := paths["/clusters/{cluster_id}/nodepools"]
+	if !ok {
+		t.Fatal("missing /clusters/{cluster_id}/nodepools path")
+	}
+	npColOps := npCollection.(map[string]any)
+
+	// POST (create) must declare cluster_id parameter.
+	postOp := npColOps["post"].(map[string]any)
+	postParams, _ := postOp["parameters"].([]any)
+	if !hasParam(postParams, "cluster_id") {
+		t.Error("POST /clusters/{cluster_id}/nodepools missing cluster_id parameter")
+	}
+
+	// GET (list) must declare cluster_id parameter.
+	getOp := npColOps["get"].(map[string]any)
+	getParams, _ := getOp["parameters"].([]any)
+	if !hasParam(getParams, "cluster_id") {
+		t.Error("GET /clusters/{cluster_id}/nodepools missing cluster_id parameter")
+	}
+
+	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}
+	npItem, ok := paths["/clusters/{cluster_id}/nodepools/{id}"]
+	if !ok {
+		t.Fatal("missing /clusters/{cluster_id}/nodepools/{id} path")
+	}
+	npItemOps := npItem.(map[string]any)
+
+	// GET (read) must declare both cluster_id and id parameters.
+	readOp := npItemOps["get"].(map[string]any)
+	readParams, _ := readOp["parameters"].([]any)
+	if !hasParam(readParams, "cluster_id") {
+		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing cluster_id parameter")
+	}
+	if !hasParam(readParams, "id") {
+		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing id parameter")
+	}
+}
+
+func hasParam(params []any, name string) bool {
+	for _, p := range params {
+		param := p.(map[string]any)
+		if param["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -551,6 +679,146 @@ func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 		if p["type"] != tt.wantType {
 			t.Errorf("field %s: expected type %q, got %q", tt.field, tt.wantType, p["type"])
 		}
+	}
+}
+
+func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
+	// Computed fields (read-only, filled by a fill) must be zeroed after JSON
+	// decode in create, update, and upsert handlers.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Cluster",
+				Operations: []types.Operation{types.OpCreate, types.OpUpdate, types.OpUpsert},
+				UpsertKey:  []string{"name"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_cluster.go")
+
+	// Each write method must zero the computed field after decode.
+	for _, method := range []string{"create", "update", "upsert"} {
+		if !strings.Contains(handler, "func (h *ClusterHandler) "+method+"(") {
+			t.Errorf("handler missing %s method", method)
+			continue
+		}
+	}
+	// The handler must zero StatusConditions (computed field).
+	if !strings.Contains(handler, "cluster.StatusConditions = nil") {
+		t.Error("handler must zero computed field StatusConditions after decode")
+	}
+}
+
+func TestGenerate_ComputedFieldsReadOnlyInOpenAPI(t *testing.T) {
+	// Computed fields must be marked readOnly in OpenAPI schema.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	clusterSchema := schemas["Cluster"].(map[string]any)
+	props := clusterSchema["properties"].(map[string]any)
+
+	// status_conditions must be readOnly.
+	sc := props["status_conditions"].(map[string]any)
+	if sc["readOnly"] != true {
+		t.Error("computed field status_conditions must have readOnly: true in OpenAPI schema")
+	}
+
+	// name must NOT be readOnly.
+	nameField := props["name"].(map[string]any)
+	if _, hasReadOnly := nameField["readOnly"]; hasReadOnly {
+		t.Error("non-computed field name should not have readOnly in OpenAPI schema")
+	}
+}
+
+func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
+	// Verify that generated code with computed field zeroing compiles.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+				{Name: "healthy", Type: types.FieldTypeBool, Computed: true, FilledBy: "health-checker"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Cluster",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
+				UpsertKey:  []string{"name"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with computed fields does not compile:\n%s\n%s", err, output)
 	}
 }
 
