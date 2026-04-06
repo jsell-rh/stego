@@ -2,7 +2,7 @@
 
 **Spec Reference:** "File Types — Archetype", "MVP Scope"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

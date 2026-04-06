@@ -1,0 +1,26 @@
+kind: archetype
+name: rest-crud
+language: go
+version: 3.0.0
+
+components:
+  - rest-api
+  - postgres-adapter
+  - otel-tracing
+  - health-check
+
+default_auth: jwt-auth
+
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+
+compatible_mixins:
+  - event-publisher
+  - async-worker
+
+bindings:
+  storage-adapter: postgres-adapter
+  auth-provider: jwt-auth

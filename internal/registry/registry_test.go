@@ -60,8 +60,8 @@ func TestLoad(t *testing.T) {
 
 	t.Run("loads components", func(t *testing.T) {
 		components := reg.Components()
-		if len(components) != 2 {
-			t.Fatalf("expected 2 components, got %d", len(components))
+		if len(components) != 4 {
+			t.Fatalf("expected 4 components, got %d", len(components))
 		}
 
 		c := reg.Component("rest-api")
@@ -112,6 +112,34 @@ func TestLoad(t *testing.T) {
 		}
 		if len(pg.Provides) != 1 || pg.Provides[0].Name != "storage-adapter" {
 			t.Errorf("postgres-adapter Provides unexpected: %+v", pg.Provides)
+		}
+
+		otel := reg.Component("otel-tracing")
+		if otel == nil {
+			t.Fatal("Component(otel-tracing) returned nil")
+		}
+		if otel.Version != "0.1.0" {
+			t.Errorf("otel-tracing Version = %q, want %q", otel.Version, "0.1.0")
+		}
+		if len(otel.Provides) != 1 || otel.Provides[0].Name != "tracing" {
+			t.Errorf("otel-tracing Provides unexpected: %+v", otel.Provides)
+		}
+		if len(otel.Slots) != 0 {
+			t.Errorf("otel-tracing Slots count = %d, want 0", len(otel.Slots))
+		}
+
+		hc := reg.Component("health-check")
+		if hc == nil {
+			t.Fatal("Component(health-check) returned nil")
+		}
+		if hc.Version != "0.1.0" {
+			t.Errorf("health-check Version = %q, want %q", hc.Version, "0.1.0")
+		}
+		if len(hc.Provides) != 1 || hc.Provides[0].Name != "health-endpoint" {
+			t.Errorf("health-check Provides unexpected: %+v", hc.Provides)
+		}
+		if len(hc.Slots) != 0 {
+			t.Errorf("health-check Slots count = %d, want 0", len(hc.Slots))
 		}
 	})
 

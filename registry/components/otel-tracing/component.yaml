@@ -1,0 +1,12 @@
+kind: component
+name: otel-tracing
+version: 0.1.0
+
+config: {}
+
+requires: []
+
+provides:
+  - tracing
+
+slots: []
