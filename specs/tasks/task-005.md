@@ -31,3 +31,6 @@ Implement the port resolution algorithm that matches component `requires` to `pr
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- `b2c8ae8` feat(ports): implement port resolution engine
+- `daaffdd` chore(tasks): mark task-005 ready-for-review
