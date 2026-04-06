@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"go/format"
 	"strings"
+
+	"github.com/stego-project/stego/internal/gen"
 )
 
-// GenerateInterface generates a Go source file containing interfaces and
+// GenerateInterface generates a gen.File containing Go interfaces and
 // supporting types derived from parsed proto files. The generated code
 // represents the slot contract that fills must implement.
 //
+// filePath is the output file path relative to the project output root.
 // pkgName is the Go package name for the generated file.
 // slot is the parsed slot proto file containing service and message definitions.
 // imports are parsed proto files for imported packages (e.g. stego.common).
@@ -19,15 +22,19 @@ import (
 // corresponding to the service's RPCs. For each message (both local and
 // imported), a Go struct is generated with fields matching the message fields.
 // Fully-qualified proto types are resolved to their Go type names.
-func GenerateInterface(pkgName string, slot *ProtoFile, imports []*ProtoFile) ([]byte, error) {
+//
+// The returned gen.File stores the formatted source in Content (without the
+// generated-file header). Use File.Bytes() to obtain the complete output
+// including the mandatory header.
+func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*ProtoFile) (gen.File, error) {
 	if pkgName == "" {
-		return nil, fmt.Errorf("pkgName must not be empty")
+		return gen.File{}, fmt.Errorf("pkgName must not be empty")
 	}
 	if slot == nil {
-		return nil, fmt.Errorf("slot proto must not be nil")
+		return gen.File{}, fmt.Errorf("slot proto must not be nil")
 	}
 	if len(slot.Services) == 0 {
-		return nil, fmt.Errorf("slot proto has no service definitions")
+		return gen.File{}, fmt.Errorf("slot proto has no service definitions")
 	}
 
 	// Build a combined message map: qualified name -> Message.
@@ -91,10 +98,13 @@ func GenerateInterface(pkgName string, slot *ProtoFile, imports []*ProtoFile) ([
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		return nil, fmt.Errorf("formatting generated code: %w (raw:\n%s)", err, buf.String())
+		return gen.File{}, fmt.Errorf("formatting generated code: %w (raw:\n%s)", err, buf.String())
 	}
 
-	return formatted, nil
+	return gen.File{
+		Path:    filePath,
+		Content: formatted,
+	}, nil
 }
 
 // writeMessageStruct writes a Go struct definition for a proto message.

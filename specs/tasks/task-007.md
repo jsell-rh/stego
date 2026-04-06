@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Slot/Fill Contract", "Fill Wiring"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-007.md](../reviews/task-007.md)
 

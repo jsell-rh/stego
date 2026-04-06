@@ -6,6 +6,8 @@ import (
 	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/stego-project/stego/internal/gen"
 )
 
 // commonProto returns a parsed stego.common proto for use in tests.
@@ -60,16 +62,28 @@ message BeforeCreateRequest {
 		t.Fatalf("ParseProto(slot): %v", err)
 	}
 
-	src, err := GenerateInterface("slots", slotProto, []*ProtoFile{common})
+	result, err := GenerateInterface("internal/slots/before_create.go", "slots", slotProto, []*ProtoFile{common})
 	if err != nil {
 		t.Fatalf("GenerateInterface: %v", err)
 	}
 
-	code := string(src)
+	// Verify the returned gen.File has the correct path.
+	if result.Path != "internal/slots/before_create.go" {
+		t.Errorf("File.Path = %q, want %q", result.Path, "internal/slots/before_create.go")
+	}
+
+	// Bytes() includes the mandatory header.
+	fullOutput := string(result.Bytes())
+	if !strings.HasPrefix(fullOutput, gen.Header) {
+		t.Errorf("generated output missing mandatory header %q", gen.Header)
+	}
+
+	// Content is the body without header; use it for Go parsing.
+	code := string(result.Content)
 
 	// Verify it's valid Go by parsing with go/parser.
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "generated.go", src, parser.AllErrors)
+	f, err := parser.ParseFile(fset, "generated.go", result.Content, parser.AllErrors)
 	if err != nil {
 		t.Fatalf("generated code does not parse as Go:\n%s\nerror: %v", code, err)
 	}
@@ -124,15 +138,15 @@ message ValidateRequest {
 		t.Fatalf("ParseProto: %v", err)
 	}
 
-	src, err := GenerateInterface("slots", slotProto, []*ProtoFile{common})
+	result, err := GenerateInterface("internal/slots/validate.go", "slots", slotProto, []*ProtoFile{common})
 	if err != nil {
 		t.Fatalf("GenerateInterface: %v", err)
 	}
 
-	code := string(src)
+	code := string(result.Content)
 
 	fset := token.NewFileSet()
-	_, err = parser.ParseFile(fset, "generated.go", src, parser.AllErrors)
+	_, err = parser.ParseFile(fset, "generated.go", result.Content, parser.AllErrors)
 	if err != nil {
 		t.Fatalf("generated code does not parse:\n%s\nerror: %v", code, err)
 	}
@@ -146,21 +160,21 @@ message ValidateRequest {
 }
 
 func TestGenerateInterface_EmptyPkgName(t *testing.T) {
-	_, err := GenerateInterface("", &ProtoFile{Services: []Service{{Name: "X"}}}, nil)
+	_, err := GenerateInterface("test.go", "", &ProtoFile{Services: []Service{{Name: "X"}}}, nil)
 	if err == nil {
 		t.Fatal("expected error for empty pkgName")
 	}
 }
 
 func TestGenerateInterface_NilProto(t *testing.T) {
-	_, err := GenerateInterface("pkg", nil, nil)
+	_, err := GenerateInterface("test.go", "pkg", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil proto")
 	}
 }
 
 func TestGenerateInterface_NoServices(t *testing.T) {
-	_, err := GenerateInterface("pkg", &ProtoFile{
+	_, err := GenerateInterface("test.go", "pkg", &ProtoFile{
 		Syntax:  "proto3",
 		Package: "test",
 	}, nil)
@@ -191,16 +205,16 @@ message MyRequest {
 		t.Fatalf("ParseProto: %v", err)
 	}
 
-	src, err := GenerateInterface("testpkg", slotProto, []*ProtoFile{common})
+	result, err := GenerateInterface("internal/slots/my_slot.go", "testpkg", slotProto, []*ProtoFile{common})
 	if err != nil {
 		t.Fatalf("GenerateInterface: %v", err)
 	}
 
-	code := string(src)
+	code := string(result.Content)
 
 	// Parse and find SlotResult struct.
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "generated.go", src, parser.AllErrors)
+	f, err := parser.ParseFile(fset, "generated.go", result.Content, parser.AllErrors)
 	if err != nil {
 		t.Fatalf("generated code does not parse:\n%s\nerror: %v", code, err)
 	}
@@ -273,16 +287,22 @@ message BeforeCreateRequest {
 		t.Fatalf("parse slot: %v", err)
 	}
 
-	src, err := GenerateInterface("slots", slotPF, []*ProtoFile{commonPF})
+	result, err := GenerateInterface("internal/slots/before_create.go", "slots", slotPF, []*ProtoFile{commonPF})
 	if err != nil {
 		t.Fatalf("GenerateInterface: %v", err)
 	}
 
+	// Verify Bytes() includes the mandatory header.
+	fullOutput := string(result.Bytes())
+	if !strings.HasPrefix(fullOutput, gen.Header) {
+		t.Errorf("Bytes() output missing mandatory header %q", gen.Header)
+	}
+
 	// Parse as Go — this is the ultimate compilation check.
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "generated.go", src, parser.AllErrors)
+	f, err := parser.ParseFile(fset, "generated.go", result.Content, parser.AllErrors)
 	if err != nil {
-		t.Fatalf("generated code does not compile:\n%s\nerror: %v", string(src), err)
+		t.Fatalf("generated code does not compile:\n%s\nerror: %v", string(result.Content), err)
 	}
 
 	// Verify the interface method signature.
@@ -291,7 +311,7 @@ message BeforeCreateRequest {
 		t.Error("missing BeforeCreateSlot interface")
 	}
 
-	code := string(src)
+	code := string(result.Content)
 
 	// The Evaluate method should take *BeforeCreateRequest and return *SlotResult.
 	if !strings.Contains(code, "Evaluate(ctx context.Context, req *BeforeCreateRequest) (*SlotResult, error)") {
