@@ -2,7 +2,7 @@
 
 **Spec Reference:** "File Types" (all subsections)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
