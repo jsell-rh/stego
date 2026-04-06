@@ -1,6 +1,7 @@
 kind: component
 name: rest-api
 version: 2.1.0
+output_namespace: internal/api
 
 config:
   port:
