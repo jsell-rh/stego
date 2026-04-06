@@ -28,8 +28,7 @@ There is the software\. And then there are the databases beneath the software, t
         2. `pre\-commit` hooks
         3. testing infrastructure
         4. observability infrastructure 
-6. For all addressed flaws, place a check in the relevant checkbox in the review file\.
-7. Remove the reference to the review file in the task (but keep the review file for posterity.)
+6. For all addressed flaws, place a `-` in the relevant checkbox in the review file, and add a tag before the item description `[process-revision-complete]`\.
 8. Commit your work, using conventional commits, and author: &quot;Process Revision &lt;process\-revision@redhat\.com&gt;&quot;
 9. Call \``kill $PPID\`` this will transfer control over to the implementation team\.
 
