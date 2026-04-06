@@ -380,6 +380,64 @@ func TestResolveSelfResolution(t *testing.T) {
 	}
 }
 
+func TestResolveAmbiguousPort(t *testing.T) {
+	// Two components provide the same port, no binding to disambiguate.
+	components := map[string]*types.Component{
+		"consumer": {
+			Name: "consumer",
+			Requires: []types.Port{
+				{Name: "storage-adapter"},
+			},
+		},
+		"postgres-adapter": {
+			Name:    "postgres-adapter",
+			Version: "1.0.0",
+			Provides: []types.Port{
+				{Name: "storage-adapter"},
+			},
+		},
+		"sqlite-adapter": {
+			Name:    "sqlite-adapter",
+			Version: "1.0.0",
+			Provides: []types.Port{
+				{Name: "storage-adapter"},
+			},
+		},
+	}
+
+	_, err := Resolve(ResolveInput{
+		Components:        components,
+		ArchetypeBindings: map[string]string{},
+	})
+	if err == nil {
+		t.Fatal("expected error for ambiguous port, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.Ambiguous) != 1 {
+		t.Fatalf("expected 1 ambiguous port, got %d: %+v", len(resErr.Ambiguous), resErr.Ambiguous)
+	}
+
+	a := resErr.Ambiguous[0]
+	if a.Port != "storage-adapter" || a.Component != "consumer" {
+		t.Errorf("unexpected ambiguous port: %+v", a)
+	}
+	if len(a.Providers) != 2 {
+		t.Errorf("expected 2 providers, got %d: %v", len(a.Providers), a.Providers)
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "ambiguous port") {
+		t.Errorf("error message should contain 'ambiguous port', got: %v", errMsg)
+	}
+	if !strings.Contains(errMsg, "postgres-adapter") || !strings.Contains(errMsg, "sqlite-adapter") {
+		t.Errorf("error message should list providers, got: %v", errMsg)
+	}
+}
+
 func TestResolveMutualCycle(t *testing.T) {
 	// Two components that each require what the other provides — valid as long
 	// as explicit bindings exist. This is not self-resolution.

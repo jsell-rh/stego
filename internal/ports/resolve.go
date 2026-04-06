@@ -101,6 +101,19 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 		effectiveBindings[port] = comp
 	}
 
+	// Build providers index: port name -> list of component names that provide it.
+	// Used only for error classification when no binding exists.
+	providers := make(map[string][]string)
+	for name, comp := range input.Components {
+		for _, p := range comp.Provides {
+			providers[p.Name] = append(providers[p.Name], name)
+		}
+	}
+	// Sort provider lists for deterministic error messages.
+	for port := range providers {
+		sort.Strings(providers[port])
+	}
+
 	result := &Resolution{
 		Bindings: make(map[string]map[string]string),
 	}
@@ -127,11 +140,27 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 
 			bound, ok := effectiveBindings[portName]
 			if !ok {
-				// No binding exists for this port — unresolved.
-				resErr.Unresolved = append(resErr.Unresolved, UnresolvedPort{
-					Component: compName,
-					Port:      portName,
-				})
+				// No binding exists — classify based on how many providers exist.
+				// Exclude self from provider list for this check.
+				var otherProviders []string
+				for _, p := range providers[portName] {
+					if p != compName {
+						otherProviders = append(otherProviders, p)
+					}
+				}
+
+				if len(otherProviders) >= 2 {
+					resErr.Ambiguous = append(resErr.Ambiguous, AmbiguousPort{
+						Component: compName,
+						Port:      portName,
+						Providers: otherProviders,
+					})
+				} else {
+					resErr.Unresolved = append(resErr.Unresolved, UnresolvedPort{
+						Component: compName,
+						Port:      portName,
+					})
+				}
 				continue
 			}
 
