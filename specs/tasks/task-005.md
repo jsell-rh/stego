@@ -36,3 +36,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 
 - `b2c8ae8` feat(ports): implement port resolution engine
 - `daaffdd` chore(tasks): mark task-005 ready-for-review
+- `b4587ea` fix(ports): address review findings for port resolution engine
+- `3aa54b7` chore(tasks): mark task-005 ready-for-review
