@@ -53,9 +53,11 @@ type File struct {
 	Content []byte
 }
 
-// WithHeader returns the file content prepended with the standard generated
-// file header and a blank line separator.
-func (f File) WithHeader() []byte {
+// Bytes returns the complete file content ready to be written to disk: the
+// required generated-file header followed by a blank line and the body.
+// This is the only way to obtain the file's rendered output, which enforces
+// that all generated files carry the header — generators cannot bypass it.
+func (f File) Bytes() []byte {
 	return []byte(Header + "\n\n" + string(f.Content))
 }
 
@@ -72,35 +74,6 @@ type Wiring struct {
 	// Routes lists route registration expressions for main.go assembly.
 	// Each entry is a code fragment like "mux.Handle(\"/users\", userHandler)".
 	Routes []string
-}
-
-// ValidateHeaders checks that every file's content starts with the required
-// generated-file header. Returns an error listing all violations.
-func ValidateHeaders(files []File) error {
-	headerPrefix := Header + "\n"
-
-	var violations []string
-	for _, f := range files {
-		content := string(f.Content)
-		if !strings.HasPrefix(content, headerPrefix) {
-			violations = append(violations, f.Path)
-		}
-	}
-
-	if len(violations) > 0 {
-		return &HeaderError{Violations: violations}
-	}
-	return nil
-}
-
-// HeaderError reports files that are missing the required generated-file header.
-type HeaderError struct {
-	Violations []string
-}
-
-func (e *HeaderError) Error() string {
-	return fmt.Sprintf("files missing generated header %q: %s",
-		Header, strings.Join(e.Violations, ", "))
 }
 
 // ValidateNamespace checks that every file path in files is under the given
