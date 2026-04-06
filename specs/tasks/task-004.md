@@ -31,9 +31,17 @@ Implement the registry as a local directory structure (git-based, but for MVP we
 - `.stego/config.yaml` parsed
 - Tests with fixture registry directory
 
+## Outstanding Revisions (Round 2)
+
+The following code changes are still needed (review findings 5–7):
+
+1. **Mixin `adds_slots` proto validation** — `loadMixins` must verify proto files exist for each `adds_slots` entry, matching the validation already done in `loadComponents`. Add proto files to the mixin test fixture.
+2. **Fail on non-existent registry directory** — `Load()` must return an error if the top-level directory does not exist, rather than silently returning an empty registry.
+3. **Remove unreachable duplicate-name code and fix test names** — The duplicate-name checks in `loadArchetypes`, `loadComponents`, and `loadMixins` are unreachable (directory names are unique on-disk and the identity check already enforces YAML name == dir name). Remove the dead code. Rename `TestLoadDuplicate*Name` tests to `TestLoad*NameMismatch` to reflect what they actually verify.
+
 ## Task Completion
 
-When done, update this file's Status to `complete` and list relevant commits below.
+When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
 
