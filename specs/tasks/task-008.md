@@ -40,3 +40,5 @@ These are intentionally minimal — full generators are post-MVP. The stubs sati
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- 0b05c7f feat(task-008): add rest-crud archetype definition and stub component generators
