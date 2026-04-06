@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Port Resolution"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
