@@ -38,3 +38,6 @@ Create a unified `Parse(path string) (interface{}, error)` that dispatches on `k
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- `8ddfd78` feat: implement YAML schema parsing for all five file types
+- `5be6aea` chore: mark task-003 ready-for-review
