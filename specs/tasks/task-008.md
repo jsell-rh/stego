@@ -2,7 +2,9 @@
 
 **Spec Reference:** "File Types — Archetype", "MVP Scope"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** `specs/reviews/task-008.md`
 
 ## Description
 
