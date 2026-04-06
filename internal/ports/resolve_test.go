@@ -114,35 +114,47 @@ func TestResolveServiceOverrideTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestResolveAutoDiscovery(t *testing.T) {
-	// When no explicit binding exists but exactly one component provides
-	// the port, it should be auto-discovered.
-	result, err := Resolve(ResolveInput{
-		Components: restCrudComponents(),
-		// No explicit bindings -- rely on auto-discovery.
+func TestResolveNoBindingIsUnresolved(t *testing.T) {
+	// Without explicit bindings, ports are unresolved — auto-discovery is not
+	// a spec-defined resolution strategy.
+	_, err := Resolve(ResolveInput{
+		Components:        restCrudComponents(),
 		ArchetypeBindings: map[string]string{},
 	})
-	if err != nil {
-		t.Fatalf("Resolve() error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for ports without bindings, got nil")
 	}
 
-	restBindings := result.Bindings["rest-api"]
-	if restBindings["storage-adapter"] != "postgres-adapter" {
-		t.Errorf("auto-discovered storage-adapter = %q, want %q", restBindings["storage-adapter"], "postgres-adapter")
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
 	}
-	if restBindings["auth-provider"] != "jwt-auth" {
-		t.Errorf("auto-discovered auth-provider = %q, want %q", restBindings["auth-provider"], "jwt-auth")
+	if len(resErr.Unresolved) != 2 {
+		t.Fatalf("expected 2 unresolved ports, got %d: %+v", len(resErr.Unresolved), resErr.Unresolved)
+	}
+
+	ports := map[string]bool{}
+	for _, u := range resErr.Unresolved {
+		ports[u.Port] = true
+		if u.Component != "rest-api" {
+			t.Errorf("unexpected component %q for unresolved port", u.Component)
+		}
+	}
+	if !ports["auth-provider"] || !ports["storage-adapter"] {
+		t.Errorf("expected unresolved ports auth-provider and storage-adapter, got: %+v", resErr.Unresolved)
 	}
 }
 
 func TestResolveUnresolvedPort(t *testing.T) {
-	// Remove the component that provides storage-adapter.
+	// Remove the component that provides storage-adapter, and don't bind it.
 	components := restCrudComponents()
 	delete(components, "postgres-adapter")
 
 	_, err := Resolve(ResolveInput{
-		Components:        components,
-		ArchetypeBindings: map[string]string{},
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"auth-provider": "jwt-auth",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error for unresolved port, got nil")
@@ -168,51 +180,6 @@ func TestResolveUnresolvedPort(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "unresolved port") {
 		t.Errorf("error message should contain 'unresolved port', got: %v", err)
-	}
-}
-
-func TestResolveAmbiguousPort(t *testing.T) {
-	components := restCrudComponents()
-	// Add a second component that also provides storage-adapter.
-	components["sqlite-adapter"] = &types.Component{
-		Name:    "sqlite-adapter",
-		Version: "1.0.0",
-		Provides: []types.Port{
-			{Name: "storage-adapter"},
-		},
-	}
-
-	_, err := Resolve(ResolveInput{
-		Components:        components,
-		ArchetypeBindings: map[string]string{},
-	})
-	if err == nil {
-		t.Fatal("expected error for ambiguous port, got nil")
-	}
-
-	var resErr *ResolutionError
-	if !errors.As(err, &resErr) {
-		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
-	}
-	if len(resErr.Ambiguous) == 0 {
-		t.Fatal("expected at least one ambiguous port")
-	}
-
-	found := false
-	for _, a := range resErr.Ambiguous {
-		if a.Port == "storage-adapter" && a.Component == "rest-api" {
-			found = true
-			if len(a.Providers) != 2 {
-				t.Errorf("expected 2 providers, got %d: %v", len(a.Providers), a.Providers)
-			}
-		}
-	}
-	if !found {
-		t.Errorf("expected ambiguous port storage-adapter for rest-api, got: %+v", resErr.Ambiguous)
-	}
-
-	if !strings.Contains(err.Error(), "ambiguous port") {
-		t.Errorf("error message should contain 'ambiguous port', got: %v", err)
 	}
 }
 
@@ -245,7 +212,6 @@ func TestResolveAmbiguousResolvedByBinding(t *testing.T) {
 }
 
 func TestResolveBindingToNonExistentComponent(t *testing.T) {
-	// Binding references a component that doesn't exist.
 	_, err := Resolve(ResolveInput{
 		Components: restCrudComponents(),
 		ArchetypeBindings: map[string]string{
@@ -261,13 +227,23 @@ func TestResolveBindingToNonExistentComponent(t *testing.T) {
 	if !errors.As(err, &resErr) {
 		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
 	}
-	if len(resErr.Unresolved) == 0 {
-		t.Fatal("expected unresolved port for invalid binding")
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Port != "storage-adapter" || ib.BoundTo != "nonexistent-adapter" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "non-existent component") {
+		t.Errorf("expected reason to mention non-existent component, got: %q", ib.Reason)
+	}
+	if !strings.Contains(err.Error(), "invalid binding") {
+		t.Errorf("error message should contain 'invalid binding', got: %v", err)
 	}
 }
 
 func TestResolveBindingToComponentThatDoesNotProvidePort(t *testing.T) {
-	// Binding maps storage-adapter to otel-tracing, which doesn't provide it.
 	_, err := Resolve(ResolveInput{
 		Components: restCrudComponents(),
 		ArchetypeBindings: map[string]string{
@@ -283,13 +259,23 @@ func TestResolveBindingToComponentThatDoesNotProvidePort(t *testing.T) {
 	if !errors.As(err, &resErr) {
 		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
 	}
-	if len(resErr.Unresolved) == 0 {
-		t.Fatal("expected unresolved port for invalid binding target")
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Port != "storage-adapter" || ib.BoundTo != "otel-tracing" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "does not provide port") {
+		t.Errorf("expected reason to mention 'does not provide port', got: %q", ib.Reason)
+	}
+	if !strings.Contains(err.Error(), "invalid binding") {
+		t.Errorf("error message should contain 'invalid binding', got: %v", err)
 	}
 }
 
 func TestResolveNoRequires(t *testing.T) {
-	// All components have no requires -- should succeed with empty bindings.
 	components := map[string]*types.Component{
 		"health-check": {
 			Name:    "health-check",
@@ -309,28 +295,27 @@ func TestResolveNoRequires(t *testing.T) {
 	}
 }
 
-func TestResolveMultipleUnresolvedAndAmbiguous(t *testing.T) {
+func TestResolveMultipleUnresolvedAndInvalidBinding(t *testing.T) {
 	// Tests that all errors are reported, not just the first one.
 	components := map[string]*types.Component{
 		"comp-a": {
 			Name: "comp-a",
 			Requires: []types.Port{
 				{Name: "port-missing"},
-				{Name: "port-ambiguous"},
+				{Name: "port-bad-binding"},
 			},
 		},
-		"provider-1": {
-			Name:     "provider-1",
-			Provides: []types.Port{{Name: "port-ambiguous"}},
-		},
-		"provider-2": {
-			Name:     "provider-2",
-			Provides: []types.Port{{Name: "port-ambiguous"}},
+		"wrong-provider": {
+			Name:     "wrong-provider",
+			Provides: []types.Port{{Name: "something-else"}},
 		},
 	}
 
 	_, err := Resolve(ResolveInput{
 		Components: components,
+		ArchetypeBindings: map[string]string{
+			"port-bad-binding": "wrong-provider",
+		},
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -341,14 +326,91 @@ func TestResolveMultipleUnresolvedAndAmbiguous(t *testing.T) {
 		t.Fatalf("expected *ResolutionError, got %T", err)
 	}
 	if len(resErr.Unresolved) != 1 {
-		t.Errorf("expected 1 unresolved, got %d", len(resErr.Unresolved))
+		t.Errorf("expected 1 unresolved, got %d: %+v", len(resErr.Unresolved), resErr.Unresolved)
 	}
-	if len(resErr.Ambiguous) != 1 {
-		t.Errorf("expected 1 ambiguous, got %d", len(resErr.Ambiguous))
+	if len(resErr.InvalidBinding) != 1 {
+		t.Errorf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
 	}
 
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "unresolved port") || !strings.Contains(errMsg, "ambiguous port") {
-		t.Errorf("error should mention both unresolved and ambiguous, got: %v", errMsg)
+	if !strings.Contains(errMsg, "unresolved port") || !strings.Contains(errMsg, "invalid binding") {
+		t.Errorf("error should mention both unresolved and invalid binding, got: %v", errMsg)
+	}
+}
+
+func TestResolveSelfResolution(t *testing.T) {
+	// A component that requires and provides the same port should not
+	// resolve to itself.
+	components := map[string]*types.Component{
+		"self-ref": {
+			Name: "self-ref",
+			Requires: []types.Port{
+				{Name: "some-port"},
+			},
+			Provides: []types.Port{
+				{Name: "some-port"},
+			},
+		},
+	}
+
+	_, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"some-port": "self-ref",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for self-resolution, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding for self-resolution, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Component != "self-ref" || ib.BoundTo != "self-ref" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "cannot be bound to itself") {
+		t.Errorf("expected reason to mention self-binding, got: %q", ib.Reason)
+	}
+}
+
+func TestResolveMutualCycle(t *testing.T) {
+	// Two components that each require what the other provides — valid as long
+	// as explicit bindings exist. This is not self-resolution.
+	components := map[string]*types.Component{
+		"comp-a": {
+			Name:     "comp-a",
+			Requires: []types.Port{{Name: "port-b"}},
+			Provides: []types.Port{{Name: "port-a"}},
+		},
+		"comp-b": {
+			Name:     "comp-b",
+			Requires: []types.Port{{Name: "port-a"}},
+			Provides: []types.Port{{Name: "port-b"}},
+		},
+	}
+
+	result, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"port-a": "comp-a",
+			"port-b": "comp-b",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v (mutual dependencies with explicit bindings should succeed)", err)
+	}
+
+	if result.Bindings["comp-a"]["port-b"] != "comp-b" {
+		t.Errorf("comp-a port-b = %q, want %q", result.Bindings["comp-a"]["port-b"], "comp-b")
+	}
+	if result.Bindings["comp-b"]["port-a"] != "comp-a" {
+		t.Errorf("comp-b port-a = %q, want %q", result.Bindings["comp-b"]["port-a"], "comp-a")
 	}
 }

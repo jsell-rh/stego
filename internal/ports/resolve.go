@@ -19,12 +19,16 @@ type Resolution struct {
 
 // ResolutionError represents a port resolution failure.
 type ResolutionError struct {
-	Unresolved []UnresolvedPort
-	Ambiguous  []AmbiguousPort
+	Unresolved     []UnresolvedPort
+	Ambiguous      []AmbiguousPort
+	InvalidBinding []InvalidBinding
 }
 
 func (e *ResolutionError) Error() string {
 	var parts []string
+	for _, ib := range e.InvalidBinding {
+		parts = append(parts, ib.Error())
+	}
 	for _, u := range e.Unresolved {
 		parts = append(parts, fmt.Sprintf("unresolved port %q required by %q: no component provides it", u.Port, u.Component))
 	}
@@ -34,17 +38,37 @@ func (e *ResolutionError) Error() string {
 	return strings.Join(parts, "; ")
 }
 
-// UnresolvedPort describes a required port that no component provides.
+func (e *ResolutionError) hasErrors() bool {
+	return len(e.Unresolved) > 0 || len(e.Ambiguous) > 0 || len(e.InvalidBinding) > 0
+}
+
+// UnresolvedPort describes a required port that has no binding and no component
+// provides it.
 type UnresolvedPort struct {
 	Component string
 	Port      string
 }
 
-// AmbiguousPort describes a required port provided by more than one component.
+// AmbiguousPort describes a required port provided by more than one component
+// with no binding to disambiguate.
 type AmbiguousPort struct {
 	Component string
 	Port      string
 	Providers []string
+}
+
+// InvalidBinding describes a binding that references a non-existent component,
+// a component that does not provide the required port, or a self-referencing
+// binding.
+type InvalidBinding struct {
+	Component string
+	Port      string
+	BoundTo   string
+	Reason    string
+}
+
+func (ib InvalidBinding) Error() string {
+	return fmt.Sprintf("invalid binding for port %q required by %q: %s", ib.Port, ib.Component, ib.Reason)
 }
 
 // ResolveInput gathers the inputs needed for port resolution.
@@ -63,23 +87,11 @@ type ResolveInput struct {
 // finds exactly one providing component. Resolution order:
 //  1. Service-level overrides (highest precedence)
 //  2. Archetype default bindings
-//  3. Auto-discovery: if exactly one component provides the port, use it
 //
+// Ports without an explicit binding are unresolved — a compile error.
 // Returns a Resolution on success, or a *ResolutionError listing all
-// unresolved and ambiguous ports.
+// unresolved, ambiguous, and invalid binding errors.
 func Resolve(input ResolveInput) (*Resolution, error) {
-	// Build a reverse index: port name -> list of components that provide it.
-	providers := make(map[string][]string)
-	for name, comp := range input.Components {
-		for _, port := range comp.Provides {
-			providers[port.Name] = append(providers[port.Name], name)
-		}
-	}
-	// Sort provider lists for deterministic error messages.
-	for _, list := range providers {
-		sort.Strings(list)
-	}
-
 	// Merge bindings: archetype defaults, then service overrides on top.
 	effectiveBindings := make(map[string]string)
 	for port, comp := range input.ArchetypeBindings {
@@ -93,8 +105,7 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 		Bindings: make(map[string]map[string]string),
 	}
 
-	var unresolved []UnresolvedPort
-	var ambiguous []AmbiguousPort
+	var resErr ResolutionError
 
 	// Resolve each component's required ports.
 	// Process component names in sorted order for deterministic output.
@@ -114,37 +125,52 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 		for _, req := range comp.Requires {
 			portName := req.Name
 
-			// Check explicit binding first.
-			if bound, ok := effectiveBindings[portName]; ok {
-				// Verify the bound component actually provides this port.
-				if !componentProvides(input.Components, bound, portName) {
-					unresolved = append(unresolved, UnresolvedPort{
-						Component: compName,
-						Port:      portName,
-					})
-					continue
-				}
-				bindings[portName] = bound
+			bound, ok := effectiveBindings[portName]
+			if !ok {
+				// No binding exists for this port — unresolved.
+				resErr.Unresolved = append(resErr.Unresolved, UnresolvedPort{
+					Component: compName,
+					Port:      portName,
+				})
 				continue
 			}
 
-			// Auto-discover: look for exactly one provider.
-			providerList := providers[portName]
-			switch len(providerList) {
-			case 0:
-				unresolved = append(unresolved, UnresolvedPort{
+			// Self-resolution guard: a component cannot provide its own
+			// required port.
+			if bound == compName {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
 					Component: compName,
 					Port:      portName,
+					BoundTo:   bound,
+					Reason:    fmt.Sprintf("component %q cannot be bound to itself", compName),
 				})
-			case 1:
-				bindings[portName] = providerList[0]
-			default:
-				ambiguous = append(ambiguous, AmbiguousPort{
-					Component: compName,
-					Port:      portName,
-					Providers: providerList,
-				})
+				continue
 			}
+
+			// Verify the bound component exists.
+			boundComp, exists := input.Components[bound]
+			if !exists {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+					Component: compName,
+					Port:      portName,
+					BoundTo:   bound,
+					Reason:    fmt.Sprintf("binding references non-existent component %q", bound),
+				})
+				continue
+			}
+
+			// Verify the bound component actually provides this port.
+			if !compProvidesPort(boundComp, portName) {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+					Component: compName,
+					Port:      portName,
+					BoundTo:   bound,
+					Reason:    fmt.Sprintf("component %q does not provide port %q", bound, portName),
+				})
+				continue
+			}
+
+			bindings[portName] = bound
 		}
 
 		if len(bindings) > 0 {
@@ -152,23 +178,15 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 		}
 	}
 
-	if len(unresolved) > 0 || len(ambiguous) > 0 {
-		return nil, &ResolutionError{
-			Unresolved: unresolved,
-			Ambiguous:  ambiguous,
-		}
+	if resErr.hasErrors() {
+		return nil, &resErr
 	}
 
 	return result, nil
 }
 
-// componentProvides checks whether the named component exists and provides the
-// given port.
-func componentProvides(components map[string]*types.Component, compName, portName string) bool {
-	comp, ok := components[compName]
-	if !ok {
-		return false
-	}
+// compProvidesPort checks whether the component provides the given port.
+func compProvidesPort(comp *types.Component, portName string) bool {
 	for _, p := range comp.Provides {
 		if p.Name == portName {
 			return true
