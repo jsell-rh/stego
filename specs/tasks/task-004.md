@@ -38,3 +38,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - `28c6579` feat(registry): implement registry loading and config parsing
+- `47ed95d` fix(registry): address review findings for duplicate names, identity consistency, proto validation, and config validation
