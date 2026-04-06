@@ -36,3 +36,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - 2b23632 feat(gen): add Generator interface, Context, File, Wiring, and namespace validation
+- 79fb733 fix(gen): address review findings — Wiring in return, header enforcement, OutputNamespace
