@@ -44,3 +44,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - `8ddfd78` feat: implement YAML schema parsing for all five file types
 - `5be6aea` chore: mark task-003 ready-for-review
 - `8806a55` fix: address task-003 review findings for YAML parsing
+- `7cb3b51` fix: use errors.As for yaml.TypeError unwrapping and add integration test
+- `d18962a` chore: mark task-003 ready-for-review
