@@ -31,3 +31,5 @@ Implement slot proto definitions and Go interface generation from them.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- d2d2a4e feat(slot): implement slot/fill proto contract and interface generation
