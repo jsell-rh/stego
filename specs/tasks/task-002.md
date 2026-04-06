@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Glossary", "Entity Type System"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 ## Description
 
