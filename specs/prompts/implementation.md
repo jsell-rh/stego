@@ -144,9 +144,15 @@ When external dependencies are needed, leverage testcontainers to download and r
 
 1. Read specs&#x2F;spec\.md\. This is your source of truth, and overarching vision\.
 2. Read specs&#x2F;tasks&#x2F;\*\. See what work has been done, and determine the next task to complete\. Valid progress is `not\-started` `in\-progress` `ready\-for\-review` `complete` `needs\-revision` \. You should pick the tasks with the lowest number in its name that is either `not\-started` or `needs\-revision` \. Prioritize `needs\-revision` tasks over `not\-started` ALWAYS\.
-3. Complete the task\. Mark the task as `ready-for-review`. Completion criteria is alignment with the task &amp; relevant portion of the spec\. A separate team is working in competition with you trying to find bugs &amp; inconsistencies with your work\. Your jobs is to make them not have anything to find\.
-4. Commit your work, using conventional commits, and author: &quot;Implementation &lt;implementation@redhat\.com&gt;&quot;
-5. List the commits you added to the task.
-6. CRITICAL: Call \``kill $PPID\`` this will transfer control over to the implementation team, who will work on a task\.
+3. Complete the task\. Completion criteria is alignment with the task &amp; relevant portion of the spec\. A separate team is working in competition with you trying to find bugs &amp; inconsistencies with your work\. Your jobs is to make them not have anything to find\.
+4. Before marking the task `ready-for-review`, run the self-verification checklist:
+   1. **No dead code:** Every type, struct, const, or function you defined is referenced by at least one other definition or test\. If a type exists only for itself, either wire it into the types that should use it or remove it\.
+   2. **No lossy type mappings:** Do not use `any`, `interface{}`, or `map[string]interface{}` for fields where the spec defines concrete structure\. If the spec shows a field with known sub-fields or recursive nesting, model it with a concrete Go type (including recursive types like `map[string]ConfigField`)\. Reserve `any` only for fields the spec explicitly marks as free-form or opaque\.
+   3. **Cross-reference the task description:** For every noun listed in the task, verify that it appears in your code AND is connected to the types that the task says should reference it\. For example, if the task says "Port — name (for requires/provides)", then `Port` must be used by the `requires`/`provides` fields of the relevant struct\.
+   4. **Compile check:** Run `go build ./...` and `go vet ./...` and confirm zero errors\.
+5. Mark the task as `ready-for-review`\.
+6. Commit your work, using conventional commits, and author: &quot;Implementation &lt;implementation@redhat\.com&gt;&quot;
+7. List the commits you added to the task.
+8. CRITICAL: Call \``kill $PPID\`` this will transfer control over to the implementation team, who will work on a task\.
 
 
