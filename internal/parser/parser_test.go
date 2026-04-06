@@ -2,7 +2,9 @@ package parser
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/stego-project/stego/internal/types"
@@ -423,6 +425,8 @@ func TestParseTypedFileNotFound(t *testing.T) {
 }
 
 // --- Round-trip tests ---
+// All round-trip tests use reflect.DeepEqual to compare the entire struct,
+// ensuring no fields are silently lost during marshal → unmarshal.
 
 func TestRoundTripArchetype(t *testing.T) {
 	a, err := ParseArchetype(fixture("archetype.yaml"))
@@ -437,14 +441,8 @@ func TestRoundTripArchetype(t *testing.T) {
 	if err := yaml.Unmarshal(data, &a2); err != nil {
 		t.Fatalf("Unmarshal round-trip: %v", err)
 	}
-	if a.Name != a2.Name || a.Language != a2.Language || a.Version != a2.Version {
-		t.Errorf("round-trip mismatch: got name=%q lang=%q ver=%q", a2.Name, a2.Language, a2.Version)
-	}
-	if len(a.Components) != len(a2.Components) {
-		t.Errorf("round-trip components count: %d vs %d", len(a.Components), len(a2.Components))
-	}
-	if len(a.Bindings) != len(a2.Bindings) {
-		t.Errorf("round-trip bindings count: %d vs %d", len(a.Bindings), len(a2.Bindings))
+	if !reflect.DeepEqual(*a, a2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *a, a2)
 	}
 }
 
@@ -461,14 +459,8 @@ func TestRoundTripComponent(t *testing.T) {
 	if err := yaml.Unmarshal(data, &c2); err != nil {
 		t.Fatalf("Unmarshal round-trip: %v", err)
 	}
-	if c.Name != c2.Name || c.Version != c2.Version {
-		t.Errorf("round-trip mismatch: got name=%q ver=%q", c2.Name, c2.Version)
-	}
-	if len(c.Requires) != len(c2.Requires) {
-		t.Errorf("round-trip requires count: %d vs %d", len(c.Requires), len(c2.Requires))
-	}
-	if len(c.Slots) != len(c2.Slots) {
-		t.Errorf("round-trip slots count: %d vs %d", len(c.Slots), len(c2.Slots))
+	if !reflect.DeepEqual(*c, c2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *c, c2)
 	}
 }
 
@@ -485,8 +477,8 @@ func TestRoundTripMixin(t *testing.T) {
 	if err := yaml.Unmarshal(data, &m2); err != nil {
 		t.Fatalf("Unmarshal round-trip: %v", err)
 	}
-	if m.Name != m2.Name || m.Overrides != m2.Overrides {
-		t.Errorf("round-trip mismatch: got name=%q overrides=%q", m2.Name, m2.Overrides)
+	if !reflect.DeepEqual(*m, m2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *m, m2)
 	}
 }
 
@@ -503,14 +495,8 @@ func TestRoundTripServiceDeclaration(t *testing.T) {
 	if err := yaml.Unmarshal(data, &sd2); err != nil {
 		t.Fatalf("Unmarshal round-trip: %v", err)
 	}
-	if sd.Name != sd2.Name || sd.Archetype != sd2.Archetype {
-		t.Errorf("round-trip mismatch: got name=%q archetype=%q", sd2.Name, sd2.Archetype)
-	}
-	if len(sd.Entities) != len(sd2.Entities) {
-		t.Errorf("round-trip entities count: %d vs %d", len(sd.Entities), len(sd2.Entities))
-	}
-	if len(sd.Slots) != len(sd2.Slots) {
-		t.Errorf("round-trip slots count: %d vs %d", len(sd.Slots), len(sd2.Slots))
+	if !reflect.DeepEqual(*sd, sd2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *sd, sd2)
 	}
 }
 
@@ -527,12 +513,12 @@ func TestRoundTripFill(t *testing.T) {
 	if err := yaml.Unmarshal(data, &f2); err != nil {
 		t.Fatalf("Unmarshal round-trip: %v", err)
 	}
-	if f.Name != f2.Name || f.Implements != f2.Implements || f.Entity != f2.Entity {
-		t.Errorf("round-trip mismatch: got name=%q implements=%q entity=%q", f2.Name, f2.Implements, f2.Entity)
+	if !reflect.DeepEqual(*f, f2) {
+		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *f, f2)
 	}
 }
 
-// --- ParseError includes file path ---
+// --- ParseError includes file path and line context ---
 
 func TestParseErrorContainsPath(t *testing.T) {
 	_, err := Parse("testdata/does-not-exist.yaml")
@@ -547,5 +533,51 @@ func TestParseErrorContainsPath(t *testing.T) {
 	want := "testdata/does-not-exist.yaml:"
 	if errMsg[:len(want)] != want {
 		t.Errorf("error message = %q, want prefix %q", errMsg, want)
+	}
+}
+
+func TestParseErrorContainsLineContext(t *testing.T) {
+	_, err := Parse(fixture("invalid.yaml"))
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("error type = %T, want *ParseError", err)
+	}
+	if pe.Path != fixture("invalid.yaml") {
+		t.Errorf("path = %q, want %q", pe.Path, fixture("invalid.yaml"))
+	}
+	// The error message should contain the file path
+	errMsg := pe.Error()
+	if len(errMsg) == 0 {
+		t.Fatal("error message is empty")
+	}
+}
+
+func TestParseErrorLineInfoStruct(t *testing.T) {
+	pe := &ParseError{
+		Path:    "test.yaml",
+		Line:    5,
+		Context: "bad_field: [",
+		Err:     fmt.Errorf("unmarshal failed"),
+	}
+	got := pe.Error()
+	want := `test.yaml:5: unmarshal failed (near "bad_field: [")`
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestParseErrorLineInfoNoContext(t *testing.T) {
+	pe := &ParseError{
+		Path: "test.yaml",
+		Line: 3,
+		Err:  fmt.Errorf("unmarshal failed"),
+	}
+	got := pe.Error()
+	want := "test.yaml:3: unmarshal failed"
+	if got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }

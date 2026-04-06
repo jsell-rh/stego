@@ -142,6 +142,18 @@ type ConfigFieldItems struct {
 	Inline *ConfigField
 }
 
+// MarshalYAML produces output compatible with UnmarshalYAML: a map of named
+// sub-fields when Fields is set, or a single inline ConfigField otherwise.
+func (i ConfigFieldItems) MarshalYAML() (any, error) {
+	if i.Fields != nil {
+		return i.Fields, nil
+	}
+	if i.Inline != nil {
+		return i.Inline, nil
+	}
+	return nil, nil
+}
+
 // UnmarshalYAML detects whether items is a map of named sub-fields or a single
 // inline ConfigField, and deserializes accordingly.
 func (i *ConfigFieldItems) UnmarshalYAML(unmarshal func(any) error) error {

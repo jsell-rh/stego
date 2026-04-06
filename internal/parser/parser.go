@@ -6,18 +6,28 @@ package parser
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/stego-project/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
-// ParseError wraps a parse failure with the originating file path.
+// ParseError wraps a parse failure with the originating file path and optional
+// line context extracted from the YAML parser.
 type ParseError struct {
-	Path string
-	Err  error
+	Path    string
+	Line    int    // 0 means unknown
+	Context string // snippet of the offending line, if available
+	Err     error
 }
 
 func (e *ParseError) Error() string {
+	if e.Line > 0 {
+		if e.Context != "" {
+			return fmt.Sprintf("%s:%d: %s (near %q)", e.Path, e.Line, e.Err, e.Context)
+		}
+		return fmt.Sprintf("%s:%d: %s", e.Path, e.Line, e.Err)
+	}
 	return fmt.Sprintf("%s: %s", e.Path, e.Err)
 }
 
@@ -28,6 +38,47 @@ func (e *ParseError) Unwrap() error {
 // errorf creates a ParseError for the given path.
 func errorf(path, format string, args ...any) *ParseError {
 	return &ParseError{Path: path, Err: fmt.Errorf(format, args...)}
+}
+
+// parseErrorWithLineInfo attempts to extract line number and context from a
+// yaml.TypeError or by decoding into a yaml.Node, and returns a ParseError
+// enriched with that information.
+func parseErrorWithLineInfo(data []byte, path string, underlying error) *ParseError {
+	pe := &ParseError{Path: path, Err: underlying}
+
+	// yaml.TypeError contains per-line error details we can extract line numbers from.
+	if te, ok := underlying.(*yaml.TypeError); ok && len(te.Errors) > 0 {
+		// Try to extract line info from the first error string.
+		// yaml.v3 TypeError errors look like: "line N: ..."
+		for _, msg := range te.Errors {
+			var line int
+			if _, err := fmt.Sscanf(msg, "line %d:", &line); err == nil && line > 0 {
+				pe.Line = line
+				pe.Context = lineAt(data, line)
+				return pe
+			}
+		}
+	}
+
+	// For other error types, try to decode into a yaml.Node to get line info.
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err == nil && node.Content != nil && len(node.Content) > 0 {
+		// The node tree parsed fine but typed unmarshal failed — report the
+		// document root line as a starting point (better than nothing).
+		pe.Line = node.Content[0].Line
+		pe.Context = lineAt(data, pe.Line)
+	}
+
+	return pe
+}
+
+// lineAt returns the content of line number n (1-based) from data, trimmed.
+func lineAt(data []byte, n int) string {
+	lines := strings.Split(string(data), "\n")
+	if n < 1 || n > len(lines) {
+		return ""
+	}
+	return strings.TrimSpace(lines[n-1])
 }
 
 // kindHeader is used to peek at the kind field before full deserialization.
@@ -50,7 +101,7 @@ func Parse(path string) (any, error) {
 
 	var header kindHeader
 	if err := yaml.Unmarshal(data, &header); err != nil {
-		return nil, errorf(path, "invalid YAML: %w", err)
+		return nil, parseErrorWithLineInfo(data, path, fmt.Errorf("invalid YAML: %w", err))
 	}
 
 	switch header.Kind {
@@ -76,7 +127,8 @@ func Parse(path string) (any, error) {
 func parseAs[T any](data []byte, path, expectedKind string) (*T, error) {
 	var v T
 	if err := yaml.Unmarshal(data, &v); err != nil {
-		return nil, errorf(path, "unmarshal %s: %w", expectedKind, err)
+		pe := parseErrorWithLineInfo(data, path, fmt.Errorf("unmarshal %s: %w", expectedKind, err))
+		return nil, pe
 	}
 	return &v, nil
 }
@@ -134,7 +186,8 @@ func parseFile[T any](path, expectedKind string) (*T, error) {
 
 	var v T
 	if err := yaml.Unmarshal(data, &v); err != nil {
-		return nil, errorf(path, "unmarshal %s: %w", expectedKind, err)
+		pe := parseErrorWithLineInfo(data, path, fmt.Errorf("unmarshal %s: %w", expectedKind, err))
+		return nil, pe
 	}
 
 	// Validate the kind field.
