@@ -4,8 +4,6 @@
 
 **Status:** `needs-revision`
 
-**Review:** [specs/reviews/task-002.md](../reviews/task-002.md)
-
 ## Description
 
 Define Go structs for the five core nouns and supporting types. These are the in-memory representations parsed from YAML files.
