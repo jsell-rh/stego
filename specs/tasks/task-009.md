@@ -44,3 +44,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 4be9256 chore(task-009): mark task ready-for-review
 - 9751749 fix(task-009): address all 5 review findings on rest-api component generator
 - 626d10e fix(task-009): address round 2 findings — scope filtering, OpenAPI params, computed fields
+- d86da4a fix(task-009): address round 3 findings — JSON header, upsert parent ID, conditional imports
