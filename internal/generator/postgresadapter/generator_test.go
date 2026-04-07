@@ -528,6 +528,79 @@ func TestMigrationConstraints(t *testing.T) {
 	}
 }
 
+// --- unique_composite ---
+
+func TestUniqueCompositeConstraint(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Membership",
+				Fields: []types.Field{
+					{Name: "user_id", Type: types.FieldTypeRef, To: "User", UniqueComposite: []string{"user_id", "org_id"}},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+					{Name: "role", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+
+	if !strings.Contains(sqlContent, "UNIQUE (user_id, org_id)") {
+		t.Errorf("migration missing UNIQUE composite constraint:\n%s", sqlContent)
+	}
+}
+
+// --- SQL escaping ---
+
+func TestSQLEscapingSingleQuotes(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Thing",
+				Fields: []types.Field{
+					{Name: "label", Type: types.FieldTypeString, Pattern: "^[a-z']", Default: "it's"},
+					{Name: "status", Type: types.FieldTypeEnum, Values: []string{"it's", "they're"}},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+
+	// Pattern: single quote should be doubled.
+	if !strings.Contains(sqlContent, "CHECK (label ~ '^[a-z'']')") {
+		t.Errorf("pattern not properly escaped in SQL:\n%s", sqlContent)
+	}
+
+	// Default: single quote should be doubled.
+	if !strings.Contains(sqlContent, "DEFAULT 'it''s'") {
+		t.Errorf("default not properly escaped in SQL:\n%s", sqlContent)
+	}
+
+	// Enum values: single quotes should be doubled.
+	if !strings.Contains(sqlContent, "'it''s'") {
+		t.Errorf("enum value not properly escaped in SQL:\n%s", sqlContent)
+	}
+	if !strings.Contains(sqlContent, "'they''re'") {
+		t.Errorf("enum value not properly escaped in SQL:\n%s", sqlContent)
+	}
+}
+
 // --- No generated header on SQL file ---
 
 func TestSQLFileNoGoHeader(t *testing.T) {
@@ -785,8 +858,17 @@ func TestTableNameDerivation(t *testing.T) {
 	}{
 		{"User", "users"},
 		{"Organization", "organizations"},
-		{"AdapterStatus", "adapter_statuss"},
+		{"AdapterStatus", "adapter_statuses"},
 		{"NodePool", "node_pools"},
+		{"Address", "addresses"},
+		{"Box", "boxes"},
+		{"Buzz", "buzzes"},
+		{"Clash", "clashes"},
+		{"Match", "matches"},
+		{"Entity", "entities"},
+		{"Policy", "policies"},
+		{"Key", "keys"},         // vowel+y → just "s"
+		{"Day", "days"},         // vowel+y → just "s"
 	}
 
 	for _, tt := range tests {
@@ -876,6 +958,53 @@ func TestSingleEntity(t *testing.T) {
 	}
 }
 
+// --- Upsert: optimistic concurrency WHERE only on DO UPDATE SET ---
+
+func TestUpsertOptimisticConcurrencyNotOnDoNothing(t *testing.T) {
+	// When all non-key writable columns are upsert key columns (no SET clauses),
+	// the generated code should use DO NOTHING without a WHERE clause.
+	// PostgreSQL does not support WHERE on DO NOTHING.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "KeyOnly",
+				Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString},
+					{Name: "resource_id", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The generated code should have DO NOTHING in the else branch.
+	if !strings.Contains(storeContent, "DO NOTHING") {
+		t.Error("expected DO NOTHING branch in generated upsert code")
+	}
+
+	// The WHERE clause for optimistic concurrency must be inside the
+	// DO UPDATE SET branch, not after DO NOTHING.
+	// Verify: the optimistic concurrency check should be inside the
+	// "len(setClauses) > 0" branch.
+	if !strings.Contains(storeContent, `DO UPDATE SET " + strings.Join(setClauses, ", ")`) {
+		t.Error("expected DO UPDATE SET branch in generated upsert code")
+	}
+
+	// Verify it compiles.
+	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
+	if _, err := format.Source(storeBytes); err != nil {
+		t.Errorf("store.go does not compile: %v", err)
+	}
+}
+
 // --- Upsert with computed fields excluded ---
 
 func TestUpsertExcludesComputedFields(t *testing.T) {
@@ -903,11 +1032,11 @@ func TestUpsertExcludesComputedFields(t *testing.T) {
 
 	// Upsert INSERT should exclude computed field.
 	if strings.Contains(storeContent, "summary") &&
-		strings.Contains(storeContent, "INSERT INTO statuss") &&
+		strings.Contains(storeContent, "INSERT INTO statuses") &&
 		strings.Contains(storeContent, "summary)") {
 		// If summary appears in the INSERT column list, it's a bug.
 		// Check more precisely: the INSERT columns should be (id, resource_type, adapter).
-		if !strings.Contains(storeContent, "INSERT INTO statuss (id, resource_type, adapter)") {
+		if !strings.Contains(storeContent, "INSERT INTO statuses (id, resource_type, adapter)") {
 			t.Error("Upsert INSERT should exclude computed fields")
 		}
 	}
@@ -1032,7 +1161,7 @@ func TestMultiEntityCompiles(t *testing.T) {
 
 	// Verify all entities have tables in migration.
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
-	for _, want := range []string{"clusters", "node_pools", "adapter_statuss"} {
+	for _, want := range []string{"clusters", "node_pools", "adapter_statuses"} {
 		if !strings.Contains(sqlContent, "CREATE TABLE IF NOT EXISTS "+want) {
 			t.Errorf("migration missing CREATE TABLE for %s", want)
 		}

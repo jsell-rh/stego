@@ -457,11 +457,11 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 		fmt.Fprintf(buf, "\t\t\tif len(setClauses) > 0 {\n")
 		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO UPDATE SET \" + strings.Join(setClauses, \", \")\n")
+		fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
+		fmt.Fprintf(buf, "\t\t\t\t\tquery += \" WHERE EXCLUDED.generation > %s.generation\"\n", table)
+		fmt.Fprintf(buf, "\t\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\t} else {\n")
 		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO NOTHING\"\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery += \" WHERE EXCLUDED.generation > %s.generation\"\n", table)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
@@ -528,6 +528,13 @@ func generateMigration(ns string, entities []types.Entity) gen.File {
 			fmt.Fprintf(&buf, "    %s", colDef)
 		}
 
+		// Emit table-level UNIQUE constraints from unique_composite.
+		for _, f := range e.Fields {
+			if len(f.UniqueComposite) > 0 {
+				fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(f.UniqueComposite, ", "))
+			}
+		}
+
 		fmt.Fprintf(&buf, "\n);\n")
 	}
 
@@ -561,7 +568,7 @@ func columnDefinition(f types.Field) string {
 	if f.Type == types.FieldTypeEnum && len(f.Values) > 0 {
 		quoted := make([]string, len(f.Values))
 		for i, v := range f.Values {
-			quoted[i] = fmt.Sprintf("'%s'", v)
+			quoted[i] = fmt.Sprintf("'%s'", sqlEscapeString(v))
 		}
 		parts = append(parts, fmt.Sprintf("CHECK (%s IN (%s))", f.Name, strings.Join(quoted, ", ")))
 	}
@@ -576,7 +583,7 @@ func columnDefinition(f types.Field) string {
 
 	// Pattern constraint.
 	if f.Pattern != "" {
-		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", f.Name, f.Pattern))
+		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", f.Name, sqlEscapeString(f.Pattern)))
 	}
 
 	// Numeric range constraints.
@@ -594,7 +601,7 @@ func columnDefinition(f types.Field) string {
 func sqlDefault(f types.Field) string {
 	switch v := f.Default.(type) {
 	case string:
-		return fmt.Sprintf("'%s'", v)
+		return fmt.Sprintf("'%s'", sqlEscapeString(v))
 	case bool:
 		if v {
 			return "TRUE"
@@ -603,6 +610,12 @@ func sqlDefault(f types.Field) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// sqlEscapeString escapes a string for use inside a SQL single-quoted literal
+// by doubling any embedded single quotes. E.g. "it's" → "it''s".
+func sqlEscapeString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 // --- Helpers ---
@@ -629,9 +642,31 @@ func allColumns(e types.Entity) []string {
 }
 
 // tableName converts an entity name to a PostgreSQL table name:
-// PascalCase to snake_case, then append "s" for plural.
+// PascalCase to snake_case, then pluralize using English rules.
 func tableName(entityName string) string {
-	return toSnakeCase(entityName) + "s"
+	return pluralize(toSnakeCase(entityName))
+}
+
+// pluralize applies basic English pluralization rules to a snake_case word.
+// It handles the common suffixes that require more than just appending "s".
+func pluralize(s string) string {
+	if s == "" {
+		return s
+	}
+	// Words ending in s, x, z, sh, ch → append "es"
+	if strings.HasSuffix(s, "s") || strings.HasSuffix(s, "x") || strings.HasSuffix(s, "z") ||
+		strings.HasSuffix(s, "sh") || strings.HasSuffix(s, "ch") {
+		return s + "es"
+	}
+	// Words ending in consonant+y → replace y with "ies"
+	if strings.HasSuffix(s, "y") && len(s) >= 2 {
+		preceding := s[len(s)-2]
+		// If the character before 'y' is not a vowel, it's consonant+y
+		if !strings.ContainsRune("aeiou", rune(preceding)) {
+			return s[:len(s)-1] + "ies"
+		}
+	}
+	return s + "s"
 }
 
 // toSnakeCase converts PascalCase to snake_case.
