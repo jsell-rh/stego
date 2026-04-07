@@ -20,8 +20,9 @@ func TestAssemble_MinimalService(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)"},
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 						`mux.HandleFunc("GET /users/{id}", userHandler.Read)`,
@@ -120,8 +121,9 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)"},
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -216,8 +218,9 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 	if strings.Contains(code, "_ =") {
 		t.Errorf("slot operators should not be discarded with _ = in:\n%s", code)
 	}
-	// Verify the handler constructor includes slot operator arguments.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateGate, onEntityChangedFanOut)") {
+	// Verify the handler constructor includes slot operator arguments
+	// with entity-scoped variable names.
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate, onEntityChangedUserFanOut)") {
 		t.Errorf("slot operators not injected into handler constructor in:\n%s", code)
 	}
 }
@@ -304,15 +307,17 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 			{
 				Name: "jwt-auth",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/auth"},
-					Constructors: []string{"auth.NewAuthMiddleware()"},
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
 				},
 			},
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)"},
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
 					},
@@ -595,8 +600,9 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 			{
 				Name: "jwt-auth",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/auth"},
-					Constructors: []string{"auth.NewAuthMiddleware()"},
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
 				},
 			},
 			{
@@ -606,6 +612,10 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 					Constructors: []string{
 						"api.NewOrganizationHandler(store)",
 						"api.NewUserHandler(store)",
+					},
+					ConstructorEntities: map[int]string{
+						0: "Organization",
+						1: "User",
 					},
 					Routes: []string{
 						`mux.HandleFunc("POST /organizations", organizationHandler.Create)`,
@@ -674,8 +684,9 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		t.Errorf("missing fan-out operator")
 	}
 
-	// Verify slot operators are injected into handler constructor.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateGate, onEntityChangedFanOut)") {
+	// Verify slot operators are injected into handler constructor
+	// with entity-scoped variable names.
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate, onEntityChangedUserFanOut)") {
 		t.Errorf("slot operators not injected into User handler constructor in:\n%s", code)
 	}
 
@@ -1049,23 +1060,261 @@ func TestAssemble_NoDB_WhenNeedsDBFalse(t *testing.T) {
 	}
 }
 
-func TestExtractEntityFromConstructor(t *testing.T) {
+func TestSlotVarName(t *testing.T) {
 	tests := []struct {
-		input string
-		want  string
+		slot, entity, suffix string
+		want                 string
 	}{
-		{"api.NewUserHandler(store)", "User"},
-		{"api.NewOrganizationHandler(store)", "Organization"},
-		{"storage.NewStore(db)", ""},        // Not a handler
-		{"auth.NewAuthMiddleware()", ""},     // Not a handler
-		{"pkg.NewHandler()", ""},             // Empty entity
-		{"api.NewClusterHandler()", "Cluster"},
+		{"before_create", "User", "Gate", "beforeCreateUserGate"},
+		{"before_create", "Organization", "Gate", "beforeCreateOrganizationGate"},
+		{"on_entity_changed", "User", "FanOut", "onEntityChangedUserFanOut"},
+		{"process_adapter_status", "", "Chain", "processAdapterStatusChain"},
 	}
 	for _, tt := range tests {
-		got := extractEntityFromConstructor(tt.input)
+		got := slotVarName(tt.slot, tt.entity, tt.suffix)
 		if got != tt.want {
-			t.Errorf("extractEntityFromConstructor(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("slotVarName(%q, %q, %q) = %q, want %q",
+				tt.slot, tt.entity, tt.suffix, got, tt.want)
 		}
+	}
+}
+
+func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
+	// Finding 10: Two slot bindings with the same slot name but different
+	// entities must produce distinct operator variable names.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/api"},
+					Constructors: []string{
+						"api.NewUserHandler(store)",
+						"api.NewOrganizationHandler(store)",
+					},
+					ConstructorEntities: map[int]string{
+						0: "User",
+						1: "Organization",
+					},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userHandler.Create)`,
+						`mux.HandleFunc("POST /orgs", organizationHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"user-policy"},
+			},
+			{
+				Slot:   "before_create",
+				Entity: "Organization",
+				Gate:   []string{"org-policy"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Must parse as valid Go — without entity in var names, both produce
+	// "beforeCreateGate" which is a duplicate declaration compile error.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Verify distinct variable names per entity.
+	if !strings.Contains(code, "beforeCreateUserGate :=") {
+		t.Errorf("missing beforeCreateUserGate in:\n%s", code)
+	}
+	if !strings.Contains(code, "beforeCreateOrganizationGate :=") {
+		t.Errorf("missing beforeCreateOrganizationGate in:\n%s", code)
+	}
+
+	// Verify each handler gets its own operator injected.
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate)") {
+		t.Errorf("User handler should receive beforeCreateUserGate in:\n%s", code)
+	}
+	if !strings.Contains(code, "api.NewOrganizationHandler(store, beforeCreateOrganizationGate)") {
+		t.Errorf("Organization handler should receive beforeCreateOrganizationGate in:\n%s", code)
+	}
+}
+
+func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
+	// Finding 11: A constructor whose derived variable name matches a slot
+	// operator variable name must be disambiguated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "slot-component",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/slotops"},
+					// This constructor produces var name "beforeCreateUserGate"
+					// which collides with the slot operator variable.
+					Constructors: []string{"slotops.NewBeforeCreateUserGate()"},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"user-policy"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Must parse — the constructor var should be disambiguated to avoid
+	// colliding with the slot operator var.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The constructor should get a disambiguated name.
+	if !strings.Contains(code, "beforeCreateUserGate2 :=") {
+		t.Errorf("constructor var should be disambiguated to beforeCreateUserGate2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_StructuredEntityMatching(t *testing.T) {
+	// Finding 12: Slot operators are injected via structured ConstructorEntities
+	// metadata, not by matching "New<Entity>Handler" naming convention.
+	// This test uses a non-standard constructor name to verify.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/api"},
+					// Non-standard naming: "Controller" instead of "Handler".
+					Constructors:        []string{"api.NewUserController(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userController.Create)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"user-policy"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Even with non-standard constructor name, slot operators should be
+	// injected because ConstructorEntities provides the entity mapping.
+	if !strings.Contains(code, "api.NewUserController(store, beforeCreateUserGate)") {
+		t.Errorf("slot operators not injected into non-standard controller constructor in:\n%s", code)
+	}
+
+	// Operators should be wired, not discarded.
+	if strings.Contains(code, "_ =") {
+		t.Errorf("slot operators should not be discarded in:\n%s", code)
 	}
 }
 
@@ -1258,8 +1507,9 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 			{
 				Name: "component-a",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/a"},
-					Constructors: []string{"a.NewUserHandler(store)"},
+					Imports:             []string{"internal/a"},
+					Constructors:        []string{"a.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
 					Routes: []string{
 						`mux.HandleFunc("POST /a/users", userHandler.Create)`,
 					},
@@ -1268,8 +1518,9 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 			{
 				Name: "component-b",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/b"},
-					Constructors: []string{"b.NewUserHandler(store)"},
+					Imports:             []string{"internal/b"},
+					Constructors:        []string{"b.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
 					Routes: []string{
 						`mux.HandleFunc("POST /b/users", userHandler.Create)`,
 					},
@@ -1378,3 +1629,6 @@ func TestInjectConstructorArgs(t *testing.T) {
 		}
 	}
 }
+
+// intPtr returns a pointer to an int value, for use in test literals.
+func intPtr(v int) *int { return &v }

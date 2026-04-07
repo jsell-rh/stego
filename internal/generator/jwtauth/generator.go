@@ -39,9 +39,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	files := []gen.File{f}
 
+	middlewareIdx := 0
 	wiring := &gen.Wiring{
-		Imports:      []string{ns},
-		Constructors: []string{fmt.Sprintf("%s.NewAuthMiddleware()", pkg)},
+		Imports:               []string{ns},
+		Constructors:          []string{fmt.Sprintf("%s.NewAuthMiddleware()", pkg)},
+		MiddlewareConstructor: &middlewareIdx,
 	}
 
 	if err := gen.ValidateNamespace(ns, files); err != nil {

@@ -102,6 +102,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// Build slot operator variable names by entity so we can inject them
 	// into handler constructor calls.
 	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
+	// Collect ALL slot var names (including entity-less ones) so constructor
+	// disambiguation can avoid collisions with slot operators.
+	allSlotVarNames := collectAllSlotVarNames(input.SlotBindings, hasSlots)
 
 	writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots)
 
@@ -117,7 +120,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByEntity)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -231,21 +234,51 @@ func writeDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdefer db.Close()\n\n")
 }
 
+// collectAllSlotVarNames returns the set of all slot operator variable names
+// that will be emitted by writeSlotWiring. This is used to seed the constructor
+// variable disambiguation maps so that constructor vars cannot collide with
+// slot operator vars in the same function scope.
+func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map[string]bool {
+	result := make(map[string]bool)
+	if !hasSlots {
+		return result
+	}
+	for _, sb := range bindings {
+		if len(sb.Gate) > 0 {
+			result[slotVarName(sb.Slot, sb.Entity, "Gate")] = true
+		}
+		if len(sb.Chain) > 0 {
+			result[slotVarName(sb.Slot, sb.Entity, "Chain")] = true
+		}
+		if len(sb.FanOut) > 0 {
+			result[slotVarName(sb.Slot, sb.Entity, "FanOut")] = true
+		}
+	}
+	return result
+}
+
 // writeConstructors emits constructor variable declarations and returns
 // per-wiring rename maps. Each entry maps a wiring index to a map from
 // raw (pre-disambiguation) variable names to their disambiguated names.
 // This is used by writeRouteRegistration to update variable references
 // only in routes belonging to the wiring whose constructors were renamed.
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) (map[int]map[string]string, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool) (map[int]map[string]string, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int]map[string]string)
+
+	// Seed with slot operator variable names so constructor vars are
+	// disambiguated against them (they share the same function scope).
+	for name := range slotVarNames {
+		varNames[name]++
+		varUsed[name] = true
+	}
 
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
-		for _, constructor := range cw.Wiring.Constructors {
+		for j, constructor := range cw.Wiring.Constructors {
 			baseVar := rawConstructorVarName(constructor)
 			varName := disambiguateAlias(baseVar, varNames, varUsed)
 
@@ -256,10 +289,10 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 				wiringRenames[i][baseVar] = varName
 			}
 
-			// Inject slot operators into handler constructors.
+			// Inject slot operators into handler constructors using
+			// structured metadata rather than naming convention matching.
 			expr := constructor
-			entity := extractEntityFromConstructor(constructor)
-			if entity != "" {
+			if entity, ok := cw.Wiring.ConstructorEntities[j]; ok && entity != "" {
 				if slotVars, ok := slotVarsByEntity[entity]; ok && len(slotVars) > 0 {
 					expr = injectConstructorArgs(constructor, slotVars)
 				}
@@ -296,7 +329,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 		}
 
 		if len(sb.Gate) > 0 {
-			varName := snakeToCamel(sb.Slot) + "Gate"
+			varName := slotVarName(sb.Slot, sb.Entity, "Gate")
 			fmt.Fprintf(buf, "\t// Slot: %s (gate)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sGate(\n", varName, slotPascal)
 			for _, fillName := range sb.Gate {
@@ -311,7 +344,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 		}
 
 		if len(sb.Chain) > 0 {
-			varName := snakeToCamel(sb.Slot) + "Chain"
+			varName := slotVarName(sb.Slot, sb.Entity, "Chain")
 			scStr := "false"
 			if sb.ShortCircuit {
 				scStr = "true"
@@ -330,7 +363,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 		}
 
 		if len(sb.FanOut) > 0 {
-			varName := snakeToCamel(sb.Slot) + "FanOut"
+			varName := slotVarName(sb.Slot, sb.Entity, "FanOut")
 			fmt.Fprintf(buf, "\t// Slot: %s (fan-out)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sFanOut(\n", varName, slotPascal)
 			for _, fillName := range sb.FanOut {
@@ -420,15 +453,15 @@ func needsDB(input AssemblerInput) bool {
 
 // findMiddlewareVar returns the variable name of an auth middleware
 // constructor and the wiring index it belongs to, or ("", -1) if none exists.
+// Uses structured MiddlewareConstructor metadata rather than string matching.
 func findMiddlewareVar(input AssemblerInput) (string, int) {
 	for i, cw := range input.Wirings {
-		if cw.Wiring == nil {
+		if cw.Wiring == nil || cw.Wiring.MiddlewareConstructor == nil {
 			continue
 		}
-		for _, c := range cw.Wiring.Constructors {
-			if strings.Contains(c, "AuthMiddleware") {
-				return rawConstructorVarName(c), i
-			}
+		idx := *cw.Wiring.MiddlewareConstructor
+		if idx >= 0 && idx < len(cw.Wiring.Constructors) {
+			return rawConstructorVarName(cw.Wiring.Constructors[idx]), i
 		}
 	}
 	return "", -1
@@ -486,26 +519,6 @@ func disambiguateAlias(base string, counts map[string]int, used map[string]bool)
 	return alias
 }
 
-// extractEntityFromConstructor extracts the entity name from a constructor
-// expression matching the pattern "pkg.New<Entity>Handler(...)". Returns ""
-// if the pattern does not match.
-func extractEntityFromConstructor(expr string) string {
-	funcName := expr
-	if dotIdx := strings.LastIndex(expr, "."); dotIdx >= 0 {
-		funcName = expr[dotIdx+1:]
-	}
-	if parenIdx := strings.Index(funcName, "("); parenIdx >= 0 {
-		funcName = funcName[:parenIdx]
-	}
-	if strings.HasPrefix(funcName, "New") && strings.HasSuffix(funcName, "Handler") {
-		entity := funcName[3 : len(funcName)-7]
-		if entity != "" {
-			return entity
-		}
-	}
-	return ""
-}
-
 // injectConstructorArgs inserts additional arguments into a constructor
 // expression before its closing parenthesis.
 func injectConstructorArgs(expr string, args []string) string {
@@ -544,13 +557,13 @@ func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[
 			continue
 		}
 		if len(sb.Gate) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"Gate")
+			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "Gate"))
 		}
 		if len(sb.Chain) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"Chain")
+			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "Chain"))
 		}
 		if len(sb.FanOut) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"FanOut")
+			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "FanOut"))
 		}
 	}
 	return result
@@ -651,4 +664,16 @@ func snakeToCamel(s string) string {
 		return ""
 	}
 	return strings.ToLower(pascal[:1]) + pascal[1:]
+}
+
+// slotVarName derives a unique slot operator variable name from the slot name,
+// entity name (may be empty), and operator type suffix ("Gate", "Chain", "FanOut").
+// When an entity is set, the entity name is included to disambiguate per-entity
+// bindings of the same slot (e.g. "beforeCreateUserGate" vs "beforeCreateOrgGate").
+func slotVarName(slot, entity, operatorSuffix string) string {
+	base := snakeToCamel(slot)
+	if entity != "" {
+		base += entity
+	}
+	return base + operatorSuffix
 }

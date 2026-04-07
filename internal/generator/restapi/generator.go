@@ -126,8 +126,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		files = append(files, handlerFile)
 
 		lower := strings.ToLower(entity.Name)
+		constructorIdx := len(wiring.Constructors)
 		wiring.Constructors = append(wiring.Constructors,
 			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), entity.Name))
+		if wiring.ConstructorEntities == nil {
+			wiring.ConstructorEntities = make(map[int]string)
+		}
+		wiring.ConstructorEntities[constructorIdx] = entity.Name
 
 		basePath, err := entityBasePath(eb, exposeMap)
 		if err != nil {

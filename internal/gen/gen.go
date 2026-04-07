@@ -76,9 +76,23 @@ type Wiring struct {
 	// Each entry is a code fragment like "api.NewUserHandler(userService, ...)".
 	Constructors []string
 
+	// ConstructorEntities maps constructor index to the entity name it
+	// handles. The assembler uses this to inject slot operators into the
+	// correct handler constructors, replacing convention-based name matching
+	// (e.g. inferring entity from "New<Entity>Handler" naming convention).
+	// Only handler constructors that should receive slot operator injection
+	// need entries here; non-handler constructors are simply omitted.
+	ConstructorEntities map[int]string
+
 	// Routes lists route registration expressions for main.go assembly.
 	// Each entry is a code fragment like "mux.Handle(\"/users\", userHandler)".
 	Routes []string
+
+	// MiddlewareConstructor, if non-nil, indicates which constructor index
+	// produces an auth middleware. The assembler uses this to wrap the mux
+	// with the middleware, replacing fragile string matching on constructor
+	// expressions (e.g. checking for "AuthMiddleware" substring).
+	MiddlewareConstructor *int
 
 	// NeedsDB indicates whether this component requires a *sql.DB connection.
 	// The assembler uses this to determine whether to emit database setup code
