@@ -114,9 +114,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Compute the slots import path. Handlers that have slot bindings need
 	// to import the slots package to reference slot interface types.
+	// With go.mod at the project root, generated packages live under the
+	// output directory, so the import path must include the OutDirName prefix.
 	slotsImportPath := ""
 	if ctx.SlotsPackage != "" && ctx.ModuleName != "" {
-		slotsImportPath = ctx.ModuleName + "/" + ctx.SlotsPackage
+		if ctx.OutDirName != "" {
+			slotsImportPath = ctx.ModuleName + "/" + ctx.OutDirName + "/" + ctx.SlotsPackage
+		} else {
+			slotsImportPath = ctx.ModuleName + "/" + ctx.SlotsPackage
+		}
 	}
 
 	// Generate handler file per exposed entity.

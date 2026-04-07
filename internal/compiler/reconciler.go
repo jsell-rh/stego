@@ -193,6 +193,19 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 	}
 
+	// Compute the output directory name relative to the project root.
+	// go.mod is placed at the project root so that both generated packages
+	// (under out/) and fill packages (under fills/) are within the module
+	// root. Import paths for generated packages must include this prefix.
+	outDir := input.OutDir
+	if outDir == "" {
+		outDir = filepath.Join(input.ProjectDir, "out")
+	}
+	outDirName, err := filepath.Rel(input.ProjectDir, outDir)
+	if err != nil {
+		outDirName = filepath.Base(outDir)
+	}
+
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File
 	var wirings []ComponentWiring
@@ -215,6 +228,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			SlotsPackage:    slotsPackage,
 			ComponentConfig: resolveComponentConfig(comp, svcDecl),
 			OutputNamespace: comp.OutputNamespace,
+			OutDirName:      outDirName,
 		}
 
 		files, wiring, err := generator.Generate(ctx)
@@ -253,6 +267,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		Wirings:      wirings,
 		SlotBindings: svcDecl.Slots,
 		SlotsPackage: slotsPackage,
+		OutDirName:   outDirName,
 	}
 	sharedFiles, err := Assemble(assemblerInput)
 	if err != nil {
@@ -274,24 +289,20 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("loading state: %w", err)
 	}
 
-	// Resolve output directory.
-	outDir := input.OutDir
-	if outDir == "" {
-		outDir = filepath.Join(input.ProjectDir, "out")
-	}
-
 	// Compute plan by comparing generated files against existing state.
-	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.RegistrySHA)
+	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA)
 
 	return plan, nil
 }
 
-// Apply writes all generated files to disk under outDir, removes orphaned
-// files, and saves the new state.
+// Apply writes all generated files to disk under outDir (or projectDir for
+// project-root files like go.mod), removes orphaned files, and saves the
+// new state.
 func Apply(plan *Plan, projectDir, outDir string) error {
 	// Write generated files.
 	for _, f := range plan.GeneratedFiles {
-		fullPath := filepath.Join(outDir, f.Path)
+		baseDir := fileBaseDir(f.Path, outDir, projectDir)
+		fullPath := filepath.Join(baseDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			return fmt.Errorf("creating directory for %s: %w", f.Path, err)
 		}
@@ -304,7 +315,8 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 	// Remove orphaned files (tracked in previous state but no longer generated).
 	for _, pf := range plan.Files {
 		if pf.Action == ActionDelete {
-			fullPath := filepath.Join(outDir, pf.Path)
+			baseDir := fileBaseDir(pf.Path, outDir, projectDir)
+			fullPath := filepath.Join(baseDir, pf.Path)
 			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("removing orphaned file %s: %w", pf.Path, err)
 			}
@@ -313,6 +325,23 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 
 	statePath := filepath.Join(projectDir, ".stego", "state.yaml")
 	return SaveState(statePath, plan.NewState)
+}
+
+// fileBaseDir returns the base directory for a file path. Project-root files
+// (go.mod) are placed at projectDir; all other generated files go to outDir.
+func fileBaseDir(filePath, outDir, projectDir string) string {
+	if isProjectRootFile(filePath) {
+		return projectDir
+	}
+	return outDir
+}
+
+// isProjectRootFile returns true for files that should be placed at the project
+// root rather than in the output directory. Currently only go.mod, because it
+// must be at the module root to make both generated packages (under out/) and
+// fill packages (under fills/) resolvable as intra-module imports.
+func isProjectRootFile(filePath string) bool {
+	return filePath == "go.mod"
 }
 
 // collectComponentNames assembles the ordered list of component names from the
@@ -334,7 +363,9 @@ func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDec
 	}
 
 	// Validate declared mixins against archetype's compatible_mixins constraint.
-	if len(archetype.CompatibleMixins) > 0 && len(svcDecl.Mixins) > 0 {
+	// Distinguish nil (no field declared — any mixin accepted) from empty
+	// (compatible_mixins: [] — no mixins are compatible).
+	if archetype.CompatibleMixins != nil && len(svcDecl.Mixins) > 0 {
 		compatible := make(map[string]bool, len(archetype.CompatibleMixins))
 		for _, m := range archetype.CompatibleMixins {
 			compatible[m] = true
@@ -513,6 +544,7 @@ func computePlan(
 	entities []types.Entity,
 	components map[string]*types.Component,
 	outDir string,
+	projectDir string,
 	registrySHA string,
 ) *Plan {
 	serviceHash := HashBytes(serviceData)
@@ -530,10 +562,11 @@ func computePlan(
 		hash := HashBytes(content)
 		newFileHashes[f.Path] = hash
 
+		baseDir := fileBaseDir(f.Path, outDir, projectDir)
 		existingHash, exists := existingHashes[f.Path]
 		switch {
 		case !exists:
-			diskPath := filepath.Join(outDir, f.Path)
+			diskPath := filepath.Join(baseDir, f.Path)
 			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
 				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
 			} else {
@@ -548,7 +581,7 @@ func computePlan(
 			// State hash matches generated hash, but verify the file still
 			// exists on disk. A manually deleted file should be regenerated,
 			// not silently omitted from the plan.
-			diskPath := filepath.Join(outDir, f.Path)
+			diskPath := filepath.Join(baseDir, f.Path)
 			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
 				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
 			} else {

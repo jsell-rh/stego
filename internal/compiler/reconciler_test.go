@@ -243,11 +243,11 @@ func TestReconcile_ApplyWritesFiles(t *testing.T) {
 		t.Error("main.go missing package main")
 	}
 
-	// Verify go.mod was written.
-	goModPath := filepath.Join(outDir, "go.mod")
+	// Verify go.mod was written at the project root (not inside out/).
+	goModPath := filepath.Join(projectDir, "go.mod")
 	data, err = os.ReadFile(goModPath)
 	if err != nil {
-		t.Fatalf("go.mod not written: %v", err)
+		t.Fatalf("go.mod not written at project root: %v", err)
 	}
 	if !strings.Contains(string(data), "github.com/test/svc") {
 		t.Error("go.mod missing module name")
@@ -977,6 +977,7 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		nil,
 		map[string]*types.Component{},
 		customOutDir,
+		tmpDir,
 		"",
 	)
 
@@ -1888,5 +1889,66 @@ overrides: none
 	_, err = collectComponentNames(archetype, svcDecl, reg)
 	if err != nil {
 		t.Fatalf("expected success when archetype has no compatible_mixins, got: %v", err)
+	}
+}
+
+func TestCollectComponentNames_EmptyCompatibleMixinsRejectsAll(t *testing.T) {
+	_, registryDir := setupTestProject(t)
+
+	// Archetype with compatible_mixins: [] — explicitly empty whitelist means
+	// no mixins are allowed. This is distinct from nil (field absent), which
+	// means any mixin is acceptable.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+compatible_mixins: []
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a mixin to the registry.
+	mixinDir := filepath.Join(registryDir, "mixins", "any-mixin")
+	if err := os.MkdirAll(mixinDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mixinYAML := `kind: mixin
+name: any-mixin
+version: 1.0.0
+adds_components: []
+overrides: none
+`
+	if err := os.WriteFile(filepath.Join(mixinDir, "mixin.yaml"), []byte(mixinYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := registry.Load(registryDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archetype := reg.Archetype("test-arch")
+	svcDecl := &types.ServiceDeclaration{
+		Mixins: []string{"any-mixin"},
+	}
+
+	_, err = collectComponentNames(archetype, svcDecl, reg)
+	if err == nil {
+		t.Fatal("expected error when archetype declares compatible_mixins: [] and service uses a mixin")
+	}
+	if !strings.Contains(err.Error(), "not compatible") {
+		t.Errorf("error should mention compatibility, got: %v", err)
 	}
 }

@@ -3363,7 +3363,10 @@ func TestAssemble_InterConstructorRenameStillAppliedToRoutes(t *testing.T) {
 	}
 }
 
-func TestGenerateGoMod_IncludesReplaceDirectivesForFills(t *testing.T) {
+func TestGenerateGoMod_NoReplaceDirectivesWithFills(t *testing.T) {
+	// go.mod is placed at the project root, making fills/ a direct
+	// subdirectory of the module root. No replace directives are needed
+	// because fill imports are resolvable as intra-module packages.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -3384,20 +3387,16 @@ func TestGenerateGoMod_IncludesReplaceDirectivesForFills(t *testing.T) {
 	}
 
 	goMod := generateGoMod(input)
-
 	content := string(goMod.Content)
 
-	// Each fill should have a replace directive mapping from the module-qualified
-	// import path to a relative path from out/ to the project root's fills.
-	expectedReplaces := []string{
-		"replace github.com/myorg/svc/fills/admin-creation-policy => ../fills/admin-creation-policy",
-		"replace github.com/myorg/svc/fills/audit-logger => ../fills/audit-logger",
-		"replace github.com/myorg/svc/fills/user-change-notifier => ../fills/user-change-notifier",
+	if strings.Contains(content, "replace") {
+		t.Errorf("go.mod should have no replace directives (go.mod is at project root), got:\n%s", content)
 	}
-	for _, expected := range expectedReplaces {
-		if !strings.Contains(content, expected) {
-			t.Errorf("go.mod missing expected replace directive %q\ngot:\n%s", expected, content)
-		}
+	if !strings.Contains(content, "module github.com/myorg/svc") {
+		t.Errorf("go.mod missing module declaration, got:\n%s", content)
+	}
+	if !strings.Contains(content, "go 1.22") {
+		t.Errorf("go.mod missing go version, got:\n%s", content)
 	}
 }
 
@@ -3414,6 +3413,129 @@ func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
 
 	if strings.Contains(content, "replace") {
 		t.Errorf("go.mod should have no replace directives without slot bindings, got:\n%s", content)
+	}
+}
+
+func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
+	// With OutDirName set, component imports must include the output directory
+	// prefix, while fill imports must NOT include it (fills live at the project
+	// root level, not under the output directory).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		OutDirName:  "out",
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)"},
+					Routes:       []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"admin-creation-policy"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainContent string
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainContent = string(f.Content)
+			break
+		}
+	}
+	if mainContent == "" {
+		t.Fatal("main.go not found in output")
+	}
+
+	// Component imports must include "out/" prefix.
+	if !strings.Contains(mainContent, `"github.com/myorg/svc/out/internal/api"`) {
+		t.Error("main.go missing out/ prefix in api import path")
+	}
+	if !strings.Contains(mainContent, `"github.com/myorg/svc/out/internal/storage"`) {
+		t.Error("main.go missing out/ prefix in storage import path")
+	}
+
+	// Slots import must include "out/" prefix.
+	if !strings.Contains(mainContent, `"github.com/myorg/svc/out/internal/slots"`) {
+		t.Error("main.go missing out/ prefix in slots import path")
+	}
+
+	// Fill imports must NOT include "out/" prefix.
+	if !strings.Contains(mainContent, `"github.com/myorg/svc/fills/admin-creation-policy"`) {
+		t.Error("main.go missing fill import path")
+	}
+	if strings.Contains(mainContent, `"github.com/myorg/svc/out/fills/`) {
+		t.Error("fill import path should NOT include out/ prefix")
+	}
+}
+
+func TestAssemble_GoModAtProjectRoot(t *testing.T) {
+	// go.mod is emitted at path "go.mod" and the reconciler writes it to the
+	// project root. This test verifies: (1) the path is "go.mod", (2) there
+	// are no replace directives (fills are resolved as intra-module packages),
+	// and (3) the content is valid.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		OutDirName:  "out",
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"admin-creation-policy"},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var goMod gen.File
+	found := false
+	for _, f := range files {
+		if f.Path == "go.mod" {
+			goMod = f
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("go.mod not found in output")
+	}
+
+	content := string(goMod.Content)
+	if strings.Contains(content, "replace") {
+		t.Errorf("go.mod should have no replace directives, got:\n%s", content)
+	}
+	if !strings.Contains(content, "module github.com/myorg/svc") {
+		t.Errorf("go.mod missing module declaration, got:\n%s", content)
 	}
 }
 

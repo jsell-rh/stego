@@ -37,6 +37,14 @@ type AssemblerInput struct {
 	// SlotsPackage is the relative import path (under ModuleName) for the
 	// generated slot operators package. If empty, slot wiring is omitted.
 	SlotsPackage string
+
+	// OutDirName is the name of the output directory relative to the project
+	// root (e.g. "out"). With go.mod at the project root, import paths for
+	// generated packages must include this prefix so they resolve correctly
+	// (e.g. "<module>/out/internal/api" instead of "<module>/internal/api").
+	// Fill imports do NOT include this prefix since fills live at the project
+	// root level (e.g. "<module>/fills/<name>").
+	OutDirName string
 }
 
 // ComponentWiring pairs a component name with its generator's wiring output.
@@ -83,21 +91,10 @@ func generateGoMod(input AssemblerInput) gen.File {
 	fmt.Fprintf(&buf, "module %s\n\n", input.ModuleName)
 	fmt.Fprintf(&buf, "go %s\n", input.GoVersion)
 
-	// Generate replace directives for fill packages. Fills live at
-	// <project>/fills/<name> but go.mod is in out/, making out/ the module
-	// root. Without replace directives, the Go toolchain looks for fills
-	// at out/fills/<name> which doesn't exist. The replace directive maps
-	// the module-qualified import path to the relative filesystem path
-	// from out/ to the project root's fills directory.
-	fillNames := collectFillNames(input.SlotBindings)
-	if len(fillNames) > 0 {
-		buf.WriteString("\n")
-		for _, name := range fillNames {
-			fullImport := input.ModuleName + "/fills/" + name
-			relativePath := "../fills/" + name
-			fmt.Fprintf(&buf, "replace %s => %s\n", fullImport, relativePath)
-		}
-	}
+	// go.mod is placed at the project root (not inside out/) so that both
+	// generated packages (under out/) and fill packages (under fills/) are
+	// within the module root. This makes all import paths resolvable as
+	// intra-module packages without requiring replace directives.
 
 	return gen.File{
 		Path:    "go.mod",
@@ -262,7 +259,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// Slots package import — registered first so its hardcoded alias "slots"
 	// is reserved before any dynamic disambiguation runs.
 	if hasSlots {
-		fullPath := input.ModuleName + "/" + input.SlotsPackage
+		fullPath := generatedImportPath(input.ModuleName, input.OutDirName, input.SlotsPackage)
 		if !seen[fullPath] {
 			seen[fullPath] = true
 			slotsAlias := disambiguateAlias("slots", aliases, aliasUsed)
@@ -277,7 +274,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 			continue
 		}
 		for _, imp := range cw.Wiring.Imports {
-			fullPath := input.ModuleName + "/" + imp
+			fullPath := generatedImportPath(input.ModuleName, input.OutDirName, imp)
 			base := path.Base(imp)
 			if seen[fullPath] {
 				// Propagate rename from the representative entry so this
@@ -866,7 +863,7 @@ func buildFillAliasMap(input AssemblerInput) map[string]string {
 	// Replay slots alias registration.
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 	if hasSlots {
-		fullPath := input.ModuleName + "/" + input.SlotsPackage
+		fullPath := generatedImportPath(input.ModuleName, input.OutDirName, input.SlotsPackage)
 		if !seen[fullPath] {
 			seen[fullPath] = true
 			disambiguateAlias("slots", aliases, aliasUsed)
@@ -879,7 +876,7 @@ func buildFillAliasMap(input AssemblerInput) map[string]string {
 			continue
 		}
 		for _, imp := range cw.Wiring.Imports {
-			fullPath := input.ModuleName + "/" + imp
+			fullPath := generatedImportPath(input.ModuleName, input.OutDirName, imp)
 			if seen[fullPath] {
 				continue
 			}
@@ -1072,6 +1069,17 @@ func validateSlotVarNameUniqueness(bindings []types.SlotDeclaration) error {
 		}
 	}
 	return nil
+}
+
+// generatedImportPath constructs a full Go import path for a generated package.
+// With go.mod at the project root, generated packages live under the output
+// directory (e.g. "out/internal/api") and their import paths must include the
+// output directory name. If outDirName is empty, no prefix is added.
+func generatedImportPath(moduleName, outDirName, relativePath string) string {
+	if outDirName != "" {
+		return moduleName + "/" + outDirName + "/" + relativePath
+	}
+	return moduleName + "/" + relativePath
 }
 
 // slotVarName derives a unique slot operator variable name from the slot name,

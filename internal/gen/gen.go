@@ -54,6 +54,14 @@ type Context struct {
 	// OutputNamespace is the component's declared output namespace
 	// (e.g. "internal/api"). Generators can only write files under it.
 	OutputNamespace string
+
+	// OutDirName is the name of the output directory relative to the project
+	// root (e.g. "out"). Generators use this when constructing full import
+	// paths for generated packages within the output directory. With go.mod
+	// at the project root, import paths for generated packages must include
+	// this prefix (e.g. "<module>/out/internal/slots" instead of
+	// "<module>/internal/slots"). Empty string means no prefix is added.
+	OutDirName string
 }
 
 // File represents a single generated output file.
