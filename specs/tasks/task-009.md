@@ -45,3 +45,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 9751749 fix(task-009): address all 5 review findings on rest-api component generator
 - 626d10e fix(task-009): address round 2 findings — scope filtering, OpenAPI params, computed fields
 - d86da4a fix(task-009): address round 3 findings — JSON header, upsert parent ID, conditional imports
+- 9273255 fix(task-009): address round 4 findings — Content-Type header, timestamp zero value, expose schema
