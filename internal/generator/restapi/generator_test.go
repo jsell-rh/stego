@@ -3084,6 +3084,62 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 	}
 }
 
+func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
+	// Finding 44: duplicate operations within a single expose block produce
+	// duplicate method declarations (compile error), duplicate route
+	// registrations (runtime panic), and duplicate OpenAPI entries (overwrite).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpCreate, types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate operations in expose block")
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the entity with duplicate operations, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "create") {
+		t.Errorf("error should mention the duplicated operation, got: %v", err)
+	}
+}
+
+func TestGenerate_DuplicateOperationsMultipleEntities(t *testing.T) {
+	// Verify that duplicate operation detection reports all affected entities.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpRead, types.OpRead}},
+			{Entity: "Org", Operations: []types.Operation{types.OpDelete, types.OpDelete}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate operations")
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention User, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Org") {
+		t.Errorf("error should mention Org, got: %v", err)
+	}
+}
+
 func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 	// Finding 38: two entities with the same path_prefix must be rejected at
 	// generation time — duplicate route registrations cause runtime panics.

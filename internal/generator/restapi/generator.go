@@ -65,6 +65,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate that no expose block contains duplicate operations. Duplicate
+	// operations produce duplicate method declarations (compile error),
+	// duplicate route registrations (runtime panic), and duplicate OpenAPI
+	// operation entries (silent overwrite).
+	if err := validateOperationUniqueness(ctx.Expose); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate that all parent cross-references resolve within the expose list.
 	if err := validateParentReferences(ctx.Expose, exposeMap); err != nil {
 		return nil, nil, err
@@ -1422,6 +1430,43 @@ func validateCaseInsensitiveUniqueness(expose []types.ExposeBlock) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("case-insensitive entity name collisions:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateOperationUniqueness checks that no expose block contains duplicate
+// operations. Duplicate operations produce duplicate method declarations (Go
+// compile error), duplicate route registrations (Go 1.22 ServeMux runtime
+// panic), and duplicate OpenAPI operation entries (silent overwrite).
+func validateOperationUniqueness(expose []types.ExposeBlock) error {
+	var errs []string
+	for _, eb := range expose {
+		seen := make(map[types.Operation]bool, len(eb.Operations))
+		var dupes []string
+		for _, op := range eb.Operations {
+			if seen[op] {
+				// Only report each duplicate once.
+				already := false
+				for _, d := range dupes {
+					if d == string(op) {
+						already = true
+						break
+					}
+				}
+				if !already {
+					dupes = append(dupes, string(op))
+				}
+			}
+			seen[op] = true
+		}
+		if len(dupes) > 0 {
+			errs = append(errs, fmt.Sprintf(
+				"expose block for entity %q has duplicate operations: %s",
+				eb.Entity, strings.Join(dupes, ", ")))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("duplicate operations in expose blocks:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
