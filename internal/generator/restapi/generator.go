@@ -234,7 +234,7 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		case types.OpRead:
 			generateReadMethod(&buf, entity, eb)
 		case types.OpUpdate:
-			generateUpdateMethod(&buf, entity, eb)
+			opErr = generateUpdateMethod(&buf, entity, eb)
 		case types.OpDelete:
 			generateDeleteMethod(&buf, entity, eb)
 		case types.OpList:
@@ -310,7 +310,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -321,6 +321,14 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
+	if eb.Parent != "" {
+		parentIDParam := strings.ToLower(eb.Parent) + "_id"
+		refField, err := parentRefFieldName(entity, eb.Parent)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
+	}
 	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
@@ -328,6 +336,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
+	return nil
 }
 
 func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {

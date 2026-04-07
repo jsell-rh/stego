@@ -2013,6 +2013,79 @@ func TestCollectAncestors_CircularParentReturnsError(t *testing.T) {
 	}
 }
 
+func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
+	// Finding 26: update handler must assign parent ID from path parameter after
+	// body decode, just like create and upsert do. Without this, a client can
+	// overwrite or clear the parent ref field via the request body.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpUpdate},
+				Parent:     "Cluster",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	// Update must assign parent ID from path parameter, just like create does.
+	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
+		t.Error("update handler must assign parent ID from path parameter")
+	}
+}
+
+func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
+	// Update with parent but no matching ref field must return an error,
+	// consistent with create and upsert behavior.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				// No ref field to Cluster.
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpUpdate},
+				Parent:     "Cluster",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when parent ref field is missing for update")
+	}
+	if !strings.Contains(err.Error(), "Cluster") {
+		t.Errorf("error should mention parent entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ref") {
+		t.Errorf("error should mention missing ref field, got: %v", err)
+	}
+}
+
 func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 	// Finding 25: the `default` constraint attribute must be propagated to the
 	// generated OpenAPI schema.
