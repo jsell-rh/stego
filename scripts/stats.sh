@@ -64,6 +64,8 @@ OUTLIER_GAP=3600  # 1 hour in seconds — gaps longer than this are likely conte
 declare -A task_wall_clock=() task_first_commit=() task_last_commit=()
 declare -A task_active_seconds=()
 
+declare -A task_commits=()
+
 compute_task_time() {
     local task_id="$1"
     local commits
@@ -93,6 +95,7 @@ compute_task_time() {
     task_last_commit[$task_id]=$last
     task_wall_clock[$task_id]=$((last - first))
     task_active_seconds[$task_id]=$active_time
+    task_commits[$task_id]=$count
 }
 
 for name in "${task_names[@]}"; do
@@ -119,10 +122,11 @@ fmt_duration() {
     local secs=$1
     local hrs=$((secs / 3600))
     local mins=$(( (secs % 3600) / 60 ))
+    local s=$((secs % 60))
     if [[ $hrs -gt 0 ]]; then
-        printf "%dh %dm" "$hrs" "$mins"
+        printf "%dh %dm %ds" "$hrs" "$mins" "$s"
     else
-        printf "%dm" "$mins"
+        printf "%dm %ds" "$mins" "$s"
     fi
 }
 
@@ -165,8 +169,9 @@ if $JSON_MODE; then
         wall=${task_wall_clock[$name]:-0}
         $first || echo ","
         first=false
-        printf '    {"task": "%s", "status": "%s", "review_rounds": %d, "findings": %d, "active_seconds": %d, "wall_seconds": %d}' \
-            "$name" "$status" "$rounds" "$findings" "$active" "$wall"
+        commits=${task_commits[$name]:-0}
+        printf '    {"task": "%s", "status": "%s", "commits": %d, "review_rounds": %d, "findings": %d, "active_seconds": %d, "wall_seconds": %d}' \
+            "$name" "$status" "$commits" "$rounds" "$findings" "$active" "$wall"
     done
     echo ""
     echo "  ]"
@@ -204,20 +209,22 @@ echo ""
 
 # Per-task breakdown
 echo "${BOLD}Task Breakdown${RESET}"
-printf "  ${DIM}%-12s  %-16s  %6s  %8s  %12s${RESET}\n" "TASK" "STATUS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
-printf "  %s%s%s\n" "${DIM}" "--------------------------------------------------------------" "${RESET}"
+printf "  ${DIM}%-12s  %-16s  %7s  %6s  %8s  %14s${RESET}\n" "TASK" "STATUS" "COMMITS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
+printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------" "${RESET}"
 
-total_rounds=0; total_findings=0; total_active=0
+total_rounds=0; total_findings=0; total_active=0; total_task_commits=0
 for i in "${!task_names[@]}"; do
     name="${task_names[$i]}"
     status="${task_statuses[$i]}"
     rounds=${review_rounds[$name]:-0}
     findings=${review_findings[$name]:-0}
     active=${task_active_seconds[$name]:-0}
+    commits=${task_commits[$name]:-0}
 
     total_rounds=$((total_rounds + rounds))
     total_findings=$((total_findings + findings))
     total_active=$((total_active + active))
+    total_task_commits=$((total_task_commits + commits))
 
     # Color code status — pad to exactly 16 visible chars
     case "$status" in
@@ -246,16 +253,18 @@ for i in "${!task_names[@]}"; do
     fpad=$(printf "%8d" "$findings")
 
     if [[ $active -gt 0 ]]; then
-        at=$(printf "%12s" "$(fmt_duration $active)")
+        at=$(printf "%14s" "$(fmt_duration $active)")
     else
-        at=$(printf "%12s" "${DIM}--${RESET}")
+        at=$(printf "%14s" "${DIM}--${RESET}")
     fi
 
-    printf "  %-12s  %s  %s  %s  %s\n" "$name" "$sc" "$rc" "$fpad" "$at"
+    cpad=$(printf "%7d" "$commits")
+
+    printf "  %-12s  %s  %s  %s  %s  %s\n" "$name" "$sc" "$cpad" "$rc" "$fpad" "$at"
 done
 
-printf "  %s%s%s\n" "${DIM}" "--------------------------------------------------------------" "${RESET}"
-printf "  ${BOLD}%-12s  %-16s  %6d  %8d  %12s${RESET}\n" "TOTAL" "" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
+printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------" "${RESET}"
+printf "  ${BOLD}%-12s  %-16s  %7d  %6d  %8d  %14s${RESET}\n" "TOTAL" "" "$total_task_commits" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
 echo ""
 
 # Review efficiency
