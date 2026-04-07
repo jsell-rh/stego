@@ -1526,6 +1526,187 @@ func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
 	}
 }
 
+func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
+	// Finding 19: when an entity declares parent but has no ref field to the parent,
+	// the generator must return a clear error instead of producing broken code.
+	g := &Generator{}
+
+	tests := []struct {
+		name string
+		ops  []types.Operation
+	}{
+		{"create", []types.Operation{types.OpCreate}},
+		{"list (parent-only)", []types.Operation{types.OpList}},
+		{"upsert", []types.Operation{types.OpUpsert}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+					{Name: "Widget", Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+						// No ref field to Cluster — this is the bug trigger.
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+					{
+						Entity:     "Widget",
+						Operations: tt.ops,
+						Parent:     "Cluster",
+						UpsertKey:  []string{"name"},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatal("expected error when parent ref field is missing")
+			}
+			if !strings.Contains(err.Error(), "Cluster") {
+				t.Errorf("error should mention parent entity name, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), "ref") {
+				t.Errorf("error should mention missing ref field, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
+	// Finding 20: OpenAPI entity schemas must include a "required" array listing
+	// all non-optional, non-computed fields.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString, Unique: true},
+				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "metadata", Type: types.FieldTypeJsonb, Optional: true},
+				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "aggregator"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	userSchema := schemas["User"].(map[string]any)
+
+	requiredRaw, ok := userSchema["required"]
+	if !ok {
+		t.Fatal("User schema missing 'required' array")
+	}
+	required := requiredRaw.([]any)
+
+	// email, role, org_id should be required.
+	// metadata (optional) and status (computed) should NOT be required.
+	requiredSet := make(map[string]bool)
+	for _, r := range required {
+		requiredSet[r.(string)] = true
+	}
+
+	for _, want := range []string{"email", "role", "org_id"} {
+		if !requiredSet[want] {
+			t.Errorf("field %q should be in required array", want)
+		}
+	}
+	for _, notWant := range []string{"metadata", "status"} {
+		if requiredSet[notWant] {
+			t.Errorf("field %q should NOT be in required array (optional or computed)", notWant)
+		}
+	}
+}
+
+func TestGenerate_GoKeywordEntityName(t *testing.T) {
+	// Finding 21: entity names that are Go keywords must not produce compile errors.
+	// The generator should escape the variable name.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Type", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Type",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the generated code actually compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("entity named 'Type' (Go keyword) does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestSafeVarName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"user", "user"},
+		{"type", "type_"},
+		{"map", "map_"},
+		{"range", "range_"},
+		{"select", "select_"},
+		{"string", "string_"},
+		{"var", "var_"},
+		{"cluster", "cluster"},
+	}
+	for _, tt := range tests {
+		got := safeVarName(tt.input)
+		if got != tt.want {
+			t.Errorf("safeVarName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()

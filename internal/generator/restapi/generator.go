@@ -205,9 +205,10 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 
 	// Generate operation methods.
 	for _, op := range eb.Operations {
+		var opErr error
 		switch op {
 		case types.OpCreate:
-			generateCreateMethod(&buf, entity, eb)
+			opErr = generateCreateMethod(&buf, entity, eb)
 		case types.OpRead:
 			generateReadMethod(&buf, entity, eb)
 		case types.OpUpdate:
@@ -215,9 +216,12 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 		case types.OpDelete:
 			generateDeleteMethod(&buf, entity, eb)
 		case types.OpList:
-			generateListMethod(&buf, entity, eb)
+			opErr = generateListMethod(&buf, entity, eb)
 		case types.OpUpsert:
-			generateUpsertMethod(&buf, entity, eb)
+			opErr = generateUpsertMethod(&buf, entity, eb)
+		}
+		if opErr != nil {
+			return gen.File{}, opErr
 		}
 	}
 
@@ -240,8 +244,8 @@ func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	lower := strings.ToLower(entity.Name)
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
@@ -252,7 +256,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentRefFieldName(entity, eb.Parent), parentIDParam)
+		refField, err := parentRefFieldName(entity, eb.Parent)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -262,10 +270,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
+	return nil
 }
 
 func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	lower := strings.ToLower(entity.Name)
+	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
@@ -280,7 +289,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 }
 
 func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	lower := strings.ToLower(entity.Name)
+	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
@@ -311,8 +320,8 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	lower := strings.ToLower(entity.Name) + "s"
+func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 
@@ -329,7 +338,10 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	} else if eb.Parent != "" {
 		parentIDVar := strings.ToLower(eb.Parent) + "ID"
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		parentField := parentRefRawFieldName(entity, eb.Parent)
+		parentField, err := parentRefRawFieldName(entity, eb.Parent)
+		if err != nil {
+			return err
+		}
 		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
@@ -343,10 +355,11 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
+	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	lower := strings.ToLower(entity.Name)
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
@@ -357,7 +370,11 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentRefFieldName(entity, eb.Parent), parentIDParam)
+		refField, err := parentRefFieldName(entity, eb.Parent)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
 	}
 
 	if len(eb.UpsertKey) > 0 {
@@ -382,6 +399,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusOK)\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
+	return nil
 }
 
 // generateRouter produces the router.go file with entity type definitions,
@@ -512,8 +530,15 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 			Type:       "object",
 			Properties: make(map[string]openAPISchema),
 		}
+		var required []string
 		for _, f := range e.Fields {
 			schema.Properties[f.Name] = fieldToOpenAPISchema(f)
+			if !f.Optional && !f.Computed {
+				required = append(required, f.Name)
+			}
+		}
+		if len(required) > 0 {
+			schema.Required = required
 		}
 		spec.Components.Schemas[e.Name] = schema
 	}
@@ -757,26 +782,53 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 }
 
 // parentRefFieldName finds the Go field name for the ref field that points to
-// the parent entity. Falls back to Parent+"ID" if no matching ref is found.
-func parentRefFieldName(entity types.Entity, parent string) string {
+// the parent entity. Returns an error if no matching ref field is found —
+// a silent fallback would produce compile errors in the generated code.
+func parentRefFieldName(entity types.Entity, parent string) (string, error) {
 	for _, f := range entity.Fields {
 		if f.Type == types.FieldTypeRef && f.To == parent {
-			return toPascalCase(f.Name)
+			return toPascalCase(f.Name), nil
 		}
 	}
-	return parent + "ID"
+	return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
 }
 
 // parentRefRawFieldName finds the raw YAML field name for the ref field that
-// points to the parent entity. Falls back to lowercase parent + "_id" if no
-// matching ref is found.
-func parentRefRawFieldName(entity types.Entity, parent string) string {
+// points to the parent entity. Returns an error if no matching ref field is found.
+func parentRefRawFieldName(entity types.Entity, parent string) (string, error) {
 	for _, f := range entity.Fields {
 		if f.Type == types.FieldTypeRef && f.To == parent {
-			return f.Name
+			return f.Name, nil
 		}
 	}
-	return strings.ToLower(parent) + "_id"
+	return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
+}
+
+// goReservedWords is the set of Go keywords and predeclared identifiers that
+// cannot be used as variable names in generated code.
+var goReservedWords = map[string]bool{
+	// Keywords
+	"break": true, "case": true, "chan": true, "const": true, "continue": true,
+	"default": true, "defer": true, "else": true, "fallthrough": true, "for": true,
+	"func": true, "go": true, "goto": true, "if": true, "import": true,
+	"interface": true, "map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true, "var": true,
+	// Predeclared identifiers
+	"bool": true, "byte": true, "error": true, "int": true, "string": true,
+	"true": true, "false": true, "nil": true, "len": true, "cap": true,
+	"make": true, "new": true, "append": true, "copy": true, "delete": true,
+	"print": true, "println": true, "complex": true, "real": true, "imag": true,
+	"close": true, "panic": true, "recover": true,
+}
+
+// safeVarName returns the given name with a trailing underscore appended if it
+// collides with a Go reserved word or predeclared identifier. This prevents
+// generated code from using keywords as variable names.
+func safeVarName(name string) string {
+	if goReservedWords[name] {
+		return name + "_"
+	}
+	return name
 }
 
 func jsonContent(schema openAPISchema) map[string]openAPIMediaType {
@@ -885,6 +937,7 @@ type openAPISchema struct {
 	Type       string                   `json:"type,omitempty"`
 	Format     string                   `json:"format,omitempty"`
 	Properties map[string]openAPISchema `json:"properties,omitempty"`
+	Required   []string                 `json:"required,omitempty"`
 	Items      *openAPISchema           `json:"items,omitempty"`
 	Ref        string                   `json:"$ref,omitempty"`
 	Enum       []string                 `json:"enum,omitempty"`
