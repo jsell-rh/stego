@@ -25,7 +25,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
-	// Check for entity name collisions with generator-internal identifiers.
+	// Validate no duplicate expose blocks for the same entity. This must
+	// happen before any map or iteration to avoid silent overwrites (map)
+	// and duplicate type declarations (iteration).
+	if err := validateExposeUniqueness(ctx.Expose); err != nil {
+		return nil, nil, err
+	}
+
+	// Check for entity name collisions with generator-internal identifiers
+	// and cross-entity derived identifier collisions.
 	if err := checkEntityNameCollisions(ctx.Expose); err != nil {
 		return nil, nil, err
 	}
@@ -44,6 +52,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Validate that all parent cross-references resolve within the expose list.
 	if err := validateParentReferences(ctx.Expose, exposeMap); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate that scope and upsert_key field-name references resolve to
+	// actual entity fields. The generator is the first consumer that knows
+	// both the expose block and the entity's field definitions.
+	if err := validateFieldReferences(ctx.Expose, entityMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -974,12 +989,88 @@ var reservedTypeNames = map[string]bool{
 }
 
 // checkEntityNameCollisions verifies that no exposed entity name collides with
-// a generator-internal identifier. Returns an error identifying the collision.
+// a generator-internal identifier or with another entity's derived type names.
+// Returns an error identifying the collision.
 func checkEntityNameCollisions(expose []types.ExposeBlock) error {
+	// Check against static reserved names.
 	for _, eb := range expose {
 		if reservedTypeNames[eb.Entity] {
 			return fmt.Errorf("entity name %q collides with rest-api generator internal identifier %q; rename the entity to avoid a redeclaration error in generated code", eb.Entity, eb.Entity)
 		}
+	}
+
+	// Check cross-entity derived identifier collisions. Each entity produces
+	// derived names: "<Entity>Handler" (type) and "New<Entity>Handler" (constructor).
+	// If another entity's direct name matches a derived name, it's a collision.
+	derivedNames := make(map[string]string, len(expose)*2) // derived name -> source entity
+	directNames := make(map[string]bool, len(expose))
+	for _, eb := range expose {
+		directNames[eb.Entity] = true
+	}
+	for _, eb := range expose {
+		handlerName := eb.Entity + "Handler"
+		ctorName := "New" + eb.Entity + "Handler"
+		derivedNames[handlerName] = eb.Entity
+		derivedNames[ctorName] = eb.Entity
+	}
+	for _, eb := range expose {
+		if source, ok := derivedNames[eb.Entity]; ok {
+			return fmt.Errorf("entity name %q collides with derived handler type name from entity %q; rename one of the entities to avoid a redeclaration error in generated code", eb.Entity, source)
+		}
+	}
+
+	return nil
+}
+
+// validateExposeUniqueness checks that no entity appears more than once in the
+// expose list. Duplicate entries cause duplicate type declarations and silent
+// map overwrites.
+func validateExposeUniqueness(expose []types.ExposeBlock) error {
+	seen := make(map[string]int, len(expose))
+	var dupes []string
+	for _, eb := range expose {
+		seen[eb.Entity]++
+		if seen[eb.Entity] == 2 {
+			dupes = append(dupes, eb.Entity)
+		}
+	}
+	if len(dupes) > 0 {
+		return fmt.Errorf("duplicate expose blocks for entities: %s; each entity may only appear once in the expose list", strings.Join(dupes, ", "))
+	}
+	return nil
+}
+
+// validateFieldReferences checks that scope and upsert_key field-name references
+// in expose blocks resolve to actual fields on the referenced entity.
+func validateFieldReferences(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+	var errs []string
+	for _, eb := range expose {
+		entity, ok := entityMap[eb.Entity]
+		if !ok {
+			continue // handled by the unknown entity check later
+		}
+
+		fieldSet := make(map[string]bool, len(entity.Fields))
+		for _, f := range entity.Fields {
+			fieldSet[f.Name] = true
+		}
+
+		if eb.Scope != "" && !fieldSet[eb.Scope] {
+			errs = append(errs, fmt.Sprintf(
+				"expose block for %q references scope field %q, but entity %q has no field with that name",
+				eb.Entity, eb.Scope, eb.Entity))
+		}
+
+		for _, key := range eb.UpsertKey {
+			if !fieldSet[key] {
+				errs = append(errs, fmt.Sprintf(
+					"expose block for %q references upsert_key field %q, but entity %q has no field with that name",
+					eb.Entity, key, eb.Entity))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("unresolved field references:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }

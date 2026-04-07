@@ -2848,6 +2848,188 @@ func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 	}
 }
 
+func TestGenerate_InvalidScopeFieldReturnsError(t *testing.T) {
+	// Finding 33: scope field must reference an existing entity field.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "nonexistent_field",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for scope referencing non-existent field")
+	}
+	if !strings.Contains(err.Error(), "nonexistent_field") {
+		t.Errorf("error should mention the invalid scope field name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "scope") {
+		t.Errorf("error should mention 'scope', got: %v", err)
+	}
+}
+
+func TestGenerate_InvalidUpsertKeyFieldReturnsError(t *testing.T) {
+	// Finding 34: upsert_key field names must reference existing entity fields.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Item",
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey:  []string{"name", "nonexistent_key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for upsert_key referencing non-existent field")
+	}
+	if !strings.Contains(err.Error(), "nonexistent_key") {
+		t.Errorf("error should mention the invalid upsert_key field name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Item") {
+		t.Errorf("error should mention the entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "upsert_key") {
+		t.Errorf("error should mention 'upsert_key', got: %v", err)
+	}
+}
+
+func TestGenerate_CrossEntityHandlerTypeCollisionReturnsError(t *testing.T) {
+	// Finding 35: entity A named "User" produces "UserHandler" type; if entity B
+	// is named "UserHandler", it collides with A's handler type in the same package.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "UserHandler", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Entity: "UserHandler", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for cross-entity handler type name collision")
+	}
+	if !strings.Contains(err.Error(), "UserHandler") {
+		t.Errorf("error should mention the colliding name 'UserHandler', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the source entity 'User', got: %v", err)
+	}
+}
+
+func TestGenerate_DuplicateExposeBlocksReturnsError(t *testing.T) {
+	// Finding 36: two expose blocks for the same entity must return an error,
+	// not silently overwrite in the map or produce duplicate type declarations.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpCreate}},
+			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate expose blocks for the same entity")
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the duplicated entity 'User', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should mention 'duplicate', got: %v", err)
+	}
+}
+
+func TestGenerate_ValidScopeFieldSucceeds(t *testing.T) {
+	// Verify that a valid scope field reference does not produce an error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "org_id",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid scope field: %v", err)
+	}
+}
+
+func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
+	// Verify that valid upsert_key field references do not produce an error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Status", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "resource_id", Type: types.FieldTypeString},
+				{Name: "adapter", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Status",
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey:  []string{"resource_type", "resource_id", "adapter"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid upsert_key fields: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
