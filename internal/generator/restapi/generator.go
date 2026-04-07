@@ -1710,6 +1710,11 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam,
 	}
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
+	// Populate Caller with a non-nil Identity to prevent nil-dereference
+	// panics in fills that access req.Caller.Role, req.Caller.UserID, etc.
+	// When auth middleware is wired (e.g. jwt-auth), it stores identity in
+	// the request context; future integration can extract it here.
+	fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
@@ -1722,6 +1727,16 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam,
 	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotResult.ErrorMessage, sc)\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	// Short-circuit halt: chain step returned Ok but wants to stop further
+	// processing (e.g. discard-stale-generation returning 204 no-op).
+	fmt.Fprintf(buf, "\t\tif slotResult.Halt {\n")
+	fmt.Fprintf(buf, "\t\t\tsc := http.StatusOK\n")
+	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
+	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tw.WriteHeader(sc)\n")
 	fmt.Fprintf(buf, "\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")

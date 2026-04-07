@@ -3802,6 +3802,22 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 		t.Errorf("after-slot invocation missing nil guard:\n%s", handlerContent)
 	}
 
+	// Finding 29: Verify Caller field is populated with non-nil Identity.
+	// The spec's canonical fill accesses req.Caller.Role — nil Caller panics.
+	if !strings.Contains(handlerContent, `Caller: &slots.Identity{}`) {
+		t.Errorf("before-slot request missing non-nil Caller field:\n%s", handlerContent)
+	}
+
+	// Finding 28: Verify halt check in before-slot invocation. A chain step
+	// returning {Ok: true, Halt: true, StatusCode: 204} must stop the handler.
+	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
+		t.Errorf("before-slot invocation missing halt check:\n%s", handlerContent)
+	}
+	// Verify halt branch writes status code and returns.
+	if !strings.Contains(handlerContent, "w.WriteHeader(sc)") {
+		t.Errorf("before-slot halt branch missing WriteHeader:\n%s", handlerContent)
+	}
+
 	// Finding 27: Verify NewRouter passes nil for slot params (convenience
 	// constructor for self-contained use without fills).
 	var routerContent string
