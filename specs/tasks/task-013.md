@@ -41,3 +41,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - d22658b feat(task-013): implement compiler core — plan/apply reconciler
+- ea324bb fix(task-013): address all 7 review findings
