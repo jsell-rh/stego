@@ -50,3 +50,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 875ff0b fix(task-009): address round 6 findings — raw field names in parent-only List, OpenAPI scope query param
 - 4d8d107 fix(task-009): address round 7 findings — parent ref errors, OpenAPI required, keyword safety
 - 328f10e fix(task-009): address round 8 findings — OpenAPI constraints/format and multi-level ancestor verification
+- 618498b fix(task-009): address round 9 findings — circular parent detection and OpenAPI default attribute
