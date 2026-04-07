@@ -2,7 +2,9 @@
 
 **Spec Reference:** "Fill Wiring", "Generated Code Structure"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-012.md](../reviews/task-012.md)
 
 ## Description
 
