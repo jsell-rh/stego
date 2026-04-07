@@ -54,3 +54,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - a004e98 fix(task-009): address round 10 finding — update handler parent ID assignment
 - 63e4cdc fix(task-009): address round 11 finding — reject entity names that collide with generator-internal identifiers
 - c0d1d81 fix(task-009): address round 12 finding — guard safeVarName against function-scoped identifiers
+- 7ef6a4f fix(task-009): address round 13 findings — namespace parameterization and exposed-only OpenAPI schemas
