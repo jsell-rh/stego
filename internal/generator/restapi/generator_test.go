@@ -3273,6 +3273,169 @@ func findFileContent(t *testing.T, files []gen.File, path string) string {
 	return ""
 }
 
+func TestGenerate_MultipleRefFieldsToSameParentReturnsError(t *testing.T) {
+	// Finding 40: when an entity has multiple ref fields pointing to the same
+	// parent entity, the generator must reject the ambiguity rather than
+	// silently selecting the first match.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Account", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "Transfer", Fields: []types.Field{
+				{Name: "amount", Type: types.FieldTypeInt64},
+				{Name: "from_account_id", Type: types.FieldTypeRef, To: "Account"},
+				{Name: "to_account_id", Type: types.FieldTypeRef, To: "Account"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Account", Operations: []types.Operation{types.OpRead}},
+			{Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Parent: "Account"},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when entity has multiple ref fields to the same parent")
+	}
+	if !strings.Contains(err.Error(), "multiple ref fields") {
+		t.Errorf("error should mention multiple ref fields, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Account") {
+		t.Errorf("error should mention parent entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "from_account_id") {
+		t.Errorf("error should mention the first matching field, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "to_account_id") {
+		t.Errorf("error should mention the second matching field, got: %v", err)
+	}
+}
+
+func TestGenerate_MultipleRefFieldsTwoNodeCycle(t *testing.T) {
+	// Finding 40: test with list (parent-only) and upsert to confirm ambiguity
+	// is caught for those operation paths too.
+	g := &Generator{}
+
+	tests := []struct {
+		name string
+		ops  []types.Operation
+	}{
+		{"list", []types.Operation{types.OpList}},
+		{"upsert", []types.Operation{types.OpUpsert}},
+		{"update", []types.Operation{types.OpUpdate}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: "Org", Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+					}},
+					{Name: "Member", Fields: []types.Field{
+						{Name: "primary_org_id", Type: types.FieldTypeRef, To: "Org"},
+						{Name: "secondary_org_id", Type: types.FieldTypeRef, To: "Org"},
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{Entity: "Org", Operations: []types.Operation{types.OpRead}},
+					{Entity: "Member", Operations: tt.ops, Parent: "Org", UpsertKey: []string{"primary_org_id"}},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for ambiguous ref fields with %s operation", tt.name)
+			}
+			if !strings.Contains(err.Error(), "multiple ref fields") {
+				t.Errorf("error should mention multiple ref fields, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
+	// Finding 41: when an entity declares parent but only exposes read and/or
+	// delete operations, the generator must still validate that a ref field to
+	// the parent exists. Previously, the validation was lazy (only in
+	// create/update/upsert/list methods), so read-only and delete-only
+	// entities silently passed.
+	g := &Generator{}
+
+	tests := []struct {
+		name string
+		ops  []types.Operation
+	}{
+		{"read-only", []types.Operation{types.OpRead}},
+		{"delete-only", []types.Operation{types.OpDelete}},
+		{"read-and-delete", []types.Operation{types.OpRead, types.OpDelete}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+					{Name: "Widget", Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+						// No ref field to Cluster.
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+					{Entity: "Widget", Operations: tt.ops, Parent: "Cluster"},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error when parent ref field is missing with %s operations", tt.name)
+			}
+			if !strings.Contains(err.Error(), "Cluster") {
+				t.Errorf("error should mention parent entity name, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), "ref") {
+				t.Errorf("error should mention missing ref field, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenerate_SingleRefFieldToParentSucceeds(t *testing.T) {
+	// Ensure the normal case (exactly one ref field to parent) still works.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Org", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Org"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Org", Operations: []types.Operation{types.OpRead}},
+			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpDelete}, Parent: "Org"},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error with single ref field to parent: %v", err)
+	}
+}
+
 // findFileBytes finds a file by path and returns its rendered output via Bytes().
 func findFileBytes(t *testing.T, files []gen.File, path string) []byte {
 	t.Helper()

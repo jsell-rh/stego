@@ -62,6 +62,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate that every entity with a parent declaration has exactly one
+	// ref field pointing to the parent. This is a structural invariant of the
+	// parent declaration itself — it must hold regardless of which operations
+	// are exposed. Lazy validation inside operation methods would miss
+	// read-only or delete-only entities.
+	if err := validateParentRefFields(ctx.Expose, entityMap); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate that scope and upsert_key field-name references resolve to
 	// actual entity fields. The generator is the first consumer that knows
 	// both the expose block and the entity's field definitions.
@@ -932,26 +941,41 @@ func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlo
 }
 
 // parentRefFieldName finds the Go field name for the ref field that points to
-// the parent entity. Returns an error if no matching ref field is found —
-// a silent fallback would produce compile errors in the generated code.
+// the parent entity. Returns an error if no matching ref field is found or if
+// multiple ref fields point to the same parent (ambiguous match).
 func parentRefFieldName(entity types.Entity, parent string) (string, error) {
+	var matches []string
 	for _, f := range entity.Fields {
 		if f.Type == types.FieldTypeRef && f.To == parent {
-			return toPascalCase(f.Name), nil
+			matches = append(matches, f.Name)
 		}
 	}
-	return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity", entity.Name, parent, strings.Join(matches, ", "))
+	}
+	return toPascalCase(matches[0]), nil
 }
 
 // parentRefRawFieldName finds the raw YAML field name for the ref field that
-// points to the parent entity. Returns an error if no matching ref field is found.
+// points to the parent entity. Returns an error if no matching ref field is
+// found or if multiple ref fields point to the same parent (ambiguous match).
 func parentRefRawFieldName(entity types.Entity, parent string) (string, error) {
+	var matches []string
 	for _, f := range entity.Fields {
 		if f.Type == types.FieldTypeRef && f.To == parent {
-			return f.Name, nil
+			matches = append(matches, f.Name)
 		}
 	}
-	return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
+	if len(matches) == 0 {
+		return "", fmt.Errorf("entity %q declares parent %q but has no field of type ref with to: %q", entity.Name, parent, parent)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity", entity.Name, parent, strings.Join(matches, ", "))
+	}
+	return matches[0], nil
 }
 
 // goReservedWords is the set of Go keywords and predeclared identifiers that
@@ -1342,7 +1366,8 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 		if !ok {
 			continue
 		}
-		// Find the ref field pointing to the parent.
+		// Find the ref field pointing to the parent. validateParentRefFields
+		// has already guaranteed exactly one exists if parent is set.
 		refFieldName := ""
 		for _, f := range entity.Fields {
 			if f.Type == types.FieldTypeRef && f.To == eb.Parent {
@@ -1351,7 +1376,7 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 			}
 		}
 		if refFieldName == "" {
-			// parentRefFieldName will catch this later with a clear error.
+			// Already caught by validateParentRefFields.
 			continue
 		}
 		if eb.Scope != refFieldName {
@@ -1362,6 +1387,45 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("scope/parent consistency errors:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateParentRefFields checks that every entity with a parent declaration has
+// exactly one ref field pointing to the parent entity. This is a structural
+// invariant of the parent declaration — the declaration implies a data
+// relationship that requires a ref field, regardless of which operations are
+// exposed. Without this upfront check, read-only or delete-only entities with
+// parent silently pass generation but produce semantically hollow nesting (ancestor
+// existence is verified but parent-child ownership is never enforced).
+func validateParentRefFields(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+	var errs []string
+	for _, eb := range expose {
+		if eb.Parent == "" {
+			continue
+		}
+		entity, ok := entityMap[eb.Entity]
+		if !ok {
+			continue // handled by the unknown entity check later
+		}
+		var matches []string
+		for _, f := range entity.Fields {
+			if f.Type == types.FieldTypeRef && f.To == eb.Parent {
+				matches = append(matches, f.Name)
+			}
+		}
+		if len(matches) == 0 {
+			errs = append(errs, fmt.Sprintf(
+				"entity %q declares parent %q but has no field of type ref with to: %q",
+				eb.Entity, eb.Parent, eb.Parent))
+		} else if len(matches) > 1 {
+			errs = append(errs, fmt.Sprintf(
+				"entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity",
+				eb.Entity, eb.Parent, strings.Join(matches, ", ")))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("parent ref field errors:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
