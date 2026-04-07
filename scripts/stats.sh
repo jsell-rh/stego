@@ -20,15 +20,19 @@ fi
 
 # --- Task status counts ---
 total_tasks=0; complete=0; in_review=0; in_progress=0; not_started=0
-declare -a task_names=() task_statuses=()
+declare -a task_names=() task_statuses=() task_titles=()
 
 for f in "$TASKS_DIR"/task-*.md; do
     [[ -f "$f" ]] || continue
     total_tasks=$((total_tasks + 1))
     name=$(basename "$f" .md)
     status=$(grep -oP '(?<=\*\*Status:\*\* `)[^`]+' "$f" 2>/dev/null || echo "unknown")
+    title=$(head -1 "$f" | sed 's/^# Task [0-9]*: //')
+    # Truncate to 20 chars
+    [[ ${#title} -gt 20 ]] && title="${title:0:18}.."
     task_names+=("$name")
     task_statuses+=("$status")
+    task_titles+=("$title")
     case "$status" in
         complete) complete=$((complete + 1)) ;;
         ready-for-review|in-review) in_review=$((in_review + 1)) ;;
@@ -221,8 +225,8 @@ echo ""
 
 # Per-task breakdown
 echo "${BOLD}Task Breakdown${RESET}"
-printf "  ${DIM}%-12s  %-16s  %7s  %6s  %8s  %14s${RESET}\n" "TASK" "STATUS" "COMMITS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
-printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------" "${RESET}"
+printf "  ${DIM}%-12s  %-20s  %-16s  %7s  %6s  %8s  %14s${RESET}\n" "TASK" "TITLE" "STATUS" "COMMITS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
+printf "  %s%s%s\n" "${DIM}" "----------------------------------------------------------------------------------------------" "${RESET}"
 
 total_rounds=0; total_findings=0; total_active=0; total_task_commits=0
 for i in "${!task_names[@]}"; do
@@ -272,11 +276,12 @@ for i in "${!task_names[@]}"; do
 
     cpad=$(printf "%7d" "$commits")
 
-    printf "  %-12s  %s  %s  %s  %s  %s\n" "$name" "$sc" "$cpad" "$rc" "$fpad" "$at"
+    title="${task_titles[$i]}"
+    printf "  %-12s  %-20s  %s  %s  %s  %s  %s\n" "$name" "$title" "$sc" "$cpad" "$rc" "$fpad" "$at"
 done
 
-printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------" "${RESET}"
-printf "  ${BOLD}%-12s  %-16s  %7d  %6d  %8d  %14s${RESET}\n" "TOTAL" "" "$total_task_commits" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
+printf "  %s%s%s\n" "${DIM}" "----------------------------------------------------------------------------------------------" "${RESET}"
+printf "  ${BOLD}%-12s  %-20s  %-16s  %7d  %6d  %8d  %14s${RESET}\n" "TOTAL" "" "" "$total_task_commits" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
 echo ""
 
 # Review efficiency
