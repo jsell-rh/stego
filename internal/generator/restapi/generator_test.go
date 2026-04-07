@@ -2,6 +2,7 @@ package restapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -3769,6 +3770,53 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 		t.Errorf("Create method missing on_entity_changed invocation:\n%s", handlerContent)
 	}
 
+	// Finding 26: Verify before-slot request is populated with entity data,
+	// not zero-valued. The request must reference the in-scope entity variable
+	// so fills can inspect the entity being processed.
+	if !strings.Contains(handlerContent, `Input: &slots.CreateRequest{`) {
+		t.Errorf("before-slot request missing populated Input field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Entity: "User"`) {
+		t.Errorf("before-slot request missing Entity in CreateRequest:\n%s", handlerContent)
+	}
+	// The entity variable (user) must be referenced in the Fields map.
+	// go/format may add alignment spacing, so check for the field name and
+	// the entity variable reference separately.
+	if !strings.Contains(handlerContent, `"email":`) || !strings.Contains(handlerContent, `user.Email`) {
+		t.Errorf("before-slot request missing entity field reference for email:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `"role":`) || !strings.Contains(handlerContent, `user.Role`) {
+		t.Errorf("before-slot request missing entity field reference for role:\n%s", handlerContent)
+	}
+
+	// Finding 26: Verify after-slot request is populated with entity name and action.
+	if !strings.Contains(handlerContent, `Entity: "User", Action: "create"`) {
+		t.Errorf("after-slot request in Create missing entity/action:\n%s", handlerContent)
+	}
+
+	// Finding 27: Verify nil guards on slot operator invocations.
+	if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
+		t.Errorf("before-slot invocation missing nil guard:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
+		t.Errorf("after-slot invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Finding 27: Verify NewRouter passes nil for slot params (convenience
+	// constructor for self-contained use without fills).
+	var routerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "router.go") {
+			routerContent = string(f.Content)
+		}
+	}
+	if routerContent == "" {
+		t.Fatal("router.go not found")
+	}
+	if !strings.Contains(routerContent, "NewUserHandler(store, nil, nil)") {
+		t.Errorf("NewRouter should pass nil for slot operators:\n%s", routerContent)
+	}
+
 	// Verify ConstructorEntities wiring.
 	if wiring == nil {
 		t.Fatal("wiring is nil")
@@ -3795,6 +3843,131 @@ func TestGenerate_HandlerWithoutSlotBindings_NoSlotCode(t *testing.T) {
 			if strings.Contains(content, "slots.") {
 				t.Errorf("handler without slot bindings should not reference slots package:\n%s", content)
 			}
+		}
+	}
+}
+
+func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
+	// Finding 26: verify that when an entity has non-string fields (int32, bool),
+	// the before-slot request uses fmt.Sprintf for type conversion and the handler
+	// imports "fmt".
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Counter", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+				{Name: "active", Type: types.FieldTypeBool},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Counter", Operations: []types.Operation{types.OpCreate}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Entity: "Counter", Gate: []string{"policy"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_counter.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_counter.go not found")
+	}
+
+	// fmt must be imported for non-string field conversion.
+	if !strings.Contains(handlerContent, `"fmt"`) {
+		t.Errorf("handler with non-string slot fields missing fmt import:\n%s", handlerContent)
+	}
+
+	// Non-string fields must use fmt.Sprintf for conversion.
+	if !strings.Contains(handlerContent, `fmt.Sprintf("%v", counter.Count)`) {
+		t.Errorf("non-string field 'count' missing fmt.Sprintf conversion:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `fmt.Sprintf("%v", counter.Active)`) {
+		t.Errorf("non-string field 'active' missing fmt.Sprintf conversion:\n%s", handlerContent)
+	}
+
+	// String fields should be direct references.
+	if !strings.Contains(handlerContent, "counter.Name") {
+		t.Errorf("string field 'name' should use direct reference:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_NilGuardPassthrough(t *testing.T) {
+	// Finding 27: verify that handler methods with slot bindings include nil
+	// guards so that NewRouter (which passes nil for slot operators) does not
+	// cause runtime panics. The handler should degrade to passthrough semantics.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "label", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Item", Operations: []types.Operation{
+				types.OpCreate, types.OpUpdate, types.OpDelete, types.OpUpsert,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Entity: "Item", Gate: []string{"gate-fill"}},
+			{Slot: "validate", Entity: "Item", Chain: []string{"validate-fill"}},
+			{Slot: "on_entity_changed", Entity: "Item", FanOut: []string{"fanout-fill"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_item.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_item.go not found")
+	}
+
+	// Every slot operator invocation must have a nil guard.
+	// Gate before create.
+	if !strings.Contains(handlerContent, "if h.beforeCreateGate != nil {") {
+		t.Errorf("missing nil guard for beforeCreateGate:\n%s", handlerContent)
+	}
+	// Chain for validate (fires on create, update, upsert).
+	if !strings.Contains(handlerContent, "if h.validateChain != nil {") {
+		t.Errorf("missing nil guard for validateChain:\n%s", handlerContent)
+	}
+	// Fan-out for on_entity_changed (fires on create, update, delete, upsert).
+	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
+		t.Errorf("missing nil guard for onEntityChangedFanOut:\n%s", handlerContent)
+	}
+
+	// Verify the after-slot request for different operations includes the
+	// correct action string.
+	for _, action := range []string{"create", "update", "delete", "upsert"} {
+		expected := fmt.Sprintf(`Action: "%s"`, action)
+		if !strings.Contains(handlerContent, expected) {
+			t.Errorf("after-slot request missing action %q:\n%s", action, handlerContent)
 		}
 	}
 }
@@ -3835,35 +4008,10 @@ func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
 		t.Fatalf("rest-api Generate: %v", err)
 	}
 
-	// 2. Generate slot interface + operator files.
-	beforeCreateProto := &slot.ProtoFile{
-		Package: "stego.components.rest_api.slots",
-		Services: []slot.Service{
-			{Name: "BeforeCreate", Methods: []slot.Method{
-				{Name: "Evaluate", InputType: "BeforeCreateRequest", OutputType: "stego.common.SlotResult"},
-			}},
-		},
-		Messages: []slot.Message{
-			{Name: "BeforeCreateRequest", Fields: []slot.MessageField{
-				{Name: "entity", Type: "string"},
-			}},
-		},
-	}
-	onEntityChangedProto := &slot.ProtoFile{
-		Package: "stego.mixins.event_publisher.slots",
-		Services: []slot.Service{
-			{Name: "OnEntityChanged", Methods: []slot.Method{
-				{Name: "Evaluate", InputType: "OnEntityChangedRequest", OutputType: "stego.common.SlotResult"},
-			}},
-		},
-		Messages: []slot.Message{
-			{Name: "OnEntityChangedRequest", Fields: []slot.MessageField{
-				{Name: "entity", Type: "string"},
-			}},
-		},
-	}
-	// Generate a single common types file with SlotResult so it's not
-	// redeclared by each slot interface file.
+	// 2. Generate slot interface + operator files. We write the slot types
+	// manually (not via GenerateInterface) to avoid duplicate type declarations
+	// across files. The handler populates Input (*CreateRequest) on before-slots
+	// and Entity/Action on after-slots — the types must match.
 	commonTypesFile := gen.File{
 		Path: slotsPackage + "/common_types.go",
 		Content: []byte(`package slots
@@ -3875,30 +4023,96 @@ type SlotResult struct {
 	Halt         bool
 	StatusCode   int32
 }
+
+// CreateRequest is generated from proto message CreateRequest.
+type CreateRequest struct {
+	Entity string
+	Fields map[string]string
+}
+
+// Identity is generated from proto message Identity.
+type Identity struct {
+	UserID string
+	Role   string
+}
 `),
 	}
+	bcIfaceFile := gen.File{
+		Path: slotsPackage + "/before_create.go",
+		Content: []byte(`package slots
 
-	// Generate interfaces WITHOUT the common import — the SlotResult struct
-	// lives in the same package via common_types.go. The interface generator
-	// will resolve the type name locally since it strips package prefixes.
-	bcIface, err := slot.GenerateInterface(slotsPackage+"/before_create.go", "slots", beforeCreateProto, nil)
-	if err != nil {
-		t.Fatalf("GenerateInterface(before_create): %v", err)
+import "context"
+
+// BeforeCreateRequest is generated from proto message BeforeCreateRequest.
+type BeforeCreateRequest struct {
+	Input  *CreateRequest
+	Caller *Identity
+}
+
+// BeforeCreateSlot is the interface that fills implement for the BeforeCreate slot.
+type BeforeCreateSlot interface {
+	Evaluate(ctx context.Context, req *BeforeCreateRequest) (*SlotResult, error)
+}
+`),
+	}
+	// Operator files: use GenerateOperators for the before_create slot which
+	// only needs the service definition (no imports needed for operators).
+	beforeCreateProto := &slot.ProtoFile{
+		Package: "stego.components.rest_api.slots",
+		Services: []slot.Service{
+			{Name: "BeforeCreate", Methods: []slot.Method{
+				{Name: "Evaluate", InputType: "BeforeCreateRequest", OutputType: "stego.common.SlotResult"},
+			}},
+		},
+		Messages: []slot.Message{
+			{Name: "BeforeCreateRequest", Fields: []slot.MessageField{
+				{Name: "input", Type: "stego.common.CreateRequest"},
+				{Name: "caller", Type: "stego.common.Identity"},
+			}},
+		},
 	}
 	bcOps, err := slot.GenerateOperators(slotsPackage+"/before_create_ops.go", "slots", beforeCreateProto)
 	if err != nil {
 		t.Fatalf("GenerateOperators(before_create): %v", err)
 	}
-	oecIface, err := slot.GenerateInterface(slotsPackage+"/on_entity_changed.go", "slots", onEntityChangedProto, nil)
-	if err != nil {
-		t.Fatalf("GenerateInterface(on_entity_changed): %v", err)
+	oecIfaceFile := gen.File{
+		Path: slotsPackage + "/on_entity_changed.go",
+		Content: []byte(`package slots
+
+import "context"
+
+// OnEntityChangedRequest is generated from proto message OnEntityChangedRequest.
+type OnEntityChangedRequest struct {
+	Entity string
+	Action string
+}
+
+// OnEntityChangedSlot is the interface that fills implement for the OnEntityChanged slot.
+type OnEntityChangedSlot interface {
+	Evaluate(ctx context.Context, req *OnEntityChangedRequest) (*SlotResult, error)
+}
+`),
+	}
+	onEntityChangedProto := &slot.ProtoFile{
+		Package: "stego.mixins.event_publisher.slots",
+		Services: []slot.Service{
+			{Name: "OnEntityChanged", Methods: []slot.Method{
+				{Name: "Evaluate", InputType: "OnEntityChangedRequest", OutputType: "stego.common.SlotResult"},
+			}},
+		},
+		Messages: []slot.Message{
+			{Name: "OnEntityChangedRequest", Fields: []slot.MessageField{
+				{Name: "entity", Type: "string"},
+				{Name: "action", Type: "string"},
+			}},
+		},
 	}
 	oecOps, err := slot.GenerateOperators(slotsPackage+"/on_entity_changed_ops.go", "slots", onEntityChangedProto)
 	if err != nil {
 		t.Fatalf("GenerateOperators(on_entity_changed): %v", err)
 	}
 
-	slotFiles := []gen.File{commonTypesFile, bcIface, bcOps, oecIface, oecOps}
+	slotFiles := []gen.File{commonTypesFile, bcIfaceFile, bcOps, oecIfaceFile, oecOps}
 
 	// 3. Assemble main.go from wiring + slot bindings.
 	assemblerInput := compiler.AssemblerInput{

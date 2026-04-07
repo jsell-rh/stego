@@ -268,10 +268,31 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		slotsAlias = path.Base(slotsImportPath)
 	}
 
+	// Determine whether fmt package is needed for slot request field conversion.
+	// Before-slots populate a CreateRequest.Fields map[string]string from entity
+	// fields; non-string-typed fields require fmt.Sprintf for conversion.
+	needFmt := false
+	if len(slotParams) > 0 {
+		hasBeforeSlots := false
+		for _, op := range eb.Operations {
+			before, _ := slotsForOp(op, slotParams)
+			if len(before) > 0 {
+				hasBeforeSlots = true
+				break
+			}
+		}
+		if hasBeforeSlots {
+			needFmt = needsFmtForSlotFields(entity)
+		}
+	}
+
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	}
+	if needFmt {
+		fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	if needTime {
@@ -417,7 +438,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	// Before-slots: gate and validate fire before create.
 	before, after := slotsForOp(types.OpCreate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp)
+		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -425,7 +446,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	// After-slots: on_entity_changed fires after create.
 	for _, sp := range after {
-		emitAfterSlot(buf, slotsAlias, sp)
+		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpCreate)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
@@ -471,14 +492,14 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	}
 	before, after := slotsForOp(types.OpUpdate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp)
+		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
-		emitAfterSlot(buf, slotsAlias, sp)
+		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpUpdate)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
@@ -496,7 +517,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	_, after := slotsForOp(types.OpDelete, slotParams)
 	for _, sp := range after {
-		emitAfterSlot(buf, slotsAlias, sp)
+		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpDelete)
 	}
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusNoContent)\n")
 	fmt.Fprintf(buf, "}\n\n")
@@ -560,7 +581,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 
 	before, after := slotsForOp(types.OpUpsert, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp)
+		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
 	}
 
 	if len(eb.UpsertKey) > 0 {
@@ -582,7 +603,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
-		emitAfterSlot(buf, slotsAlias, sp)
+		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpUpsert)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusOK)\n")
@@ -1672,30 +1693,82 @@ func slotsForOp(op types.Operation, params []entitySlotParam) (before, after []e
 }
 
 // emitBeforeSlot emits code that calls a slot operator before the main operation.
-// On error or non-Ok result, the handler returns an error response.
-func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam) {
-	fmt.Fprintf(buf, "\tif slotResult, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{}); slotErr != nil {\n",
-		param.FieldName, slotsAlias, param.RequestType)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
-	fmt.Fprintf(buf, "\t} else if !slotResult.Ok {\n")
-	fmt.Fprintf(buf, "\t\tsc := http.StatusForbidden\n")
-	fmt.Fprintf(buf, "\t\tif slotResult.StatusCode > 0 {\n")
-	fmt.Fprintf(buf, "\t\t\tsc = int(slotResult.StatusCode)\n")
+// On error or non-Ok result, the handler returns an error response. The request
+// is populated with the decoded entity variable so that fills can inspect the
+// entity being processed. A nil guard wraps the invocation so that when no fills
+// are wired (NewRouter passes nil), the handler degrades to passthrough semantics.
+func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityVarName string, entity types.Entity) {
+	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
+	// Build populated request with entity data for the fill.
+	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
+	fmt.Fprintf(buf, "\t\t\tInput: &%s.CreateRequest{\n", slotsAlias)
+	fmt.Fprintf(buf, "\t\t\t\tEntity: %q,\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\tFields: map[string]string{\n")
+	for _, f := range entity.Fields {
+		goName := toPascalCase(f.Name)
+		fmt.Fprintf(buf, "\t\t\t\t\t%q: %s,\n", f.Name, fieldToStringExpr(entityVarName, goName, fieldTypeToGo(f.Type)))
+	}
+	fmt.Fprintf(buf, "\t\t\t\t},\n")
+	fmt.Fprintf(buf, "\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t}\n")
-	fmt.Fprintf(buf, "\t\thttp.Error(w, slotResult.ErrorMessage, sc)\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", param.FieldName)
+	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
+	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n")
+	fmt.Fprintf(buf, "\t\t\tsc := http.StatusForbidden\n")
+	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
+	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotResult.ErrorMessage, sc)\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 }
 
 // emitAfterSlot emits code that calls a slot operator after the main operation,
-// before the HTTP response is written. Errors are propagated to the client.
-func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam) {
-	fmt.Fprintf(buf, "\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{}); slotErr != nil {\n",
-		param.FieldName, slotsAlias, param.RequestType)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
-	fmt.Fprintf(buf, "\t\treturn\n")
+// before the HTTP response is written. The request is populated with the entity
+// name and the operation that triggered the slot. A nil guard wraps the invocation
+// so that when no fills are wired (NewRouter passes nil), the handler degrades to
+// passthrough semantics.
+func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityName string, op types.Operation) {
+	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
+	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{Entity: %q, Action: %q}); slotErr != nil {\n",
+		param.FieldName, slotsAlias, param.RequestType, entityName, string(op))
+	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
+}
+
+// fieldToStringExpr returns a Go expression that converts the given entity field
+// to a string value for inclusion in a slot request's Fields map.
+func fieldToStringExpr(varName, goFieldName, goType string) string {
+	switch goType {
+	case "string":
+		return varName + "." + goFieldName
+	case "[]byte", "json.RawMessage":
+		return "string(" + varName + "." + goFieldName + ")"
+	default:
+		// For numeric, bool, time.Time, and other types, use fmt.Sprintf.
+		return "fmt.Sprintf(\"%v\", " + varName + "." + goFieldName + ")"
+	}
+}
+
+// needsFmtForSlotFields returns true if any entity field requires fmt.Sprintf
+// for string conversion in slot request population.
+func needsFmtForSlotFields(entity types.Entity) bool {
+	for _, f := range entity.Fields {
+		goType := fieldTypeToGo(f.Type)
+		switch goType {
+		case "string", "[]byte", "json.RawMessage":
+			// These don't need fmt.
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // validateParentRefFields checks that every entity with a parent declaration has
