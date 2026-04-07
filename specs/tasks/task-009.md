@@ -60,3 +60,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 2339cb8 chore(task-009): mark task ready-for-review
 - e6c44aa fix(task-009): address round 16 findings — scope/upsert_key validation, cross-entity collisions, duplicate expose blocks
 - 27f1eb3 fix(task-009): address round 17 findings — empty operations validation, route collision detection, scope/parent consistency
+- 44adbdf fix(task-009): address round 18 findings — ambiguous parent ref rejection, eager parent ref validation
