@@ -63,3 +63,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 44adbdf fix(task-009): address round 18 findings — ambiguous parent ref rejection, eager parent ref validation
 - 0686f70 fix(task-009): address round 19 findings — entity name "id" collision, case-insensitive entity name validation
 - a901d6b chore(task-009): mark task ready-for-review
+- 8faaecf fix(task-009): address round 20 finding — reject duplicate operations within expose blocks
+- 9340528 chore(task-009): mark task ready-for-review
