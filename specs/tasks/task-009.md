@@ -48,3 +48,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 9273255 fix(task-009): address round 4 findings — Content-Type header, timestamp zero value, expose schema
 - 1de3e33 fix(task-009): address round 5 findings — OpenAPI response content, exported handler methods
 - 875ff0b fix(task-009): address round 6 findings — raw field names in parent-only List, OpenAPI scope query param
+- 4d8d107 fix(task-009): address round 7 findings — parent ref errors, OpenAPI required, keyword safety
