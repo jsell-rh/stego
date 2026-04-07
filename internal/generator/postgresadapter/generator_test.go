@@ -164,7 +164,6 @@ func TestModelStructFields(t *testing.T) {
 	content := findFileContent(t, files, "internal/storage/models.go")
 
 	// User struct should exist with ID and declared fields.
-	// go/format aligns struct fields, so check for field name and type separately.
 	for _, want := range []string{
 		"type User struct",
 		"type Organization struct",
@@ -290,23 +289,23 @@ func TestAllFieldTypes(t *testing.T) {
 		}
 	}
 
-	// Verify SQL types in migration.
+	// Verify SQL types in migration (identifiers are now double-quoted).
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 	for _, want := range []string{
-		"s TEXT",
-		"i32 INTEGER",
-		"i64 BIGINT",
-		"f REAL",
-		"d DOUBLE PRECISION",
-		"b BOOLEAN",
-		"by BYTEA",
-		"ts TIMESTAMPTZ",
-		"e TEXT",
-		"r TEXT",
-		"j JSONB",
+		`"s" TEXT`,
+		`"i32" INTEGER`,
+		`"i64" BIGINT`,
+		`"f" REAL`,
+		`"d" DOUBLE PRECISION`,
+		`"b" BOOLEAN`,
+		`"by" BYTEA`,
+		`"ts" TIMESTAMPTZ`,
+		`"e" TEXT`,
+		`"r" TEXT`,
+		`"j" JSONB`,
 	} {
 		if !strings.Contains(sqlContent, want) {
-			t.Errorf("migration SQL missing type %q", want)
+			t.Errorf("migration SQL missing type %q\n%s", want, sqlContent)
 		}
 	}
 }
@@ -337,20 +336,20 @@ func TestComputedFieldsExcludedFromWrites(t *testing.T) {
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
 	// Create INSERT should NOT include status_conditions.
-	if strings.Contains(storeContent, "INSERT INTO clusters (id, name, spec, status_conditions)") {
-		t.Error("Create INSERT should not include computed field status_conditions")
-	}
-	if !strings.Contains(storeContent, "INSERT INTO clusters (id, name, spec)") {
-		t.Error("Create INSERT should include only non-computed fields")
+	if strings.Contains(storeContent, `"status_conditions"`) && strings.Contains(storeContent, `INSERT INTO "clusters"`) {
+		// Check that the INSERT column list doesn't include status_conditions.
+		if !strings.Contains(storeContent, `INSERT INTO "clusters" ("id", "name", "spec")`) {
+			t.Error("Create INSERT should only include non-computed fields")
+		}
 	}
 
 	// Update SET should NOT include status_conditions.
-	if strings.Contains(storeContent, "status_conditions =") {
+	if strings.Contains(storeContent, `"status_conditions" =`) {
 		t.Error("Update SET should not include computed field status_conditions")
 	}
 
 	// Read SELECT SHOULD include status_conditions.
-	if !strings.Contains(storeContent, "SELECT id, name, spec, status_conditions FROM clusters") {
+	if !strings.Contains(storeContent, `SELECT "id", "name", "spec", "status_conditions" FROM "clusters"`) {
 		t.Error("Read SELECT should include computed field status_conditions")
 	}
 }
@@ -378,12 +377,12 @@ func TestComputedFieldsNullableInMigration(t *testing.T) {
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
 	// Non-computed field should be NOT NULL.
-	if !strings.Contains(sqlContent, "name TEXT NOT NULL") {
-		t.Error("non-computed field should be NOT NULL")
+	if !strings.Contains(sqlContent, `"name" TEXT NOT NULL`) {
+		t.Errorf("non-computed field should be NOT NULL\n%s", sqlContent)
 	}
 
 	// Computed field should NOT have NOT NULL (it's nullable).
-	if strings.Contains(sqlContent, "status JSONB NOT NULL") {
+	if strings.Contains(sqlContent, `"status" JSONB NOT NULL`) {
 		t.Error("computed field should be nullable (no NOT NULL)")
 	}
 }
@@ -430,6 +429,11 @@ func TestUpsertConflictResolution(t *testing.T) {
 		t.Error("store.go missing optimistic concurrency check")
 	}
 
+	// Verify optimistic concurrency WHERE clause references quoted generation column.
+	if !strings.Contains(storeContent, `EXCLUDED."generation"`) {
+		t.Error("store.go missing quoted generation column reference in optimistic concurrency")
+	}
+
 	// Verify store compiles.
 	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
 	if _, err := format.Source(storeBytes); err != nil {
@@ -449,27 +453,27 @@ func TestMigrationSQL(t *testing.T) {
 
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
-	// Should have CREATE TABLE for both entities.
-	if !strings.Contains(sqlContent, "CREATE TABLE IF NOT EXISTS users") {
-		t.Error("migration missing CREATE TABLE for users")
+	// Should have CREATE TABLE for both entities (with quoted identifiers).
+	if !strings.Contains(sqlContent, `CREATE TABLE IF NOT EXISTS "users"`) {
+		t.Errorf("migration missing CREATE TABLE for users\n%s", sqlContent)
 	}
-	if !strings.Contains(sqlContent, "CREATE TABLE IF NOT EXISTS organizations") {
-		t.Error("migration missing CREATE TABLE for organizations")
+	if !strings.Contains(sqlContent, `CREATE TABLE IF NOT EXISTS "organizations"`) {
+		t.Errorf("migration missing CREATE TABLE for organizations\n%s", sqlContent)
 	}
 
 	// Should have id PRIMARY KEY.
-	if !strings.Contains(sqlContent, "id TEXT PRIMARY KEY") {
-		t.Error("migration missing id PRIMARY KEY")
+	if !strings.Contains(sqlContent, `"id" TEXT PRIMARY KEY`) {
+		t.Errorf("migration missing id PRIMARY KEY\n%s", sqlContent)
 	}
 
 	// Should have UNIQUE constraint on email.
-	if !strings.Contains(sqlContent, "email TEXT NOT NULL UNIQUE") {
-		t.Error("migration missing UNIQUE on email")
+	if !strings.Contains(sqlContent, `"email" TEXT NOT NULL UNIQUE`) {
+		t.Errorf("migration missing UNIQUE on email\n%s", sqlContent)
 	}
 
-	// Should have enum CHECK constraint.
-	if !strings.Contains(sqlContent, "CHECK (role IN ('admin', 'member'))") {
-		t.Error("migration missing enum CHECK constraint")
+	// Should have enum CHECK constraint with quoted column name.
+	if !strings.Contains(sqlContent, `CHECK ("role" IN ('admin', 'member'))`) {
+		t.Errorf("migration missing enum CHECK constraint\n%s", sqlContent)
 	}
 }
 
@@ -502,29 +506,29 @@ func TestMigrationConstraints(t *testing.T) {
 
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
-	// Length constraints.
-	if !strings.Contains(sqlContent, "CHECK (length(label) >= 3)") {
-		t.Error("migration missing min_length CHECK")
+	// Length constraints (with quoted column names).
+	if !strings.Contains(sqlContent, `CHECK (length("label") >= 3)`) {
+		t.Errorf("migration missing min_length CHECK\n%s", sqlContent)
 	}
-	if !strings.Contains(sqlContent, "CHECK (length(label) <= 53)") {
-		t.Error("migration missing max_length CHECK")
+	if !strings.Contains(sqlContent, `CHECK (length("label") <= 53)`) {
+		t.Errorf("migration missing max_length CHECK\n%s", sqlContent)
 	}
 
 	// Pattern constraint.
-	if !strings.Contains(sqlContent, "CHECK (label ~ '^[a-z]')") {
-		t.Error("migration missing pattern CHECK")
+	if !strings.Contains(sqlContent, `CHECK ("label" ~ '^[a-z]')`) {
+		t.Errorf("migration missing pattern CHECK\n%s", sqlContent)
 	}
 
 	// Numeric range constraints.
-	if !strings.Contains(sqlContent, "CHECK (score >= 0)") {
-		t.Error("migration missing min CHECK")
+	if !strings.Contains(sqlContent, `CHECK ("score" >= 0)`) {
+		t.Errorf("migration missing min CHECK\n%s", sqlContent)
 	}
-	if !strings.Contains(sqlContent, "CHECK (score <= 100)") {
-		t.Error("migration missing max CHECK")
+	if !strings.Contains(sqlContent, `CHECK ("score" <= 100)`) {
+		t.Errorf("migration missing max CHECK\n%s", sqlContent)
 	}
 
 	// Optional field should NOT have NOT NULL.
-	if strings.Contains(sqlContent, "opt_field TEXT NOT NULL") {
+	if strings.Contains(sqlContent, `"opt_field" TEXT NOT NULL`) {
 		t.Error("optional field should not have NOT NULL")
 	}
 
@@ -567,7 +571,7 @@ func TestUniqueCompositeConstraint(t *testing.T) {
 
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
-	if !strings.Contains(sqlContent, "UNIQUE (user_id, org_id)") {
+	if !strings.Contains(sqlContent, `UNIQUE ("user_id", "org_id")`) {
 		t.Errorf("migration missing UNIQUE composite constraint:\n%s", sqlContent)
 	}
 }
@@ -597,7 +601,7 @@ func TestSQLEscapingSingleQuotes(t *testing.T) {
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
 	// Pattern: single quote should be doubled.
-	if !strings.Contains(sqlContent, "CHECK (label ~ '^[a-z'']')") {
+	if !strings.Contains(sqlContent, `CHECK ("label" ~ '^[a-z'']')`) {
 		t.Errorf("pattern not properly escaped in SQL:\n%s", sqlContent)
 	}
 
@@ -697,9 +701,9 @@ func TestStoreCreateExcludesComputedFields(t *testing.T) {
 
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
-	// The INSERT should have (id, label) not (id, label, derived).
-	if !strings.Contains(storeContent, "INSERT INTO items (id, label)") {
-		t.Error("Create INSERT should only include non-computed fields")
+	// The INSERT should have ("id", "label") not ("id", "label", "derived").
+	if !strings.Contains(storeContent, `INSERT INTO "items" ("id", "label")`) {
+		t.Errorf("Create INSERT should only include non-computed fields\n%s", storeContent)
 	}
 }
 
@@ -726,8 +730,8 @@ func TestStoreUpdateExcludesComputedFields(t *testing.T) {
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
 	// UPDATE SET should only have label, not derived.
-	if !strings.Contains(storeContent, "UPDATE items SET label = $1 WHERE id = $2") {
-		t.Error("Update SET should only include non-computed fields")
+	if !strings.Contains(storeContent, `UPDATE "items" SET "label" = $1 WHERE "id" = $2`) {
+		t.Errorf("Update SET should only include non-computed fields\n%s", storeContent)
 	}
 }
 
@@ -754,8 +758,8 @@ func TestStoreReadIncludesComputedFields(t *testing.T) {
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
 	// SELECT should include all fields including computed.
-	if !strings.Contains(storeContent, "SELECT id, label, derived FROM items") {
-		t.Error("Read SELECT should include computed fields")
+	if !strings.Contains(storeContent, `SELECT "id", "label", "derived" FROM "items"`) {
+		t.Errorf("Read SELECT should include computed fields\n%s", storeContent)
 	}
 }
 
@@ -886,8 +890,8 @@ func TestTableNameDerivation(t *testing.T) {
 		{"Match", "matches"},
 		{"Entity", "entities"},
 		{"Policy", "policies"},
-		{"Key", "keys"},         // vowel+y → just "s"
-		{"Day", "days"},         // vowel+y → just "s"
+		{"Key", "keys"},  // vowel+y → just "s"
+		{"Day", "days"},  // vowel+y → just "s"
 	}
 
 	for _, tt := range tests {
@@ -1018,8 +1022,6 @@ func TestUpsertOptimisticConcurrencyNotOnDoNothing(t *testing.T) {
 
 	// The WHERE clause for optimistic concurrency must be inside the
 	// DO UPDATE SET branch, not after DO NOTHING.
-	// Verify: the optimistic concurrency check should be inside the
-	// "len(setClauses) > 0" branch.
 	if !strings.Contains(storeContent, `DO UPDATE SET " + strings.Join(setClauses, ", ")`) {
 		t.Error("expected DO UPDATE SET branch in generated upsert code")
 	}
@@ -1056,15 +1058,9 @@ func TestUpsertExcludesComputedFields(t *testing.T) {
 
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
-	// Upsert INSERT should exclude computed field.
-	if strings.Contains(storeContent, "summary") &&
-		strings.Contains(storeContent, "INSERT INTO statuses") &&
-		strings.Contains(storeContent, "summary)") {
-		// If summary appears in the INSERT column list, it's a bug.
-		// Check more precisely: the INSERT columns should be (id, resource_type, adapter).
-		if !strings.Contains(storeContent, "INSERT INTO statuses (id, resource_type, adapter)") {
-			t.Error("Upsert INSERT should exclude computed fields")
-		}
+	// Upsert INSERT should exclude computed field: (id, resource_type, adapter).
+	if !strings.Contains(storeContent, `INSERT INTO "statuses" ("id", "resource_type", "adapter")`) {
+		t.Errorf("Upsert INSERT should exclude computed fields\n%s", storeContent)
 	}
 
 	// Verify it compiles.
@@ -1107,11 +1103,11 @@ func TestDeleteMethod(t *testing.T) {
 
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
-	if !strings.Contains(storeContent, "DELETE FROM users WHERE id = $1") {
-		t.Error("Delete should use parameterized query for users")
+	if !strings.Contains(storeContent, `DELETE FROM "users" WHERE "id" = $1`) {
+		t.Errorf("Delete should use parameterized query for users\n%s", storeContent)
 	}
-	if !strings.Contains(storeContent, "DELETE FROM organizations WHERE id = $1") {
-		t.Error("Delete should use parameterized query for organizations")
+	if !strings.Contains(storeContent, `DELETE FROM "organizations" WHERE "id" = $1`) {
+		t.Errorf("Delete should use parameterized query for organizations\n%s", storeContent)
 	}
 }
 
@@ -1188,8 +1184,8 @@ func TestMultiEntityCompiles(t *testing.T) {
 	// Verify all entities have tables in migration.
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 	for _, want := range []string{"clusters", "node_pools", "adapter_statuses"} {
-		if !strings.Contains(sqlContent, "CREATE TABLE IF NOT EXISTS "+want) {
-			t.Errorf("migration missing CREATE TABLE for %s", want)
+		if !strings.Contains(sqlContent, `CREATE TABLE IF NOT EXISTS "`+want+`"`) {
+			t.Errorf("migration missing CREATE TABLE for %s\n%s", want, sqlContent)
 		}
 	}
 }
@@ -1620,9 +1616,9 @@ func TestUniqueCompositeDuplicateConstraintDeduplicated(t *testing.T) {
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
 	// The UNIQUE constraint should appear exactly once.
-	count := strings.Count(sqlContent, "UNIQUE (user_id, org_id)")
+	count := strings.Count(sqlContent, `UNIQUE ("user_id", "org_id")`)
 	if count != 1 {
-		t.Errorf("expected exactly 1 UNIQUE (user_id, org_id) constraint, got %d:\n%s", count, sqlContent)
+		t.Errorf("expected exactly 1 UNIQUE (\"user_id\", \"org_id\") constraint, got %d:\n%s", count, sqlContent)
 	}
 }
 
@@ -1656,8 +1652,8 @@ func TestRefFieldForeignKeyConstraint(t *testing.T) {
 
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
-	// ref field should produce a REFERENCES clause.
-	if !strings.Contains(sqlContent, "REFERENCES organizations(id)") {
+	// ref field should produce a REFERENCES clause with quoted identifiers.
+	if !strings.Contains(sqlContent, `REFERENCES "organizations"("id")`) {
 		t.Errorf("migration should include FOREIGN KEY reference for ref field:\n%s", sqlContent)
 	}
 }
@@ -1746,8 +1742,8 @@ func TestMigrationTopologicalSort(t *testing.T) {
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
 	// Organizations must appear before users in the SQL.
-	orgPos := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS organizations")
-	userPos := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS users")
+	orgPos := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "organizations"`)
+	userPos := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "users"`)
 	if orgPos < 0 || userPos < 0 {
 		t.Fatalf("missing CREATE TABLE statements:\n%s", sqlContent)
 	}
@@ -1827,10 +1823,10 @@ func TestMigrationTopologicalSortDiamond(t *testing.T) {
 
 	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
 
-	posD := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS ds")
-	posB := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS bs")
-	posC := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS cs")
-	posA := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS as")
+	posD := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "ds"`)
+	posB := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "bs"`)
+	posC := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "cs"`)
+	posA := strings.Index(sqlContent, `CREATE TABLE IF NOT EXISTS "as"`)
 
 	if posD < 0 || posB < 0 || posC < 0 || posA < 0 {
 		t.Fatalf("missing CREATE TABLE statements:\n%s", sqlContent)
@@ -1889,5 +1885,191 @@ func TestStoreHandlesUnknownEntity(t *testing.T) {
 	// Create, Read, Update, Delete, List, Upsert = 6 methods with default cases.
 	if count < 6 {
 		t.Errorf("expected at least 6 'unknown entity' default cases, got %d", count)
+	}
+}
+
+// --- Optimistic concurrency: generation field validation ---
+
+func TestUpsertOptimisticConcurrencyRequiresGenerationField(t *testing.T) {
+	// Entity WITHOUT a "generation" field: the generated code should return
+	// an error at runtime when concurrency == "optimistic" is requested.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Item",
+				Fields: []types.Field{
+					{Name: "label", Type: types.FieldTypeString},
+					{Name: "category", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The generated code should guard against optimistic concurrency without generation field.
+	if !strings.Contains(storeContent, "optimistic concurrency requires a 'generation' field") {
+		t.Errorf("store.go should emit runtime error for optimistic concurrency without generation field\n%s", storeContent)
+	}
+
+	// Verify it compiles.
+	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
+	if _, err := format.Source(storeBytes); err != nil {
+		t.Errorf("store.go does not compile: %v\n%s", err, string(storeBytes))
+	}
+}
+
+func TestUpsertOptimisticConcurrencyWithGenerationField(t *testing.T) {
+	// Entity WITH a "generation" field: the generated code should emit the
+	// WHERE clause for optimistic concurrency (no runtime error).
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "AdapterStatus",
+				Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString},
+					{Name: "resource_id", Type: types.FieldTypeString},
+					{Name: "generation", Type: types.FieldTypeInt64},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// Should have the WHERE EXCLUDED clause for optimistic concurrency.
+	if !strings.Contains(storeContent, `EXCLUDED."generation"`) {
+		t.Errorf("store.go should emit optimistic concurrency WHERE clause for entity with generation field\n%s", storeContent)
+	}
+
+	// Should NOT have the error guard for missing generation field.
+	if strings.Contains(storeContent, "optimistic concurrency requires a 'generation' field") {
+		t.Error("store.go should NOT emit error guard for entity that has a generation field")
+	}
+
+	// Verify it compiles.
+	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
+	if _, err := format.Source(storeBytes); err != nil {
+		t.Errorf("store.go does not compile: %v\n%s", err, string(storeBytes))
+	}
+}
+
+// --- Field name uniqueness validation ---
+
+func TestDuplicateFieldNames(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "email", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate field names within an entity")
+	}
+	if !strings.Contains(err.Error(), "duplicate field name") {
+		t.Errorf("error should mention duplicate field name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "email") {
+		t.Errorf("error should mention the duplicate field name 'email', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the entity name 'User', got: %v", err)
+	}
+}
+
+func TestUniqueFieldNamesPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "name", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for unique field names: %v", err)
+	}
+}
+
+// --- SQL identifier quoting ---
+
+func TestSQLIdentifiersAreQuoted(t *testing.T) {
+	// Use a field name that is a PostgreSQL reserved word to verify quoting.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Setting",
+				Fields: []types.Field{
+					{Name: "order", Type: types.FieldTypeInt32},
+					{Name: "group", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify migration SQL quotes identifiers.
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+	if !strings.Contains(sqlContent, `"order" INTEGER NOT NULL`) {
+		t.Errorf("migration should quote reserved word 'order':\n%s", sqlContent)
+	}
+	if !strings.Contains(sqlContent, `"group" TEXT NOT NULL`) {
+		t.Errorf("migration should quote reserved word 'group':\n%s", sqlContent)
+	}
+	if !strings.Contains(sqlContent, `CREATE TABLE IF NOT EXISTS "settings"`) {
+		t.Errorf("migration should quote table name:\n%s", sqlContent)
+	}
+
+	// Verify store queries quote identifiers.
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+	if !strings.Contains(storeContent, `DELETE FROM "settings" WHERE "id" = $1`) {
+		t.Errorf("store should quote identifiers in DELETE:\n%s", storeContent)
+	}
+	if !strings.Contains(storeContent, `SELECT "id", "order", "group" FROM "settings"`) {
+		t.Errorf("store should quote identifiers in SELECT:\n%s", storeContent)
+	}
+
+	// Verify both files compile.
+	for _, p := range []string{"internal/storage/models.go", "internal/storage/store.go"} {
+		content := findFile(t, files, p).Bytes()
+		if _, err := format.Source(content); err != nil {
+			t.Errorf("%s does not compile: %v\n%s", p, err, string(content))
+		}
 	}
 }

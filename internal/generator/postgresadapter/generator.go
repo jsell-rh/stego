@@ -47,6 +47,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate no duplicate field names within any entity.
+	if err := validateFieldUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
 	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating models: %w", err)
@@ -214,8 +219,8 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 		}
 
 		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
-		fmt.Fprintf(buf, "\t\t\t\"INSERT INTO %s (%s) VALUES (%s)\",\n",
-			table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		fmt.Fprintf(buf, "\t\t\t`INSERT INTO \"%s\" (%s) VALUES (%s)`,\n",
+			table, sqlQuotedColList(cols), strings.Join(placeholders, ", "))
 
 		// Emit value references.
 		args := []string{"v.ID"}
@@ -254,8 +259,8 @@ func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
 		}
 
 		fmt.Fprintf(buf, "\t\terr := s.db.QueryRow(\n")
-		fmt.Fprintf(buf, "\t\t\t\"SELECT %s FROM %s WHERE id = $1\", id,\n",
-			strings.Join(cols, ", "), table)
+		fmt.Fprintf(buf, "\t\t\t`SELECT %s FROM \"%s\" WHERE \"id\" = $1`, id,\n",
+			sqlQuotedColList(cols), table)
 		fmt.Fprintf(buf, "\t\t).Scan(%s)\n", strings.Join(scanArgs, ", "))
 		fmt.Fprintf(buf, "\t\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
@@ -301,12 +306,12 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 		// Build SET clause with positional parameters.
 		setClauses := make([]string, len(writeCols))
 		for i, col := range writeCols {
-			setClauses[i] = fmt.Sprintf("%s = $%d", col, i+1)
+			setClauses[i] = fmt.Sprintf(`"%s" = $%d`, col, i+1)
 		}
 		idParam := fmt.Sprintf("$%d", len(writeCols)+1)
 
 		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
-		fmt.Fprintf(buf, "\t\t\t\"UPDATE %s SET %s WHERE id = %s\",\n",
+		fmt.Fprintf(buf, "\t\t\t`UPDATE \"%s\" SET %s WHERE \"id\" = %s`,\n",
 			table, strings.Join(setClauses, ", "), idParam)
 
 		args := make([]string, 0, len(writeCols)+1)
@@ -334,7 +339,7 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 	for _, e := range entities {
 		table := tableName(e.Name)
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\t_, err := s.db.Exec(\"DELETE FROM %s WHERE id = $1\", id)\n", table)
+		fmt.Fprintf(buf, "\t\t_, err := s.db.Exec(`DELETE FROM \"%s\" WHERE \"id\" = $1`, id)\n", table)
 		fmt.Fprintf(buf, "\t\treturn err\n")
 	}
 
@@ -374,14 +379,14 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		}
 		fmt.Fprintf(buf, "}\n")
 
-		fmt.Fprintf(buf, "\t\tquery := \"SELECT %s FROM %s\"\n",
-			strings.Join(cols, ", "), table)
+		fmt.Fprintf(buf, "\t\tquery := `SELECT %s FROM \"%s\"`\n",
+			sqlQuotedColList(cols), table)
 		fmt.Fprintf(buf, "\t\tvar args []any\n")
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn nil, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tquery += \" WHERE \" + scopeField + \" = $1\"\n")
+		fmt.Fprintf(buf, "\t\t\tquery += ` WHERE \"` + scopeField + `\" = $1`\n")
 		fmt.Fprintf(buf, "\t\t\targs = append(args, scopeValue)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
@@ -423,6 +428,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	for _, e := range entities {
 		table := tableName(e.Name)
 		writeCols := writeColumns(e)
+		hasGeneration := entityHasField(e, "generation")
 
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
@@ -457,10 +463,9 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		// Build query dynamically based on upsert key.
-		fmt.Fprintf(buf, "\t\tquery := fmt.Sprintf(\"INSERT INTO %s (%s) VALUES (%s)\",\n",
-			table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-		fmt.Fprintf(buf, "\t\t)\n")
+		// Build base INSERT query.
+		fmt.Fprintf(buf, "\t\tquery := `INSERT INTO \"%s\" (%s) VALUES (%s)`\n",
+			table, sqlQuotedColList(cols), strings.Join(placeholders, ", "))
 
 		fmt.Fprintf(buf, "\t\tif len(upsertKey) > 0 {\n")
 		fmt.Fprintf(buf, "\t\t\tkeySet := make(map[string]bool, len(upsertKey))\n")
@@ -468,22 +473,38 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\t\tkeySet[k] = true\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
 
+		// Quote upsert key columns for SQL.
+		fmt.Fprintf(buf, "\t\t\tquotedKeys := make([]string, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\t\tfor i, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\t\tquotedKeys[i] = `\"` + k + `\"`\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+
 		// Build SET clause for non-key, non-id columns.
 		fmt.Fprintf(buf, "\t\t\tvar setClauses []string\n")
 		fmt.Fprintf(buf, "\t\t\tallCols := []string{%s}\n", quoteStringSlice(writeCols))
 		fmt.Fprintf(buf, "\t\t\tfor _, col := range allCols {\n")
 		fmt.Fprintf(buf, "\t\t\t\tif !keySet[col] {\n")
-		fmt.Fprintf(buf, "\t\t\t\t\tsetClauses = append(setClauses, col+\" = EXCLUDED.\"+col)\n")
+		fmt.Fprintf(buf, "\t\t\t\t\tsetClauses = append(setClauses, `\"` + col + `\" = EXCLUDED.\"` + col + `\"`)\n")
 		fmt.Fprintf(buf, "\t\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
 
 		fmt.Fprintf(buf, "\t\t\tif len(setClauses) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO UPDATE SET \" + strings.Join(setClauses, \", \")\n")
-		fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
-		fmt.Fprintf(buf, "\t\t\t\t\tquery += \" WHERE EXCLUDED.generation > %s.generation\"\n", table)
-		fmt.Fprintf(buf, "\t\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(quotedKeys, \", \") + \") DO UPDATE SET \" + strings.Join(setClauses, \", \")\n")
+
+		// Optimistic concurrency: only emit the WHERE clause if the entity
+		// actually has a "generation" field. Otherwise emit a runtime error.
+		if hasGeneration {
+			fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
+			fmt.Fprintf(buf, "\t\t\t\t\tquery += ` WHERE EXCLUDED.\"generation\" > \"%s\".\"generation\"`\n", table)
+			fmt.Fprintf(buf, "\t\t\t\t}\n")
+		} else {
+			fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
+			fmt.Fprintf(buf, "\t\t\t\t\treturn fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
+			fmt.Fprintf(buf, "\t\t\t\t}\n")
+		}
+
 		fmt.Fprintf(buf, "\t\t\t} else {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO NOTHING\"\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(quotedKeys, \", \") + \") DO NOTHING\"\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
@@ -511,7 +532,7 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\ttable = %q\n", tableName(e.Name))
+		fmt.Fprintf(buf, "\t\ttable = `\"%s\"`\n", tableName(e.Name))
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -521,7 +542,7 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	// The table name is derived from a compile-time constant entity name,
 	// not user input, so string interpolation is safe here.
 	fmt.Fprintf(buf, "\terr := s.db.QueryRow(\n")
-	fmt.Fprintf(buf, "\t\tfmt.Sprintf(\"SELECT EXISTS(SELECT 1 FROM %%s WHERE id = $1)\", table), id,\n")
+	fmt.Fprintf(buf, "\t\tfmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %%s WHERE \"id\" = $1)`, table), id,\n")
 	fmt.Fprintf(buf, "\t).Scan(&exists)\n")
 	fmt.Fprintf(buf, "\treturn err == nil && exists\n")
 	fmt.Fprintf(buf, "}\n\n")
@@ -657,8 +678,8 @@ func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 			fmt.Fprintf(&buf, "\n")
 		}
 		table := tableName(e.Name)
-		fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", table)
-		fmt.Fprintf(&buf, "    id TEXT PRIMARY KEY")
+		fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", sqlQ(table))
+		fmt.Fprintf(&buf, "    %s TEXT PRIMARY KEY", sqlQ("id"))
 
 		for _, f := range e.Fields {
 			fmt.Fprintf(&buf, ",\n")
@@ -667,7 +688,7 @@ func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 			// Emit FOREIGN KEY reference for ref fields.
 			if f.Type == types.FieldTypeRef && f.To != "" {
 				refTable := tableName(f.To)
-				fmt.Fprintf(&buf, " REFERENCES %s(id)", refTable)
+				fmt.Fprintf(&buf, " REFERENCES %s(%s)", sqlQ(refTable), sqlQ("id"))
 			}
 		}
 
@@ -677,7 +698,11 @@ func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 			return gen.File{}, err
 		}
 		for _, cols := range composites {
-			fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(cols, ", "))
+			quotedCols := make([]string, len(cols))
+			for i, c := range cols {
+				quotedCols[i] = sqlQ(c)
+			}
+			fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(quotedCols, ", "))
 		}
 
 		fmt.Fprintf(&buf, "\n);\n")
@@ -690,10 +715,13 @@ func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 }
 
 // columnDefinition produces a SQL column definition for a field, including
-// type, nullability, uniqueness, and CHECK constraints.
+// type, nullability, uniqueness, and CHECK constraints. All identifiers are
+// double-quoted to prevent collisions with PostgreSQL reserved words.
 func columnDefinition(f types.Field) string {
+	qName := sqlQ(f.Name)
+
 	var parts []string
-	parts = append(parts, f.Name)
+	parts = append(parts, qName)
 	parts = append(parts, fieldTypeToSQL(f.Type))
 
 	// Nullability: computed and optional fields are nullable.
@@ -715,28 +743,28 @@ func columnDefinition(f types.Field) string {
 		for i, v := range f.Values {
 			quoted[i] = fmt.Sprintf("'%s'", sqlEscapeString(v))
 		}
-		parts = append(parts, fmt.Sprintf("CHECK (%s IN (%s))", f.Name, strings.Join(quoted, ", ")))
+		parts = append(parts, fmt.Sprintf("CHECK (%s IN (%s))", qName, strings.Join(quoted, ", ")))
 	}
 
 	// String length constraints.
 	if f.MinLength != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (length(%s) >= %d)", f.Name, *f.MinLength))
+		parts = append(parts, fmt.Sprintf("CHECK (length(%s) >= %d)", qName, *f.MinLength))
 	}
 	if f.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (length(%s) <= %d)", f.Name, *f.MaxLength))
+		parts = append(parts, fmt.Sprintf("CHECK (length(%s) <= %d)", qName, *f.MaxLength))
 	}
 
 	// Pattern constraint.
 	if f.Pattern != "" {
-		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", f.Name, sqlEscapeString(f.Pattern)))
+		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", qName, sqlEscapeString(f.Pattern)))
 	}
 
 	// Numeric range constraints.
 	if f.Min != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (%s >= %g)", f.Name, *f.Min))
+		parts = append(parts, fmt.Sprintf("CHECK (%s >= %g)", qName, *f.Min))
 	}
 	if f.Max != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (%s <= %g)", f.Name, *f.Max))
+		parts = append(parts, fmt.Sprintf("CHECK (%s <= %g)", qName, *f.Max))
 	}
 
 	return strings.Join(parts, " ")
@@ -764,6 +792,32 @@ func sqlEscapeString(s string) string {
 }
 
 // --- Helpers ---
+
+// sqlQ wraps a SQL identifier in double quotes for PostgreSQL.
+// This prevents collisions with reserved words (e.g. "order", "group").
+func sqlQ(id string) string {
+	return `"` + id + `"`
+}
+
+// sqlQuotedColList produces a SQL column list with each identifier double-quoted.
+// e.g. ["id", "email"] → `"id", "email"`
+func sqlQuotedColList(cols []string) string {
+	quoted := make([]string, len(cols))
+	for i, c := range cols {
+		quoted[i] = sqlQ(c)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// entityHasField checks whether an entity has a field with the given name.
+func entityHasField(e types.Entity, name string) bool {
+	for _, f := range e.Fields {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
 // writeColumns returns the list of non-computed field names for an entity,
 // suitable for INSERT/UPDATE operations.
@@ -992,6 +1046,27 @@ func validateRefTargets(entities []types.Entity) error {
 
 	if len(errs) > 0 {
 		return fmt.Errorf("unresolved ref targets:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateFieldUniqueness checks that no entity has duplicate field names.
+func validateFieldUniqueness(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		seen := make(map[string]bool, len(e.Fields))
+		for _, f := range e.Fields {
+			if seen[f.Name] {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: duplicate field name %q",
+					e.Name, f.Name))
+			}
+			seen[f.Name] = true
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("field name uniqueness violations:\n  %s",
+			strings.Join(errs, "\n  "))
 	}
 	return nil
 }
