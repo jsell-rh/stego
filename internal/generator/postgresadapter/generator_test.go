@@ -2518,6 +2518,106 @@ func TestEnumUniqueValuesPass(t *testing.T) {
 	}
 }
 
+// --- Post-transformation identifier validity ---
+
+func TestFieldNameUnderscoreOnlyProducesError(t *testing.T) {
+	tests := []struct {
+		name      string
+		fieldName string
+	}{
+		{"single_underscore", "_"},
+		{"double_underscore", "__"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name: "User",
+						Fields: []types.Field{
+							{Name: tt.fieldName, Type: types.FieldTypeString},
+						},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for field name %q (underscore-only)", tt.fieldName)
+			}
+			if !strings.Contains(err.Error(), "not a valid Go identifier") {
+				t.Errorf("error should mention invalid Go identifier, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.fieldName) {
+				t.Errorf("error should mention the field name %q, got: %v", tt.fieldName, err)
+			}
+		})
+	}
+}
+
+func TestFieldNameUnderscorePrefixedDigitsProducesError(t *testing.T) {
+	tests := []struct {
+		name      string
+		fieldName string
+	}{
+		{"underscore_123", "_123"},
+		{"underscore_42", "_42"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name: "User",
+						Fields: []types.Field{
+							{Name: tt.fieldName, Type: types.FieldTypeString},
+						},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for field name %q (underscore-prefixed digits)", tt.fieldName)
+			}
+			if !strings.Contains(err.Error(), "not a valid Go identifier") {
+				t.Errorf("error should mention invalid Go identifier, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.fieldName) {
+				t.Errorf("error should mention the field name %q, got: %v", tt.fieldName, err)
+			}
+		})
+	}
+}
+
+func TestFieldNameWithAlphaAfterUnderscorePass(t *testing.T) {
+	// Names with underscores that have alphabetic segments should still work.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "_internal", Type: types.FieldTypeString},
+					{Name: "a_1", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid field names with underscores: %v", err)
+	}
+}
+
 func TestSQLIdentifiersAreQuoted(t *testing.T) {
 	// Use a field name that is a PostgreSQL reserved word to verify quoting.
 	ctx := gen.Context{

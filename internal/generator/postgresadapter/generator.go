@@ -77,6 +77,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate derived PascalCase field names are valid Go identifiers.
+	if err := validateDerivedFieldValidity(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate that enum fields have non-empty values.
 	if err := validateEnumValues(ctx.Entities); err != nil {
 		return nil, nil, err
@@ -1186,6 +1191,34 @@ func validateNoImplicitIDCollision(entities []types.Entity) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("implicit ID collisions:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validGoIdentifier checks that a string is a valid Go identifier: non-empty,
+// starts with a letter or underscore, and contains only letters, digits, or
+// underscores. This is used to validate post-transformation output.
+var validGoIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// validateDerivedFieldValidity checks that toPascalCase(f.Name) produces a
+// valid Go identifier for every field. Names like "_" (produces "") or "_123"
+// (produces "123") pass the input charset regex but yield invalid Go identifiers
+// after transformation.
+func validateDerivedFieldValidity(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			pascal := toPascalCase(f.Name)
+			if !validGoIdentifier.MatchString(pascal) {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: field %q transforms to %q via toPascalCase, which is not a valid Go identifier",
+					e.Name, f.Name, pascal))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid derived field identifiers:\n  %s",
 			strings.Join(errs, "\n  "))
 	}
 	return nil
