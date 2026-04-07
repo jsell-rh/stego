@@ -209,6 +209,20 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	fmt.Fprintf(&buf, "\treturn &%s{store: store}\n", handlerType)
 	fmt.Fprintf(&buf, "}\n\n")
 
+	// Resolve ancestor parameter names from the actual route path. When
+	// path_prefix is set, parameter names come from the prefix template;
+	// otherwise they are derived from entity names via convention.
+	var ancestorParams map[string]string
+	var parentParamName string
+	if eb.Parent != "" {
+		var err error
+		ancestorParams, err = resolveAncestorParams(eb, exposeMap)
+		if err != nil {
+			return gen.File{}, err
+		}
+		parentParamName = ancestorParams[eb.Parent]
+	}
+
 	// Ancestor verification helper for nested routing. Verifies the existence
 	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
 	if eb.Parent != "" {
@@ -219,8 +233,8 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		fmt.Fprintf(&buf, "// checkAncestors verifies that all ancestor entities in the URL hierarchy exist.\n")
 		fmt.Fprintf(&buf, "func (h *%s) checkAncestors(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
 		for _, anc := range ancestors {
+			idParam := ancestorParams[anc]
 			idVar := strings.ToLower(anc) + "ID"
-			idParam := strings.ToLower(anc) + "_id"
 			fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", idVar, idParam)
 			fmt.Fprintf(&buf, "\tif %s == \"\" {\n", idVar)
 			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", idParam)
@@ -240,17 +254,17 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		var opErr error
 		switch op {
 		case types.OpCreate:
-			opErr = generateCreateMethod(&buf, entity, eb)
+			opErr = generateCreateMethod(&buf, entity, eb, parentParamName)
 		case types.OpRead:
 			generateReadMethod(&buf, entity, eb)
 		case types.OpUpdate:
-			opErr = generateUpdateMethod(&buf, entity, eb)
+			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName)
 		case types.OpDelete:
 			generateDeleteMethod(&buf, entity, eb)
 		case types.OpList:
-			opErr = generateListMethod(&buf, entity, eb)
+			opErr = generateListMethod(&buf, entity, eb, parentParamName)
 		case types.OpUpsert:
-			opErr = generateUpsertMethod(&buf, entity, eb)
+			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -276,7 +290,7 @@ func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -287,12 +301,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
 		refField, err := parentRefFieldName(entity, eb.Parent)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -320,7 +333,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -332,12 +345,11 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
 		refField, err := parentRefFieldName(entity, eb.Parent)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -361,7 +373,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string) error {
 	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -370,20 +382,18 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	// parent's path parameter (already present in the route pattern). Without
 	// a parent, scope is passed as a query parameter.
 	if eb.Scope != "" && eb.Parent != "" {
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentIDParam)
+		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
 	} else if eb.Scope != "" {
 		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.Scope)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
 	} else if eb.Parent != "" {
 		parentIDVar := strings.ToLower(eb.Parent) + "ID"
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
 		parentField, err := parentRefRawFieldName(entity, eb.Parent)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
+		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentParamName)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, \"\", \"\")\n", lower, entity.Name)
@@ -399,7 +409,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) error {
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -410,12 +420,11 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
 	if eb.Parent != "" {
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
 		refField, err := parentRefFieldName(entity, eb.Parent)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentIDParam)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
 
 	if len(eb.UpsertKey) > 0 {
@@ -973,6 +982,39 @@ func checkEntityNameCollisions(expose []types.ExposeBlock) error {
 		}
 	}
 	return nil
+}
+
+// resolveAncestorParams returns a map from ancestor entity name to the actual
+// path parameter name used in the route. When path_prefix is set, parameter
+// names are extracted from the prefix and matched positionally with ancestors.
+// When not set, convention-derived names (lowercase_entity + "_id") are used.
+func resolveAncestorParams(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (map[string]string, error) {
+	ancestors, err := collectAncestors(eb, exposeMap)
+	if err != nil {
+		return nil, err
+	}
+	if len(ancestors) == 0 {
+		return nil, nil
+	}
+
+	basePath, err := entityBasePath(eb, exposeMap)
+	if err != nil {
+		return nil, err
+	}
+
+	params := extractPathParams(basePath) // excludes {id}
+
+	if len(params) != len(ancestors) {
+		return nil, fmt.Errorf(
+			"path %q contains %d path parameters %v but entity %q has %d ancestors %v; each ancestor must have a corresponding path parameter",
+			basePath, len(params), params, eb.Entity, len(ancestors), ancestors)
+	}
+
+	result := make(map[string]string, len(ancestors))
+	for i, anc := range ancestors {
+		result[anc] = params[i]
+	}
+	return result, nil
 }
 
 // validateParentReferences verifies that every expose block's parent field

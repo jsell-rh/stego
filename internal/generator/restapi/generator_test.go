@@ -2565,6 +2565,289 @@ func TestGenerate_MultipleParentsNotInExposeListReportsAll(t *testing.T) {
 	}
 }
 
+func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
+	// Finding 32: when path_prefix is set with parent and the prefix uses
+	// non-conventional parameter names (e.g. {org_id} instead of {organization_id}),
+	// the generated handler code must use the actual prefix parameter names in
+	// r.PathValue() calls, not convention-derived names.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
+				Parent:     "Organization",
+				PathPrefix: "/orgs/{org_id}/users",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_user.go")
+
+	// checkAncestors must use {org_id} from the prefix, NOT {organization_id}
+	// from the convention.
+	if !strings.Contains(handler, `r.PathValue("org_id")`) {
+		t.Error("checkAncestors must use actual prefix parameter name 'org_id', not convention-derived 'organization_id'")
+	}
+	if strings.Contains(handler, `r.PathValue("organization_id")`) {
+		t.Error("handler must NOT use convention-derived 'organization_id' when path_prefix provides 'org_id'")
+	}
+
+	// Create method parent ID assignment must use {org_id}.
+	if !strings.Contains(handler, `user.OrgID = r.PathValue("org_id")`) {
+		t.Error("create handler must assign parent ID using actual prefix parameter name 'org_id'")
+	}
+
+	// Update method parent ID assignment must use {org_id}.
+	if !strings.Contains(handler, `user.OrgID = r.PathValue("org_id")`) {
+		t.Error("update handler must assign parent ID using actual prefix parameter name 'org_id'")
+	}
+
+	// Verify the generated code compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with divergent path_prefix params does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_PathPrefixDivergentParamNamesOpenAPI(t *testing.T) {
+	// Verify that OpenAPI spec also uses the actual prefix parameter names
+	// (this should already work via extractPathParams, but verify as a regression test).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList, types.OpCreate},
+				Parent:     "Organization",
+				PathPrefix: "/orgs/{org_id}/users",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+
+	// The path should use the prefix as-is.
+	usersPath, ok := paths["/orgs/{org_id}/users"]
+	if !ok {
+		t.Fatal("missing /orgs/{org_id}/users path in OpenAPI spec")
+	}
+
+	// List operation must declare org_id parameter (not organization_id).
+	listOp := usersPath.(map[string]any)["get"].(map[string]any)
+	params, _ := listOp["parameters"].([]any)
+	if !hasParam(params, "org_id") {
+		t.Error("OpenAPI list operation must declare 'org_id' parameter from path_prefix")
+	}
+	if hasParam(params, "organization_id") {
+		t.Error("OpenAPI must NOT declare convention-derived 'organization_id' when path_prefix provides 'org_id'")
+	}
+}
+
+func TestGenerate_PathPrefixScopeWithDivergentParamNames(t *testing.T) {
+	// When scope+parent are both set and path_prefix uses non-conventional
+	// param names, the List handler must extract scope from the actual prefix
+	// parameter, not the convention-derived one.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "org_id",
+				Parent:     "Organization",
+				PathPrefix: "/orgs/{org_id}/users",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	// Scope+parent: must use actual prefix param name for PathValue.
+	if !strings.Contains(handler, `r.PathValue("org_id")`) {
+		t.Error("scope+parent list must use actual prefix parameter name 'org_id' for scope extraction")
+	}
+	if strings.Contains(handler, `r.PathValue("organization_id")`) {
+		t.Error("scope+parent list must NOT use convention-derived 'organization_id'")
+	}
+}
+
+func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
+	// Three-level nesting with custom path_prefix where parameter names diverge
+	// from convention at all levels.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
+				{Name: "resource_type", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpRead, types.OpList},
+				Parent:     "Cluster",
+				PathPrefix: "/clusters/{cid}/pools",
+			},
+			{
+				Entity:     "AdapterStatus",
+				Operations: []types.Operation{types.OpList, types.OpUpsert},
+				Parent:     "NodePool",
+				PathPrefix: "/clusters/{cid}/pools/{pid}/statuses",
+				UpsertKey:  []string{"resource_type"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	asHandler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
+
+	// checkAncestors must use {cid} and {pid} from the prefix.
+	if !strings.Contains(asHandler, `r.PathValue("cid")`) {
+		t.Error("checkAncestors must use 'cid' from path_prefix for Cluster ancestor")
+	}
+	if !strings.Contains(asHandler, `r.PathValue("pid")`) {
+		t.Error("checkAncestors must use 'pid' from path_prefix for NodePool ancestor")
+	}
+	if strings.Contains(asHandler, `r.PathValue("cluster_id")`) {
+		t.Error("must NOT use convention-derived 'cluster_id' when path_prefix provides 'cid'")
+	}
+	if strings.Contains(asHandler, `r.PathValue("nodepool_id")`) {
+		t.Error("must NOT use convention-derived 'nodepool_id' when path_prefix provides 'pid'")
+	}
+
+	// Upsert parent ID assignment must use {pid} from the prefix.
+	if !strings.Contains(asHandler, `adapterstatus.NodepoolID = r.PathValue("pid")`) {
+		t.Error("upsert handler must assign parent ID using actual prefix parameter 'pid'")
+	}
+
+	// Verify the generated code compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with multi-level divergent path_prefix does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
+	// If path_prefix has a different number of params than ancestors,
+	// resolveAncestorParams must return an error.
+	exposeMap := map[string]types.ExposeBlock{
+		"Cluster":  {Entity: "Cluster"},
+		"NodePool": {Entity: "NodePool", Parent: "Cluster"},
+	}
+	// path_prefix has 2 params but NodePool only has 1 ancestor (Cluster).
+	eb := types.ExposeBlock{
+		Entity:     "Widget",
+		Parent:     "NodePool",
+		PathPrefix: "/a/{x}/b/{y}/c/{z}/widgets",
+	}
+	exposeMap["Widget"] = eb
+	exposeMap["NodePool"] = types.ExposeBlock{Entity: "NodePool", Parent: "Cluster"}
+
+	_, err := resolveAncestorParams(eb, exposeMap)
+	if err == nil {
+		t.Fatal("expected error for mismatched param count")
+	}
+	if !strings.Contains(err.Error(), "Widget") {
+		t.Errorf("error should mention entity name, got: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
