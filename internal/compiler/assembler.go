@@ -120,7 +120,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByEntity)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -257,12 +257,30 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 	return result
 }
 
+// assemblerInternalVars returns the set of variable names that assembler-
+// internal emitter functions (writeDBSetup, writeRouteRegistration,
+// writeServerStart) introduce into the main() function scope. Constructor
+// variable disambiguation must reserve these to prevent collisions.
+func assemblerInternalVars(hasDB, hasRoutes bool) map[string]bool {
+	vars := make(map[string]bool)
+	if hasDB {
+		vars["dsn"] = true
+		vars["db"] = true
+		vars["err"] = true
+	}
+	if hasRoutes {
+		vars["mux"] = true
+		vars["addr"] = true
+	}
+	return vars
+}
+
 // writeConstructors emits constructor variable declarations and returns
 // per-wiring rename maps. Each entry maps a wiring index to a map from
 // raw (pre-disambiguation) variable names to their disambiguated names.
 // This is used by writeRouteRegistration to update variable references
 // only in routes belonging to the wiring whose constructors were renamed.
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool) (map[int]map[string]string, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool) (map[int]map[string]string, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int]map[string]string)
@@ -270,6 +288,14 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 	// Seed with slot operator variable names so constructor vars are
 	// disambiguated against them (they share the same function scope).
 	for name := range slotVarNames {
+		varNames[name]++
+		varUsed[name] = true
+	}
+
+	// Seed with assembler-internal template variables (mux, addr, db, dsn,
+	// err) that are emitted by writeDBSetup, writeRouteRegistration, and
+	// writeServerStart into the same function scope.
+	for name := range assemblerInternalVars(hasDB, hasRoutes) {
 		varNames[name]++
 		varUsed[name] = true
 	}

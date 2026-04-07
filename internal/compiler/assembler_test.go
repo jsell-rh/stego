@@ -1630,5 +1630,121 @@ func TestInjectConstructorArgs(t *testing.T) {
 	}
 }
 
+func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
+	// Finding 13: Assembler-internal variables (mux, addr, db, dsn, err)
+	// must be reserved in the constructor disambiguation namespace.
+	tests := []struct {
+		name        string
+		constructor string
+		wantVar     string
+		hasRoutes   bool
+		hasDB       bool
+	}{
+		{
+			name:        "mux collision with routes",
+			constructor: "muxutil.NewMux()",
+			wantVar:     "mux2 :=",
+			hasRoutes:   true,
+		},
+		{
+			name:        "addr collision with routes",
+			constructor: "config.NewAddr()",
+			wantVar:     "addr2 :=",
+			hasRoutes:   true,
+		},
+		{
+			name:        "db collision with database",
+			constructor: "pool.NewDb()",
+			wantVar:     "db2 :=",
+			hasDB:       true,
+		},
+		{
+			name:        "dsn collision with database",
+			constructor: "config.NewDsn()",
+			wantVar:     "dsn2 :=",
+			hasDB:       true,
+		},
+		{
+			name:        "err collision with database",
+			constructor: "errutil.NewErr()",
+			wantVar:     "err2 :=",
+			hasDB:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wirings := []ComponentWiring{
+				{
+					Name: "colliding-component",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/colliding"},
+						Constructors: []string{tt.constructor},
+					},
+				},
+			}
+
+			if tt.hasRoutes {
+				wirings = append(wirings, ComponentWiring{
+					Name: "rest-api",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/api"},
+						Constructors: []string{"api.NewHandler()"},
+						Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					},
+				})
+			}
+
+			if tt.hasDB {
+				wirings = append(wirings, ComponentWiring{
+					Name: "postgres-adapter",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/storage"},
+						Constructors: []string{"storage.NewStore(db)"},
+						NeedsDB:      true,
+					},
+				})
+				// Need routes to make the output non-trivial, or at least
+				// the DB setup emits variables.
+			}
+
+			input := AssemblerInput{
+				ModuleName:  "github.com/myorg/svc",
+				ServiceName: "svc",
+				GoVersion:   "1.22",
+				Port:        8080,
+				Wirings:     wirings,
+			}
+
+			files, err := Assemble(input)
+			if err != nil {
+				t.Fatalf("Assemble: %v", err)
+			}
+
+			var mainGo gen.File
+			for _, f := range files {
+				if f.Path == "cmd/main.go" {
+					mainGo = f
+				}
+			}
+
+			code := string(mainGo.Content)
+
+			// Must parse as valid Go — without seeding assembler-internal
+			// vars, the constructor would produce a duplicate declaration.
+			fset := token.NewFileSet()
+			_, parseErr := parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+			if parseErr != nil {
+				t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, parseErr)
+			}
+
+			// Verify the constructor variable was disambiguated.
+			if !strings.Contains(code, tt.wantVar) {
+				t.Errorf("expected disambiguated variable %q in:\n%s", tt.wantVar, code)
+			}
+		})
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
