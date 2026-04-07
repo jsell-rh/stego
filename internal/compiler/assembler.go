@@ -104,6 +104,13 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		return gen.File{}, err
 	}
 
+	// Validate no derived variable name collisions (distinct raw composite
+	// keys that normalize to the same camelCase identifier, e.g.
+	// "before_create" and "before__create" both produce "beforeCreate").
+	if err := validateSlotVarNameUniqueness(input.SlotBindings); err != nil {
+		return gen.File{}, err
+	}
+
 	// Validate no intra-wiring constructor base name collisions.
 	if err := validateConstructorUniqueness(input.Wirings); err != nil {
 		return gen.File{}, err
@@ -190,6 +197,15 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	seen := make(map[string]bool)      // full import path → already added
 	aliases := make(map[string]int)    // base alias → count (for disambiguation)
 	aliasUsed := make(map[string]bool) // tracks the exact alias string used
+
+	// Seed the disambiguation maps with stdlib import aliases so that
+	// non-stdlib imports cannot shadow them. A component import like
+	// "internal/sql" would otherwise get alias "sql", shadowing the
+	// stdlib "database/sql" import.
+	for _, name := range stdlibAliases(hasRoutes, hasDB) {
+		aliases[name]++
+		aliasUsed[name] = true
+	}
 
 	// Track per-wiring import alias renames for propagation to constructor
 	// and route expressions.
@@ -720,6 +736,14 @@ func buildFillAliasMap(input AssemblerInput) map[string]string {
 	aliasUsed := make(map[string]bool)
 	seen := make(map[string]bool)
 
+	// Seed stdlib aliases (must match writeMainImports exactly).
+	hasRoutes := hasAnyRoutes(input)
+	hasDB := needsDB(input)
+	for _, name := range stdlibAliases(hasRoutes, hasDB) {
+		aliases[name]++
+		aliasUsed[name] = true
+	}
+
 	// Replay slots alias registration.
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 	if hasSlots {
@@ -863,6 +887,69 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 				return fmt.Errorf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name)
 			}
 			seen[key] = true
+		}
+	}
+	return nil
+}
+
+// stdlibAliases returns the set of implicit package-name aliases introduced by
+// conditionally-imported standard library packages. These must be seeded into
+// import alias disambiguation maps to prevent non-stdlib imports from shadowing
+// them (e.g. component "internal/sql" getting alias "sql" and shadowing
+// "database/sql").
+func stdlibAliases(hasRoutes, hasDB bool) []string {
+	var names []string
+	if hasDB {
+		names = append(names, "sql", "os")
+	}
+	if hasRoutes {
+		names = append(names, "fmt", "http")
+	}
+	if hasDB || hasRoutes {
+		names = append(names, "log")
+	}
+	return names
+}
+
+// validateSlotVarNameUniqueness checks that no two slot bindings produce the
+// same derived variable name. Distinct raw composite keys (slot, entity, operator)
+// can normalize to the same camelCase identifier when the slot names differ only
+// in underscore structure (e.g. "before_create" and "before__create" both produce
+// "beforeCreate" via snakeToCamel). This would produce duplicate := declarations
+// in the generated main.go.
+func validateSlotVarNameUniqueness(bindings []types.SlotDeclaration) error {
+	type varSource struct {
+		slot, entity, operator string
+	}
+	seen := make(map[string]varSource) // derived var name → first source
+
+	for _, sb := range bindings {
+		operators := []struct {
+			name   string
+			suffix string
+			has    bool
+		}{
+			{"gate", "Gate", len(sb.Gate) > 0},
+			{"chain", "Chain", len(sb.Chain) > 0},
+			{"fan-out", "FanOut", len(sb.FanOut) > 0},
+		}
+		for _, op := range operators {
+			if !op.has {
+				continue
+			}
+			varName := slotVarName(sb.Slot, sb.Entity, op.suffix)
+			source := varSource{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			if first, ok := seen[varName]; ok {
+				// Only report if the raw composite keys differ — if they're
+				// identical, validateSlotBindingUniqueness already catches it.
+				if first.slot != source.slot || first.entity != source.entity || first.operator != source.operator {
+					return fmt.Errorf("slot bindings %q (entity %q, operator %q) and %q (entity %q, operator %q) produce the same variable name %q — slot names must be distinct after normalization",
+						first.slot, first.entity, first.operator,
+						source.slot, source.entity, source.operator,
+						varName)
+				}
+			}
+			seen[varName] = source
 		}
 	}
 	return nil

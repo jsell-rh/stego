@@ -2341,5 +2341,309 @@ func TestAssemble_DuplicateSlotBindingNoEntity(t *testing.T) {
 	}
 }
 
+func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
+	// Finding 19: A component with import path base "sql" should NOT get
+	// alias "sql" when "database/sql" is also imported (hasDB=true),
+	// because the explicit alias shadows the implicit stdlib alias.
+	tests := []struct {
+		name      string
+		importDir string
+		hasDB     bool
+		hasRoutes bool
+		wantAlias string
+	}{
+		{
+			name:      "component base sql with hasDB",
+			importDir: "internal/sql",
+			hasDB:     true,
+			wantAlias: "sql2",
+		},
+		{
+			name:      "component base os with hasDB",
+			importDir: "internal/os",
+			hasDB:     true,
+			wantAlias: "os2",
+		},
+		{
+			name:      "component base fmt with hasRoutes",
+			importDir: "internal/fmt",
+			hasRoutes: true,
+			wantAlias: "fmt2",
+		},
+		{
+			name:      "component base http with hasRoutes",
+			importDir: "internal/http",
+			hasRoutes: true,
+			wantAlias: "http2",
+		},
+		{
+			name:      "component base log with hasDB",
+			importDir: "internal/log",
+			hasDB:     true,
+			wantAlias: "log2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wirings := []ComponentWiring{
+				{
+					Name: "colliding-component",
+					Wiring: &gen.Wiring{
+						Imports:      []string{tt.importDir},
+						Constructors: []string{"pkg.NewProcessor()"},
+					},
+				},
+			}
+
+			if tt.hasRoutes {
+				wirings = append(wirings, ComponentWiring{
+					Name: "rest-api",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/api"},
+						Constructors: []string{"api.NewHandler()"},
+						Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					},
+				})
+			}
+
+			if tt.hasDB {
+				wirings = append(wirings, ComponentWiring{
+					Name: "postgres-adapter",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/storage"},
+						Constructors: []string{"storage.NewStore(db)"},
+						NeedsDB:      true,
+					},
+				})
+			}
+
+			// Need routes for a valid main.go in some cases.
+			if !tt.hasRoutes {
+				wirings = append(wirings, ComponentWiring{
+					Name: "rest-api",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/api"},
+						Constructors: []string{"api.NewHandler()"},
+						Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					},
+				})
+			}
+
+			input := AssemblerInput{
+				ModuleName:  "github.com/myorg/svc",
+				ServiceName: "svc",
+				GoVersion:   "1.22",
+				Port:        8080,
+				Wirings:     wirings,
+			}
+
+			files, err := Assemble(input)
+			if err != nil {
+				t.Fatalf("Assemble: %v", err)
+			}
+
+			var mainGo gen.File
+			for _, f := range files {
+				if f.Path == "cmd/main.go" {
+					mainGo = f
+				}
+			}
+
+			code := string(mainGo.Content)
+
+			fset := token.NewFileSet()
+			_, parseErr := parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+			if parseErr != nil {
+				t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, parseErr)
+			}
+
+			// The component import should get a disambiguated alias.
+			if !strings.Contains(code, tt.wantAlias) {
+				t.Errorf("expected disambiguated alias %q in:\n%s", tt.wantAlias, code)
+			}
+		})
+	}
+}
+
+func TestAssemble_StdlibAliasShadowingByFill(t *testing.T) {
+	// Finding 19: A fill named "log" should get alias "log2" when
+	// hasDB || hasRoutes (since "log" is imported as a stdlib package).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "validate", Gate: []string{"log"}},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The fill alias should be disambiguated to avoid shadowing stdlib "log".
+	if !strings.Contains(code, "log2") {
+		t.Errorf("fill 'log' alias should be disambiguated to log2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_SlotVarNameNormalizationCollision(t *testing.T) {
+	// Finding 20: Two slot names that differ only in underscore structure
+	// (e.g. "before_create" and "before__create") normalize to the same
+	// camelCase identifier and must be rejected.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"policy-a"},
+			},
+			{
+				Slot:   "before__create",
+				Entity: "User",
+				Gate:   []string{"policy-b"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for slot names that normalize to the same variable name, got nil")
+	}
+	if !strings.Contains(err.Error(), "same variable name") {
+		t.Errorf("expected 'same variable name' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "before_create") {
+		t.Errorf("error should identify first slot name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "before__create") {
+		t.Errorf("error should identify second slot name, got: %v", err)
+	}
+}
+
+func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.T) {
+	// Slot names that normalize the same but have different entities produce
+	// different variable names (entity is part of the name), so should succeed.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/api"},
+					Constructors: []string{
+						"api.NewUserHandler(store)",
+						"api.NewOrgHandler(store)",
+					},
+					ConstructorEntities: map[int]string{
+						0: "User",
+						1: "Org",
+					},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userHandler.Create)`,
+						`mux.HandleFunc("POST /orgs", orgHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"policy-a"},
+			},
+			{
+				Slot:   "before__create",
+				Entity: "Org",
+				Gate:   []string{"policy-b"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble should succeed when normalized names differ by entity: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both should have distinct variable names because entities differ.
+	if !strings.Contains(code, "beforeCreateUserGate") {
+		t.Errorf("missing beforeCreateUserGate in:\n%s", code)
+	}
+	if !strings.Contains(code, "beforeCreateOrgGate") {
+		t.Errorf("missing beforeCreateOrgGate in:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
