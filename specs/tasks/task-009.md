@@ -2,7 +2,7 @@
 
 **Spec Reference:** "File Types — Component", "Code Generation Mechanism", "MVP Scope"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-009.md](../reviews/task-009.md)
 
@@ -52,3 +52,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 328f10e fix(task-009): address round 8 findings — OpenAPI constraints/format and multi-level ancestor verification
 - 618498b fix(task-009): address round 9 findings — circular parent detection and OpenAPI default attribute
 - a004e98 fix(task-009): address round 10 finding — update handler parent ID assignment
+- 63e4cdc fix(task-009): address round 11 finding — reject entity names that collide with generator-internal identifiers
