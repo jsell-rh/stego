@@ -52,7 +52,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating store: %w", err)
 	}
 
-	migrationFile := generateMigration(ctx.OutputNamespace, ctx.Entities)
+	migrationFile, err := generateMigration(ctx.OutputNamespace, ctx.Entities)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating migration: %w", err)
+	}
 
 	files := []gen.File{modelsFile, storeFile, migrationFile}
 
@@ -112,6 +115,12 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f.Type)
+			// Nullable columns (optional or computed) use pointer types so
+			// database/sql.Rows.Scan can receive SQL NULL values. []byte and
+			// json.RawMessage already handle nil correctly.
+			if (f.Optional || f.Computed) && goType != "[]byte" && goType != "json.RawMessage" {
+				goType = "*" + goType
+			}
 			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
 		}
 		fmt.Fprintf(&buf, "}\n\n")
@@ -267,6 +276,14 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 		writeCols := writeColumns(e)
 
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+
+		// If all fields are computed, there are no writable columns and the
+		// UPDATE SET clause would be empty (invalid SQL).
+		if len(writeCols) == 0 {
+			fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"entity %s has no writable fields\")\n", e.Name)
+			continue
+		}
+
 		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
 		fmt.Fprintf(buf, "\t\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
@@ -508,7 +525,53 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 // generateMigration produces the initial migration SQL file with CREATE TABLE
 // statements for all entities. Computed fields are nullable. Constraints
 // (UNIQUE, NOT NULL, CHECK) are included where specified.
-func generateMigration(ns string, entities []types.Entity) gen.File {
+// validateUniqueComposites checks that all unique_composite field references
+// resolve to actual fields in the entity, and returns deduplicated constraints.
+func validateUniqueComposites(e types.Entity) ([][]string, error) {
+	// Build set of valid field names.
+	validFields := make(map[string]bool, len(e.Fields))
+	for _, f := range e.Fields {
+		validFields[f.Name] = true
+	}
+
+	// Collect and deduplicate constraints (normalized by sorted key).
+	seen := make(map[string]bool)
+	var constraints [][]string
+	for _, f := range e.Fields {
+		if len(f.UniqueComposite) == 0 {
+			continue
+		}
+		// Validate each referenced field name.
+		for _, ref := range f.UniqueComposite {
+			if !validFields[ref] {
+				return nil, fmt.Errorf(
+					"entity %s: field %q declares unique_composite referencing non-existent field %q",
+					e.Name, f.Name, ref)
+			}
+		}
+		// Deduplicate by joining the field names as a key.
+		// Use the original order for the constraint (no sorting) but
+		// normalize the key for dedup by sorting a copy.
+		sorted := make([]string, len(f.UniqueComposite))
+		copy(sorted, f.UniqueComposite)
+		// Simple sort for dedup key.
+		for i := 0; i < len(sorted); i++ {
+			for j := i + 1; j < len(sorted); j++ {
+				if sorted[i] > sorted[j] {
+					sorted[i], sorted[j] = sorted[j], sorted[i]
+				}
+			}
+		}
+		key := strings.Join(sorted, ",")
+		if !seen[key] {
+			seen[key] = true
+			constraints = append(constraints, f.UniqueComposite)
+		}
+	}
+	return constraints, nil
+}
+
+func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 	var buf bytes.Buffer
 
 	fmt.Fprintf(&buf, "-- Migration: initial schema\n")
@@ -528,11 +591,13 @@ func generateMigration(ns string, entities []types.Entity) gen.File {
 			fmt.Fprintf(&buf, "    %s", colDef)
 		}
 
-		// Emit table-level UNIQUE constraints from unique_composite.
-		for _, f := range e.Fields {
-			if len(f.UniqueComposite) > 0 {
-				fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(f.UniqueComposite, ", "))
-			}
+		// Emit validated, deduplicated table-level UNIQUE constraints.
+		composites, err := validateUniqueComposites(e)
+		if err != nil {
+			return gen.File{}, err
+		}
+		for _, cols := range composites {
+			fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(cols, ", "))
 		}
 
 		fmt.Fprintf(&buf, "\n);\n")
@@ -541,7 +606,7 @@ func generateMigration(ns string, entities []types.Entity) gen.File {
 	return gen.File{
 		Path:    path.Join(ns, "migrations", "001_initial.sql"),
 		Content: buf.Bytes(),
-	}
+	}, nil
 }
 
 // columnDefinition produces a SQL column definition for a field, including
@@ -669,12 +734,23 @@ func pluralize(s string) string {
 	return s + "s"
 }
 
-// toSnakeCase converts PascalCase to snake_case.
+// toSnakeCase converts PascalCase to snake_case, correctly handling
+// consecutive uppercase letters (acronyms) like HTTP, API, ID.
 func toSnakeCase(s string) string {
+	runes := []rune(s)
 	var result []rune
-	for i, r := range s {
+	for i, r := range runes {
 		if i > 0 && unicode.IsUpper(r) {
-			result = append(result, '_')
+			prev := runes[i-1]
+			// Insert underscore when:
+			// (a) preceded by a lowercase letter (e.g. "eS" in "AdapterStatus")
+			// (b) preceded by uppercase AND followed by lowercase (end of acronym,
+			//     e.g. "Ps" in "HTTPServer" → "http_server")
+			if unicode.IsLower(prev) {
+				result = append(result, '_')
+			} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+				result = append(result, '_')
+			}
 		}
 		result = append(result, unicode.ToLower(r))
 	}

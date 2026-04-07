@@ -916,6 +916,13 @@ func TestToSnakeCase(t *testing.T) {
 		{"AdapterStatus", "adapter_status"},
 		{"NodePool", "node_pool"},
 		{"Organization", "organization"},
+		// Acronym handling (consecutive uppercase).
+		{"HTTPServer", "http_server"},
+		{"APIKey", "api_key"},
+		{"UserID", "user_id"},
+		{"HTTP", "http"},
+		{"HTTPAPI", "httpapi"}, // adjacent acronyms: no detectable word boundary
+		{"getAPIKey", "get_api_key"},
 	}
 
 	for _, tt := range tests {
@@ -1338,6 +1345,249 @@ func TestUpsertKeyValidationGenerated(t *testing.T) {
 	// The generated upsert should validate upsert key fields.
 	if !strings.Contains(storeContent, "invalid upsert key field") {
 		t.Error("Upsert should validate key fields against known columns")
+	}
+}
+
+// --- Nullable pointer types for optional/computed fields ---
+
+func TestNullableTypesForOptionalFields(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Profile",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "bio", Type: types.FieldTypeString, Optional: true},
+					{Name: "age", Type: types.FieldTypeInt32, Optional: true},
+					{Name: "score", Type: types.FieldTypeInt64, Optional: true},
+					{Name: "rate", Type: types.FieldTypeFloat, Optional: true},
+					{Name: "rating", Type: types.FieldTypeDouble, Optional: true},
+					{Name: "active", Type: types.FieldTypeBool, Optional: true},
+					{Name: "joined_at", Type: types.FieldTypeTimestamp, Optional: true},
+					// []byte and json.RawMessage handle nil — no pointer needed.
+					{Name: "avatar", Type: types.FieldTypeBytes, Optional: true},
+					{Name: "metadata", Type: types.FieldTypeJsonb, Optional: true},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// Non-optional field: plain type.
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "Name") && strings.Contains(line, `json:"name"`) {
+			if strings.Contains(line, "*string") {
+				t.Error("non-optional string field should not be a pointer")
+			}
+		}
+	}
+
+	// Optional fields should use pointer types.
+	pointerChecks := []struct {
+		field  string
+		goType string
+	}{
+		{"Bio", "*string"},
+		{"Age", "*int32"},
+		{"Score", "*int64"},
+		{"Rate", "*float32"},
+		{"Rating", "*float64"},
+		{"Active", "*bool"},
+		{"JoinedAt", "*time.Time"},
+	}
+	for _, tc := range pointerChecks {
+		found := false
+		for _, line := range strings.Split(content, "\n") {
+			if strings.Contains(line, tc.field) && strings.Contains(line, tc.goType) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("optional field %s should have type %s in models.go\n%s", tc.field, tc.goType, content)
+		}
+	}
+
+	// []byte and json.RawMessage should NOT be pointers.
+	nonPointerChecks := []struct {
+		field  string
+		goType string
+	}{
+		{"Avatar", "[]byte"},
+		{"Metadata", "json.RawMessage"},
+	}
+	for _, tc := range nonPointerChecks {
+		found := false
+		for _, line := range strings.Split(content, "\n") {
+			if strings.Contains(line, tc.field) && strings.Contains(line, tc.goType) &&
+				!strings.Contains(line, "*"+tc.goType) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("optional field %s should have non-pointer type %s", tc.field, tc.goType)
+		}
+	}
+
+	// Verify it compiles.
+	modelsBytes := findFile(t, files, "internal/storage/models.go").Bytes()
+	if _, err := format.Source(modelsBytes); err != nil {
+		t.Errorf("models.go does not compile: %v\n%s", err, string(modelsBytes))
+	}
+}
+
+func TestNullableTypesForComputedFields(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Resource",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "computed_status", Type: types.FieldTypeString, Computed: true},
+					{Name: "computed_count", Type: types.FieldTypeInt32, Computed: true},
+					{Name: "computed_ts", Type: types.FieldTypeTimestamp, Computed: true},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// Computed fields should use pointer types.
+	for _, tc := range []struct {
+		field  string
+		goType string
+	}{
+		{"ComputedStatus", "*string"},
+		{"ComputedCount", "*int32"},
+		{"ComputedTs", "*time.Time"},
+	} {
+		found := false
+		for _, line := range strings.Split(content, "\n") {
+			if strings.Contains(line, tc.field) && strings.Contains(line, tc.goType) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("computed field %s should have type %s\n%s", tc.field, tc.goType, content)
+		}
+	}
+
+	// Verify all generated files compile.
+	for _, p := range []string{"internal/storage/models.go", "internal/storage/store.go"} {
+		content := findFile(t, files, p).Bytes()
+		if _, err := format.Source(content); err != nil {
+			t.Errorf("%s does not compile: %v\n%s", p, err, string(content))
+		}
+	}
+}
+
+// --- Update with all-computed fields ---
+
+func TestUpdateAllComputedFieldsReturnsError(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "ReadOnly",
+				Fields: []types.Field{
+					{Name: "derived_a", Type: types.FieldTypeString, Computed: true},
+					{Name: "derived_b", Type: types.FieldTypeInt32, Computed: true},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The Update method should return an error for an entity with no writable fields.
+	if !strings.Contains(storeContent, "has no writable fields") {
+		t.Error("Update should return error when entity has only computed fields")
+	}
+
+	// Verify it compiles.
+	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
+	if _, err := format.Source(storeBytes); err != nil {
+		t.Errorf("store.go does not compile: %v\n%s", err, string(storeBytes))
+	}
+}
+
+// --- unique_composite validation ---
+
+func TestUniqueCompositeInvalidFieldName(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Membership",
+				Fields: []types.Field{
+					{Name: "user_id", Type: types.FieldTypeRef, To: "User", UniqueComposite: []string{"user_id", "nonexistent"}},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for unique_composite referencing non-existent field")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the invalid field name, got: %v", err)
+	}
+}
+
+func TestUniqueCompositeDuplicateConstraintDeduplicated(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Membership",
+				Fields: []types.Field{
+					{Name: "user_id", Type: types.FieldTypeRef, To: "User", UniqueComposite: []string{"user_id", "org_id"}},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization", UniqueComposite: []string{"user_id", "org_id"}},
+					{Name: "role", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+
+	// The UNIQUE constraint should appear exactly once.
+	count := strings.Count(sqlContent, "UNIQUE (user_id, org_id)")
+	if count != 1 {
+		t.Errorf("expected exactly 1 UNIQUE (user_id, org_id) constraint, got %d:\n%s", count, sqlContent)
 	}
 }
 
