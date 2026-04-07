@@ -8,12 +8,17 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/stego-project/stego/internal/gen"
 	"github.com/stego-project/stego/internal/types"
 )
+
+// validFieldNamePattern defines the safe character set for field names across
+// all target systems (Go identifiers, SQL identifiers, URL segments).
+var validFieldNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // Generator produces the postgres-adapter component's generated code.
 type Generator struct{}
@@ -49,6 +54,16 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Validate no duplicate field names within any entity.
 	if err := validateFieldUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate field names use a safe character set for all target systems.
+	if err := validateFieldNameCharset(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate no field name collides with the implicit "id" primary key.
+	if err := validateNoImplicitIDCollision(ctx.Entities); err != nil {
 		return nil, nil, err
 	}
 
@@ -795,8 +810,9 @@ func sqlEscapeString(s string) string {
 
 // sqlQ wraps a SQL identifier in double quotes for PostgreSQL.
 // This prevents collisions with reserved words (e.g. "order", "group").
+// Embedded double quotes are doubled per PostgreSQL §4.1.1.
 func sqlQ(id string) string {
-	return `"` + id + `"`
+	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
 }
 
 // sqlQuotedColList produces a SQL column list with each identifier double-quoted.
@@ -1066,6 +1082,47 @@ func validateFieldUniqueness(entities []types.Entity) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("field name uniqueness violations:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateFieldNameCharset checks that all field names match the safe identifier
+// pattern [a-zA-Z_][a-zA-Z0-9_]*, which is valid across Go, SQL, and URL targets.
+func validateFieldNameCharset(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			if !validFieldNamePattern.MatchString(f.Name) {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: field name %q contains invalid characters; field names must match %s",
+					e.Name, f.Name, validFieldNamePattern.String()))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid field name characters:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateNoImplicitIDCollision checks that no entity declares a field whose
+// PascalCase form is "ID", which would collide with the implicit ID primary key
+// field the generator adds to every model struct and migration.
+func validateNoImplicitIDCollision(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			if toPascalCase(f.Name) == "ID" {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: field %q collides with the implicit primary key column — entities cannot declare a field named %q",
+					e.Name, f.Name, f.Name))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("implicit ID collisions:\n  %s",
 			strings.Join(errs, "\n  "))
 	}
 	return nil

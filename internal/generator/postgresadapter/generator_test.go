@@ -2023,6 +2023,130 @@ func TestUniqueFieldNamesPass(t *testing.T) {
 
 // --- SQL identifier quoting ---
 
+// --- Implicit ID collision ---
+
+func TestFieldNameIDCollision(t *testing.T) {
+	// Field named "id" produces PascalCase "ID", colliding with implicit ID.
+	tests := []struct {
+		name      string
+		fieldName string
+	}{
+		{"lowercase_id", "id"},
+		{"mixed_case_Id", "Id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name: "User",
+						Fields: []types.Field{
+							{Name: tt.fieldName, Type: types.FieldTypeString},
+						},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for field named %q colliding with implicit ID", tt.fieldName)
+			}
+			if !strings.Contains(err.Error(), "implicit primary key") {
+				t.Errorf("error should mention implicit primary key, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.fieldName) {
+				t.Errorf("error should mention the field name %q, got: %v", tt.fieldName, err)
+			}
+		})
+	}
+}
+
+// --- sqlQ double-quote escaping ---
+
+func TestSqlQEscapesDoubleQuotes(t *testing.T) {
+	got := sqlQ(`col"x`)
+	want := `"col""x"`
+	if got != want {
+		t.Errorf("sqlQ(%q) = %q, want %q", `col"x`, got, want)
+	}
+}
+
+func TestSqlQNoDoubleQuotes(t *testing.T) {
+	got := sqlQ("normal")
+	want := `"normal"`
+	if got != want {
+		t.Errorf("sqlQ(%q) = %q, want %q", "normal", got, want)
+	}
+}
+
+// --- Field name character set validation ---
+
+func TestFieldNameInvalidCharacters(t *testing.T) {
+	tests := []struct {
+		name      string
+		fieldName string
+	}{
+		{"hyphen", "foo-bar"},
+		{"leading_digit", "123abc"},
+		{"space", "foo bar"},
+		{"unicode", "naïve"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name: "User",
+						Fields: []types.Field{
+							{Name: tt.fieldName, Type: types.FieldTypeString},
+						},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for field name %q with invalid characters", tt.fieldName)
+			}
+			if !strings.Contains(err.Error(), "invalid characters") {
+				t.Errorf("error should mention invalid characters, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.fieldName) {
+				t.Errorf("error should mention the field name, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestFieldNameValidCharactersPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString},
+					{Name: "first_name", Type: types.FieldTypeString},
+					{Name: "_internal", Type: types.FieldTypeString},
+					{Name: "count2", Type: types.FieldTypeInt32},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid field names: %v", err)
+	}
+}
+
 func TestSQLIdentifiersAreQuoted(t *testing.T) {
 	// Use a field name that is a PostgreSQL reserved word to verify quoting.
 	ctx := gen.Context{
