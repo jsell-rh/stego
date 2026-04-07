@@ -51,3 +51,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 28d8a69 fix(task-012): seed constructor var disambiguation with non-stdlib import aliases
 - 184c3a3 fix(task-012): propagate import alias renames to duplicate cross-wiring imports
 - ee36463 fix(task-012): remove import alias renames from route expressions to prevent multi-pass interference
+- 89ae9a9 fix(task-012): handler constructors accept and invoke slot operator parameters
