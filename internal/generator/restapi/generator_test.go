@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/slot"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -3695,5 +3697,314 @@ func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
 			}
 		})
+	}
+}
+
+func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
+	// Verify handler constructor accepts slot operator parameters and
+	// methods invoke slot operators at appropriate lifecycle points.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString, Unique: true},
+				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{
+				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Entity: "User", Gate: []string{"rbac-policy"}},
+			{Slot: "on_entity_changed", Entity: "User", FanOut: []string{"audit-logger"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find the handler file.
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_user.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_user.go not found")
+	}
+
+	// Verify slot package import.
+	if !strings.Contains(handlerContent, `"github.com/myorg/svc/internal/slots"`) {
+		t.Errorf("handler missing slots package import:\n%s", handlerContent)
+	}
+
+	// Verify handler struct has slot operator fields.
+	if !strings.Contains(handlerContent, "beforeCreateGate slots.BeforeCreateSlot") {
+		t.Errorf("handler struct missing beforeCreateGate field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "onEntityChangedFanOut slots.OnEntityChangedSlot") {
+		t.Errorf("handler struct missing onEntityChangedFanOut field:\n%s", handlerContent)
+	}
+
+	// Verify constructor accepts slot params.
+	if !strings.Contains(handlerContent, "func NewUserHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot)") {
+		t.Errorf("constructor missing slot params:\n%s", handlerContent)
+	}
+
+	// Verify slot operator invocation in Create method (before_create gate fires).
+	if !strings.Contains(handlerContent, "h.beforeCreateGate.Evaluate(r.Context()") {
+		t.Errorf("Create method missing before_create gate invocation:\n%s", handlerContent)
+	}
+	// Verify on_entity_changed fires after create.
+	if !strings.Contains(handlerContent, "h.onEntityChangedFanOut.Evaluate(r.Context()") {
+		t.Errorf("Create method missing on_entity_changed invocation:\n%s", handlerContent)
+	}
+
+	// Verify ConstructorEntities wiring.
+	if wiring == nil {
+		t.Fatal("wiring is nil")
+	}
+	if wiring.ConstructorEntities == nil || wiring.ConstructorEntities[0] != "User" {
+		t.Errorf("unexpected ConstructorEntities: %v", wiring.ConstructorEntities)
+	}
+}
+
+func TestGenerate_HandlerWithoutSlotBindings_NoSlotCode(t *testing.T) {
+	// Verify that handlers without slot bindings do NOT import the slots
+	// package or have slot operator fields.
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_user.go") {
+			content := string(f.Content)
+			if strings.Contains(content, "slots.") {
+				t.Errorf("handler without slot bindings should not reference slots package:\n%s", content)
+			}
+		}
+	}
+}
+
+func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
+	// Checklist item 95: verify that rest-api generator output, slot
+	// interface/operator output, and assembler output compile together.
+	// This catches signature mismatches between handler constructors and
+	// the assembler's injected slot operator arguments.
+
+	moduleName := "testmod"
+	slotsPackage := "internal/slots"
+
+	// 1. Generate rest-api files with slot bindings.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString, Unique: true},
+				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Entity: "User", Gate: []string{"rbac-policy"}},
+			{Slot: "on_entity_changed", Entity: "User", FanOut: []string{"audit-logger"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      moduleName,
+		SlotsPackage:    slotsPackage,
+	}
+
+	apiFiles, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("rest-api Generate: %v", err)
+	}
+
+	// 2. Generate slot interface + operator files.
+	beforeCreateProto := &slot.ProtoFile{
+		Package: "stego.components.rest_api.slots",
+		Services: []slot.Service{
+			{Name: "BeforeCreate", Methods: []slot.Method{
+				{Name: "Evaluate", InputType: "BeforeCreateRequest", OutputType: "stego.common.SlotResult"},
+			}},
+		},
+		Messages: []slot.Message{
+			{Name: "BeforeCreateRequest", Fields: []slot.MessageField{
+				{Name: "entity", Type: "string"},
+			}},
+		},
+	}
+	onEntityChangedProto := &slot.ProtoFile{
+		Package: "stego.mixins.event_publisher.slots",
+		Services: []slot.Service{
+			{Name: "OnEntityChanged", Methods: []slot.Method{
+				{Name: "Evaluate", InputType: "OnEntityChangedRequest", OutputType: "stego.common.SlotResult"},
+			}},
+		},
+		Messages: []slot.Message{
+			{Name: "OnEntityChangedRequest", Fields: []slot.MessageField{
+				{Name: "entity", Type: "string"},
+			}},
+		},
+	}
+	// Generate a single common types file with SlotResult so it's not
+	// redeclared by each slot interface file.
+	commonTypesFile := gen.File{
+		Path: slotsPackage + "/common_types.go",
+		Content: []byte(`package slots
+
+// SlotResult is generated from proto message SlotResult.
+type SlotResult struct {
+	Ok           bool
+	ErrorMessage string
+	Halt         bool
+	StatusCode   int32
+}
+`),
+	}
+
+	// Generate interfaces WITHOUT the common import — the SlotResult struct
+	// lives in the same package via common_types.go. The interface generator
+	// will resolve the type name locally since it strips package prefixes.
+	bcIface, err := slot.GenerateInterface(slotsPackage+"/before_create.go", "slots", beforeCreateProto, nil)
+	if err != nil {
+		t.Fatalf("GenerateInterface(before_create): %v", err)
+	}
+	bcOps, err := slot.GenerateOperators(slotsPackage+"/before_create_ops.go", "slots", beforeCreateProto)
+	if err != nil {
+		t.Fatalf("GenerateOperators(before_create): %v", err)
+	}
+	oecIface, err := slot.GenerateInterface(slotsPackage+"/on_entity_changed.go", "slots", onEntityChangedProto, nil)
+	if err != nil {
+		t.Fatalf("GenerateInterface(on_entity_changed): %v", err)
+	}
+	oecOps, err := slot.GenerateOperators(slotsPackage+"/on_entity_changed_ops.go", "slots", onEntityChangedProto)
+	if err != nil {
+		t.Fatalf("GenerateOperators(on_entity_changed): %v", err)
+	}
+
+	slotFiles := []gen.File{commonTypesFile, bcIface, bcOps, oecIface, oecOps}
+
+	// 3. Assemble main.go from wiring + slot bindings.
+	assemblerInput := compiler.AssemblerInput{
+		ModuleName:  moduleName,
+		ServiceName: "test-svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []compiler.ComponentWiring{
+			{Name: "rest-api", Wiring: wiring},
+		},
+		SlotBindings: ctx.SlotBindings,
+		SlotsPackage: slotsPackage,
+	}
+	assembledFiles, err := compiler.Assemble(assemblerInput)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	// 4. Write all files to a temp directory and compile.
+	tmpDir := t.TempDir()
+
+	goMod := "module " + moduleName + "\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	// Write slot files.
+	for _, f := range slotFiles {
+		dst := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			t.Fatalf("mkdir for %s: %v", f.Path, err)
+		}
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	// Write rest-api handler/router files.
+	for _, f := range apiFiles {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			t.Fatalf("mkdir for %s: %v", f.Path, err)
+		}
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	// Write assembled files (main.go, go.mod — skip assembled go.mod since
+	// we already wrote one).
+	for _, f := range assembledFiles {
+		if f.Path == "go.mod" {
+			continue
+		}
+		dst := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			t.Fatalf("mkdir for %s: %v", f.Path, err)
+		}
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	// Write stub fill packages that implement the slot interfaces.
+	fillSlotTypes := map[string]struct{ iface, reqType, pkg string }{
+		"rbac-policy":  {iface: "BeforeCreateSlot", reqType: "BeforeCreateRequest", pkg: "rbacpolicy"},
+		"audit-logger": {iface: "OnEntityChangedSlot", reqType: "OnEntityChangedRequest", pkg: "auditlogger"},
+	}
+	for fillName, info := range fillSlotTypes {
+		fillDir := filepath.Join(tmpDir, "fills", fillName)
+		if err := os.MkdirAll(fillDir, 0755); err != nil {
+			t.Fatalf("mkdir for fill %s: %v", fillName, err)
+		}
+		stub := "package " + info.pkg + "\n\n" +
+			"import (\n\t\"context\"\n\tslots \"" + moduleName + "/" + slotsPackage + "\"\n)\n\n" +
+			"type impl struct{}\n\n" +
+			"func New() slots." + info.iface + " { return &impl{} }\n\n" +
+			"func (i *impl) Evaluate(_ context.Context, _ *slots." + info.reqType + ") (*slots.SlotResult, error) {\n" +
+			"\treturn &slots.SlotResult{Ok: true}, nil\n" +
+			"}\n"
+		if err := os.WriteFile(filepath.Join(fillDir, "fill.go"), []byte(stub), 0644); err != nil {
+			t.Fatalf("writing fill stub %s: %v", fillName, err)
+		}
+	}
+
+	// Write a stub storage package so the `store` variable resolves in main.go.
+	// The wiring constructor is `api.NewUserHandler(store, ...)` — the assembler
+	// creates `store` from the postgres-adapter wiring. Since we only have the
+	// rest-api wiring here, we need to provide a store variable.
+	storeStub := filepath.Join(tmpDir, "cmd", "store_stub.go")
+	if err := os.MkdirAll(filepath.Dir(storeStub), 0755); err != nil {
+		t.Fatalf("mkdir for store stub: %v", err)
+	}
+	storeStubContent := "package main\n\nimport api \"" + moduleName + "/internal/api\"\n\nvar store api.Storage\n"
+	if err := os.WriteFile(storeStub, []byte(storeStubContent), 0644); err != nil {
+		t.Fatalf("writing store stub: %v", err)
+	}
+
+	// Compile the entire module.
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cross-generator integration compilation failed:\n%s\n%s", err, output)
 	}
 }

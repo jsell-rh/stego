@@ -32,8 +32,20 @@ type Context struct {
 	// Expose blocks from the service declaration.
 	Expose []types.ExposeBlock
 
-	// SlotBindings maps slot name to the SlotDeclaration from the service.
-	SlotBindings map[string]types.SlotDeclaration
+	// SlotBindings from the service declaration, in declaration order.
+	// The ordering is significant: generators and the assembler must iterate
+	// bindings in the same order to agree on constructor parameter positions.
+	SlotBindings []types.SlotDeclaration
+
+	// ModuleName is the Go module path (e.g. "github.com/myorg/user-service").
+	// Generators use this to construct full import paths for cross-package
+	// references (e.g. importing the slots package from handler code).
+	ModuleName string
+
+	// SlotsPackage is the relative import path (under ModuleName) for the
+	// generated slot operators package (e.g. "internal/slots"). Empty if
+	// no slots are configured.
+	SlotsPackage string
 
 	// ComponentConfig holds the component-specific config values resolved
 	// from defaults and service-level overrides.
