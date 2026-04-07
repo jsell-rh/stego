@@ -60,7 +60,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 		lower := strings.ToLower(entity.Name)
 		wiring.Constructors = append(wiring.Constructors,
-			fmt.Sprintf("api.New%sHandler(store)", entity.Name))
+			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), entity.Name))
 
 		basePath, err := entityBasePath(eb, exposeMap)
 		if err != nil {
@@ -104,7 +104,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	files = append(files, openapiFile)
 
-	wiring.Imports = []string{"internal/api"}
+	wiring.Imports = []string{ctx.OutputNamespace}
 
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
@@ -181,7 +181,7 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		}
 	}
 
-	fmt.Fprintf(&buf, "package api\n\n")
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
@@ -464,7 +464,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 		}
 	}
 
-	fmt.Fprintf(&buf, "package api\n\n")
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
@@ -563,8 +563,11 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 		Components: openAPIComponents{Schemas: make(map[string]openAPISchema)},
 	}
 
-	// Generate schemas for each entity.
-	for _, e := range entities {
+	// Generate schemas for exposed entities only. Non-exposed entities
+	// (e.g. ref targets managed by other components) should not appear in
+	// the OpenAPI spec — they have no corresponding path operations.
+	for _, eb := range expose {
+		e := entityMap[eb.Entity]
 		schema := openAPISchema{
 			Type:       "object",
 			Properties: make(map[string]openAPISchema),

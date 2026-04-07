@@ -2338,6 +2338,158 @@ func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
 	}
 }
 
+func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
+	// Finding 29: all generated output — file paths, package declarations, wiring
+	// imports, and constructor qualifiers — must derive from ctx.OutputNamespace,
+	// not hardcode "api" / "internal/api".
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+			},
+		},
+		OutputNamespace: "pkg/http",
+	}
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// File paths must use the non-default namespace.
+	for _, f := range files {
+		if !strings.HasPrefix(f.Path, "pkg/http/") {
+			t.Errorf("file %q should be under pkg/http/, not internal/api/", f.Path)
+		}
+	}
+
+	// Package declarations must use the base of the namespace ("http"), not "api".
+	handlerContent := findFileContent(t, files, "pkg/http/handler_user.go")
+	if !strings.Contains(handlerContent, "package http") {
+		t.Error("handler file should declare 'package http', not 'package api'")
+	}
+	if strings.Contains(handlerContent, "package api") {
+		t.Error("handler file should not contain 'package api' when namespace is pkg/http")
+	}
+
+	routerContent := findFileContent(t, files, "pkg/http/router.go")
+	if !strings.Contains(routerContent, "package http") {
+		t.Error("router file should declare 'package http', not 'package api'")
+	}
+
+	// Wiring imports must reference the actual namespace.
+	if wiring == nil {
+		t.Fatal("expected wiring")
+	}
+	if len(wiring.Imports) != 1 || wiring.Imports[0] != "pkg/http" {
+		t.Errorf("wiring imports should be [\"pkg/http\"], got %v", wiring.Imports)
+	}
+
+	// Wiring constructors must use the package qualifier from the namespace.
+	for _, c := range wiring.Constructors {
+		if strings.Contains(c, "api.") {
+			t.Errorf("wiring constructor should not use 'api.' qualifier, got: %s", c)
+		}
+		if !strings.Contains(c, "http.") {
+			t.Errorf("wiring constructor should use 'http.' qualifier, got: %s", c)
+		}
+	}
+
+	// OpenAPI file must be under the non-default namespace.
+	_ = findFileContent(t, files, "pkg/http/openapi.json")
+
+	// Verify the generated code compiles with the non-default package name.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with non-default namespace does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
+	// Finding 30: OpenAPI schema generation must iterate only over exposed entities,
+	// not all entities in ctx.Entities. Non-exposed entities (e.g. ref targets
+	// managed by a different component) should not appear in the generated spec.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+			// Team is in Entities (for ref resolution) but NOT in Expose.
+			{Name: "Team", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpRead, types.OpList},
+				Scope:      "org_id",
+				Parent:     "Organization",
+			},
+			// Team is NOT exposed.
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+
+	// Organization and User should be present (they are exposed).
+	if _, ok := schemas["Organization"]; !ok {
+		t.Error("exposed entity Organization should have an OpenAPI schema")
+	}
+	if _, ok := schemas["User"]; !ok {
+		t.Error("exposed entity User should have an OpenAPI schema")
+	}
+
+	// Team should NOT be present (not exposed).
+	if _, ok := schemas["Team"]; ok {
+		t.Error("non-exposed entity Team should NOT have an OpenAPI schema — it has no path operations")
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
