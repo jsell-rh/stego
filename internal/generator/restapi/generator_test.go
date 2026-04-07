@@ -3986,6 +3986,38 @@ func TestGenerate_NilGuardPassthrough(t *testing.T) {
 			t.Errorf("after-slot request missing action %q:\n%s", action, handlerContent)
 		}
 	}
+
+	// Finding 30: verify polymorphic slot request field emission.
+	// before_create has Caller (from proto), validate does NOT.
+	if !strings.Contains(handlerContent, "Caller: &") {
+		t.Errorf("before_create request should have Caller field:\n%s", handlerContent)
+	}
+	// ValidateRequest has Entity string field (distinct from CreateRequest.Entity).
+	// Count occurrences to ensure validate request populates Entity.
+	// The validate slot fires on create, update, and upsert — each should
+	// emit a ValidateRequest with an Entity field.
+	validateReqCount := strings.Count(handlerContent, "ValidateRequest{")
+	if validateReqCount == 0 {
+		t.Errorf("expected ValidateRequest struct literals in handler:\n%s", handlerContent)
+	}
+
+	// Split handler into before_create and validate sections to verify
+	// Caller only appears in before_create requests, not validate requests.
+	// Each ValidateRequest literal must have Entity but NOT Caller.
+	sections := strings.Split(handlerContent, "ValidateRequest{")
+	for i, section := range sections[1:] { // skip pre-first-match
+		closing := strings.Index(section, "}\n")
+		if closing < 0 {
+			continue
+		}
+		reqBody := section[:closing]
+		if strings.Contains(reqBody, "Caller:") {
+			t.Errorf("ValidateRequest occurrence %d should NOT have Caller field:\n%s", i, reqBody)
+		}
+		if !strings.Contains(reqBody, "Entity:") {
+			t.Errorf("ValidateRequest occurrence %d should have Entity field:\n%s", i, reqBody)
+		}
+	}
 }
 
 func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
@@ -4012,6 +4044,7 @@ func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{Slot: "before_create", Entity: "User", Gate: []string{"rbac-policy"}},
+			{Slot: "validate", Entity: "User", Chain: []string{"validate-fill"}},
 			{Slot: "on_entity_changed", Entity: "User", FanOut: []string{"audit-logger"}},
 		},
 		OutputNamespace: "internal/api",
@@ -4128,7 +4161,45 @@ type OnEntityChangedSlot interface {
 		t.Fatalf("GenerateOperators(on_entity_changed): %v", err)
 	}
 
-	slotFiles := []gen.File{commonTypesFile, bcIfaceFile, bcOps, oecIfaceFile, oecOps}
+	// Validate slot: request type has Input + entity string (no Caller).
+	valIfaceFile := gen.File{
+		Path: slotsPackage + "/validate.go",
+		Content: []byte(`package slots
+
+import "context"
+
+// ValidateRequest is generated from proto message ValidateRequest.
+type ValidateRequest struct {
+	Input  *CreateRequest
+	Entity string
+}
+
+// ValidateSlot is the interface that fills implement for the Validate slot.
+type ValidateSlot interface {
+	Evaluate(ctx context.Context, req *ValidateRequest) (*SlotResult, error)
+}
+`),
+	}
+	validateProto := &slot.ProtoFile{
+		Package: "stego.components.rest_api.slots",
+		Services: []slot.Service{
+			{Name: "Validate", Methods: []slot.Method{
+				{Name: "Evaluate", InputType: "ValidateRequest", OutputType: "stego.common.SlotResult"},
+			}},
+		},
+		Messages: []slot.Message{
+			{Name: "ValidateRequest", Fields: []slot.MessageField{
+				{Name: "input", Type: "stego.common.CreateRequest"},
+				{Name: "entity", Type: "string"},
+			}},
+		},
+	}
+	valOps, err := slot.GenerateOperators(slotsPackage+"/validate_ops.go", "slots", validateProto)
+	if err != nil {
+		t.Fatalf("GenerateOperators(validate): %v", err)
+	}
+
+	slotFiles := []gen.File{commonTypesFile, bcIfaceFile, bcOps, valIfaceFile, valOps, oecIfaceFile, oecOps}
 
 	// 3. Assemble main.go from wiring + slot bindings.
 	assemblerInput := compiler.AssemblerInput{
@@ -4197,8 +4268,9 @@ type OnEntityChangedSlot interface {
 
 	// Write stub fill packages that implement the slot interfaces.
 	fillSlotTypes := map[string]struct{ iface, reqType, pkg string }{
-		"rbac-policy":  {iface: "BeforeCreateSlot", reqType: "BeforeCreateRequest", pkg: "rbacpolicy"},
-		"audit-logger": {iface: "OnEntityChangedSlot", reqType: "OnEntityChangedRequest", pkg: "auditlogger"},
+		"rbac-policy":   {iface: "BeforeCreateSlot", reqType: "BeforeCreateRequest", pkg: "rbacpolicy"},
+		"validate-fill": {iface: "ValidateSlot", reqType: "ValidateRequest", pkg: "validatefill"},
+		"audit-logger":  {iface: "OnEntityChangedSlot", reqType: "OnEntityChangedRequest", pkg: "auditlogger"},
 	}
 	for fillName, info := range fillSlotTypes {
 		fillDir := filepath.Join(tmpDir, "fills", fillName)

@@ -1588,6 +1588,25 @@ type entitySlotParam struct {
 	RequestType   string // slot request type without package qualifier (e.g., "BeforeCreateRequest")
 	SlotName      string // raw slot name (e.g., "before_create")
 	OperatorKind  string // "Gate", "Chain", or "FanOut"
+	HasCaller     bool   // true when the request type has a Caller *Identity field (e.g., BeforeCreateRequest)
+	HasEntityStr  bool   // true when the request type has an entity string field (e.g., ValidateRequest)
+}
+
+// slotRequestMeta describes which fields a slot's request type contains,
+// derived from the slot proto definition. Each before-slot proto defines a
+// distinct request message with different fields; emitBeforeSlot uses this
+// metadata to populate only the fields that exist on the concrete type.
+type slotRequestMeta struct {
+	HasCaller    bool // request has Caller *Identity (e.g., before_create)
+	HasEntityStr bool // request has entity string (e.g., validate)
+}
+
+// knownSlotRequestMeta maps slot names to their request type field metadata,
+// derived from the proto definitions in registry/components/rest-api/slots/.
+var knownSlotRequestMeta = map[string]slotRequestMeta{
+	"before_create":    {HasCaller: true},
+	"validate":         {HasEntityStr: true},
+	"on_entity_changed": {}, // after-slot: Entity + Action, handled by emitAfterSlot
 }
 
 // slotPascal converts a snake_case slot name to PascalCase. Must match the
@@ -1629,6 +1648,7 @@ func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration
 		sc := slotCamel(sb.Slot)
 		ifaceType := sp + "Slot"
 		reqType := sp + "Request"
+		meta := knownSlotRequestMeta[sb.Slot]
 
 		if len(sb.Gate) > 0 {
 			params = append(params, entitySlotParam{
@@ -1637,6 +1657,8 @@ func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration
 				RequestType:   reqType,
 				SlotName:      sb.Slot,
 				OperatorKind:  "Gate",
+				HasCaller:     meta.HasCaller,
+				HasEntityStr:  meta.HasEntityStr,
 			})
 		}
 		if len(sb.Chain) > 0 {
@@ -1646,6 +1668,8 @@ func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration
 				RequestType:   reqType,
 				SlotName:      sb.Slot,
 				OperatorKind:  "Chain",
+				HasCaller:     meta.HasCaller,
+				HasEntityStr:  meta.HasEntityStr,
 			})
 		}
 		if len(sb.FanOut) > 0 {
@@ -1655,6 +1679,8 @@ func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration
 				RequestType:   reqType,
 				SlotName:      sb.Slot,
 				OperatorKind:  "FanOut",
+				HasCaller:     meta.HasCaller,
+				HasEntityStr:  meta.HasEntityStr,
 			})
 		}
 	}
@@ -1700,6 +1726,8 @@ func slotsForOp(op types.Operation, params []entitySlotParam) (before, after []e
 func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityVarName string, entity types.Entity) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Build populated request with entity data for the fill.
+	// Fields are conditional on the slot's proto-defined request type
+	// (checklist item 46: polymorphic struct literal emission).
 	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tInput: &%s.CreateRequest{\n", slotsAlias)
 	fmt.Fprintf(buf, "\t\t\t\tEntity: %q,\n", entity.Name)
@@ -1710,11 +1738,19 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam,
 	}
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
-	// Populate Caller with a non-nil Identity to prevent nil-dereference
-	// panics in fills that access req.Caller.Role, req.Caller.UserID, etc.
-	// When auth middleware is wired (e.g. jwt-auth), it stores identity in
-	// the request context; future integration can extract it here.
-	fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
+	if param.HasCaller {
+		// Populate Caller with a non-nil Identity to prevent nil-dereference
+		// panics in fills that access req.Caller.Role, req.Caller.UserID, etc.
+		// When auth middleware is wired (e.g. jwt-auth), it stores identity in
+		// the request context; future integration can extract it here.
+		fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
+	}
+	if param.HasEntityStr {
+		// Populate Entity string field for slots that need the entity name
+		// (e.g., ValidateRequest has an entity string identifying which
+		// entity is being validated).
+		fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entity.Name)
+	}
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
