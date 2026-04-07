@@ -131,14 +131,26 @@ fmt_duration() {
 }
 
 progress_bar() {
-    local pct=$1 width=30
-    local filled=$((pct * width / 100))
-    local empty=$((width - filled))
-    local bar=""
-    for ((i=0; i<filled; i++)); do bar+="#"; done
-    local rest=""
-    for ((i=0; i<empty; i++)); do rest+="-"; done
-    printf "%s%s%s%s%s" "${GREEN}" "$bar" "${DIM}" "$rest" "${RESET}"
+    local total=$1 n_complete=$2 n_review=$3 n_progress=$4 n_not_started=$5
+    local width=30
+    # Calculate segment widths proportional to task counts
+    local w_complete=$((n_complete * width / total))
+    local w_review=$((n_review * width / total))
+    local w_progress=$((n_progress * width / total))
+    local w_not_started=$((width - w_complete - w_review - w_progress))
+
+    local seg=""
+    for ((i=0; i<w_complete; i++)); do seg+="#"; done
+    printf "%s%s" "${GREEN}" "$seg"
+    seg=""
+    for ((i=0; i<w_review; i++)); do seg+="#"; done
+    printf "%s%s" "${MAGENTA}" "$seg"
+    seg=""
+    for ((i=0; i<w_progress; i++)); do seg+="#"; done
+    printf "%s%s" "${BLUE}" "$seg"
+    seg=""
+    for ((i=0; i<w_not_started; i++)); do seg+="-"; done
+    printf "%s%s%s" "${DIM}" "$seg" "${RESET}"
 }
 
 # --- JSON output ---
@@ -188,7 +200,7 @@ echo ""
 # Progress
 pct=$((complete * 100 / total_tasks))
 echo "${BOLD}Progress${RESET}"
-printf "  [$(progress_bar $pct)] %d%% (%d/%d tasks)\n" "$pct" "$complete" "$total_tasks"
+printf "  [$(progress_bar $total_tasks $complete $in_review $in_progress $not_started)] %d%% (%d/%d tasks)\n" "$pct" "$complete" "$total_tasks"
 echo "  ${GREEN}$complete complete${RESET}  ${MAGENTA}$in_review in review${RESET}  ${BLUE}$in_progress in progress${RESET}  ${DIM}$not_started not started${RESET}"
 echo ""
 
