@@ -117,13 +117,14 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByEntity)
 	}
 
-	if err := writeConstructors(&buf, input, slotVarsByEntity); err != nil {
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity)
+	if err != nil {
 		return gen.File{}, err
 	}
 
 	if hasRoutes {
-		writeRouteRegistration(&buf, input)
-		writeServerStart(&buf, input)
+		writeRouteRegistration(&buf, input, wiringRenames)
+		writeServerStart(&buf, input, wiringRenames)
 	}
 
 	buf.WriteString("}\n")
@@ -151,7 +152,10 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	if hasRoutes {
 		stdImports = append(stdImports, `"fmt"`)
 	}
-	stdImports = append(stdImports, `"log"`)
+	// log is used in writeDBSetup and writeServerStart.
+	if hasDB || hasRoutes {
+		stdImports = append(stdImports, `"log"`)
+	}
 	if hasRoutes {
 		stdImports = append(stdImports, `"net/http"`)
 	}
@@ -162,12 +166,25 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		fmt.Fprintf(buf, "\t%s\n", imp)
 	}
 
-	// Component imports — with collision-safe aliases.
+	// All non-stdlib imports share a SINGLE disambiguation namespace so that
+	// component, fill, and slots aliases cannot collide with each other.
 	var compImports []string
-	seen := make(map[string]bool)     // full import path → already added
-	aliases := make(map[string]int)   // base alias → count (for disambiguation)
+	seen := make(map[string]bool)      // full import path → already added
+	aliases := make(map[string]int)    // base alias → count (for disambiguation)
 	aliasUsed := make(map[string]bool) // tracks the exact alias string used
 
+	// Slots package import — registered first so its hardcoded alias "slots"
+	// is reserved before any dynamic disambiguation runs.
+	if hasSlots {
+		fullPath := input.ModuleName + "/" + input.SlotsPackage
+		if !seen[fullPath] {
+			seen[fullPath] = true
+			slotsAlias := disambiguateAlias("slots", aliases, aliasUsed)
+			compImports = append(compImports, fmt.Sprintf("\t%s %q", slotsAlias, fullPath))
+		}
+	}
+
+	// Component imports.
 	for _, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
@@ -183,21 +200,11 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 
-	// Slots package import.
-	if hasSlots {
-		fullPath := input.ModuleName + "/" + input.SlotsPackage
-		if !seen[fullPath] {
-			compImports = append(compImports, fmt.Sprintf("\tslots %q", fullPath))
-		}
-	}
-
-	// Fill imports — deduplicated across all slot bindings, with collision-safe aliases.
-	fillAliases := make(map[string]int)
-	fillAliasUsed := make(map[string]bool)
+	// Fill imports — deduplicated across all slot bindings.
 	fillNames := collectFillNames(input.SlotBindings)
 	for _, name := range fillNames {
 		baseAlias := rawFillImportAlias(name)
-		alias := disambiguateAlias(baseAlias, fillAliases, fillAliasUsed)
+		alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
 		fullPath := input.ModuleName + "/fills/" + name
 		compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
 	}
@@ -224,17 +231,30 @@ func writeDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdefer db.Close()\n\n")
 }
 
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) error {
-	varNames := make(map[string]int)   // for collision detection
+// writeConstructors emits constructor variable declarations and returns
+// per-wiring rename maps. Each entry maps a wiring index to a map from
+// raw (pre-disambiguation) variable names to their disambiguated names.
+// This is used by writeRouteRegistration to update variable references
+// only in routes belonging to the wiring whose constructors were renamed.
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) (map[int]map[string]string, error) {
+	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
+	wiringRenames := make(map[int]map[string]string)
 
-	for _, cw := range input.Wirings {
+	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
 		for _, constructor := range cw.Wiring.Constructors {
 			baseVar := rawConstructorVarName(constructor)
 			varName := disambiguateAlias(baseVar, varNames, varUsed)
+
+			if varName != baseVar {
+				if wiringRenames[i] == nil {
+					wiringRenames[i] = make(map[string]string)
+				}
+				wiringRenames[i][baseVar] = varName
+			}
 
 			// Inject slot operators into handler constructors.
 			expr := constructor
@@ -249,14 +269,14 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 		}
 	}
 	buf.WriteString("\n")
-	return nil
+	return wiringRenames, nil
 }
 
 func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) {
 	buf.WriteString("\t// Slot wiring — fills composed via operators.\n")
 
 	// Compute fill import aliases (must match writeMainImports exactly).
-	fillAliasMap := buildFillAliasMap(input.SlotBindings)
+	fillAliasMap := buildFillAliasMap(input)
 
 	// Build a set of operator variable names that will be injected into
 	// handler constructors. Variables NOT in this set need `_ =` to prevent
@@ -326,22 +346,46 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 	}
 }
 
-func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput) {
+func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int]map[string]string) {
 	buf.WriteString("\tmux := http.NewServeMux()\n")
-	for _, cw := range input.Wirings {
+	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
+		renames := wiringRenames[i]
 		for _, route := range cw.Wiring.Routes {
-			fmt.Fprintf(buf, "\t%s\n", route)
+			// Update variable references that were renamed during
+			// constructor disambiguation — only for this wiring's renames.
+			updatedRoute := applyVarRenames(route, renames)
+			fmt.Fprintf(buf, "\t%s\n", updatedRoute)
 		}
 	}
 	buf.WriteString("\n")
 }
 
-func writeServerStart(buf *bytes.Buffer, input AssemblerInput) {
+// applyVarRenames replaces variable references in a route expression when
+// constructor variable names were disambiguated. For example, if "store" was
+// renamed to "store2", a route like "mux.HandleFunc(..., store.Get)" becomes
+// "mux.HandleFunc(..., store2.Get)".
+func applyVarRenames(route string, renames map[string]string) string {
+	for oldName, newName := range renames {
+		// Replace "oldName." with "newName." — the dot ensures we match
+		// the variable reference (e.g. "userHandler.Create") and not a
+		// substring of an unrelated identifier.
+		route = strings.ReplaceAll(route, oldName+".", newName+".")
+	}
+	return route
+}
+
+func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int]map[string]string) {
 	// Check if there's an auth middleware to wrap the mux.
-	middlewareVar := findMiddlewareVar(input)
+	middlewareVar, wiringIdx := findMiddlewareVar(input)
+	// Apply disambiguation renames to the middleware variable reference.
+	if renames, ok := wiringRenames[wiringIdx]; ok {
+		if renamed, ok := renames[middlewareVar]; ok {
+			middlewareVar = renamed
+		}
+	}
 
 	buf.WriteString("\taddr := fmt.Sprintf(\":%d\", ")
 	fmt.Fprintf(buf, "%d)\n", input.Port)
@@ -375,19 +419,19 @@ func needsDB(input AssemblerInput) bool {
 }
 
 // findMiddlewareVar returns the variable name of an auth middleware
-// constructor, or "" if none exists.
-func findMiddlewareVar(input AssemblerInput) string {
-	for _, cw := range input.Wirings {
+// constructor and the wiring index it belongs to, or ("", -1) if none exists.
+func findMiddlewareVar(input AssemblerInput) (string, int) {
+	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
 		for _, c := range cw.Wiring.Constructors {
 			if strings.Contains(c, "AuthMiddleware") {
-				return rawConstructorVarName(c)
+				return rawConstructorVarName(c), i
 			}
 		}
 	}
-	return ""
+	return "", -1
 }
 
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
@@ -513,16 +557,44 @@ func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[
 }
 
 // buildFillAliasMap returns a map from fill name to its resolved import alias.
-// Must use the same disambiguation logic as writeMainImports so the emitted
-// code references the correct alias.
-func buildFillAliasMap(bindings []types.SlotDeclaration) map[string]string {
-	fillNames := collectFillNames(bindings)
-	fillAliases := make(map[string]int)
-	fillAliasUsed := make(map[string]bool)
+// Must replay the same unified disambiguation sequence as writeMainImports:
+// slots alias first, then component import aliases, then fill aliases.
+func buildFillAliasMap(input AssemblerInput) map[string]string {
+	aliases := make(map[string]int)
+	aliasUsed := make(map[string]bool)
+	seen := make(map[string]bool)
+
+	// Replay slots alias registration.
+	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
+	if hasSlots {
+		fullPath := input.ModuleName + "/" + input.SlotsPackage
+		if !seen[fullPath] {
+			seen[fullPath] = true
+			disambiguateAlias("slots", aliases, aliasUsed)
+		}
+	}
+
+	// Replay component import alias registration.
+	for _, cw := range input.Wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		for _, imp := range cw.Wiring.Imports {
+			fullPath := input.ModuleName + "/" + imp
+			if seen[fullPath] {
+				continue
+			}
+			seen[fullPath] = true
+			disambiguateAlias(path.Base(imp), aliases, aliasUsed)
+		}
+	}
+
+	// Now compute fill aliases using the same namespace.
+	fillNames := collectFillNames(input.SlotBindings)
 	result := make(map[string]string, len(fillNames))
 	for _, name := range fillNames {
 		baseAlias := rawFillImportAlias(name)
-		alias := disambiguateAlias(baseAlias, fillAliases, fillAliasUsed)
+		alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
 		result[name] = alias
 	}
 	return result

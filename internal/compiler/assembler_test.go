@@ -1069,6 +1069,297 @@ func TestExtractEntityFromConstructor(t *testing.T) {
 	}
 }
 
+func TestAssemble_UnifiedImportAliasNamespace(t *testing.T) {
+	// Finding 7: Component import "internal/storage" produces alias "storage",
+	// and a fill named "storage" also produces alias "storage". With separate
+	// disambiguation maps these collide; with a unified namespace the fill
+	// gets disambiguated to "storage2".
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "validate", Gate: []string{"storage"}},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Must parse as valid Go — separate maps would produce duplicate "storage" alias.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both imports should be present with distinct aliases.
+	if !strings.Contains(code, `storage "github.com/myorg/svc/internal/storage"`) {
+		t.Errorf("missing component storage import in:\n%s", code)
+	}
+	if !strings.Contains(code, `"github.com/myorg/svc/fills/storage"`) {
+		t.Errorf("missing fill storage import in:\n%s", code)
+	}
+	// The fill alias should be disambiguated.
+	if !strings.Contains(code, "storage2") {
+		t.Errorf("fill 'storage' alias should be disambiguated to storage2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_SlotsAliasCollisionWithComponent(t *testing.T) {
+	// The hardcoded "slots" alias should be reserved before component
+	// imports, so a component with base path "slots" gets disambiguated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+			{
+				Name: "slots-component",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/slots"},
+					Constructors: []string{"slots.NewProcessor()"},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "validate", Gate: []string{"my-fill"}},
+		},
+		SlotsPackage: "pkg/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The slots package should get the "slots" alias, and the component
+	// import should be disambiguated.
+	if !strings.Contains(code, "slots2") {
+		t.Errorf("component 'internal/slots' alias should be disambiguated when slots package is present in:\n%s", code)
+	}
+}
+
+func TestAssemble_FillAliasCollisionWithComponent(t *testing.T) {
+	// A fill named "api" should not collide with a component import alias "api".
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "validate", Gate: []string{"api"}},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The fill named "api" should get a disambiguated alias since the
+	// component already claimed "api".
+	if !strings.Contains(code, "api2") {
+		t.Errorf("fill 'api' alias should be disambiguated to api2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
+	// Finding 8: When two handler constructors produce the same base variable
+	// name, routes from the second component must reference the disambiguated
+	// variable name, not the original.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewUserHandler(store)"},
+					Routes: []string{
+						`mux.HandleFunc("POST /a/users", userHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/b"},
+					Constructors: []string{"b.NewUserHandler(store)"},
+					Routes: []string{
+						`mux.HandleFunc("POST /b/users", userHandler.Create)`,
+					},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// First handler keeps original name.
+	if !strings.Contains(code, "userHandler :=") {
+		t.Errorf("first handler should keep original variable name in:\n%s", code)
+	}
+	// Second handler gets disambiguated.
+	if !strings.Contains(code, "userHandler2 :=") {
+		t.Errorf("second handler should be disambiguated to userHandler2 in:\n%s", code)
+	}
+	// First route should reference original name.
+	if !strings.Contains(code, `userHandler.Create)`) {
+		t.Errorf("first route should reference userHandler in:\n%s", code)
+	}
+	// Second route should reference disambiguated name.
+	if !strings.Contains(code, `userHandler2.Create)`) {
+		t.Errorf("second route should reference userHandler2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_NoRoutesNoDB_NoLogImport(t *testing.T) {
+	// Finding 9: When neither routes nor DB are present, "log" should not be
+	// imported since it is only used in writeDBSetup and writeServerStart.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Wirings: []ComponentWiring{
+			{
+				Name: "stub",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/stub"},
+					Constructors: []string{"stub.NewProcessor()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// log should NOT be imported when neither routes nor DB are present.
+	if strings.Contains(code, `"log"`) {
+		t.Errorf("log should not be imported when no routes and no DB in:\n%s", code)
+	}
+}
+
 func TestInjectConstructorArgs(t *testing.T) {
 	tests := []struct {
 		expr string
