@@ -3353,5 +3353,59 @@ func TestAssemble_InterConstructorRenameStillAppliedToRoutes(t *testing.T) {
 	}
 }
 
+func TestGenerateGoMod_IncludesReplaceDirectivesForFills(t *testing.T) {
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"admin-creation-policy"},
+			},
+			{
+				Slot:   "on_entity_changed",
+				Entity: "User",
+				FanOut: []string{"audit-logger", "user-change-notifier"},
+			},
+		},
+	}
+
+	goMod := generateGoMod(input)
+
+	content := string(goMod.Content)
+
+	// Each fill should have a replace directive mapping from the module-qualified
+	// import path to a relative path from out/ to the project root's fills.
+	expectedReplaces := []string{
+		"replace github.com/myorg/svc/fills/admin-creation-policy => ../fills/admin-creation-policy",
+		"replace github.com/myorg/svc/fills/audit-logger => ../fills/audit-logger",
+		"replace github.com/myorg/svc/fills/user-change-notifier => ../fills/user-change-notifier",
+	}
+	for _, expected := range expectedReplaces {
+		if !strings.Contains(content, expected) {
+			t.Errorf("go.mod missing expected replace directive %q\ngot:\n%s", expected, content)
+		}
+	}
+}
+
+func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+	}
+
+	goMod := generateGoMod(input)
+	content := string(goMod.Content)
+
+	if strings.Contains(content, "replace") {
+		t.Errorf("go.mod should have no replace directives without slot bindings, got:\n%s", content)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

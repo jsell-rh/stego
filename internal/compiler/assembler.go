@@ -83,6 +83,22 @@ func generateGoMod(input AssemblerInput) gen.File {
 	fmt.Fprintf(&buf, "module %s\n\n", input.ModuleName)
 	fmt.Fprintf(&buf, "go %s\n", input.GoVersion)
 
+	// Generate replace directives for fill packages. Fills live at
+	// <project>/fills/<name> but go.mod is in out/, making out/ the module
+	// root. Without replace directives, the Go toolchain looks for fills
+	// at out/fills/<name> which doesn't exist. The replace directive maps
+	// the module-qualified import path to the relative filesystem path
+	// from out/ to the project root's fills directory.
+	fillNames := collectFillNames(input.SlotBindings)
+	if len(fillNames) > 0 {
+		buf.WriteString("\n")
+		for _, name := range fillNames {
+			fullImport := input.ModuleName + "/fills/" + name
+			relativePath := "../fills/" + name
+			fmt.Fprintf(&buf, "replace %s => %s\n", fullImport, relativePath)
+		}
+	}
+
 	return gen.File{
 		Path:    "go.mod",
 		Content: buf.Bytes(),

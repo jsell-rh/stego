@@ -1631,3 +1631,84 @@ func TestValidateUniqueFilePaths_WithDuplicates(t *testing.T) {
 		t.Errorf("expected error to mention duplicate path 'a.go', got: %v", err)
 	}
 }
+
+func TestReconcile_DeletedFileDetectedWhenStateHashMatches(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+		"stub-store": &stubGenerator{},
+	}
+
+	reconcilerInput := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+
+	// First apply.
+	plan1, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("first Reconcile failed: %v", err)
+	}
+	outDir := filepath.Join(projectDir, "out")
+	if err := Apply(plan1, projectDir, outDir); err != nil {
+		t.Fatalf("first Apply failed: %v", err)
+	}
+
+	// Verify the handler file was written.
+	handlerPath := filepath.Join(outDir, "internal", "api", "handler.go")
+	if _, err := os.Stat(handlerPath); err != nil {
+		t.Fatalf("handler.go should exist after first apply: %v", err)
+	}
+
+	// Manually delete the generated file from disk (simulating user action).
+	if err := os.Remove(handlerPath); err != nil {
+		t.Fatalf("failed to delete handler.go: %v", err)
+	}
+
+	// Second plan — service.yaml unchanged, so generated content hash matches
+	// state hash. But the file is missing from disk, so plan should detect
+	// it as needing regeneration (not "unchanged").
+	plan2, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("second Reconcile failed: %v", err)
+	}
+
+	if !plan2.HasChanges() {
+		t.Fatal("expected plan to have changes when a file is deleted from disk")
+	}
+
+	foundGenerate := false
+	for _, f := range plan2.Files {
+		if f.Path == "internal/api/handler.go" {
+			if f.Action == ActionGenerate {
+				foundGenerate = true
+			} else {
+				t.Errorf("expected handler.go to show as 'generate', got %q", f.Action)
+			}
+		}
+	}
+	if !foundGenerate {
+		t.Error("expected handler.go to appear as 'generate' in plan after deletion from disk")
+	}
+
+	// Apply should recreate the file.
+	if err := Apply(plan2, projectDir, outDir); err != nil {
+		t.Fatalf("second Apply failed: %v", err)
+	}
+	if _, err := os.Stat(handlerPath); err != nil {
+		t.Error("expected handler.go to be recreated after apply")
+	}
+}

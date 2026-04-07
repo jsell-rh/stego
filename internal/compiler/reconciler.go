@@ -532,7 +532,15 @@ func computePlan(
 				}
 			}
 		case existingHash == hash:
-			planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUnchanged})
+			// State hash matches generated hash, but verify the file still
+			// exists on disk. A manually deleted file should be regenerated,
+			// not silently omitted from the plan.
+			diskPath := filepath.Join(outDir, f.Path)
+			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
+				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
+			} else {
+				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUnchanged})
+			}
 		default:
 			planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUpdate})
 		}
