@@ -27,12 +27,21 @@ type AppliedState struct {
 	// Components records the version and SHA of each component used.
 	Components map[string]ComponentState `yaml:"components,omitempty"`
 
-	// Entities records the entity names and their field names at apply time,
-	// enabling plan to show entity field changes.
-	Entities map[string][]string `yaml:"entities,omitempty"`
+	// Entities records the entity names and their field snapshots at apply time,
+	// enabling plan to show entity field changes including type and constraint
+	// modifications.
+	Entities map[string][]EntityFieldState `yaml:"entities,omitempty"`
 
 	// Files records the SHA-256 hash of each generated file.
 	Files map[string]string `yaml:"files,omitempty"`
+}
+
+// EntityFieldState captures a field's name, type, and a hash of its full
+// definition for change detection (type changes, constraint changes, etc.).
+type EntityFieldState struct {
+	Name string `yaml:"name"`
+	Type string `yaml:"type"`
+	Hash string `yaml:"hash"` // SHA-256 of the serialized field definition
 }
 
 // ComponentState records a component's version and SHA at apply time.
@@ -53,7 +62,9 @@ func LoadState(path string) (*State, error) {
 	}
 	var s State
 	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("parsing state file %s: %w", path, err)
+		// State format may have changed (e.g. Entities type evolved);
+		// treat as fresh state so the next apply regenerates it.
+		return &State{}, nil
 	}
 	return &s, nil
 }

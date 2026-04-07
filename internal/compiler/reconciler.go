@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
@@ -31,11 +33,12 @@ type PlannedFile struct {
 	Action FileAction
 }
 
-// EntityChange describes a change to an entity's fields.
+// EntityChange describes a change to an entity's fields between applies.
 type EntityChange struct {
-	Entity string
-	Added  []string
-	Removed []string
+	Entity   string
+	Added    []string // "name (type)" format
+	Removed  []string // "name (type)" format
+	Modified []string // "name (old_type → new_type)" or "name (type)" format
 }
 
 // Plan represents the computed changeset between desired and current state.
@@ -153,8 +156,31 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		slotsPackage = "internal/slots"
 	}
 
-	// Get the HTTP port from component config or defaults.
+	// Resolve the HTTP port from the component that provides http-server,
+	// using the component's config schema defaults merged with service overrides.
 	httpPort := 8080
+	for _, compName := range componentNames {
+		comp := components[compName]
+		providesHTTP := false
+		for _, p := range comp.Provides {
+			if p.Name == "http-server" {
+				providesHTTP = true
+				break
+			}
+		}
+		if providesHTTP {
+			config := resolveComponentConfig(comp, svcDecl)
+			if portVal, ok := config["port"]; ok {
+				switch v := portVal.(type) {
+				case int:
+					httpPort = v
+				case float64:
+					httpPort = int(v)
+				}
+			}
+			break
+		}
+	}
 
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File
@@ -504,14 +530,19 @@ func computePlan(
 	// Compute entity field changes.
 	entityChanges := computeEntityChanges(entities, existingState)
 
-	// Build new entity snapshot for state.
-	entitySnapshot := make(map[string][]string, len(entities))
+	// Build new entity snapshot for state, capturing field types and hashes
+	// for change detection.
+	entitySnapshot := make(map[string][]EntityFieldState, len(entities))
 	for _, e := range entities {
-		var fieldNames []string
+		var fields []EntityFieldState
 		for _, f := range e.Fields {
-			fieldNames = append(fieldNames, f.Name)
+			fields = append(fields, EntityFieldState{
+				Name: f.Name,
+				Type: string(f.Type),
+				Hash: fieldHash(f),
+			})
 		}
-		entitySnapshot[e.Name] = fieldNames
+		entitySnapshot[e.Name] = fields
 	}
 
 	compState := make(map[string]ComponentState)
@@ -540,8 +571,20 @@ func computePlan(
 	}
 }
 
+// fieldDescriptor formats a field name and type for plan display.
+func fieldDescriptor(name, typ string) string {
+	return fmt.Sprintf("%s (%s)", name, typ)
+}
+
+// fieldHash computes a SHA-256 hash of a serialized field definition,
+// capturing type, constraints, and all attributes for change detection.
+func fieldHash(f types.Field) string {
+	data, _ := yaml.Marshal(f)
+	return HashBytes(data)
+}
+
 // computeEntityChanges diffs current entities against the previous apply's
-// entity snapshot to find added and removed fields.
+// entity snapshot to find added, removed, and modified fields.
 func computeEntityChanges(entities []types.Entity, existingState *State) []EntityChange {
 	if existingState.LastApplied == nil || existingState.LastApplied.Entities == nil {
 		return nil
@@ -557,14 +600,14 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 
 	var changes []EntityChange
 
-	// Detect additions and modifications in current entities.
+	// Detect additions, modifications, and field removals in current entities.
 	for _, e := range entities {
 		oldFields, existed := oldEntities[e.Name]
 		if !existed {
 			// Entire entity is new — all fields are additions.
 			var added []string
 			for _, f := range e.Fields {
-				added = append(added, f.Name)
+				added = append(added, fieldDescriptor(f.Name, string(f.Type)))
 			}
 			if len(added) > 0 {
 				changes = append(changes, EntityChange{
@@ -575,32 +618,45 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 			continue
 		}
 
-		oldSet := make(map[string]bool, len(oldFields))
+		// Build lookup from old field name to its snapshot.
+		oldByName := make(map[string]EntityFieldState, len(oldFields))
 		for _, f := range oldFields {
-			oldSet[f] = true
+			oldByName[f.Name] = f
 		}
 
 		newSet := make(map[string]bool)
-		var added []string
+		var added, modified []string
 		for _, f := range e.Fields {
 			newSet[f.Name] = true
-			if !oldSet[f.Name] {
-				added = append(added, f.Name)
+			oldField, wasPresent := oldByName[f.Name]
+			if !wasPresent {
+				added = append(added, fieldDescriptor(f.Name, string(f.Type)))
+				continue
+			}
+			// Field exists in both — check for type or constraint changes via hash.
+			newHash := fieldHash(f)
+			if newHash != oldField.Hash {
+				if string(f.Type) != oldField.Type {
+					modified = append(modified, fieldDescriptor(f.Name, oldField.Type+" → "+string(f.Type)))
+				} else {
+					modified = append(modified, fieldDescriptor(f.Name, string(f.Type)))
+				}
 			}
 		}
 
 		var removed []string
 		for _, f := range oldFields {
-			if !newSet[f] {
-				removed = append(removed, f)
+			if !newSet[f.Name] {
+				removed = append(removed, fieldDescriptor(f.Name, f.Type))
 			}
 		}
 
-		if len(added) > 0 || len(removed) > 0 {
+		if len(added) > 0 || len(removed) > 0 || len(modified) > 0 {
 			changes = append(changes, EntityChange{
-				Entity:  e.Name,
-				Added:   added,
-				Removed: removed,
+				Entity:   e.Name,
+				Added:    added,
+				Removed:  removed,
+				Modified: modified,
 			})
 		}
 	}
@@ -615,9 +671,14 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 	}
 	sort.Strings(deletedNames)
 	for _, entityName := range deletedNames {
+		oldFields := oldEntities[entityName]
+		var removed []string
+		for _, f := range oldFields {
+			removed = append(removed, fieldDescriptor(f.Name, f.Type))
+		}
 		changes = append(changes, EntityChange{
 			Entity:  entityName,
-			Removed: oldEntities[entityName],
+			Removed: removed,
 		})
 	}
 
@@ -639,6 +700,9 @@ func FormatPlan(plan *Plan) string {
 			fmt.Fprintf(&result, "  entities.%s:\n", ec.Entity)
 			for _, f := range ec.Added {
 				fmt.Fprintf(&result, "    + field: %s\n", f)
+			}
+			for _, f := range ec.Modified {
+				fmt.Fprintf(&result, "    ~ field: %s\n", f)
 			}
 			for _, f := range ec.Removed {
 				fmt.Fprintf(&result, "    - field: %s\n", f)

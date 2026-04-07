@@ -688,7 +688,7 @@ expose:
 		t.Fatal(err)
 	}
 
-	// Second plan — should show entity field change.
+	// Second plan — should show entity field change with type.
 	plan2, err := Reconcile(reconcilerInput)
 	if err != nil {
 		t.Fatalf("second Reconcile failed: %v", err)
@@ -702,33 +702,36 @@ expose:
 	for _, ec := range plan2.EntityChanges {
 		if ec.Entity == "Widget" {
 			for _, f := range ec.Added {
-				if f == "color" {
+				if f == "color (string)" {
 					found = true
 				}
 			}
 		}
 	}
 	if !found {
-		t.Error("expected to find 'color' field addition for Widget")
+		t.Error("expected to find 'color (string)' field addition for Widget")
 	}
 
 	formatted := FormatPlan(plan2)
 	if !strings.Contains(formatted, "entities.Widget") {
 		t.Errorf("expected entity change in plan output, got: %s", formatted)
 	}
-	if !strings.Contains(formatted, "+ field: color") {
-		t.Errorf("expected '+ field: color' in plan output, got: %s", formatted)
+	if !strings.Contains(formatted, "+ field: color (string)") {
+		t.Errorf("expected '+ field: color (string)' in plan output, got: %s", formatted)
 	}
 }
 
 func TestComputeEntityChanges_FieldRemoved(t *testing.T) {
 	entities := []types.Entity{
-		{Name: "User", Fields: []types.Field{{Name: "email"}}},
+		{Name: "User", Fields: []types.Field{{Name: "email", Type: "string"}}},
 	}
 	existingState := &State{
 		LastApplied: &AppliedState{
-			Entities: map[string][]string{
-				"User": {"email", "name"},
+			Entities: map[string][]EntityFieldState{
+				"User": {
+					{Name: "email", Type: "string", Hash: fieldHash(types.Field{Name: "email", Type: "string"})},
+					{Name: "name", Type: "string", Hash: fieldHash(types.Field{Name: "name", Type: "string"})},
+				},
 			},
 		},
 	}
@@ -737,18 +740,18 @@ func TestComputeEntityChanges_FieldRemoved(t *testing.T) {
 	if len(changes) != 1 {
 		t.Fatalf("expected 1 change, got %d", len(changes))
 	}
-	if len(changes[0].Removed) != 1 || changes[0].Removed[0] != "name" {
-		t.Errorf("expected 'name' removed, got %v", changes[0].Removed)
+	if len(changes[0].Removed) != 1 || changes[0].Removed[0] != "name (string)" {
+		t.Errorf("expected 'name (string)' removed, got %v", changes[0].Removed)
 	}
 }
 
 func TestComputeEntityChanges_NewEntity(t *testing.T) {
 	entities := []types.Entity{
-		{Name: "Widget", Fields: []types.Field{{Name: "label"}, {Name: "size"}}},
+		{Name: "Widget", Fields: []types.Field{{Name: "label", Type: "string"}, {Name: "size", Type: "int32"}}},
 	}
 	existingState := &State{
 		LastApplied: &AppliedState{
-			Entities: map[string][]string{},
+			Entities: map[string][]EntityFieldState{},
 		},
 	}
 
@@ -777,13 +780,18 @@ func TestComputeEntityChanges_NoState(t *testing.T) {
 func TestComputeEntityChanges_DeletedEntity(t *testing.T) {
 	// Current entities have only Widget; old state had Widget and Gadget.
 	entities := []types.Entity{
-		{Name: "Widget", Fields: []types.Field{{Name: "label"}}},
+		{Name: "Widget", Fields: []types.Field{{Name: "label", Type: "string"}}},
 	}
 	existingState := &State{
 		LastApplied: &AppliedState{
-			Entities: map[string][]string{
-				"Widget": {"label"},
-				"Gadget": {"size", "color"},
+			Entities: map[string][]EntityFieldState{
+				"Widget": {
+					{Name: "label", Type: "string", Hash: fieldHash(types.Field{Name: "label", Type: "string"})},
+				},
+				"Gadget": {
+					{Name: "size", Type: "int32", Hash: "dummy"},
+					{Name: "color", Type: "string", Hash: "dummy"},
+				},
 			},
 		},
 	}
@@ -797,6 +805,10 @@ func TestComputeEntityChanges_DeletedEntity(t *testing.T) {
 	}
 	if len(changes[0].Removed) != 2 {
 		t.Errorf("expected 2 removed fields, got %d", len(changes[0].Removed))
+	}
+	// Removed fields should include type info.
+	if changes[0].Removed[0] != "size (int32)" {
+		t.Errorf("expected 'size (int32)' in removed, got %s", changes[0].Removed[0])
 	}
 }
 
@@ -997,10 +1009,10 @@ func TestComputeEntityChanges_DeletedEntitiesSorted(t *testing.T) {
 	entities := []types.Entity{}
 	existingState := &State{
 		LastApplied: &AppliedState{
-			Entities: map[string][]string{
-				"Zebra": {"stripe"},
-				"Alpha": {"first"},
-				"Mango": {"sweet"},
+			Entities: map[string][]EntityFieldState{
+				"Zebra": {{Name: "stripe", Type: "string", Hash: "dummy"}},
+				"Alpha": {{Name: "first", Type: "string", Hash: "dummy"}},
+				"Mango": {{Name: "sweet", Type: "string", Hash: "dummy"}},
 			},
 		},
 	}
@@ -1071,5 +1083,281 @@ func TestResolveComponentConfig_OverridesDefaults(t *testing.T) {
 	config := resolveComponentConfig(comp, svcDecl)
 	if config["port"] != 9090 {
 		t.Errorf("expected port=9090 (overridden), got %v", config["port"])
+	}
+}
+
+func TestComputeEntityChanges_FieldTypeChanged(t *testing.T) {
+	// Field "score" changed from string to int32.
+	entities := []types.Entity{
+		{Name: "User", Fields: []types.Field{
+			{Name: "email", Type: "string"},
+			{Name: "score", Type: "int32"},
+		}},
+	}
+	existingState := &State{
+		LastApplied: &AppliedState{
+			Entities: map[string][]EntityFieldState{
+				"User": {
+					{Name: "email", Type: "string", Hash: fieldHash(types.Field{Name: "email", Type: "string"})},
+					{Name: "score", Type: "string", Hash: fieldHash(types.Field{Name: "score", Type: "string"})},
+				},
+			},
+		},
+	}
+
+	changes := computeEntityChanges(entities, existingState)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change for type modification, got %d", len(changes))
+	}
+	if changes[0].Entity != "User" {
+		t.Errorf("expected User, got %s", changes[0].Entity)
+	}
+	if len(changes[0].Modified) != 1 {
+		t.Fatalf("expected 1 modified field, got %d", len(changes[0].Modified))
+	}
+	if changes[0].Modified[0] != "score (string → int32)" {
+		t.Errorf("expected 'score (string → int32)', got %q", changes[0].Modified[0])
+	}
+	if len(changes[0].Added) != 0 {
+		t.Errorf("expected 0 added fields, got %d", len(changes[0].Added))
+	}
+	if len(changes[0].Removed) != 0 {
+		t.Errorf("expected 0 removed fields, got %d", len(changes[0].Removed))
+	}
+}
+
+func TestComputeEntityChanges_ConstraintChanged(t *testing.T) {
+	// Field "email" gains a max_length constraint but type stays string.
+	maxLen := 255
+	entities := []types.Entity{
+		{Name: "User", Fields: []types.Field{
+			{Name: "email", Type: "string", MaxLength: &maxLen},
+		}},
+	}
+	existingState := &State{
+		LastApplied: &AppliedState{
+			Entities: map[string][]EntityFieldState{
+				"User": {
+					{Name: "email", Type: "string", Hash: fieldHash(types.Field{Name: "email", Type: "string"})},
+				},
+			},
+		},
+	}
+
+	changes := computeEntityChanges(entities, existingState)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change for constraint modification, got %d", len(changes))
+	}
+	if len(changes[0].Modified) != 1 {
+		t.Fatalf("expected 1 modified field, got %d", len(changes[0].Modified))
+	}
+	// Type didn't change, so show just the type.
+	if changes[0].Modified[0] != "email (string)" {
+		t.Errorf("expected 'email (string)', got %q", changes[0].Modified[0])
+	}
+}
+
+func TestFormatPlan_ShowsFieldTypes(t *testing.T) {
+	plan := &Plan{
+		Files: []PlannedFile{
+			{Path: "handler.go", Action: ActionUpdate},
+		},
+		EntityChanges: []EntityChange{
+			{
+				Entity:   "User",
+				Added:    []string{"display_name (string)"},
+				Modified: []string{"score (string → int32)"},
+				Removed:  []string{"old_field (bool)"},
+			},
+		},
+	}
+	output := FormatPlan(plan)
+	if !strings.Contains(output, "+ field: display_name (string)") {
+		t.Errorf("expected '+ field: display_name (string)' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "~ field: score (string → int32)") {
+		t.Errorf("expected '~ field: score (string → int32)' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "- field: old_field (bool)") {
+		t.Errorf("expected '- field: old_field (bool)' in output, got: %s", output)
+	}
+}
+
+func TestReconcile_PortResolvedFromComponentConfig(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// Update the stub-api component to provide http-server with a port config.
+	compDir := filepath.Join(registryDir, "components", "stub-api")
+	compYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+config:
+  port: { type: int, default: 8080 }
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Service.yaml overrides the port.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+expose:
+  - entity: Widget
+    operations: [create, read]
+
+overrides:
+  stub-api:
+    port: 9090
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+		"stub-store": &stubGenerator{},
+	}
+
+	plan, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// Find the main.go in generated files and verify it uses port 9090.
+	// The assembler renders port as: fmt.Sprintf(":%d", 9090)
+	found := false
+	for _, f := range plan.GeneratedFiles {
+		if f.Path == "cmd/main.go" {
+			content := string(f.Bytes())
+			if strings.Contains(content, "9090") {
+				found = true
+			}
+			if strings.Contains(content, "8080") {
+				t.Errorf("main.go still contains 8080 despite port override to 9090:\n%s", content)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected main.go to contain port 9090 after port override")
+	}
+}
+
+func TestReconcile_EntityFieldTypeChangeDetectedEndToEnd(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{},
+		"stub-store": &stubGenerator{},
+	}
+
+	reconcilerInput := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+
+	// First apply.
+	plan1, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("first Reconcile failed: %v", err)
+	}
+	outDir := filepath.Join(projectDir, "out")
+	if err := Apply(plan1, projectDir, outDir); err != nil {
+		t.Fatalf("first Apply failed: %v", err)
+	}
+
+	// Update service.yaml: change label type from string to int32.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: int32 }
+
+expose:
+  - entity: Widget
+    operations: [create, read]
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second plan — should detect the type change.
+	plan2, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("second Reconcile failed: %v", err)
+	}
+
+	if len(plan2.EntityChanges) == 0 {
+		t.Fatal("expected entity changes after field type change, got none")
+	}
+
+	foundModification := false
+	for _, ec := range plan2.EntityChanges {
+		if ec.Entity == "Widget" {
+			for _, m := range ec.Modified {
+				if strings.Contains(m, "label") && strings.Contains(m, "string → int32") {
+					foundModification = true
+				}
+			}
+		}
+	}
+	if !foundModification {
+		t.Errorf("expected to find 'label (string → int32)' modification for Widget, got: %+v", plan2.EntityChanges)
+	}
+
+	formatted := FormatPlan(plan2)
+	if !strings.Contains(formatted, "~ field: label (string → int32)") {
+		t.Errorf("expected '~ field: label (string → int32)' in plan output, got: %s", formatted)
+	}
+}
+
+func TestHasChanges_IncludesModifiedFields(t *testing.T) {
+	// Plan with only entity modifications (no added/removed) should report changes.
+	plan := &Plan{
+		Files: []PlannedFile{
+			{Path: "a.go", Action: ActionUnchanged},
+		},
+		EntityChanges: []EntityChange{
+			{Entity: "Widget", Modified: []string{"score (string → int32)"}},
+		},
+	}
+	if !plan.HasChanges() {
+		t.Error("expected HasChanges() = true when entity modifications exist")
 	}
 }

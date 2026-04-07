@@ -84,6 +84,46 @@ func TestHashBytes(t *testing.T) {
 	}
 }
 
+func TestSaveAndLoadState_WithEntityFieldState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".stego", "state.yaml")
+
+	state := &State{
+		LastApplied: &AppliedState{
+			ServiceHash: "abc123",
+			Entities: map[string][]EntityFieldState{
+				"User": {
+					{Name: "email", Type: "string", Hash: "hash1"},
+					{Name: "score", Type: "int32", Hash: "hash2"},
+				},
+			},
+			Files: map[string]string{"cmd/main.go": "hash3"},
+		},
+	}
+
+	if err := SaveState(path, state); err != nil {
+		t.Fatalf("SaveState failed: %v", err)
+	}
+
+	loaded, err := LoadState(path)
+	if err != nil {
+		t.Fatalf("LoadState failed: %v", err)
+	}
+	if loaded.LastApplied == nil {
+		t.Fatal("expected LastApplied")
+	}
+	fields := loaded.LastApplied.Entities["User"]
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
+	}
+	if fields[0].Name != "email" || fields[0].Type != "string" || fields[0].Hash != "hash1" {
+		t.Errorf("unexpected first field: %+v", fields[0])
+	}
+	if fields[1].Name != "score" || fields[1].Type != "int32" || fields[1].Hash != "hash2" {
+		t.Errorf("unexpected second field: %+v", fields[1])
+	}
+}
+
 func TestSaveState_CreatesParentDirectories(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "deep", "nested", "state.yaml")
