@@ -47,7 +47,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, fmt.Errorf("expose references unknown entity %q", eb.Entity)
 		}
 
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb)
+		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating handler for %s: %w", eb.Entity, err)
 		}
@@ -126,7 +126,7 @@ func entityBasePath(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock
 // generateHandler produces a single Go handler file for an exposed entity.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.File, error) {
+func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (gen.File, error) {
 	var buf bytes.Buffer
 
 	lower := strings.ToLower(entity.Name)
@@ -184,21 +184,25 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 	fmt.Fprintf(&buf, "\treturn &%s{store: store}\n", handlerType)
 	fmt.Fprintf(&buf, "}\n\n")
 
-	// Parent verification helper for nested routing.
+	// Ancestor verification helper for nested routing. Verifies the existence
+	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
 	if eb.Parent != "" {
-		parentIDVar := strings.ToLower(eb.Parent) + "ID"
-		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		fmt.Fprintf(&buf, "// checkParent verifies the parent %s exists.\n", eb.Parent)
-		fmt.Fprintf(&buf, "func (h *%s) checkParent(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
-		fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
-		fmt.Fprintf(&buf, "\tif %s == \"\" {\n", parentIDVar)
-		fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", parentIDParam)
-		fmt.Fprintf(&buf, "\t\treturn false\n")
-		fmt.Fprintf(&buf, "\t}\n")
-		fmt.Fprintf(&buf, "\tif !h.store.Exists(%q, %s) {\n", eb.Parent, parentIDVar)
-		fmt.Fprintf(&buf, "\t\thttp.Error(w, %q, http.StatusNotFound)\n", eb.Parent+" not found")
-		fmt.Fprintf(&buf, "\t\treturn false\n")
-		fmt.Fprintf(&buf, "\t}\n")
+		ancestors := collectAncestors(eb, exposeMap)
+		fmt.Fprintf(&buf, "// checkAncestors verifies that all ancestor entities in the URL hierarchy exist.\n")
+		fmt.Fprintf(&buf, "func (h *%s) checkAncestors(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
+		for _, anc := range ancestors {
+			idVar := strings.ToLower(anc) + "ID"
+			idParam := strings.ToLower(anc) + "_id"
+			fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", idVar, idParam)
+			fmt.Fprintf(&buf, "\tif %s == \"\" {\n", idVar)
+			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", idParam)
+			fmt.Fprintf(&buf, "\t\treturn false\n")
+			fmt.Fprintf(&buf, "\t}\n")
+			fmt.Fprintf(&buf, "\tif !h.store.Exists(%q, %s) {\n", anc, idVar)
+			fmt.Fprintf(&buf, "\t\thttp.Error(w, %q, http.StatusNotFound)\n", anc+" not found")
+			fmt.Fprintf(&buf, "\t\treturn false\n")
+			fmt.Fprintf(&buf, "\t}\n")
+		}
 		fmt.Fprintf(&buf, "\treturn true\n")
 		fmt.Fprintf(&buf, "}\n\n")
 	}
@@ -238,7 +242,7 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 
 func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
 	if eb.Parent != "" {
-		fmt.Fprintf(buf, "\tif !h.checkParent(w, r) {\n")
+		fmt.Fprintf(buf, "\tif !h.checkAncestors(w, r) {\n")
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
 	}
@@ -731,10 +735,18 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	switch f.Type {
 	case types.FieldTypeString:
 		s.Type = "string"
-	case types.FieldTypeInt32, types.FieldTypeInt64:
+	case types.FieldTypeInt32:
 		s.Type = "integer"
-	case types.FieldTypeFloat, types.FieldTypeDouble:
+		s.Format = "int32"
+	case types.FieldTypeInt64:
+		s.Type = "integer"
+		s.Format = "int64"
+	case types.FieldTypeFloat:
 		s.Type = "number"
+		s.Format = "float"
+	case types.FieldTypeDouble:
+		s.Type = "number"
+		s.Format = "double"
 	case types.FieldTypeBool:
 		s.Type = "boolean"
 	case types.FieldTypeBytes:
@@ -753,6 +765,23 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	}
 	if f.Computed {
 		s.ReadOnly = true
+	}
+	// Propagate string constraint attributes.
+	if f.MinLength != nil {
+		s.MinLength = f.MinLength
+	}
+	if f.MaxLength != nil {
+		s.MaxLength = f.MaxLength
+	}
+	if f.Pattern != "" {
+		s.Pattern = f.Pattern
+	}
+	// Propagate numeric constraint attributes.
+	if f.Min != nil {
+		s.Minimum = f.Min
+	}
+	if f.Max != nil {
+		s.Maximum = f.Max
 	}
 	return s
 }
@@ -779,6 +808,26 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 			}
 		}
 	}
+}
+
+// collectAncestors walks the parent chain from the given expose block and returns
+// all ancestor entity names in top-down order (grandparent before parent).
+func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) []string {
+	var ancestors []string
+	current := eb
+	for current.Parent != "" {
+		ancestors = append(ancestors, current.Parent)
+		parentEB, ok := exposeMap[current.Parent]
+		if !ok {
+			break
+		}
+		current = parentEB
+	}
+	// Reverse to get top-down order (grandparent first, parent last).
+	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+	}
+	return ancestors
 }
 
 // parentRefFieldName finds the Go field name for the ref field that points to
@@ -942,4 +991,9 @@ type openAPISchema struct {
 	Ref        string                   `json:"$ref,omitempty"`
 	Enum       []string                 `json:"enum,omitempty"`
 	ReadOnly   bool                     `json:"readOnly,omitempty"`
+	MinLength  *int                     `json:"minLength,omitempty"`
+	MaxLength  *int                     `json:"maxLength,omitempty"`
+	Pattern    string                   `json:"pattern,omitempty"`
+	Minimum    *float64                 `json:"minimum,omitempty"`
+	Maximum    *float64                 `json:"maximum,omitempty"`
 }

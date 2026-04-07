@@ -241,10 +241,10 @@ func TestGenerate_NestedRouting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// NodePool handler should verify parent Cluster exists via checkParent.
+	// NodePool handler should verify ancestor Cluster exists via checkAncestors.
 	npHandler := findFileContent(t, files, "internal/api/handler_nodepool.go")
-	if !strings.Contains(npHandler, "checkParent") {
-		t.Error("nested handler missing checkParent method")
+	if !strings.Contains(npHandler, "checkAncestors") {
+		t.Error("nested handler missing checkAncestors method")
 	}
 	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
 		t.Error("nested handler missing parent Exists check")
@@ -1704,6 +1704,208 @@ func TestSafeVarName(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("safeVarName(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestGenerate_OpenAPIConstraintAttributes(t *testing.T) {
+	// Finding 22: constraint attributes (minLength, maxLength, pattern, minimum,
+	// maximum) and type format (int32, int64, float, double) must be propagated
+	// to the generated OpenAPI schema.
+	g := &Generator{}
+	minLen := 3
+	maxLen := 53
+	minVal := 0.0
+	maxVal := 100.0
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Resource", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, MinLength: &minLen, MaxLength: &maxLen, Pattern: "^[a-z0-9]"},
+				{Name: "count32", Type: types.FieldTypeInt32, Min: &minVal, Max: &maxVal},
+				{Name: "count64", Type: types.FieldTypeInt64},
+				{Name: "ratio", Type: types.FieldTypeFloat},
+				{Name: "precise", Type: types.FieldTypeDouble},
+				{Name: "label", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Resource", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	props := schemas["Resource"].(map[string]any)["properties"].(map[string]any)
+
+	// String field with constraints.
+	nameField := props["name"].(map[string]any)
+	if nameField["type"] != "string" {
+		t.Error("name field should be string type")
+	}
+	if nameField["minLength"] != float64(3) {
+		t.Errorf("name field minLength: want 3, got %v", nameField["minLength"])
+	}
+	if nameField["maxLength"] != float64(53) {
+		t.Errorf("name field maxLength: want 53, got %v", nameField["maxLength"])
+	}
+	if nameField["pattern"] != "^[a-z0-9]" {
+		t.Errorf("name field pattern: want ^[a-z0-9], got %v", nameField["pattern"])
+	}
+
+	// Integer field with constraints and format.
+	count32 := props["count32"].(map[string]any)
+	if count32["type"] != "integer" {
+		t.Error("count32 should be integer type")
+	}
+	if count32["format"] != "int32" {
+		t.Errorf("count32 format: want int32, got %v", count32["format"])
+	}
+	if count32["minimum"] != float64(0) {
+		t.Errorf("count32 minimum: want 0, got %v", count32["minimum"])
+	}
+	if count32["maximum"] != float64(100) {
+		t.Errorf("count32 maximum: want 100, got %v", count32["maximum"])
+	}
+
+	// int64 format.
+	count64 := props["count64"].(map[string]any)
+	if count64["format"] != "int64" {
+		t.Errorf("count64 format: want int64, got %v", count64["format"])
+	}
+
+	// float format.
+	ratioField := props["ratio"].(map[string]any)
+	if ratioField["type"] != "number" {
+		t.Error("ratio should be number type")
+	}
+	if ratioField["format"] != "float" {
+		t.Errorf("ratio format: want float, got %v", ratioField["format"])
+	}
+
+	// double format.
+	preciseField := props["precise"].(map[string]any)
+	if preciseField["format"] != "double" {
+		t.Errorf("precise format: want double, got %v", preciseField["format"])
+	}
+
+	// String field without constraints should have no extra attributes.
+	labelField := props["label"].(map[string]any)
+	if _, ok := labelField["minLength"]; ok {
+		t.Error("label field should not have minLength")
+	}
+	if _, ok := labelField["maxLength"]; ok {
+		t.Error("label field should not have maxLength")
+	}
+	if _, ok := labelField["pattern"]; ok {
+		t.Error("label field should not have pattern")
+	}
+}
+
+func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
+	// Finding 23: nested routing must verify ALL ancestor entities, not just the
+	// immediate parent. For Cluster -> NodePool -> AdapterStatus, a request with
+	// an invalid Cluster ID must fail even if NodePool exists.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
+				{Name: "resource_type", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+				Parent:     "Cluster",
+			},
+			{
+				Entity:     "AdapterStatus",
+				Operations: []types.Operation{types.OpList, types.OpUpsert},
+				Parent:     "NodePool",
+				UpsertKey:  []string{"resource_type"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// AdapterStatus handler must verify BOTH Cluster and NodePool.
+	asHandler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
+
+	if !strings.Contains(asHandler, "checkAncestors") {
+		t.Error("AdapterStatus handler missing checkAncestors method")
+	}
+	// Must check Cluster existence (grandparent).
+	if !strings.Contains(asHandler, `h.store.Exists("Cluster"`) {
+		t.Error("AdapterStatus handler must verify Cluster (grandparent) existence")
+	}
+	// Must check NodePool existence (parent).
+	if !strings.Contains(asHandler, `h.store.Exists("NodePool"`) {
+		t.Error("AdapterStatus handler must verify NodePool (parent) existence")
+	}
+	// Cluster check must come before NodePool check (top-down order).
+	clusterIdx := strings.Index(asHandler, `h.store.Exists("Cluster"`)
+	nodepoolIdx := strings.Index(asHandler, `h.store.Exists("NodePool"`)
+	if clusterIdx > nodepoolIdx {
+		t.Error("Cluster (grandparent) verification must come before NodePool (parent)")
+	}
+
+	// NodePool handler should still only verify Cluster (its single ancestor).
+	npHandler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
+		t.Error("NodePool handler must verify Cluster existence")
+	}
+	// NodePool should NOT verify NodePool (it's not its own ancestor).
+	clusterCount := strings.Count(npHandler, `h.store.Exists(`)
+	if clusterCount != 1 {
+		t.Errorf("NodePool handler should have exactly 1 Exists check (Cluster), got %d", clusterCount)
+	}
+
+	// Verify the code compiles with three-level nesting.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("three-level nested routing does not compile:\n%s\n%s", err, output)
 	}
 }
 
