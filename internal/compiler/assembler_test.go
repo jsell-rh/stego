@@ -3082,5 +3082,276 @@ func TestAssemble_MultiPassRenameInterference(t *testing.T) {
 	}
 }
 
+func TestAssemble_PreReservedRenameDoesNotCorruptRoutes(t *testing.T) {
+	// Finding 24: When a constructor's derived variable name collides with an
+	// assembler-internal variable (e.g. "mux"), the constructor is disambiguated
+	// (mux → mux2). But the rename must NOT be applied to route expressions
+	// because routes reference the assembler's own "mux" variable (from
+	// http.NewServeMux()), not the constructor. A naive rename turns
+	// mux.HandleFunc(...) into mux2.HandleFunc(...), binding routes to the
+	// constructor variable instead of the HTTP mux.
+	//
+	// Critical: the colliding constructor and routes are in the SAME wiring.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "colliding-component",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/muxutil"},
+					Constructors: []string{
+						"muxutil.NewMux()",
+						"muxutil.NewHealthHandler()",
+					},
+					Routes: []string{
+						`mux.HandleFunc("GET /health", healthHandler.Check)`,
+					},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The constructor muxutil.NewMux() derives var "mux", which collides
+	// with the assembler's own "mux := http.NewServeMux()". The constructor
+	// should be disambiguated to "mux2".
+	if !strings.Contains(code, "mux2 :=") {
+		t.Errorf("constructor var should be disambiguated to mux2 in:\n%s", code)
+	}
+
+	// The route must still reference the assembler's "mux" variable, NOT
+	// the constructor variable "mux2".
+	if !strings.Contains(code, `mux.HandleFunc("GET /health", healthHandler.Check)`) {
+		t.Errorf("route should reference assembler's mux, not constructor mux2 in:\n%s", code)
+	}
+
+	// The route must NOT have been corrupted to reference mux2.
+	if strings.Contains(code, `mux2.HandleFunc`) {
+		t.Errorf("route should NOT reference mux2 — pre-reserved rename corruption in:\n%s", code)
+	}
+}
+
+func TestAssemble_PreReservedRename_StdlibAlias(t *testing.T) {
+	// Verify that constructor renames caused by stdlib import alias
+	// collisions are also excluded from route expression rewriting.
+	// Constructor derives var "log", which collides with the stdlib "log"
+	// import alias. The rename log → log2 must NOT corrupt route
+	// expressions that reference other variables.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "logging-component",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/logging"},
+					Constructors: []string{
+						"logging.NewLog()",
+						"logging.NewLogHandler()",
+					},
+					Routes: []string{
+						`mux.HandleFunc("GET /logs", logHandler.List)`,
+					},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Constructor logging.NewLog() derives var "log", which collides with
+	// stdlib "log" import alias. Should be disambiguated.
+	if !strings.Contains(code, "log2 :=") {
+		t.Errorf("constructor var should be disambiguated to log2 in:\n%s", code)
+	}
+
+	// Routes must NOT be corrupted by the pre-reserved rename.
+	if strings.Contains(code, "log2Handler") {
+		t.Errorf("route should NOT be corrupted by pre-reserved log rename in:\n%s", code)
+	}
+}
+
+func TestAssemble_NonStdlibAliasRenameAppliedToRoutes(t *testing.T) {
+	// Verify that constructor renames caused by non-stdlib import alias
+	// collisions ARE applied to route expressions. Non-stdlib import aliases
+	// are NOT pre-reserved for route exclusion because routes reference
+	// constructor variables, not import aliases (finding 23 removed import
+	// renames from routes). The constructor rename must update the route.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "cache-component",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/cache"},
+					Constructors: []string{"cache.NewStorage()"},
+					Routes: []string{
+						`mux.HandleFunc("GET /cache", storage.Get)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Constructor cache.NewStorage() derives var "storage", which collides
+	// with the import alias "storage" for internal/storage. Should be
+	// disambiguated to "storage2".
+	if !strings.Contains(code, "storage2 :=") {
+		t.Errorf("constructor var should be disambiguated to storage2 in:\n%s", code)
+	}
+
+	// The route must reference the disambiguated constructor var "storage2",
+	// because the rename is NOT pre-reserved (non-stdlib import aliases
+	// don't appear in routes).
+	if !strings.Contains(code, "storage2.Get") {
+		t.Errorf("route should reference disambiguated constructor var storage2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_InterConstructorRenameStillAppliedToRoutes(t *testing.T) {
+	// Verify that renames caused by inter-constructor collisions (NOT
+	// pre-reserved) ARE still applied to route expressions. This ensures
+	// the fix for finding 24 doesn't regress finding 8.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewItemHandler(store)"},
+					Routes: []string{
+						`mux.HandleFunc("POST /a/items", itemHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/b"},
+					Constructors: []string{"b.NewItemHandler(store)"},
+					Routes: []string{
+						`mux.HandleFunc("POST /b/items", itemHandler.Create)`,
+					},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Second handler should be disambiguated.
+	if !strings.Contains(code, "itemHandler2 :=") {
+		t.Errorf("second handler should be disambiguated in:\n%s", code)
+	}
+	// Second route should reference disambiguated name (inter-constructor
+	// rename IS applied to routes).
+	if !strings.Contains(code, "itemHandler2.Create") {
+		t.Errorf("second route should reference itemHandler2 in:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

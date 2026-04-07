@@ -388,6 +388,15 @@ type constructorRename struct {
 	ConstructorIndex int
 	OriginalVar      string
 	FinalVar         string
+	// PreReserved is true when the rename was caused by collision with an
+	// assembler-internal variable (mux, addr, db, dsn, err) or stdlib
+	// import alias (log, fmt, http, os, sql). Pre-reserved renames must
+	// NOT be applied to route expressions because the route's reference
+	// to the identifier (e.g. mux.HandleFunc) refers to the assembler's
+	// own variable, not the constructor. The constructor was directly
+	// emitted as FinalVar; no route was ever written referencing the
+	// constructor by OriginalVar.
+	PreReserved bool
 }
 
 // writeConstructors emits constructor variable declarations and returns
@@ -405,6 +414,24 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int][]constructorRename)
 
+	// Track assembler-internal identifiers that the assembler itself emits
+	// into the function body (mux, addr, db, dsn, err) and stdlib import
+	// aliases (log, fmt, http, os, sql). Renames caused by collision with
+	// these identifiers must NOT be applied to route expressions because
+	// the route's reference to the identifier (e.g. mux.HandleFunc) refers
+	// to the assembler's own variable, not the constructor. The constructor
+	// was directly emitted with its disambiguated name; no route was ever
+	// written referencing the constructor by the pre-reserved name.
+	//
+	// This does NOT include non-stdlib import aliases or slot operator vars:
+	// - Non-stdlib aliases: routes reference constructor variables by name,
+	//   not import aliases (finding 23 removed import renames from routes).
+	//   When a constructor collides with an import alias, the route still
+	//   references the constructor by its original name and the rename MUST
+	//   be applied to update the route.
+	// - Slot operator vars: these never appear in route expressions.
+	preReserved := make(map[string]bool)
+
 	// Seed with slot operator variable names so constructor vars are
 	// disambiguated against them (they share the same function scope).
 	for name := range slotVarNames {
@@ -419,6 +446,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 	for name := range assemblerInternalVars(hasDB, hasRoutes) {
 		varNames[name]++
 		varUsed[name] = true
+		preReserved[name] = true
 	}
 
 	// Seed with non-stdlib import aliases (component, fill, and slots
@@ -456,6 +484,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 					ConstructorIndex: j,
 					OriginalVar:      baseVar,
 					FinalVar:         varName,
+					PreReserved:      preReserved[baseVar],
 				})
 			}
 
@@ -572,8 +601,18 @@ func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenam
 // applyConstructorRenames replaces variable references in a route expression
 // when constructor variable names were disambiguated. Each rename is applied
 // independently using word-boundary-safe replacement.
+//
+// Renames where PreReserved is true are skipped — these arose from collision
+// with a pre-reserved identifier (assembler-internal vars, import aliases,
+// slot operator vars), meaning the constructor was never named OriginalVar in
+// the generated code. Applying such a rename to routes would corrupt
+// references to the pre-reserved identifier (e.g. turning mux.HandleFunc
+// into mux2.HandleFunc when "mux" was reserved by writeRouteRegistration).
 func applyConstructorRenames(route string, renames []constructorRename) string {
 	for _, r := range renames {
+		if r.PreReserved {
+			continue
+		}
 		route = replaceIdentRef(route, r.OriginalVar, r.FinalVar)
 	}
 	return route
