@@ -50,6 +50,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		exposeMap[eb.Entity] = eb
 	}
 
+	// Validate that every expose block has at least one operation. An empty
+	// operations list produces unused imports and handler variables — Go
+	// compile errors.
+	if err := validateExposeOperations(ctx.Expose); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate that all parent cross-references resolve within the expose list.
 	if err := validateParentReferences(ctx.Expose, exposeMap); err != nil {
 		return nil, nil, err
@@ -59,6 +66,21 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// actual entity fields. The generator is the first consumer that knows
 	// both the expose block and the entity's field definitions.
 	if err := validateFieldReferences(ctx.Expose, entityMap); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate that when scope and parent are both set, the scope field is
+	// the entity's ref field pointing to the parent. Otherwise the generated
+	// list handler extracts the parent ID from the URL and passes it as the
+	// filter for a different field — semantically wrong.
+	if err := validateScopeParentConsistency(ctx.Expose, entityMap); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate that no two entities produce the same route path. Collisions
+	// cause runtime panics (Go 1.22 ServeMux), OpenAPI path overwrites, and
+	// duplicate variable declarations.
+	if err := validateRouteCollisions(ctx.Expose, exposeMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -1246,4 +1268,100 @@ type openAPISchema struct {
 	Minimum    *float64                 `json:"minimum,omitempty"`
 	Maximum    *float64                 `json:"maximum,omitempty"`
 	Default    any                      `json:"default,omitempty"`
+}
+
+// validateExposeOperations checks that every expose block has at least one
+// operation. An empty operations list produces an unused handler variable and
+// an unused net/http import — both Go compile errors.
+func validateExposeOperations(expose []types.ExposeBlock) error {
+	var empty []string
+	for _, eb := range expose {
+		if len(eb.Operations) == 0 {
+			empty = append(empty, eb.Entity)
+		}
+	}
+	if len(empty) > 0 {
+		return fmt.Errorf("expose blocks with no operations: %s; each expose block must have at least one operation",
+			strings.Join(empty, ", "))
+	}
+	return nil
+}
+
+// validateRouteCollisions detects duplicate effective route paths between
+// entities. Collisions cause Go 1.22 ServeMux runtime panics (duplicate
+// pattern registrations), OpenAPI path map overwrites, and duplicate handler
+// variable declarations.
+func validateRouteCollisions(expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) error {
+	type pathOwner struct {
+		entity string
+		path   string
+	}
+	// Track collection and item paths separately.
+	seen := make(map[string]pathOwner)
+	var errs []string
+
+	for _, eb := range expose {
+		basePath, err := entityBasePath(eb, exposeMap)
+		if err != nil {
+			return err
+		}
+		collectionPath := basePath
+		itemPath := basePath + "/{id}"
+
+		for _, p := range []string{collectionPath, itemPath} {
+			// Normalize to lowercase for case-insensitive collision detection.
+			key := strings.ToLower(p)
+			if existing, ok := seen[key]; ok && existing.entity != eb.Entity {
+				errs = append(errs, fmt.Sprintf(
+					"entities %q and %q both resolve to route path %q",
+					existing.entity, eb.Entity, p))
+			} else {
+				seen[key] = pathOwner{entity: eb.Entity, path: p}
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("route path collisions:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateScopeParentConsistency checks that when both scope and parent are set
+// on an expose block, the scope field is the entity's ref field pointing to the
+// parent. The scope+parent code path extracts the parent's ID from the URL path
+// parameter and uses it as the filter for the scope field. If the scope field is
+// a different field, the generated code passes the wrong value — semantically
+// broken at runtime.
+func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+	var errs []string
+	for _, eb := range expose {
+		if eb.Scope == "" || eb.Parent == "" {
+			continue
+		}
+		entity, ok := entityMap[eb.Entity]
+		if !ok {
+			continue
+		}
+		// Find the ref field pointing to the parent.
+		refFieldName := ""
+		for _, f := range entity.Fields {
+			if f.Type == types.FieldTypeRef && f.To == eb.Parent {
+				refFieldName = f.Name
+				break
+			}
+		}
+		if refFieldName == "" {
+			// parentRefFieldName will catch this later with a clear error.
+			continue
+		}
+		if eb.Scope != refFieldName {
+			errs = append(errs, fmt.Sprintf(
+				"expose block for %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
+				eb.Entity, eb.Scope, eb.Parent, eb.Scope, eb.Parent, refFieldName))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("scope/parent consistency errors:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
 }

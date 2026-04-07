@@ -3030,6 +3030,237 @@ func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
 	}
 }
 
+func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
+	// Finding 37: an expose block with zero operations must return an error,
+	// not produce uncompilable code (unused net/http import, unused handler variable).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for expose block with empty operations list")
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "operation") {
+		t.Errorf("error should mention operations, got: %v", err)
+	}
+}
+
+func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
+	// One valid expose block + one empty operations expose block => error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Entity: "Org", Operations: []types.Operation{}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for expose block with empty operations list")
+	}
+	if !strings.Contains(err.Error(), "Org") {
+		t.Errorf("error should mention entity with empty operations, got: %v", err)
+	}
+}
+
+func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
+	// Finding 38: two entities with the same path_prefix must be rejected at
+	// generation time — duplicate route registrations cause runtime panics.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Alpha", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Beta", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Alpha", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
+			{Entity: "Beta", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for route path collision")
+	}
+	if !strings.Contains(err.Error(), "Alpha") || !strings.Contains(err.Error(), "Beta") {
+		t.Errorf("error should mention both colliding entities, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "/items") {
+		t.Errorf("error should mention the colliding path, got: %v", err)
+	}
+}
+
+func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
+	// Two entity names that are case-insensitively equivalent produce the
+	// same auto-derived path (both → /items).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "ITEM", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Item", Operations: []types.Operation{types.OpList}},
+			{Entity: "ITEM", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for case-insensitive route path collision")
+	}
+	if !strings.Contains(err.Error(), "Item") && !strings.Contains(err.Error(), "ITEM") {
+		t.Errorf("error should mention colliding entities, got: %v", err)
+	}
+}
+
+func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
+	// An auto-derived path that matches another entity's explicit path_prefix.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Other", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Widget", Operations: []types.Operation{types.OpList}},                               // auto: /widgets
+			{Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for auto-derived path matching explicit path_prefix")
+	}
+	if !strings.Contains(err.Error(), "Widget") || !strings.Contains(err.Error(), "Other") {
+		t.Errorf("error should mention both colliding entities, got: %v", err)
+	}
+}
+
+func TestGenerate_NoRouteCollisionDifferentPaths(t *testing.T) {
+	// Verify that non-colliding paths succeed.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "Team", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpList}},
+			{Entity: "Team", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for non-colliding routes: %v", err)
+	}
+}
+
+func TestGenerate_ScopeParentInconsistencyReturnsError(t *testing.T) {
+	// Finding 39: when scope and parent are both set but scope is not the
+	// entity's ref field to the parent, the generator must return an error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "department", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "department", // not the ref field to Organization
+				Parent:     "Organization",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when scope is not the parent ref field")
+	}
+	if !strings.Contains(err.Error(), "department") {
+		t.Errorf("error should mention the scope field 'department', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Organization") {
+		t.Errorf("error should mention the parent 'Organization', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "org_id") {
+		t.Errorf("error should mention the correct ref field 'org_id', got: %v", err)
+	}
+}
+
+func TestGenerate_ScopeParentConsistentSucceeds(t *testing.T) {
+	// Verify that scope+parent with matching ref field succeeds.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "org_id", // matches the ref field to Organization
+				Parent:     "Organization",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for consistent scope+parent: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
