@@ -37,3 +37,5 @@ Implement the core compiler that follows the Terraform-style plan/apply pattern.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- d22658b feat(task-013): implement compiler core — plan/apply reconciler
