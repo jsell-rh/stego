@@ -141,10 +141,21 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		components[name] = comp
 	}
 
+	// Extract port binding overrides from service declaration.
+	// String-valued entries in Overrides represent port→component bindings;
+	// map-valued entries represent component config overrides (handled separately).
+	servicePortOverrides := make(map[string]string)
+	for key, val := range svcDecl.Overrides {
+		if strVal, ok := val.(string); ok {
+			servicePortOverrides[key] = strVal
+		}
+	}
+
 	// Resolve ports.
 	_, err = ports.Resolve(ports.ResolveInput{
 		Components:        components,
 		ArchetypeBindings: archetype.Bindings,
+		ServiceOverrides:  servicePortOverrides,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolving ports: %w", err)
@@ -212,7 +223,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 
 		// Validate namespace.
-		if comp.OutputNamespace != "" && len(files) > 0 {
+		if len(files) > 0 {
+			if comp.OutputNamespace == "" {
+				return nil, fmt.Errorf("generator %q produced %d file(s) but component declares no output_namespace — "+
+					"all components that generate files must declare an output_namespace", compName, len(files))
+			}
 			if err := gen.ValidateNamespace(comp.OutputNamespace, files); err != nil {
 				return nil, fmt.Errorf("generator %q: %w", compName, err)
 			}
@@ -244,6 +259,13 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("assembling shared files: %w", err)
 	}
 	allFiles = append(allFiles, sharedFiles...)
+
+	// Validate no duplicate file paths across all sources (generators, slots,
+	// assembler). A duplicate means one generator's output would silently
+	// overwrite another's.
+	if err := validateUniqueFilePaths(allFiles); err != nil {
+		return nil, err
+	}
 
 	// Load existing state.
 	statePath := filepath.Join(input.ProjectDir, ".stego", "state.yaml")
@@ -739,4 +761,23 @@ func FormatPlan(plan *Plan) string {
 		generateCount, updateCount, deleteCount, unchangedCount)
 
 	return result.String()
+}
+
+// validateUniqueFilePaths checks that no two files in the collection share the
+// same output path. Duplicate paths mean one source's output would silently
+// overwrite another's.
+func validateUniqueFilePaths(files []gen.File) error {
+	seen := make(map[string]bool, len(files))
+	var duplicates []string
+	for _, f := range files {
+		if seen[f.Path] {
+			duplicates = append(duplicates, f.Path)
+		}
+		seen[f.Path] = true
+	}
+	if len(duplicates) > 0 {
+		sort.Strings(duplicates)
+		return fmt.Errorf("duplicate generated file paths: %s", strings.Join(duplicates, ", "))
+	}
+	return nil
 }

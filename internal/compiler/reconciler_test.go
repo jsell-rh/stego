@@ -1361,3 +1361,273 @@ func TestHasChanges_IncludesModifiedFields(t *testing.T) {
 		t.Error("expected HasChanges() = true when entity modifications exist")
 	}
 }
+
+func TestReconcile_ServicePortBindingOverridePassedToResolve(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// Add a second auth component to the registry.
+	altAuthDir := filepath.Join(registryDir, "components", "api-key-auth")
+	if err := os.MkdirAll(altAuthDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	altAuthYAML := `kind: component
+name: api-key-auth
+version: 1.0.0
+requires: []
+provides:
+  - auth-provider
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(altAuthDir, "component.yaml"), []byte(altAuthYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update archetype to include both auth components and bindings.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+  - api-key-auth
+default_auth: jwt-auth
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+  auth-provider: jwt-auth
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add jwt-auth component.
+	jwtDir := filepath.Join(registryDir, "components", "jwt-auth")
+	if err := os.MkdirAll(jwtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jwtYAML := `kind: component
+name: jwt-auth
+version: 1.0.0
+requires: []
+provides:
+  - auth-provider
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(jwtDir, "component.yaml"), []byte(jwtYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update stub-api to require auth-provider.
+	apiDir := filepath.Join(registryDir, "components", "stub-api")
+	apiYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+  - auth-provider
+provides:
+  - http-server
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(apiDir, "component.yaml"), []byte(apiYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Service.yaml overrides auth-provider binding to api-key-auth (string-valued override).
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+expose:
+  - entity: Widget
+    operations: [create, read]
+
+overrides:
+  auth-provider: api-key-auth
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":     &stubGenerator{},
+		"stub-store":   &stubGenerator{},
+		"jwt-auth":     &stubGenerator{},
+		"api-key-auth": &stubGenerator{},
+	}
+
+	// This should succeed: the service overrides auth-provider from jwt-auth
+	// to api-key-auth, which is valid because api-key-auth provides auth-provider.
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile should succeed with valid port binding override, got: %v", err)
+	}
+}
+
+func TestReconcile_NoNamespaceComponentProducingFilesRejected(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// Add a component without output_namespace.
+	noNsDir := filepath.Join(registryDir, "components", "no-ns-comp")
+	if err := os.MkdirAll(noNsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	noNsYAML := `kind: component
+name: no-ns-comp
+version: 1.0.0
+requires: []
+provides: []
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(noNsDir, "component.yaml"), []byte(noNsYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add no-ns-comp to the archetype.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+  - no-ns-comp
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{},
+		"stub-store": &stubGenerator{},
+		// This generator produces files but its component has no output_namespace.
+		"no-ns-comp": &stubGenerator{
+			files: []gen.File{
+				{Path: "some/path/file.go", Content: []byte("package foo\n")},
+			},
+		},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error when component without output_namespace produces files")
+	}
+	if !strings.Contains(err.Error(), "output_namespace") {
+		t.Errorf("expected error to mention output_namespace, got: %v", err)
+	}
+}
+
+func TestReconcile_DuplicateFilePathsDetected(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// Two generators both produce a file at the same path.
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n// from stub-api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+		"stub-store": &stubGenerator{
+			files: []gen.File{
+				// Collision: same path as stub-api produces.
+				{Path: "internal/api/handler.go", Content: []byte("package api\n// from stub-store\n")},
+			},
+		},
+	}
+
+	// Override stub-store to have a namespace matching the colliding path.
+	compDir := filepath.Join(registryDir, "components", "stub-store")
+	compYAML := `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/api
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error when two generators produce files at the same path")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("expected error to mention 'duplicate', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "internal/api/handler.go") {
+		t.Errorf("expected error to mention the colliding path, got: %v", err)
+	}
+}
+
+func TestValidateUniqueFilePaths_NoDuplicates(t *testing.T) {
+	files := []gen.File{
+		{Path: "a.go"},
+		{Path: "b.go"},
+		{Path: "c.go"},
+	}
+	if err := validateUniqueFilePaths(files); err != nil {
+		t.Errorf("expected no error for unique paths, got: %v", err)
+	}
+}
+
+func TestValidateUniqueFilePaths_WithDuplicates(t *testing.T) {
+	files := []gen.File{
+		{Path: "a.go"},
+		{Path: "b.go"},
+		{Path: "a.go"},
+	}
+	err := validateUniqueFilePaths(files)
+	if err == nil {
+		t.Fatal("expected error for duplicate paths")
+	}
+	if !strings.Contains(err.Error(), "a.go") {
+		t.Errorf("expected error to mention duplicate path 'a.go', got: %v", err)
+	}
+}
