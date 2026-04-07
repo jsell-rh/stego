@@ -11,11 +11,11 @@ JSON_MODE=false
 
 # --- Colors (disabled for JSON or non-tty) ---
 if $JSON_MODE; then
-    BOLD="" DIM="" RESET="" GREEN="" YELLOW="" RED="" CYAN="" BLUE=""
+    BOLD="" DIM="" RESET="" GREEN="" YELLOW="" RED="" CYAN="" BLUE="" MAGENTA=""
 else
     BOLD=$'\033[1m' DIM=$'\033[2m' RESET=$'\033[0m'
     GREEN=$'\033[32m' YELLOW=$'\033[33m' RED=$'\033[31m'
-    CYAN=$'\033[36m' BLUE=$'\033[34m'
+    CYAN=$'\033[36m' BLUE=$'\033[34m' MAGENTA=$'\033[35m'
 fi
 
 # --- Task status counts ---
@@ -189,7 +189,7 @@ echo ""
 pct=$((complete * 100 / total_tasks))
 echo "${BOLD}Progress${RESET}"
 printf "  [$(progress_bar $pct)] %d%% (%d/%d tasks)\n" "$pct" "$complete" "$total_tasks"
-echo "  ${GREEN}$complete complete${RESET}  ${YELLOW}$in_review in review${RESET}  ${BLUE}$in_progress in progress${RESET}  ${DIM}$not_started not started${RESET}"
+echo "  ${GREEN}$complete complete${RESET}  ${MAGENTA}$in_review in review${RESET}  ${BLUE}$in_progress in progress${RESET}  ${DIM}$not_started not started${RESET}"
 echo ""
 
 # Timeline
@@ -228,12 +228,12 @@ for i in "${!task_names[@]}"; do
 
     # Color code status — pad to exactly 16 visible chars
     case "$status" in
-        complete)         status_label="complete";       status_color="$GREEN" ;;
-        ready-for-review) status_label="needs-revision"; status_color="$YELLOW" ;;
-        needs-revision)   status_label="needs-revision"; status_color="$YELLOW" ;;
-        in-review)        status_label="in-review";      status_color="$YELLOW" ;;
-        in-progress)      status_label="in-progress";    status_color="$BLUE" ;;
-        not-started)      status_label="not-started";    status_color="$DIM" ;;
+        complete)         status_label="complete";         status_color="$GREEN" ;;
+        ready-for-review) status_label="ready-for-review"; status_color="$MAGENTA" ;;
+        needs-revision)   status_label="needs-revision";   status_color="$YELLOW" ;;
+        in-review)        status_label="in-review";        status_color="$YELLOW" ;;
+        in-progress)      status_label="in-progress";      status_color="$BLUE" ;;
+        not-started)      status_label="not-started";      status_color="$DIM" ;;
         *)                status_label="$status";        status_color="" ;;
     esac
     sc="${status_color}$(printf '%-16s' "$status_label")${RESET}"
