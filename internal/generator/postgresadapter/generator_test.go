@@ -1713,6 +1713,165 @@ func TestRefTargetValidEntity(t *testing.T) {
 	}
 }
 
+// --- Migration topological sort ---
+
+func TestMigrationTopologicalSort(t *testing.T) {
+	// User (with ref to Organization) appears before Organization in input.
+	// The generated migration must emit Organization's CREATE TABLE first.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "email", Type: types.FieldTypeString, Unique: true},
+					{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				},
+			},
+			{
+				Name: "Organization",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, Unique: true},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+
+	// Organizations must appear before users in the SQL.
+	orgPos := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS organizations")
+	userPos := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS users")
+	if orgPos < 0 || userPos < 0 {
+		t.Fatalf("missing CREATE TABLE statements:\n%s", sqlContent)
+	}
+	if orgPos > userPos {
+		t.Errorf("organizations table must be created before users table (org at %d, user at %d):\n%s",
+			orgPos, userPos, sqlContent)
+	}
+}
+
+func TestMigrationTopologicalSortCircularDependency(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "A",
+				Fields: []types.Field{
+					{Name: "b_id", Type: types.FieldTypeRef, To: "B"},
+				},
+			},
+			{
+				Name: "B",
+				Fields: []types.Field{
+					{Name: "a_id", Type: types.FieldTypeRef, To: "A"},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for circular ref dependency")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular dependency, got: %v", err)
+	}
+}
+
+func TestMigrationTopologicalSortDiamond(t *testing.T) {
+	// Diamond: A→B, A→C, B→D, C→D. D must come first, then B and C, then A.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "A",
+				Fields: []types.Field{
+					{Name: "b_id", Type: types.FieldTypeRef, To: "B"},
+					{Name: "c_id", Type: types.FieldTypeRef, To: "C"},
+				},
+			},
+			{
+				Name: "B",
+				Fields: []types.Field{
+					{Name: "d_id", Type: types.FieldTypeRef, To: "D"},
+				},
+			},
+			{
+				Name: "C",
+				Fields: []types.Field{
+					{Name: "d_id", Type: types.FieldTypeRef, To: "D"},
+				},
+			},
+			{
+				Name: "D",
+				Fields: []types.Field{
+					{Name: "label", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sqlContent := findFileContent(t, files, "internal/storage/migrations/001_initial.sql")
+
+	posD := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS ds")
+	posB := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS bs")
+	posC := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS cs")
+	posA := strings.Index(sqlContent, "CREATE TABLE IF NOT EXISTS as")
+
+	if posD < 0 || posB < 0 || posC < 0 || posA < 0 {
+		t.Fatalf("missing CREATE TABLE statements:\n%s", sqlContent)
+	}
+
+	if posD > posB || posD > posC {
+		t.Errorf("D must be created before B and C:\n%s", sqlContent)
+	}
+	if posB > posA || posC > posA {
+		t.Errorf("B and C must be created before A:\n%s", sqlContent)
+	}
+}
+
+// --- Ref field empty 'to' validation ---
+
+func TestRefFieldEmptyToReturnsError(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "org_id", Type: types.FieldTypeRef, To: ""},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for ref field with empty 'to' attribute")
+	}
+	if !strings.Contains(err.Error(), "no 'to' attribute") {
+		t.Errorf("error should mention missing 'to' attribute, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "org_id") {
+		t.Errorf("error should mention the field name, got: %v", err)
+	}
+}
+
 // --- Unknown entity handling ---
 
 func TestStoreHandlesUnknownEntity(t *testing.T) {
