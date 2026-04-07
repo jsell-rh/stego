@@ -49,3 +49,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - f78c785 fix(task-012): address round 6 review findings for assembler
 - 5f69072 fix(task-012): address round 7 review findings for assembler
 - 28d8a69 fix(task-012): seed constructor var disambiguation with non-stdlib import aliases
+- 184c3a3 fix(task-012): propagate import alias renames to duplicate cross-wiring imports
