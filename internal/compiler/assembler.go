@@ -143,7 +143,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	if hasRoutes {
-		writeRouteRegistration(&buf, input, wiringRenames, imports.Renames)
+		writeRouteRegistration(&buf, input, wiringRenames)
 		writeServerStart(&buf, input, wiringRenames)
 	}
 
@@ -549,27 +549,20 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 	}
 }
 
-func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int][]constructorRename, importRenames map[int]map[string]string) {
+func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int][]constructorRename) {
 	buf.WriteString("\tmux := http.NewServeMux()\n")
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
 		for _, route := range cw.Wiring.Routes {
-			// Apply import alias renames so package-qualified references
-			// in route expressions match the disambiguated import aliases.
-			updatedRoute := route
-			if irenames, ok := importRenames[i]; ok {
-				for oldBase, newAlias := range irenames {
-					updatedRoute = replaceIdentRef(updatedRoute, oldBase, newAlias)
-				}
-			}
-			// Update variable references that were renamed during
-			// constructor disambiguation — only for this wiring's renames.
-			// Each rename is applied independently and only matches at
-			// identifier word boundaries, preventing cross-constructor
-			// misdirection (see finding 17).
-			updatedRoute = applyConstructorRenames(updatedRoute, wiringRenames[i])
+			// Route expressions reference constructor variables (e.g.
+			// "userHandler.Create"), not packages. Only constructor variable
+			// renames are applied — import alias renames must NOT be applied
+			// to routes because they would corrupt variable references when
+			// a constructor's derived variable name matches an import base
+			// name (finding 23: multi-pass rename interference).
+			updatedRoute := applyConstructorRenames(route, wiringRenames[i])
 			fmt.Fprintf(buf, "\t%s\n", updatedRoute)
 		}
 	}

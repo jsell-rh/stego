@@ -3001,5 +3001,86 @@ func TestAssemble_SharedImportPathNoDisambiguation(t *testing.T) {
 	}
 }
 
+func TestAssemble_MultiPassRenameInterference(t *testing.T) {
+	// Finding 23: When a constructor's derived variable name equals the base
+	// name of a disambiguated import in the same wiring, import alias renames
+	// and constructor variable renames conflict. Route expressions reference
+	// constructor variables, not packages — only constructor variable renames
+	// should be applied to routes.
+	//
+	// Wiring 0: imports "internal/handler" (alias "handler")
+	// Wiring 1: imports "internal/other/handler" (alias "handler2", import rename),
+	//   constructor handler.NewHandler() → var "handler" → disambiguated to "handler3"
+	//   (because "handler" and "handler2" are both reserved in NonStdlibAliases),
+	//   route references "handler.Get" → should become "handler3.Get" (the constructor var)
+	//
+	// Without the fix: import rename transforms "handler.Get" → "handler2.Get",
+	// then constructor rename can't find "handler." → final route is "handler2.Get"
+	// (references the import alias, not the constructor variable).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/handler"},
+					Constructors: []string{"handler.NewFoo()"},
+					Routes:       []string{`mux.HandleFunc("GET /foo", foo.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/other/handler"},
+					Constructors: []string{"handler.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /bar", handler.Get)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Component-b's constructor "handler.NewHandler()" derives var "handler".
+	// "handler" is reserved (import alias for component-a), "handler2" is
+	// reserved (import alias for component-b), so the var is disambiguated.
+	if !strings.Contains(code, "handler3 :=") {
+		t.Errorf("constructor var should be disambiguated to handler3 in:\n%s", code)
+	}
+
+	// Component-b's route must reference the constructor variable "handler3",
+	// NOT the import alias "handler2".
+	if !strings.Contains(code, "handler3.Get") {
+		t.Errorf("route should reference constructor var handler3, not import alias in:\n%s", code)
+	}
+
+	// Verify the route does NOT reference handler2 (the import alias) —
+	// that would be the multi-pass rename interference bug.
+	if strings.Contains(code, "handler2.Get") {
+		t.Errorf("route should NOT reference import alias handler2 — multi-pass rename interference in:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
