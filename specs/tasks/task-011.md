@@ -34,3 +34,5 @@ Implement the `jwt-auth` component as a Go package with a `Generator`.
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- 936e683 feat(task-011): implement jwt-auth component generator
