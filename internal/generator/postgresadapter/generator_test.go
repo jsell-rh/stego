@@ -2432,6 +2432,92 @@ func TestEnumFieldWithValuesPass(t *testing.T) {
 	}
 }
 
+// --- Intra-list uniqueness: unique_composite ---
+
+func TestUniqueCompositeDuplicateFieldWithinConstraint(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Membership",
+				Fields: []types.Field{
+					{Name: "user_id", Type: types.FieldTypeString, UniqueComposite: []string{"user_id", "user_id"}},
+					{Name: "org_id", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate field name within unique_composite")
+	}
+	if !strings.Contains(err.Error(), "duplicate entry") {
+		t.Errorf("error should mention duplicate entry, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "user_id") {
+		t.Errorf("error should mention the duplicate field name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Membership") {
+		t.Errorf("error should mention the entity name, got: %v", err)
+	}
+}
+
+// --- Intra-list uniqueness: enum values ---
+
+func TestEnumDuplicateValues(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "admin", "member"}},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for duplicate enum values")
+	}
+	if !strings.Contains(err.Error(), "duplicate enum value") {
+		t.Errorf("error should mention duplicate enum value, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "admin") {
+		t.Errorf("error should mention the duplicate value 'admin', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "role") {
+		t.Errorf("error should mention the field name 'role', got: %v", err)
+	}
+}
+
+func TestEnumUniqueValuesPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member", "viewer"}},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for enum field with unique values: %v", err)
+	}
+}
+
 func TestSQLIdentifiersAreQuoted(t *testing.T) {
 	// Use a field name that is a PostgreSQL reserved word to verify quoting.
 	ctx := gen.Context{

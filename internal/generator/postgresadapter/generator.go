@@ -620,8 +620,15 @@ func validateUniqueComposites(e types.Entity) ([][]string, error) {
 		if len(f.UniqueComposite) == 0 {
 			continue
 		}
-		// Validate each referenced field name.
+		// Validate each referenced field name and detect intra-list duplicates.
+		intraListSeen := make(map[string]bool, len(f.UniqueComposite))
 		for _, ref := range f.UniqueComposite {
+			if intraListSeen[ref] {
+				return nil, fmt.Errorf(
+					"entity %s: field %q has duplicate entry %q in unique_composite",
+					e.Name, f.Name, ref)
+			}
+			intraListSeen[ref] = true
 			if !validFields[ref] {
 				return nil, fmt.Errorf(
 					"entity %s: field %q declares unique_composite referencing non-existent field %q",
@@ -1217,10 +1224,24 @@ func validateEnumValues(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
 		for _, f := range e.Fields {
-			if f.Type == types.FieldTypeEnum && len(f.Values) == 0 {
+			if f.Type != types.FieldTypeEnum {
+				continue
+			}
+			if len(f.Values) == 0 {
 				errs = append(errs, fmt.Sprintf(
 					"entity %s: field %q has type enum but no values — enum fields must specify at least one value",
 					e.Name, f.Name))
+				continue
+			}
+			// Check for duplicate enum values within the list.
+			seen := make(map[string]bool, len(f.Values))
+			for _, v := range f.Values {
+				if seen[v] {
+					errs = append(errs, fmt.Sprintf(
+						"entity %s: field %q has duplicate enum value %q",
+						e.Name, f.Name, v))
+				}
+				seen[v] = true
 			}
 		}
 	}
