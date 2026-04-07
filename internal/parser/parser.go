@@ -186,7 +186,12 @@ func parseFile[T any](path, expectedKind string) (*T, error) {
 	if err != nil {
 		return nil, &ParseError{Path: path, Err: err}
 	}
+	return parseBytes[T](data, path, expectedKind)
+}
 
+// parseBytes unmarshals data into T, validates the kind field, and returns a
+// pointer to the result. The path is used only for error messages.
+func parseBytes[T any](data []byte, path, expectedKind string) (*T, error) {
 	var v T
 	if err := yaml.Unmarshal(data, &v); err != nil {
 		pe := parseErrorWithLineInfo(data, path, fmt.Errorf("unmarshal %s: %w", expectedKind, err))
@@ -203,4 +208,10 @@ func parseFile[T any](path, expectedKind string) (*T, error) {
 	}
 
 	return &v, nil
+}
+
+// ParseServiceDeclarationFromBytes parses a service declaration from raw YAML
+// bytes. The path is used only for error messages.
+func ParseServiceDeclarationFromBytes(data []byte, path string) (*types.ServiceDeclaration, error) {
+	return parseBytes[types.ServiceDeclaration](data, path, "service")
 }

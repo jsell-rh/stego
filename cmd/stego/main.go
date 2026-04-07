@@ -7,6 +7,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
@@ -78,12 +79,20 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		goVersion = "1.22"
 	}
 
+	// Try to load registry SHA from .stego/config.yaml for auditability.
+	var registrySHA string
+	configPath := filepath.Join(projectDir, ".stego", "config.yaml")
+	if cfg, err := registry.LoadConfig(configPath); err == nil && len(cfg.Registry) > 0 {
+		registrySHA = cfg.Registry[0].Ref
+	}
+
 	return compiler.ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
 		Generators:  defaultGenerators(),
 		GoVersion:   goVersion,
 		ModuleName:  moduleName,
+		RegistrySHA: registrySHA,
 	}, nil
 }
 

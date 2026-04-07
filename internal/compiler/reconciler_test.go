@@ -774,6 +774,85 @@ func TestComputeEntityChanges_NoState(t *testing.T) {
 	}
 }
 
+func TestComputeEntityChanges_DeletedEntity(t *testing.T) {
+	// Current entities have only Widget; old state had Widget and Gadget.
+	entities := []types.Entity{
+		{Name: "Widget", Fields: []types.Field{{Name: "label"}}},
+	}
+	existingState := &State{
+		LastApplied: &AppliedState{
+			Entities: map[string][]string{
+				"Widget": {"label"},
+				"Gadget": {"size", "color"},
+			},
+		},
+	}
+
+	changes := computeEntityChanges(entities, existingState)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change (Gadget deleted), got %d: %+v", len(changes), changes)
+	}
+	if changes[0].Entity != "Gadget" {
+		t.Errorf("expected deleted entity Gadget, got %s", changes[0].Entity)
+	}
+	if len(changes[0].Removed) != 2 {
+		t.Errorf("expected 2 removed fields, got %d", len(changes[0].Removed))
+	}
+}
+
+func TestReconcile_RegistrySHAInState(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{},
+		"stub-store": &stubGenerator{},
+	}
+
+	plan, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+		RegistrySHA: "a1b2c3d4e5f6",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	state := plan.NewState
+	if state.LastApplied == nil {
+		t.Fatal("expected LastApplied to be set")
+	}
+	if state.LastApplied.RegistrySHA != "a1b2c3d4e5f6" {
+		t.Errorf("expected RegistrySHA = %q, got %q", "a1b2c3d4e5f6", state.LastApplied.RegistrySHA)
+	}
+
+	// Check component SHAs are also populated.
+	apiState, ok := state.LastApplied.Components["stub-api"]
+	if !ok {
+		t.Fatal("expected stub-api in component state")
+	}
+	if apiState.SHA != "a1b2c3d4e5f6" {
+		t.Errorf("expected stub-api SHA = %q, got %q", "a1b2c3d4e5f6", apiState.SHA)
+	}
+}
+
+func TestHasChanges_IncludesEntityChanges(t *testing.T) {
+	// Plan with no file changes but entity changes should still report changes.
+	plan := &Plan{
+		Files: []PlannedFile{
+			{Path: "a.go", Action: ActionUnchanged},
+		},
+		EntityChanges: []EntityChange{
+			{Entity: "Widget", Added: []string{"color"}},
+		},
+	}
+	if !plan.HasChanges() {
+		t.Error("expected HasChanges() = true when entity changes exist")
+	}
+}
+
 func TestResolveComponentConfig_MergesDefaults(t *testing.T) {
 	comp := &types.Component{
 		Config: map[string]types.ConfigField{

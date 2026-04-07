@@ -53,8 +53,12 @@ type Plan struct {
 	NewState *State
 }
 
-// HasChanges returns true if the plan includes any generate or update actions.
+// HasChanges returns true if the plan includes any generate, update, or
+// entity changes.
 func (p *Plan) HasChanges() bool {
+	if len(p.EntityChanges) > 0 {
+		return true
+	}
 	for _, f := range p.Files {
 		if f.Action != ActionUnchanged {
 			return true
@@ -79,19 +83,24 @@ type ReconcilerInput struct {
 
 	// ModuleName is the Go module path (e.g. "github.com/myorg/user-service").
 	ModuleName string
+
+	// RegistrySHA is the registry ref SHA from .stego/config.yaml, used for
+	// auditability in state tracking.
+	RegistrySHA string
 }
 
 // Reconcile computes a plan by loading the service declaration, resolving the
 // archetype, running all component generators, and assembling shared files.
 // The plan can then be inspected (plan) or applied (Apply).
 func Reconcile(input ReconcilerInput) (*Plan, error) {
-	// Load service declaration.
+	// Load service declaration. Read once and parse from bytes to avoid
+	// TOCTOU race between hashing and parsing.
 	serviceYAMLPath := filepath.Join(input.ProjectDir, "service.yaml")
 	serviceData, err := os.ReadFile(serviceYAMLPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading service.yaml: %w", err)
 	}
-	svcDecl, err := parser.ParseServiceDeclaration(serviceYAMLPath)
+	svcDecl, err := parser.ParseServiceDeclarationFromBytes(serviceData, serviceYAMLPath)
 	if err != nil {
 		return nil, fmt.Errorf("parsing service.yaml: %w", err)
 	}
@@ -213,7 +222,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 
 	// Compute plan by comparing generated files against existing state.
-	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, input.ProjectDir)
+	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, input.ProjectDir, input.RegistrySHA)
 
 	return plan, nil
 }
@@ -420,6 +429,7 @@ func computePlan(
 	entities []types.Entity,
 	components map[string]*types.Component,
 	projectDir string,
+	registrySHA string,
 ) *Plan {
 	serviceHash := HashBytes(serviceData)
 
@@ -478,12 +488,14 @@ func computePlan(
 	for name, comp := range components {
 		compState[name] = ComponentState{
 			Version: comp.Version,
+			SHA:     registrySHA,
 		}
 	}
 
 	newState := &State{
 		LastApplied: &AppliedState{
 			ServiceHash: serviceHash,
+			RegistrySHA: registrySHA,
 			Components:  compState,
 			Entities:    entitySnapshot,
 			Files:       newFileHashes,
@@ -506,8 +518,16 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 	}
 
 	oldEntities := existingState.LastApplied.Entities
+
+	// Build a set of current entity names for deletion detection.
+	currentNames := make(map[string]bool, len(entities))
+	for _, e := range entities {
+		currentNames[e.Name] = true
+	}
+
 	var changes []EntityChange
 
+	// Detect additions and modifications in current entities.
 	for _, e := range entities {
 		oldFields, existed := oldEntities[e.Name]
 		if !existed {
@@ -555,17 +575,22 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 		}
 	}
 
-	return changes
-}
+	// Detect deleted entities: present in old state but absent from current.
+	for entityName, oldFields := range oldEntities {
+		if !currentNames[entityName] {
+			changes = append(changes, EntityChange{
+				Entity:  entityName,
+				Removed: oldFields,
+			})
+		}
+	}
 
-// HasChanges returns true if the plan includes any generate, update, or entity changes.
-func (p *Plan) hasEntityChanges() bool {
-	return len(p.EntityChanges) > 0
+	return changes
 }
 
 // FormatPlan produces a human-readable summary of the plan.
 func FormatPlan(plan *Plan) string {
-	if !plan.HasChanges() && !plan.hasEntityChanges() {
+	if !plan.HasChanges() {
 		return "No changes. Infrastructure is up-to-date."
 	}
 
