@@ -2,7 +2,7 @@
 
 **Spec Reference:** "MVP Scope", "Port Resolution"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 ## Description
 
