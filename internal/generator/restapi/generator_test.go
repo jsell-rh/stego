@@ -2199,6 +2199,145 @@ func TestGenerate_EntityNamedNewRouterReturnsError(t *testing.T) {
 	}
 }
 
+func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
+	// Finding 28: safeVarName must guard against function-scoped identifiers
+	// in generated handler methods (receiver, params, import aliases).
+	tests := []struct {
+		input string
+		want  string
+	}{
+		// Receiver.
+		{"h", "h_"},
+		// Parameters.
+		{"w", "w_"},
+		{"r", "r_"},
+		// Import aliases.
+		{"json", "json_"},
+		{"http", "http_"},
+		{"time", "time_"},
+		{"fmt", "fmt_"},
+		// Non-colliding names should pass through unchanged.
+		{"user", "user"},
+		{"cluster", "cluster"},
+	}
+	for _, tt := range tests {
+		got := safeVarName(tt.input)
+		if got != tt.want {
+			t.Errorf("safeVarName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
+	// Finding 28: entity names whose lowercased form matches the handler method
+	// receiver (h) or parameter names (w, r) must not produce compile errors.
+	g := &Generator{}
+
+	for _, name := range []string{"W", "R", "H"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{
+						Entity:     name,
+						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			files, _, err := g.Generate(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tmpDir := t.TempDir()
+			goMod := "module testpkg\n\ngo 1.22\n"
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+				t.Fatalf("writing go.mod: %v", err)
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, ".go") {
+					continue
+				}
+				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+					t.Fatalf("writing %s: %v", f.Path, err)
+				}
+			}
+			cmd := exec.Command("go", "build", ".")
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
+			}
+		})
+	}
+}
+
+func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
+	// Finding 28: entity names whose lowercased form matches import aliases
+	// (json, http, time) must not produce compile errors.
+	g := &Generator{}
+
+	for _, name := range []string{"Json", "Http", "Time"} {
+		t.Run(name, func(t *testing.T) {
+			fields := []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}
+			// For "Time" entity, add a computed timestamp field to ensure
+			// the time import is present and exercised.
+			if name == "Time" {
+				fields = append(fields, types.Field{
+					Name: "last_seen", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "tracker",
+				})
+			}
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities:    []types.Entity{{Name: name, Fields: fields}},
+				Expose: []types.ExposeBlock{
+					{
+						Entity:     name,
+						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			files, _, err := g.Generate(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tmpDir := t.TempDir()
+			goMod := "module testpkg\n\ngo 1.22\n"
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+				t.Fatalf("writing go.mod: %v", err)
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, ".go") {
+					continue
+				}
+				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+					t.Fatalf("writing %s: %v", f.Path, err)
+				}
+			}
+			cmd := exec.Command("go", "build", ".")
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
+			}
+		})
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()

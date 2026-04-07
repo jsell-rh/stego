@@ -917,11 +917,29 @@ var goReservedWords = map[string]bool{
 	"close": true, "panic": true, "recover": true,
 }
 
+// handlerScopeIdentifiers is the set of identifiers that are in scope inside
+// generated handler method bodies. These include the method receiver, parameter
+// names, and import aliases. A generated local variable whose name matches any
+// of these will redeclare or shadow the identifier, causing a compile error.
+var handlerScopeIdentifiers = map[string]bool{
+	// Method receiver.
+	"h": true,
+	// Handler method parameters.
+	"w": true,
+	"r": true,
+	// Import aliases used in handler files.
+	"json": true, // encoding/json
+	"http": true, // net/http
+	"time": true, // time (conditional, but safer to always guard)
+	"fmt":  true, // not currently imported, but guard for safety
+}
+
 // safeVarName returns the given name with a trailing underscore appended if it
-// collides with a Go reserved word or predeclared identifier. This prevents
-// generated code from using keywords as variable names.
+// collides with a Go reserved word, predeclared identifier, or function-scoped
+// identifier in generated handler methods. This prevents generated code from
+// using keywords or shadowing in-scope names as variable names.
 func safeVarName(name string) string {
-	if goReservedWords[name] {
+	if goReservedWords[name] || handlerScopeIdentifiers[name] {
 		return name + "_"
 	}
 	return name
