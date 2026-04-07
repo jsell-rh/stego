@@ -31,8 +31,8 @@ for f in "$TASKS_DIR"/task-*.md; do
     # Replace em-dashes with plain dashes for consistent column width
     title="${title//—/-}"
     # Truncate to 28 chars with ellipsis in the middle
-    if [[ ${#title} -gt 28 ]]; then
-        title="${title:0:13}..${title: -13}"
+    if [[ ${#title} -gt 38 ]]; then
+        title="${title:0:18}..${title: -18}"
     fi
     task_names+=("$name")
     task_statuses+=("$status")
@@ -229,7 +229,7 @@ echo ""
 
 # Per-task breakdown
 echo "${BOLD}Task Breakdown${RESET}"
-printf "  ${DIM}%-12s  %-28s  %-16s  %7s  %6s  %8s  %14s${RESET}\n" "TASK" "TITLE" "STATUS" "COMMITS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
+printf "  ${DIM}%-8s  %-38s  %-16s  %7s  %6s  %8s  %14s${RESET}\n" "TASK" "TITLE" "STATUS" "COMMITS" "ROUNDS" "FINDINGS" "ACTIVE TIME"
 printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------------------------------------" "${RESET}"
 
 total_rounds=0; total_findings=0; total_active=0; total_task_commits=0
@@ -281,11 +281,11 @@ for i in "${!task_names[@]}"; do
     cpad=$(printf "%7d" "$commits")
 
     title="${task_titles[$i]}"
-    printf "  %-12s  %-28s  %s  %s  %s  %s  %s\n" "$name" "$title" "$sc" "$cpad" "$rc" "$fpad" "$at"
+    printf "  %-8s  %-38s  %s  %s  %s  %s  %s\n" "$name" "$title" "$sc" "$cpad" "$rc" "$fpad" "$at"
 done
 
 printf "  %s%s%s\n" "${DIM}" "------------------------------------------------------------------------------------------------------" "${RESET}"
-printf "  ${BOLD}%-12s  %-28s  %-16s  %7d  %6d  %8d  %14s${RESET}\n" "TOTAL" "" "" "$total_task_commits" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
+printf "  ${BOLD}%-8s  %-38s  %-16s  %7d  %6d  %8d  %14s${RESET}\n" "TOTAL" "" "" "$total_task_commits" "$total_rounds" "$total_findings" "$(fmt_duration $total_active)"
 echo ""
 
 # Review efficiency
