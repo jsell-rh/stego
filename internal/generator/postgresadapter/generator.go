@@ -72,6 +72,16 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate derived PascalCase field names are unique within each entity.
+	if err := validateDerivedFieldUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate that enum fields have non-empty values.
+	if err := validateEnumValues(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
 	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating models: %w", err)
@@ -1169,6 +1179,53 @@ func validateNoImplicitIDCollision(entities []types.Entity) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("implicit ID collisions:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateDerivedFieldUniqueness checks that toPascalCase(f.Name) produces
+// unique Go struct field names within each entity. Two raw field names that
+// differ (e.g. "_name" and "name", or "foo_bar" and "fooBar") but map to the
+// same PascalCase identifier cause duplicate struct fields and a compile error.
+func validateDerivedFieldUniqueness(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		seen := make(map[string]string, len(e.Fields)) // PascalCase → raw name
+		for _, f := range e.Fields {
+			pascal := toPascalCase(f.Name)
+			if existing, ok := seen[pascal]; ok && existing != f.Name {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: fields %q and %q both produce Go struct field name %q",
+					e.Name, existing, f.Name, pascal))
+			} else {
+				seen[pascal] = f.Name
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("derived field name collisions:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateEnumValues checks that every field with type "enum" has a non-empty
+// Values slice. An enum without values is semantically invalid — it degrades
+// to a plain TEXT column with no CHECK constraint.
+func validateEnumValues(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			if f.Type == types.FieldTypeEnum && len(f.Values) == 0 {
+				errs = append(errs, fmt.Sprintf(
+					"entity %s: field %q has type enum but no values — enum fields must specify at least one value",
+					e.Name, f.Name))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid enum fields:\n  %s",
 			strings.Join(errs, "\n  "))
 	}
 	return nil

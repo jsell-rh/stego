@@ -2281,6 +2281,157 @@ func TestFieldNameValidCharactersPass(t *testing.T) {
 	}
 }
 
+// --- Derived PascalCase field name uniqueness ---
+
+func TestDerivedFieldNameCollisionUnderscorePrefix(t *testing.T) {
+	// "_name" and "name" both produce PascalCase "Name".
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "_name", Type: types.FieldTypeString},
+					{Name: "name", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for derived field name collision (_name and name both produce Name)")
+	}
+	if !strings.Contains(err.Error(), "derived field name") {
+		t.Errorf("error should mention derived field name collision, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Name") {
+		t.Errorf("error should mention the colliding PascalCase name, got: %v", err)
+	}
+}
+
+func TestDerivedFieldNameCollisionCamelVsSnake(t *testing.T) {
+	// "foo_bar" and "fooBar" both produce PascalCase "FooBar".
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Item",
+				Fields: []types.Field{
+					{Name: "foo_bar", Type: types.FieldTypeString},
+					{Name: "fooBar", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for derived field name collision (foo_bar and fooBar both produce FooBar)")
+	}
+	if !strings.Contains(err.Error(), "FooBar") {
+		t.Errorf("error should mention the colliding PascalCase name, got: %v", err)
+	}
+}
+
+func TestDerivedFieldNameNonCollidingPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "first_name", Type: types.FieldTypeString},
+					{Name: "last_name", Type: types.FieldTypeString},
+					{Name: "email", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for non-colliding derived field names: %v", err)
+	}
+}
+
+// --- Enum empty values validation ---
+
+func TestEnumFieldEmptyValuesReturnsError(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "role", Type: types.FieldTypeEnum, Values: []string{}},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for enum field with empty values")
+	}
+	if !strings.Contains(err.Error(), "enum") {
+		t.Errorf("error should mention enum, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "role") {
+		t.Errorf("error should mention the field name 'role', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should mention the entity name 'User', got: %v", err)
+	}
+}
+
+func TestEnumFieldNilValuesReturnsError(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Item",
+				Fields: []types.Field{
+					{Name: "status", Type: types.FieldTypeEnum}, // Values is nil
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for enum field with nil values")
+	}
+	if !strings.Contains(err.Error(), "enum") {
+		t.Errorf("error should mention enum, got: %v", err)
+	}
+}
+
+func TestEnumFieldWithValuesPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for enum field with values: %v", err)
+	}
+}
+
 func TestSQLIdentifiersAreQuoted(t *testing.T) {
 	// Use a field name that is a PostgreSQL reserved word to verify quoting.
 	ctx := gen.Context{
