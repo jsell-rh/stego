@@ -27,7 +27,7 @@ for f in "$TASKS_DIR"/task-*.md; do
     total_tasks=$((total_tasks + 1))
     name=$(basename "$f" .md)
     status=$(grep -oP '(?<=\*\*Status:\*\* `)[^`]+' "$f" 2>/dev/null || echo "unknown")
-    title=$(head -1 "$f" | sed 's/^# Task [0-9]*: //')
+    title=$(head -1 "$f" | sed -E 's/^# (TASK-[0-9]+|Task [0-9]+): //')
     # Replace em-dashes with plain dashes for consistent column width
     title="${title//—/-}"
     # Truncate to 28 chars with ellipsis in the middle
