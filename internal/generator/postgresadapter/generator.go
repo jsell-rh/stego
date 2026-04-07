@@ -57,6 +57,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Validate entity names use a safe character set for all target systems.
+	if err := validateEntityNameCharset(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate field names use a safe character set for all target systems.
 	if err := validateFieldNameCharset(ctx.Entities); err != nil {
 		return nil, nil, err
@@ -96,11 +101,34 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return files, wiring, nil
 }
 
-// reservedTypeNames is the set of identifiers the postgres-adapter generator
-// defines unconditionally in the generated package.
+// reservedTypeNames is the union of: (1) Go keywords, (2) Go predeclared
+// identifiers, and (3) generator-internal identifiers. Entity names that
+// match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
+	// Generator-internal identifiers.
 	"Store":    true,
 	"NewStore": true,
+	// Go keywords.
+	"break": true, "case": true, "chan": true, "const": true,
+	"continue": true, "default": true, "defer": true, "else": true,
+	"fallthrough": true, "for": true, "func": true, "go": true,
+	"goto": true, "if": true, "import": true, "interface": true,
+	"map": true, "package": true, "range": true, "return": true,
+	"select": true, "struct": true, "switch": true, "type": true,
+	"var": true,
+	// Go predeclared identifiers.
+	"any": true, "bool": true, "byte": true, "comparable": true,
+	"complex64": true, "complex128": true, "error": true, "float32": true,
+	"float64": true, "int": true, "int8": true, "int16": true,
+	"int32": true, "int64": true, "rune": true, "string": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true,
+	"uint64": true, "uintptr": true,
+	"true": true, "false": true, "iota": true, "nil": true,
+	"append": true, "cap": true, "clear": true, "close": true,
+	"complex": true, "copy": true, "delete": true, "imag": true,
+	"len": true, "make": true, "max": true, "min": true,
+	"new": true, "panic": true, "print": true, "println": true,
+	"real": true, "recover": true,
 }
 
 // generateModels produces models.go with entity struct definitions.
@@ -1001,22 +1029,22 @@ func validateEntityUniqueness(entities []types.Entity) error {
 }
 
 // validateCaseInsensitiveUniqueness checks that no two entity names produce
-// the same table name when lowercased.
+// the same derived table name (via toSnakeCase + pluralize).
 func validateCaseInsensitiveUniqueness(entities []types.Entity) error {
 	seen := make(map[string]string, len(entities))
 	var errs []string
 	for _, e := range entities {
-		lower := strings.ToLower(e.Name)
-		if existing, ok := seen[lower]; ok {
+		tbl := tableName(e.Name)
+		if existing, ok := seen[tbl]; ok {
 			errs = append(errs, fmt.Sprintf(
-				"entities %q and %q are case-insensitively equivalent (both produce table %q)",
-				existing, e.Name, tableName(e.Name)))
+				"entities %q and %q both produce table name %q",
+				existing, e.Name, tbl))
 		} else {
-			seen[lower] = e.Name
+			seen[tbl] = e.Name
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("case-insensitive entity name collisions:\n  %s",
+		return fmt.Errorf("derived table name collisions:\n  %s",
 			strings.Join(errs, "\n  "))
 	}
 	return nil
@@ -1102,6 +1130,24 @@ func validateFieldNameCharset(entities []types.Entity) error {
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid field name characters:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateEntityNameCharset checks that all entity names match the safe identifier
+// pattern [a-zA-Z_][a-zA-Z0-9_]*, which is valid across Go, SQL, and URL targets.
+func validateEntityNameCharset(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		if !validFieldNamePattern.MatchString(e.Name) {
+			errs = append(errs, fmt.Sprintf(
+				"entity name %q contains invalid characters; entity names must match %s",
+				e.Name, validFieldNamePattern.String()))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid entity name characters:\n  %s",
 			strings.Join(errs, "\n  "))
 	}
 	return nil

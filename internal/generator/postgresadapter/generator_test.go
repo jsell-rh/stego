@@ -843,10 +843,31 @@ func TestCaseInsensitiveEntityCollision(t *testing.T) {
 	g := &Generator{}
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for case-insensitive collision")
+		t.Fatal("expected error for table name collision")
 	}
-	if !strings.Contains(err.Error(), "case-insensitive") {
+	if !strings.Contains(err.Error(), "table name") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDerivedTableNameCollision(t *testing.T) {
+	// UserProfile and User_Profile both produce table name "user_profiles"
+	// via toSnakeCase + pluralize, but differ in strings.ToLower.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "UserProfile", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "User_Profile", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for derived table name collision between UserProfile and User_Profile")
+	}
+	if !strings.Contains(err.Error(), "user_profiles") {
+		t.Errorf("error should mention the colliding table name, got: %v", err)
 	}
 }
 
@@ -2119,6 +2140,119 @@ func TestFieldNameInvalidCharacters(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.fieldName) {
 				t.Errorf("error should mention the field name, got: %v", err)
+			}
+		})
+	}
+}
+
+// --- Entity name character set validation ---
+
+func TestEntityNameInvalidCharacters(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityName string
+	}{
+		{"hyphen", "my-entity"},
+		{"leading_digit", "123Invalid"},
+		{"space", "hello world"},
+		{"unicode", "Naïve"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name:   tt.entityName,
+						Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for entity name %q with invalid characters", tt.entityName)
+			}
+			if !strings.Contains(err.Error(), "invalid characters") {
+				t.Errorf("error should mention invalid characters, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.entityName) {
+				t.Errorf("error should mention the entity name, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestEntityNameValidCharactersPass(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "AdapterStatus", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid entity names: %v", err)
+	}
+}
+
+// --- Go keyword and predeclared identifier rejection ---
+
+func TestReservedEntityNameGoKeywords(t *testing.T) {
+	keywords := []string{"func", "return", "type", "struct", "if", "for", "switch",
+		"case", "package", "import", "var", "const", "map", "chan", "range",
+		"go", "defer", "select", "interface", "break", "continue", "fallthrough",
+		"goto", "default", "else"}
+
+	for _, name := range keywords {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for Go keyword entity name %q", name)
+			}
+			if !strings.Contains(err.Error(), "collides") {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestReservedEntityNameGoPredeclaredIdentifiers(t *testing.T) {
+	predeclared := []string{"error", "any", "string", "int", "bool", "byte",
+		"rune", "true", "false", "nil", "len", "cap", "make", "new",
+		"append", "copy", "delete", "print", "println", "panic", "recover",
+		"close", "complex", "real", "imag"}
+
+	for _, name := range predeclared {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for Go predeclared identifier entity name %q", name)
+			}
+			if !strings.Contains(err.Error(), "collides") {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}
