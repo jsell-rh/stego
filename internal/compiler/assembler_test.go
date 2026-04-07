@@ -2645,5 +2645,219 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 	}
 }
 
+func TestAssemble_NonStdlibImportAliasShadowingByConstructor(t *testing.T) {
+	// Finding 21: A constructor whose derived variable name matches a non-stdlib
+	// import alias must be disambiguated. Without this, the constructor variable
+	// shadows the import alias, and later constructors referencing that import
+	// resolve to the local variable instead — producing an unused-import compile
+	// error or wrong-package reference.
+	//
+	// Reproduction: wiring 0 has import "internal/cache" and constructor
+	// cache.NewStorage() → var "storage". Wiring 1 has import "internal/storage"
+	// (alias "storage") and constructor storage.NewStore(db). Without seeding,
+	// "storage := cache.NewStorage()" shadows the "storage" import alias.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "cache-component",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/cache"},
+					Constructors: []string{"cache.NewStorage()"},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The constructor cache.NewStorage() derives var name "storage", which
+	// collides with the import alias "storage" for "internal/storage".
+	// It must be disambiguated to "storage2" (or similar).
+	if !strings.Contains(code, "storage2 :=") {
+		t.Errorf("constructor var 'storage' should be disambiguated to avoid shadowing import alias in:\n%s", code)
+	}
+
+	// The import alias "storage" must remain intact for the postgres-adapter
+	// constructor to reference correctly.
+	if !strings.Contains(code, "storage.NewStore(db)") {
+		t.Errorf("postgres-adapter constructor should still reference 'storage' import alias in:\n%s", code)
+	}
+}
+
+func TestAssemble_NonStdlibImportAliasShadowingByFillAlias(t *testing.T) {
+	// Finding 21 (fill alias variant): A constructor whose derived variable
+	// name matches a fill import alias must be disambiguated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/maker"},
+					// Derives var name "validator" which matches fill alias.
+					Constructors: []string{"maker.NewValidator()"},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			// Fill name "validator" produces alias "validator".
+			{Slot: "before_create", Gate: []string{"validator"}},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The constructor var "validator" should be disambiguated because a fill
+	// import alias "validator" exists in the same scope.
+	if !strings.Contains(code, "validator2 :=") {
+		t.Errorf("constructor var 'validator' should be disambiguated to avoid shadowing fill import alias in:\n%s", code)
+	}
+}
+
+func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
+	// Finding 21 (slots alias variant): A constructor whose derived variable
+	// name matches the slots package alias must be disambiguated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/maker"},
+					// Derives var name "slots" which matches slots package alias.
+					Constructors: []string{"maker.NewSlots()"},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"my-policy"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The constructor var "slots" should be disambiguated because the
+	// slots package import uses alias "slots" in the same scope.
+	if !strings.Contains(code, "slots2 :=") {
+		t.Errorf("constructor var 'slots' should be disambiguated to avoid shadowing slots import alias in:\n%s", code)
+	}
+
+	// Slot wiring should still reference the original "slots" import alias.
+	if !strings.Contains(code, "slots.NewBeforeCreateGate") {
+		t.Errorf("slot wiring should reference 'slots' import alias in:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

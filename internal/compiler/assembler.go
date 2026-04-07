@@ -123,7 +123,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// disambiguation can avoid collisions with slot operators.
 	allSlotVarNames := collectAllSlotVarNames(input.SlotBindings, hasSlots)
 
-	importRenames := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots)
+	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots)
 
 	buf.WriteString("func main() {\n")
 
@@ -137,13 +137,13 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByEntity)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, importRenames)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, imports)
 	if err != nil {
 		return gen.File{}, err
 	}
 
 	if hasRoutes {
-		writeRouteRegistration(&buf, input, wiringRenames, importRenames)
+		writeRouteRegistration(&buf, input, wiringRenames, imports.Renames)
 		writeServerStart(&buf, input, wiringRenames)
 	}
 
@@ -160,12 +160,28 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}, nil
 }
 
+// importResult bundles the outputs of writeMainImports: per-wiring import alias
+// renames and the complete set of non-stdlib import aliases assigned. The alias
+// set is used to seed constructor variable disambiguation maps so that
+// constructor variables cannot shadow component, fill, or slots import aliases.
+type importResult struct {
+	// Renames maps wiring index → (original base name → disambiguated alias)
+	// for cases where a component's import alias was disambiguated.
+	Renames map[int]map[string]string
+
+	// NonStdlibAliases is the set of all non-stdlib import aliases assigned
+	// during import block construction (component aliases, fill aliases, and
+	// the slots alias when present). Constructor variable disambiguation must
+	// reserve all of these to prevent shadowing.
+	NonStdlibAliases map[string]bool
+}
+
 // writeMainImports writes the import block and returns per-wiring import alias
-// renames. Each entry maps a wiring index to a map from the original package
-// base name to the disambiguated alias (only where they differ). This allows
+// renames plus the complete set of non-stdlib import aliases. The renames allow
 // constructor and route expressions to be updated when their component's import
-// alias is disambiguated.
-func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots bool) map[int]map[string]string {
+// alias is disambiguated. The alias set allows constructor variable
+// disambiguation to avoid shadowing import aliases.
+func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots bool) importResult {
 	buf.WriteString("import (\n")
 
 	// Standard library imports.
@@ -211,6 +227,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// and route expressions.
 	importRenames := make(map[int]map[string]string)
 
+	// Track ALL non-stdlib import aliases for constructor var disambiguation.
+	nonStdlibAliases := make(map[string]bool)
+
 	// Slots package import — registered first so its hardcoded alias "slots"
 	// is reserved before any dynamic disambiguation runs.
 	if hasSlots {
@@ -218,6 +237,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		if !seen[fullPath] {
 			seen[fullPath] = true
 			slotsAlias := disambiguateAlias("slots", aliases, aliasUsed)
+			nonStdlibAliases[slotsAlias] = true
 			compImports = append(compImports, fmt.Sprintf("\t%s %q", slotsAlias, fullPath))
 		}
 	}
@@ -235,6 +255,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 			seen[fullPath] = true
 			base := path.Base(imp)
 			alias := disambiguateAlias(base, aliases, aliasUsed)
+			nonStdlibAliases[alias] = true
 			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
 			if alias != base {
 				if importRenames[i] == nil {
@@ -250,6 +271,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	for _, name := range fillNames {
 		baseAlias := rawFillImportAlias(name)
 		alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
+		nonStdlibAliases[alias] = true
 		fullPath := input.ModuleName + "/fills/" + name
 		compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
 	}
@@ -263,7 +285,10 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 
 	buf.WriteString(")\n\n")
 
-	return importRenames
+	return importResult{
+		Renames:          importRenames,
+		NonStdlibAliases: nonStdlibAliases,
+	}
 }
 
 func writeDBSetup(buf *bytes.Buffer) {
@@ -352,9 +377,11 @@ type constructorRename struct {
 // constructor index within the wiring. Using a per-constructor-index structure
 // (instead of map[string]string keyed by base name) avoids overwrite when two
 // constructors in the same wiring derive the same base variable name.
-// importRenames carries per-wiring import alias renames from writeMainImports;
-// constructor expressions are updated to reference the disambiguated aliases.
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, importRenames map[int]map[string]string) (map[int][]constructorRename, error) {
+// imports carries per-wiring import alias renames and the complete set of
+// non-stdlib import aliases from writeMainImports; constructor expressions are
+// updated to reference the disambiguated aliases, and constructor variable
+// names are disambiguated against all import aliases to prevent shadowing.
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int][]constructorRename)
@@ -375,6 +402,18 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 		varUsed[name] = true
 	}
 
+	// Seed with non-stdlib import aliases (component, fill, and slots
+	// aliases) assigned during writeMainImports. A constructor variable
+	// with the same name (e.g. cache.NewStorage() → "storage") would
+	// shadow the import alias from its declaration point onward, causing
+	// later constructor expressions referencing that import to resolve to
+	// the local variable instead — producing an unused-import compile error
+	// or wrong-package reference.
+	for name := range imports.NonStdlibAliases {
+		varNames[name]++
+		varUsed[name] = true
+	}
+
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
@@ -384,7 +423,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 			// that package-qualified references match the disambiguated
 			// import aliases (e.g. "models.NewBar()" → "models2.NewBar()").
 			resolvedExpr := constructor
-			if renames, ok := importRenames[i]; ok {
+			if renames, ok := imports.Renames[i]; ok {
 				for oldBase, newAlias := range renames {
 					resolvedExpr = replaceIdentRef(resolvedExpr, oldBase, newAlias)
 				}
