@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/stego-project/stego/internal/parser"
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 

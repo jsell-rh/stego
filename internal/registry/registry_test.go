@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 const testdataDir = "testdata"

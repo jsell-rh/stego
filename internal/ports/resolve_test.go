@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // restCrudComponents returns the component set matching the spec's rest-crud archetype.

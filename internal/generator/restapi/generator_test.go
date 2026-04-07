@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // basicContext returns a gen.Context for a simple User entity with CRUD operations.
@@ -3205,7 +3205,7 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 			{Name: "Other", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Expose: []types.ExposeBlock{
-			{Entity: "Widget", Operations: []types.Operation{types.OpList}},                               // auto: /widgets
+			{Entity: "Widget", Operations: []types.Operation{types.OpList}},                        // auto: /widgets
 			{Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
 		},
 		OutputNamespace: "internal/api",

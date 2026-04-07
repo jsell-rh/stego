@@ -3,8 +3,8 @@ package healthcheck_test
 import (
 	"testing"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/generator/healthcheck"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 )
 
 func TestGeneratorImplementsInterface(t *testing.T) {

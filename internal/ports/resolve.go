@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // Resolution maps each component name to its resolved port bindings.

@@ -11,8 +11,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // Generator produces the rest-api component's generated code.
@@ -1279,7 +1279,7 @@ type openAPIParam struct {
 }
 
 type openAPIRequestBody struct {
-	Required bool                       `json:"required"`
+	Required bool                        `json:"required"`
 	Content  map[string]openAPIMediaType `json:"content"`
 }
 
@@ -1288,7 +1288,7 @@ type openAPIMediaType struct {
 }
 
 type openAPIResponse struct {
-	Description string                     `json:"description"`
+	Description string                      `json:"description"`
 	Content     map[string]openAPIMediaType `json:"content,omitempty"`
 }
 

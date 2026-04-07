@@ -12,8 +12,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // validFieldNamePattern defines the safe character set for field names across
@@ -74,6 +74,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Validate derived PascalCase field names are unique within each entity.
 	if err := validateDerivedFieldUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate derived entity names are valid, usable Go type names.
+	if err := validateDerivedEntityValidity(ctx.Entities); err != nil {
 		return nil, nil, err
 	}
 
@@ -144,6 +149,9 @@ var reservedTypeNames = map[string]bool{
 	"len": true, "make": true, "max": true, "min": true,
 	"new": true, "panic": true, "print": true, "println": true,
 	"real": true, "recover": true,
+	// Import aliases used in generated files. An entity named "sql" would
+	// shadow the "database/sql" import, breaking *sql.DB references.
+	"sql": true, "json": true, "fmt": true, "strings": true, "time": true,
 }
 
 // generateModels produces models.go with entity struct definitions.
@@ -581,10 +589,13 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitExistsMethod generates the Exists dispatcher.
+// emitExistsMethod generates the Exists dispatcher. Returns (bool, error) so
+// callers can distinguish "entity not found" from "database query failed".
 func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Exists checks whether an entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "func (s *Store) Exists(entity string, id string) bool {\n")
+	fmt.Fprintf(buf, "// It returns an error if the database query fails, so callers can\n")
+	fmt.Fprintf(buf, "// distinguish \"not found\" from infrastructure failures.\n")
+	fmt.Fprintf(buf, "func (s *Store) Exists(entity string, id string) (bool, error) {\n")
 	fmt.Fprintf(buf, "\tvar table string\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
@@ -594,7 +605,7 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn false\n")
+	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tvar exists bool\n")
 	// The table name is derived from a compile-time constant entity name,
@@ -602,7 +613,10 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "\terr := s.db.QueryRow(\n")
 	fmt.Fprintf(buf, "\t\tfmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %%s WHERE \"id\" = $1)`, table), id,\n")
 	fmt.Fprintf(buf, "\t).Scan(&exists)\n")
-	fmt.Fprintf(buf, "\treturn err == nil && exists\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\treturn false, err\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\treturn exists, nil\n")
 	fmt.Fprintf(buf, "}\n\n")
 }
 
@@ -851,7 +865,7 @@ func sqlDefault(f types.Field) string {
 }
 
 // sqlEscapeString escapes a string for use inside a SQL single-quoted literal
-// by doubling any embedded single quotes. E.g. "it's" → "it''s".
+// by doubling any embedded single quotes. E.g. "it's" → "it”s".
 func sqlEscapeString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
@@ -1200,6 +1214,56 @@ func validateNoImplicitIDCollision(entities []types.Entity) error {
 // starts with a letter or underscore, and contains only letters, digits, or
 // underscores. This is used to validate post-transformation output.
 var validGoIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// validateDerivedEntityValidity checks that entity names produce valid, usable
+// Go type names. Names like "_" (the blank identifier) or "__" (produces "")
+// pass the input charset regex and reservedTypeNames check but yield invalid or
+// unusable Go identifiers when used as type names in generated code.
+func validateDerivedEntityValidity(entities []types.Entity) error {
+	var errs []string
+	for _, e := range entities {
+		// The blank identifier "_" is valid Go syntax for a type declaration
+		// but cannot be referenced as a type in variable declarations.
+		if e.Name == "_" {
+			errs = append(errs, fmt.Sprintf(
+				"entity name %q is the Go blank identifier and cannot be used as a type name",
+				e.Name))
+			continue
+		}
+		// Entity names consisting solely of underscores produce empty strings
+		// or invalid identifiers. Check that at least one alphabetic character
+		// exists, or more precisely, that the name is a valid Go identifier.
+		if !validGoIdentifier.MatchString(e.Name) {
+			errs = append(errs, fmt.Sprintf(
+				"entity name %q is not a valid Go identifier",
+				e.Name))
+			continue
+		}
+		// Multi-underscore names like "__" pass the regex but produce empty
+		// type names when used with toPascalCase (which strips underscores).
+		// However, entity names are used directly (not via toPascalCase) for
+		// struct type declarations, so the main concern is the blank identifier
+		// and names that only contain underscores (which pass charset but
+		// produce unusable generated code because var v __ is invalid).
+		allUnderscore := true
+		for _, r := range e.Name {
+			if r != '_' {
+				allUnderscore = false
+				break
+			}
+		}
+		if allUnderscore {
+			errs = append(errs, fmt.Sprintf(
+				"entity name %q consists only of underscores and cannot be used as a Go type name",
+				e.Name))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("invalid derived entity identifiers:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
 
 // validateDerivedFieldValidity checks that toPascalCase(f.Name) produces a
 // valid Go identifier for every field. Names like "_" (produces "") or "_123"

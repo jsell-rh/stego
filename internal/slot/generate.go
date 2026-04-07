@@ -6,7 +6,7 @@ import (
 	"go/format"
 	"strings"
 
-	"github.com/stego-project/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/gen"
 )
 
 // GenerateInterface generates a gen.File containing Go interfaces and

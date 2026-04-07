@@ -4,7 +4,7 @@
 // error on missing components.
 package healthcheck
 
-import "github.com/stego-project/stego/internal/gen"
+import "github.com/jsell-rh/stego/internal/gen"
 
 // Generator is a no-op code generator for the health-check component.
 type Generator struct{}

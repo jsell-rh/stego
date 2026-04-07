@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/stego-project/stego/internal/parser"
-	"github.com/stego-project/stego/internal/registry"
+	"github.com/jsell-rh/stego/internal/parser"
+	"github.com/jsell-rh/stego/internal/registry"
 )
 
 // repoRoot returns the absolute path to the repository root. It works by

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/types"
 	"gopkg.in/yaml.v3"
 )
 

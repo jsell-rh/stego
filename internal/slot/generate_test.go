@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/gen"
 )
 
 // commonProto returns a parsed stego.common proto for use in tests.

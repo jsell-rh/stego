@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // Header is the required comment header for all generated files.

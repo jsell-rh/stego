@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/types"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // --- Test helpers ---
@@ -544,11 +544,11 @@ func TestUniqueCompositeConstraint(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{
 			{
-				Name: "User",
+				Name:   "User",
 				Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}},
 			},
 			{
-				Name: "Organization",
+				Name:   "Organization",
 				Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}},
 			},
 			{
@@ -911,8 +911,8 @@ func TestTableNameDerivation(t *testing.T) {
 		{"Match", "matches"},
 		{"Entity", "entities"},
 		{"Policy", "policies"},
-		{"Key", "keys"},  // vowel+y → just "s"
-		{"Day", "days"},  // vowel+y → just "s"
+		{"Key", "keys"}, // vowel+y → just "s"
+		{"Day", "days"}, // vowel+y → just "s"
 	}
 
 	for _, tt := range tests {
@@ -1147,9 +1147,20 @@ func TestExistsMethod(t *testing.T) {
 	if !strings.Contains(storeContent, "SELECT EXISTS") {
 		t.Error("Exists should use SELECT EXISTS query")
 	}
-	// Should handle unknown entities.
-	if !strings.Contains(storeContent, "return false") {
-		t.Error("Exists should return false for unknown entities")
+	// Should return (bool, error) to propagate database errors.
+	if !strings.Contains(storeContent, "func (s *Store) Exists(entity string, id string) (bool, error)") {
+		t.Error("Exists should return (bool, error)")
+	}
+	// Should propagate errors instead of swallowing them.
+	if !strings.Contains(storeContent, "return false, err") {
+		t.Error("Exists should propagate database errors")
+	}
+	if !strings.Contains(storeContent, "return exists, nil") {
+		t.Error("Exists should return exists value with nil error on success")
+	}
+	// Should handle unknown entities with an error.
+	if !strings.Contains(storeContent, `return false, fmt.Errorf("unknown entity`) {
+		t.Error("Exists should return error for unknown entities")
 	}
 }
 
@@ -1577,11 +1588,11 @@ func TestUniqueCompositeInvalidFieldName(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{
 			{
-				Name: "User",
+				Name:   "User",
 				Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}},
 			},
 			{
-				Name: "Organization",
+				Name:   "Organization",
 				Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}},
 			},
 			{
@@ -1609,11 +1620,11 @@ func TestUniqueCompositeDuplicateConstraintDeduplicated(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{
 			{
-				Name: "User",
+				Name:   "User",
 				Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}},
 			},
 			{
-				Name: "Organization",
+				Name:   "Organization",
 				Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}},
 			},
 			{
@@ -1903,9 +1914,9 @@ func TestStoreHandlesUnknownEntity(t *testing.T) {
 
 	// Each CRUD method should have a default case for unknown entities.
 	count := strings.Count(storeContent, `unknown entity`)
-	// Create, Read, Update, Delete, List, Upsert = 6 methods with default cases.
-	if count < 6 {
-		t.Errorf("expected at least 6 'unknown entity' default cases, got %d", count)
+	// Create, Read, Update, Delete, List, Upsert, Exists = 7 methods with default cases.
+	if count < 7 {
+		t.Errorf("expected at least 7 'unknown entity' default cases, got %d", count)
 	}
 }
 
@@ -2666,5 +2677,115 @@ func TestSQLIdentifiersAreQuoted(t *testing.T) {
 		if _, err := format.Source(content); err != nil {
 			t.Errorf("%s does not compile: %v\n%s", p, err, string(content))
 		}
+	}
+}
+
+// --- Import alias reserved name validation ---
+
+func TestReservedEntityNameImportAliases(t *testing.T) {
+	// Import aliases used in generated files must be reserved.
+	aliases := []string{"sql", "json", "fmt", "strings", "time"}
+
+	for _, name := range aliases {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for entity name %q (import alias collision)", name)
+			}
+			if !strings.Contains(err.Error(), "collides") {
+				t.Errorf("error should mention collision, got: %v", err)
+			}
+		})
+	}
+}
+
+// --- Entity name underscore-only validation ---
+
+func TestEntityNameUnderscoreOnlyProducesError(t *testing.T) {
+	tests := []struct {
+		name       string
+		entityName string
+	}{
+		{"single_underscore", "_"},
+		{"double_underscore", "__"},
+		{"triple_underscore", "___"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := gen.Context{
+				Entities: []types.Entity{
+					{
+						Name:   tt.entityName,
+						Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}},
+					},
+				},
+				OutputNamespace: "internal/storage",
+			}
+
+			g := &Generator{}
+			_, _, err := g.Generate(ctx)
+			if err == nil {
+				t.Fatalf("expected error for entity name %q (underscore-only)", tt.entityName)
+			}
+			if !strings.Contains(err.Error(), tt.entityName) {
+				t.Errorf("error should mention the entity name %q, got: %v", tt.entityName, err)
+			}
+		})
+	}
+}
+
+func TestEntityNameWithAlphaCharactersPass(t *testing.T) {
+	// Entity names with underscores and alpha characters should be fine.
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
+			{Name: "_Internal", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+			{Name: "A_1", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for valid entity names: %v", err)
+	}
+}
+
+// --- Exists method error propagation ---
+
+func TestExistsMethodReturnsError(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The Exists method must return (bool, error), not just bool.
+	if !strings.Contains(storeContent, "(bool, error)") {
+		t.Error("Exists must return (bool, error) to propagate database errors")
+	}
+
+	// Must NOT swallow errors with "return err == nil && exists".
+	if strings.Contains(storeContent, "return err == nil && exists") {
+		t.Error("Exists must not swallow errors — found 'return err == nil && exists' pattern")
+	}
+
+	// Verify it compiles.
+	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
+	if _, err := format.Source(storeBytes); err != nil {
+		t.Errorf("store.go does not compile: %v\n%s", err, string(storeBytes))
 	}
 }

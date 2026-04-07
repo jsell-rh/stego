@@ -3,8 +3,8 @@ package oteltracing_test
 import (
 	"testing"
 
-	"github.com/stego-project/stego/internal/gen"
-	"github.com/stego-project/stego/internal/generator/oteltracing"
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
 func TestGeneratorImplementsInterface(t *testing.T) {
