@@ -44,3 +44,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - a6494f8 fix(task-012): address all 6 review findings for fill wiring & assembly
 - ced5a8f fix(task-012): address round 2 review findings for assembler
 - 5df5ad3 fix(task-012): address round 3 review findings for assembler
+- 8a8cde0 fix(task-012): seed assembler-internal template variables into constructor disambiguation
