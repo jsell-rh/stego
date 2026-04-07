@@ -310,6 +310,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 					Imports:               []string{"internal/auth"},
 					Constructors:          []string{"auth.NewAuthMiddleware()"},
 					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
 				},
 			},
 			{
@@ -354,9 +355,14 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
 	}
 
-	// Verify auth middleware wraps the mux.
-	if !strings.Contains(code, "authMiddleware.Middleware(mux)") {
+	// Verify auth middleware wraps the mux using function-call style
+	// (NewAuthMiddleware returns func(http.Handler) http.Handler).
+	if !strings.Contains(code, "authMiddleware(mux)") {
 		t.Errorf("missing auth middleware wrapping mux in:\n%s", code)
+	}
+	// Verify the old incorrect .Middleware(mux) method call is NOT present.
+	if strings.Contains(code, ".Middleware(mux)") {
+		t.Errorf("should NOT use .Middleware(mux) method call on function-type middleware in:\n%s", code)
 	}
 }
 
@@ -603,6 +609,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 					Imports:               []string{"internal/auth"},
 					Constructors:          []string{"auth.NewAuthMiddleware()"},
 					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
 				},
 			},
 			{
@@ -671,8 +678,8 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		t.Errorf("missing userHandler")
 	}
 
-	// Verify auth middleware wraps server.
-	if !strings.Contains(code, "authMiddleware.Middleware(mux)") {
+	// Verify auth middleware wraps server using function-call style.
+	if !strings.Contains(code, "authMiddleware(mux)") {
 		t.Errorf("missing auth middleware in server start")
 	}
 
@@ -2103,6 +2110,7 @@ func TestAssemble_IntraWiringMiddlewareCollision(t *testing.T) {
 						"middleware.NewMiddleware(logCfg)",
 					},
 					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
 					Routes: []string{
 						`mux.HandleFunc("GET /", root.Index)`,
 					},
@@ -2143,6 +2151,7 @@ func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
 					Imports:               []string{"internal/auth"},
 					Constructors:          []string{"auth.NewMiddleware()"},
 					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
 				},
 			},
 			{
@@ -2177,8 +2186,9 @@ func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
 	}
 
 	// Component-a gets "middleware", auth gets "middleware2".
-	// The middleware wrapping should use "middleware2" (the auth component).
-	if !strings.Contains(code, "middleware2.Middleware(mux)") {
+	// The middleware wrapping should use "middleware2" (the auth component),
+	// invoked as a function call per the MiddlewareWrapExpr "%s(%s)".
+	if !strings.Contains(code, "middleware2(mux)") {
 		t.Errorf("server start should reference disambiguated middleware2 in:\n%s", code)
 	}
 }
@@ -3404,6 +3414,99 @@ func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
 
 	if strings.Contains(content, "replace") {
 		t.Errorf("go.mod should have no replace directives without slot bindings, got:\n%s", content)
+	}
+}
+
+func TestAssemble_MiddlewareWithoutWrapExpr(t *testing.T) {
+	// MiddlewareConstructor set without MiddlewareWrapExpr must error —
+	// the assembler cannot know how to invoke the middleware (item 113).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
+					// MiddlewareWrapExpr intentionally omitted.
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error when MiddlewareConstructor is set without MiddlewareWrapExpr")
+	}
+	if !strings.Contains(err.Error(), "MiddlewareWrapExpr") {
+		t.Errorf("error should mention MiddlewareWrapExpr, got: %v", err)
+	}
+}
+
+func TestAssemble_StructStyleMiddleware(t *testing.T) {
+	// Verify that a struct-style middleware with a method-call wrap expression
+	// works correctly (e.g. "%s.Handler(%s)").
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuth()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s.Handler(%s)",
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Struct-style middleware should use method-call wrap expression.
+	if !strings.Contains(code, "auth2.Handler(mux)") {
+		t.Errorf("expected struct-style middleware wrapping with .Handler(mux) in:\n%s", code)
 	}
 }
 

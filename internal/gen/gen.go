@@ -107,6 +107,16 @@ type Wiring struct {
 	// expressions (e.g. checking for "AuthMiddleware" substring).
 	MiddlewareConstructor *int
 
+	// MiddlewareWrapExpr is a format string that produces the expression
+	// to wrap the HTTP handler with middleware. It must contain exactly two
+	// %s verbs: the first is replaced with the middleware variable name
+	// (after disambiguation), the second with the handler variable
+	// (typically "mux").
+	// Example: "%s(%s)" for function-type middleware → "authMiddleware(mux)".
+	// Example: "%s.Handler(%s)" for struct-type middleware → "authMiddleware.Handler(mux)".
+	// Required when MiddlewareConstructor is non-nil.
+	MiddlewareWrapExpr string
+
 	// NeedsDB indicates whether this component requires a *sql.DB connection.
 	// The assembler uses this to determine whether to emit database setup code
 	// in main.go, replacing fragile string matching on constructor expressions.

@@ -333,6 +333,19 @@ func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDec
 		names = append(names, archetype.DefaultAuth)
 	}
 
+	// Validate declared mixins against archetype's compatible_mixins constraint.
+	if len(archetype.CompatibleMixins) > 0 && len(svcDecl.Mixins) > 0 {
+		compatible := make(map[string]bool, len(archetype.CompatibleMixins))
+		for _, m := range archetype.CompatibleMixins {
+			compatible[m] = true
+		}
+		for _, mixinName := range svcDecl.Mixins {
+			if !compatible[mixinName] {
+				return nil, fmt.Errorf("mixin %q is not compatible with archetype %q (compatible mixins: %v)", mixinName, archetype.Name, archetype.CompatibleMixins)
+			}
+		}
+	}
+
 	for _, mixinName := range svcDecl.Mixins {
 		mixin := reg.Mixin(mixinName)
 		if mixin == nil {

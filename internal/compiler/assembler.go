@@ -131,6 +131,15 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		return gen.File{}, err
 	}
 
+	// Validate middleware wiring: if MiddlewareConstructor is set,
+	// MiddlewareWrapExpr must also be set so the assembler knows how
+	// to invoke the middleware (per checklist item 113).
+	for _, cw := range input.Wirings {
+		if cw.Wiring != nil && cw.Wiring.MiddlewareConstructor != nil && cw.Wiring.MiddlewareWrapExpr == "" {
+			return gen.File{}, fmt.Errorf("component %q declares MiddlewareConstructor but no MiddlewareWrapExpr — generators must specify how the middleware wraps the handler (e.g. \"%%s(%%s)\" for function-type middleware)", cw.Name)
+		}
+	}
+
 	// Build slot operator variable names by entity so we can inject them
 	// into handler constructor calls.
 	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
@@ -672,7 +681,7 @@ func isIdentChar(b byte) bool {
 
 func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int][]constructorRename) {
 	// Check if there's an auth middleware to wrap the mux.
-	middlewareVar, wiringIdx, constructorIdx := findMiddlewareVar(input)
+	middlewareVar, wrapExpr, wiringIdx, constructorIdx := findMiddlewareVar(input)
 	// Apply disambiguation renames to the middleware variable reference,
 	// matching by constructor index to avoid misdirection when multiple
 	// constructors in the same wiring share the same base variable name.
@@ -688,7 +697,11 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 	buf.WriteString("\tlog.Printf(\"starting server on %%s\", addr)\n")
 
 	if middlewareVar != "" {
-		fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s.Middleware(mux)))\n", middlewareVar)
+		// Use the generator-provided wrap expression to invoke the middleware.
+		// The expression is a format string with two %s verbs: middleware var
+		// and handler var (e.g. "%s(%s)" produces "authMiddleware(mux)").
+		wrappedHandler := fmt.Sprintf(wrapExpr, middlewareVar, "mux")
+		fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", wrappedHandler)
 	} else {
 		buf.WriteString("\tlog.Fatal(http.ListenAndServe(addr, mux))\n")
 	}
@@ -715,20 +728,21 @@ func needsDB(input AssemblerInput) bool {
 }
 
 // findMiddlewareVar returns the variable name of an auth middleware
-// constructor, the wiring index it belongs to, and the constructor index
-// within that wiring. Returns ("", -1, -1) if none exists.
+// constructor, the wrap expression, the wiring index it belongs to, and
+// the constructor index within that wiring.
+// Returns ("", "", -1, -1) if none exists.
 // Uses structured MiddlewareConstructor metadata rather than string matching.
-func findMiddlewareVar(input AssemblerInput) (string, int, int) {
+func findMiddlewareVar(input AssemblerInput) (string, string, int, int) {
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil || cw.Wiring.MiddlewareConstructor == nil {
 			continue
 		}
 		idx := *cw.Wiring.MiddlewareConstructor
 		if idx >= 0 && idx < len(cw.Wiring.Constructors) {
-			return rawConstructorVarName(cw.Wiring.Constructors[idx]), i, idx
+			return rawConstructorVarName(cw.Wiring.Constructors[idx]), cw.Wiring.MiddlewareWrapExpr, i, idx
 		}
 	}
-	return "", -1, -1
+	return "", "", -1, -1
 }
 
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
