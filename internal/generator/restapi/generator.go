@@ -142,12 +142,34 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock) (gen.
 		}
 	}
 
+	// Determine whether time package is needed (computed timestamp fields
+	// require time.Time{} zero value in write operations).
+	needTime := false
+	hasWriteOp := false
+	for _, op := range eb.Operations {
+		if op == types.OpCreate || op == types.OpUpdate || op == types.OpUpsert {
+			hasWriteOp = true
+			break
+		}
+	}
+	if hasWriteOp {
+		for _, f := range entity.Fields {
+			if f.Computed && f.Type == types.FieldTypeTimestamp {
+				needTime = true
+				break
+			}
+		}
+	}
+
 	fmt.Fprintf(&buf, "package api\n\n")
 	fmt.Fprintf(&buf, "import (\n")
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	if needTime {
+		fmt.Fprintf(&buf, "\t\"time\"\n")
+	}
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Handler struct.
@@ -236,6 +258,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
@@ -251,6 +274,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusNotFound)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
 }
@@ -270,6 +294,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
 }
@@ -315,6 +340,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
 }
@@ -352,6 +378,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusOK)\n")
 	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	fmt.Fprintf(buf, "}\n\n")
@@ -708,8 +735,10 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 				fmt.Fprintf(buf, "\t%s.%s = false\n", varName, goName)
 			case "int32", "int64", "float32", "float64":
 				fmt.Fprintf(buf, "\t%s.%s = 0\n", varName, goName)
+			case "time.Time":
+				fmt.Fprintf(buf, "\t%s.%s = time.Time{}\n", varName, goName)
 			default:
-				// For complex types ([]byte, time.Time, json.RawMessage), use nil or zero.
+				// For reference types ([]byte, json.RawMessage), use nil.
 				fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
 			}
 		}

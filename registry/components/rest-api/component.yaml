@@ -19,6 +19,21 @@ config:
       scope:
         type: field-ref
         optional: true
+      parent:
+        type: entity-ref
+        optional: true
+      path_prefix:
+        type: string
+        optional: true
+      upsert_key:
+        type: list
+        items:
+          type: field-ref
+        optional: true
+      concurrency:
+        type: string
+        enum: [optimistic]
+        optional: true
 
 requires:
   - auth-provider

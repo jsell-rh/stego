@@ -782,6 +782,7 @@ func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
 				{Name: "spec", Type: types.FieldTypeJsonb},
 				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
 				{Name: "healthy", Type: types.FieldTypeBool, Computed: true, FilledBy: "health-checker"},
+				{Name: "last_aggregated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "aggregator"},
 			}},
 		},
 		Expose: []types.ExposeBlock{
@@ -1206,6 +1207,98 @@ func TestGenerate_OpenAPIRenderedBytesValidJSON(t *testing.T) {
 	var parsed any
 	if err := json.Unmarshal(rendered, &parsed); err != nil {
 		t.Fatalf("openapi.json rendered via Bytes() is not valid JSON: %v", err)
+	}
+}
+
+func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
+	// Every handler method that writes a JSON response body must set
+	// Content-Type: application/json to match the OpenAPI spec.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "key", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Item",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
+				UpsertKey:  []string{"key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_item.go")
+	// Count occurrences of Content-Type header setting — must match the number
+	// of methods that write JSON responses (create, read, update, list, upsert = 5).
+	ct := strings.Count(handler, `w.Header().Set("Content-Type", "application/json")`)
+	if ct != 5 {
+		t.Errorf("expected 5 Content-Type header sets (one per JSON-returning method), got %d", ct)
+	}
+}
+
+func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
+	// A computed timestamp field must use time.Time{} as zero value, not nil.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Record", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "last_updated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "updater"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Record",
+				Operations: []types.Operation{types.OpCreate, types.OpRead},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_record.go")
+	if !strings.Contains(handler, "record.LastUpdated = time.Time{}") {
+		t.Error("computed timestamp field must be zeroed with time.Time{}, not nil")
+	}
+	if !strings.Contains(handler, `"time"`) {
+		t.Error("handler with computed timestamp field must import time package")
+	}
+
+	// Verify it compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("computed timestamp field does not compile:\n%s\n%s", err, output)
 	}
 }
 
