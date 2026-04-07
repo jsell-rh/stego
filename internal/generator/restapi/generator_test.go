@@ -1133,7 +1133,10 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 
 func TestEntityBasePath_Default(t *testing.T) {
 	eb := types.ExposeBlock{Entity: "User"}
-	got := entityBasePath(eb, nil)
+	got, err := entityBasePath(eb, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != "/users" {
 		t.Errorf("expected /users, got %s", got)
 	}
@@ -1141,7 +1144,10 @@ func TestEntityBasePath_Default(t *testing.T) {
 
 func TestEntityBasePath_WithPathPrefix(t *testing.T) {
 	eb := types.ExposeBlock{Entity: "User", PathPrefix: "/api/v1/users"}
-	got := entityBasePath(eb, nil)
+	got, err := entityBasePath(eb, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != "/api/v1/users" {
 		t.Errorf("expected /api/v1/users, got %s", got)
 	}
@@ -1152,7 +1158,10 @@ func TestEntityBasePath_Nested(t *testing.T) {
 		"Cluster": {Entity: "Cluster"},
 	}
 	eb := types.ExposeBlock{Entity: "NodePool", Parent: "Cluster"}
-	got := entityBasePath(eb, exposeMap)
+	got, err := entityBasePath(eb, exposeMap)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != "/clusters/{cluster_id}/nodepools" {
 		t.Errorf("expected /clusters/{cluster_id}/nodepools, got %s", got)
 	}
@@ -1906,6 +1915,153 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("three-level nested routing does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_CircularParentSelfReference(t *testing.T) {
+	// An entity that declares itself as its own parent must produce an error,
+	// not an infinite loop or stack overflow.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Node", Fields: []types.Field{
+				{Name: "node_id", Type: types.FieldTypeRef, To: "Node"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Node",
+				Operations: []types.Operation{types.OpList},
+				Parent:     "Node",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for self-referencing parent")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular reference, got: %v", err)
+	}
+}
+
+func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
+	// A -> B -> A cycle must produce an error, not an infinite loop.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Alpha", Fields: []types.Field{
+				{Name: "beta_id", Type: types.FieldTypeRef, To: "Beta"},
+			}},
+			{Name: "Beta", Fields: []types.Field{
+				{Name: "alpha_id", Type: types.FieldTypeRef, To: "Alpha"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Alpha",
+				Operations: []types.Operation{types.OpList},
+				Parent:     "Beta",
+			},
+			{
+				Entity:     "Beta",
+				Operations: []types.Operation{types.OpList},
+				Parent:     "Alpha",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for two-node cycle in parent chain")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular reference, got: %v", err)
+	}
+}
+
+func TestEntityBasePath_CircularParentReturnsError(t *testing.T) {
+	exposeMap := map[string]types.ExposeBlock{
+		"A": {Entity: "A", Parent: "B"},
+		"B": {Entity: "B", Parent: "A"},
+	}
+	_, err := entityBasePath(exposeMap["A"], exposeMap)
+	if err == nil {
+		t.Fatal("expected error for circular parent reference")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular, got: %v", err)
+	}
+}
+
+func TestCollectAncestors_CircularParentReturnsError(t *testing.T) {
+	exposeMap := map[string]types.ExposeBlock{
+		"A": {Entity: "A", Parent: "B"},
+		"B": {Entity: "B", Parent: "A"},
+	}
+	_, err := collectAncestors(exposeMap["A"], exposeMap)
+	if err == nil {
+		t.Fatal("expected error for circular parent reference")
+	}
+	if !strings.Contains(err.Error(), "circular") {
+		t.Errorf("error should mention circular, got: %v", err)
+	}
+}
+
+func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
+	// Finding 25: the `default` constraint attribute must be propagated to the
+	// generated OpenAPI schema.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}, Default: "member"},
+				{Name: "active", Type: types.FieldTypeBool, Default: true},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	props := schemas["User"].(map[string]any)["properties"].(map[string]any)
+
+	// role field must have default: "member".
+	roleField := props["role"].(map[string]any)
+	if roleField["default"] != "member" {
+		t.Errorf("role field default: want \"member\", got %v", roleField["default"])
+	}
+
+	// active field must have default: true.
+	activeField := props["active"].(map[string]any)
+	if activeField["default"] != true {
+		t.Errorf("active field default: want true, got %v", activeField["default"])
+	}
+
+	// name field must NOT have a default.
+	nameField := props["name"].(map[string]any)
+	if _, ok := nameField["default"]; ok {
+		t.Error("name field should not have a default value")
 	}
 }
 

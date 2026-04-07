@@ -57,7 +57,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.Constructors = append(wiring.Constructors,
 			fmt.Sprintf("api.New%sHandler(store)", entity.Name))
 
-		basePath := entityBasePath(eb, exposeMap)
+		basePath, err := entityBasePath(eb, exposeMap)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving path for %s: %w", eb.Entity, err)
+		}
 		for _, op := range eb.Operations {
 			switch op {
 			case types.OpCreate:
@@ -108,19 +111,31 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // entityBasePath returns the URL path prefix for an entity's expose block.
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
 // from the entity name, prepended with the parent's path if nested.
-func entityBasePath(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) string {
+// Returns an error if a circular parent reference is detected.
+func entityBasePath(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (string, error) {
+	return entityBasePathWithVisited(eb, exposeMap, map[string]bool{eb.Entity: true})
+}
+
+func entityBasePathWithVisited(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock, visited map[string]bool) (string, error) {
 	if eb.PathPrefix != "" {
-		return eb.PathPrefix
+		return eb.PathPrefix, nil
 	}
 	base := "/" + strings.ToLower(eb.Entity) + "s"
 	if eb.Parent != "" {
+		if visited[eb.Parent] {
+			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.Parent)
+		}
 		if parentEB, ok := exposeMap[eb.Parent]; ok {
-			parentPath := entityBasePath(parentEB, exposeMap)
+			visited[eb.Parent] = true
+			parentPath, err := entityBasePathWithVisited(parentEB, exposeMap, visited)
+			if err != nil {
+				return "", err
+			}
 			parentParam := "{" + strings.ToLower(eb.Parent) + "_id}"
-			return parentPath + "/" + parentParam + base
+			return parentPath + "/" + parentParam + base, nil
 		}
 	}
-	return base
+	return base, nil
 }
 
 // generateHandler produces a single Go handler file for an exposed entity.
@@ -187,7 +202,10 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	// Ancestor verification helper for nested routing. Verifies the existence
 	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
 	if eb.Parent != "" {
-		ancestors := collectAncestors(eb, exposeMap)
+		ancestors, err := collectAncestors(eb, exposeMap)
+		if err != nil {
+			return gen.File{}, err
+		}
 		fmt.Fprintf(&buf, "// checkAncestors verifies that all ancestor entities in the URL hierarchy exist.\n")
 		fmt.Fprintf(&buf, "func (h *%s) checkAncestors(w http.ResponseWriter, r *http.Request) bool {\n", handlerType)
 		for _, anc := range ancestors {
@@ -409,7 +427,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (gen.File, error) {
+func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	// Build entity map and determine needed imports from entity field types.
@@ -474,7 +492,10 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 	fmt.Fprintf(&buf, "\tmux := http.NewServeMux()\n\n")
 
 	for _, eb := range expose {
-		basePath := entityBasePath(eb, exposeMap)
+		basePath, err := entityBasePath(eb, exposeMap)
+		if err != nil {
+			return gen.File{}, err
+		}
 		lower := strings.ToLower(eb.Entity)
 		fmt.Fprintf(&buf, "\t%sHandler := New%sHandler(store)\n", lower, eb.Entity)
 
@@ -549,7 +570,10 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 
 	// Generate paths from expose blocks.
 	for _, eb := range expose {
-		basePath := entityBasePath(eb, exposeMap)
+		basePath, err := entityBasePath(eb, exposeMap)
+		if err != nil {
+			return gen.File{}, err
+		}
 		collectionPath := basePath
 		itemPath := basePath + "/{id}"
 
@@ -783,6 +807,9 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	if f.Max != nil {
 		s.Maximum = f.Max
 	}
+	if f.Default != nil {
+		s.Default = f.Default
+	}
 	return s
 }
 
@@ -812,10 +839,16 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 
 // collectAncestors walks the parent chain from the given expose block and returns
 // all ancestor entity names in top-down order (grandparent before parent).
-func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) []string {
+// Returns an error if a circular parent reference is detected.
+func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) ([]string, error) {
 	var ancestors []string
+	visited := map[string]bool{eb.Entity: true}
 	current := eb
 	for current.Parent != "" {
+		if visited[current.Parent] {
+			return nil, fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", current.Parent)
+		}
+		visited[current.Parent] = true
 		ancestors = append(ancestors, current.Parent)
 		parentEB, ok := exposeMap[current.Parent]
 		if !ok {
@@ -827,7 +860,7 @@ func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlo
 	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
 		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
 	}
-	return ancestors
+	return ancestors, nil
 }
 
 // parentRefFieldName finds the Go field name for the ref field that points to
@@ -996,4 +1029,5 @@ type openAPISchema struct {
 	Pattern    string                   `json:"pattern,omitempty"`
 	Minimum    *float64                 `json:"minimum,omitempty"`
 	Maximum    *float64                 `json:"maximum,omitempty"`
+	Default    any                      `json:"default,omitempty"`
 }
