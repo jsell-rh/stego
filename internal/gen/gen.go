@@ -79,6 +79,11 @@ type Wiring struct {
 	// Routes lists route registration expressions for main.go assembly.
 	// Each entry is a code fragment like "mux.Handle(\"/users\", userHandler)".
 	Routes []string
+
+	// NeedsDB indicates whether this component requires a *sql.DB connection.
+	// The assembler uses this to determine whether to emit database setup code
+	// in main.go, replacing fragile string matching on constructor expressions.
+	NeedsDB bool
 }
 
 // ValidateNamespace checks that every file path in files is under the given

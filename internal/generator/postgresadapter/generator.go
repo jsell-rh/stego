@@ -112,6 +112,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	wiring := &gen.Wiring{
 		Imports:      []string{ctx.OutputNamespace},
 		Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewStore(db)"},
+		NeedsDB:      true,
 	}
 
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {

@@ -33,6 +33,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 		},
@@ -93,7 +94,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 		t.Errorf("missing store constructor")
 	}
 	if !strings.Contains(code, "sql.Open") {
-		t.Errorf("missing DB setup — store constructor uses db param")
+		t.Errorf("missing DB setup — NeedsDB is true")
 	}
 
 	// Verify go.mod.
@@ -131,6 +132,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 		},
@@ -209,6 +211,15 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 	if !strings.Contains(code, "for User") {
 		t.Errorf("missing entity annotation in slot wiring comments")
 	}
+
+	// Verify operators are wired into handler constructor (not discarded).
+	if strings.Contains(code, "_ =") {
+		t.Errorf("slot operators should not be discarded with _ = in:\n%s", code)
+	}
+	// Verify the handler constructor includes slot operator arguments.
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateGate, onEntityChangedFanOut)") {
+		t.Errorf("slot operators not injected into handler constructor in:\n%s", code)
+	}
 }
 
 func TestAssemble_ChainWithShortCircuit(t *testing.T) {
@@ -231,6 +242,7 @@ func TestAssemble_ChainWithShortCircuit(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 		},
@@ -274,6 +286,12 @@ func TestAssemble_ChainWithShortCircuit(t *testing.T) {
 	if !strings.Contains(code, "9090") {
 		t.Errorf("missing custom port 9090 in:\n%s", code)
 	}
+
+	// This slot has no Entity, so the operator can't be injected into a
+	// handler constructor and _ = is used to suppress unused variable errors.
+	if !strings.Contains(code, "_ = processAdapterStatusChain") {
+		t.Errorf("entity-less operator should use _ = to suppress unused var in:\n%s", code)
+	}
 }
 
 func TestAssemble_WithAuthMiddleware(t *testing.T) {
@@ -305,6 +323,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 		},
@@ -337,7 +356,8 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 }
 
 func TestAssemble_NoRoutes(t *testing.T) {
-	// A service with no routes should still produce valid main.go.
+	// A service with no routes should still produce valid main.go,
+	// and should NOT import "fmt" (which is only used in writeServerStart).
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -348,6 +368,7 @@ func TestAssemble_NoRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 		},
@@ -377,6 +398,11 @@ func TestAssemble_NoRoutes(t *testing.T) {
 	if strings.Contains(code, "http.NewServeMux") {
 		t.Errorf("should not have mux when no routes exist")
 	}
+
+	// fmt should not be imported when there are no routes.
+	if strings.Contains(code, `"fmt"`) {
+		t.Errorf("fmt should not be imported when there are no routes in:\n%s", code)
+	}
 }
 
 func TestAssemble_FillsDirectoryNeverTouched(t *testing.T) {
@@ -396,7 +422,7 @@ func TestAssemble_FillsDirectoryNeverTouched(t *testing.T) {
 			},
 			{
 				Name:   "postgres-adapter",
-				Wiring: &gen.Wiring{Imports: []string{"internal/storage"}, Constructors: []string{"storage.NewStore(db)"}},
+				Wiring: &gen.Wiring{Imports: []string{"internal/storage"}, Constructors: []string{"storage.NewStore(db)"}, NeedsDB: true},
 			},
 		},
 		SlotBindings: []types.SlotDeclaration{
@@ -563,6 +589,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
 				},
 			},
 			{
@@ -647,6 +674,21 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		t.Errorf("missing fan-out operator")
 	}
 
+	// Verify slot operators are injected into handler constructor.
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateGate, onEntityChangedFanOut)") {
+		t.Errorf("slot operators not injected into User handler constructor in:\n%s", code)
+	}
+
+	// Organization handler should NOT have slot operators.
+	if !strings.Contains(code, "api.NewOrganizationHandler(store)") {
+		t.Errorf("Organization handler should have unmodified constructor in:\n%s", code)
+	}
+
+	// Verify no discarded operators.
+	if strings.Contains(code, "_ =") {
+		t.Errorf("slot operators should not be discarded with _ = in:\n%s", code)
+	}
+
 	// Verify all routes.
 	if !strings.Contains(code, "POST /organizations") {
 		t.Errorf("missing POST /organizations route")
@@ -668,9 +710,9 @@ func TestConstructorVarName(t *testing.T) {
 		{"pkg.New()", "v"},
 	}
 	for _, tt := range tests {
-		got := constructorVarName(tt.input)
+		got := rawConstructorVarName(tt.input)
 		if got != tt.want {
-			t.Errorf("constructorVarName(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("rawConstructorVarName(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -686,9 +728,9 @@ func TestFillImportAlias(t *testing.T) {
 		{"simple", "simple"},
 	}
 	for _, tt := range tests {
-		got := fillImportAlias(tt.input)
+		got := rawFillImportAlias(tt.input)
 		if got != tt.want {
-			t.Errorf("fillImportAlias(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("rawFillImportAlias(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -707,6 +749,341 @@ func TestSnakeToPascal(t *testing.T) {
 		got := snakeToPascal(tt.input)
 		if got != tt.want {
 			t.Errorf("snakeToPascal(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestDisambiguateAlias(t *testing.T) {
+	counts := make(map[string]int)
+	used := make(map[string]bool)
+
+	// First use: no suffix.
+	got := disambiguateAlias("models", counts, used)
+	if got != "models" {
+		t.Errorf("first use: got %q, want %q", got, "models")
+	}
+
+	// Second use: gets numeric suffix.
+	got = disambiguateAlias("models", counts, used)
+	if got != "models2" {
+		t.Errorf("second use: got %q, want %q", got, "models2")
+	}
+
+	// Third use.
+	got = disambiguateAlias("models", counts, used)
+	if got != "models3" {
+		t.Errorf("third use: got %q, want %q", got, "models3")
+	}
+
+	// Different base: no suffix.
+	got = disambiguateAlias("api", counts, used)
+	if got != "api" {
+		t.Errorf("different base: got %q, want %q", got, "api")
+	}
+}
+
+func TestAssemble_ConstructorVarNameCollision(t *testing.T) {
+	// Two constructors that derive the same variable name should be
+	// disambiguated with numeric suffixes.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/b"},
+					Constructors: []string{"b.NewStore(db)"},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Should parse — disambiguated variable names.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Verify both store variables exist with distinct names.
+	if !strings.Contains(code, "store :=") {
+		t.Errorf("missing first store variable in:\n%s", code)
+	}
+	if !strings.Contains(code, "store2 :=") {
+		t.Errorf("missing disambiguated store2 variable in:\n%s", code)
+	}
+}
+
+func TestAssemble_FillImportAliasCollision(t *testing.T) {
+	// Fill names "a-b" and "ab" both produce raw alias "ab".
+	// They should be disambiguated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "slot_a", Gate: []string{"a-b"}},
+			{Slot: "slot_b", Gate: []string{"ab"}},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Should parse — disambiguated aliases.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both fill imports should be present with different aliases.
+	if !strings.Contains(code, `"github.com/myorg/svc/fills/a-b"`) {
+		t.Errorf("missing a-b fill import in:\n%s", code)
+	}
+	if !strings.Contains(code, `"github.com/myorg/svc/fills/ab"`) {
+		t.Errorf("missing ab fill import in:\n%s", code)
+	}
+}
+
+func TestAssemble_ComponentImportAliasCollision(t *testing.T) {
+	// Two components with different import paths sharing the same base
+	// (e.g. "internal/api/models" and "internal/storage/models") should get
+	// disambiguated aliases.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api/models"},
+					Constructors: []string{"models.NewFoo()"},
+					Routes:       []string{`mux.HandleFunc("GET /foo", foo.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage/models"},
+					Constructors: []string{"models.NewBar()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Should parse — disambiguated import aliases.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both imports should be present.
+	if !strings.Contains(code, `"github.com/myorg/svc/internal/api/models"`) {
+		t.Errorf("missing api/models import in:\n%s", code)
+	}
+	if !strings.Contains(code, `"github.com/myorg/svc/internal/storage/models"`) {
+		t.Errorf("missing storage/models import in:\n%s", code)
+	}
+
+	// Second should have a disambiguated alias.
+	if !strings.Contains(code, "models2") {
+		t.Errorf("missing disambiguated models2 alias in:\n%s", code)
+	}
+}
+
+func TestAssemble_NeedsDB_StructuredMetadata(t *testing.T) {
+	// NeedsDB should be detected from the structured NeedsDB field,
+	// not from constructor expression string matching.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(connection)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+	if !strings.Contains(code, "sql.Open") {
+		t.Errorf("DB setup should be present when NeedsDB is true, regardless of constructor expression:\n%s", code)
+	}
+}
+
+func TestAssemble_NoDB_WhenNeedsDBFalse(t *testing.T) {
+	// Even with "(db)" in constructor string, NeedsDB=false should skip DB setup.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler(db)"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					NeedsDB:      false,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+	if strings.Contains(code, "sql.Open") {
+		t.Errorf("DB setup should NOT be present when NeedsDB is false:\n%s", code)
+	}
+}
+
+func TestExtractEntityFromConstructor(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"api.NewUserHandler(store)", "User"},
+		{"api.NewOrganizationHandler(store)", "Organization"},
+		{"storage.NewStore(db)", ""},        // Not a handler
+		{"auth.NewAuthMiddleware()", ""},     // Not a handler
+		{"pkg.NewHandler()", ""},             // Empty entity
+		{"api.NewClusterHandler()", "Cluster"},
+	}
+	for _, tt := range tests {
+		got := extractEntityFromConstructor(tt.input)
+		if got != tt.want {
+			t.Errorf("extractEntityFromConstructor(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestInjectConstructorArgs(t *testing.T) {
+	tests := []struct {
+		expr string
+		args []string
+		want string
+	}{
+		{"api.NewUserHandler(store)", []string{"gateOp"}, "api.NewUserHandler(store, gateOp)"},
+		{"api.NewUserHandler(store)", []string{"gateOp", "fanOutOp"}, "api.NewUserHandler(store, gateOp, fanOutOp)"},
+		{"api.NewHandler()", []string{"gateOp"}, "api.NewHandler(gateOp)"},
+		{"api.NewHandler(store)", nil, "api.NewHandler(store)"},
+	}
+	for _, tt := range tests {
+		got := injectConstructorArgs(tt.expr, tt.args)
+		if got != tt.want {
+			t.Errorf("injectConstructorArgs(%q, %v) = %q, want %q", tt.expr, tt.args, got, tt.want)
 		}
 	}
 }

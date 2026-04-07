@@ -99,6 +99,10 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	hasDB := needsDB(input)
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 
+	// Build slot operator variable names by entity so we can inject them
+	// into handler constructor calls.
+	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
+
 	writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots)
 
 	buf.WriteString("func main() {\n")
@@ -107,10 +111,14 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeDBSetup(&buf)
 	}
 
-	writeConstructors(&buf, input)
-
+	// Slot wiring — create operators before constructors so they can be
+	// injected as handler constructor arguments.
 	if hasSlots {
-		writeSlotWiring(&buf, input)
+		writeSlotWiring(&buf, input, slotVarsByEntity)
+	}
+
+	if err := writeConstructors(&buf, input, slotVarsByEntity); err != nil {
+		return gen.File{}, err
 	}
 
 	if hasRoutes {
@@ -139,7 +147,10 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	if hasDB {
 		stdImports = append(stdImports, `"database/sql"`)
 	}
-	stdImports = append(stdImports, `"fmt"`)
+	// fmt is only used in writeServerStart which is gated on hasRoutes.
+	if hasRoutes {
+		stdImports = append(stdImports, `"fmt"`)
+	}
 	stdImports = append(stdImports, `"log"`)
 	if hasRoutes {
 		stdImports = append(stdImports, `"net/http"`)
@@ -151,9 +162,12 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		fmt.Fprintf(buf, "\t%s\n", imp)
 	}
 
-	// Component imports.
+	// Component imports — with collision-safe aliases.
 	var compImports []string
-	seen := make(map[string]bool)
+	seen := make(map[string]bool)     // full import path → already added
+	aliases := make(map[string]int)   // base alias → count (for disambiguation)
+	aliasUsed := make(map[string]bool) // tracks the exact alias string used
+
 	for _, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
@@ -164,7 +178,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 				continue
 			}
 			seen[fullPath] = true
-			alias := path.Base(imp)
+			alias := disambiguateAlias(path.Base(imp), aliases, aliasUsed)
 			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
 		}
 	}
@@ -177,10 +191,13 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 
-	// Fill imports — deduplicated across all slot bindings.
+	// Fill imports — deduplicated across all slot bindings, with collision-safe aliases.
+	fillAliases := make(map[string]int)
+	fillAliasUsed := make(map[string]bool)
 	fillNames := collectFillNames(input.SlotBindings)
 	for _, name := range fillNames {
-		alias := fillImportAlias(name)
+		baseAlias := rawFillImportAlias(name)
+		alias := disambiguateAlias(baseAlias, fillAliases, fillAliasUsed)
 		fullPath := input.ModuleName + "/fills/" + name
 		compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
 	}
@@ -207,21 +224,49 @@ func writeDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdefer db.Close()\n\n")
 }
 
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) error {
+	varNames := make(map[string]int)   // for collision detection
+	varUsed := make(map[string]bool)
+
 	for _, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
 		for _, constructor := range cw.Wiring.Constructors {
-			varName := constructorVarName(constructor)
-			fmt.Fprintf(buf, "\t%s := %s\n", varName, constructor)
+			baseVar := rawConstructorVarName(constructor)
+			varName := disambiguateAlias(baseVar, varNames, varUsed)
+
+			// Inject slot operators into handler constructors.
+			expr := constructor
+			entity := extractEntityFromConstructor(constructor)
+			if entity != "" {
+				if slotVars, ok := slotVarsByEntity[entity]; ok && len(slotVars) > 0 {
+					expr = injectConstructorArgs(constructor, slotVars)
+				}
+			}
+
+			fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
 		}
 	}
 	buf.WriteString("\n")
+	return nil
 }
 
-func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput) {
+func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) {
 	buf.WriteString("\t// Slot wiring — fills composed via operators.\n")
+
+	// Compute fill import aliases (must match writeMainImports exactly).
+	fillAliasMap := buildFillAliasMap(input.SlotBindings)
+
+	// Build a set of operator variable names that will be injected into
+	// handler constructors. Variables NOT in this set need `_ =` to prevent
+	// unused variable errors (e.g. when a slot has no entity association).
+	injected := make(map[string]bool)
+	for _, vars := range slotVarsByEntity {
+		for _, v := range vars {
+			injected[v] = true
+		}
+	}
 
 	for _, sb := range input.SlotBindings {
 		slotPascal := snakeToPascal(sb.Slot)
@@ -235,11 +280,14 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput) {
 			fmt.Fprintf(buf, "\t// Slot: %s (gate)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sGate(\n", varName, slotPascal)
 			for _, fillName := range sb.Gate {
-				alias := fillImportAlias(fillName)
+				alias := fillAliasMap[fillName]
 				fmt.Fprintf(buf, "\t\t%s.New(),\n", alias)
 			}
 			fmt.Fprintf(buf, "\t)\n")
-			fmt.Fprintf(buf, "\t_ = %s // wired into handler via constructor injection\n\n", varName)
+			if !injected[varName] {
+				fmt.Fprintf(buf, "\t_ = %s\n", varName)
+			}
+			buf.WriteString("\n")
 		}
 
 		if len(sb.Chain) > 0 {
@@ -251,11 +299,14 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput) {
 			fmt.Fprintf(buf, "\t// Slot: %s (chain, short_circuit=%s)%s\n", sb.Slot, scStr, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sChain(%s,\n", varName, slotPascal, scStr)
 			for _, fillName := range sb.Chain {
-				alias := fillImportAlias(fillName)
+				alias := fillAliasMap[fillName]
 				fmt.Fprintf(buf, "\t\t%s.New(),\n", alias)
 			}
 			fmt.Fprintf(buf, "\t)\n")
-			fmt.Fprintf(buf, "\t_ = %s // wired into handler via constructor injection\n\n", varName)
+			if !injected[varName] {
+				fmt.Fprintf(buf, "\t_ = %s\n", varName)
+			}
+			buf.WriteString("\n")
 		}
 
 		if len(sb.FanOut) > 0 {
@@ -263,11 +314,14 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput) {
 			fmt.Fprintf(buf, "\t// Slot: %s (fan-out)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sFanOut(\n", varName, slotPascal)
 			for _, fillName := range sb.FanOut {
-				alias := fillImportAlias(fillName)
+				alias := fillAliasMap[fillName]
 				fmt.Fprintf(buf, "\t\t%s.New(),\n", alias)
 			}
 			fmt.Fprintf(buf, "\t)\n")
-			fmt.Fprintf(buf, "\t_ = %s // wired into handler via constructor injection\n\n", varName)
+			if !injected[varName] {
+				fmt.Fprintf(buf, "\t_ = %s\n", varName)
+			}
+			buf.WriteString("\n")
 		}
 	}
 }
@@ -310,17 +364,11 @@ func hasAnyRoutes(input AssemblerInput) bool {
 	return false
 }
 
-// needsDB returns true if any constructor expression references "db" as a
-// parameter, indicating database connectivity is needed.
+// needsDB returns true if any component wiring declares NeedsDB.
 func needsDB(input AssemblerInput) bool {
 	for _, cw := range input.Wirings {
-		if cw.Wiring == nil {
-			continue
-		}
-		for _, c := range cw.Wiring.Constructors {
-			if strings.Contains(c, "(db)") || strings.Contains(c, "(db,") {
-				return true
-			}
+		if cw.Wiring != nil && cw.Wiring.NeedsDB {
+			return true
 		}
 	}
 	return false
@@ -335,17 +383,17 @@ func findMiddlewareVar(input AssemblerInput) string {
 		}
 		for _, c := range cw.Wiring.Constructors {
 			if strings.Contains(c, "AuthMiddleware") {
-				return constructorVarName(c)
+				return rawConstructorVarName(c)
 			}
 		}
 	}
 	return ""
 }
 
-// constructorVarName derives a Go variable name from a constructor expression.
+// rawConstructorVarName derives a base Go variable name from a constructor expression.
 // "pkg.NewFooBar(args)" → "fooBar"
 // "pkg.NewStore(db)" → "store"
-func constructorVarName(expr string) string {
+func rawConstructorVarName(expr string) string {
 	// Extract the function name after the last dot before '('.
 	funcName := expr
 	if dotIdx := strings.LastIndex(expr, "."); dotIdx >= 0 {
@@ -368,12 +416,116 @@ func constructorVarName(expr string) string {
 	return strings.ToLower(funcName[:1]) + funcName[1:]
 }
 
-// fillImportAlias converts a fill name (e.g. "admin-creation-policy") to a
-// valid Go import alias (e.g. "admincreationpolicy").
-func fillImportAlias(fillName string) string {
+// rawFillImportAlias converts a fill name (e.g. "admin-creation-policy") to a
+// base Go import alias (e.g. "admincreationpolicy") before disambiguation.
+func rawFillImportAlias(fillName string) string {
 	s := strings.ReplaceAll(fillName, "-", "")
 	s = strings.ReplaceAll(s, "_", "")
 	return strings.ToLower(s)
+}
+
+// disambiguateAlias returns a unique alias given a base alias. If the base
+// alias has been seen before, a numeric suffix is appended (e.g. "store2").
+// The counts and used maps are mutated to track state across calls.
+func disambiguateAlias(base string, counts map[string]int, used map[string]bool) string {
+	counts[base]++
+	if counts[base] == 1 {
+		used[base] = true
+		return base
+	}
+	alias := fmt.Sprintf("%s%d", base, counts[base])
+	for used[alias] {
+		counts[base]++
+		alias = fmt.Sprintf("%s%d", base, counts[base])
+	}
+	used[alias] = true
+	return alias
+}
+
+// extractEntityFromConstructor extracts the entity name from a constructor
+// expression matching the pattern "pkg.New<Entity>Handler(...)". Returns ""
+// if the pattern does not match.
+func extractEntityFromConstructor(expr string) string {
+	funcName := expr
+	if dotIdx := strings.LastIndex(expr, "."); dotIdx >= 0 {
+		funcName = expr[dotIdx+1:]
+	}
+	if parenIdx := strings.Index(funcName, "("); parenIdx >= 0 {
+		funcName = funcName[:parenIdx]
+	}
+	if strings.HasPrefix(funcName, "New") && strings.HasSuffix(funcName, "Handler") {
+		entity := funcName[3 : len(funcName)-7]
+		if entity != "" {
+			return entity
+		}
+	}
+	return ""
+}
+
+// injectConstructorArgs inserts additional arguments into a constructor
+// expression before its closing parenthesis.
+func injectConstructorArgs(expr string, args []string) string {
+	if len(args) == 0 {
+		return expr
+	}
+	closeIdx := strings.LastIndex(expr, ")")
+	if closeIdx < 0 {
+		return expr
+	}
+	openIdx := strings.Index(expr, "(")
+	if openIdx < 0 {
+		return expr
+	}
+
+	prefix := expr[:closeIdx]
+	suffix := expr[closeIdx:]
+
+	inner := strings.TrimSpace(expr[openIdx+1 : closeIdx])
+	if inner == "" {
+		return prefix + strings.Join(args, ", ") + suffix
+	}
+	return prefix + ", " + strings.Join(args, ", ") + suffix
+}
+
+// buildSlotVarsByEntity returns a map from entity name to a list of slot
+// operator variable names for that entity. These variables are created by
+// writeSlotWiring and injected into handler constructors by writeConstructors.
+func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[string][]string {
+	result := make(map[string][]string)
+	if !hasSlots {
+		return result
+	}
+	for _, sb := range bindings {
+		if sb.Entity == "" {
+			continue
+		}
+		if len(sb.Gate) > 0 {
+			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"Gate")
+		}
+		if len(sb.Chain) > 0 {
+			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"Chain")
+		}
+		if len(sb.FanOut) > 0 {
+			result[sb.Entity] = append(result[sb.Entity], snakeToCamel(sb.Slot)+"FanOut")
+		}
+	}
+	return result
+}
+
+// buildFillAliasMap returns a map from fill name to its resolved import alias.
+// Must use the same disambiguation logic as writeMainImports so the emitted
+// code references the correct alias.
+func buildFillAliasMap(bindings []types.SlotDeclaration) map[string]string {
+	fillNames := collectFillNames(bindings)
+	fillAliases := make(map[string]int)
+	fillAliasUsed := make(map[string]bool)
+	result := make(map[string]string, len(fillNames))
+	for _, name := range fillNames {
+		baseAlias := rawFillImportAlias(name)
+		alias := disambiguateAlias(baseAlias, fillAliases, fillAliasUsed)
+		result[name] = alias
+	}
+	return result
 }
 
 // collectFillNames returns a deduplicated, sorted list of fill names from
