@@ -3447,3 +3447,143 @@ func findFileBytes(t *testing.T, files []gen.File, path string) []byte {
 	t.Fatalf("file %s not found in output", path)
 	return nil
 }
+
+func TestGenerate_EntityNameIdCompiles(t *testing.T) {
+	// Finding 42: entity named "Id" or "ID" produces strings.ToLower → "id",
+	// which collides with the hardcoded `id := r.PathValue("id")` in
+	// Read/Update/Delete methods. safeVarName must escape "id" to "id_".
+	g := &Generator{}
+
+	for _, name := range []string{"Id", "ID"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{
+						Entity:     name,
+						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			files, _, err := g.Generate(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify the generated code compiles as a package.
+			tmpDir := t.TempDir()
+			goMod := "module testpkg\n\ngo 1.22\n"
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+				t.Fatalf("writing go.mod: %v", err)
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, ".go") {
+					continue
+				}
+				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+					t.Fatalf("writing %s: %v", f.Path, err)
+				}
+			}
+			cmd := exec.Command("go", "build", ".")
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
+			}
+		})
+	}
+}
+
+func TestGenerate_CaseInsensitiveEntityNamesReturnsError(t *testing.T) {
+	// Finding 43: two entities whose names differ only in case (e.g. "Item"
+	// and "ITEM") produce colliding handler variable names, handler file
+	// paths, and router variable declarations via strings.ToLower.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "ITEM", Fields: []types.Field{
+				{Name: "label", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Item", Operations: []types.Operation{types.OpRead}, PathPrefix: "/items"},
+			{Entity: "ITEM", Operations: []types.Operation{types.OpRead}, PathPrefix: "/things"},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for case-insensitively equivalent entity names")
+	}
+	if !strings.Contains(err.Error(), "case-insensitive") {
+		t.Errorf("error should mention case-insensitive collision, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Item") {
+		t.Errorf("error should mention first entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ITEM") {
+		t.Errorf("error should mention second entity name, got: %v", err)
+	}
+}
+
+func TestGenerate_CaseInsensitiveEntityNamesAutoPathCaught(t *testing.T) {
+	// Verify that case-insensitive check catches collisions even when both
+	// entities use auto-derived paths (which also collide via route detection,
+	// but the case-insensitive check should fire first).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Foo", Fields: []types.Field{{Name: "a", Type: types.FieldTypeString}}},
+			{Name: "FOO", Fields: []types.Field{{Name: "b", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Foo", Operations: []types.Operation{types.OpRead}},
+			{Entity: "FOO", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for case-insensitively equivalent entity names with auto paths")
+	}
+	if !strings.Contains(err.Error(), "case-insensitive") {
+		t.Errorf("error should mention case-insensitive collision, got: %v", err)
+	}
+}
+
+func TestGenerate_DifferentCaseEntityNamesDifferentEnoughSucceeds(t *testing.T) {
+	// Entities with different lowercased names should not be rejected.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Order", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Item", Operations: []types.Operation{types.OpRead}},
+			{Entity: "Order", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error for entities with distinct lowercased names: %v", err)
+	}
+}

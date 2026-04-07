@@ -38,6 +38,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
+	// Check for case-insensitively equivalent entity names. Two entities
+	// whose names differ only in case (e.g. "Item" and "ITEM") produce
+	// colliding handler variable names, handler file paths, and router
+	// variable declarations via strings.ToLower.
+	if err := validateCaseInsensitiveUniqueness(ctx.Expose); err != nil {
+		return nil, nil, err
+	}
+
 	// Build entity lookup for field resolution.
 	entityMap := make(map[string]types.Entity, len(ctx.Entities))
 	for _, e := range ctx.Entities {
@@ -1010,6 +1018,8 @@ var handlerScopeIdentifiers = map[string]bool{
 	"http": true, // net/http
 	"time": true, // time (conditional, but safer to always guard)
 	"fmt":  true, // not currently imported, but guard for safety
+	// Generator-emitted local variables in Read/Update/Delete method bodies.
+	"id": true, // id := r.PathValue("id")
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
@@ -1387,6 +1397,31 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("scope/parent consistency errors:\n  %s", strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateCaseInsensitiveUniqueness checks that no two exposed entity names are
+// case-insensitively equivalent. Two entities like "Item" and "ITEM" produce
+// colliding handler variable names (both → "itemHandler"), handler file paths
+// (both → "handler_item.go"), and router variable declarations via
+// strings.ToLower. Route collision detection does not catch this when entities
+// have different PathPrefix values.
+func validateCaseInsensitiveUniqueness(expose []types.ExposeBlock) error {
+	seen := make(map[string]string, len(expose)) // lowered name → original name
+	var errs []string
+	for _, eb := range expose {
+		lower := strings.ToLower(eb.Entity)
+		if existing, ok := seen[lower]; ok {
+			errs = append(errs, fmt.Sprintf(
+				"entities %q and %q are case-insensitively equivalent (both produce %q); rename one to avoid colliding handler variable names and file paths in generated code",
+				existing, eb.Entity, lower))
+		} else {
+			seen[lower] = eb.Entity
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("case-insensitive entity name collisions:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
