@@ -40,3 +40,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 
 - `09b5273` feat(task-010): implement postgres-adapter component generator
 - `c4be0d2` chore(task-010): mark task ready-for-review
+- `bf25d30` fix(task-010): address round 1 review findings
