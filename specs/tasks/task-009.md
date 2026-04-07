@@ -56,3 +56,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - c0d1d81 fix(task-009): address round 12 finding — guard safeVarName against function-scoped identifiers
 - 7ef6a4f fix(task-009): address round 13 findings — namespace parameterization and exposed-only OpenAPI schemas
 - 10977c8 fix(task-009): address round 14 finding — reject parent not in expose list
+- 20f18d6 fix(task-009): address round 15 finding — extract path parameter names from prefix template
+- 2339cb8 chore(task-009): mark task ready-for-review
