@@ -28,6 +28,8 @@ for f in "$TASKS_DIR"/task-*.md; do
     name=$(basename "$f" .md)
     status=$(grep -oP '(?<=\*\*Status:\*\* `)[^`]+' "$f" 2>/dev/null || echo "unknown")
     title=$(head -1 "$f" | sed 's/^# Task [0-9]*: //')
+    # Replace em-dashes with plain dashes for consistent column width
+    title="${title//—/-}"
     # Truncate to 28 chars with ellipsis in the middle
     if [[ ${#title} -gt 28 ]]; then
         title="${title:0:13}..${title: -13}"
@@ -273,7 +275,7 @@ for i in "${!task_names[@]}"; do
     if [[ $active -gt 0 ]]; then
         at=$(printf "%14s" "$(fmt_duration $active)")
     else
-        at=$(printf "%14s" "${DIM}--${RESET}")
+        at="$(printf '%12s' '')${DIM}--${RESET}"
     fi
 
     cpad=$(printf "%7d" "$commits")
