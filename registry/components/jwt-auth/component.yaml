@@ -1,0 +1,16 @@
+kind: component
+name: jwt-auth
+version: 1.0.0
+output_namespace: internal/auth
+
+config:
+  header:
+    type: string
+    default: Authorization
+
+requires: []
+
+provides:
+  - auth-provider
+
+slots: []
