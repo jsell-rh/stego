@@ -2859,5 +2859,147 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 	}
 }
 
+func TestAssemble_SharedImportPathAcrossWirings(t *testing.T) {
+	// Finding 22: When two wirings declare the same import path and that path's
+	// alias was disambiguated, the rename must be propagated to ALL wirings —
+	// not just the first one processed.
+	//
+	// Wiring 0: imports "internal/api" (gets alias "api")
+	// Wiring 1: imports "internal/other/api" (gets alias "api2", rename stored)
+	// Wiring 2: also imports "internal/other/api" (skipped by seen map — must
+	//           get the same rename "api" → "api2" propagated)
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewFoo()"},
+					Routes:       []string{`mux.HandleFunc("GET /foo", foo.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/other/api"},
+					Constructors: []string{"api.NewBar()"},
+					Routes:       []string{`mux.HandleFunc("GET /bar", bar.Get)`},
+				},
+			},
+			{
+				Name: "component-c",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/other/api"},
+					Constructors: []string{"api.NewBaz()"},
+					Routes:       []string{`mux.HandleFunc("GET /baz", baz.Get)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Component-a keeps alias "api" — its constructor should be unchanged.
+	if !strings.Contains(code, "api.NewFoo()") {
+		t.Errorf("component-a constructor should use 'api' alias in:\n%s", code)
+	}
+
+	// Component-b gets alias "api2" — its constructor must be updated.
+	if !strings.Contains(code, "api2.NewBar()") {
+		t.Errorf("component-b constructor should use disambiguated 'api2' alias in:\n%s", code)
+	}
+
+	// Component-c shares the same import path as component-b — its constructor
+	// must ALSO be updated to use "api2". Without the fix, this would still
+	// reference "api" (the wrong package).
+	if !strings.Contains(code, "api2.NewBaz()") {
+		t.Errorf("component-c constructor should use disambiguated 'api2' alias (propagated from component-b) in:\n%s", code)
+	}
+
+	// The import for "internal/other/api" should appear exactly once (deduplicated).
+	count := strings.Count(code, `"github.com/myorg/svc/internal/other/api"`)
+	if count != 1 {
+		t.Errorf("shared import should appear exactly once, got %d in:\n%s", count, code)
+	}
+}
+
+func TestAssemble_SharedImportPathNoDisambiguation(t *testing.T) {
+	// When shared import paths do NOT require disambiguation (alias == base),
+	// no rename should be propagated — constructors should stay unchanged.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewFoo()"},
+					Routes:       []string{`mux.HandleFunc("GET /foo", foo.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewBar()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both constructors should reference "storage" — no disambiguation needed.
+	if !strings.Contains(code, "storage.NewFoo()") {
+		t.Errorf("component-a constructor should use 'storage' in:\n%s", code)
+	}
+	if !strings.Contains(code, "storage.NewBar()") {
+		t.Errorf("component-b constructor should use 'storage' in:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

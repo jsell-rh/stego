@@ -230,6 +230,11 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// Track ALL non-stdlib import aliases for constructor var disambiguation.
 	nonStdlibAliases := make(map[string]bool)
 
+	// Track per-path alias assignments so that when multiple wirings declare
+	// the same import path, the rename mapping from the representative entry
+	// is propagated to all duplicate entries (finding 22).
+	pathRenames := make(map[string]map[string]string) // fullPath → (base → alias) rename, nil if no rename needed
+
 	// Slots package import — registered first so its hardcoded alias "slots"
 	// is reserved before any dynamic disambiguation runs.
 	if hasSlots {
@@ -249,11 +254,22 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 		for _, imp := range cw.Wiring.Imports {
 			fullPath := input.ModuleName + "/" + imp
+			base := path.Base(imp)
 			if seen[fullPath] {
+				// Propagate rename from the representative entry so this
+				// wiring's constructor and route expressions are updated to
+				// use the disambiguated alias.
+				if renames, ok := pathRenames[fullPath]; ok && renames != nil {
+					if importRenames[i] == nil {
+						importRenames[i] = make(map[string]string)
+					}
+					for oldBase, newAlias := range renames {
+						importRenames[i][oldBase] = newAlias
+					}
+				}
 				continue
 			}
 			seen[fullPath] = true
-			base := path.Base(imp)
 			alias := disambiguateAlias(base, aliases, aliasUsed)
 			nonStdlibAliases[alias] = true
 			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
@@ -262,6 +278,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 					importRenames[i] = make(map[string]string)
 				}
 				importRenames[i][base] = alias
+				pathRenames[fullPath] = map[string]string{base: alias}
+			} else {
+				pathRenames[fullPath] = nil
 			}
 		}
 	}
