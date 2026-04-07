@@ -1,6 +1,7 @@
 kind: component
 name: postgres-adapter
 version: 1.4.0
+output_namespace: internal/storage
 
 config:
   connection_string:

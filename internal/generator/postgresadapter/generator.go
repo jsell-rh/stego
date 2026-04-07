@@ -1,0 +1,775 @@
+// Package postgresadapter implements the postgres-adapter component Generator.
+// It produces Go model structs, a Store implementation with CRUD + list + upsert
+// query functions, and migration SQL from the service declaration's entities.
+package postgresadapter
+
+import (
+	"bytes"
+	"fmt"
+	"go/format"
+	"path"
+	"strings"
+	"unicode"
+
+	"github.com/stego-project/stego/internal/gen"
+	"github.com/stego-project/stego/internal/types"
+)
+
+// Generator produces the postgres-adapter component's generated code.
+type Generator struct{}
+
+// Generate produces model structs, a Store implementation, and migration SQL
+// for all entities in the service declaration. It returns wiring instructions
+// for main.go assembly.
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if len(ctx.Entities) == 0 {
+		return nil, nil, nil
+	}
+
+	// Validate no duplicate entity names.
+	if err := validateEntityUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate no case-insensitive entity name collisions (would produce
+	// the same table name).
+	if err := validateCaseInsensitiveUniqueness(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	// Validate entity names don't collide with generator-internal identifiers.
+	if err := validateReservedNames(ctx.Entities); err != nil {
+		return nil, nil, err
+	}
+
+	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating models: %w", err)
+	}
+
+	storeFile, err := generateStore(ctx.OutputNamespace, ctx.Entities)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating store: %w", err)
+	}
+
+	migrationFile := generateMigration(ctx.OutputNamespace, ctx.Entities)
+
+	files := []gen.File{modelsFile, storeFile, migrationFile}
+
+	wiring := &gen.Wiring{
+		Imports:      []string{ctx.OutputNamespace},
+		Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewStore(db)"},
+	}
+
+	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
+		return nil, nil, err
+	}
+
+	return files, wiring, nil
+}
+
+// reservedTypeNames is the set of identifiers the postgres-adapter generator
+// defines unconditionally in the generated package.
+var reservedTypeNames = map[string]bool{
+	"Store":    true,
+	"NewStore": true,
+}
+
+// generateModels produces models.go with entity struct definitions.
+func generateModels(ns string, entities []types.Entity) (gen.File, error) {
+	var buf bytes.Buffer
+
+	needTime := false
+	needJSON := false
+	for _, e := range entities {
+		for _, f := range e.Fields {
+			if f.Type == types.FieldTypeTimestamp {
+				needTime = true
+			}
+			if f.Type == types.FieldTypeJsonb {
+				needJSON = true
+			}
+		}
+	}
+
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+
+	if needTime || needJSON {
+		fmt.Fprintf(&buf, "import (\n")
+		if needJSON {
+			fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+		}
+		if needTime {
+			fmt.Fprintf(&buf, "\t\"time\"\n")
+		}
+		fmt.Fprintf(&buf, ")\n\n")
+	}
+
+	for _, e := range entities {
+		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
+		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
+		fmt.Fprintf(&buf, "\tID string `json:\"id\"`\n")
+		for _, f := range e.Fields {
+			goName := toPascalCase(f.Name)
+			goType := fieldTypeToGo(f.Type)
+			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
+		}
+		fmt.Fprintf(&buf, "}\n\n")
+	}
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting models: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "models.go"),
+		Content: formatted,
+	}, nil
+}
+
+// generateStore produces store.go with the Store type and CRUD + list + upsert
+// + exists methods that dispatch to entity-specific SQL.
+func generateStore(ns string, entities []types.Entity) (gen.File, error) {
+	var buf bytes.Buffer
+
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"database/sql\"\n")
+	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	fmt.Fprintf(&buf, "\t\"fmt\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
+
+	// Store struct and constructor.
+	fmt.Fprintf(&buf, "// Store provides PostgreSQL-backed storage for all entities.\n")
+	fmt.Fprintf(&buf, "type Store struct {\n")
+	fmt.Fprintf(&buf, "\tdb *sql.DB\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	fmt.Fprintf(&buf, "// NewStore creates a new Store with the given database connection.\n")
+	fmt.Fprintf(&buf, "func NewStore(db *sql.DB) *Store {\n")
+	fmt.Fprintf(&buf, "\treturn &Store{db: db}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	emitCreateMethod(&buf, entities)
+	emitReadMethod(&buf, entities)
+	emitUpdateMethod(&buf, entities)
+	emitDeleteMethod(&buf, entities)
+	emitListMethod(&buf, entities)
+	emitUpsertMethod(&buf, entities)
+	emitExistsMethod(&buf, entities)
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting store: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "store.go"),
+		Content: formatted,
+	}, nil
+}
+
+// emitCreateMethod generates the Create dispatcher. Computed fields are
+// excluded from the INSERT column list (they are read-only, populated by fills).
+func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Create inserts a new entity record. Computed fields are excluded.\n")
+	fmt.Fprintf(buf, "func (s *Store) Create(entity string, value any) error {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		writeCols := writeColumns(e)
+
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
+		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Build INSERT with positional parameters.
+		cols := append([]string{"id"}, writeCols...)
+		placeholders := make([]string, len(cols))
+		for i := range placeholders {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+
+		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
+		fmt.Fprintf(buf, "\t\t\t\"INSERT INTO %s (%s) VALUES (%s)\",\n",
+			table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+
+		// Emit value references.
+		args := []string{"v.ID"}
+		for _, col := range writeCols {
+			args = append(args, "v."+toPascalCase(col))
+		}
+		fmt.Fprintf(buf, "\t\t\t%s,\n", strings.Join(args, ", "))
+		fmt.Fprintf(buf, "\t\t)\n")
+		fmt.Fprintf(buf, "\t\treturn err\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitReadMethod generates the Read dispatcher. All fields (including computed)
+// are included in the SELECT.
+func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Read retrieves a single entity by ID.\n")
+	fmt.Fprintf(buf, "func (s *Store) Read(entity string, id string) (any, error) {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		allCols := allColumns(e)
+
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
+
+		cols := append([]string{"id"}, allCols...)
+		scanArgs := []string{"&v.ID"}
+		for _, col := range allCols {
+			scanArgs = append(scanArgs, "&v."+toPascalCase(col))
+		}
+
+		fmt.Fprintf(buf, "\t\terr := s.db.QueryRow(\n")
+		fmt.Fprintf(buf, "\t\t\t\"SELECT %s FROM %s WHERE id = $1\", id,\n",
+			strings.Join(cols, ", "), table)
+		fmt.Fprintf(buf, "\t\t).Scan(%s)\n", strings.Join(scanArgs, ", "))
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn v, nil\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn nil, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitUpdateMethod generates the Update dispatcher. Computed fields are
+// excluded from the SET clause.
+func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Update modifies an existing entity by ID. Computed fields are excluded.\n")
+	fmt.Fprintf(buf, "func (s *Store) Update(entity string, id string, value any) error {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		writeCols := writeColumns(e)
+
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
+		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Build SET clause with positional parameters.
+		setClauses := make([]string, len(writeCols))
+		for i, col := range writeCols {
+			setClauses[i] = fmt.Sprintf("%s = $%d", col, i+1)
+		}
+		idParam := fmt.Sprintf("$%d", len(writeCols)+1)
+
+		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
+		fmt.Fprintf(buf, "\t\t\t\"UPDATE %s SET %s WHERE id = %s\",\n",
+			table, strings.Join(setClauses, ", "), idParam)
+
+		args := make([]string, 0, len(writeCols)+1)
+		for _, col := range writeCols {
+			args = append(args, "v."+toPascalCase(col))
+		}
+		args = append(args, "id")
+		fmt.Fprintf(buf, "\t\t\t%s,\n", strings.Join(args, ", "))
+		fmt.Fprintf(buf, "\t\t)\n")
+		fmt.Fprintf(buf, "\t\treturn err\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitDeleteMethod generates the Delete dispatcher.
+func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Delete removes an entity by ID.\n")
+	fmt.Fprintf(buf, "func (s *Store) Delete(entity string, id string) error {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\t_, err := s.db.Exec(\"DELETE FROM %s WHERE id = $1\", id)\n", table)
+		fmt.Fprintf(buf, "\t\treturn err\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitListMethod generates the List dispatcher with optional scope filtering.
+// The scope field name is validated against known columns to prevent SQL injection.
+func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// List retrieves all entities, optionally filtered by a scope field.\n")
+	fmt.Fprintf(buf, "func (s *Store) List(entity string, scopeField string, scopeValue string) (any, error) {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		allCols := allColumns(e)
+
+		cols := append([]string{"id"}, allCols...)
+		scanArgs := make([]string, 0, len(cols))
+		scanArgs = append(scanArgs, "&v.ID")
+		for _, col := range allCols {
+			scanArgs = append(scanArgs, "&v."+toPascalCase(col))
+		}
+
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+
+		// Build valid column set for scope validation.
+		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
+		for i, col := range allCols {
+			if i > 0 {
+				fmt.Fprintf(buf, ", ")
+			}
+			fmt.Fprintf(buf, "%q: true", col)
+		}
+		fmt.Fprintf(buf, "}\n")
+
+		fmt.Fprintf(buf, "\t\tquery := \"SELECT %s FROM %s\"\n",
+			strings.Join(cols, ", "), table)
+		fmt.Fprintf(buf, "\t\tvar args []any\n")
+		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
+		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn nil, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tquery += \" WHERE \" + scopeField + \" = $1\"\n")
+		fmt.Fprintf(buf, "\t\t\targs = append(args, scopeValue)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		fmt.Fprintf(buf, "\t\trows, err := s.db.Query(query, args...)\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tdefer rows.Close()\n")
+		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
+		fmt.Fprintf(buf, "\t\tfor rows.Next() {\n")
+		fmt.Fprintf(buf, "\t\t\tvar v %s\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\tif err := rows.Scan(%s); err != nil {\n", strings.Join(scanArgs, ", "))
+		fmt.Fprintf(buf, "\t\t\t\treturn nil, err\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tresult = append(result, v)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tif err := rows.Err(); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn result, nil\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn nil, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitUpsertMethod generates the Upsert dispatcher with natural-key conflict
+// resolution and optional optimistic concurrency. Computed fields are excluded
+// from the INSERT and SET clauses.
+func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Upsert inserts or updates an entity using natural-key conflict resolution.\n")
+	fmt.Fprintf(buf, "// When concurrency is \"optimistic\", the update only proceeds if the incoming\n")
+	fmt.Fprintf(buf, "// generation value is newer than the existing row's generation.\n")
+	fmt.Fprintf(buf, "func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency string) error {\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		table := tableName(e.Name)
+		writeCols := writeColumns(e)
+
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
+		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Columns and placeholders.
+		cols := append([]string{"id"}, writeCols...)
+		placeholders := make([]string, len(cols))
+		for i := range placeholders {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		}
+
+		// Build valid column set for upsert key validation.
+		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
+		for i, col := range writeCols {
+			if i > 0 {
+				fmt.Fprintf(buf, ", ")
+			}
+			fmt.Fprintf(buf, "%q: true", col)
+		}
+		fmt.Fprintf(buf, "}\n")
+
+		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\tif !validCols[k] {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"invalid upsert key field %%q for entity %s\", k)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Build query dynamically based on upsert key.
+		fmt.Fprintf(buf, "\t\tquery := fmt.Sprintf(\"INSERT INTO %s (%s) VALUES (%s)\",\n",
+			table, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		fmt.Fprintf(buf, "\t\t)\n")
+
+		fmt.Fprintf(buf, "\t\tif len(upsertKey) > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\tkeySet := make(map[string]bool, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\t\tfor _, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\t\tkeySet[k] = true\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+
+		// Build SET clause for non-key, non-id columns.
+		fmt.Fprintf(buf, "\t\t\tvar setClauses []string\n")
+		fmt.Fprintf(buf, "\t\t\tallCols := []string{%s}\n", quoteStringSlice(writeCols))
+		fmt.Fprintf(buf, "\t\t\tfor _, col := range allCols {\n")
+		fmt.Fprintf(buf, "\t\t\t\tif !keySet[col] {\n")
+		fmt.Fprintf(buf, "\t\t\t\t\tsetClauses = append(setClauses, col+\" = EXCLUDED.\"+col)\n")
+		fmt.Fprintf(buf, "\t\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+
+		fmt.Fprintf(buf, "\t\t\tif len(setClauses) > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO UPDATE SET \" + strings.Join(setClauses, \", \")\n")
+		fmt.Fprintf(buf, "\t\t\t} else {\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(upsertKey, \", \") + \") DO NOTHING\"\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery += \" WHERE EXCLUDED.generation > %s.generation\"\n", table)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Emit value references.
+		args := []string{"v.ID"}
+		for _, col := range writeCols {
+			args = append(args, "v."+toPascalCase(col))
+		}
+		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(query, %s)\n", strings.Join(args, ", "))
+		fmt.Fprintf(buf, "\t\treturn err\n")
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitExistsMethod generates the Exists dispatcher.
+func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Exists checks whether an entity with the given ID exists.\n")
+	fmt.Fprintf(buf, "func (s *Store) Exists(entity string, id string) bool {\n")
+	fmt.Fprintf(buf, "\tvar table string\n")
+	fmt.Fprintf(buf, "\tswitch entity {\n")
+
+	for _, e := range entities {
+		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
+		fmt.Fprintf(buf, "\t\ttable = %q\n", tableName(e.Name))
+	}
+
+	fmt.Fprintf(buf, "\tdefault:\n")
+	fmt.Fprintf(buf, "\t\treturn false\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tvar exists bool\n")
+	// The table name is derived from a compile-time constant entity name,
+	// not user input, so string interpolation is safe here.
+	fmt.Fprintf(buf, "\terr := s.db.QueryRow(\n")
+	fmt.Fprintf(buf, "\t\tfmt.Sprintf(\"SELECT EXISTS(SELECT 1 FROM %%s WHERE id = $1)\", table), id,\n")
+	fmt.Fprintf(buf, "\t).Scan(&exists)\n")
+	fmt.Fprintf(buf, "\treturn err == nil && exists\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// generateMigration produces the initial migration SQL file with CREATE TABLE
+// statements for all entities. Computed fields are nullable. Constraints
+// (UNIQUE, NOT NULL, CHECK) are included where specified.
+func generateMigration(ns string, entities []types.Entity) gen.File {
+	var buf bytes.Buffer
+
+	fmt.Fprintf(&buf, "-- Migration: initial schema\n")
+	fmt.Fprintf(&buf, "-- Generated by stego postgres-adapter component.\n\n")
+
+	for i, e := range entities {
+		if i > 0 {
+			fmt.Fprintf(&buf, "\n")
+		}
+		table := tableName(e.Name)
+		fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", table)
+		fmt.Fprintf(&buf, "    id TEXT PRIMARY KEY")
+
+		for _, f := range e.Fields {
+			fmt.Fprintf(&buf, ",\n")
+			colDef := columnDefinition(f)
+			fmt.Fprintf(&buf, "    %s", colDef)
+		}
+
+		fmt.Fprintf(&buf, "\n);\n")
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "migrations", "001_initial.sql"),
+		Content: buf.Bytes(),
+	}
+}
+
+// columnDefinition produces a SQL column definition for a field, including
+// type, nullability, uniqueness, and CHECK constraints.
+func columnDefinition(f types.Field) string {
+	var parts []string
+	parts = append(parts, f.Name)
+	parts = append(parts, fieldTypeToSQL(f.Type))
+
+	// Nullability: computed and optional fields are nullable.
+	if !f.Optional && !f.Computed {
+		parts = append(parts, "NOT NULL")
+	}
+
+	if f.Unique {
+		parts = append(parts, "UNIQUE")
+	}
+
+	if f.Default != nil {
+		parts = append(parts, fmt.Sprintf("DEFAULT %s", sqlDefault(f)))
+	}
+
+	// Enum CHECK constraint.
+	if f.Type == types.FieldTypeEnum && len(f.Values) > 0 {
+		quoted := make([]string, len(f.Values))
+		for i, v := range f.Values {
+			quoted[i] = fmt.Sprintf("'%s'", v)
+		}
+		parts = append(parts, fmt.Sprintf("CHECK (%s IN (%s))", f.Name, strings.Join(quoted, ", ")))
+	}
+
+	// String length constraints.
+	if f.MinLength != nil {
+		parts = append(parts, fmt.Sprintf("CHECK (length(%s) >= %d)", f.Name, *f.MinLength))
+	}
+	if f.MaxLength != nil {
+		parts = append(parts, fmt.Sprintf("CHECK (length(%s) <= %d)", f.Name, *f.MaxLength))
+	}
+
+	// Pattern constraint.
+	if f.Pattern != "" {
+		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", f.Name, f.Pattern))
+	}
+
+	// Numeric range constraints.
+	if f.Min != nil {
+		parts = append(parts, fmt.Sprintf("CHECK (%s >= %g)", f.Name, *f.Min))
+	}
+	if f.Max != nil {
+		parts = append(parts, fmt.Sprintf("CHECK (%s <= %g)", f.Name, *f.Max))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// sqlDefault returns a SQL literal for a field's default value.
+func sqlDefault(f types.Field) string {
+	switch v := f.Default.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", v)
+	case bool:
+		if v {
+			return "TRUE"
+		}
+		return "FALSE"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// --- Helpers ---
+
+// writeColumns returns the list of non-computed field names for an entity,
+// suitable for INSERT/UPDATE operations.
+func writeColumns(e types.Entity) []string {
+	var cols []string
+	for _, f := range e.Fields {
+		if !f.Computed {
+			cols = append(cols, f.Name)
+		}
+	}
+	return cols
+}
+
+// allColumns returns all field names for an entity, including computed.
+func allColumns(e types.Entity) []string {
+	cols := make([]string, len(e.Fields))
+	for i, f := range e.Fields {
+		cols[i] = f.Name
+	}
+	return cols
+}
+
+// tableName converts an entity name to a PostgreSQL table name:
+// PascalCase to snake_case, then append "s" for plural.
+func tableName(entityName string) string {
+	return toSnakeCase(entityName) + "s"
+}
+
+// toSnakeCase converts PascalCase to snake_case.
+func toSnakeCase(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && unicode.IsUpper(r) {
+			result = append(result, '_')
+		}
+		result = append(result, unicode.ToLower(r))
+	}
+	return string(result)
+}
+
+// toPascalCase converts a snake_case string to PascalCase, treating "id" as
+// the acronym "ID" per Go conventions.
+func toPascalCase(s string) string {
+	parts := strings.Split(s, "_")
+	for i, p := range parts {
+		if strings.EqualFold(p, "id") {
+			parts[i] = "ID"
+		} else if len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+// fieldTypeToGo maps a types.FieldType to its Go type representation.
+func fieldTypeToGo(ft types.FieldType) string {
+	switch ft {
+	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
+		return "string"
+	case types.FieldTypeInt32:
+		return "int32"
+	case types.FieldTypeInt64:
+		return "int64"
+	case types.FieldTypeFloat:
+		return "float32"
+	case types.FieldTypeDouble:
+		return "float64"
+	case types.FieldTypeBool:
+		return "bool"
+	case types.FieldTypeBytes:
+		return "[]byte"
+	case types.FieldTypeTimestamp:
+		return "time.Time"
+	case types.FieldTypeJsonb:
+		return "json.RawMessage"
+	}
+	return "any"
+}
+
+// fieldTypeToSQL maps a types.FieldType to its PostgreSQL column type.
+func fieldTypeToSQL(ft types.FieldType) string {
+	switch ft {
+	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
+		return "TEXT"
+	case types.FieldTypeInt32:
+		return "INTEGER"
+	case types.FieldTypeInt64:
+		return "BIGINT"
+	case types.FieldTypeFloat:
+		return "REAL"
+	case types.FieldTypeDouble:
+		return "DOUBLE PRECISION"
+	case types.FieldTypeBool:
+		return "BOOLEAN"
+	case types.FieldTypeBytes:
+		return "BYTEA"
+	case types.FieldTypeTimestamp:
+		return "TIMESTAMPTZ"
+	case types.FieldTypeJsonb:
+		return "JSONB"
+	}
+	return "TEXT"
+}
+
+// quoteStringSlice produces a Go source literal for a string slice.
+// e.g. ["a", "b"] → `"a", "b"`
+func quoteStringSlice(ss []string) string {
+	quoted := make([]string, len(ss))
+	for i, s := range ss {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// --- Validation ---
+
+// validateEntityUniqueness checks that no entity name appears more than once.
+func validateEntityUniqueness(entities []types.Entity) error {
+	seen := make(map[string]int, len(entities))
+	var dupes []string
+	for _, e := range entities {
+		seen[e.Name]++
+		if seen[e.Name] == 2 {
+			dupes = append(dupes, e.Name)
+		}
+	}
+	if len(dupes) > 0 {
+		return fmt.Errorf("duplicate entity names: %s; each entity must have a unique name",
+			strings.Join(dupes, ", "))
+	}
+	return nil
+}
+
+// validateCaseInsensitiveUniqueness checks that no two entity names produce
+// the same table name when lowercased.
+func validateCaseInsensitiveUniqueness(entities []types.Entity) error {
+	seen := make(map[string]string, len(entities))
+	var errs []string
+	for _, e := range entities {
+		lower := strings.ToLower(e.Name)
+		if existing, ok := seen[lower]; ok {
+			errs = append(errs, fmt.Sprintf(
+				"entities %q and %q are case-insensitively equivalent (both produce table %q)",
+				existing, e.Name, tableName(e.Name)))
+		} else {
+			seen[lower] = e.Name
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("case-insensitive entity name collisions:\n  %s",
+			strings.Join(errs, "\n  "))
+	}
+	return nil
+}
+
+// validateReservedNames checks that no entity name collides with
+// generator-internal identifiers.
+func validateReservedNames(entities []types.Entity) error {
+	for _, e := range entities {
+		if reservedTypeNames[e.Name] {
+			return fmt.Errorf(
+				"entity name %q collides with postgres-adapter generator internal identifier %q; rename the entity to avoid a redeclaration error in generated code",
+				e.Name, e.Name)
+		}
+	}
+	return nil
+}
