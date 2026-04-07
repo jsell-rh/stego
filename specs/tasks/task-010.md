@@ -2,7 +2,7 @@
 
 **Spec Reference:** "File Types — Component", "Migration Diffing", "MVP Scope"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
