@@ -37,3 +37,5 @@ Implement the compiler's ability to wire fills into generated code via construct
 When done, update this file's Status to `complete` and list relevant commits below.
 
 ## Commits
+
+- f0a27c2 feat(task-012): implement fill wiring & main.go assembly
