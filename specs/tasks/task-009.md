@@ -58,3 +58,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 10977c8 fix(task-009): address round 14 finding — reject parent not in expose list
 - 20f18d6 fix(task-009): address round 15 finding — extract path parameter names from prefix template
 - 2339cb8 chore(task-009): mark task ready-for-review
+- e6c44aa fix(task-009): address round 16 findings — scope/upsert_key validation, cross-entity collisions, duplicate expose blocks
