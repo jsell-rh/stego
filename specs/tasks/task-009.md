@@ -65,3 +65,5 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - a901d6b chore(task-009): mark task ready-for-review
 - 8faaecf fix(task-009): address round 20 finding — reject duplicate operations within expose blocks
 - 9340528 chore(task-009): mark task ready-for-review
+- aa51411 fix(task-009): address round 21 finding — add "err" to handlerScopeIdentifiers collision set
+- af6d2da chore(task-009): mark task ready-for-review
