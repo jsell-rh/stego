@@ -3643,3 +3643,57 @@ func TestGenerate_DifferentCaseEntityNamesDifferentEnoughSucceeds(t *testing.T) 
 		t.Fatalf("unexpected error for entities with distinct lowercased names: %v", err)
 	}
 }
+
+func TestGenerate_EntityNameErrCompiles(t *testing.T) {
+	// Finding 45: entity named "Err" or "ERR" produces strings.ToLower → "err",
+	// which collides with the hardcoded `err` in the Read method's dual-assignment
+	// `%s, err := h.store.Read(...)`. safeVarName must escape "err" to "err_".
+	g := &Generator{}
+
+	for _, name := range []string{"Err", "ERR"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{
+						{Name: "name", Type: types.FieldTypeString},
+					}},
+				},
+				Expose: []types.ExposeBlock{
+					{
+						Entity:     name,
+						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			files, _, err := g.Generate(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// Verify the generated code compiles as a package.
+			tmpDir := t.TempDir()
+			goMod := "module testpkg\n\ngo 1.22\n"
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+				t.Fatalf("writing go.mod: %v", err)
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, ".go") {
+					continue
+				}
+				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+					t.Fatalf("writing %s: %v", f.Path, err)
+				}
+			}
+			cmd := exec.Command("go", "build", ".")
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("entity named %q does not compile:\n%s\n%s", name, err, output)
+			}
+		})
+	}
+}

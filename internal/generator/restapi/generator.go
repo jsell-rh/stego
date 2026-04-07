@@ -1027,7 +1027,8 @@ var handlerScopeIdentifiers = map[string]bool{
 	"time": true, // time (conditional, but safer to always guard)
 	"fmt":  true, // not currently imported, but guard for safety
 	// Generator-emitted local variables in Read/Update/Delete method bodies.
-	"id": true, // id := r.PathValue("id")
+	"id":  true, // id := r.PathValue("id")
+	"err": true, // %s, err := h.store.Read(...) in Read method
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
