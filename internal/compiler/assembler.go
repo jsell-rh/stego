@@ -99,6 +99,16 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	hasDB := needsDB(input)
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 
+	// Validate no duplicate (slot, entity, operator) triples before processing.
+	if err := validateSlotBindingUniqueness(input.SlotBindings); err != nil {
+		return gen.File{}, err
+	}
+
+	// Validate no intra-wiring constructor base name collisions.
+	if err := validateConstructorUniqueness(input.Wirings); err != nil {
+		return gen.File{}, err
+	}
+
 	// Build slot operator variable names by entity so we can inject them
 	// into handler constructor calls.
 	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
@@ -312,17 +322,26 @@ func assemblerInternalVars(hasDB, hasRoutes bool) map[string]bool {
 	return vars
 }
 
+// constructorRename tracks a single constructor variable's original and
+// disambiguated names, along with the constructor index within its wiring.
+type constructorRename struct {
+	ConstructorIndex int
+	OriginalVar      string
+	FinalVar         string
+}
+
 // writeConstructors emits constructor variable declarations and returns
-// per-wiring rename maps. Each entry maps a wiring index to a map from
-// raw (pre-disambiguation) variable names to their disambiguated names.
-// This is used by writeRouteRegistration to update variable references
-// only in routes belonging to the wiring whose constructors were renamed.
+// per-wiring rename lists. Each entry maps a wiring index to the list of
+// constructors that were renamed (original → final variable name), keyed by
+// constructor index within the wiring. Using a per-constructor-index structure
+// (instead of map[string]string keyed by base name) avoids overwrite when two
+// constructors in the same wiring derive the same base variable name.
 // importRenames carries per-wiring import alias renames from writeMainImports;
 // constructor expressions are updated to reference the disambiguated aliases.
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, importRenames map[int]map[string]string) (map[int]map[string]string, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, importRenames map[int]map[string]string) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
-	wiringRenames := make(map[int]map[string]string)
+	wiringRenames := make(map[int][]constructorRename)
 
 	// Seed with slot operator variable names so constructor vars are
 	// disambiguated against them (they share the same function scope).
@@ -359,10 +378,11 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 			varName := disambiguateAlias(baseVar, varNames, varUsed)
 
 			if varName != baseVar {
-				if wiringRenames[i] == nil {
-					wiringRenames[i] = make(map[string]string)
-				}
-				wiringRenames[i][baseVar] = varName
+				wiringRenames[i] = append(wiringRenames[i], constructorRename{
+					ConstructorIndex: j,
+					OriginalVar:      baseVar,
+					FinalVar:         varName,
+				})
 			}
 
 			// Inject slot operators into handler constructors using
@@ -455,7 +475,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 	}
 }
 
-func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int]map[string]string, importRenames map[int]map[string]string) {
+func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int][]constructorRename, importRenames map[int]map[string]string) {
 	buf.WriteString("\tmux := http.NewServeMux()\n")
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
@@ -472,22 +492,22 @@ func writeRouteRegistration(buf *bytes.Buffer, input AssemblerInput, wiringRenam
 			}
 			// Update variable references that were renamed during
 			// constructor disambiguation — only for this wiring's renames.
-			updatedRoute = applyVarRenames(updatedRoute, wiringRenames[i])
+			// Each rename is applied independently and only matches at
+			// identifier word boundaries, preventing cross-constructor
+			// misdirection (see finding 17).
+			updatedRoute = applyConstructorRenames(updatedRoute, wiringRenames[i])
 			fmt.Fprintf(buf, "\t%s\n", updatedRoute)
 		}
 	}
 	buf.WriteString("\n")
 }
 
-// applyVarRenames replaces variable references in a route expression when
-// constructor variable names were disambiguated. For example, if "store" was
-// renamed to "store2", a route like "mux.HandleFunc(..., store.Get)" becomes
-// "mux.HandleFunc(..., store2.Get)".
-// Uses word-boundary-safe replacement to avoid corrupting longer identifiers
-// (e.g. "datastore.Get" must not become "datastore2.Get" when renaming "store").
-func applyVarRenames(route string, renames map[string]string) string {
-	for oldName, newName := range renames {
-		route = replaceIdentRef(route, oldName, newName)
+// applyConstructorRenames replaces variable references in a route expression
+// when constructor variable names were disambiguated. Each rename is applied
+// independently using word-boundary-safe replacement.
+func applyConstructorRenames(route string, renames []constructorRename) string {
+	for _, r := range renames {
+		route = replaceIdentRef(route, r.OriginalVar, r.FinalVar)
 	}
 	return route
 }
@@ -529,13 +549,16 @@ func isIdentChar(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
-func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int]map[string]string) {
+func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map[int][]constructorRename) {
 	// Check if there's an auth middleware to wrap the mux.
-	middlewareVar, wiringIdx := findMiddlewareVar(input)
-	// Apply disambiguation renames to the middleware variable reference.
-	if renames, ok := wiringRenames[wiringIdx]; ok {
-		if renamed, ok := renames[middlewareVar]; ok {
-			middlewareVar = renamed
+	middlewareVar, wiringIdx, constructorIdx := findMiddlewareVar(input)
+	// Apply disambiguation renames to the middleware variable reference,
+	// matching by constructor index to avoid misdirection when multiple
+	// constructors in the same wiring share the same base variable name.
+	for _, r := range wiringRenames[wiringIdx] {
+		if r.ConstructorIndex == constructorIdx {
+			middlewareVar = r.FinalVar
+			break
 		}
 	}
 
@@ -571,19 +594,20 @@ func needsDB(input AssemblerInput) bool {
 }
 
 // findMiddlewareVar returns the variable name of an auth middleware
-// constructor and the wiring index it belongs to, or ("", -1) if none exists.
+// constructor, the wiring index it belongs to, and the constructor index
+// within that wiring. Returns ("", -1, -1) if none exists.
 // Uses structured MiddlewareConstructor metadata rather than string matching.
-func findMiddlewareVar(input AssemblerInput) (string, int) {
+func findMiddlewareVar(input AssemblerInput) (string, int, int) {
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil || cw.Wiring.MiddlewareConstructor == nil {
 			continue
 		}
 		idx := *cw.Wiring.MiddlewareConstructor
 		if idx >= 0 && idx < len(cw.Wiring.Constructors) {
-			return rawConstructorVarName(cw.Wiring.Constructors[idx]), i
+			return rawConstructorVarName(cw.Wiring.Constructors[idx]), i, idx
 		}
 	}
-	return "", -1
+	return "", -1, -1
 }
 
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
@@ -783,6 +807,65 @@ func snakeToCamel(s string) string {
 		return ""
 	}
 	return strings.ToLower(pascal[:1]) + pascal[1:]
+}
+
+// validateConstructorUniqueness checks that within each wiring, no two
+// constructors derive the same base variable name. Intra-wiring name
+// collisions make route-to-constructor binding ambiguous — the assembler
+// cannot determine which constructor a route expression references when
+// multiple constructors share the same derived variable name.
+func validateConstructorUniqueness(wirings []ComponentWiring) error {
+	for _, cw := range wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		seen := make(map[string]string) // base var name → first constructor expression
+		for _, constructor := range cw.Wiring.Constructors {
+			baseVar := rawConstructorVarName(constructor)
+			if first, ok := seen[baseVar]; ok {
+				return fmt.Errorf("component %q has multiple constructors deriving variable name %q: %q and %q — constructor names within a component must be distinct",
+					cw.Name, baseVar, first, constructor)
+			}
+			seen[baseVar] = constructor
+		}
+	}
+	return nil
+}
+
+// validateSlotBindingUniqueness checks that no two slot bindings share the same
+// (slot, entity, operator) composite key. Duplicate bindings would produce
+// duplicate variable declarations in the generated main.go.
+func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
+	type compositeKey struct {
+		slot, entity, operator string
+	}
+	seen := make(map[compositeKey]bool)
+
+	for _, sb := range bindings {
+		operators := []struct {
+			name string
+			has  bool
+		}{
+			{"gate", len(sb.Gate) > 0},
+			{"chain", len(sb.Chain) > 0},
+			{"fan-out", len(sb.FanOut) > 0},
+		}
+		for _, op := range operators {
+			if !op.has {
+				continue
+			}
+			key := compositeKey{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			if seen[key] {
+				entityDesc := ""
+				if sb.Entity != "" {
+					entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+				}
+				return fmt.Errorf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name)
+			}
+			seen[key] = true
+		}
+	}
+	return nil
 }
 
 // slotVarName derives a unique slot operator variable name from the slot name,

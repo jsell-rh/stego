@@ -2044,5 +2044,302 @@ func TestAssemble_ImportAliasRenameInRoutes(t *testing.T) {
 	}
 }
 
+func TestAssemble_IntraWiringConstructorCollision(t *testing.T) {
+	// Finding 17: Two constructors in the same wiring that derive the same
+	// base variable name must be rejected — routes cannot unambiguously
+	// reference either constructor when both have the same derived name.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/api"},
+					Constructors: []string{
+						"api.NewHandler(storeA)",
+						"api.NewHandler(storeB)",
+					},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", handler.ListUsers)`,
+					},
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for intra-wiring constructor name collision, got nil")
+	}
+	if !strings.Contains(err.Error(), "multiple constructors") {
+		t.Errorf("expected 'multiple constructors' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "handler") {
+		t.Errorf("error should identify the colliding variable name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "rest-api") {
+		t.Errorf("error should identify the component name, got: %v", err)
+	}
+}
+
+func TestAssemble_IntraWiringMiddlewareCollision(t *testing.T) {
+	// Finding 17 (middleware aspect): Two constructors in the same wiring
+	// with the same derived name is rejected as ambiguous.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "auth-and-logging",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/middleware"},
+					Constructors: []string{
+						"middleware.NewMiddleware()",
+						"middleware.NewMiddleware(logCfg)",
+					},
+					MiddlewareConstructor: intPtr(0),
+					Routes: []string{
+						`mux.HandleFunc("GET /", root.Index)`,
+					},
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for intra-wiring constructor name collision, got nil")
+	}
+	if !strings.Contains(err.Error(), "multiple constructors") {
+		t.Errorf("expected 'multiple constructors' error, got: %v", err)
+	}
+}
+
+func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
+	// The middleware constructor's variable is correctly resolved when
+	// it collides with a constructor in a DIFFERENT wiring (inter-wiring
+	// disambiguation works correctly via per-constructor-index tracking).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewMiddleware()"},
+				},
+			},
+			{
+				Name: "auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Component-a gets "middleware", auth gets "middleware2".
+	// The middleware wrapping should use "middleware2" (the auth component).
+	if !strings.Contains(code, "middleware2.Middleware(mux)") {
+		t.Errorf("server start should reference disambiguated middleware2 in:\n%s", code)
+	}
+}
+
+func TestAssemble_DuplicateSlotBinding(t *testing.T) {
+	// Finding 18: Duplicate (slot, entity, operator) triples must be
+	// rejected with a clear error.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"policy-a"},
+			},
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"policy-b"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for duplicate slot binding, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate slot binding") {
+		t.Errorf("expected 'duplicate slot binding' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "before_create") {
+		t.Errorf("error should identify the slot name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "User") {
+		t.Errorf("error should identify the entity, got: %v", err)
+	}
+}
+
+func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
+	// Same (slot, entity) with DIFFERENT operators is valid — only
+	// same (slot, entity, operator) is a duplicate.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"policy-a"},
+			},
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				FanOut: []string{"notifier"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble should succeed for different operators: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both operators should be present with distinct variable names.
+	if !strings.Contains(code, "beforeCreateUserGate") {
+		t.Errorf("missing gate operator in:\n%s", code)
+	}
+	if !strings.Contains(code, "beforeCreateUserFanOut") {
+		t.Errorf("missing fan-out operator in:\n%s", code)
+	}
+}
+
+func TestAssemble_DuplicateSlotBindingNoEntity(t *testing.T) {
+	// Duplicate (slot, "", operator) — entity-less duplicate.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:  "validate",
+				Chain: []string{"step-a"},
+			},
+			{
+				Slot:  "validate",
+				Chain: []string{"step-b"},
+			},
+		},
+		SlotsPackage: "internal/slots",
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for duplicate entity-less slot binding, got nil")
+	}
+	if !strings.Contains(err.Error(), "duplicate slot binding") {
+		t.Errorf("expected 'duplicate slot binding' error, got: %v", err)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
