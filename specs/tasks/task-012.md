@@ -41,3 +41,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 ## Commits
 
 - f0a27c2 feat(task-012): implement fill wiring & main.go assembly
+- a6494f8 fix(task-012): address all 6 review findings for fill wiring & assembly
