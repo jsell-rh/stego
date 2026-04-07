@@ -22,6 +22,7 @@ const (
 	ActionGenerate  FileAction = "generate"
 	ActionUpdate    FileAction = "update"
 	ActionUnchanged FileAction = "unchanged"
+	ActionDelete    FileAction = "delete"
 )
 
 // PlannedFile represents a single file in the plan.
@@ -53,8 +54,8 @@ type Plan struct {
 	NewState *State
 }
 
-// HasChanges returns true if the plan includes any generate, update, or
-// entity changes.
+// HasChanges returns true if the plan includes any generate, update, delete,
+// or entity changes.
 func (p *Plan) HasChanges() bool {
 	if len(p.EntityChanges) > 0 {
 		return true
@@ -87,6 +88,10 @@ type ReconcilerInput struct {
 	// RegistrySHA is the registry ref SHA from .stego/config.yaml, used for
 	// auditability in state tracking.
 	RegistrySHA string
+
+	// OutDir is the output directory for generated files. Defaults to
+	// filepath.Join(ProjectDir, "out") if empty.
+	OutDir string
 }
 
 // Reconcile computes a plan by loading the service declaration, resolving the
@@ -221,14 +226,22 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("loading state: %w", err)
 	}
 
+	// Resolve output directory.
+	outDir := input.OutDir
+	if outDir == "" {
+		outDir = filepath.Join(input.ProjectDir, "out")
+	}
+
 	// Compute plan by comparing generated files against existing state.
-	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, input.ProjectDir, input.RegistrySHA)
+	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.RegistrySHA)
 
 	return plan, nil
 }
 
-// Apply writes all generated files to disk under outDir and saves the new state.
+// Apply writes all generated files to disk under outDir, removes orphaned
+// files, and saves the new state.
 func Apply(plan *Plan, projectDir, outDir string) error {
+	// Write generated files.
 	for _, f := range plan.GeneratedFiles {
 		fullPath := filepath.Join(outDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -237,6 +250,16 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 		content := f.Bytes()
 		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
 			return fmt.Errorf("writing %s: %w", f.Path, err)
+		}
+	}
+
+	// Remove orphaned files (tracked in previous state but no longer generated).
+	for _, pf := range plan.Files {
+		if pf.Action == ActionDelete {
+			fullPath := filepath.Join(outDir, pf.Path)
+			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing orphaned file %s: %w", pf.Path, err)
+			}
 		}
 	}
 
@@ -428,7 +451,7 @@ func computePlan(
 	serviceData []byte,
 	entities []types.Entity,
 	components map[string]*types.Component,
-	projectDir string,
+	outDir string,
 	registrySHA string,
 ) *Plan {
 	serviceHash := HashBytes(serviceData)
@@ -449,7 +472,7 @@ func computePlan(
 		existingHash, exists := existingHashes[f.Path]
 		switch {
 		case !exists:
-			diskPath := filepath.Join(projectDir, "out", f.Path)
+			diskPath := filepath.Join(outDir, f.Path)
 			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
 				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
 			} else {
@@ -464,6 +487,13 @@ func computePlan(
 			planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUnchanged})
 		default:
 			planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUpdate})
+		}
+	}
+
+	// Detect orphaned files: tracked in previous state but no longer generated.
+	for path := range existingHashes {
+		if _, stillGenerated := newFileHashes[path]; !stillGenerated {
+			planned = append(planned, PlannedFile{Path: path, Action: ActionDelete})
 		}
 	}
 
@@ -576,13 +606,19 @@ func computeEntityChanges(entities []types.Entity, existingState *State) []Entit
 	}
 
 	// Detect deleted entities: present in old state but absent from current.
-	for entityName, oldFields := range oldEntities {
+	// Collect and sort deleted entity names for deterministic output.
+	var deletedNames []string
+	for entityName := range oldEntities {
 		if !currentNames[entityName] {
-			changes = append(changes, EntityChange{
-				Entity:  entityName,
-				Removed: oldFields,
-			})
+			deletedNames = append(deletedNames, entityName)
 		}
+	}
+	sort.Strings(deletedNames)
+	for _, entityName := range deletedNames {
+		changes = append(changes, EntityChange{
+			Entity:  entityName,
+			Removed: oldEntities[entityName],
+		})
 	}
 
 	return changes
@@ -612,7 +648,7 @@ func FormatPlan(plan *Plan) string {
 	}
 
 	var sb strings.Builder
-	var generateCount, updateCount, unchangedCount int
+	var generateCount, updateCount, deleteCount, unchangedCount int
 
 	for _, f := range plan.Files {
 		switch f.Action {
@@ -622,6 +658,9 @@ func FormatPlan(plan *Plan) string {
 		case ActionUpdate:
 			updateCount++
 			fmt.Fprintf(&sb, "  update:   %s\n", f.Path)
+		case ActionDelete:
+			deleteCount++
+			fmt.Fprintf(&sb, "  delete:   %s\n", f.Path)
 		case ActionUnchanged:
 			unchangedCount++
 		}
@@ -632,8 +671,8 @@ func FormatPlan(plan *Plan) string {
 	if unchangedCount > 0 {
 		fmt.Fprintf(&result, "  unchanged: %d files\n", unchangedCount)
 	}
-	fmt.Fprintf(&result, "\nSummary: %d to generate, %d to update, %d unchanged\n",
-		generateCount, updateCount, unchangedCount)
+	fmt.Fprintf(&result, "\nSummary: %d to generate, %d to update, %d to delete, %d unchanged\n",
+		generateCount, updateCount, deleteCount, unchangedCount)
 
 	return result.String()
 }

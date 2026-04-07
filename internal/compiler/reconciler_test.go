@@ -853,6 +853,188 @@ func TestHasChanges_IncludesEntityChanges(t *testing.T) {
 	}
 }
 
+func TestReconcile_OrphanedFilesDetectedAndRemoved(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// First apply with two component files.
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+				{Path: "internal/api/handler_widget.go", Content: []byte("package api\n// widget\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+		"stub-store": &stubGenerator{},
+	}
+
+	reconcilerInput := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+
+	plan1, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("first Reconcile failed: %v", err)
+	}
+	outDir := filepath.Join(projectDir, "out")
+	if err := Apply(plan1, projectDir, outDir); err != nil {
+		t.Fatalf("first Apply failed: %v", err)
+	}
+
+	// Verify the widget handler was written.
+	widgetPath := filepath.Join(outDir, "internal", "api", "handler_widget.go")
+	if _, err := os.Stat(widgetPath); err != nil {
+		t.Fatalf("handler_widget.go should exist after first apply: %v", err)
+	}
+
+	// Second apply: remove handler_widget.go from generator output.
+	generators["stub-api"] = &stubGenerator{
+		files: []gen.File{
+			{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+		},
+		wiring: &gen.Wiring{
+			Imports:      []string{"internal/api"},
+			Constructors: []string{"api.NewHandler()"},
+			Routes:       []string{`mux.Handle("/widgets", handler)`},
+		},
+	}
+
+	plan2, err := Reconcile(reconcilerInput)
+	if err != nil {
+		t.Fatalf("second Reconcile failed: %v", err)
+	}
+
+	// Plan should show the orphaned file as a delete action.
+	if !plan2.HasChanges() {
+		t.Fatal("expected plan to have changes when a file is orphaned")
+	}
+
+	foundDelete := false
+	for _, f := range plan2.Files {
+		if f.Path == "internal/api/handler_widget.go" && f.Action == ActionDelete {
+			foundDelete = true
+		}
+	}
+	if !foundDelete {
+		t.Error("expected handler_widget.go to show as 'delete' in plan")
+	}
+
+	// Apply should remove the orphaned file from disk.
+	if err := Apply(plan2, projectDir, outDir); err != nil {
+		t.Fatalf("second Apply failed: %v", err)
+	}
+
+	if _, err := os.Stat(widgetPath); !os.IsNotExist(err) {
+		t.Error("expected handler_widget.go to be removed from disk after apply")
+	}
+}
+
+func TestComputePlan_UsesOutDir(t *testing.T) {
+	// Create a temporary directory structure with a non-default output dir.
+	tmpDir := t.TempDir()
+	customOutDir := filepath.Join(tmpDir, "custom-out")
+	if err := os.MkdirAll(customOutDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a file at the custom output path.
+	filePath := filepath.Join(customOutDir, "test.go")
+	fileContent := []byte("package test\n")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filePath, fileContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The generated file has the same content as on disk.
+	genFile := gen.File{Path: "test.go", Content: fileContent}
+
+	plan := computePlan(
+		[]gen.File{genFile},
+		&State{},
+		[]byte("service: test"),
+		nil,
+		map[string]*types.Component{},
+		customOutDir,
+		"",
+	)
+
+	// Since the file exists on disk at customOutDir with the same hash,
+	// it should be unchanged (not generate).
+	for _, f := range plan.Files {
+		if f.Path == "test.go" {
+			// File exists on disk with same content — disk check uses the
+			// file's rendered bytes (via gen.File.Bytes()).
+			renderedHash := HashBytes(genFile.Bytes())
+			diskHash := HashBytes(fileContent)
+			if renderedHash == diskHash {
+				if f.Action != ActionUnchanged {
+					t.Errorf("expected unchanged for test.go when disk content matches, got %s", f.Action)
+				}
+			} else {
+				// Rendered bytes include header for .go files, so content differs.
+				if f.Action != ActionUpdate {
+					t.Errorf("expected update for test.go (header added by Bytes()), got %s", f.Action)
+				}
+			}
+			return
+		}
+	}
+	t.Error("test.go not found in plan")
+}
+
+func TestComputeEntityChanges_DeletedEntitiesSorted(t *testing.T) {
+	// Current: no entities. Old state: Zebra, Alpha, Mango all deleted.
+	entities := []types.Entity{}
+	existingState := &State{
+		LastApplied: &AppliedState{
+			Entities: map[string][]string{
+				"Zebra": {"stripe"},
+				"Alpha": {"first"},
+				"Mango": {"sweet"},
+			},
+		},
+	}
+
+	changes := computeEntityChanges(entities, existingState)
+	if len(changes) != 3 {
+		t.Fatalf("expected 3 deleted entities, got %d", len(changes))
+	}
+
+	// Verify alphabetical order.
+	expectedOrder := []string{"Alpha", "Mango", "Zebra"}
+	for i, expected := range expectedOrder {
+		if changes[i].Entity != expected {
+			t.Errorf("deleted entity at position %d: expected %q, got %q", i, expected, changes[i].Entity)
+		}
+	}
+}
+
+func TestFormatPlan_DeleteAction(t *testing.T) {
+	plan := &Plan{
+		Files: []PlannedFile{
+			{Path: "keep.go", Action: ActionUnchanged},
+			{Path: "orphan.go", Action: ActionDelete},
+		},
+	}
+	output := FormatPlan(plan)
+	if !strings.Contains(output, "delete:   orphan.go") {
+		t.Errorf("expected 'delete: orphan.go' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "1 to delete") {
+		t.Errorf("expected '1 to delete' in summary, got: %s", output)
+	}
+}
+
 func TestResolveComponentConfig_MergesDefaults(t *testing.T) {
 	comp := &types.Component{
 		Config: map[string]types.ConfigField{

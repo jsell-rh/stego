@@ -86,6 +86,8 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		registrySHA = cfg.Registry[0].Ref
 	}
 
+	outDir := filepath.Join(projectDir, "out")
+
 	return compiler.ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
@@ -93,6 +95,7 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		GoVersion:   goVersion,
 		ModuleName:  moduleName,
 		RegistrySHA: registrySHA,
+		OutDir:      outDir,
 	}, nil
 }
 
@@ -137,8 +140,7 @@ func runApply() error {
 		return nil
 	}
 
-	outDir := filepath.Join(input.ProjectDir, "out")
-	if err := compiler.Apply(plan, input.ProjectDir, outDir); err != nil {
+	if err := compiler.Apply(plan, input.ProjectDir, input.OutDir); err != nil {
 		return err
 	}
 
