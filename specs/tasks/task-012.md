@@ -54,3 +54,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 89ae9a9 fix(task-012): handler constructors accept and invoke slot operator parameters
 - 66a80f8 fix(task-012): populate slot request objects and add nil-guard degradation
 - f0d48bb fix(task-012): add halt check and populate Caller in before-slot invocations
+- 676025e fix(task-012): make emitBeforeSlot slot-aware for polymorphic request types
