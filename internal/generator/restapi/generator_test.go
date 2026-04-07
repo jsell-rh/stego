@@ -2138,6 +2138,67 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 	}
 }
 
+func TestGenerate_EntityNamedStorageReturnsError(t *testing.T) {
+	// Finding 27: entity named "Storage" collides with the generated Storage
+	// interface in router.go. The generator must return a clear error at
+	// generation time rather than producing code with a redeclaration.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Storage", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Storage",
+				Operations: []types.Operation{types.OpCreate, types.OpRead},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for entity named 'Storage' (collides with generated Storage interface)")
+	}
+	if !strings.Contains(err.Error(), "Storage") {
+		t.Errorf("error should mention 'Storage', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "collides") {
+		t.Errorf("error should mention collision, got: %v", err)
+	}
+}
+
+func TestGenerate_EntityNamedNewRouterReturnsError(t *testing.T) {
+	// Entity named "NewRouter" collides with the generated NewRouter function.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "NewRouter", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "NewRouter",
+				Operations: []types.Operation{types.OpRead},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for entity named 'NewRouter' (collides with generated NewRouter function)")
+	}
+	if !strings.Contains(err.Error(), "NewRouter") {
+		t.Errorf("error should mention 'NewRouter', got: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()

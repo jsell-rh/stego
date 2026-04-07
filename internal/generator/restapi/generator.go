@@ -25,6 +25,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
+	// Check for entity name collisions with generator-internal identifiers.
+	if err := checkEntityNameCollisions(ctx.Expose); err != nil {
+		return nil, nil, err
+	}
+
 	// Build entity lookup for field resolution.
 	entityMap := make(map[string]types.Entity, len(ctx.Entities))
 	for _, e := range ctx.Entities {
@@ -920,6 +925,28 @@ func safeVarName(name string) string {
 		return name + "_"
 	}
 	return name
+}
+
+// reservedTypeNames is the set of identifiers the rest-api generator defines
+// unconditionally in the generated package. An entity whose name matches any
+// of these produces a redeclaration compile error. The check must happen at
+// generation time with a clear diagnostic — downstream compilation would point
+// at generated code, giving the user no indication that their entity name is
+// the problem.
+var reservedTypeNames = map[string]bool{
+	"Storage":   true, // type Storage interface { ... } in router.go
+	"NewRouter": true, // func NewRouter(...) in router.go
+}
+
+// checkEntityNameCollisions verifies that no exposed entity name collides with
+// a generator-internal identifier. Returns an error identifying the collision.
+func checkEntityNameCollisions(expose []types.ExposeBlock) error {
+	for _, eb := range expose {
+		if reservedTypeNames[eb.Entity] {
+			return fmt.Errorf("entity name %q collides with rest-api generator internal identifier %q; rename the entity to avoid a redeclaration error in generated code", eb.Entity, eb.Entity)
+		}
+	}
+	return nil
 }
 
 func jsonContent(schema openAPISchema) map[string]openAPIMediaType {
