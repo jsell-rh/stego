@@ -302,7 +302,12 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", idParam)
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
-			fmt.Fprintf(&buf, "\tif !h.store.Exists(%q, %s) {\n", anc, idVar)
+			fmt.Fprintf(&buf, "\t%sExists, %sErr := h.store.Exists(%q, %s)\n", idVar, idVar, anc, idVar)
+			fmt.Fprintf(&buf, "\tif %sErr != nil {\n", idVar)
+			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n")
+			fmt.Fprintf(&buf, "\t\treturn false\n")
+			fmt.Fprintf(&buf, "\t}\n")
+			fmt.Fprintf(&buf, "\tif !%sExists {\n", idVar)
 			fmt.Fprintf(&buf, "\t\thttp.Error(w, %q, http.StatusNotFound)\n", anc+" not found")
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
@@ -560,7 +565,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 	fmt.Fprintf(&buf, "\tDelete(entity string, id string) error\n")
 	fmt.Fprintf(&buf, "\tList(entity string, scopeField string, scopeValue string) (any, error)\n")
 	fmt.Fprintf(&buf, "\tUpsert(entity string, value any, upsertKey []string, concurrency string) error\n")
-	fmt.Fprintf(&buf, "\tExists(entity string, id string) bool\n")
+	fmt.Fprintf(&buf, "\tExists(entity string, id string) (bool, error)\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Entity types with fields from the entity definitions.
