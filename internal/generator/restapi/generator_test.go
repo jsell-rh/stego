@@ -387,6 +387,47 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 	}
 }
 
+func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
+	// When an entity has a parent but no scope, the List method must pass
+	// the raw YAML field name (e.g. "cluster_id") to store.List, not the
+	// PascalCase Go field name ("ClusterID"). This ensures consistency with
+	// scope+parent and scope-only branches.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpList},
+				Parent:     "Cluster",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
+	if !strings.Contains(handler, `h.store.List("NodePool", "cluster_id", clusterID)`) {
+		t.Error("parent-only List must pass raw YAML field name to store.List, not PascalCase")
+	}
+	if strings.Contains(handler, `h.store.List("NodePool", "ClusterID"`) {
+		t.Error("parent-only List must not pass PascalCase field name to store.List")
+	}
+}
+
 func TestGenerate_UpsertOperation(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
@@ -616,6 +657,60 @@ func hasParam(params []any, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
+	// When scope is set without a parent, the handler reads the scope value
+	// from a query parameter. The OpenAPI spec must declare this query parameter.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpList},
+				Scope:      "org_id",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	usersPath := paths["/users"].(map[string]any)
+	getOp := usersPath["get"].(map[string]any)
+	params, ok := getOp["parameters"].([]any)
+	if !ok || len(params) == 0 {
+		t.Fatal("GET /users (list with scope) must have parameters declared")
+	}
+
+	// Find the scope query parameter.
+	foundScopeParam := false
+	for _, p := range params {
+		param := p.(map[string]any)
+		if param["name"] == "org_id" && param["in"] == "query" {
+			foundScopeParam = true
+		}
+	}
+	if !foundScopeParam {
+		t.Error("OpenAPI list operation must declare org_id query parameter when scope is set without parent")
+	}
 }
 
 func TestGenerate_OpenAPIFieldTypes(t *testing.T) {

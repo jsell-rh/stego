@@ -329,7 +329,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	} else if eb.Parent != "" {
 		parentIDVar := strings.ToLower(eb.Parent) + "ID"
 		parentIDParam := strings.ToLower(eb.Parent) + "_id"
-		parentField := parentRefFieldName(entity, eb.Parent)
+		parentField := parentRefRawFieldName(entity, eb.Parent)
 		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentIDParam)
 		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
@@ -536,11 +536,22 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 
 			switch op {
 			case types.OpList:
+				listParams := append([]openAPIParam{}, parentParams...)
+				// When scope is set without a parent, the scope value is passed
+				// as a query parameter — declare it in the OpenAPI spec.
+				if eb.Scope != "" && eb.Parent == "" {
+					listParams = append(listParams, openAPIParam{
+						Name:     eb.Scope,
+						In:       "query",
+						Required: false,
+						Schema:   openAPISchema{Type: "string"},
+					})
+				}
 				listOp := openAPIOperation{
 					Summary:     "List " + eb.Entity + " entities",
 					OperationID: "list" + eb.Entity,
 					Tags:        []string{tag},
-					Parameters:  append([]openAPIParam{}, parentParams...),
+					Parameters:  listParams,
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Successful response", Content: jsonContent(openAPISchema{
 							Type:  "array",
@@ -754,6 +765,18 @@ func parentRefFieldName(entity types.Entity, parent string) string {
 		}
 	}
 	return parent + "ID"
+}
+
+// parentRefRawFieldName finds the raw YAML field name for the ref field that
+// points to the parent entity. Falls back to lowercase parent + "_id" if no
+// matching ref is found.
+func parentRefRawFieldName(entity types.Entity, parent string) string {
+	for _, f := range entity.Fields {
+		if f.Type == types.FieldTypeRef && f.To == parent {
+			return f.Name
+		}
+	}
+	return strings.ToLower(parent) + "_id"
 }
 
 func jsonContent(schema openAPISchema) map[string]openAPIMediaType {
