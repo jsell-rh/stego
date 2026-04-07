@@ -974,6 +974,12 @@ func TestAssemble_ComponentImportAliasCollision(t *testing.T) {
 	if !strings.Contains(code, "models2") {
 		t.Errorf("missing disambiguated models2 alias in:\n%s", code)
 	}
+
+	// Finding 14: Constructor expressions must use the disambiguated alias.
+	// Component-b's constructor should reference "models2", not "models".
+	if !strings.Contains(code, "models2.NewBar()") {
+		t.Errorf("component-b constructor should use disambiguated alias models2 in:\n%s", code)
+	}
 }
 
 func TestAssemble_NeedsDB_StructuredMetadata(t *testing.T) {
@@ -1442,6 +1448,11 @@ func TestAssemble_SlotsAliasCollisionWithComponent(t *testing.T) {
 	if !strings.Contains(code, "slots2") {
 		t.Errorf("component 'internal/slots' alias should be disambiguated when slots package is present in:\n%s", code)
 	}
+
+	// Finding 14: Constructor expression must use the disambiguated alias.
+	if !strings.Contains(code, "slots2.NewProcessor()") {
+		t.Errorf("component constructor should use disambiguated alias slots2 in:\n%s", code)
+	}
 }
 
 func TestAssemble_FillAliasCollisionWithComponent(t *testing.T) {
@@ -1743,6 +1754,293 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 				t.Errorf("expected disambiguated variable %q in:\n%s", tt.wantVar, code)
 			}
 		})
+	}
+}
+
+func TestReplaceIdentRef(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		oldName string
+		newName string
+		want    string
+	}{
+		{
+			name:    "basic replacement",
+			input:   "store.Get()",
+			oldName: "store",
+			newName: "store2",
+			want:    "store2.Get()",
+		},
+		{
+			name:    "does not corrupt longer identifier",
+			input:   "datastore.Get()",
+			oldName: "store",
+			newName: "store2",
+			want:    "datastore.Get()",
+		},
+		{
+			name:    "replaces at start of string",
+			input:   "store.Get()",
+			oldName: "store",
+			newName: "store2",
+			want:    "store2.Get()",
+		},
+		{
+			name:    "replaces after non-ident char",
+			input:   "(store.Get())",
+			oldName: "store",
+			newName: "store2",
+			want:    "(store2.Get())",
+		},
+		{
+			name:    "multiple occurrences",
+			input:   "store.Get(), store.Put()",
+			oldName: "store",
+			newName: "store2",
+			want:    "store2.Get(), store2.Put()",
+		},
+		{
+			name:    "mixed match and non-match",
+			input:   "datastore.Get(), store.Put()",
+			oldName: "store",
+			newName: "store2",
+			want:    "datastore.Get(), store2.Put()",
+		},
+		{
+			name:    "no-op when same name",
+			input:   "store.Get()",
+			oldName: "store",
+			newName: "store",
+			want:    "store.Get()",
+		},
+		{
+			name:    "underscore prefix is ident boundary",
+			input:   "_store.Get()",
+			oldName: "store",
+			newName: "store2",
+			want:    "_store.Get()",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := replaceIdentRef(tt.input, tt.oldName, tt.newName)
+			if got != tt.want {
+				t.Errorf("replaceIdentRef(%q, %q, %q) = %q, want %q",
+					tt.input, tt.oldName, tt.newName, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAssemble_VarRenameWordBoundary(t *testing.T) {
+	// Finding 15: Variable rename "store" → "store2" must not corrupt
+	// "datastore.Get" into "datastore2.Get".
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/b"},
+					Constructors: []string{
+						"b.NewStore(db)",
+						"b.NewDatastore()",
+					},
+					Routes: []string{
+						`mux.HandleFunc("GET /data", datastore.Get)`,
+					},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The second "store" constructor should be disambiguated to "store2".
+	if !strings.Contains(code, "store2 :=") {
+		t.Errorf("missing disambiguated store2 in:\n%s", code)
+	}
+
+	// The "datastore" variable must NOT be corrupted to "datastore2".
+	if strings.Contains(code, "datastore2") {
+		t.Errorf("datastore should NOT be renamed — word boundary violation in:\n%s", code)
+	}
+
+	// The route referencing datastore must remain intact.
+	if !strings.Contains(code, "datastore.Get") {
+		t.Errorf("route should still reference datastore.Get in:\n%s", code)
+	}
+}
+
+func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
+	// Finding 16: Constructors that derive stdlib import alias names (log,
+	// fmt, http) must be disambiguated to prevent shadowing.
+	tests := []struct {
+		name        string
+		constructor string
+		wantVar     string
+	}{
+		{
+			name:        "log collision",
+			constructor: "logger.NewLog()",
+			wantVar:     "log2 :=",
+		},
+		{
+			name:        "fmt collision",
+			constructor: "formatter.NewFmt()",
+			wantVar:     "fmt2 :=",
+		},
+		{
+			name:        "http collision",
+			constructor: "client.NewHttp()",
+			wantVar:     "http2 :=",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := AssemblerInput{
+				ModuleName:  "github.com/myorg/svc",
+				ServiceName: "svc",
+				GoVersion:   "1.22",
+				Port:        8080,
+				Wirings: []ComponentWiring{
+					{
+						Name: "colliding-component",
+						Wiring: &gen.Wiring{
+							Imports:      []string{"internal/colliding"},
+							Constructors: []string{tt.constructor},
+						},
+					},
+					{
+						Name: "rest-api",
+						Wiring: &gen.Wiring{
+							Imports:      []string{"internal/api"},
+							Constructors: []string{"api.NewHandler()"},
+							Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+						},
+					},
+				},
+			}
+
+			files, err := Assemble(input)
+			if err != nil {
+				t.Fatalf("Assemble: %v", err)
+			}
+
+			var mainGo gen.File
+			for _, f := range files {
+				if f.Path == "cmd/main.go" {
+					mainGo = f
+				}
+			}
+
+			code := string(mainGo.Content)
+
+			fset := token.NewFileSet()
+			_, parseErr := parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+			if parseErr != nil {
+				t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, parseErr)
+			}
+
+			if !strings.Contains(code, tt.wantVar) {
+				t.Errorf("expected disambiguated variable %q in:\n%s", tt.wantVar, code)
+			}
+		})
+	}
+}
+
+func TestAssemble_ImportAliasRenameInRoutes(t *testing.T) {
+	// Finding 14: When a component's import alias is disambiguated,
+	// route expressions from that component must also be updated.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api/handler"},
+					Constructors: []string{"handler.NewFoo()"},
+					Routes:       []string{`mux.HandleFunc("GET /foo", foo.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/other/handler"},
+					Constructors: []string{"handler.NewBar()"},
+					Routes:       []string{`mux.HandleFunc("GET /bar", bar.Get)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Component-b's import should be disambiguated.
+	if !strings.Contains(code, "handler2") {
+		t.Errorf("missing disambiguated handler2 alias in:\n%s", code)
+	}
+
+	// Component-b's constructor should use the disambiguated alias.
+	if !strings.Contains(code, "handler2.NewBar()") {
+		t.Errorf("component-b constructor should use handler2 in:\n%s", code)
+	}
+
+	// Component-a's constructor should keep the original alias.
+	if !strings.Contains(code, "handler.NewFoo()") {
+		t.Errorf("component-a constructor should keep handler alias in:\n%s", code)
 	}
 }
 
