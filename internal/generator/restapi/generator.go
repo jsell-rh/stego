@@ -62,22 +62,22 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			switch op {
 			case types.OpCreate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.create)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", basePath, lower))
 			case types.OpRead:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.read)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", basePath, lower))
 			case types.OpUpdate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.update)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", basePath, lower))
 			case types.OpDelete:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.delete)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", basePath, lower))
 			case types.OpList:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.list)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", basePath, lower))
 			case types.OpUpsert:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.upsert)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", basePath, lower))
 			}
 		}
 	}
@@ -242,7 +242,7 @@ func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
 
 func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
@@ -266,7 +266,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 
 func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\t%s, err := h.store.Read(%q, id)\n", lower, entity.Name)
@@ -281,7 +281,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 
 func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
@@ -300,7 +300,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 }
 
 func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
-	fmt.Fprintf(buf, "func (h *%sHandler) delete(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(%q, id); err != nil {\n", entity.Name)
@@ -313,7 +313,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 
 func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name) + "s"
-	fmt.Fprintf(buf, "func (h *%sHandler) list(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 
 	// Scope filtering: when a parent is set the scope value comes from the
@@ -347,7 +347,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 
 func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock) {
 	lower := strings.ToLower(entity.Name)
-	fmt.Fprintf(buf, "func (h *%sHandler) upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
@@ -459,17 +459,17 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 		for _, op := range eb.Operations {
 			switch op {
 			case types.OpCreate:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"POST %s\", %sHandler.create)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"POST %s\", %sHandler.Create)\n", basePath, lower)
 			case types.OpRead:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s/{id}\", %sHandler.read)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)\n", basePath, lower)
 			case types.OpUpdate:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s/{id}\", %sHandler.update)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)\n", basePath, lower)
 			case types.OpDelete:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"DELETE %s/{id}\", %sHandler.delete)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)\n", basePath, lower)
 			case types.OpList:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s\", %sHandler.list)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s\", %sHandler.List)\n", basePath, lower)
 			case types.OpUpsert:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s\", %sHandler.upsert)\n", basePath, lower)
+				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s\", %sHandler.Upsert)\n", basePath, lower)
 			}
 		}
 		fmt.Fprintf(&buf, "\n")
@@ -563,7 +563,7 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"201": {Description: "Created"},
+						"201": {Description: "Created", Content: jsonContent(openAPISchema{Ref: ref})},
 					},
 				}
 				if len(createOp.Parameters) == 0 {
@@ -602,7 +602,7 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Updated"},
+						"200": {Description: "Updated", Content: jsonContent(openAPISchema{Ref: ref})},
 					},
 				}
 			case types.OpDelete:
@@ -631,7 +631,7 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Upserted"},
+						"200": {Description: "Upserted", Content: jsonContent(openAPISchema{Ref: ref})},
 					},
 				}
 				if len(upsertOp.Parameters) == 0 {

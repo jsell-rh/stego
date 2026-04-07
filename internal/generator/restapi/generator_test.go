@@ -121,7 +121,7 @@ func TestGenerate_HandlerContainsCRUDMethods(t *testing.T) {
 	handlerContent := findFileContent(t, files, "internal/api/handler_user.go")
 
 	for _, method := range []string{"create", "read", "update", "delete", "list"} {
-		if !strings.Contains(handlerContent, "func (h *UserHandler) "+method+"(") {
+		if !strings.Contains(handlerContent, "func (h *UserHandler) "+strings.ToUpper(method[:1])+method[1:]+"(") {
 			t.Errorf("handler missing %s method", method)
 		}
 	}
@@ -415,7 +415,7 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
-	if !strings.Contains(handler, "func (h *AdapterStatusHandler) upsert(") {
+	if !strings.Contains(handler, "func (h *AdapterStatusHandler) Upsert(") {
 		t.Error("handler missing upsert method")
 	}
 	if !strings.Contains(handler, `"resource_type"`) {
@@ -460,10 +460,10 @@ func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_item.go")
-	if !strings.Contains(handler, "func (h *ItemHandler) update(") {
+	if !strings.Contains(handler, "func (h *ItemHandler) Update(") {
 		t.Error("handler missing update method")
 	}
-	if !strings.Contains(handler, "func (h *ItemHandler) upsert(") {
+	if !strings.Contains(handler, "func (h *ItemHandler) Upsert(") {
 		t.Error("handler missing upsert method")
 	}
 
@@ -714,7 +714,7 @@ func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
 	handler := findFileContent(t, files, "internal/api/handler_cluster.go")
 
 	// Each write method must zero the computed field after decode.
-	for _, method := range []string{"create", "update", "upsert"} {
+	for _, method := range []string{"Create", "Update", "Upsert"} {
 		if !strings.Contains(handler, "func (h *ClusterHandler) "+method+"(") {
 			t.Errorf("handler missing %s method", method)
 			continue
@@ -962,11 +962,11 @@ func TestGenerate_ListOnlyGETRoute(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_event.go")
-	if !strings.Contains(handler, "func (h *EventHandler) list(") {
+	if !strings.Contains(handler, "func (h *EventHandler) List(") {
 		t.Error("handler missing list method")
 	}
 	// Should not have a read method.
-	if strings.Contains(handler, "func (h *EventHandler) read(") {
+	if strings.Contains(handler, "func (h *EventHandler) Read(") {
 		t.Error("handler should not have read method when only list is exposed")
 	}
 }
@@ -1299,6 +1299,135 @@ func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("computed timestamp field does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_OpenAPIResponseContentForWriteOps(t *testing.T) {
+	// Create, update, and upsert handlers write JSON response bodies.
+	// The OpenAPI spec must declare response content for these operations.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "key", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Item",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
+				UpsertKey:  []string{"key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+
+	// POST /items (create) — response 201 must have content.
+	collectionPath := paths["/items"].(map[string]any)
+	postOp := collectionPath["post"].(map[string]any)
+	postResponses := postOp["responses"].(map[string]any)
+	created := postResponses["201"].(map[string]any)
+	if _, ok := created["content"]; !ok {
+		t.Error("POST (create) 201 response must declare content with application/json")
+	}
+
+	// PUT /items (upsert) — response 200 must have content.
+	putCollOp := collectionPath["put"].(map[string]any)
+	putCollResponses := putCollOp["responses"].(map[string]any)
+	upserted := putCollResponses["200"].(map[string]any)
+	if _, ok := upserted["content"]; !ok {
+		t.Error("PUT (upsert) 200 response must declare content with application/json")
+	}
+
+	// PUT /items/{id} (update) — response 200 must have content.
+	itemPath := paths["/items/{id}"].(map[string]any)
+	putItemOp := itemPath["put"].(map[string]any)
+	putItemResponses := putItemOp["responses"].(map[string]any)
+	updated := putItemResponses["200"].(map[string]any)
+	if _, ok := updated["content"]; !ok {
+		t.Error("PUT (update) 200 response must declare content with application/json")
+	}
+
+	// GET /items/{id} (read) — verify it still has content (regression check).
+	getItemOp := itemPath["get"].(map[string]any)
+	getItemResponses := getItemOp["responses"].(map[string]any)
+	readResp := getItemResponses["200"].(map[string]any)
+	if _, ok := readResp["content"]; !ok {
+		t.Error("GET (read) 200 response must declare content with application/json")
+	}
+}
+
+func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
+	// Wiring routes are code fragments for cmd/main.go (package main).
+	// Handler methods must be exported (capitalized) to be accessible
+	// from a different package.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "key", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "Item",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
+				UpsertKey:  []string{"key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wiring == nil {
+		t.Fatal("expected wiring")
+	}
+
+	// Verify each route uses an exported method name.
+	unexported := []string{".create)", ".read)", ".update)", ".delete)", ".list)", ".upsert)"}
+	exported := []string{".Create)", ".Read)", ".Update)", ".Delete)", ".List)", ".Upsert)"}
+
+	for _, route := range wiring.Routes {
+		for _, u := range unexported {
+			if strings.Contains(route, u) {
+				t.Errorf("wiring route uses unexported method: %s", route)
+			}
+		}
+	}
+
+	// Verify at least one exported method is present for each operation.
+	foundExported := make(map[string]bool)
+	for _, route := range wiring.Routes {
+		for _, e := range exported {
+			if strings.Contains(route, e) {
+				foundExported[e] = true
+			}
+		}
+	}
+	for _, e := range exported {
+		if !foundExported[e] {
+			t.Errorf("expected a wiring route with exported method %s", e)
+		}
 	}
 }
 
