@@ -52,3 +52,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 184c3a3 fix(task-012): propagate import alias renames to duplicate cross-wiring imports
 - ee36463 fix(task-012): remove import alias renames from route expressions to prevent multi-pass interference
 - 89ae9a9 fix(task-012): handler constructors accept and invoke slot operator parameters
+- 66a80f8 fix(task-012): populate slot request objects and add nil-guard degradation
