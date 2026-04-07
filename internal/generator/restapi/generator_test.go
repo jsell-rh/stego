@@ -2490,6 +2490,81 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 	}
 }
 
+func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
+	// Finding 31: When an expose block references a parent entity that is not
+	// itself in the expose list, the generator must return an error at generation
+	// time rather than producing silently non-functional code.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			// NodePool references parent Cluster, but Cluster is NOT exposed.
+			{
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+				Parent:     "Cluster",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when parent entity is not in expose list, got nil")
+	}
+	if !strings.Contains(err.Error(), "Cluster") {
+		t.Errorf("error should mention the missing parent entity 'Cluster', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "NodePool") {
+		t.Errorf("error should mention the referencing entity 'NodePool', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "expose") {
+		t.Errorf("error should mention the expose list, got: %v", err)
+	}
+}
+
+func TestGenerate_MultipleParentsNotInExposeListReportsAll(t *testing.T) {
+	// Verify all unresolved parent references are reported together.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Team", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Org"},
+			}},
+			{Name: "Project", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "team_id", Type: types.FieldTypeRef, To: "Team"},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{Entity: "Team", Operations: []types.Operation{types.OpList}, Parent: "Org"},
+			{Entity: "Project", Operations: []types.Operation{types.OpList}, Parent: "Team"},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when parent entities are not in expose list, got nil")
+	}
+	// Org is not in the expose list, so Team's reference should fail.
+	if !strings.Contains(err.Error(), "Org") {
+		t.Errorf("error should mention missing parent 'Org', got: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()

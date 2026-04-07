@@ -42,6 +42,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		exposeMap[eb.Entity] = eb
 	}
 
+	// Validate that all parent cross-references resolve within the expose list.
+	if err := validateParentReferences(ctx.Expose, exposeMap); err != nil {
+		return nil, nil, err
+	}
+
 	var files []gen.File
 	wiring := &gen.Wiring{}
 
@@ -966,6 +971,27 @@ func checkEntityNameCollisions(expose []types.ExposeBlock) error {
 		if reservedTypeNames[eb.Entity] {
 			return fmt.Errorf("entity name %q collides with rest-api generator internal identifier %q; rename the entity to avoid a redeclaration error in generated code", eb.Entity, eb.Entity)
 		}
+	}
+	return nil
+}
+
+// validateParentReferences verifies that every expose block's parent field
+// references an entity that is also in the expose list. A parent outside the
+// expose list means the generator cannot produce a correct route — the parent's
+// path segment and path parameter will be missing, causing every request to fail.
+func validateParentReferences(expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) error {
+	var errs []string
+	for _, eb := range expose {
+		if eb.Parent != "" {
+			if _, ok := exposeMap[eb.Parent]; !ok {
+				errs = append(errs, fmt.Sprintf(
+					"expose block for %q references parent %q, but %q is not in the expose list",
+					eb.Entity, eb.Parent, eb.Parent))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("unresolved parent references:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
