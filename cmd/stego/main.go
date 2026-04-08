@@ -207,9 +207,11 @@ func runInit(args []string) error {
 
 // initRegistryDir returns the registry directory for use during init.
 // Init needs a registry before config.yaml exists, so it uses STEGO_REGISTRY
-// or falls back to ./registry.
+// or falls back to ./registry. When STEGO_REGISTRY is used, a warning is
+// printed to stderr per AC #4.
 func initRegistryDir(projectDir string) string {
 	if envReg := os.Getenv("STEGO_REGISTRY"); envReg != "" {
+		fmt.Fprintf(os.Stderr, "WARNING: using STEGO_REGISTRY override: %s (config.yaml registry settings ignored)\n", envReg)
 		return envReg
 	}
 	return filepath.Join(projectDir, "registry")

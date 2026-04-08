@@ -126,7 +126,7 @@ func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
 	// Ensure the git binary is available.
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
-		return "", fmt.Errorf("git binary not found: %w (required for git-based registry resolution)", err)
+		return "", fmt.Errorf("git binary not found for registry %s at ref %s: %w (required for git-based registry resolution)", url, ref, err)
 	}
 
 	// Clone the repo into the checkout directory.
@@ -140,7 +140,7 @@ func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
 	// Clone and checkout at the specific ref.
 	cmd := exec.Command(gitPath, "clone", "--no-checkout", url, checkoutDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("git clone %s failed: %w\n%s", url, err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("git clone %s at ref %s failed: %w\n%s", url, ref, err, strings.TrimSpace(string(output)))
 	}
 
 	cmd = exec.Command(gitPath, "checkout", ref)
