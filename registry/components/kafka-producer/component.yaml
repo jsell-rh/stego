@@ -1,0 +1,12 @@
+kind: component
+name: kafka-producer
+version: 0.1.0
+
+config: {}
+
+requires: []
+
+provides:
+  - event-publisher
+
+slots: []

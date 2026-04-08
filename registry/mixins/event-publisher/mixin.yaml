@@ -1,0 +1,13 @@
+kind: mixin
+name: event-publisher
+version: 1.0.0
+
+adds_components:
+  - kafka-producer
+
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+
+overrides: none
