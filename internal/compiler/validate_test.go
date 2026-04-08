@@ -1666,6 +1666,85 @@ expose:
 	}
 }
 
+func TestValidate_DuplicateExposeBlock(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+  - entity: Widget
+    operations: [read]
+  - entity: Org
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "duplicate expose blocks for entity \"Widget\"")
+	// Org should NOT have a duplicate error.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate expose blocks") && strings.Contains(e.Message, "Org") {
+			t.Errorf("unexpected duplicate expose block error for Org: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_DuplicateOperationInExposeBlock(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "operation", "duplicate operation \"create\"")
+	// "read" should NOT have a duplicate error.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate operation") && strings.Contains(e.Message, "read") {
+			t.Errorf("unexpected duplicate operation error for read: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

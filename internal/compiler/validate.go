@@ -344,13 +344,31 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 		entityFields[e.Name] = fields
 	}
 
+	// Check for duplicate expose blocks (same entity appearing more than once).
+	var errs []ValidationError
+	exposeCount := make(map[string]int, len(expose))
+	for _, eb := range expose {
+		exposeCount[eb.Entity]++
+	}
+	var duplicateExposeEntities []string
+	for entity, count := range exposeCount {
+		if count > 1 {
+			duplicateExposeEntities = append(duplicateExposeEntities, entity)
+		}
+	}
+	sort.Strings(duplicateExposeEntities)
+	for _, entity := range duplicateExposeEntities {
+		errs = append(errs, ValidationError{
+			Category: "entity-ref",
+			Message:  fmt.Sprintf("expose list contains duplicate expose blocks for entity %q", entity),
+		})
+	}
+
 	// Build set of exposed entity names for parent-in-expose-list validation.
 	exposedEntities := make(map[string]bool, len(expose))
 	for _, eb := range expose {
 		exposedEntities[eb.Entity] = true
 	}
-
-	var errs []ValidationError
 	for _, eb := range expose {
 		if !entityNames[eb.Entity] {
 			errs = append(errs, ValidationError{
@@ -441,11 +459,21 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 	return errs
 }
 
-// validateExposeOps checks that each operation in expose blocks is valid.
+// validateExposeOps checks that each operation in expose blocks is valid and
+// that no operation appears more than once within a single expose block.
 func validateExposeOps(expose []types.ExposeBlock) []ValidationError {
 	var errs []ValidationError
 	for _, eb := range expose {
+		opSeen := make(map[types.Operation]bool, len(eb.Operations))
 		for _, op := range eb.Operations {
+			if opSeen[op] {
+				errs = append(errs, ValidationError{
+					Category: "operation",
+					Message:  fmt.Sprintf("expose block for entity %q has duplicate operation %q", eb.Entity, op),
+				})
+			}
+			opSeen[op] = true
+
 			if !types.ValidOperations[op] {
 				errs = append(errs, ValidationError{
 					Category: "operation",
