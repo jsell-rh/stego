@@ -26,7 +26,7 @@ for f in "$TASKS_DIR"/task-*.md; do
     [[ -f "$f" ]] || continue
     total_tasks=$((total_tasks + 1))
     name=$(basename "$f" .md)
-    status=$(grep -oP '(?<=\*\*(Status|Progress):\*\* `)[^`]+' "$f" 2>/dev/null || echo "unknown")
+    status=$(grep -oP '(?<=\*\*(Status|Progress):\*\* `)[^`]+' "$f" 2>/dev/null | head -1 || echo "unknown")
     title=$(head -1 "$f" | sed -E 's/^# (TASK-[0-9]+|Task [0-9]+): //')
     # Replace em-dashes with plain dashes for consistent column width
     title="${title//—/-}"
