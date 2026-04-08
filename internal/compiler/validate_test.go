@@ -1745,6 +1745,282 @@ expose:
 	}
 }
 
+func TestValidate_ShortCircuitWithoutChain(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - my-policy
+    short_circuit: true
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "short_circuit: true but does not use a chain operator")
+}
+
+func TestValidate_ShortCircuitWithChain(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    chain:
+      - my-policy
+    short_circuit: true
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No short_circuit errors expected — chain is present.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "short_circuit") {
+			t.Errorf("unexpected short_circuit error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ShortCircuitWithFanOut(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    fan-out:
+      - my-notifier
+    short_circuit: true
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-notifier")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-notifier
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "short_circuit: true but does not use a chain operator")
+}
+
+func TestValidate_DuplicateSlotBinding(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-b
+`)
+
+	for _, fill := range []string{"policy-a", "policy-b"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "duplicate slot binding: slot \"before_create\" for entity \"Widget\" with operator \"gate\"")
+}
+
+func TestValidate_DuplicateSlotBindingDifferentOperators(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Same slot and entity but different operators — should NOT be a duplicate.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+  - slot: before_create
+    entity: Widget
+    chain:
+      - policy-b
+`)
+
+	for _, fill := range []string{"policy-a", "policy-b"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// Different operators on the same slot+entity — no duplicate error.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate slot binding") {
+			t.Errorf("unexpected duplicate slot binding error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

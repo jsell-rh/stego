@@ -137,6 +137,12 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate slot binding entities are in the expose list.
 	result.Errors = append(result.Errors, validateSlotBindingEntitiesCollect(svcDecl.Slots, svcDecl.Expose)...)
 
+	// Validate short_circuit is only used with chain operator.
+	result.Errors = append(result.Errors, validateSlotBindingShortCircuit(svcDecl.Slots)...)
+
+	// Validate slot binding uniqueness (no duplicate slot+entity+operator).
+	result.Errors = append(result.Errors, validateSlotBindingUniquenessCollect(svcDecl.Slots)...)
+
 	// Validate fills exist on disk.
 	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, input.ProjectDir)
 	if fillInfraErr != nil {
@@ -549,6 +555,64 @@ func validateSlotBindingEntitiesCollect(slots []types.SlotDeclaration, expose []
 				Message: fmt.Sprintf("slot binding %q declares entity %q which is not in the expose list (exposed entities: %v)",
 					sb.Slot, sb.Entity, exposed),
 			})
+		}
+	}
+	return errs
+}
+
+// validateSlotBindingShortCircuit checks that short_circuit: true is only set
+// on slot bindings that use a chain operator. The spec defines short_circuit
+// exclusively in the context of chain steps — it has no effect on gate or
+// fan-out operators.
+func validateSlotBindingShortCircuit(slots []types.SlotDeclaration) []ValidationError {
+	var errs []ValidationError
+	for _, sb := range slots {
+		if sb.ShortCircuit && len(sb.Chain) == 0 {
+			errs = append(errs, ValidationError{
+				Category: "slot",
+				Message:  fmt.Sprintf("slot binding %q has short_circuit: true but does not use a chain operator — short_circuit is only meaningful with chain", sb.Slot),
+			})
+		}
+	}
+	return errs
+}
+
+// validateSlotBindingUniquenessCollect checks that no two slot bindings share
+// the same composite key (slot, entity, operator type). Duplicate bindings
+// produce duplicate variable declarations in generated code. This is the
+// error-collecting variant used by Validate.
+func validateSlotBindingUniquenessCollect(slots []types.SlotDeclaration) []ValidationError {
+	type compositeKey struct {
+		slot, entity, operator string
+	}
+	seen := make(map[compositeKey]bool)
+
+	var errs []ValidationError
+	for _, sb := range slots {
+		operators := []struct {
+			name string
+			has  bool
+		}{
+			{"gate", len(sb.Gate) > 0},
+			{"chain", len(sb.Chain) > 0},
+			{"fan-out", len(sb.FanOut) > 0},
+		}
+		for _, op := range operators {
+			if !op.has {
+				continue
+			}
+			key := compositeKey{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			if seen[key] {
+				entityDesc := ""
+				if sb.Entity != "" {
+					entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+				}
+				errs = append(errs, ValidationError{
+					Category: "slot",
+					Message:  fmt.Sprintf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name),
+				})
+			}
+			seen[key] = true
 		}
 	}
 	return errs
