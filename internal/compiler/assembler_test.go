@@ -828,7 +828,7 @@ func TestAssemble_ConstructorVarNameCollision(t *testing.T) {
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler()"},
+					Constructors: []string{"api.NewHandler(store)"},
 					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
@@ -943,6 +943,7 @@ func TestAssemble_ComponentImportAliasCollision(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage/models"},
 					Constructors: []string{"models.NewBar()"},
+					Routes:       []string{`mux.HandleFunc("GET /bar", bar.Get)`},
 				},
 			},
 		},
@@ -1002,7 +1003,7 @@ func TestAssemble_NeedsDB_StructuredMetadata(t *testing.T) {
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler()"},
+					Constructors: []string{"api.NewHandler(store)"},
 					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
@@ -1209,6 +1210,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 					// This constructor produces var name "beforeCreateUserGate"
 					// which collides with the slot operator variable.
 					Constructors: []string{"slotops.NewBeforeCreateUserGate()"},
+					Routes:       []string{`mux.HandleFunc("GET /gate", beforeCreateUserGate.Get)`},
 				},
 			},
 			{
@@ -1421,6 +1423,7 @@ func TestAssemble_SlotsAliasCollisionWithComponent(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/slots"},
 					Constructors: []string{"slots.NewProcessor()"},
+					Routes:       []string{`mux.HandleFunc("GET /process", processor.Run)`},
 				},
 			},
 		},
@@ -1654,6 +1657,7 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 	tests := []struct {
 		name        string
 		constructor string
+		rawVarName  string
 		wantVar     string
 		hasRoutes   bool
 		hasDB       bool
@@ -1661,30 +1665,35 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 		{
 			name:        "mux collision with routes",
 			constructor: "muxutil.NewMux()",
+			rawVarName:  "mux",
 			wantVar:     "mux2 :=",
 			hasRoutes:   true,
 		},
 		{
 			name:        "addr collision with routes",
 			constructor: "config.NewAddr()",
+			rawVarName:  "addr",
 			wantVar:     "addr2 :=",
 			hasRoutes:   true,
 		},
 		{
 			name:        "db collision with database",
 			constructor: "pool.NewDb()",
+			rawVarName:  "db",
 			wantVar:     "db2 :=",
 			hasDB:       true,
 		},
 		{
 			name:        "dsn collision with database",
 			constructor: "config.NewDsn()",
+			rawVarName:  "dsn",
 			wantVar:     "dsn2 :=",
 			hasDB:       true,
 		},
 		{
 			name:        "err collision with database",
 			constructor: "errutil.NewErr()",
+			rawVarName:  "err",
 			wantVar:     "err2 :=",
 			hasDB:       true,
 		},
@@ -1698,6 +1707,7 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 					Wiring: &gen.Wiring{
 						Imports:      []string{"internal/colliding"},
 						Constructors: []string{tt.constructor},
+						Routes:       []string{`mux.HandleFunc("GET /colliding", ` + tt.rawVarName + `.Get)`},
 					},
 				},
 			}
@@ -1722,8 +1732,14 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 						NeedsDB:      true,
 					},
 				})
-				// Need routes to make the output non-trivial, or at least
-				// the DB setup emits variables.
+				wirings = append(wirings, ComponentWiring{
+					Name: "rest-api",
+					Wiring: &gen.Wiring{
+						Imports:      []string{"internal/api"},
+						Constructors: []string{"api.NewHandler(store)"},
+						Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					},
+				})
 			}
 
 			input := AssemblerInput{
@@ -1855,6 +1871,7 @@ func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 					Imports:      []string{"internal/a"},
 					Constructors: []string{"a.NewStore(db)"},
 					NeedsDB:      true,
+					Routes:       []string{`mux.HandleFunc("GET /store", store.List)`},
 				},
 			},
 			{
@@ -1915,21 +1932,25 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 	tests := []struct {
 		name        string
 		constructor string
+		rawVarName  string
 		wantVar     string
 	}{
 		{
 			name:        "log collision",
 			constructor: "logger.NewLog()",
+			rawVarName:  "log",
 			wantVar:     "log2 :=",
 		},
 		{
 			name:        "fmt collision",
 			constructor: "formatter.NewFmt()",
+			rawVarName:  "fmt",
 			wantVar:     "fmt2 :=",
 		},
 		{
 			name:        "http collision",
 			constructor: "client.NewHttp()",
+			rawVarName:  "http",
 			wantVar:     "http2 :=",
 		},
 	}
@@ -1947,6 +1968,7 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 						Wiring: &gen.Wiring{
 							Imports:      []string{"internal/colliding"},
 							Constructors: []string{tt.constructor},
+							Routes:       []string{`mux.HandleFunc("GET /colliding", ` + tt.rawVarName + `.Get)`},
 						},
 					},
 					{
@@ -2143,6 +2165,7 @@ func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/a"},
 					Constructors: []string{"a.NewMiddleware()"},
+					Routes:       []string{`mux.HandleFunc("GET /mw", middleware.Status)`},
 				},
 			},
 			{
@@ -2402,6 +2425,7 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 					Wiring: &gen.Wiring{
 						Imports:      []string{tt.importDir},
 						Constructors: []string{"pkg.NewProcessor()"},
+						Routes:       []string{`mux.HandleFunc("GET /process", processor.Run)`},
 					},
 				},
 			}
@@ -2434,7 +2458,7 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 					Name: "rest-api",
 					Wiring: &gen.Wiring{
 						Imports:      []string{"internal/api"},
-						Constructors: []string{"api.NewHandler()"},
+						Constructors: []string{"api.NewHandler(store)"},
 						Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
 					},
 				})
@@ -2677,6 +2701,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByConstructor(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/cache"},
 					Constructors: []string{"cache.NewStorage()"},
+					Routes:       []string{`mux.HandleFunc("GET /cache", storage.Get)`},
 				},
 			},
 			{
@@ -2691,7 +2716,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByConstructor(t *testing.T) {
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler()"},
+					Constructors: []string{"api.NewHandler(store)"},
 					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
@@ -2747,6 +2772,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByFillAlias(t *testing.T) {
 					Imports: []string{"internal/maker"},
 					// Derives var name "validator" which matches fill alias.
 					Constructors: []string{"maker.NewValidator()"},
+					Routes:       []string{`mux.HandleFunc("GET /validate", validator.Check)`},
 				},
 			},
 			{
@@ -2807,6 +2833,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 					Imports: []string{"internal/maker"},
 					// Derives var name "slots" which matches slots package alias.
 					Constructors: []string{"maker.NewSlots()"},
+					Routes:       []string{`mux.HandleFunc("GET /slots", slots.List)`},
 				},
 			},
 			{
@@ -2977,6 +3004,7 @@ func TestAssemble_SharedImportPathNoDisambiguation(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/storage"},
 					Constructors: []string{"storage.NewBar()"},
+					Routes:       []string{`mux.HandleFunc("GET /bar", bar.Get)`},
 				},
 			},
 		},
@@ -3182,6 +3210,9 @@ func TestAssemble_PreReservedRename_StdlibAlias(t *testing.T) {
 					Constructors: []string{
 						"logging.NewLog()",
 						"logging.NewLogHandler()",
+					},
+					ConstructorDeps: map[int][]string{
+						1: {"log"}, // logHandler depends on log
 					},
 					Routes: []string{
 						`mux.HandleFunc("GET /logs", logHandler.List)`,
@@ -3839,14 +3870,20 @@ func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
 				Name: "comp-x",
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/x"},
-					Constructors: []string{"x.NewX()"},
+					Constructors: []string{"x.NewXHandler()"},
+					Routes: []string{
+						`mux.HandleFunc("GET /x", xHandler.Get)`,
+					},
 				},
 			},
 			{
 				Name: "comp-y",
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/y"},
-					Constructors: []string{"y.NewY()"},
+					Constructors: []string{"y.NewYHandler()"},
+					Routes: []string{
+						`mux.HandleFunc("GET /y", yHandler.Get)`,
+					},
 				},
 			},
 		},
@@ -3865,8 +3902,8 @@ func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
 	}
 
 	code := string(mainGo.Content)
-	xIdx := strings.Index(code, "x.NewX()")
-	yIdx := strings.Index(code, "y.NewY()")
+	xIdx := strings.Index(code, "x.NewXHandler()")
+	yIdx := strings.Index(code, "y.NewYHandler()")
 	if xIdx < 0 || yIdx < 0 {
 		t.Fatalf("missing constructors in:\n%s", code)
 	}
