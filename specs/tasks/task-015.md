@@ -2,7 +2,7 @@
 
 **Spec Reference:** "CLI Interface"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
