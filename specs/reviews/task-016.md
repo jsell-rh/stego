@@ -2,7 +2,7 @@
 
 ## Summary
 
-The event-publisher mixin, kafka-producer component, and service.yaml are correct and match the spec. The pipeline runs end-to-end (`validate`, `plan`, `apply`, `drift`, `test`). Fill tests pass. `go build ./...` succeeds. However, the generated handler code has a correctness issue with caller identity propagation, and the generated output contains a dead-code inconsistency and a format-string bug.
+Round 2: All three findings from round 1 have been correctly addressed. The handler now extracts caller identity from the auth middleware context via `auth.IdentityFromContext`. The dead `NewRouter()` function has been removed. The format-string bug has been fixed in the assembler. All acceptance criteria are met: `go build`, `go vet`, and fill tests pass; main.go shows all fills wired via constructor injection; the auditor can read main.go and see every fill and every connection.
 
 ## Findings
 

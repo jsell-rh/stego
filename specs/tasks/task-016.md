@@ -2,7 +2,7 @@
 
 **Spec Reference:** "MVP Scope"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-016.md](../reviews/task-016.md)
 
