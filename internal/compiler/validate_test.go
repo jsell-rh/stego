@@ -2265,6 +2265,423 @@ expose:
 	}
 }
 
+func TestValidate_SlotBindingWithoutOperator(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "has no operator")
+}
+
+func TestValidate_SlotBindingWithOperatorPasses(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - my-policy
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "no operator") {
+			t.Errorf("unexpected no-operator error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_DuplicateFillInGate(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - rbac-policy
+      - rbac-policy
+`)
+
+	for _, fill := range []string{"rbac-policy"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "duplicate fill \"rbac-policy\" in gate operator list")
+}
+
+func TestValidate_DuplicateFillInChain(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    chain:
+      - step-a
+      - step-a
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "step-a")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: step-a
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "duplicate fill \"step-a\" in chain operator list")
+}
+
+func TestValidate_DuplicateFillInFanOut(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    fan-out:
+      - notifier
+      - notifier
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "notifier")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: notifier
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "duplicate fill \"notifier\" in fan-out operator list")
+}
+
+func TestValidate_DistinctFillsInOperatorListPass(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+      - policy-b
+`)
+
+	for _, fill := range []string{"policy-a", "policy-b"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate fill") {
+			t.Errorf("unexpected duplicate fill error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_DuplicateMixinName(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Create a mixin.
+	mixinDir := filepath.Join(registryDir, "mixins", "event-publisher")
+	mkdirAll(t, filepath.Join(mixinDir, "slots"))
+	writeFile(t, filepath.Join(mixinDir, "mixin.yaml"), `kind: mixin
+name: event-publisher
+version: 1.0.0
+adds_components: []
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+overrides: none
+`)
+	writeFile(t, filepath.Join(mixinDir, "slots", "on_entity_changed.proto"), `syntax = "proto3";
+package stego.mixins.event_publisher.slots;
+service OnEntityChanged { rpc Evaluate(OnEntityChangedRequest) returns (SlotResult); }
+message OnEntityChangedRequest { string input = 1; }
+message SlotResult { bool ok = 1; }
+`)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+mixins:
+  - event-publisher
+  - event-publisher
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "mixin", "mixin \"event-publisher\" appears more than once")
+}
+
+func TestValidate_DistinctMixinNamesPasses(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Create two distinct mixins.
+	for _, mixinName := range []string{"event-publisher", "async-worker"} {
+		mixinDir := filepath.Join(registryDir, "mixins", mixinName)
+		mkdirAll(t, filepath.Join(mixinDir, "slots"))
+		writeFile(t, filepath.Join(mixinDir, "mixin.yaml"), `kind: mixin
+name: `+mixinName+`
+version: 1.0.0
+adds_components: []
+adds_slots: []
+overrides: none
+`)
+	}
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+mixins:
+  - event-publisher
+  - async-worker
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if e.Category == "mixin" {
+			t.Errorf("unexpected mixin error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

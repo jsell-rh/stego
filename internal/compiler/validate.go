@@ -119,6 +119,9 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate expose block operations and operation-dependent attributes.
 	result.Errors = append(result.Errors, validateExposeOps(svcDecl.Expose)...)
 
+	// Validate no duplicate mixin names.
+	result.Errors = append(result.Errors, validateMixinUniqueness(svcDecl.Mixins)...)
+
 	// Validate slot bindings reference available slots.
 	if components != nil {
 		// Collect mixin-added slots (adds_slots) — these are defined by the
@@ -139,6 +142,12 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 
 	// Validate short_circuit is only used with chain operator.
 	result.Errors = append(result.Errors, validateSlotBindingShortCircuit(svcDecl.Slots)...)
+
+	// Validate each slot binding has at least one operator (gate, chain, or fan-out).
+	result.Errors = append(result.Errors, validateSlotBindingOperatorPresence(svcDecl.Slots)...)
+
+	// Validate no duplicate fill names within a single operator's fill list.
+	result.Errors = append(result.Errors, validateSlotBindingFillUniqueness(svcDecl.Slots)...)
 
 	// Validate slot binding uniqueness (no duplicate slot+entity+operator).
 	result.Errors = append(result.Errors, validateSlotBindingUniquenessCollect(svcDecl.Slots)...)
@@ -655,6 +664,82 @@ func validateSlotBindingUniquenessCollect(slots []types.SlotDeclaration) []Valid
 			}
 			seen[key] = true
 		}
+	}
+	return errs
+}
+
+// validateSlotBindingOperatorPresence checks that each slot binding has at
+// least one operator (gate, chain, or fan-out). A slot binding without any
+// operator is semantically void — it declares intent to bind a slot but wires
+// no fills to it.
+func validateSlotBindingOperatorPresence(slots []types.SlotDeclaration) []ValidationError {
+	var errs []ValidationError
+	for _, sb := range slots {
+		if len(sb.Gate) == 0 && len(sb.Chain) == 0 && len(sb.FanOut) == 0 {
+			entityDesc := ""
+			if sb.Entity != "" {
+				entityDesc = fmt.Sprintf(" on entity %q", sb.Entity)
+			}
+			errs = append(errs, ValidationError{
+				Category: "slot",
+				Message:  fmt.Sprintf("slot binding for slot %q%s has no operator — each slot binding must specify at least one of: gate, chain, fan-out", sb.Slot, entityDesc),
+			})
+		}
+	}
+	return errs
+}
+
+// validateSlotBindingFillUniqueness checks that no fill name appears more than
+// once within a single operator's fill list. Duplicate fills in a gate cause
+// the same policy to be evaluated twice; in a chain, the same step runs twice;
+// in a fan-out, the same handler fires twice producing duplicate side-effects.
+func validateSlotBindingFillUniqueness(slots []types.SlotDeclaration) []ValidationError {
+	var errs []ValidationError
+	for _, sb := range slots {
+		entityDesc := ""
+		if sb.Entity != "" {
+			entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+		}
+
+		for _, opInfo := range []struct {
+			name  string
+			fills []string
+		}{
+			{"gate", sb.Gate},
+			{"chain", sb.Chain},
+			{"fan-out", sb.FanOut},
+		} {
+			seen := make(map[string]bool, len(opInfo.fills))
+			for _, fill := range opInfo.fills {
+				if seen[fill] {
+					errs = append(errs, ValidationError{
+						Category: "slot",
+						Message:  fmt.Sprintf("slot binding %q%s has duplicate fill %q in %s operator list", sb.Slot, entityDesc, fill, opInfo.name),
+					})
+				}
+				seen[fill] = true
+			}
+		}
+	}
+	return errs
+}
+
+// validateMixinUniqueness checks that no mixin name appears more than once in
+// the service declaration's mixins list.
+func validateMixinUniqueness(mixins []string) []ValidationError {
+	if len(mixins) == 0 {
+		return nil
+	}
+	var errs []ValidationError
+	seen := make(map[string]bool, len(mixins))
+	for _, name := range mixins {
+		if seen[name] {
+			errs = append(errs, ValidationError{
+				Category: "mixin",
+				Message:  fmt.Sprintf("mixin %q appears more than once in the mixins list", name),
+			})
+		}
+		seen[name] = true
 	}
 	return errs
 }
