@@ -813,9 +813,12 @@ func TestDisambiguateAlias(t *testing.T) {
 	}
 }
 
-func TestAssemble_ConstructorVarNameCollision(t *testing.T) {
-	// Two constructors that derive the same variable name should be
-	// disambiguated with numeric suffixes.
+func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T) {
+	// Finding 29: Two constructors from different wirings with the same
+	// baseVar ("store"). Only component-a's constructor is consumed
+	// (transitively via rest-api's route → handler → store). Component-b's
+	// constructor should NOT be emitted — it would be disambiguated to
+	// "store2" which no code references, producing an unused variable error.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -840,9 +843,10 @@ func TestAssemble_ConstructorVarNameCollision(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler(store)"},
-					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					Imports:         []string{"internal/api"},
+					Constructors:    []string{"api.NewHandler(store)"},
+					ConstructorDeps: map[int][]string{0: {"store"}},
+					Routes:          []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
 		},
@@ -862,19 +866,80 @@ func TestAssemble_ConstructorVarNameCollision(t *testing.T) {
 
 	code := string(mainGo.Content)
 
-	// Should parse — disambiguated variable names.
 	fset := token.NewFileSet()
 	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
 	if err != nil {
 		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
 	}
 
-	// Verify both store variables exist with distinct names.
+	// Only the consumed constructor (component-a) should be emitted.
+	if !strings.Contains(code, "store :=") {
+		t.Errorf("missing consumed store variable in:\n%s", code)
+	}
+	// The unconsumed constructor (component-b) should NOT be emitted.
+	if strings.Contains(code, "store2 :=") {
+		t.Errorf("unconsumed store2 should not be emitted (Finding 29):\n%s", code)
+	}
+}
+
+func TestAssemble_ConstructorVarNameCollision_BothConsumed(t *testing.T) {
+	// When two constructors with the same baseVar are BOTH consumed
+	// (each has routes), disambiguation should produce distinct names.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "component-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/a"},
+					Constructors: []string{"a.NewStore()"},
+					Routes:       []string{`mux.HandleFunc("GET /a", store.Get)`},
+				},
+			},
+			{
+				Name: "component-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/b"},
+					Constructors: []string{"b.NewStore()"},
+					Routes:       []string{`mux.HandleFunc("GET /b", store.List)`},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Both should be emitted with distinct names.
 	if !strings.Contains(code, "store :=") {
 		t.Errorf("missing first store variable in:\n%s", code)
 	}
 	if !strings.Contains(code, "store2 :=") {
 		t.Errorf("missing disambiguated store2 variable in:\n%s", code)
+	}
+	// Wiring B's route should reference the disambiguated name.
+	if !strings.Contains(code, "store2.List") {
+		t.Errorf("wiring B's route should reference store2.List after disambiguation:\n%s", code)
 	}
 }
 
@@ -1872,6 +1937,8 @@ func TestReplaceIdentRef(t *testing.T) {
 func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 	// Finding 15: Variable rename "store" → "store2" must not corrupt
 	// "datastore.Get" into "datastore2.Get".
+	// Both wirings have routes referencing "store" so both constructors
+	// are consumed and disambiguation occurs.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -1896,6 +1963,7 @@ func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 						"b.NewDatastore()",
 					},
 					Routes: []string{
+						`mux.HandleFunc("GET /store2", store.Put)`,
 						`mux.HandleFunc("GET /data", datastore.Get)`,
 					},
 				},
@@ -4080,6 +4148,162 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 	// DB setup should be present (store is consumed and NeedsDB).
 	if !strings.Contains(code, "sql.Open") {
 		t.Errorf("DB setup should be emitted:\n%s", code)
+	}
+}
+
+func TestContainsBareIdent(t *testing.T) {
+	tests := []struct {
+		s, name string
+		want    bool
+	}{
+		{"(store)", "store", true},
+		{"(store, cache)", "store", true},
+		{"(db, store)", "store", true},
+		{"(datastore)", "store", false},  // "store" is a suffix of "datastore"
+		{"(storeDB)", "store", false},    // "store" is a prefix of "storeDB"
+		{"(dataA)", "a", false},          // "a" is a suffix of "dataA"
+		{"(a, b)", "a", true},            // "a" at boundary
+		{"(db)", "db", true},
+		{"(handleDB)", "db", false},      // "db" suffix of "handleDB"
+		{"", "store", false},
+		{"(store)", "", false},
+	}
+	for _, tt := range tests {
+		got := containsBareIdent(tt.s, tt.name)
+		if got != tt.want {
+			t.Errorf("containsBareIdent(%q, %q) = %v, want %v", tt.s, tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestAssemble_TransitiveDep_NoFalsePositiveSubstring(t *testing.T) {
+	// Finding 28: The transitive dependency fallback must use word-boundary
+	// matching. Constructor b.NewHandler(dataA) should NOT falsely match
+	// the base variable name "a" from x.NewA(). Without word-boundary
+	// checking, strings.Contains("(dataA)", "a") returns true, incorrectly
+	// marking x.NewA() as consumed.
+	mwIdx := intPtr(0)
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		OutDirName:  "out",
+		Wirings: []ComponentWiring{
+			{
+				Name: "auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: mwIdx,
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+			{
+				Name: "api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler(dataA)"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Get)`},
+				},
+			},
+			{
+				Name: "x",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/x"},
+					Constructors: []string{"x.NewA()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// x.NewA() should NOT be emitted because no route or consumed constructor
+	// references variable "a" at a word boundary. "dataA" contains "a" as a
+	// substring but not as an identifier reference.
+	if strings.Contains(code, "x.NewA()") {
+		t.Errorf("x.NewA() should not be emitted — 'a' in 'dataA' is not a word-boundary match:\n%s", code)
+	}
+}
+
+func TestAssemble_FillAliasConsistency_NoRoutesWithNeedsDB(t *testing.T) {
+	// Finding 27: buildFillAliasMap must use the same effectiveHasDB as
+	// writeMainImports. When hasRoutes=false and NeedsDB components exist,
+	// effectiveHasDB is false (no consumed constructors) but needsDB(input)
+	// is true. If buildFillAliasMap uses needsDB, it seeds "sql"/"os"/"log"
+	// into its disambiguation maps while writeMainImports does not — causing
+	// a fill named "sql" to get different aliases in the import block vs
+	// slot wiring code. This test verifies they agree.
+	input := AssemblerInput{
+		ModuleName:   "github.com/myorg/svc",
+		ServiceName:  "svc",
+		GoVersion:    "1.22",
+		SlotsPackage: "internal/slots",
+		OutDirName:   "out",
+		Wirings: []ComponentWiring{
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					NeedsDB:      true,
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+				},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:  "validate",
+				Chain: []string{"sql"},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// The fill named "sql" should have the SAME alias in the import block
+	// and in the slot wiring code. If they disagree, the generated code
+	// references an undefined alias or has an unused import.
+	// With effectiveHasDB=false (no routes → no consumed constructors),
+	// stdlib "sql" is NOT seeded, so the fill gets alias "sql" (not "sql2").
+	if strings.Contains(code, "sql2") {
+		t.Errorf("fill 'sql' should not be disambiguated as 'sql2' when effectiveHasDB is false;\n"+
+			"buildFillAliasMap and writeMainImports disagree on stdlib alias seeding:\n%s", code)
 	}
 }
 
