@@ -161,10 +161,12 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("resolving ports: %w", err)
 	}
 
-	// Determine the slots package path.
+	// Determine the slots package path. Slots are placed outside internal/
+	// so that fills (which live at the project root, outside out/) can import
+	// the generated slot interfaces.
 	slotsPackage := ""
 	if len(svcDecl.Slots) > 0 {
-		slotsPackage = "internal/slots"
+		slotsPackage = "slots"
 	}
 
 	// Resolve the HTTP port from the component that provides http-server,
@@ -259,7 +261,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 
 	// Generate slot interfaces and operators if slots are configured.
-	slotFiles, err := generateSlotFiles(slotsPackage, input.RegistryDir, components, svcDecl)
+	slotFiles, err := generateSlotFiles(slotsPackage, input.RegistryDir, components, svcDecl, reg)
 	if err != nil {
 		return nil, fmt.Errorf("generating slot files: %w", err)
 	}
@@ -432,7 +434,7 @@ func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclara
 
 // generateSlotFiles generates Go interface and operator files for all slots
 // used by the service declaration.
-func generateSlotFiles(slotsPackage, registryDir string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration) ([]gen.File, error) {
+func generateSlotFiles(slotsPackage, registryDir string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
 	if slotsPackage == "" || len(svcDecl.Slots) == 0 {
 		return nil, nil
 	}
@@ -445,16 +447,39 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 		slotNames[sb.Slot] = true
 	}
 
-	// Find the slot definitions and their owning components.
+	// Find the slot definitions and their owning components or mixins.
 	type slotInfo struct {
 		definition types.SlotDefinition
-		component  string
+		// protoDir is the directory containing the slots/ subdirectory for this
+		// slot's proto file. For component slots: <registry>/components/<name>.
+		// For mixin-added slots: <registry>/mixins/<name>.
+		protoDir string
 	}
 	slotDefs := make(map[string]slotInfo)
 	for _, comp := range components {
 		for _, sd := range comp.Slots {
 			if slotNames[sd.Name] {
-				slotDefs[sd.Name] = slotInfo{definition: sd, component: comp.Name}
+				slotDefs[sd.Name] = slotInfo{
+					definition: sd,
+					protoDir:   filepath.Join(registryDir, "components", comp.Name),
+				}
+			}
+		}
+	}
+	// Also search mixin adds_slots for slot definitions not found in components.
+	for _, mixinName := range svcDecl.Mixins {
+		mixin := reg.Mixin(mixinName)
+		if mixin == nil {
+			continue
+		}
+		for _, sd := range mixin.AddsSlots {
+			if slotNames[sd.Name] {
+				if _, exists := slotDefs[sd.Name]; !exists {
+					slotDefs[sd.Name] = slotInfo{
+						definition: sd,
+						protoDir:   filepath.Join(registryDir, "mixins", mixin.Name),
+					}
+				}
 			}
 		}
 	}
@@ -468,14 +493,17 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 
 	var files []gen.File
 
+	// Track types emitted across all slot files to avoid duplicate
+	// declarations when multiple slots share imported types (e.g. SlotResult).
+	emittedTypes := make(map[string]bool)
+
 	for _, slotName := range sortedSlots {
 		info, ok := slotDefs[slotName]
 		if !ok {
-			return nil, fmt.Errorf("slot %q not defined by any component", slotName)
+			return nil, fmt.Errorf("slot %q not defined by any component or mixin", slotName)
 		}
 
-		// Proto file lives at <registry>/components/<component>/slots/<slot>.proto.
-		protoPath := filepath.Join(registryDir, "components", info.component, "slots", slotName+".proto")
+		protoPath := filepath.Join(info.protoDir, "slots", slotName+".proto")
 
 		protoFile, err := os.Open(protoPath)
 		if err != nil {
@@ -506,17 +534,36 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 			imports = append(imports, impParsed)
 		}
 
-		// Generate interface file.
-		ifaceFile, err := slot.GenerateInterface(
+		// Generate interface file, excluding types already emitted by a
+		// previous slot file in the same package.
+		ifaceFile, err := slot.GenerateInterfaceExcluding(
 			filepath.Join(slotsPackage, slotName+".go"),
 			pkgName,
 			parsed,
 			imports,
+			emittedTypes,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("generating interface for slot %q: %w", slotName, err)
 		}
 		files = append(files, ifaceFile)
+
+		// Record all types that were referenced (and thus emitted) by this
+		// slot file so subsequent files skip them.
+		allMessages := make(map[string]slot.Message)
+		for _, imp := range imports {
+			for _, msg := range imp.Messages {
+				allMessages[imp.Package+"."+msg.Name] = msg
+				allMessages[msg.Name] = msg
+			}
+		}
+		for _, msg := range parsed.Messages {
+			allMessages[parsed.Package+"."+msg.Name] = msg
+			allMessages[msg.Name] = msg
+		}
+		for typeName := range slot.CollectAllReferencedTypes(parsed, allMessages) {
+			emittedTypes[typeName] = true
+		}
 
 		// Generate operators file.
 		opsFile, err := slot.GenerateOperators(

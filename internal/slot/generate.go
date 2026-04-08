@@ -27,6 +27,14 @@ import (
 // generated-file header). Use File.Bytes() to obtain the complete output
 // including the mandatory header.
 func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*ProtoFile) (gen.File, error) {
+	return GenerateInterfaceExcluding(filePath, pkgName, slot, imports, nil)
+}
+
+// GenerateInterfaceExcluding is like GenerateInterface but skips emitting
+// types listed in excludeTypes. This is used when multiple slot files are
+// generated into the same package to avoid duplicate type declarations for
+// shared imported types (e.g. SlotResult, Identity).
+func GenerateInterfaceExcluding(filePath, pkgName string, slot *ProtoFile, imports []*ProtoFile, excludeTypes map[string]bool) (gen.File, error) {
 	if pkgName == "" {
 		return gen.File{}, fmt.Errorf("pkgName must not be empty")
 	}
@@ -54,7 +62,7 @@ func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*Pro
 	}
 
 	// Collect all types referenced in service RPCs.
-	referenced := collectAllReferencedTypes(slot, allMessages)
+	referenced := CollectAllReferencedTypes(slot, allMessages)
 
 	var buf bytes.Buffer
 
@@ -63,6 +71,7 @@ func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*Pro
 	buf.WriteString("import \"context\"\n\n")
 
 	// Generate structs for all referenced messages (imports first, then local).
+	// Skip types already emitted in another file within the same package.
 	emitted := make(map[string]bool)
 	for _, imp := range imports {
 		for _, msg := range imp.Messages {
@@ -71,6 +80,9 @@ func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*Pro
 				continue
 			}
 			emitted[goName] = true
+			if excludeTypes != nil && excludeTypes[goName] {
+				continue
+			}
 			writeMessageStruct(&buf, msg)
 		}
 	}
@@ -80,6 +92,9 @@ func GenerateInterface(filePath, pkgName string, slot *ProtoFile, imports []*Pro
 			continue
 		}
 		emitted[goName] = true
+		if excludeTypes != nil && excludeTypes[goName] {
+			continue
+		}
 		writeMessageStruct(&buf, msg)
 	}
 
@@ -119,9 +134,9 @@ func writeMessageStruct(buf *bytes.Buffer, msg Message) {
 	buf.WriteString("}\n\n")
 }
 
-// collectAllReferencedTypes walks service RPC signatures and message fields
+// CollectAllReferencedTypes walks service RPC signatures and message fields
 // recursively to find all types that need Go struct definitions.
-func collectAllReferencedTypes(proto *ProtoFile, allMessages map[string]Message) map[string]bool {
+func CollectAllReferencedTypes(proto *ProtoFile, allMessages map[string]Message) map[string]bool {
 	result := make(map[string]bool)
 
 	// Seed from service RPC signatures.
