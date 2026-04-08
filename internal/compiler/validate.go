@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -289,6 +290,18 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 					Category: "field-type",
 					Message:  fmt.Sprintf("entity %q field %q: constraint 'pattern' is only valid for string fields, not %q", e.Name, f.Name, f.Type),
 				})
+			}
+
+			// Pattern syntactic validity: the pattern value must be a valid
+			// regular expression. Invalid patterns produce broken SQL CHECK
+			// constraints and invalid OpenAPI schema pattern fields.
+			if f.Pattern != "" && stringTypes[f.Type] {
+				if _, err := regexp.Compile(f.Pattern); err != nil {
+					errs = append(errs, ValidationError{
+						Category: "field-type",
+						Message:  fmt.Sprintf("entity %q field %q has invalid pattern constraint %q — regexp parse error: %v", e.Name, f.Name, f.Pattern, err),
+					})
+				}
 			}
 
 			// Numeric-only constraints: min, max.
