@@ -205,6 +205,13 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err != nil {
 		outDirName = filepath.Base(outDir)
 	}
+	// Validate that outDirName is a proper subdirectory name. When OutDir
+	// equals ProjectDir, filepath.Rel returns "." which produces invalid Go
+	// import paths (e.g. "module/./internal/api"). Similarly, ".." would
+	// escape the project root.
+	if outDirName == "." || outDirName == ".." || strings.HasPrefix(outDirName, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("OutDir must be a subdirectory of ProjectDir: filepath.Rel(%q, %q) produced %q which is invalid in Go import paths", input.ProjectDir, outDir, outDirName)
+	}
 
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File

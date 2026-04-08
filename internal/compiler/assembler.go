@@ -108,7 +108,6 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	buf.WriteString("package main\n\n")
 
 	hasRoutes := hasAnyRoutes(input)
-	hasDB := needsDB(input)
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 
 	// Validate no duplicate (slot, entity, operator) triples before processing.
@@ -137,6 +136,13 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		}
 	}
 
+	// Compute which constructor entries are consumed (transitively reachable
+	// from route references or middleware wrapping). Constructors without any
+	// downstream consumer would produce "declared and not used" compile errors.
+	// Effective hasDB is true only if at least one consumed constructor needs DB.
+	consumed, effectiveHasDB := computeConsumedConstructors(input, hasRoutes)
+	hasDB := effectiveHasDB
+
 	// Build slot operator variable names by entity so we can inject them
 	// into handler constructor calls.
 	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
@@ -158,7 +164,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeSlotWiring(&buf, input, slotVarsByEntity)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, imports)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, imports, consumed)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -427,6 +433,179 @@ type constructorRename struct {
 // (instead of map[string]string keyed by base name) avoids overwrite when two
 // constructors in the same wiring derive the same base variable name.
 // imports carries per-wiring import alias renames and the complete set of
+// constructorKey uniquely identifies a constructor within the assembler input
+// by its wiring index and constructor index within that wiring.
+type constructorKey struct {
+	WiringIndex      int
+	ConstructorIndex int
+}
+
+// computeConsumedConstructors determines which constructors are transitively
+// reachable from downstream consumers (route expressions, middleware wrapping).
+// A constructor is consumed if:
+//  1. Its raw variable name appears in a route expression (routes reference
+//     constructor variables like "userHandler.Create"), OR
+//  2. It is the middleware constructor (used by writeServerStart), OR
+//  3. It is a dependency of another consumed constructor (via ConstructorDeps
+//     or by referencing another constructor's variable in its expression).
+//
+// Constructors not in the returned set have no consumer in the generated code
+// and must not be emitted (Go rejects unused local variables).
+//
+// Also returns effectiveHasDB: true only if at least one consumed constructor
+// declares NeedsDB. This prevents emitting writeDBSetup when the only
+// NeedsDB constructor is itself unconsumed.
+func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[constructorKey]bool, bool) {
+	// Build all constructor entries with their base var names.
+	type entry struct {
+		key     constructorKey
+		baseVar string
+		deps    []string
+		expr    string
+		needsDB bool
+	}
+	var entries []entry
+	varToEntries := make(map[string][]int) // baseVar → entry indices
+
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		for j, constructor := range cw.Wiring.Constructors {
+			baseVar := rawConstructorVarName(constructor)
+			var deps []string
+			if cw.Wiring.ConstructorDeps != nil {
+				deps = cw.Wiring.ConstructorDeps[j]
+			}
+			idx := len(entries)
+			entries = append(entries, entry{
+				key:     constructorKey{WiringIndex: i, ConstructorIndex: j},
+				baseVar: baseVar,
+				deps:    deps,
+				expr:    constructor,
+				needsDB: cw.Wiring.NeedsDB,
+			})
+			varToEntries[baseVar] = append(varToEntries[baseVar], idx)
+		}
+	}
+
+	consumed := make(map[constructorKey]bool)
+
+	if !hasRoutes {
+		// No routes means no route registration and no server start.
+		// No constructor variables are referenced by any generated code.
+		return consumed, false
+	}
+
+	// Step 1: Mark constructors directly consumed by routes.
+	// Route expressions reference constructor variables by their raw name
+	// (e.g. "userHandler.Create" references the "userHandler" variable).
+	for _, cw := range input.Wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		for _, route := range cw.Wiring.Routes {
+			for baseVar, indices := range varToEntries {
+				// Check if this route references this variable name.
+				if containsIdentRef(route, baseVar) {
+					for _, idx := range indices {
+						consumed[entries[idx].key] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: Mark the middleware constructor as consumed (used by writeServerStart).
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil || cw.Wiring.MiddlewareConstructor == nil {
+			continue
+		}
+		idx := *cw.Wiring.MiddlewareConstructor
+		if idx >= 0 && idx < len(cw.Wiring.Constructors) {
+			consumed[constructorKey{WiringIndex: i, ConstructorIndex: idx}] = true
+		}
+	}
+
+	// Step 3: Transitively mark dependencies of consumed constructors.
+	// Uses both ConstructorDeps (structured metadata) and expression-based
+	// variable reference detection as a fallback.
+	// Iterate until no new entries are added (fixed-point).
+	changed := true
+	for changed {
+		changed = false
+		for _, e := range entries {
+			if !consumed[e.key] {
+				continue
+			}
+			// Mark explicit deps from ConstructorDeps.
+			for _, dep := range e.deps {
+				if depIndices, ok := varToEntries[dep]; ok {
+					for _, depIdx := range depIndices {
+						depKey := entries[depIdx].key
+						if !consumed[depKey] {
+							consumed[depKey] = true
+							changed = true
+						}
+					}
+				}
+			}
+			// Also check if the constructor expression references other
+			// constructor variables by name (fallback for when ConstructorDeps
+			// is not set). Extract the argument portion of the expression.
+			if argStart := strings.Index(e.expr, "("); argStart >= 0 {
+				args := e.expr[argStart:]
+				for depVar, depIndices := range varToEntries {
+					if depVar == e.baseVar {
+						continue // skip self-reference
+					}
+					if strings.Contains(args, depVar) {
+						for _, depIdx := range depIndices {
+							depKey := entries[depIdx].key
+							if !consumed[depKey] {
+								consumed[depKey] = true
+								changed = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Compute effective hasDB: true only if at least one consumed constructor
+	// has NeedsDB set.
+	effectiveHasDB := false
+	for _, e := range entries {
+		if consumed[e.key] && e.needsDB {
+			effectiveHasDB = true
+			break
+		}
+	}
+
+	return consumed, effectiveHasDB
+}
+
+// containsIdentRef checks whether s contains a reference to the identifier
+// name followed by a dot, at a word boundary. This matches patterns like
+// "userHandler.Create" for identifier "userHandler".
+func containsIdentRef(s, name string) bool {
+	target := name + "."
+	i := 0
+	for i < len(s) {
+		idx := strings.Index(s[i:], target)
+		if idx < 0 {
+			return false
+		}
+		absIdx := i + idx
+		if absIdx == 0 || !isIdentChar(s[absIdx-1]) {
+			return true
+		}
+		i = absIdx + len(target)
+	}
+	return false
+}
+
 // non-stdlib import aliases from writeMainImports; constructor expressions are
 // updated to reference the disambiguated aliases, and constructor variable
 // names are disambiguated against all import aliases to prevent shadowing.
@@ -441,7 +620,7 @@ type constructorEntry struct {
 	Deps             []string // variable names this constructor depends on
 }
 
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult) (map[int][]constructorRename, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult, consumed map[constructorKey]bool) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int][]constructorRename)
@@ -524,6 +703,15 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 	}
 
 	for _, entry := range sorted {
+		// Skip constructors that have no downstream consumer (no route
+		// references them, they are not the middleware, and no consumed
+		// constructor depends on them). Emitting an unused constructor
+		// variable would produce a Go compile error.
+		key := constructorKey{WiringIndex: entry.WiringIndex, ConstructorIndex: entry.ConstructorIndex}
+		if consumed != nil && !consumed[key] {
+			continue
+		}
+
 		// Apply import alias renames to the constructor expression so
 		// that package-qualified references match the disambiguated
 		// import aliases (e.g. "models.NewBar()" → "models2.NewBar()").

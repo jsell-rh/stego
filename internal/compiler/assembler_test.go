@@ -367,8 +367,11 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 }
 
 func TestAssemble_NoRoutes(t *testing.T) {
-	// A service with no routes should still produce valid main.go,
-	// and should NOT import "fmt" (which is only used in writeServerStart).
+	// A service with no routes should still produce valid main.go.
+	// Constructors that have no downstream consumer (no route references
+	// them, no middleware wrapping uses them) must NOT be emitted — Go
+	// rejects unused local variables. DB setup must also be suppressed
+	// when the only NeedsDB constructor is itself unconsumed.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -413,6 +416,16 @@ func TestAssemble_NoRoutes(t *testing.T) {
 	// fmt should not be imported when there are no routes.
 	if strings.Contains(code, `"fmt"`) {
 		t.Errorf("fmt should not be imported when there are no routes in:\n%s", code)
+	}
+
+	// Unconsumed constructors must NOT appear (Finding 26).
+	if strings.Contains(code, "storage.NewStore") {
+		t.Errorf("unconsumed constructor store should not be emitted when no routes in:\n%s", code)
+	}
+
+	// DB setup must also be suppressed when only NeedsDB constructor is unconsumed.
+	if strings.Contains(code, "sql.Open") {
+		t.Errorf("DB setup should not be emitted when only NeedsDB constructor is unconsumed in:\n%s", code)
 	}
 }
 
@@ -3909,6 +3922,164 @@ func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
 	}
 	if xIdx > yIdx {
 		t.Errorf("without deps, input order should be preserved: X (pos %d) before Y (pos %d)", xIdx, yIdx)
+	}
+}
+
+func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
+	// Finding 26: When hasRoutes is false, jwt-auth still returns a
+	// middleware constructor and postgres-adapter still returns a store
+	// constructor. Both variables have no downstream consumer in the
+	// generated code. The assembler must NOT emit them — Go rejects
+	// unused local variables.
+	middlewareIdx := 0
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: nil, // no expose → no wiring
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "jwt-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: &middlewareIdx,
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Neither constructor should be emitted — both are unconsumed.
+	if strings.Contains(code, "storage.NewStore") {
+		t.Errorf("unconsumed store constructor should not be emitted:\n%s", code)
+	}
+	if strings.Contains(code, "auth.NewAuthMiddleware") {
+		t.Errorf("unconsumed middleware constructor should not be emitted:\n%s", code)
+	}
+
+	// DB setup should also be suppressed.
+	if strings.Contains(code, "sql.Open") {
+		t.Errorf("DB setup should not be emitted when store is unconsumed:\n%s", code)
+	}
+
+	// No route registration or server start.
+	if strings.Contains(code, "http.NewServeMux") {
+		t.Errorf("mux should not be present without routes:\n%s", code)
+	}
+	if strings.Contains(code, "ListenAndServe") {
+		t.Errorf("server start should not be present without routes:\n%s", code)
+	}
+}
+
+func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
+	// Verify that when routes exist, constructors that are transitively
+	// consumed (handler -> store -> DB) are all emitted correctly.
+	middlewareIdx := 0
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorDeps:     map[int][]string{0: {"store"}},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+			{
+				Name: "jwt-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: &middlewareIdx,
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// All constructors should be present — all are consumed.
+	if !strings.Contains(code, "api.NewUserHandler(store)") {
+		t.Errorf("handler constructor should be emitted:\n%s", code)
+	}
+	if !strings.Contains(code, "storage.NewStore(db)") {
+		t.Errorf("store constructor should be emitted:\n%s", code)
+	}
+	if !strings.Contains(code, "auth.NewAuthMiddleware()") {
+		t.Errorf("middleware constructor should be emitted:\n%s", code)
+	}
+
+	// DB setup should be present (store is consumed and NeedsDB).
+	if !strings.Contains(code, "sql.Open") {
+		t.Errorf("DB setup should be emitted:\n%s", code)
 	}
 }
 

@@ -2110,3 +2110,30 @@ slots:
 		t.Errorf("error should mention the expose list, got: %v", err)
 	}
 }
+
+func TestReconcile_OutDirEqualsProjectDirRejected(t *testing.T) {
+	// Finding 25: When OutDir equals ProjectDir, filepath.Rel returns "."
+	// which produces invalid Go import paths (module/./internal/api).
+	// Reconcile must reject this with a clear error.
+	projectDir, registryDir := setupTestProject(t)
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{wiring: &gen.Wiring{}},
+		"stub-store": &stubGenerator{},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+		OutDir:      projectDir, // same as ProjectDir — should fail
+	})
+	if err == nil {
+		t.Fatal("expected error when OutDir equals ProjectDir")
+	}
+	if !strings.Contains(err.Error(), "subdirectory") {
+		t.Errorf("error should explain OutDir must be a subdirectory, got: %v", err)
+	}
+}
