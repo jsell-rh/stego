@@ -1,0 +1,727 @@
+package compiler
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/jsell-rh/stego/internal/gen"
+)
+
+// setupValidateProject creates a temporary project with a valid service.yaml
+// and registry. It returns the project dir, registry dir, and a ready-to-use
+// ReconcilerInput. Callers can modify the project or registry before calling
+// Validate.
+func setupValidateProject(t *testing.T) (string, string, ReconcilerInput) {
+	t.Helper()
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+`
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), serviceYAML)
+
+	// Archetype.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	mkdirAll(t, archDir)
+	writeFile(t, filepath.Join(archDir, "archetype.yaml"), `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+`)
+
+	// Components.
+	for _, comp := range []struct {
+		name, yaml string
+		slotProtos []string // proto file names to create under slots/
+	}{
+		{
+			name: "stub-api",
+			yaml: `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots:
+  - name: before_create
+    proto: stego.components.rest_api.slots.BeforeCreate
+    default: passthrough
+`,
+			slotProtos: []string{"before_create.proto"},
+		},
+		{
+			name: "stub-store",
+			yaml: `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/storage
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`,
+		},
+	} {
+		compDir := filepath.Join(registryDir, "components", comp.name)
+		mkdirAll(t, compDir)
+		writeFile(t, filepath.Join(compDir, "component.yaml"), comp.yaml)
+		if len(comp.slotProtos) > 0 {
+			slotsDir := filepath.Join(compDir, "slots")
+			mkdirAll(t, slotsDir)
+			for _, proto := range comp.slotProtos {
+				writeFile(t, filepath.Join(slotsDir, proto), `syntax = "proto3";
+package stego.components.rest_api.slots;
+
+service BeforeCreate {
+  rpc Evaluate(BeforeCreateRequest) returns (SlotResult);
+}
+
+message BeforeCreateRequest {
+  string input = 1;
+}
+
+message SlotResult {
+  bool ok = 1;
+}
+`)
+			}
+		}
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	return projectDir, registryDir, input
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidate_AllValid(t *testing.T) {
+	_, _, input := setupValidateProject(t)
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors, got %d:\n%s", len(result.Errors), FormatValidation(result))
+	}
+}
+
+func TestValidate_MissingArchetype(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Rewrite service.yaml to reference a non-existent archetype.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: nonexistent-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "archetype", "nonexistent-arch")
+}
+
+func TestValidate_MissingComponent(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Modify archetype to reference a non-existent component.
+	archPath := filepath.Join(registryDir, "archetypes", "test-arch", "archetype.yaml")
+	writeFile(t, archPath, `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+  - nonexistent-component
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "component", "nonexistent-component")
+}
+
+func TestValidate_InvalidFieldType(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: foobar }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "foobar")
+}
+
+func TestValidate_RefFieldMissingTo(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: owner, type: ref }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "no 'to' attribute")
+}
+
+func TestValidate_RefFieldBadTarget(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: owner, type: ref, to: NonexistentEntity }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "NonexistentEntity")
+}
+
+func TestValidate_EnumFieldNoValues(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: status, type: enum }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "no values")
+}
+
+func TestValidate_UnresolvedPort(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Modify stub-api to require a port that nothing provides.
+	compPath := filepath.Join(registryDir, "components", "stub-api", "component.yaml")
+	writeFile(t, compPath, `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+  - magical-port
+provides:
+  - http-server
+slots: []
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "port", "magical-port")
+}
+
+func TestValidate_MissingFill(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - nonexistent-fill
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "fill", "nonexistent-fill")
+}
+
+func TestValidate_FillExists(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - my-policy
+`)
+
+	// Create the fill directory and fill.yaml.
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: rest-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No fill-related errors.
+	for _, e := range result.Errors {
+		if e.Category == "fill" {
+			t.Errorf("unexpected fill error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ExposeBadEntity(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: NonexistentEntity
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "NonexistentEntity")
+}
+
+func TestValidate_ExposeBadParent(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+    parent: NonexistentParent
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "NonexistentParent")
+}
+
+func TestValidate_InvalidOperation(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, explode]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "operation", "explode")
+}
+
+func TestValidate_UnknownSlot(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+slots:
+  - slot: nonexistent_slot
+    entity: Widget
+    gate:
+      - my-policy
+`)
+
+	// Create fill so that fill validation passes.
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: stub-api.nonexistent_slot
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "nonexistent_slot")
+}
+
+func TestValidate_SlotEntityNotExposed(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Gadget
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Gadget
+    gate:
+      - my-policy
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: stub-api.before_create
+entity: Gadget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "Gadget")
+}
+
+func TestValidate_MultipleErrors(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: foobar }
+      - { name: status, type: enum }
+expose:
+  - entity: NonexistentEntity
+    operations: [create, explode]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if !result.HasErrors() {
+		t.Fatal("expected errors")
+	}
+	// Should have at least: invalid type, enum no values, bad entity ref, bad operation.
+	if len(result.Errors) < 4 {
+		t.Errorf("expected at least 4 errors, got %d:\n%s", len(result.Errors), FormatValidation(result))
+	}
+	assertHasError(t, result, "field-type", "foobar")
+	assertHasError(t, result, "field-type", "no values")
+	assertHasError(t, result, "entity-ref", "NonexistentEntity")
+	assertHasError(t, result, "operation", "explode")
+}
+
+func TestFormatValidation_NoErrors(t *testing.T) {
+	r := &ValidationResult{}
+	got := FormatValidation(r)
+	if !strings.Contains(got, "Validation passed") {
+		t.Errorf("expected 'Validation passed' message, got: %s", got)
+	}
+}
+
+func TestFormatValidation_WithErrors(t *testing.T) {
+	r := &ValidationResult{
+		Errors: []ValidationError{
+			{Category: "field-type", Message: "bad type"},
+			{Category: "port", Message: "unresolved"},
+		},
+	}
+	got := FormatValidation(r)
+	if !strings.Contains(got, "2 error(s)") {
+		t.Errorf("expected '2 error(s)' in output, got: %s", got)
+	}
+	if !strings.Contains(got, "[field-type]") {
+		t.Errorf("expected '[field-type]' category in output, got: %s", got)
+	}
+	if !strings.Contains(got, "[port]") {
+		t.Errorf("expected '[port]' category in output, got: %s", got)
+	}
+}
+
+// assertHasError checks that the result contains at least one error with the
+// given category whose message contains the given substring.
+func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {
+	t.Helper()
+	for _, e := range result.Errors {
+		if e.Category == category && strings.Contains(e.Message, messageSubstring) {
+			return
+		}
+	}
+	t.Errorf("expected error with category %q containing %q, got:\n%s",
+		category, messageSubstring, FormatValidation(result))
+}

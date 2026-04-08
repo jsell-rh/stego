@@ -36,6 +36,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
+	case "validate":
+		if err := runValidate(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	case "drift":
+		if err := runDrift(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -49,6 +59,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  plan      Show changes that would be applied")
 	fmt.Fprintln(os.Stderr, "  apply     Generate/update code")
+	fmt.Fprintln(os.Stderr, "  validate  Check service.yaml against registry")
+	fmt.Fprintln(os.Stderr, "  drift     Detect hand-edits to generated files")
 	fmt.Fprintln(os.Stderr, "  version   Print version")
 }
 
@@ -121,6 +133,43 @@ func runPlan() error {
 	}
 
 	fmt.Print(compiler.FormatPlan(plan))
+	return nil
+}
+
+func runValidate() error {
+	input, err := buildReconcilerInput()
+	if err != nil {
+		return err
+	}
+
+	result, err := compiler.Validate(input)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(compiler.FormatValidation(result))
+	if result.HasErrors() {
+		return fmt.Errorf("validation failed with %d error(s)", len(result.Errors))
+	}
+	return nil
+}
+
+func runDrift() error {
+	projectDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+	outDir := filepath.Join(projectDir, "out")
+
+	result, err := compiler.DetectDrift(projectDir, outDir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(compiler.FormatDrift(result))
+	if result.HasDrift() {
+		return fmt.Errorf("drift detected in %d file(s)", len(result.Modified)+len(result.Deleted))
+	}
 	return nil
 }
 

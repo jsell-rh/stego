@@ -2,7 +2,7 @@
 
 **Spec Reference:** "CLI Interface" (validate, drift)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
