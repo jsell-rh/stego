@@ -232,6 +232,8 @@ If a constraint can't be expressed with these attributes, it becomes a fill -- t
 
 Stego itself is Go. Components are Go packages implementing `Generator`. The compiler imports and calls them directly -- the registry is a Go module. Single binary distribution. If multi-language generators are needed later, a subprocess protocol can be added without changing the architecture.
 
+The `language` field on the service declaration must be validated against the archetype's declared language. If they disagree, it is a validation error. Only `go` is supported in MVP; other values are rejected.
+
 ## Migration Diffing
 
 Migration generation is a component concern, not a stego concern. The compiler passes entity definitions (desired state) to the storage component's generator. The component owns the diffing strategy -- the `postgres-adapter` might use Atlas internally, `sqlite-adapter` might use something else. Stego doesn't know or care. This is consistent with the principle that components own accidental complexity.
