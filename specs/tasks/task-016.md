@@ -48,3 +48,7 @@ The live registry (`registry/`) is missing the `event-publisher` mixin needed fo
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `3645b6b` feat(task-016): add event-publisher mixin and kafka-producer stub to registry
+- `51f46b4` fix(task-016): support mixin-added slots and fix multi-slot package issues
+- `b628769` feat(task-016): add user-management example with fills and end-to-end pipeline
