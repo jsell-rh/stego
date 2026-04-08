@@ -53,3 +53,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 4008d18 fix(task-013): derived path validation and conditional declaration emission
 - 0b1b94f fix(task-013): address round 11 review findings 27-29
 - b9c261f fix(task-013): filter unconsumed wiring imports in writeMainImports
+- 5c48572 fix(task-013): gate fill imports on hasSlots to prevent unused import compile errors
