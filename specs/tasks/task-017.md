@@ -62,3 +62,5 @@ The spec defines the registry as a git repo resolved via `.stego/config.yaml`, b
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `547b12b` feat(task-017): implement git-based registry resolution
