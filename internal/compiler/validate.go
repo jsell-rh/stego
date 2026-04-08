@@ -143,8 +143,9 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate short_circuit is only used with chain operator.
 	result.Errors = append(result.Errors, validateSlotBindingShortCircuit(svcDecl.Slots)...)
 
-	// Validate each slot binding has at least one operator (gate, chain, or fan-out).
+	// Validate each slot binding has exactly one operator (gate, chain, or fan-out).
 	result.Errors = append(result.Errors, validateSlotBindingOperatorPresence(svcDecl.Slots)...)
+	result.Errors = append(result.Errors, validateSlotBindingOperatorExclusivity(svcDecl.Slots)...)
 
 	// Validate no duplicate fill names within a single operator's fill list.
 	result.Errors = append(result.Errors, validateSlotBindingFillUniqueness(svcDecl.Slots)...)
@@ -317,6 +318,21 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				errs = append(errs, ValidationError{
 					Category: "field-type",
 					Message:  fmt.Sprintf("entity %q field %q: attribute 'to' is only valid for ref fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+
+			// --- Range consistency: min_length <= max_length, min <= max ---
+
+			if f.MinLength != nil && f.MaxLength != nil && *f.MinLength > *f.MaxLength {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q has min_length (%d) > max_length (%d) — the constraint range is empty and no value can satisfy both bounds", e.Name, f.Name, *f.MinLength, *f.MaxLength),
+				})
+			}
+			if f.Min != nil && f.Max != nil && *f.Min > *f.Max {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q has min (%v) > max (%v) — the constraint range is empty and no value can satisfy both bounds", e.Name, f.Name, *f.Min, *f.Max),
 				})
 			}
 
@@ -683,6 +699,38 @@ func validateSlotBindingOperatorPresence(slots []types.SlotDeclaration) []Valida
 			errs = append(errs, ValidationError{
 				Category: "slot",
 				Message:  fmt.Sprintf("slot binding for slot %q%s has no operator — each slot binding must specify at least one of: gate, chain, fan-out", sb.Slot, entityDesc),
+			})
+		}
+	}
+	return errs
+}
+
+// validateSlotBindingOperatorExclusivity checks that each slot binding has at
+// most one operator (gate, chain, or fan-out). The spec shows each slot binding
+// with exactly one operator — gate, chain, and fan-out are semantically distinct
+// composition strategies (AND-gate, sequential pipeline, concurrent broadcast)
+// that cannot be meaningfully combined on a single slot invocation.
+func validateSlotBindingOperatorExclusivity(slots []types.SlotDeclaration) []ValidationError {
+	var errs []ValidationError
+	for _, sb := range slots {
+		var present []string
+		if len(sb.Gate) > 0 {
+			present = append(present, "gate")
+		}
+		if len(sb.Chain) > 0 {
+			present = append(present, "chain")
+		}
+		if len(sb.FanOut) > 0 {
+			present = append(present, "fan-out")
+		}
+		if len(present) > 1 {
+			entityDesc := ""
+			if sb.Entity != "" {
+				entityDesc = fmt.Sprintf(" on entity %q", sb.Entity)
+			}
+			errs = append(errs, ValidationError{
+				Category: "slot",
+				Message:  fmt.Sprintf("slot binding for slot %q%s has multiple operators (%s) — each slot binding must specify exactly one operator: gate, chain, or fan-out", sb.Slot, entityDesc, strings.Join(present, ", ")),
 			})
 		}
 	}

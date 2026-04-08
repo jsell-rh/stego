@@ -2682,6 +2682,391 @@ mixins:
 	}
 }
 
+func TestValidate_SlotBindingMultipleOperators_GateAndChain(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+    chain:
+      - step-a
+`)
+
+	for _, fill := range []string{"policy-a", "step-a"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "has multiple operators (gate, chain)")
+}
+
+func TestValidate_SlotBindingMultipleOperators_GateAndFanOut(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+    fan-out:
+      - notifier
+`)
+
+	for _, fill := range []string{"policy-a", "notifier"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "has multiple operators (gate, fan-out)")
+}
+
+func TestValidate_SlotBindingMultipleOperators_ChainAndFanOut(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    chain:
+      - step-a
+    fan-out:
+      - notifier
+`)
+
+	for _, fill := range []string{"step-a", "notifier"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "has multiple operators (chain, fan-out)")
+}
+
+func TestValidate_SlotBindingMultipleOperators_AllThree(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - policy-a
+    chain:
+      - step-a
+    fan-out:
+      - notifier
+`)
+
+	for _, fill := range []string{"policy-a", "step-a", "notifier"} {
+		fillDir := filepath.Join(projectDir, "fills", fill)
+		mkdirAll(t, fillDir)
+		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: `+fill+`
+implements: stub-api.before_create
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+	}
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "slot", "has multiple operators (gate, chain, fan-out)")
+}
+
+func TestValidate_MinLengthGreaterThanMaxLength(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string, min_length: 10, max_length: 5 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "has min_length (10) > max_length (5)")
+}
+
+func TestValidate_MinGreaterThanMax(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: count, type: int32, min: 100, max: 10 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "has min (100) > max (10)")
+}
+
+func TestValidate_MinLengthEqualsMaxLength(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Equal bounds should be valid — it's an exact-length constraint.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: code, type: string, min_length: 5, max_length: 5 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "min_length") && strings.Contains(e.Message, "max_length") {
+			t.Errorf("unexpected range constraint error for equal bounds: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_MinEqualsMax(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Equal bounds should be valid.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: score, type: double, min: 0.5, max: 0.5 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "min") && strings.Contains(e.Message, "max") && strings.Contains(e.Message, "range is empty") {
+			t.Errorf("unexpected range constraint error for equal bounds: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ValidRangeConstraints(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// min_length < max_length and min < max — should produce no range errors.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string, min_length: 1, max_length: 255 }
+      - { name: count, type: int32, min: 0, max: 100 }
+      - { name: score, type: double, min: 0.0, max: 1.0 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "range is empty") {
+			t.Errorf("unexpected range constraint error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {
