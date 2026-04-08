@@ -268,6 +268,65 @@ func TestRunFillCreateAmbiguousSlot(t *testing.T) {
 	}
 }
 
+func TestRunFillCreateAmbiguousSlotWithComponent(t *testing.T) {
+	tmp := t.TempDir()
+	setupRegistryWithDuplicateSlot(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-disambig")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	// With --component, disambiguation succeeds.
+	err := runFillCreate([]string{"my-fill", "--slot", "before_create", "--component", "comp-a"})
+	if err != nil {
+		t.Fatalf("runFillCreate with --component failed: %v", err)
+	}
+
+	// Verify fill.yaml references the correct component.
+	fillYAML := filepath.Join(projDir, "fills", "my-fill", "fill.yaml")
+	data, err := os.ReadFile(fillYAML)
+	if err != nil {
+		t.Fatalf("reading fill.yaml: %v", err)
+	}
+	if !strings.Contains(string(data), "comp-a.before_create") {
+		t.Errorf("fill.yaml should reference comp-a.before_create, got:\n%s", data)
+	}
+}
+
+func TestRunFillCreateAmbiguousSlotWithWrongComponent(t *testing.T) {
+	tmp := t.TempDir()
+	setupRegistryWithDuplicateSlot(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-wrongcomp")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	// --component with a name that doesn't define the slot should error.
+	err := runFillCreate([]string{"my-fill", "--slot", "before_create", "--component", "nonexistent"})
+	if err == nil {
+		t.Fatal("expected error for wrong component name")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") || !strings.Contains(err.Error(), "does not define slot") {
+		t.Errorf("expected 'does not define slot' error, got: %v", err)
+	}
+}
+
 func TestRunRegistrySearch(t *testing.T) {
 	tmp := t.TempDir()
 	setupMinimalRegistry(t, tmp)

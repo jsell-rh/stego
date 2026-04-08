@@ -224,6 +224,7 @@ func runFill(args []string) error {
 func runFillCreate(args []string) error {
 	fs := flag.NewFlagSet("fill create", flag.ContinueOnError)
 	slotName := fs.String("slot", "", "slot to implement (required)")
+	componentName := fs.String("component", "", "component that owns the slot (required when slot name is ambiguous)")
 
 	// Extract the fill name from args, which may appear before flags.
 	// Collect non-flag args and flag args separately, then parse flags.
@@ -283,15 +284,29 @@ func runFillCreate(args []string) error {
 	if len(matchingComps) == 0 {
 		return fmt.Errorf("slot %q not found in any component", *slotName)
 	}
+
+	var ownerComp *types.Component
 	if len(matchingComps) > 1 {
-		names := make([]string, len(matchingComps))
-		for i, c := range matchingComps {
-			names[i] = c.Name
+		if *componentName == "" {
+			names := make([]string, len(matchingComps))
+			for i, c := range matchingComps {
+				names[i] = c.Name
+			}
+			sort.Strings(names)
+			return fmt.Errorf("slot %q is defined by multiple components: %s — specify --component to disambiguate", *slotName, strings.Join(names, ", "))
 		}
-		sort.Strings(names)
-		return fmt.Errorf("slot %q is defined by multiple components: %s — specify --component to disambiguate", *slotName, strings.Join(names, ", "))
+		for _, c := range matchingComps {
+			if c.Name == *componentName {
+				ownerComp = c
+				break
+			}
+		}
+		if ownerComp == nil {
+			return fmt.Errorf("component %q does not define slot %q", *componentName, *slotName)
+		}
+	} else {
+		ownerComp = matchingComps[0]
 	}
-	ownerComp := matchingComps[0]
 
 	// Create fill directory.
 	fillDir := filepath.Join(projectDir, "fills", fillName)
