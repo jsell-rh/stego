@@ -31,20 +31,70 @@ the fills is essential complexity.
 4. Run `stego apply` for deterministic code generation. Plain Go output.
    No runtime dependency on STEGO.
 
+## Prerequisites
+
+- Go 1.24+ ([install](https://go.dev/dl/))
+
+## Build from source
+
+    git clone https://github.com/jsell-rh/stego.git
+    cd stego
+    go build -o stego ./cmd/stego/
+    go test ./...
+
+This produces a `stego` binary in the repo root.
+
 ## Quick start
 
-    stego init --archetype rest-crud --name my-service
-    # edit service.yaml: add entities, expose operations
+Set up environment and initialize a new project:
+
+    export STEGO_REGISTRY=/path/to/stego/registry
+    mkdir my-service && cd my-service
+    /path/to/stego init -archetype rest-crud
+
+This creates a `service.yaml` scaffold and a `fills/` directory. Edit
+`service.yaml` with your entities and operations:
+
+```yaml
+kind: service
+name: my-service
+archetype: rest-crud
+language: go
+
+entities:
+  - name: Todo
+    fields:
+      - { name: title, type: string, min_length: 1, max_length: 255 }
+      - { name: completed, type: bool, default: false }
+
+expose:
+  - entity: Todo
+    operations: [create, read, update, delete, list]
+```
+
+Generate and build:
+
+    stego validate      # check service.yaml against registry
     stego plan          # see what will be generated
-    stego apply         # generate code
+    stego apply         # generate code into out/
     cd out && go build  # it's just Go
 
-Add business logic:
+Add business logic via fills:
 
-    stego fill create admin-policy --slot before_create
+    stego fill create admin-policy -slot before_create
     # implement fills/admin-policy/policy.go
     stego test          # run fill tests
     stego apply         # re-generate with fills wired in
+
+## Run the example
+
+A complete example with fills is included:
+
+    export STEGO_REGISTRY=/path/to/stego/registry
+    cd examples/user-management
+    /path/to/stego plan
+    /path/to/stego apply
+    cd out && go build
 
 ## Concepts
 
