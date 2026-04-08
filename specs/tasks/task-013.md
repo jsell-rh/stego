@@ -51,3 +51,4 @@ When done, update this file's Status to `complete` and list relevant commits bel
 - 757474e fix(task-013): validate slot binding entities against expose list
 - be56f38 fix(task-013): topologically sort constructor declarations by dependency
 - 4008d18 fix(task-013): derived path validation and conditional declaration emission
+- 0b1b94f fix(task-013): address round 11 review findings 27-29
