@@ -182,12 +182,32 @@ var numericTypes = map[types.FieldType]bool{
 // declared together.
 func validateFieldTypes(entities []types.Entity) []ValidationError {
 	entityNames := make(map[string]bool, len(entities))
+	var errs []ValidationError
+
+	// Check for duplicate entity names.
 	for _, e := range entities {
+		if entityNames[e.Name] {
+			errs = append(errs, ValidationError{
+				Category: "entity",
+				Message:  fmt.Sprintf("entity %q is defined more than once", e.Name),
+			})
+		}
 		entityNames[e.Name] = true
 	}
 
-	var errs []ValidationError
 	for _, e := range entities {
+		// Check for duplicate field names within this entity.
+		fieldSeen := make(map[string]bool, len(e.Fields))
+		for _, f := range e.Fields {
+			if fieldSeen[f.Name] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q has duplicate field name %q", e.Name, f.Name),
+				})
+			}
+			fieldSeen[f.Name] = true
+		}
+
 		for _, f := range e.Fields {
 			if !types.ValidFieldTypes[f.Type] {
 				errs = append(errs, ValidationError{
