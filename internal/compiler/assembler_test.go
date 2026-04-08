@@ -3632,5 +3632,248 @@ func TestAssemble_StructStyleMiddleware(t *testing.T) {
 	}
 }
 
+func TestAssemble_TopologicalSortConstructors(t *testing.T) {
+	// When rest-api (which depends on "store") is listed before
+	// postgres-adapter (which produces "store"), the assembler must
+	// topologically sort constructor declarations so that store :=
+	// storage.NewStore(db) is emitted before userHandler :=
+	// api.NewUserHandler(store). Without sorting, the generated code has a
+	// forward variable reference — a Go compile error.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		OutDirName:  "out",
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:             []string{"internal/api"},
+					Constructors:        []string{"api.NewUserHandler(store)"},
+					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorDeps:     map[int][]string{0: {"store"}},
+					Routes: []string{
+						`mux.HandleFunc("POST /users", userHandler.Create)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// store := storage.NewStore(db) MUST appear before
+	// userHandler := api.NewUserHandler(store)
+	storeIdx := strings.Index(code, "storage.NewStore(db)")
+	handlerIdx := strings.Index(code, "api.NewUserHandler(store)")
+	if storeIdx < 0 {
+		t.Fatalf("missing store constructor in:\n%s", code)
+	}
+	if handlerIdx < 0 {
+		t.Fatalf("missing handler constructor in:\n%s", code)
+	}
+	if storeIdx > handlerIdx {
+		t.Errorf("store constructor (pos %d) must appear before handler constructor (pos %d) — topological sort failed:\n%s",
+			storeIdx, handlerIdx, code)
+	}
+}
+
+func TestAssemble_TopologicalSortCircularDependency(t *testing.T) {
+	// Two constructors that depend on each other should produce a clear
+	// error at generation time, not an infinite loop or broken code.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "comp-a",
+				Wiring: &gen.Wiring{
+					Imports:         []string{"internal/a"},
+					Constructors:    []string{"a.NewFoo(bar)"},
+					ConstructorDeps: map[int][]string{0: {"bar"}},
+				},
+			},
+			{
+				Name: "comp-b",
+				Wiring: &gen.Wiring{
+					Imports:         []string{"internal/b"},
+					Constructors:    []string{"b.NewBar(foo)"},
+					ConstructorDeps: map[int][]string{0: {"foo"}},
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for circular constructor dependency, got nil")
+	}
+	if !strings.Contains(err.Error(), "circular constructor dependency") {
+		t.Errorf("expected circular dependency error, got: %v", err)
+	}
+}
+
+func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
+	// Diamond dependency: A→B, A→C, B→D, C→D. D must be emitted first,
+	// then B and C (in some order), then A last.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		OutDirName:  "out",
+		Wirings: []ComponentWiring{
+			{
+				Name: "comp-a",
+				Wiring: &gen.Wiring{
+					Imports:         []string{"internal/a"},
+					Constructors:    []string{"a.NewA(b, c)"},
+					ConstructorDeps: map[int][]string{0: {"b", "c"}},
+					Routes:          []string{`mux.HandleFunc("GET /a", a.Index)`},
+				},
+			},
+			{
+				Name: "comp-b",
+				Wiring: &gen.Wiring{
+					Imports:         []string{"internal/b"},
+					Constructors:    []string{"b.NewB(d)"},
+					ConstructorDeps: map[int][]string{0: {"d"}},
+				},
+			},
+			{
+				Name: "comp-c",
+				Wiring: &gen.Wiring{
+					Imports:         []string{"internal/c"},
+					Constructors:    []string{"c.NewC(d)"},
+					ConstructorDeps: map[int][]string{0: {"d"}},
+				},
+			},
+			{
+				Name: "comp-d",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/d"},
+					Constructors: []string{"d.NewD()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify ordering constraints.
+	dIdx := strings.Index(code, "d.NewD()")
+	bIdx := strings.Index(code, "b.NewB(d)")
+	cIdx := strings.Index(code, "c.NewC(d)")
+	aIdx := strings.Index(code, "a.NewA(b, c)")
+
+	if dIdx < 0 || bIdx < 0 || cIdx < 0 || aIdx < 0 {
+		t.Fatalf("missing constructors in:\n%s", code)
+	}
+
+	if dIdx > bIdx {
+		t.Errorf("D (pos %d) must appear before B (pos %d)", dIdx, bIdx)
+	}
+	if dIdx > cIdx {
+		t.Errorf("D (pos %d) must appear before C (pos %d)", dIdx, cIdx)
+	}
+	if bIdx > aIdx {
+		t.Errorf("B (pos %d) must appear before A (pos %d)", bIdx, aIdx)
+	}
+	if cIdx > aIdx {
+		t.Errorf("C (pos %d) must appear before A (pos %d)", cIdx, aIdx)
+	}
+}
+
+func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
+	// When no ConstructorDeps are declared, constructors should be emitted
+	// in their original input order (stable sort — no reordering of
+	// independent entries).
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "comp-x",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/x"},
+					Constructors: []string{"x.NewX()"},
+				},
+			},
+			{
+				Name: "comp-y",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/y"},
+					Constructors: []string{"y.NewY()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+	xIdx := strings.Index(code, "x.NewX()")
+	yIdx := strings.Index(code, "y.NewY()")
+	if xIdx < 0 || yIdx < 0 {
+		t.Fatalf("missing constructors in:\n%s", code)
+	}
+	if xIdx > yIdx {
+		t.Errorf("without deps, input order should be preserved: X (pos %d) before Y (pos %d)", xIdx, yIdx)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

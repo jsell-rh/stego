@@ -148,6 +148,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			wiring.ConstructorEntities = make(map[int]string)
 		}
 		wiring.ConstructorEntities[constructorIdx] = entity.Name
+		if wiring.ConstructorDeps == nil {
+			wiring.ConstructorDeps = make(map[int][]string)
+		}
+		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
 
 		basePath, err := entityBasePath(eb, exposeMap)
 		if err != nil {

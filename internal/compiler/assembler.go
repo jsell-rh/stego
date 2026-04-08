@@ -430,6 +430,17 @@ type constructorRename struct {
 // non-stdlib import aliases from writeMainImports; constructor expressions are
 // updated to reference the disambiguated aliases, and constructor variable
 // names are disambiguated against all import aliases to prevent shadowing.
+// constructorEntry holds metadata for a single constructor during topological
+// sorting. It preserves the wiring and constructor indices needed for rename
+// tracking and slot injection after sorting.
+type constructorEntry struct {
+	WiringIndex      int
+	ConstructorIndex int
+	RawExpr          string   // original constructor expression
+	BaseVar          string   // derived variable name before disambiguation
+	Deps             []string // variable names this constructor depends on
+}
+
 func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
@@ -482,47 +493,153 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 		varUsed[name] = true
 	}
 
+	// Flatten all constructors into a single list with dependency metadata.
+	var entries []constructorEntry
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
 		for j, constructor := range cw.Wiring.Constructors {
-			// Apply import alias renames to the constructor expression so
-			// that package-qualified references match the disambiguated
-			// import aliases (e.g. "models.NewBar()" → "models2.NewBar()").
-			resolvedExpr := constructor
-			if renames, ok := imports.Renames[i]; ok {
-				for oldBase, newAlias := range renames {
-					resolvedExpr = replaceIdentRef(resolvedExpr, oldBase, newAlias)
-				}
+			var deps []string
+			if cw.Wiring.ConstructorDeps != nil {
+				deps = cw.Wiring.ConstructorDeps[j]
 			}
-
-			baseVar := rawConstructorVarName(constructor)
-			varName := disambiguateAlias(baseVar, varNames, varUsed)
-
-			if varName != baseVar {
-				wiringRenames[i] = append(wiringRenames[i], constructorRename{
-					ConstructorIndex: j,
-					OriginalVar:      baseVar,
-					FinalVar:         varName,
-					PreReserved:      preReserved[baseVar],
-				})
-			}
-
-			// Inject slot operators into handler constructors using
-			// structured metadata rather than naming convention matching.
-			expr := resolvedExpr
-			if entity, ok := cw.Wiring.ConstructorEntities[j]; ok && entity != "" {
-				if slotVars, ok := slotVarsByEntity[entity]; ok && len(slotVars) > 0 {
-					expr = injectConstructorArgs(resolvedExpr, slotVars)
-				}
-			}
-
-			fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
+			entries = append(entries, constructorEntry{
+				WiringIndex:      i,
+				ConstructorIndex: j,
+				RawExpr:          constructor,
+				BaseVar:          rawConstructorVarName(constructor),
+				Deps:             deps,
+			})
 		}
+	}
+
+	// Topologically sort constructors so that each variable is declared
+	// before any constructor that references it. This is necessary because
+	// the archetype's component order is conceptual — it does not encode
+	// dependency information.
+	sorted, err := topoSortConstructors(entries)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range sorted {
+		// Apply import alias renames to the constructor expression so
+		// that package-qualified references match the disambiguated
+		// import aliases (e.g. "models.NewBar()" → "models2.NewBar()").
+		resolvedExpr := entry.RawExpr
+		if renames, ok := imports.Renames[entry.WiringIndex]; ok {
+			for oldBase, newAlias := range renames {
+				resolvedExpr = replaceIdentRef(resolvedExpr, oldBase, newAlias)
+			}
+		}
+
+		varName := disambiguateAlias(entry.BaseVar, varNames, varUsed)
+
+		if varName != entry.BaseVar {
+			wiringRenames[entry.WiringIndex] = append(wiringRenames[entry.WiringIndex], constructorRename{
+				ConstructorIndex: entry.ConstructorIndex,
+				OriginalVar:      entry.BaseVar,
+				FinalVar:         varName,
+				PreReserved:      preReserved[entry.BaseVar],
+			})
+		}
+
+		// Inject slot operators into handler constructors using
+		// structured metadata rather than naming convention matching.
+		expr := resolvedExpr
+		cw := input.Wirings[entry.WiringIndex]
+		if entity, ok := cw.Wiring.ConstructorEntities[entry.ConstructorIndex]; ok && entity != "" {
+			if slotVars, ok := slotVarsByEntity[entity]; ok && len(slotVars) > 0 {
+				expr = injectConstructorArgs(resolvedExpr, slotVars)
+			}
+		}
+
+		fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
 	}
 	buf.WriteString("\n")
 	return wiringRenames, nil
+}
+
+// topoSortConstructors topologically sorts constructor entries so that
+// each constructor is emitted after all constructors whose variables it
+// depends on. Returns an error if a cycle is detected.
+func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error) {
+	if len(entries) == 0 {
+		return entries, nil
+	}
+
+	// Build a map from base variable name to entry index. When multiple
+	// entries have the same base var name (which is handled by disambiguation),
+	// the first one is the canonical producer of that variable name.
+	varToIdx := make(map[string]int)
+	for i, e := range entries {
+		if _, exists := varToIdx[e.BaseVar]; !exists {
+			varToIdx[e.BaseVar] = i
+		}
+	}
+
+	// Build adjacency list: edges[i] = list of indices that entry i depends on
+	// (i.e., must be emitted before entry i).
+	n := len(entries)
+	edges := make([][]int, n)    // edges[i] = dependencies of i
+	inDegree := make([]int, n)
+
+	for i, e := range entries {
+		for _, dep := range e.Deps {
+			if j, ok := varToIdx[dep]; ok && j != i {
+				edges[i] = append(edges[i], j)
+				inDegree[i]++ // i depends on j, so i has one more incoming edge
+			}
+			// If dep is not produced by any constructor (e.g. "db" from
+			// writeDBSetup), it's an external dependency — no ordering needed.
+		}
+	}
+
+	// Kahn's algorithm for topological sort.
+	// Queue entries with zero in-degree (no dependencies).
+	var queue []int
+	for i := 0; i < n; i++ {
+		if inDegree[i] == 0 {
+			queue = append(queue, i)
+		}
+	}
+
+	// Build reverse adjacency for "who depends on me?" to decrement in-degree.
+	revEdges := make([][]int, n)
+	for i, deps := range edges {
+		for _, j := range deps {
+			revEdges[j] = append(revEdges[j], i)
+		}
+	}
+
+	var sorted []constructorEntry
+	for len(queue) > 0 {
+		idx := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, entries[idx])
+
+		// Decrement in-degree of all entries that depend on this one.
+		for _, dependent := range revEdges[idx] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+	}
+
+	if len(sorted) != n {
+		// Cycle detected — find the entries involved.
+		var cycleEntries []string
+		for i := 0; i < n; i++ {
+			if inDegree[i] > 0 {
+				cycleEntries = append(cycleEntries, fmt.Sprintf("%s (deps: %v)", entries[i].RawExpr, entries[i].Deps))
+			}
+		}
+		return nil, fmt.Errorf("circular constructor dependency detected among: %s", strings.Join(cycleEntries, "; "))
+	}
+
+	return sorted, nil
 }
 
 func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string) {

@@ -129,6 +129,15 @@ type Wiring struct {
 	// The assembler uses this to determine whether to emit database setup code
 	// in main.go, replacing fragile string matching on constructor expressions.
 	NeedsDB bool
+
+	// ConstructorDeps maps constructor index to the list of variable names
+	// (from other wirings' constructors) that this constructor references in
+	// its expression. The assembler uses this to topologically sort constructor
+	// declarations so that referenced variables are declared before referencing
+	// ones. Variable names here correspond to the raw variable name derived
+	// from the target constructor's expression via rawConstructorVarName
+	// (e.g. "store" for storage.NewStore(db)).
+	ConstructorDeps map[int][]string
 }
 
 // ValidateNamespace checks that every file path in files is under the given
