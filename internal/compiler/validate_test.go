@@ -1384,6 +1384,75 @@ expose:
 	assertHasError(t, result, "field-type", "entity \"Widget\" has duplicate field name \"label\"")
 }
 
+func TestValidate_UpsertKeyWithoutUpsertOperation(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+    upsert_key: [resource_type, resource_id]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "specifies upsert_key but does not include 'upsert'")
+}
+
+func TestValidate_UpsertKeyWithUpsertOperation(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert, list]
+    upsert_key: [resource_type, resource_id]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No upsert_key/operation errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "upsert_key") {
+			t.Errorf("unexpected upsert_key error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {
