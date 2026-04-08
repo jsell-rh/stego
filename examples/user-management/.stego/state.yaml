@@ -1,0 +1,52 @@
+last_applied:
+    service_hash: 54ce4f5162a476edc58a5dee19d76da5f85fc26c6b3a2633ca9656610e1ef6a7
+    registry_sha: a1b2c3d4e5f6
+    components:
+        health-check:
+            version: 0.1.0
+            sha: a1b2c3d4e5f6
+        jwt-auth:
+            version: 1.0.0
+            sha: a1b2c3d4e5f6
+        kafka-producer:
+            version: 0.1.0
+            sha: a1b2c3d4e5f6
+        otel-tracing:
+            version: 0.1.0
+            sha: a1b2c3d4e5f6
+        postgres-adapter:
+            version: 1.4.0
+            sha: a1b2c3d4e5f6
+        rest-api:
+            version: 2.1.0
+            sha: a1b2c3d4e5f6
+    entities:
+        Organization:
+            - name: name
+              type: string
+              hash: 1e1e29bbb8c755bd62e452041132979358c6c5eb65f823b67eab3fe840496607
+        User:
+            - name: email
+              type: string
+              hash: e054d47b9c952818d0b8be34243460cca5a1c71a6a6d74889b967ea37946add1
+            - name: role
+              type: enum
+              hash: c8db5b25fa0869eff6a08a708aa39110f0b6f1353f296dff903be8c92a2bbe1a
+            - name: org_id
+              type: ref
+              hash: 9feeb805276afdff37bfca08ac2a7af8f34fbd94423dec985a204d81c0cc0311
+    files:
+        cmd/main.go: 456ceb081591f3846f8b1a850f5b48ad2b68ae7df6884bac510c9132e06b1688
+        go.mod: f4d09b06f532954775753de92f00b01976d99a398e1de296c64e022db928da95
+        internal/api/handler_organization.go: 4a93178762074e8ef19cc4164b545fae2b2024f79eca72271dd1f45cc148a0f0
+        internal/api/handler_user.go: 39c1a8559dced1e6d179f90aae878b758f80b31fc11a72218dead16a7bcd8951
+        internal/api/openapi.json: 09f2094fb3a88f9e4470f593a640dd9d36ccc17b717fc9ecf225dc9a684fca94
+        internal/api/router.go: 40249ea757f76ed59215023476a691e49e52f73310ec3c63b8a721785df93edd
+        internal/auth/middleware.go: ccadca735a6731c61c20733a72c22b80e12b8b98b90da88c437b6cd8b13c9de0
+        internal/storage/migrations/001_initial.sql: 616e7b7e1711ebdf85373e7afde244f3edcb2d71359af12c2dd518f9875b6932
+        internal/storage/models.go: 39fc8e8039e9c310f6e490220c54496deebff3011e71ba842cd0c94697312449
+        internal/storage/store.go: b0a6a5e811163dd68fc65e461267fe7021ef82c7f6e2cdd017831897b398ce7b
+        slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
+        slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
+        slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
+        slots/on_entity_changed_operators.go: b1edb4b33a83bbf8e56dd4b2199944b9c673921f2caecafd1d4178ed3188a55a

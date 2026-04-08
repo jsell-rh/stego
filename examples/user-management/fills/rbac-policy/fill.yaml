@@ -1,0 +1,6 @@
+kind: fill
+name: rbac-policy
+implements: rest-api.before_create
+entity: User
+qualified_by: jsell
+qualified_at: 2026-04-06

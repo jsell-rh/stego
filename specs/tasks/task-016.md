@@ -2,7 +2,7 @@
 
 **Spec Reference:** "MVP Scope"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

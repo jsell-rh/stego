@@ -1,0 +1,6 @@
+kind: fill
+name: user-change-notifier
+implements: event-publisher.on_entity_changed
+entity: User
+qualified_by: jsell
+qualified_at: 2026-04-06
