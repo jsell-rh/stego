@@ -258,6 +258,14 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	allFiles = append(allFiles, slotFiles...)
 
+	// Validate that slot binding entities are in the expose list. Slot operators
+	// are injected into handler constructors, which only exist for exposed
+	// entities. A slot binding referencing a non-exposed entity would produce
+	// an unused variable in the generated main.go — a Go compile error.
+	if err := validateSlotBindingEntities(svcDecl.Slots, svcDecl.Expose); err != nil {
+		return nil, err
+	}
+
 	// Assemble shared files (main.go, go.mod).
 	assemblerInput := AssemblerInput{
 		ModuleName:   input.ModuleName,
@@ -815,6 +823,40 @@ func FormatPlan(plan *Plan) string {
 		generateCount, updateCount, deleteCount, unchangedCount)
 
 	return result.String()
+}
+
+// validateSlotBindingEntities checks that every slot binding with a non-empty
+// Entity field references an entity that is in the expose list. Slot operators
+// are injected into handler constructors, which are only generated for exposed
+// entities. A binding referencing a non-exposed entity would produce an unused
+// variable — a Go compile error.
+func validateSlotBindingEntities(slots []types.SlotDeclaration, expose []types.ExposeBlock) error {
+	if len(slots) == 0 {
+		return nil
+	}
+
+	// Build set of exposed entity names.
+	exposedEntities := make(map[string]bool, len(expose))
+	for _, eb := range expose {
+		exposedEntities[eb.Entity] = true
+	}
+
+	for _, sb := range slots {
+		if sb.Entity == "" {
+			continue
+		}
+		if !exposedEntities[sb.Entity] {
+			// Collect exposed entity names for a helpful error message.
+			var exposed []string
+			for _, eb := range expose {
+				exposed = append(exposed, eb.Entity)
+			}
+			return fmt.Errorf("slot binding %q declares entity %q but %q is not in the expose list — "+
+				"slot operators can only be wired to entities that have handler constructors (exposed entities: %v)",
+				sb.Slot, sb.Entity, sb.Entity, exposed)
+		}
+	}
+	return nil
 }
 
 // validateUniqueFilePaths checks that no two files in the collection share the

@@ -1952,3 +1952,161 @@ overrides: none
 		t.Errorf("error should mention compatibility, got: %v", err)
 	}
 }
+
+func TestValidateSlotBindingEntities_NonExposedEntityRejected(t *testing.T) {
+	slots := []types.SlotDeclaration{
+		{Slot: "before_create", Entity: "Gadget", Gate: []string{"my-policy"}},
+	}
+	expose := []types.ExposeBlock{
+		{Entity: "Widget", Operations: []types.Operation{"create", "read"}},
+	}
+
+	err := validateSlotBindingEntities(slots, expose)
+	if err == nil {
+		t.Fatal("expected error when slot binding entity is not in expose list")
+	}
+	if !strings.Contains(err.Error(), "Gadget") {
+		t.Errorf("error should mention the non-exposed entity name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "before_create") {
+		t.Errorf("error should mention the slot name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "expose") {
+		t.Errorf("error should mention the expose list, got: %v", err)
+	}
+}
+
+func TestValidateSlotBindingEntities_ExposedEntityAccepted(t *testing.T) {
+	slots := []types.SlotDeclaration{
+		{Slot: "before_create", Entity: "Widget", Gate: []string{"my-policy"}},
+	}
+	expose := []types.ExposeBlock{
+		{Entity: "Widget", Operations: []types.Operation{"create", "read"}},
+	}
+
+	err := validateSlotBindingEntities(slots, expose)
+	if err != nil {
+		t.Fatalf("expected success when slot binding entity is in expose list, got: %v", err)
+	}
+}
+
+func TestValidateSlotBindingEntities_EmptyEntityAccepted(t *testing.T) {
+	// Slot bindings with no entity should be accepted (they get _ = suppression).
+	slots := []types.SlotDeclaration{
+		{Slot: "before_create", Gate: []string{"my-policy"}},
+	}
+	expose := []types.ExposeBlock{
+		{Entity: "Widget", Operations: []types.Operation{"create"}},
+	}
+
+	err := validateSlotBindingEntities(slots, expose)
+	if err != nil {
+		t.Fatalf("expected success when slot binding has no entity, got: %v", err)
+	}
+}
+
+func TestValidateSlotBindingEntities_NoSlotsAccepted(t *testing.T) {
+	err := validateSlotBindingEntities(nil, []types.ExposeBlock{
+		{Entity: "Widget"},
+	})
+	if err != nil {
+		t.Fatalf("expected success with no slot bindings, got: %v", err)
+	}
+}
+
+func TestReconcile_SlotBindingEntityNotInExposeListRejected(t *testing.T) {
+	projectDir, registryDir := setupTestProject(t)
+
+	// Write a service.yaml with a slot binding referencing an entity not in expose.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Gadget
+    fields:
+      - { name: name, type: string }
+
+expose:
+  - entity: Widget
+    operations: [create, read]
+
+slots:
+  - slot: before_create
+    entity: Gadget
+    gate:
+      - my-policy
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add slot proto for before_create under stub-api component.
+	slotsDir := filepath.Join(registryDir, "components", "stub-api", "slots")
+	if err := os.MkdirAll(slotsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	protoContent := `syntax = "proto3";
+package stego.components.stub_api.slots;
+
+service BeforeCreate {
+  rpc Evaluate(BeforeCreateRequest) returns (SlotResult);
+}
+
+message BeforeCreateRequest {
+  string input = 1;
+}
+
+message SlotResult {
+  bool ok = 1;
+  string error_message = 2;
+}
+`
+	if err := os.WriteFile(filepath.Join(slotsDir, "before_create.proto"), []byte(protoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update stub-api component to declare the slot.
+	compYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots:
+  - name: before_create
+    proto: stego.components.stub_api.slots.BeforeCreate
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(registryDir, "components", "stub-api", "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{wiring: &gen.Wiring{}},
+		"stub-store": &stubGenerator{},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error when slot binding entity is not in expose list")
+	}
+	if !strings.Contains(err.Error(), "Gadget") {
+		t.Errorf("error should mention the non-exposed entity, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "expose") {
+		t.Errorf("error should mention the expose list, got: %v", err)
+	}
+}
