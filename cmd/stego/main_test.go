@@ -327,6 +327,68 @@ func TestRunFillCreateAmbiguousSlotWithWrongComponent(t *testing.T) {
 	}
 }
 
+func TestRunFillCreateUnambiguousSlotWithWrongComponent(t *testing.T) {
+	tmp := t.TempDir()
+	setupMinimalRegistry(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-wrongcomp-unambig")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	// Only one component defines before_create, but --component specifies a nonexistent one.
+	// The flag must NOT be silently ignored.
+	err := runFillCreate([]string{"my-fill", "--slot", "before_create", "--component", "nonexistent-component"})
+	if err == nil {
+		t.Fatal("expected error when --component specifies a component that does not define the slot")
+	}
+	if !strings.Contains(err.Error(), "nonexistent-component") {
+		t.Errorf("expected error to mention the invalid component name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "does not define slot") {
+		t.Errorf("expected 'does not define slot' error, got: %v", err)
+	}
+}
+
+func TestRunFillCreateUnambiguousSlotWithCorrectComponent(t *testing.T) {
+	tmp := t.TempDir()
+	setupMinimalRegistry(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-correct-unambig")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	// --component matches the single matching component — should succeed.
+	err := runFillCreate([]string{"my-fill", "--slot", "before_create", "--component", "rest-api"})
+	if err != nil {
+		t.Fatalf("runFillCreate with correct --component should succeed: %v", err)
+	}
+
+	fillYAML := filepath.Join(projDir, "fills", "my-fill", "fill.yaml")
+	data, err := os.ReadFile(fillYAML)
+	if err != nil {
+		t.Fatalf("fill.yaml not created: %v", err)
+	}
+	if !strings.Contains(string(data), "rest-api.before_create") {
+		t.Errorf("fill.yaml should reference rest-api.before_create, got:\n%s", data)
+	}
+}
+
 func TestRunRegistrySearch(t *testing.T) {
 	tmp := t.TempDir()
 	setupMinimalRegistry(t, tmp)

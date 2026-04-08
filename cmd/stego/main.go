@@ -307,6 +307,11 @@ func runFillCreate(args []string) error {
 		}
 	} else {
 		ownerComp = matchingComps[0]
+		// Validate --component even when unambiguous: if the user explicitly
+		// specified a component, verify it actually defines the slot.
+		if *componentName != "" && *componentName != ownerComp.Name {
+			return fmt.Errorf("component %q does not define slot %q (slot is defined by %q)", *componentName, *slotName, ownerComp.Name)
+		}
 	}
 
 	// Create fill directory.
