@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/example/user-management/out/slots"
+	"github.com/example/service/out/slots"
 )
 
 func TestNonAdminCannotCreateAdmin(t *testing.T) {

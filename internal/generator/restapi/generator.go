@@ -134,7 +134,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 		slotParams := collectEntitySlotParams(eb.Entity, ctx.SlotBindings)
 
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap, slotParams, slotsImportPath)
+		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap, slotParams, slotsImportPath, ctx.AuthPackage)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating handler for %s: %w", eb.Entity, err)
 		}
@@ -182,7 +182,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Expose, exposeMap, ctx.SlotBindings)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Expose)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
@@ -237,7 +237,7 @@ func entityBasePathWithVisited(eb types.ExposeBlock, exposeMap map[string]types.
 // generateHandler produces a single Go handler file for an exposed entity.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock, slotParams []entitySlotParam, slotsImportPath string) (gen.File, error) {
+func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock, slotParams []entitySlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	lower := strings.ToLower(entity.Name)
@@ -282,6 +282,7 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	// Before-slots populate a CreateRequest.Fields map[string]string from entity
 	// fields; non-string-typed fields require fmt.Sprintf for conversion.
 	needFmt := false
+	needAuth := false
 	if len(slotParams) > 0 {
 		hasBeforeSlots := false
 		for _, op := range eb.Operations {
@@ -293,7 +294,23 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		}
 		if hasBeforeSlots {
 			needFmt = needsFmtForSlotFields(entity)
+			// Check if any before-slot has a Caller field that needs identity
+			// extraction from the request context via auth middleware.
+			if authImportPath != "" {
+				for _, sp := range slotParams {
+					if sp.HasCaller {
+						needAuth = true
+						break
+					}
+				}
+			}
 		}
+	}
+
+	// Derive the auth import alias from the package path.
+	authAlias := ""
+	if needAuth {
+		authAlias = path.Base(authImportPath)
 	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
@@ -308,8 +325,14 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
-	if slotsAlias != "" {
-		fmt.Fprintf(&buf, "\n\t%s %q\n", slotsAlias, slotsImportPath)
+	if slotsAlias != "" || authAlias != "" {
+		fmt.Fprintf(&buf, "\n")
+		if authAlias != "" {
+			fmt.Fprintf(&buf, "\t%s %q\n", authAlias, authImportPath)
+		}
+		if slotsAlias != "" {
+			fmt.Fprintf(&buf, "\t%s %q\n", slotsAlias, slotsImportPath)
+		}
 	}
 	fmt.Fprintf(&buf, ")\n\n")
 
@@ -392,17 +415,17 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 		var opErr error
 		switch op {
 		case types.OpCreate:
-			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
+			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
 		case types.OpRead:
 			generateReadMethod(&buf, entity, eb, slotParams, slotsAlias)
 		case types.OpUpdate:
-			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
+			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
 		case types.OpDelete:
 			generateDeleteMethod(&buf, entity, eb, slotParams, slotsAlias)
 		case types.OpList:
 			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
 		case types.OpUpsert:
-			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
+			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -428,7 +451,7 @@ func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -448,7 +471,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	// Before-slots: gate and validate fire before create.
 	before, after := slotsForOp(types.OpCreate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -482,7 +505,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	_, _ = slotParams, slotsAlias
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -502,7 +525,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	}
 	before, after := slotsForOp(types.OpUpdate, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
@@ -571,7 +594,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -591,7 +614,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 
 	before, after := slotsForOp(types.OpUpsert, slotParams)
 	for _, sp := range before {
-		emitBeforeSlot(buf, slotsAlias, sp, lower, entity)
+		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 
 	if len(eb.UpsertKey) > 0 {
@@ -625,7 +648,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock, slotBindings []types.SlotDeclaration) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	// Build entity map and determine needed imports from entity field types.
@@ -649,15 +672,17 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	fmt.Fprintf(&buf, "import (\n")
-	if needJSON {
-		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	// Only emit import block if entity types need it (json.RawMessage, time.Time).
+	if needJSON || needTime {
+		fmt.Fprintf(&buf, "import (\n")
+		if needJSON {
+			fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+		}
+		if needTime {
+			fmt.Fprintf(&buf, "\t\"time\"\n")
+		}
+		fmt.Fprintf(&buf, ")\n\n")
 	}
-	fmt.Fprintf(&buf, "\t\"net/http\"\n")
-	if needTime {
-		fmt.Fprintf(&buf, "\t\"time\"\n")
-	}
-	fmt.Fprintf(&buf, ")\n\n")
 
 	// Storage interface used by all handlers.
 	fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
@@ -683,52 +708,6 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 		}
 		fmt.Fprintf(&buf, "}\n\n")
 	}
-
-	// NewRouter function with Go 1.22 method+pattern routes.
-	fmt.Fprintf(&buf, "// NewRouter creates an http.Handler with all routes registered.\n")
-	fmt.Fprintf(&buf, "func NewRouter(auth func(http.Handler) http.Handler, store Storage) http.Handler {\n")
-	fmt.Fprintf(&buf, "\tmux := http.NewServeMux()\n\n")
-
-	for _, eb := range expose {
-		basePath, err := entityBasePath(eb, exposeMap)
-		if err != nil {
-			return gen.File{}, err
-		}
-		lower := strings.ToLower(eb.Entity)
-		entitySlots := collectEntitySlotParams(eb.Entity, slotBindings)
-		if len(entitySlots) == 0 {
-			fmt.Fprintf(&buf, "\t%sHandler := New%sHandler(store)\n", lower, eb.Entity)
-		} else {
-			// In the self-contained router, slot operators are not available;
-			// pass nil for each to satisfy the constructor signature.
-			fmt.Fprintf(&buf, "\t%sHandler := New%sHandler(store", lower, eb.Entity)
-			for range entitySlots {
-				fmt.Fprintf(&buf, ", nil")
-			}
-			fmt.Fprintf(&buf, ")\n")
-		}
-
-		for _, op := range eb.Operations {
-			switch op {
-			case types.OpCreate:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"POST %s\", %sHandler.Create)\n", basePath, lower)
-			case types.OpRead:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)\n", basePath, lower)
-			case types.OpUpdate:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)\n", basePath, lower)
-			case types.OpDelete:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)\n", basePath, lower)
-			case types.OpList:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"GET %s\", %sHandler.List)\n", basePath, lower)
-			case types.OpUpsert:
-				fmt.Fprintf(&buf, "\tmux.HandleFunc(\"PUT %s\", %sHandler.Upsert)\n", basePath, lower)
-			}
-		}
-		fmt.Fprintf(&buf, "\n")
-	}
-
-	fmt.Fprintf(&buf, "\treturn auth(mux)\n")
-	fmt.Fprintf(&buf, "}\n")
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -1168,8 +1147,7 @@ func safeVarName(name string) string {
 // at generated code, giving the user no indication that their entity name is
 // the problem.
 var reservedTypeNames = map[string]bool{
-	"Storage":   true, // type Storage interface { ... } in router.go
-	"NewRouter": true, // func NewRouter(...) in router.go
+	"Storage": true, // type Storage interface { ... } in router.go
 }
 
 // checkEntityNameCollisions verifies that no exposed entity name collides with
@@ -1732,8 +1710,8 @@ func slotsForOp(op types.Operation, params []entitySlotParam) (before, after []e
 // On error or non-Ok result, the handler returns an error response. The request
 // is populated with the decoded entity variable so that fills can inspect the
 // entity being processed. A nil guard wraps the invocation so that when no fills
-// are wired (NewRouter passes nil), the handler degrades to passthrough semantics.
-func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityVarName string, entity types.Entity) {
+// are wired, the handler degrades to passthrough semantics.
+func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param entitySlotParam, entityVarName string, entity types.Entity) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Build populated request with entity data for the fill.
 	// Fields are conditional on the slot's proto-defined request type
@@ -1749,11 +1727,20 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam,
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
 	if param.HasCaller {
-		// Populate Caller with a non-nil Identity to prevent nil-dereference
-		// panics in fills that access req.Caller.Role, req.Caller.UserID, etc.
-		// When auth middleware is wired (e.g. jwt-auth), it stores identity in
-		// the request context; future integration can extract it here.
-		fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
+		if authAlias != "" {
+			// Extract authenticated caller identity from request context.
+			// The auth middleware (e.g. jwt-auth) stores an Identity in the
+			// context via context.WithValue; we retrieve it and map it to the
+			// slots.Identity type for the fill.
+			fmt.Fprintf(buf, "\t\t\tCaller: func() *%s.Identity {\n", slotsAlias)
+			fmt.Fprintf(buf, "\t\t\t\tid := %s.IdentityFromContext(r.Context())\n", authAlias)
+			fmt.Fprintf(buf, "\t\t\t\treturn &%s.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}\n", slotsAlias)
+			fmt.Fprintf(buf, "\t\t\t}(),\n")
+		} else {
+			// No auth package available; provide a non-nil Identity to prevent
+			// nil-dereference panics in fills.
+			fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
+		}
 	}
 	if param.HasEntityStr {
 		// Populate Entity string field for slots that need the entity name
@@ -1791,8 +1778,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam,
 // emitAfterSlot emits code that calls a slot operator after the main operation,
 // before the HTTP response is written. The request is populated with the entity
 // name and the operation that triggered the slot. A nil guard wraps the invocation
-// so that when no fills are wired (NewRouter passes nil), the handler degrades to
-// passthrough semantics.
+// so that when no fills are wired, the handler degrades to passthrough semantics.
 func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityName string, op types.Operation) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{Entity: %q, Action: %q}); slotErr != nil {\n",

@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/example/user-management/out/slots"
+	"github.com/example/service/out/slots"
 )
 
 // AuditLogger records entity change events for audit purposes.

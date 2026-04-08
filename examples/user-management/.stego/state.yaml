@@ -36,12 +36,12 @@ last_applied:
               type: ref
               hash: 9feeb805276afdff37bfca08ac2a7af8f34fbd94423dec985a204d81c0cc0311
     files:
-        cmd/main.go: 456ceb081591f3846f8b1a850f5b48ad2b68ae7df6884bac510c9132e06b1688
-        go.mod: f4d09b06f532954775753de92f00b01976d99a398e1de296c64e022db928da95
+        cmd/main.go: 69499deae217fa5dad3f3a4c4dec828a8189f63fc7498c1711836cd135910808
+        go.mod: 853fdfe46607afdf17a502ee60e9b580a4d85fc92ff5685a35fd116723f6a386
         internal/api/handler_organization.go: 4a93178762074e8ef19cc4164b545fae2b2024f79eca72271dd1f45cc148a0f0
-        internal/api/handler_user.go: 39c1a8559dced1e6d179f90aae878b758f80b31fc11a72218dead16a7bcd8951
+        internal/api/handler_user.go: d8821b734206c25b868655e2cb0f993b19f1aaf6017f56224b2d540968729bb1
         internal/api/openapi.json: 09f2094fb3a88f9e4470f593a640dd9d36ccc17b717fc9ecf225dc9a684fca94
-        internal/api/router.go: 40249ea757f76ed59215023476a691e49e52f73310ec3c63b8a721785df93edd
+        internal/api/router.go: 7c985118ecc6a6d54e2ebb24c1161a00fc41b781d64fb1b8507fbe6af2658353
         internal/auth/middleware.go: ccadca735a6731c61c20733a72c22b80e12b8b98b90da88c437b6cd8b13c9de0
         internal/storage/migrations/001_initial.sql: 616e7b7e1711ebdf85373e7afde244f3edcb2d71359af12c2dd518f9875b6932
         internal/storage/models.go: 39fc8e8039e9c310f6e490220c54496deebff3011e71ba842cd0c94697312449

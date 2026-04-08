@@ -9,14 +9,14 @@ import (
 	"net/http"
 	"os"
 
-	admincreationpolicy "github.com/example/user-management/fills/admin-creation-policy"
-	auditlogger "github.com/example/user-management/fills/audit-logger"
-	rbacpolicy "github.com/example/user-management/fills/rbac-policy"
-	userchangenotifier "github.com/example/user-management/fills/user-change-notifier"
-	api "github.com/example/user-management/out/internal/api"
-	auth "github.com/example/user-management/out/internal/auth"
-	storage "github.com/example/user-management/out/internal/storage"
-	slots "github.com/example/user-management/out/slots"
+	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
+	auditlogger "github.com/example/service/fills/audit-logger"
+	rbacpolicy "github.com/example/service/fills/rbac-policy"
+	userchangenotifier "github.com/example/service/fills/user-change-notifier"
+	api "github.com/example/service/out/internal/api"
+	auth "github.com/example/service/out/internal/auth"
+	storage "github.com/example/service/out/internal/storage"
+	slots "github.com/example/service/out/slots"
 )
 
 func main() {
@@ -57,6 +57,6 @@ func main() {
 	mux.HandleFunc("GET /organizations/{organization_id}/users", userHandler.List)
 
 	addr := fmt.Sprintf(":%d", 8080)
-	log.Printf("starting server on %%s", addr)
+	log.Printf("starting server on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, authMiddleware(mux)))
 }

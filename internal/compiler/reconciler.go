@@ -215,6 +215,23 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("OutDir must be a subdirectory of ProjectDir: filepath.Rel(%q, %q) produced %q which is invalid in Go import paths", input.ProjectDir, outDir, outDirName)
 	}
 
+	// Resolve the auth package import path for generators that need to
+	// extract caller identity from the request context (e.g. rest-api
+	// populating Caller on slot requests via auth.IdentityFromContext).
+	authPackage := ""
+	for _, compName := range componentNames {
+		comp := components[compName]
+		for _, p := range comp.Provides {
+			if p.Name == "auth-provider" && comp.OutputNamespace != "" {
+				authPackage = input.ModuleName + "/" + outDirName + "/" + comp.OutputNamespace
+				break
+			}
+		}
+		if authPackage != "" {
+			break
+		}
+	}
+
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File
 	var wirings []ComponentWiring
@@ -238,6 +255,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			ComponentConfig: resolveComponentConfig(comp, svcDecl),
 			OutputNamespace: comp.OutputNamespace,
 			OutDirName:      outDirName,
+			AuthPackage:     authPackage,
 		}
 
 		files, wiring, err := generator.Generate(ctx)

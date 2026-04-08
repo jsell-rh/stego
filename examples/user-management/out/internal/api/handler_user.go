@@ -6,7 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	slots "github.com/example/user-management/out/slots"
+	auth "github.com/example/service/out/internal/auth"
+	slots "github.com/example/service/out/slots"
 )
 
 // UserHandler handles HTTP requests for User entities.
@@ -64,7 +65,10 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 					"org_id": user.OrgID,
 				},
 			},
-			Caller: &slots.Identity{},
+			Caller: func() *slots.Identity {
+				id := auth.IdentityFromContext(r.Context())
+				return &slots.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}
+			}(),
 		}
 		slotResult, slotErr := h.beforeCreateGate.Evaluate(r.Context(), slotReq)
 		if slotErr != nil {

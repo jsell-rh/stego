@@ -2,10 +2,6 @@
 
 package api
 
-import (
-	"net/http"
-)
-
 // Storage is the interface that handlers use to interact with the data store.
 type Storage interface {
 	Create(entity string, value any) error
@@ -27,21 +23,4 @@ type User struct {
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	OrgID string `json:"org_id"`
-}
-
-// NewRouter creates an http.Handler with all routes registered.
-func NewRouter(auth func(http.Handler) http.Handler, store Storage) http.Handler {
-	mux := http.NewServeMux()
-
-	organizationHandler := NewOrganizationHandler(store)
-	mux.HandleFunc("POST /organizations", organizationHandler.Create)
-	mux.HandleFunc("GET /organizations/{id}", organizationHandler.Read)
-
-	userHandler := NewUserHandler(store, nil, nil)
-	mux.HandleFunc("POST /organizations/{organization_id}/users", userHandler.Create)
-	mux.HandleFunc("GET /organizations/{organization_id}/users/{id}", userHandler.Read)
-	mux.HandleFunc("PUT /organizations/{organization_id}/users/{id}", userHandler.Update)
-	mux.HandleFunc("GET /organizations/{organization_id}/users", userHandler.List)
-
-	return auth(mux)
 }

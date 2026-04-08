@@ -3,7 +3,7 @@ package rbac_policy
 import (
 	"context"
 
-	"github.com/example/user-management/out/slots"
+	"github.com/example/service/out/slots"
 )
 
 // RBACPolicy enforces role-based access control on create operations.

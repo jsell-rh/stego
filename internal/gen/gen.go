@@ -62,6 +62,12 @@ type Context struct {
 	// this prefix (e.g. "<module>/out/internal/slots" instead of
 	// "<module>/internal/slots"). Empty string means no prefix is added.
 	OutDirName string
+
+	// AuthPackage is the full import path for the auth middleware package
+	// (e.g. "github.com/myorg/svc/out/internal/auth"). Generators use this
+	// to import auth.IdentityFromContext for extracting caller identity from
+	// the request context. Empty if no auth component is resolved.
+	AuthPackage string
 }
 
 // File represents a single generated output file.

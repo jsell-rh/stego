@@ -151,12 +151,6 @@ func TestGenerate_RouterContainsStorageInterface(t *testing.T) {
 	if !strings.Contains(router, "type Storage interface") {
 		t.Error("router missing Storage interface")
 	}
-	if !strings.Contains(router, "func NewRouter(") {
-		t.Error("router missing NewRouter function")
-	}
-	if !strings.Contains(router, "auth") {
-		t.Error("router should reference auth middleware parameter")
-	}
 }
 
 func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
@@ -191,32 +185,30 @@ func TestGenerate_RouterEntityStructsHaveFields(t *testing.T) {
 	}
 }
 
-func TestGenerate_RouterUsesMethodPatternRoutes(t *testing.T) {
+func TestGenerate_WiringUsesMethodPatternRoutes(t *testing.T) {
 	g := &Generator{}
 	ctx := basicContext()
 
-	files, _, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if wiring == nil {
+		t.Fatal("wiring is nil")
+	}
 
-	router := findFileContent(t, files, "internal/api/router.go")
-
-	// Go 1.22 method+pattern routes.
-	if !strings.Contains(router, `"POST /users"`) {
-		t.Error("router missing POST /users route")
-	}
-	if !strings.Contains(router, `"GET /users/{id}"`) {
-		t.Error("router missing GET /users/{id} route")
-	}
-	if !strings.Contains(router, `"PUT /users/{id}"`) {
-		t.Error("router missing PUT /users/{id} route")
-	}
-	if !strings.Contains(router, `"DELETE /users/{id}"`) {
-		t.Error("router missing DELETE /users/{id} route")
-	}
-	if !strings.Contains(router, `"GET /users"`) {
-		t.Error("router missing GET /users route")
+	// Go 1.22 method+pattern routes via Wiring.Routes.
+	routeStr := strings.Join(wiring.Routes, "\n")
+	for _, want := range []string{
+		`"POST /users"`,
+		`"GET /users/{id}"`,
+		`"PUT /users/{id}"`,
+		`"DELETE /users/{id}"`,
+		`"GET /users"`,
+	} {
+		if !strings.Contains(routeStr, want) {
+			t.Errorf("wiring routes missing %s route", want)
+		}
 	}
 }
 
@@ -511,13 +503,20 @@ func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 		t.Error("handler missing upsert method")
 	}
 
-	router := findFileContent(t, files, "internal/api/router.go")
-	// Update uses PUT /items/{id}, upsert uses PUT /items — different patterns.
-	if !strings.Contains(router, `"PUT /items/{id}"`) {
-		t.Error("router missing PUT /items/{id} for update")
+	// Update uses PUT /items/{id}, upsert uses PUT /items — verify via wiring routes.
+	_, wiring, err2 := g.Generate(ctx)
+	if err2 != nil {
+		t.Fatalf("unexpected error: %v", err2)
 	}
-	if !strings.Contains(router, `"PUT /items"`) {
-		t.Error("router missing PUT /items for upsert")
+	if wiring == nil {
+		t.Fatal("wiring is nil")
+	}
+	routeStr := strings.Join(wiring.Routes, "\n")
+	if !strings.Contains(routeStr, `"PUT /items/{id}"`) {
+		t.Error("wiring routes missing PUT /items/{id} for update")
+	}
+	if !strings.Contains(routeStr, `"PUT /items"`) {
+		t.Error("wiring routes missing PUT /items for upsert")
 	}
 }
 
@@ -2174,34 +2173,6 @@ func TestGenerate_EntityNamedStorageReturnsError(t *testing.T) {
 	}
 }
 
-func TestGenerate_EntityNamedNewRouterReturnsError(t *testing.T) {
-	// Entity named "NewRouter" collides with the generated NewRouter function.
-	g := &Generator{}
-	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
-		Entities: []types.Entity{
-			{Name: "NewRouter", Fields: []types.Field{
-				{Name: "name", Type: types.FieldTypeString},
-			}},
-		},
-		Expose: []types.ExposeBlock{
-			{
-				Entity:     "NewRouter",
-				Operations: []types.Operation{types.OpRead},
-			},
-		},
-		OutputNamespace: "internal/api",
-	}
-
-	_, _, err := g.Generate(ctx)
-	if err == nil {
-		t.Fatal("expected error for entity named 'NewRouter' (collides with generated NewRouter function)")
-	}
-	if !strings.Contains(err.Error(), "NewRouter") {
-		t.Errorf("error should mention 'NewRouter', got: %v", err)
-	}
-}
-
 func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
 	// Finding 28: safeVarName must guard against function-scoped identifiers
 	// in generated handler methods (receiver, params, import aliases).
@@ -3818,27 +3789,75 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 		t.Errorf("before-slot halt branch missing WriteHeader:\n%s", handlerContent)
 	}
 
-	// Finding 27: Verify NewRouter passes nil for slot params (convenience
-	// constructor for self-contained use without fills).
-	var routerContent string
-	for _, f := range files {
-		if strings.Contains(f.Path, "router.go") {
-			routerContent = string(f.Content)
-		}
-	}
-	if routerContent == "" {
-		t.Fatal("router.go not found")
-	}
-	if !strings.Contains(routerContent, "NewUserHandler(store, nil, nil)") {
-		t.Errorf("NewRouter should pass nil for slot operators:\n%s", routerContent)
-	}
-
 	// Verify ConstructorEntities wiring.
 	if wiring == nil {
 		t.Fatal("wiring is nil")
 	}
 	if wiring.ConstructorEntities == nil || wiring.ConstructorEntities[0] != "User" {
 		t.Errorf("unexpected ConstructorEntities: %v", wiring.ConstructorEntities)
+	}
+}
+
+func TestGenerate_HandlerWithAuthPackage_IdentityFromContext(t *testing.T) {
+	// When AuthPackage is set and a before-slot has HasCaller, the generated
+	// handler must import the auth package and call IdentityFromContext to
+	// extract the caller identity from the request context.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "role", Type: types.FieldTypeString},
+			}},
+		},
+		Expose: []types.ExposeBlock{
+			{
+				Entity:     "User",
+				Operations: []types.Operation{types.OpCreate, types.OpRead},
+			},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:   "before_create",
+				Entity: "User",
+				Gate:   []string{"test-policy"},
+			},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+		AuthPackage:     "github.com/myorg/svc/out/internal/auth",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_user.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_user.go not found")
+	}
+
+	// Must import the auth package.
+	if !strings.Contains(handlerContent, `auth "github.com/myorg/svc/out/internal/auth"`) {
+		t.Errorf("handler should import auth package:\n%s", handlerContent)
+	}
+
+	// Must call IdentityFromContext instead of using zero-value Identity.
+	if !strings.Contains(handlerContent, "auth.IdentityFromContext(r.Context())") {
+		t.Errorf("handler should call auth.IdentityFromContext:\n%s", handlerContent)
+	}
+
+	// Must NOT use zero-value Identity{} when auth is available.
+	if strings.Contains(handlerContent, `Caller: &slots.Identity{}`) {
+		t.Errorf("handler should not use zero-value Identity when auth package is available:\n%s", handlerContent)
 	}
 }
 
@@ -3923,9 +3942,8 @@ func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
 }
 
 func TestGenerate_NilGuardPassthrough(t *testing.T) {
-	// Finding 27: verify that handler methods with slot bindings include nil
-	// guards so that NewRouter (which passes nil for slot operators) does not
-	// cause runtime panics. The handler should degrade to passthrough semantics.
+	// Verify that handler methods with slot bindings include nil guards so that
+	// the handler degrades to passthrough semantics when no fills are wired.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},

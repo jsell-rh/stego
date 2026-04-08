@@ -1067,7 +1067,7 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 
 	buf.WriteString("\taddr := fmt.Sprintf(\":%d\", ")
 	fmt.Fprintf(buf, "%d)\n", input.Port)
-	buf.WriteString("\tlog.Printf(\"starting server on %%s\", addr)\n")
+	buf.WriteString("\tlog.Printf(\"starting server on %s\", addr)\n")
 
 	if middlewareVar != "" {
 		// Use the generator-provided wrap expression to invoke the middleware.

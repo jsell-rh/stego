@@ -3,7 +3,7 @@ package admin_creation_policy
 import (
 	"context"
 
-	"github.com/example/user-management/out/slots"
+	"github.com/example/service/out/slots"
 )
 
 // AdminCreationPolicy prevents non-admins from creating admin users.
