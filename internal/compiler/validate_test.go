@@ -1165,6 +1165,161 @@ expose:
 	}
 }
 
+func TestValidate_ExposeScopeNonexistentField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [list]
+    scope: nonexistent_field
+  - entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "scope \"nonexistent_field\"")
+}
+
+func TestValidate_ExposeScopeValidField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [list]
+    scope: org_id
+  - entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No scope-related errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "scope") {
+			t.Errorf("unexpected scope error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ExposeUpsertKeyNonexistentField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: resource_type, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert]
+    upsert_key: [resource_type, nonexistent_field]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "upsert_key field \"nonexistent_field\"")
+	// resource_type should NOT cause an error since it exists.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "resource_type") {
+			t.Errorf("unexpected error for valid upsert_key field resource_type: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ExposeUpsertKeyValidFields(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+      - { name: adapter, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert]
+    upsert_key: [resource_type, resource_id, adapter]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No upsert_key errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "upsert_key") {
+			t.Errorf("unexpected upsert_key error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

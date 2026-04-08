@@ -308,11 +308,18 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 }
 
 // validateExposeReferences checks that each expose block references a defined
-// entity and a defined parent (if set).
+// entity and a defined parent (if set), and that field-ref attributes (scope,
+// upsert_key) resolve to actual fields on the referenced entity.
 func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entity) []ValidationError {
 	entityNames := make(map[string]bool, len(entities))
+	entityFields := make(map[string]map[string]bool, len(entities))
 	for _, e := range entities {
 		entityNames[e.Name] = true
+		fields := make(map[string]bool, len(e.Fields))
+		for _, f := range e.Fields {
+			fields[f.Name] = true
+		}
+		entityFields[e.Name] = fields
 	}
 
 	var errs []ValidationError
@@ -322,12 +329,34 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 				Category: "entity-ref",
 				Message:  fmt.Sprintf("expose block references entity %q which is not defined in entities", eb.Entity),
 			})
+			// Skip field-ref validation when the entity itself is unresolved.
+			continue
 		}
 		if eb.Parent != "" && !entityNames[eb.Parent] {
 			errs = append(errs, ValidationError{
 				Category: "entity-ref",
 				Message:  fmt.Sprintf("expose block for entity %q references parent %q which is not defined in entities", eb.Entity, eb.Parent),
 			})
+		}
+
+		// Validate scope field reference.
+		if eb.Scope != "" {
+			if !entityFields[eb.Entity][eb.Scope] {
+				errs = append(errs, ValidationError{
+					Category: "entity-ref",
+					Message:  fmt.Sprintf("expose block for entity %q has scope %q which is not a field on entity %q", eb.Entity, eb.Scope, eb.Entity),
+				})
+			}
+		}
+
+		// Validate upsert_key field name references.
+		for _, keyField := range eb.UpsertKey {
+			if !entityFields[eb.Entity][keyField] {
+				errs = append(errs, ValidationError{
+					Category: "entity-ref",
+					Message:  fmt.Sprintf("expose block for entity %q has upsert_key field %q which is not a field on entity %q", eb.Entity, keyField, eb.Entity),
+				})
+			}
 		}
 	}
 	return errs
