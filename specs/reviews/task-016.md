@@ -1,0 +1,13 @@
+# Review: Task 016 — Example Service End-to-End Demonstration
+
+## Summary
+
+The event-publisher mixin, kafka-producer component, and service.yaml are correct and match the spec. The pipeline runs end-to-end (`validate`, `plan`, `apply`, `drift`, `test`). Fill tests pass. `go build ./...` succeeds. However, the generated handler code has a correctness issue with caller identity propagation, and the generated output contains a dead-code inconsistency and a format-string bug.
+
+## Findings
+
+- [ ] **handler_user.go:67-68 — Empty `Identity{}` passed to before_create gate instead of extracting authenticated caller from request context.** The auth middleware (`auth.NewAuthMiddleware()`) extracts JWT claims and places an `Identity` into the request context via `context.WithValue`. However, the User Create handler constructs `Caller: &slots.Identity{}` — a zero-value Identity with Role="" — instead of retrieving the identity from the context. This means the admin-creation-policy fill always sees `req.Caller.Role == ""`, which is `!= "admin"`, so *all* admin-creation attempts are rejected — even by legitimate admin callers. The spec's admin-creation-policy example (`fills/admin-creation-policy/policy.go`) explicitly relies on `req.Caller.Role` being populated from the authenticated session. The generated code must bridge the auth middleware's context Identity to the slot's `Caller` field.
+
+- [ ] **router.go:40 — `NewRouter()` creates `NewUserHandler(store, nil, nil)`, bypassing all slot fills.** The generated `NewRouter()` function passes `nil` for both the `beforeCreateGate` and `onEntityChangedFanOut` parameters. While `main.go` correctly wires fills, `NewRouter()` is a public function that silently disables all gate and fan-out security checks. The spec states: *"An auditor reads main.go and sees every fill and every connection."* A public alternative entry point that nullifies fills contradicts this auditability guarantee. Either `NewRouter()` should accept slot fills as parameters, or it should not exist alongside `main.go`'s inline wiring.
+
+- [ ] **main.go:60 — `log.Printf("starting server on %%s", addr)` is a format-string bug.** In Go, `%%` in a format string produces a literal `%` character, so this prints `"starting server on %s"` literally and `addr` is an unused argument. `go vet` flags this: `log.Printf call needs 0 args but has 1 arg`. While `go build` passes (meeting the narrow acceptance criterion), `go test ./out/cmd` fails due to the vet error. The correct format is `%s`, not `%%s`. Note: the root cause is in `internal/compiler/assembler.go:1070` (pre-existing), but this task's acceptance criteria include verifiable generated output, and the output exhibits the bug.
