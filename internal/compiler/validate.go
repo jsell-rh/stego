@@ -379,21 +379,25 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 			}
 		}
 
-		// Validate upsert_key requires the upsert operation.
-		if len(eb.UpsertKey) > 0 {
-			hasUpsert := false
-			for _, op := range eb.Operations {
-				if op == types.OpUpsert {
-					hasUpsert = true
-					break
-				}
+		// Validate bidirectional upsert/upsert_key dependency.
+		hasUpsertOp := false
+		for _, op := range eb.Operations {
+			if op == types.OpUpsert {
+				hasUpsertOp = true
+				break
 			}
-			if !hasUpsert {
-				errs = append(errs, ValidationError{
-					Category: "entity-ref",
-					Message:  fmt.Sprintf("expose block for entity %q specifies upsert_key but does not include 'upsert' in its operations list — upsert_key requires the upsert operation", eb.Entity),
-				})
-			}
+		}
+		if len(eb.UpsertKey) > 0 && !hasUpsertOp {
+			errs = append(errs, ValidationError{
+				Category: "entity-ref",
+				Message:  fmt.Sprintf("expose block for entity %q specifies upsert_key but does not include 'upsert' in its operations list — upsert_key requires the upsert operation", eb.Entity),
+			})
+		}
+		if hasUpsertOp && len(eb.UpsertKey) == 0 {
+			errs = append(errs, ValidationError{
+				Category: "entity-ref",
+				Message:  fmt.Sprintf("expose block for entity %q includes 'upsert' operation but does not specify upsert_key — upsert requires a natural key for conflict resolution", eb.Entity),
+			})
 		}
 	}
 	return errs
