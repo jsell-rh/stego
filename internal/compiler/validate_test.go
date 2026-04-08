@@ -2122,6 +2122,149 @@ expose:
 	}
 }
 
+func TestValidate_DuplicateUpsertKeyEntry(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert]
+    upsert_key: [resource_type, resource_type]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "upsert_key contains duplicate field reference \"resource_type\"")
+	// resource_id should NOT have a duplicate error.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate field reference") && strings.Contains(e.Message, "resource_id") {
+			t.Errorf("unexpected duplicate error for resource_id: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_DistinctUpsertKeyEntries(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert]
+    upsert_key: [resource_type, resource_id]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No duplicate upsert_key errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate field reference") {
+			t.Errorf("unexpected duplicate error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_DuplicateUniqueCompositeEntry(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: email, type: string, unique_composite: [label, label] }
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "has duplicate entry \"label\" in unique_composite")
+}
+
+func TestValidate_DistinctUniqueCompositeEntries(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: email, type: string, unique_composite: [label, name] }
+      - { name: label, type: string }
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No duplicate unique_composite errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "duplicate entry") && strings.Contains(e.Message, "unique_composite") {
+			t.Errorf("unexpected duplicate unique_composite error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

@@ -311,14 +311,22 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				})
 			}
 
-			// --- unique_composite field name references ---
+			// --- unique_composite field name references and intra-list uniqueness ---
 
 			if len(f.UniqueComposite) > 0 {
 				fieldNames := make(map[string]bool, len(e.Fields))
 				for _, ef := range e.Fields {
 					fieldNames[ef.Name] = true
 				}
+				ucSeen := make(map[string]bool, len(f.UniqueComposite))
 				for _, ucField := range f.UniqueComposite {
+					if ucSeen[ucField] {
+						errs = append(errs, ValidationError{
+							Category: "field-type",
+							Message:  fmt.Sprintf("entity %q field %q has duplicate entry %q in unique_composite", e.Name, f.Name, ucField),
+						})
+					}
+					ucSeen[ucField] = true
 					if !fieldNames[ucField] {
 						errs = append(errs, ValidationError{
 							Category: "field-type",
@@ -422,13 +430,23 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 			}
 		}
 
-		// Validate upsert_key field name references.
-		for _, keyField := range eb.UpsertKey {
-			if !entityFields[eb.Entity][keyField] {
-				errs = append(errs, ValidationError{
-					Category: "entity-ref",
-					Message:  fmt.Sprintf("expose block for entity %q has upsert_key field %q which is not a field on entity %q", eb.Entity, keyField, eb.Entity),
-				})
+		// Validate upsert_key field name references and intra-list uniqueness.
+		{
+			ukSeen := make(map[string]bool, len(eb.UpsertKey))
+			for _, keyField := range eb.UpsertKey {
+				if ukSeen[keyField] {
+					errs = append(errs, ValidationError{
+						Category: "entity-ref",
+						Message:  fmt.Sprintf("expose block for entity %q: upsert_key contains duplicate field reference %q", eb.Entity, keyField),
+					})
+				}
+				ukSeen[keyField] = true
+				if !entityFields[eb.Entity][keyField] {
+					errs = append(errs, ValidationError{
+						Category: "entity-ref",
+						Message:  fmt.Sprintf("expose block for entity %q has upsert_key field %q which is not a field on entity %q", eb.Entity, keyField, eb.Entity),
+					})
+				}
 			}
 		}
 
