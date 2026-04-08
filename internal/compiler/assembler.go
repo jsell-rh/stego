@@ -328,13 +328,19 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 
 	// Fill imports — deduplicated across all slot bindings.
-	fillNames := collectFillNames(input.SlotBindings)
-	for _, name := range fillNames {
-		baseAlias := rawFillImportAlias(name)
-		alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
-		nonStdlibAliases[alias] = true
-		fullPath := input.ModuleName + "/fills/" + name
-		compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
+	// Gated on hasSlots: fill aliases are only referenced by writeSlotWiring,
+	// which is also gated on hasSlots. When SlotsPackage is empty, slot wiring
+	// is omitted entirely, so fill imports would be unused — a Go compile
+	// error (finding 31, checklist item 120).
+	if hasSlots {
+		fillNames := collectFillNames(input.SlotBindings)
+		for _, name := range fillNames {
+			baseAlias := rawFillImportAlias(name)
+			alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
+			nonStdlibAliases[alias] = true
+			fullPath := input.ModuleName + "/fills/" + name
+			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
+		}
 	}
 
 	if len(compImports) > 0 {

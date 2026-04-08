@@ -4332,5 +4332,53 @@ func TestAssemble_FillAliasConsistency_NoRoutesWithNeedsDB(t *testing.T) {
 	}
 }
 
+func TestAssemble_FillImportsGatedOnHasSlots(t *testing.T) {
+	// Finding 31: fill imports must be gated on hasSlots (SlotBindings
+	// non-empty AND SlotsPackage non-empty). When SlotsPackage is empty,
+	// writeSlotWiring is not called, so fill aliases are never referenced
+	// in the function body — emitting their imports produces "imported and
+	// not used" compile errors.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		OutDirName:  "out",
+		// Non-empty SlotBindings but empty SlotsPackage → hasSlots=false.
+		SlotBindings: []types.SlotDeclaration{
+			{
+				Slot:  "validate",
+				Chain: []string{"step1"},
+			},
+		},
+		SlotsPackage: "", // empty — slot wiring should be omitted entirely
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// The generated code must not contain fill imports when hasSlots is false.
+	if strings.Contains(code, "fills/step1") {
+		t.Errorf("fill import for 'step1' should not be emitted when SlotsPackage is empty:\n%s", code)
+	}
+
+	// Verify the generated code parses (no syntax errors).
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
