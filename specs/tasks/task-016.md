@@ -8,13 +8,22 @@
 
 Create an example service that demonstrates the full STEGO pipeline end-to-end.
 
+### Prerequisite: Add event-publisher mixin to live registry
+
+The live registry (`registry/`) is missing the `event-publisher` mixin needed for the fan-out fill demonstration. The testdata fixtures (`internal/registry/testdata/registry/mixins/event-publisher/`) have reference files. Add to the live registry:
+
+- `registry/mixins/event-publisher/mixin.yaml` — kind: mixin, adds_components: [kafka-producer], adds_slots: [on_entity_changed], overrides: none
+- `registry/mixins/event-publisher/slots/on_entity_changed.proto` — proto service definition for the on_entity_changed slot
+
+### Example service
+
 - `examples/user-management/service.yaml` — the service declaration from the spec
 - Entities: User (email, role, org_id), Organization (name)
 - Expose: Organization [create, read], User [create, read, update, list] scoped by org_id, nested under Organization
 - Fills:
   - `admin-creation-policy` — gate fill for before_create on User (only admins create admins)
   - `audit-logger` — fan-out fill for on_entity_changed on User
-- Run full pipeline: `stego validate && stego plan && stego apply`
+- Run full pipeline: `cd examples/user-management && stego validate && stego plan && stego apply`
 - Verify: `cd out && go build ./...` succeeds
 - Verify: generated main.go shows all fills wired via constructor injection
 
@@ -26,6 +35,7 @@ Create an example service that demonstrates the full STEGO pipeline end-to-end.
 
 ## Acceptance Criteria
 
+- event-publisher mixin exists in live registry with mixin.yaml and slots/on_entity_changed.proto
 - service.yaml matches spec example
 - `stego apply` produces complete, compilable Go service
 - Generated main.go shows admin-creation-policy and audit-logger wired
@@ -35,6 +45,6 @@ Create an example service that demonstrates the full STEGO pipeline end-to-end.
 
 ## Task Completion
 
-When done, update this file's Status to `complete` and list relevant commits below.
+When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
