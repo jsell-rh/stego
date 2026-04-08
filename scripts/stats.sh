@@ -51,11 +51,14 @@ declare -A review_rounds=() review_findings=() finding_categories=()
 for f in "$REVIEWS_DIR"/task-*.md; do
     [[ -f "$f" ]] || continue
     name=$(basename "$f" .md)
-    # Count review rounds: "## Round N" or "## Findings" (early format)
-    # Exclude pass-only headers like "## Round 3 -- PASS" and "## Checklist"
+    # Count review rounds across formats:
+    #   "## Round N"        (stego format)
+    #   "## RN Findings"    (gyre format, e.g. "## R1 Findings")
+    #   "## Findings"       (early format, counts as round 1)
     round_headers=$(grep -c '^## Round [0-9]' "$f" 2>/dev/null || true)
+    rn_headers=$(grep -c '^## R[0-9]' "$f" 2>/dev/null || true)
     findings_headers=$(grep -c '^## Findings' "$f" 2>/dev/null || true)
-    rounds=$((${round_headers:-0} + ${findings_headers:-0}))
+    rounds=$((${round_headers:-0} + ${rn_headers:-0} + ${findings_headers:-0}))
     # Count actual findings: lines with "[process-revision-complete]" tag
     # This distinguishes findings from checklist items which are also "- [x]"
     findings=$(grep -c 'process-revision-complete' "$f" 2>/dev/null || true)
