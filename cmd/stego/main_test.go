@@ -55,10 +55,24 @@ func TestRunInit(t *testing.T) {
 		t.Errorf("expected name=myproject, got %q", svc.Name)
 	}
 
-	// Verify .stego/config.yaml was created.
+	// Verify .stego/config.yaml was created with proper registry entry.
 	cfgPath := filepath.Join(projDir, ".stego", "config.yaml")
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Errorf(".stego/config.yaml not created: %v", err)
+	cfgData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf(".stego/config.yaml not created: %v", err)
+	}
+	var cfg types.RegistryConfig
+	if err := yaml.Unmarshal(cfgData, &cfg); err != nil {
+		t.Fatalf("config.yaml is not valid YAML: %v", err)
+	}
+	if len(cfg.Registry) != 1 {
+		t.Fatalf("expected 1 registry source, got %d", len(cfg.Registry))
+	}
+	if cfg.Registry[0].URL != filepath.Join(tmp, "registry") {
+		t.Errorf("config.yaml URL = %q, want %q", cfg.Registry[0].URL, filepath.Join(tmp, "registry"))
+	}
+	if cfg.Registry[0].Ref != "local" {
+		t.Errorf("config.yaml Ref = %q, want %q", cfg.Registry[0].Ref, "local")
 	}
 
 	// Verify fills/ was created.

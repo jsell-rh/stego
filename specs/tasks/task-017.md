@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Registry", "Compiler Process (Reconciler Pattern)"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

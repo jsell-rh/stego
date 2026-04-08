@@ -119,8 +119,11 @@ func runInit(args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
+	// Resolve the registry directory used during init.
+	registryDir := initRegistryDir(projectDir)
+
 	// Load registry to validate archetype exists.
-	reg, err := loadRegistry(projectDir)
+	reg, err := registry.Load(registryDir)
 	if err != nil {
 		return err
 	}
@@ -170,9 +173,14 @@ func runInit(args []string) error {
 
 	configPath := filepath.Join(stegoDir, "config.yaml")
 	if _, err := os.Stat(configPath); err != nil {
-		// Only create if it doesn't exist.
+		// Only create if it doesn't exist. Write with local registry path.
 		cfg := types.RegistryConfig{
-			Registry: []types.RegistrySource{},
+			Registry: []types.RegistrySource{
+				{
+					URL: registryDir,
+					Ref: "local",
+				},
+			},
 		}
 		cfgData, err := yaml.Marshal(cfg)
 		if err != nil {
@@ -195,6 +203,16 @@ func runInit(args []string) error {
 	fmt.Println("  .stego/config.yaml")
 	fmt.Println("  fills/")
 	return nil
+}
+
+// initRegistryDir returns the registry directory for use during init.
+// Init needs a registry before config.yaml exists, so it uses STEGO_REGISTRY
+// or falls back to ./registry.
+func initRegistryDir(projectDir string) string {
+	if envReg := os.Getenv("STEGO_REGISTRY"); envReg != "" {
+		return envReg
+	}
+	return filepath.Join(projectDir, "registry")
 }
 
 // runFill dispatches fill subcommands.
@@ -265,7 +283,11 @@ func runFillCreate(args []string) error {
 	}
 
 	// Load registry to find the slot's proto definition.
-	reg, err := loadRegistry(projectDir)
+	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: projectDir})
+	if err != nil {
+		return err
+	}
+	reg, err := registry.Load(result.Dir)
 	if err != nil {
 		return err
 	}
@@ -338,8 +360,7 @@ func runFillCreate(args []string) error {
 	}
 
 	// Try to generate interface stub from proto.
-	registryDir := resolveRegistryDir(projectDir)
-	protoPath := filepath.Join(registryDir, "components", ownerComp.Name, "slots", *slotName+".proto")
+	protoPath := filepath.Join(result.Dir, "components", ownerComp.Name, "slots", *slotName+".proto")
 
 	if _, err := os.Stat(protoPath); err == nil {
 		protoFile, err := os.Open(protoPath)
@@ -547,7 +568,11 @@ func runRegistrySearch(args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	reg, err := loadRegistry(projectDir)
+	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: projectDir})
+	if err != nil {
+		return err
+	}
+	reg, err := registry.Load(result.Dir)
 	if err != nil {
 		return err
 	}
@@ -605,7 +630,11 @@ func runRegistryInspect(args []string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	reg, err := loadRegistry(projectDir)
+	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: projectDir})
+	if err != nil {
+		return err
+	}
+	reg, err := registry.Load(result.Dir)
 	if err != nil {
 		return err
 	}
@@ -723,9 +752,9 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		return compiler.ReconcilerInput{}, fmt.Errorf("getting working directory: %w", err)
 	}
 
-	registryDir := resolveRegistryDir(projectDir)
-	if _, err := os.Stat(registryDir); err != nil {
-		return compiler.ReconcilerInput{}, fmt.Errorf("registry directory not found at %s: %w", registryDir, err)
+	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: projectDir})
+	if err != nil {
+		return compiler.ReconcilerInput{}, err
 	}
 
 	moduleName := os.Getenv("STEGO_MODULE")
@@ -738,21 +767,15 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		goVersion = "1.22"
 	}
 
-	var registrySHA string
-	configPath := filepath.Join(projectDir, ".stego", "config.yaml")
-	if cfg, err := registry.LoadConfig(configPath); err == nil && len(cfg.Registry) > 0 {
-		registrySHA = cfg.Registry[0].Ref
-	}
-
 	outDir := filepath.Join(projectDir, "out")
 
 	return compiler.ReconcilerInput{
 		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
+		RegistryDir: result.Dir,
 		Generators:  defaultGenerators(),
 		GoVersion:   goVersion,
 		ModuleName:  moduleName,
-		RegistrySHA: registrySHA,
+		RegistrySHA: result.Ref,
 		OutDir:      outDir,
 	}, nil
 }
@@ -765,20 +788,6 @@ func defaultGenerators() map[string]gen.Generator {
 		"otel-tracing":     &oteltracing.Generator{},
 		"health-check":     &healthcheck.Generator{},
 	}
-}
-
-// resolveRegistryDir returns the registry directory path.
-func resolveRegistryDir(projectDir string) string {
-	if envReg := os.Getenv("STEGO_REGISTRY"); envReg != "" {
-		return envReg
-	}
-	return filepath.Join(projectDir, "registry")
-}
-
-// loadRegistry loads the registry from the standard location.
-func loadRegistry(projectDir string) (*registry.Registry, error) {
-	registryDir := resolveRegistryDir(projectDir)
-	return registry.Load(registryDir)
 }
 
 // portListContains checks if a port list contains a port with the given name.
