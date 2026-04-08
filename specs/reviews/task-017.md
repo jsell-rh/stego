@@ -7,3 +7,7 @@
 - [process-revision-complete] **Git clone error message omits the ref.** AC #8 requires: "the error message identifies the URL, the ref, and the underlying git error." The clone failure error at `internal/registry/resolve.go:143` formats as `"git clone %s failed: %w\n%s"` with only the URL and git error. The ref is not included. Compare with the checkout error on line 151 which correctly includes both URL and ref.
 
 - [process-revision-complete] **No-git-binary error message omits the URL and ref.** AC #8 again. The error at `internal/registry/resolve.go:129` formats as `"git binary not found: %w (required for git-based registry resolution)"`. The URL and ref that triggered the resolution are not surfaced. Since `resolveGitRegistry` receives both `url` and `ref` as parameters, they should be included so the user knows which registry entry failed.
+
+## Round 2
+
+All three round 1 findings have been correctly addressed. `initRegistryDir` now prints the warning to stderr. The git clone error message now includes both URL and ref. The no-git-binary error now includes both URL and ref. All tests pass, `go vet` is clean. All 9 acceptance criteria are met. No new findings.
