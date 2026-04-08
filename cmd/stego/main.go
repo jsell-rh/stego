@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -267,23 +268,30 @@ func runFillCreate(args []string) error {
 		return err
 	}
 
-	// Find which component owns this slot.
-	var ownerComp *types.Component
+	// Find which component(s) own this slot. Multiple components can define
+	// slots with the same name (spec: "duplication is cheaper than coupling").
+	var matchingComps []*types.Component
 	for _, comp := range reg.Components() {
 		for _, s := range comp.Slots {
 			if s.Name == *slotName {
-				ownerComp = comp
+				matchingComps = append(matchingComps, comp)
 				break
 			}
 		}
-		if ownerComp != nil {
-			break
-		}
 	}
 
-	if ownerComp == nil {
+	if len(matchingComps) == 0 {
 		return fmt.Errorf("slot %q not found in any component", *slotName)
 	}
+	if len(matchingComps) > 1 {
+		names := make([]string, len(matchingComps))
+		for i, c := range matchingComps {
+			names[i] = c.Name
+		}
+		sort.Strings(names)
+		return fmt.Errorf("slot %q is defined by multiple components: %s — specify --component to disambiguate", *slotName, strings.Join(names, ", "))
+	}
+	ownerComp := matchingComps[0]
 
 	// Create fill directory.
 	fillDir := filepath.Join(projectDir, "fills", fillName)

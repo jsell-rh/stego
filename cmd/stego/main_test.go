@@ -240,6 +240,34 @@ func TestRunFillCreateUnknownSlot(t *testing.T) {
 	}
 }
 
+func TestRunFillCreateAmbiguousSlot(t *testing.T) {
+	tmp := t.TempDir()
+	setupRegistryWithDuplicateSlot(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-ambig")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	err := runFillCreate([]string{"my-fill", "--slot", "before_create"})
+	if err == nil {
+		t.Fatal("expected error for ambiguous slot name")
+	}
+	if !strings.Contains(err.Error(), "multiple components") {
+		t.Errorf("expected 'multiple components' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "comp-a") || !strings.Contains(err.Error(), "comp-b") {
+		t.Errorf("expected error to list both components, got: %v", err)
+	}
+}
+
 func TestRunRegistrySearch(t *testing.T) {
 	tmp := t.TempDir()
 	setupMinimalRegistry(t, tmp)
@@ -524,6 +552,88 @@ provides:
   - auth-provider
 `
 	if err := os.WriteFile(filepath.Join(jwtDir, "component.yaml"), []byte(jwtData), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setupRegistryWithDuplicateSlot creates a registry with two components
+// that both define a slot named "before_create".
+func setupRegistryWithDuplicateSlot(t *testing.T, baseDir string) {
+	t.Helper()
+
+	regDir := filepath.Join(baseDir, "registry")
+
+	// Create archetype.
+	archDir := filepath.Join(regDir, "archetypes", "rest-crud")
+	if err := os.MkdirAll(archDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	archData := `kind: archetype
+name: rest-crud
+language: go
+version: 1.0.0
+components:
+  - comp-a
+  - comp-b
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	protoStub := `syntax = "proto3";
+package stego.components.slots;
+
+service BeforeCreate {
+  rpc Evaluate(BeforeCreateRequest) returns (SlotResult);
+}
+
+message BeforeCreateRequest {
+}
+
+message SlotResult {
+  bool ok = 1;
+}
+`
+
+	// Create comp-a with before_create slot.
+	compADir := filepath.Join(regDir, "components", "comp-a")
+	compASlotsDir := filepath.Join(compADir, "slots")
+	if err := os.MkdirAll(compASlotsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	compAData := `kind: component
+name: comp-a
+version: 1.0.0
+slots:
+  - name: before_create
+    proto: stego.components.comp_a.slots.BeforeCreate
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(compADir, "component.yaml"), []byte(compAData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compASlotsDir, "before_create.proto"), []byte(protoStub), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create comp-b with the same before_create slot name.
+	compBDir := filepath.Join(regDir, "components", "comp-b")
+	compBSlotsDir := filepath.Join(compBDir, "slots")
+	if err := os.MkdirAll(compBSlotsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	compBData := `kind: component
+name: comp-b
+version: 1.0.0
+slots:
+  - name: before_create
+    proto: stego.components.comp_b.slots.BeforeCreate
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(compBDir, "component.yaml"), []byte(compBData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compBSlotsDir, "before_create.proto"), []byte(protoStub), 0644); err != nil {
 		t.Fatal(err)
 	}
 }
