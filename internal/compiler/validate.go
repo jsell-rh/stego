@@ -245,6 +245,20 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				})
 			}
 
+			// Check for duplicate enum values within the values list.
+			if len(f.Values) > 0 {
+				valueSeen := make(map[string]bool, len(f.Values))
+				for _, v := range f.Values {
+					if valueSeen[v] {
+						errs = append(errs, ValidationError{
+							Category: "field-type",
+							Message:  fmt.Sprintf("entity %q field %q has duplicate enum value %q", e.Name, f.Name, v),
+						})
+					}
+					valueSeen[v] = true
+				}
+			}
+
 			// --- Constraint-type applicability ---
 
 			// String-only constraints: min_length, max_length, pattern.
@@ -470,6 +484,15 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 func validateExposeOps(expose []types.ExposeBlock) []ValidationError {
 	var errs []ValidationError
 	for _, eb := range expose {
+		// Check for empty operations list — an expose block with no operations
+		// is semantically void.
+		if len(eb.Operations) == 0 {
+			errs = append(errs, ValidationError{
+				Category: "operation",
+				Message:  fmt.Sprintf("expose block for entity %q has no operations — each expose block must have at least one operation", eb.Entity),
+			})
+		}
+
 		opSeen := make(map[types.Operation]bool, len(eb.Operations))
 		for _, op := range eb.Operations {
 			if opSeen[op] {
