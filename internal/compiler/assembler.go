@@ -150,7 +150,16 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// disambiguation can avoid collisions with slot operators.
 	allSlotVarNames := collectAllSlotVarNames(input.SlotBindings, hasSlots)
 
-	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots)
+	// Compute which wirings have at least one consumed constructor so
+	// that writeMainImports only emits imports for packages that are
+	// actually referenced. An unconsumed wiring's imports would be
+	// unused — a Go compile error (finding 30).
+	consumedWirings := make(map[int]bool)
+	for key := range consumed {
+		consumedWirings[key.WiringIndex] = true
+	}
+
+	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, consumedWirings)
 
 	buf.WriteString("func main() {\n")
 
@@ -161,7 +170,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// Slot wiring — create operators before constructors so they can be
 	// injected as handler constructor arguments.
 	if hasSlots {
-		writeSlotWiring(&buf, input, slotVarsByEntity, hasDB)
+		writeSlotWiring(&buf, input, slotVarsByEntity, hasDB, consumedWirings)
 	}
 
 	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, imports, consumed)
@@ -208,7 +217,7 @@ type importResult struct {
 // constructor and route expressions to be updated when their component's import
 // alias is disambiguated. The alias set allows constructor variable
 // disambiguation to avoid shadowing import aliases.
-func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots bool) importResult {
+func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots bool, consumedWirings map[int]bool) importResult {
 	buf.WriteString("import (\n")
 
 	// Standard library imports.
@@ -274,9 +283,15 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 
-	// Component imports.
+	// Component imports — only for wirings with at least one consumed
+	// constructor. Unconsumed constructors are not emitted by
+	// writeConstructors, so their package imports would be unused — a Go
+	// compile error (finding 30, checklist item 124).
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
+			continue
+		}
+		if !consumedWirings[i] {
 			continue
 		}
 		for _, imp := range cw.Wiring.Imports {
@@ -850,14 +865,16 @@ func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error
 	return sorted, nil
 }
 
-func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, hasDB bool) {
+func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, hasDB bool, consumedWirings map[int]bool) {
 	buf.WriteString("\t// Slot wiring — fills composed via operators.\n")
 
 	// Compute fill import aliases (must match writeMainImports exactly).
 	// hasDB is passed from the caller (effectiveHasDB from
 	// computeConsumedConstructors) to ensure stdlib alias seeding matches
-	// writeMainImports exactly — see checklist item 121.
-	fillAliasMap := buildFillAliasMap(input, hasDB)
+	// writeMainImports exactly — see checklist item 121. consumedWirings
+	// ensures component import filtering matches writeMainImports — see
+	// finding 30.
+	fillAliasMap := buildFillAliasMap(input, hasDB, consumedWirings)
 
 	// Build a set of operator variable names that will be injected into
 	// handler constructors. Variables NOT in this set need `_ =` to prevent
@@ -1192,7 +1209,7 @@ func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[
 // slots alias first, then component import aliases, then fill aliases.
 // hasDB must be the same effectiveHasDB value used by writeMainImports so that
 // stdlib alias seeding is identical — see checklist item 121.
-func buildFillAliasMap(input AssemblerInput, hasDB bool) map[string]string {
+func buildFillAliasMap(input AssemblerInput, hasDB bool, consumedWirings map[int]bool) map[string]string {
 	aliases := make(map[string]int)
 	aliasUsed := make(map[string]bool)
 	seen := make(map[string]bool)
@@ -1214,9 +1231,13 @@ func buildFillAliasMap(input AssemblerInput, hasDB bool) map[string]string {
 		}
 	}
 
-	// Replay component import alias registration.
-	for _, cw := range input.Wirings {
+	// Replay component import alias registration — only for consumed
+	// wirings, matching writeMainImports filtering (finding 30).
+	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
+			continue
+		}
+		if !consumedWirings[i] {
 			continue
 		}
 		for _, imp := range cw.Wiring.Imports {

@@ -880,6 +880,11 @@ func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T)
 	if strings.Contains(code, "store2 :=") {
 		t.Errorf("unconsumed store2 should not be emitted (Finding 29):\n%s", code)
 	}
+	// Finding 30: The unconsumed component-b's import should also NOT be
+	// emitted — it would be unused since its constructor is suppressed.
+	if strings.Contains(code, `"internal/b"`) {
+		t.Errorf("unconsumed component-b import should not be emitted (Finding 30):\n%s", code)
+	}
 }
 
 func TestAssemble_ConstructorVarNameCollision_BothConsumed(t *testing.T) {
@@ -1425,9 +1430,10 @@ func TestAssemble_UnifiedImportAliasNamespace(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler()"},
-					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					Imports:         []string{"internal/api"},
+					Constructors:    []string{"api.NewHandler(store)"},
+					ConstructorDeps: map[int][]string{0: {"store"}},
+					Routes:          []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
 			{
@@ -3341,6 +3347,8 @@ func TestAssemble_NonStdlibAliasRenameAppliedToRoutes(t *testing.T) {
 	// are NOT pre-reserved for route exclusion because routes reference
 	// constructor variables, not import aliases (finding 23 removed import
 	// renames from routes). The constructor rename must update the route.
+	// The rest-api handler depends on store (ConstructorDeps) so that the
+	// postgres-adapter is transitively consumed and its import emitted.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -3368,9 +3376,10 @@ func TestAssemble_NonStdlibAliasRenameAppliedToRoutes(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewHandler()"},
-					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
+					Imports:         []string{"internal/api"},
+					Constructors:    []string{"api.NewHandler(store)"},
+					ConstructorDeps: map[int][]string{0: {"store"}},
+					Routes:          []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
 		},
@@ -4058,6 +4067,14 @@ func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
 		t.Errorf("unconsumed middleware constructor should not be emitted:\n%s", code)
 	}
 
+	// Finding 30: Unconsumed component imports should also be suppressed.
+	if strings.Contains(code, `"internal/storage"`) {
+		t.Errorf("unconsumed storage import should not be emitted (Finding 30):\n%s", code)
+	}
+	if strings.Contains(code, `"internal/auth"`) {
+		t.Errorf("unconsumed auth import should not be emitted (Finding 30):\n%s", code)
+	}
+
 	// DB setup should also be suppressed.
 	if strings.Contains(code, "sql.Open") {
 		t.Errorf("DB setup should not be emitted when store is unconsumed:\n%s", code)
@@ -4242,6 +4259,10 @@ func TestAssemble_TransitiveDep_NoFalsePositiveSubstring(t *testing.T) {
 	if strings.Contains(code, "x.NewA()") {
 		t.Errorf("x.NewA() should not be emitted — 'a' in 'dataA' is not a word-boundary match:\n%s", code)
 	}
+	// Finding 30: The unconsumed component x's import should also be suppressed.
+	if strings.Contains(code, `x "github.com/myorg/svc/out/internal/x"`) {
+		t.Errorf("unconsumed component x import should not be emitted (Finding 30):\n%s", code)
+	}
 }
 
 func TestAssemble_FillAliasConsistency_NoRoutesWithNeedsDB(t *testing.T) {
@@ -4304,6 +4325,10 @@ func TestAssemble_FillAliasConsistency_NoRoutesWithNeedsDB(t *testing.T) {
 	if strings.Contains(code, "sql2") {
 		t.Errorf("fill 'sql' should not be disambiguated as 'sql2' when effectiveHasDB is false;\n"+
 			"buildFillAliasMap and writeMainImports disagree on stdlib alias seeding:\n%s", code)
+	}
+	// Finding 30: The unconsumed postgres-adapter import should be suppressed.
+	if strings.Contains(code, `"internal/storage"`) {
+		t.Errorf("unconsumed storage import should not be emitted (Finding 30):\n%s", code)
 	}
 }
 
