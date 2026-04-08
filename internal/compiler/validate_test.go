@@ -713,6 +713,240 @@ func TestFormatValidation_WithErrors(t *testing.T) {
 	}
 }
 
+func TestValidate_ConstraintTypeApplicability(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// min_length on int32, max on string, pattern on bool, values on string, to on string.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: count, type: int32, min_length: 5 }
+      - { name: label, type: string, max: 100 }
+      - { name: flag, type: bool, pattern: "^true$" }
+      - { name: tag, type: string, values: [a, b] }
+      - { name: ref_field, type: string, to: Widget }
+      - { name: amount, type: float, min_length: 1 }
+      - { name: score, type: double, max_length: 10 }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+
+	// min_length on int32
+	assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"int32\"")
+	// max on string
+	assertHasError(t, result, "field-type", "constraint 'max' is only valid for numeric fields")
+	// pattern on bool
+	assertHasError(t, result, "field-type", "constraint 'pattern' is only valid for string fields, not \"bool\"")
+	// values on string (not enum)
+	assertHasError(t, result, "field-type", "constraint 'values' is only valid for enum fields, not \"string\"")
+	// to on string (not ref)
+	assertHasError(t, result, "field-type", "attribute 'to' is only valid for ref fields, not \"string\"")
+	// min_length on float
+	assertHasError(t, result, "field-type", "constraint 'min_length' is only valid for string fields, not \"float\"")
+	// max_length on double
+	assertHasError(t, result, "field-type", "constraint 'max_length' is only valid for string fields, not \"double\"")
+}
+
+func TestValidate_ConstraintTypeApplicability_ValidCombinations(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// All constraints applied to their correct types — should produce no errors.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string, min_length: 1, max_length: 255, pattern: "^[a-z]" }
+      - { name: count, type: int32, min: 0, max: 100 }
+      - { name: score, type: double, min: 0.0, max: 1.0 }
+      - { name: role, type: enum, values: [admin, member] }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+  - entity: Org
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors for valid constraint combinations, got:\n%s", FormatValidation(result))
+	}
+}
+
+func TestValidate_ComputedWithoutFilledBy(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: status, type: jsonb, computed: true }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "has 'computed: true' but no 'filled_by' attribute")
+}
+
+func TestValidate_FilledByWithoutComputed(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: status, type: jsonb, filled_by: aggregator }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "has 'filled_by: aggregator' but 'computed' is not set to true")
+}
+
+func TestValidate_ComputedAndFilledByTogether(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: status, type: jsonb, computed: true, filled_by: status-aggregator }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No computed/filled_by errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "computed") || strings.Contains(e.Message, "filled_by") {
+			t.Errorf("unexpected computed/filled_by error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_FillStatError(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+slots:
+  - slot: before_create
+    entity: Widget
+    gate:
+      - my-policy
+`)
+
+	// Create fills/my-policy as a file (not a directory), so that
+	// os.Stat("fills/my-policy/fill.yaml") returns a non-IsNotExist error
+	// (the parent path component is a file, not a directory).
+	fillsDir := filepath.Join(projectDir, "fills")
+	mkdirAll(t, fillsDir)
+	writeFile(t, filepath.Join(fillsDir, "my-policy"), "not a directory")
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	// Should get an infrastructure error, not a validation result.
+	if err == nil {
+		t.Fatalf("expected infrastructure error for non-IsNotExist stat failure, got validation result:\n%s", FormatValidation(result))
+	}
+	if !strings.Contains(err.Error(), "my-policy") {
+		t.Errorf("expected error to mention fill name, got: %v", err)
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

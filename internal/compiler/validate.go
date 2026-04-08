@@ -128,7 +128,11 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	result.Errors = append(result.Errors, validateSlotBindingEntitiesCollect(svcDecl.Slots, svcDecl.Expose)...)
 
 	// Validate fills exist on disk.
-	result.Errors = append(result.Errors, validateFillsExist(svcDecl.Slots, input.ProjectDir)...)
+	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, input.ProjectDir)
+	if fillInfraErr != nil {
+		return nil, fillInfraErr
+	}
+	result.Errors = append(result.Errors, fillErrs...)
 
 	return result, nil
 }
@@ -147,8 +151,25 @@ func FormatValidation(r *ValidationResult) string {
 	return sb.String()
 }
 
+// stringTypes is the set of field types that accept string constraints
+// (min_length, max_length, pattern).
+var stringTypes = map[types.FieldType]bool{
+	types.FieldTypeString: true,
+}
+
+// numericTypes is the set of field types that accept numeric constraints
+// (min, max).
+var numericTypes = map[types.FieldType]bool{
+	types.FieldTypeInt32:  true,
+	types.FieldTypeInt64:  true,
+	types.FieldTypeFloat:  true,
+	types.FieldTypeDouble: true,
+}
+
 // validateFieldTypes checks that all entity field types are valid, ref fields
-// have a target entity, and enum fields have values.
+// have a target entity, enum fields have values, constraint attributes are
+// applied only to their designated field types, and computed/filled_by are
+// declared together.
 func validateFieldTypes(entities []types.Entity) []ValidationError {
 	entityNames := make(map[string]bool, len(entities))
 	for _, e := range entities {
@@ -165,6 +186,9 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				})
 				continue
 			}
+
+			// --- Type-specific required attributes ---
+
 			if f.Type == types.FieldTypeRef {
 				if f.To == "" {
 					errs = append(errs, ValidationError{
@@ -182,6 +206,73 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				errs = append(errs, ValidationError{
 					Category: "field-type",
 					Message:  fmt.Sprintf("entity %q field %q has type enum but no values", e.Name, f.Name),
+				})
+			}
+
+			// --- Constraint-type applicability ---
+
+			// String-only constraints: min_length, max_length, pattern.
+			if f.MinLength != nil && !stringTypes[f.Type] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'min_length' is only valid for string fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+			if f.MaxLength != nil && !stringTypes[f.Type] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'max_length' is only valid for string fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+			if f.Pattern != "" && !stringTypes[f.Type] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'pattern' is only valid for string fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+
+			// Numeric-only constraints: min, max.
+			if f.Min != nil && !numericTypes[f.Type] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'min' is only valid for numeric fields (int32, int64, float, double), not %q", e.Name, f.Name, f.Type),
+				})
+			}
+			if f.Max != nil && !numericTypes[f.Type] {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'max' is only valid for numeric fields (int32, int64, float, double), not %q", e.Name, f.Name, f.Type),
+				})
+			}
+
+			// Enum-only constraint: values.
+			if len(f.Values) > 0 && f.Type != types.FieldTypeEnum {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: constraint 'values' is only valid for enum fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+
+			// Ref-only constraint: to.
+			if f.To != "" && f.Type != types.FieldTypeRef {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q: attribute 'to' is only valid for ref fields, not %q", e.Name, f.Name, f.Type),
+				})
+			}
+
+			// --- Computed/filled_by co-occurrence ---
+
+			if f.Computed && f.FilledBy == "" {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q has 'computed: true' but no 'filled_by' attribute — computed fields must specify the fill that populates them", e.Name, f.Name),
+				})
+			}
+			if f.FilledBy != "" && !f.Computed {
+				errs = append(errs, ValidationError{
+					Category: "field-type",
+					Message:  fmt.Sprintf("entity %q field %q has 'filled_by: %s' but 'computed' is not set to true — fields with filled_by must also set computed: true", e.Name, f.Name, f.FilledBy),
 				})
 			}
 		}
@@ -297,22 +388,28 @@ func validateSlotBindingEntitiesCollect(slots []types.SlotDeclaration, expose []
 }
 
 // validateFillsExist checks that each fill referenced in slot bindings has a
-// fills/<name>/fill.yaml file in the project directory.
-func validateFillsExist(slots []types.SlotDeclaration, projectDir string) []ValidationError {
+// fills/<name>/fill.yaml file in the project directory. It returns validation
+// errors for missing fills, and returns an infrastructure Go error for
+// unexpected filesystem failures (e.g. permission denied).
+func validateFillsExist(slots []types.SlotDeclaration, projectDir string) ([]ValidationError, error) {
 	fillNames := collectFillNames(slots)
 	if len(fillNames) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var errs []ValidationError
 	for _, name := range fillNames {
 		fillPath := filepath.Join(projectDir, "fills", name, "fill.yaml")
-		if _, err := os.Stat(fillPath); os.IsNotExist(err) {
-			errs = append(errs, ValidationError{
-				Category: "fill",
-				Message:  fmt.Sprintf("fill %q referenced in slot bindings but fills/%s/fill.yaml does not exist", name, name),
-			})
+		if _, err := os.Stat(fillPath); err != nil {
+			if os.IsNotExist(err) {
+				errs = append(errs, ValidationError{
+					Category: "fill",
+					Message:  fmt.Sprintf("fill %q referenced in slot bindings but fills/%s/fill.yaml does not exist", name, name),
+				})
+			} else {
+				return nil, fmt.Errorf("checking fill %q at %s: %w", name, fillPath, err)
+			}
 		}
 	}
-	return errs
+	return errs, nil
 }
