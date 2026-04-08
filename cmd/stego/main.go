@@ -131,6 +131,7 @@ func runInit(args []string) error {
 		for name := range reg.Archetypes() {
 			available = append(available, name)
 		}
+		sort.Strings(available)
 		return fmt.Errorf("archetype %q not found in registry (available: %s)", *archetype, strings.Join(available, ", "))
 	}
 
@@ -549,7 +550,15 @@ func runRegistrySearch(args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "NAME\tVERSION\tPROVIDES\tREQUIRES\tSLOTS\n")
 
-	for name, comp := range reg.Components() {
+	components := reg.Components()
+	compNames := make([]string, 0, len(components))
+	for name := range components {
+		compNames = append(compNames, name)
+	}
+	sort.Strings(compNames)
+
+	for _, name := range compNames {
+		comp := components[name]
 		if *provides != "" && !portListContains(comp.Provides, *provides) {
 			continue
 		}
@@ -619,7 +628,13 @@ func runRegistryInspect(args []string) error {
 	}
 	if len(comp.Config) > 0 {
 		fmt.Println("Config:")
-		for key, field := range comp.Config {
+		configKeys := make([]string, 0, len(comp.Config))
+		for key := range comp.Config {
+			configKeys = append(configKeys, key)
+		}
+		sort.Strings(configKeys)
+		for _, key := range configKeys {
+			field := comp.Config[key]
 			if field.Default != nil {
 				fmt.Printf("  %s: type=%s, default=%v\n", key, field.Type, field.Default)
 			} else {
