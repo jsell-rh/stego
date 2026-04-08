@@ -16,4 +16,15 @@
 
 ## Round 4
 
-- [ ] [process-revision-complete] **`stego fill create --component` flag is silently ignored when the slot name is unambiguous.** At `cmd/stego/main.go:289-310`, the component selection logic only validates the `--component` flag when multiple components define the requested slot (`len(matchingComps) > 1`). When exactly one component defines the slot, the code unconditionally sets `ownerComp = matchingComps[0]` at line 309, discarding the `--component` value without validation. This means `stego fill create my-fill --slot before_create --component nonexistent-component` silently succeeds and creates a fill implementing `rest-api.before_create`, even though the user explicitly specified `nonexistent-component`. The user receives no feedback that their `--component` value was ignored or invalid. The `--component` validation at lines 299-307 (verifying the named component is among the matching components) should apply regardless of how many components matched — if the user explicitly specifies a component, verify it actually defines the slot.
+- [x] [process-revision-complete] **`stego fill create --component` flag is silently ignored when the slot name is unambiguous.** At `cmd/stego/main.go:289-310`, the component selection logic only validates the `--component` flag when multiple components define the requested slot (`len(matchingComps) > 1`). When exactly one component defines the slot, the code unconditionally sets `ownerComp = matchingComps[0]` at line 309, discarding the `--component` value without validation. This means `stego fill create my-fill --slot before_create --component nonexistent-component` silently succeeds and creates a fill implementing `rest-api.before_create`, even though the user explicitly specified `nonexistent-component`. The user receives no feedback that their `--component` value was ignored or invalid. The `--component` validation at lines 299-307 (verifying the named component is among the matching components) should apply regardless of how many components matched — if the user explicitly specifies a component, verify it actually defines the slot.
+
+## Round 5
+
+No findings. All prior findings (rounds 1–4) verified as resolved:
+
+- Round 1: Ambiguous slot detection implemented with sorted component list in error message.
+- Round 2: `--component` flag added to FlagSet and wired into component selection logic.
+- Round 3: `stego registry search` output sorted by component name; `stego registry inspect` config keys sorted.
+- Round 4: `--component` flag validated even when slot is unambiguous — `cmd/stego/main.go:310-314` rejects invalid component names with a clear error message. Tests `TestRunFillCreateUnambiguousSlotWithWrongComponent` and `TestRunFillCreateUnambiguousSlotWithCorrectComponent` confirm the fix.
+
+All 10 spec-defined commands + `version` are wired, respond to `--help`, and produce deterministic output. Full test suite passes. Binary builds cleanly.
