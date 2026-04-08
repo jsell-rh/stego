@@ -1484,6 +1484,188 @@ expose:
 	assertHasError(t, result, "entity-ref", "includes 'upsert' operation but does not specify upsert_key")
 }
 
+func TestValidate_ConcurrencyWithoutUpsertOperation(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+    concurrency: optimistic
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "specifies concurrency \"optimistic\" but does not include 'upsert'")
+}
+
+func TestValidate_ConcurrencyWithUpsertOperation(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+      - { name: generation, type: int64 }
+expose:
+  - entity: Widget
+    operations: [upsert, list]
+    upsert_key: [resource_type, resource_id]
+    concurrency: optimistic
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No concurrency errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "concurrency") {
+			t.Errorf("unexpected concurrency error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_InvalidConcurrencyMode(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: string }
+expose:
+  - entity: Widget
+    operations: [upsert, list]
+    upsert_key: [resource_type, resource_id]
+    concurrency: pessimistic
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "invalid concurrency mode \"pessimistic\"")
+}
+
+func TestValidate_ParentNotInExposeList(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Org is defined in entities but NOT in the expose list.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+    parent: Org
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "entity-ref", "declares parent \"Org\", but \"Org\" is not in the expose list")
+}
+
+func TestValidate_ParentInExposeList(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Both Widget and Org are in the expose list — no error expected.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Org
+    operations: [create, read]
+  - entity: Widget
+    operations: [create, read]
+    parent: Org
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No parent-related errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "parent") {
+			t.Errorf("unexpected parent error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

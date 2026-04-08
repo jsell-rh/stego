@@ -223,6 +223,11 @@ const (
 	ConcurrencyOptimistic ConcurrencyMode = "optimistic"
 )
 
+// ValidConcurrencyModes is the set of all valid ConcurrencyMode values.
+var ValidConcurrencyModes = map[ConcurrencyMode]bool{
+	ConcurrencyOptimistic: true,
+}
+
 // ExposeBlock declares which entity operations are exposed.
 type ExposeBlock struct {
 	Entity      string          `yaml:"entity"`

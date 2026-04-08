@@ -116,7 +116,7 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate expose block references.
 	result.Errors = append(result.Errors, validateExposeReferences(svcDecl.Expose, svcDecl.Entities)...)
 
-	// Validate expose block operations.
+	// Validate expose block operations and operation-dependent attributes.
 	result.Errors = append(result.Errors, validateExposeOps(svcDecl.Expose)...)
 
 	// Validate slot bindings reference available slots.
@@ -328,8 +328,10 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 }
 
 // validateExposeReferences checks that each expose block references a defined
-// entity and a defined parent (if set), and that field-ref attributes (scope,
-// upsert_key) resolve to actual fields on the referenced entity.
+// entity and a defined parent (if set), that field-ref attributes (scope,
+// upsert_key) resolve to actual fields on the referenced entity, that
+// operation-dependent attributes (upsert_key, concurrency) require the upsert
+// operation, and that parent entities are in the expose list.
 func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entity) []ValidationError {
 	entityNames := make(map[string]bool, len(entities))
 	entityFields := make(map[string]map[string]bool, len(entities))
@@ -342,6 +344,12 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 		entityFields[e.Name] = fields
 	}
 
+	// Build set of exposed entity names for parent-in-expose-list validation.
+	exposedEntities := make(map[string]bool, len(expose))
+	for _, eb := range expose {
+		exposedEntities[eb.Entity] = true
+	}
+
 	var errs []ValidationError
 	for _, eb := range expose {
 		if !entityNames[eb.Entity] {
@@ -352,11 +360,18 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 			// Skip field-ref validation when the entity itself is unresolved.
 			continue
 		}
-		if eb.Parent != "" && !entityNames[eb.Parent] {
-			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block for entity %q references parent %q which is not defined in entities", eb.Entity, eb.Parent),
-			})
+		if eb.Parent != "" {
+			if !entityNames[eb.Parent] {
+				errs = append(errs, ValidationError{
+					Category: "entity-ref",
+					Message:  fmt.Sprintf("expose block for entity %q references parent %q which is not defined in entities", eb.Entity, eb.Parent),
+				})
+			} else if !exposedEntities[eb.Parent] {
+				errs = append(errs, ValidationError{
+					Category: "entity-ref",
+					Message:  fmt.Sprintf("expose block for entity %q declares parent %q, but %q is not in the expose list — parent entities must have their own expose block to generate the parent route and existence verification", eb.Entity, eb.Parent, eb.Parent),
+				})
+			}
 		}
 
 		// Validate scope field reference.
@@ -379,7 +394,7 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 			}
 		}
 
-		// Validate bidirectional upsert/upsert_key dependency.
+		// Determine whether upsert is in the operations list.
 		hasUpsertOp := false
 		for _, op := range eb.Operations {
 			if op == types.OpUpsert {
@@ -387,6 +402,8 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 				break
 			}
 		}
+
+		// Validate bidirectional upsert/upsert_key dependency.
 		if len(eb.UpsertKey) > 0 && !hasUpsertOp {
 			errs = append(errs, ValidationError{
 				Category: "entity-ref",
@@ -397,6 +414,27 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 			errs = append(errs, ValidationError{
 				Category: "entity-ref",
 				Message:  fmt.Sprintf("expose block for entity %q includes 'upsert' operation but does not specify upsert_key — upsert requires a natural key for conflict resolution", eb.Entity),
+			})
+		}
+
+		// Validate concurrency requires upsert operation.
+		if eb.Concurrency != "" && !hasUpsertOp {
+			errs = append(errs, ValidationError{
+				Category: "entity-ref",
+				Message:  fmt.Sprintf("expose block for entity %q specifies concurrency %q but does not include 'upsert' in its operations list — concurrency is only meaningful with the upsert operation", eb.Entity, eb.Concurrency),
+			})
+		}
+
+		// Validate concurrency value is a recognized mode.
+		if eb.Concurrency != "" && !types.ValidConcurrencyModes[eb.Concurrency] {
+			var validModes []string
+			for mode := range types.ValidConcurrencyModes {
+				validModes = append(validModes, string(mode))
+			}
+			sort.Strings(validModes)
+			errs = append(errs, ValidationError{
+				Category: "entity-ref",
+				Message:  fmt.Sprintf("expose block for entity %q has invalid concurrency mode %q — valid modes: %v", eb.Entity, eb.Concurrency, validModes),
 			})
 		}
 	}
