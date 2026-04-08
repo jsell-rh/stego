@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Compiler Process (Reconciler Pattern)"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
 
 **Review:** [specs/reviews/task-013.md](../reviews/task-013.md)
 
