@@ -2,7 +2,7 @@
 
 **Spec Reference:** "CLI Interface" (validate, drift)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 **Review:** [specs/reviews/task-014.md](../reviews/task-014.md)
 
 ## Description

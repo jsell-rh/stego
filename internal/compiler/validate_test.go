@@ -947,6 +947,224 @@ slots:
 	}
 }
 
+func TestValidate_MixinAddedSlotIsValid(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Create a mixin with adds_slots.
+	mixinDir := filepath.Join(registryDir, "mixins", "event-publisher")
+	mkdirAll(t, filepath.Join(mixinDir, "slots"))
+	writeFile(t, filepath.Join(mixinDir, "mixin.yaml"), `kind: mixin
+name: event-publisher
+version: 1.0.0
+adds_components: []
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+overrides: none
+`)
+	writeFile(t, filepath.Join(mixinDir, "slots", "on_entity_changed.proto"), `syntax = "proto3";
+package stego.mixins.event_publisher.slots;
+service OnEntityChanged { rpc Evaluate(OnEntityChangedRequest) returns (SlotResult); }
+message OnEntityChangedRequest { string input = 1; }
+message SlotResult { bool ok = 1; }
+`)
+
+	// Create fill for the mixin slot.
+	fillDir := filepath.Join(projectDir, "fills", "my-notifier")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-notifier
+implements: event-publisher.on_entity_changed
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	// Service uses the mixin and binds to its slot.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+mixins:
+  - event-publisher
+slots:
+  - slot: on_entity_changed
+    entity: Widget
+    fan-out:
+      - my-notifier
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// The mixin-added slot should be recognized — no slot errors.
+	for _, e := range result.Errors {
+		if e.Category == "slot" {
+			t.Errorf("unexpected slot error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_MixinAddedSlotNotAvailableWithoutMixin(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	// Create the mixin in the registry but do NOT declare it in the service.
+	mixinDir := filepath.Join(registryDir, "mixins", "event-publisher")
+	mkdirAll(t, filepath.Join(mixinDir, "slots"))
+	writeFile(t, filepath.Join(mixinDir, "mixin.yaml"), `kind: mixin
+name: event-publisher
+version: 1.0.0
+adds_components: []
+adds_slots:
+  - name: on_entity_changed
+    proto: stego.mixins.event_publisher.slots.OnEntityChanged
+    default: noop
+overrides: none
+`)
+	writeFile(t, filepath.Join(mixinDir, "slots", "on_entity_changed.proto"), `syntax = "proto3";
+package stego.mixins.event_publisher.slots;
+service OnEntityChanged { rpc Evaluate(OnEntityChangedRequest) returns (SlotResult); }
+message OnEntityChangedRequest { string input = 1; }
+message SlotResult { bool ok = 1; }
+`)
+
+	fillDir := filepath.Join(projectDir, "fills", "my-notifier")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-notifier
+implements: event-publisher.on_entity_changed
+entity: Widget
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	// Service does NOT use the mixin but tries to bind to its slot.
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+expose:
+  - entity: Widget
+    operations: [create, read]
+  - entity: Org
+    operations: [create, read]
+slots:
+  - slot: on_entity_changed
+    entity: Widget
+    fan-out:
+      - my-notifier
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// The mixin slot should NOT be available because the mixin is not declared.
+	assertHasError(t, result, "slot", "on_entity_changed")
+}
+
+func TestValidate_UniqueCompositeReferencesNonexistentField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: email, type: string, unique_composite: [nonexistent_field] }
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "field-type", "unique_composite references field \"nonexistent_field\"")
+}
+
+func TestValidate_UniqueCompositeValidReferences(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: email, type: string, unique_composite: [label] }
+      - { name: label, type: string }
+expose:
+  - entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No unique_composite errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "unique_composite") {
+			t.Errorf("unexpected unique_composite error: %s", e.Message)
+		}
+	}
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {

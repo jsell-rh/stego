@@ -121,7 +121,17 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 
 	// Validate slot bindings reference available slots.
 	if components != nil {
-		result.Errors = append(result.Errors, validateSlotNames(svcDecl.Slots, components)...)
+		// Collect mixin-added slots (adds_slots) — these are defined by the
+		// mixin itself, not by any component, so they must be added to the
+		// available set separately.
+		var mixinSlots []types.SlotDefinition
+		for _, mixinName := range svcDecl.Mixins {
+			mixin := reg.Mixin(mixinName)
+			if mixin != nil {
+				mixinSlots = append(mixinSlots, mixin.AddsSlots...)
+			}
+		}
+		result.Errors = append(result.Errors, validateSlotNames(svcDecl.Slots, components, mixinSlots)...)
 	}
 
 	// Validate slot binding entities are in the expose list.
@@ -261,6 +271,23 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				})
 			}
 
+			// --- unique_composite field name references ---
+
+			if len(f.UniqueComposite) > 0 {
+				fieldNames := make(map[string]bool, len(e.Fields))
+				for _, ef := range e.Fields {
+					fieldNames[ef.Name] = true
+				}
+				for _, ucField := range f.UniqueComposite {
+					if !fieldNames[ucField] {
+						errs = append(errs, ValidationError{
+							Category: "field-type",
+							Message:  fmt.Sprintf("entity %q field %q: unique_composite references field %q which does not exist in entity %q", e.Name, f.Name, ucField, e.Name),
+						})
+					}
+				}
+			}
+
 			// --- Computed/filled_by co-occurrence ---
 
 			if f.Computed && f.FilledBy == "" {
@@ -323,8 +350,8 @@ func validateExposeOps(expose []types.ExposeBlock) []ValidationError {
 }
 
 // validateSlotNames checks that each slot binding references a slot defined by
-// one of the resolved components.
-func validateSlotNames(slots []types.SlotDeclaration, components map[string]*types.Component) []ValidationError {
+// one of the resolved components or by a mixin's adds_slots.
+func validateSlotNames(slots []types.SlotDeclaration, components map[string]*types.Component, mixinSlots []types.SlotDefinition) []ValidationError {
 	// Build set of available slot names across all components.
 	available := make(map[string]bool)
 	for _, comp := range components {
@@ -333,8 +360,12 @@ func validateSlotNames(slots []types.SlotDeclaration, components map[string]*typ
 		}
 	}
 
-	// Also check mixin-added slots — they are already included in the
-	// component set via collectComponentNames, so their slots are covered.
+	// Include mixin-added slots (adds_slots). These are defined directly
+	// by mixins, not by any component — collectComponentNames only adds
+	// the mixin's AddsComponents, not its AddsSlots.
+	for _, sd := range mixinSlots {
+		available[sd.Name] = true
+	}
 
 	var errs []ValidationError
 	for _, sb := range slots {
