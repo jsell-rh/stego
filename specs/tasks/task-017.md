@@ -66,3 +66,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - `547b12b` feat(task-017): implement git-based registry resolution
+- `f512993` fix(task-017): address round 1 review findings
