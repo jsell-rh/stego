@@ -2,7 +2,9 @@
 
 **Spec Reference:** "CLI Interface"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-015.md](../reviews/task-015.md)
 
 ## Description
 
