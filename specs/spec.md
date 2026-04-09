@@ -6,42 +6,79 @@ Core insight (Brooks, "No Silver Bullet"): accidental complexity is the attack s
 
 ## Glossary
 
-Five nouns, seven operators.
+Six nouns, seven operators.
 
 | Term | What it is | Who owns it |
 |------|-----------|-------------|
 | **Archetype** | Curated component set + conventions. One per service. Determines architecture, layout, error handling, logging. | Platform team |
 | **Component** | Deterministic code generator. Has config schema, ports (requires/provides), slots (typed extension points), and templates. | Platform team |
 | **Mixin** | Adds components and slots to an archetype without changing its conventions. Additive only. | Platform team |
-| **Service Declaration** | Selects archetype, declares entities, binds slots. The only thing the LLM produces. Language-agnostic. | Product team / LLM |
+| **Service Declaration** | Selects archetype, declares entities and collections, binds slots. The only thing the LLM produces. Language-agnostic. | Product team / LLM |
+| **Collection** | A scoped, operation-constrained access pattern over an entity. Multiple collections can reference the same entity. Each collection generates its own handler, routes, and wiring. | Product team / LLM |
 | **Fill** | Code (e.g. Go function) implementing a slot's protobuf contract. Has tests. Qualified by a human. | Product team |
 
 Operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 
-## Entity & Operation Features
+### Entity/Collection Separation
 
-**Operations** include `create`, `read`, `update`, `delete`, `list`, and `upsert`. Upsert supports natural-key conflict resolution and optimistic concurrency:
+Entities define data (fields, types, constraints). Collections define access patterns (which entity, what scope, what operations, what URL). This separation is load-bearing:
+
+- An entity is declared once. A collection references it.
+- Multiple collections can reference the same entity with different scopes and operations.
+- Each collection generates its own handler. The entity struct is shared.
+- Slots bind to collections, not entities. Different access paths can have different business logic.
+- Paths are derived from collection names and scopes, or declared explicitly via `path_prefix`.
+
+This makes multi-path access the default case, not an exception. REST APIs project entity graphs onto URL trees; that projection is inherently 1:N.
+
+## Collections & Operations
+
+**Operations** include `create`, `read`, `update`, `delete`, `list`, `upsert`, and `patch`. Upsert supports natural-key conflict resolution and optimistic concurrency:
 ```yaml
-expose:
-  - entity: AdapterStatus
+collections:
+  cluster-statuses:
+    entity: AdapterStatus
+    scope: { resource_type: Cluster, resource_id: Cluster }
     operations: [list, upsert]
     upsert_key: [resource_type, resource_id, adapter]
     concurrency: optimistic    # only update if generation is newer
 ```
 
-**Nested routing** is expressed via `parent` on an expose block. The compiler generates parent existence verification at each level:
+**Scoped collections** generate nested routing. The `scope` field maps entity fields to parent entities. The compiler derives the URL path and generates parent existence verification at each level:
 ```yaml
-expose:
-  - entity: NodePool
-    path_prefix: /clusters/{cluster_id}/nodepools
-    parent: Cluster
+collections:
+  clusters:
+    entity: Cluster
     operations: [create, read, list]
+    # path derived: /clusters
 
-  - entity: AdapterStatus
-    path_prefix: /clusters/{cluster_id}/nodepools/{nodepool_id}/statuses
-    parent: NodePool
+  cluster-nodepools:
+    entity: NodePool
+    scope: { cluster_id: Cluster }
+    operations: [create, read, list]
+    # path derived: /clusters/{cluster_id}/nodepools
+
+  all-nodepools:
+    entity: NodePool
+    operations: [list]
+    # path derived: /nodepools
+
+  cluster-statuses:
+    entity: AdapterStatus
+    scope: { resource_type: Cluster, resource_id: Cluster }
     operations: [list, upsert]
+    upsert_key: [resource_type, resource_id, adapter]
+    # path derived: /clusters/{cluster_id}/statuses
+
+  nodepool-statuses:
+    entity: AdapterStatus
+    scope: { resource_type: NodePool, resource_id: NodePool }
+    operations: [list, upsert]
+    upsert_key: [resource_type, resource_id, adapter]
+    # path derived: /clusters/{cluster_id}/nodepools/{nodepool_id}/statuses
 ```
+
+Multiple collections referencing the same entity is the normal case. Each collection generates its own handler, routes, and wiring. The entity struct and storage are shared.
 
 **Computed/derived fields** are read-only fields populated by a fill, never written via the API:
 ```yaml
@@ -324,33 +361,39 @@ archetype: rest-crud
 language: go
 
 entities:
+  - name: Organization
+    fields:
+      - { name: name, type: string, unique: true }
+
   - name: User
     fields:
       - { name: email, type: string, unique: true }
       - { name: role, type: enum, values: [admin, member] }
       - { name: org_id, type: ref, to: Organization }
 
-  - name: Organization
-    fields:
-      - { name: name, type: string, unique: true }
-
-expose:
-  - entity: Organization
+collections:
+  organizations:
+    entity: Organization
     operations: [create, read]
-  - entity: User
+
+  org-users:
+    entity: User
+    scope: { org_id: Organization }
     operations: [create, read, update, list]
-    scope: org_id
-    parent: Organization
+
+  all-users:
+    entity: User
+    operations: [list]
 
 slots:
-  - slot: before_create
-    entity: User
+  - collection: org-users
+    slot: before_create
     gate:
       - rbac-policy
       - admin-creation-policy
 
-  - slot: on_entity_changed
-    entity: User
+  - collection: org-users
+    slot: on_entity_changed
     fan-out:
       - user-change-notifier
       - audit-logger
@@ -370,7 +413,7 @@ overrides:
 kind: fill
 name: admin-creation-policy
 implements: rest-api.before_create
-entity: User
+collection: org-users
 
 qualified_by: jsell
 qualified_at: 2026-04-06
@@ -534,4 +577,6 @@ Single archetype (`rest-crud`), end-to-end with fills and slots working. Full CL
 
 - How to handle complex query patterns (TSL search) -- reusable component or archetype concern?
 - The first ~10 services will be blocked waiting for components that don't exist yet. Mitigation: seed the registry from existing real services; allow early services to be fill-heavy with TODOs to extract reusable components later
+- Collection path derivation rules need to be specified precisely (how does `scope: { cluster_id: Cluster }` become `/clusters/{cluster_id}/nodepools`?)
+- Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
 
