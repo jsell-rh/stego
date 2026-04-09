@@ -13,6 +13,7 @@ version: 3.0.0
 components:
   - rest-api
   - postgres-adapter
+  - tsl-search
   - otel-tracing
   - health-check
 
@@ -296,6 +297,40 @@ provides:
 slots: []
 ```
 
+### tsl-search
+
+Integrates the Tree Search Language library (`github.com/yaacov/tree-search-language`) into list handlers. Generates SQL helper functions for parsing `?search=` expressions into parameterized WHERE clauses.
+
+```yaml
+kind: component
+name: tsl-search
+version: 1.0.0
+output_namespace: internal/search
+
+requires:
+  - storage-adapter
+
+provides:
+  - search-engine
+
+slots:
+  - name: resolve_field
+    proto: stego.components.tsl_search.slots.ResolveField
+    default: column-name-lookup
+```
+
+The component generates:
+- TSL expression parsing and SQL WHERE clause generation (wraps the TSL library)
+- Field name validation against entity field definitions (disallowed fields rejected with 400)
+- Field-to-column mapping (entity field names to SQL column names, including table prefixes)
+- Parameterized queries via squirrel (SQL injection prevention)
+- The `rest-api` component generates `?search=` query parameter handling in all list handlers
+
+The `resolve_field` slot allows fills to customize how specific field types map to SQL. Default behavior maps field names directly to column names. Fills can override this for:
+- JSONB path queries (`status.conditions.Ready.status` -> `jsonb_path_query_first(...)`)
+- Label queries (`labels.region` -> `labels->>'region'`)
+- Related table JOINs (field references that cross entity boundaries)
+
 ### jwt-auth
 
 Generates JWT middleware with configurable header and claim extraction.
@@ -315,8 +350,6 @@ slots: []
 
 ## Open Questions
 
-- How to handle complex query patterns (TSL search) -- reusable component or archetype concern?
 - Collection path derivation rules need to be specified precisely (how does `scope: { cluster_id: Cluster }` become `/clusters/{cluster_id}/nodepools`?)
 - Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
-- Envelope response format (id, kind, href wrapping; list pagination) -- component config or archetype convention?
 - RFC 9457 Problem Details error responses -- the archetype declares `error_handling: problem-details-rfc` but the rest-api generator must implement it
