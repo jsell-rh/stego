@@ -243,6 +243,146 @@ func TestModelGORMTags(t *testing.T) {
 	}
 }
 
+func TestMetaTimestampAutoPopulateTags(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// CreatedTime should have autoCreateTime GORM tag so GORM populates it.
+	if !strings.Contains(content, `gorm:"autoCreateTime"`) {
+		t.Error("Meta CreatedTime should have gorm:\"autoCreateTime\" tag")
+	}
+
+	// UpdatedTime should have autoUpdateTime GORM tag so GORM populates it.
+	if !strings.Contains(content, `gorm:"autoUpdateTime"`) {
+		t.Error("Meta UpdatedTime should have gorm:\"autoUpdateTime\" tag")
+	}
+}
+
+func TestModelUniqueCompositeGeneratesGormTag(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Binding",
+				Fields: []types.Field{
+					{Name: "resource_type", Type: types.FieldTypeString, UniqueComposite: []string{"resource_type", "resource_id"}},
+					{Name: "resource_id", Type: types.FieldTypeString, UniqueComposite: []string{"resource_type", "resource_id"}},
+					{Name: "label", Type: types.FieldTypeString},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// Both fields in the composite should reference the same named unique index.
+	expectedTag := "uniqueIndex:composite_resource_type_resource_id"
+	count := strings.Count(content, expectedTag)
+	if count != 2 {
+		t.Errorf("expected %q to appear 2 times (once per field), got %d\n%s",
+			expectedTag, count, content)
+	}
+
+	// A field NOT in the composite should NOT have the composite tag.
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "Label") && strings.Contains(line, "uniqueIndex:composite") {
+			t.Error("field 'label' should not have composite uniqueIndex tag")
+		}
+	}
+
+	// Verify it compiles.
+	modelsBytes := findFile(t, files, "internal/storage/models.go").Bytes()
+	if _, err := format.Source(modelsBytes); err != nil {
+		t.Errorf("models.go does not compile: %v", err)
+	}
+}
+
+func TestModelMinLengthGeneratesCheckTag(t *testing.T) {
+	minLen := 3
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, MinLength: &minLen},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// min_length should produce a GORM check constraint tag.
+	expectedTag := "check:length(name) >= 3"
+	if !strings.Contains(content, expectedTag) {
+		t.Errorf("models.go should have gorm tag %q for min_length fields\n%s",
+			expectedTag, content)
+	}
+
+	// Verify it compiles.
+	modelsBytes := findFile(t, files, "internal/storage/models.go").Bytes()
+	if _, err := format.Source(modelsBytes); err != nil {
+		t.Errorf("models.go does not compile: %v", err)
+	}
+}
+
+func TestModelMinAndMaxLengthCombined(t *testing.T) {
+	minLen := 3
+	maxLen := 53
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "User",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, MinLength: &minLen, MaxLength: &maxLen},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// Both constraints should be present.
+	if !strings.Contains(content, "size:53") {
+		t.Error("models.go should have size:53 for max_length")
+	}
+	if !strings.Contains(content, "check:length(name) >= 3") {
+		t.Error("models.go should have check constraint for min_length")
+	}
+
+	// Verify it compiles.
+	modelsBytes := findFile(t, files, "internal/storage/models.go").Bytes()
+	if _, err := format.Source(modelsBytes); err != nil {
+		t.Errorf("models.go does not compile: %v", err)
+	}
+}
+
 func TestModelRefFieldHasRelationship(t *testing.T) {
 	ctx := basicContext()
 	g := &Generator{}

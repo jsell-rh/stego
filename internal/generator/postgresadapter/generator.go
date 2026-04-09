@@ -224,8 +224,8 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "// Meta is the base model, embedded in all entities.\n")
 	fmt.Fprintf(&buf, "type Meta struct {\n")
 	fmt.Fprintf(&buf, "\tID          string         `json:\"id\"`\n")
-	fmt.Fprintf(&buf, "\tCreatedTime time.Time      `json:\"created_time\"`\n")
-	fmt.Fprintf(&buf, "\tUpdatedTime time.Time      `json:\"updated_time\"`\n")
+	fmt.Fprintf(&buf, "\tCreatedTime time.Time      `json:\"created_time\" gorm:\"autoCreateTime\"`\n")
+	fmt.Fprintf(&buf, "\tUpdatedTime time.Time      `json:\"updated_time\" gorm:\"autoUpdateTime\"`\n")
 	fmt.Fprintf(&buf, "\tDeletedAt   gorm.DeletedAt `json:\"-\" gorm:\"index\"`\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
@@ -324,8 +324,19 @@ func buildGormTag(f types.Field) string {
 		parts = append(parts, "uniqueIndex")
 	}
 
+	// Composite unique constraints: each field in the group gets the same
+	// named uniqueIndex so GORM creates a single composite index.
+	if len(f.UniqueComposite) > 0 {
+		idxName := "composite_" + strings.Join(f.UniqueComposite, "_")
+		parts = append(parts, "uniqueIndex:"+idxName)
+	}
+
 	if f.MaxLength != nil {
 		parts = append(parts, fmt.Sprintf("size:%d", *f.MaxLength))
+	}
+
+	if f.MinLength != nil {
+		parts = append(parts, fmt.Sprintf("check:length(%s) >= %d", f.Name, *f.MinLength))
 	}
 
 	if f.Default != nil {
