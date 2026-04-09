@@ -54,3 +54,5 @@ The rest-crud archetype spec defines `base_path` as a service-level field prepen
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `3e2ec5d` feat(task-021): add base_path and error_type_base service declaration fields
