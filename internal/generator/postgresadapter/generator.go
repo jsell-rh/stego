@@ -514,9 +514,14 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 }
 
 // emitListMethod generates the List dispatcher using GORM with scope filtering.
+// The method performs a COUNT(*) query first to get the total matching records,
+// then fetches the requested page via OFFSET/LIMIT, returning both the results
+// and the total count for pagination envelopes.
 func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// List retrieves entities with optional scope filtering and pagination.\n")
-	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, error) {\n")
+	fmt.Fprintf(buf, "// It performs a COUNT(*) query first to get the total matching records,\n")
+	fmt.Fprintf(buf, "// then fetches the requested page via OFFSET/LIMIT.\n")
+	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, int64, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -537,9 +542,15 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn nil, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t\treturn nil, 0, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Count total matching records before applying pagination.
+		fmt.Fprintf(buf, "\t\tvar total int64\n")
+		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil, 0, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
 		fmt.Fprintf(buf, "\t\tif offset > 0 {\n")
@@ -550,13 +561,13 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil, 0, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn result, nil\n")
+		fmt.Fprintf(buf, "\t\treturn result, total, nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn nil, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t\treturn nil, 0, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "}\n\n")
 }

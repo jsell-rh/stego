@@ -373,6 +373,80 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	if !strings.Contains(handler, "limit := size") {
 		t.Error("list handler must set limit to size")
 	}
+
+	// List handler must capture total count from store.List.
+	if !strings.Contains(handler, ", total, err := h.store.List(") {
+		t.Error("list handler must capture total count from store.List 3-return-value")
+	}
+
+	// List handler must include total in the response.
+	if !strings.Contains(handler, `"total": total`) {
+		t.Error("list handler must include total count in the response")
+	}
+}
+
+func TestGenerate_ListStorageInterfaceReturnsTotalCount(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	// Storage interface List must return (any, int64, error) for total count.
+	if !strings.Contains(router, "(any, int64, error)") {
+		t.Error("Storage.List must return (any, int64, error) to carry total count for pagination")
+	}
+}
+
+func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_items.go")
+
+	// List handler must construct a pagination envelope with kind, page, size, total, items.
+	if !strings.Contains(handler, `"kind":  "ItemList"`) {
+		t.Error("list response must include kind with entity name + 'List'")
+	}
+	if !strings.Contains(handler, `"page":  page`) {
+		t.Error("list response must include the requested page number")
+	}
+	if !strings.Contains(handler, `"size":  size`) {
+		t.Error("list response must include the requested page size")
+	}
+	if !strings.Contains(handler, `"total": total`) {
+		t.Error("list response must include total count of matching records")
+	}
+	if !strings.Contains(handler, `"items":`) {
+		t.Error("list response must include items array")
+	}
 }
 
 func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {

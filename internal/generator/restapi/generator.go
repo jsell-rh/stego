@@ -615,10 +615,10 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	// a parent, scope is passed as a query parameter.
 	if len(eb.Scope) > 0 && eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
 	} else if len(eb.Scope) > 0 {
 		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.ScopeField())
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
 	} else if eb.ParentEntity() != "" {
 		parentIDVar := strings.ToLower(eb.ParentEntity()) + "ID"
 		parentField, err := parentRefRawFieldName(entity, eb.ParentEntity())
@@ -626,9 +626,9 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 			return err
 		}
 		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentParamName)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, %s, offset, limit)\n", lower, entity.Name, parentField, parentIDVar)
+		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, %s, offset, limit)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, \"\", \"\", offset, limit)\n", lower, entity.Name)
+		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, \"\", \"\", offset, limit)\n", lower, entity.Name)
 	}
 
 	fmt.Fprintf(buf, "\tif err != nil {\n")
@@ -636,7 +636,14 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	fmt.Fprintf(buf, "\tresult := map[string]any{\n")
+	fmt.Fprintf(buf, "\t\t\"kind\":  %q,\n", entity.Name+"List")
+	fmt.Fprintf(buf, "\t\t\"page\":  page,\n")
+	fmt.Fprintf(buf, "\t\t\"size\":  size,\n")
+	fmt.Fprintf(buf, "\t\t\"total\": total,\n")
+	fmt.Fprintf(buf, "\t\t\"items\": %s,\n", lower)
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(result)\n")
 	fmt.Fprintf(buf, "}\n\n")
 	// List has no before or after slot lifecycle points.
 	_, _ = slotParams, slotsAlias
@@ -740,7 +747,7 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
 	fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
 	fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
-	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, error)\n")
+	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, int64, error)\n")
 	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error\n")
 	fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
 	fmt.Fprintf(&buf, "}\n\n")

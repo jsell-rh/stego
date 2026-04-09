@@ -1134,6 +1134,10 @@ func TestListScopeValidation(t *testing.T) {
 	if !strings.Contains(storeContent, "invalid scope field") {
 		t.Error("List should return error for invalid scope field")
 	}
+	// Scope validation error should return zero total alongside the error.
+	if !strings.Contains(storeContent, "return nil, 0, fmt.Errorf") {
+		t.Error("List scope validation error should return (nil, 0, error)")
+	}
 }
 
 func TestListPagination(t *testing.T) {
@@ -1149,6 +1153,26 @@ func TestListPagination(t *testing.T) {
 	// List should accept offset and limit parameters.
 	if !strings.Contains(storeContent, "offset int, limit int") {
 		t.Error("List should accept offset and limit parameters")
+	}
+
+	// List should return (any, int64, error) to carry total count.
+	if !strings.Contains(storeContent, "(any, int64, error)") {
+		t.Error("List should return (any, int64, error) to include total count")
+	}
+
+	// List should perform COUNT(*) before fetching the page.
+	if !strings.Contains(storeContent, "query.Count(&total)") {
+		t.Error("List should perform COUNT query for total matching records")
+	}
+
+	// List should declare a total variable.
+	if !strings.Contains(storeContent, "var total int64") {
+		t.Error("List should declare total count variable")
+	}
+
+	// List should return total alongside results.
+	if !strings.Contains(storeContent, "return result, total, nil") {
+		t.Error("List should return results and total count")
 	}
 
 	// List should apply Offset.
