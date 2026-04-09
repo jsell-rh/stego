@@ -10,16 +10,16 @@ import (
 	slots "github.com/example/service/out/slots"
 )
 
-// UserHandler handles HTTP requests for User entities.
-type UserHandler struct {
+// OrgUsersHandler handles HTTP requests for User entities.
+type OrgUsersHandler struct {
 	store                 Storage
 	beforeCreateGate      slots.BeforeCreateSlot
 	onEntityChangedFanOut slots.OnEntityChangedSlot
 }
 
-// NewUserHandler creates a new UserHandler.
-func NewUserHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot) *UserHandler {
-	return &UserHandler{
+// NewOrgUsersHandler creates a new OrgUsersHandler.
+func NewOrgUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot) *OrgUsersHandler {
+	return &OrgUsersHandler{
 		store:                 store,
 		beforeCreateGate:      beforeCreateGate,
 		onEntityChangedFanOut: onEntityChangedFanOut,
@@ -27,10 +27,10 @@ func NewUserHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEn
 }
 
 // checkAncestors verifies that all ancestor entities in the URL hierarchy exist.
-func (h *UserHandler) checkAncestors(w http.ResponseWriter, r *http.Request) bool {
-	organizationID := r.PathValue("organization_id")
+func (h *OrgUsersHandler) checkAncestors(w http.ResponseWriter, r *http.Request) bool {
+	organizationID := r.PathValue("org_id")
 	if organizationID == "" {
-		http.Error(w, "missing organization_id", http.StatusBadRequest)
+		http.Error(w, "missing org_id", http.StatusBadRequest)
 		return false
 	}
 	organizationIDExists, organizationIDErr := h.store.Exists("Organization", organizationID)
@@ -45,7 +45,7 @@ func (h *UserHandler) checkAncestors(w http.ResponseWriter, r *http.Request) boo
 	return true
 }
 
-func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
@@ -54,7 +54,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user.OrgID = r.PathValue("organization_id")
+	user.OrgID = r.PathValue("org_id")
 	if h.beforeCreateGate != nil {
 		slotReq := &slots.BeforeCreateRequest{
 			Input: &slots.CreateRequest{
@@ -107,7 +107,7 @@ func (h *UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-func (h *UserHandler) Read(w http.ResponseWriter, r *http.Request) {
+func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
@@ -121,7 +121,7 @@ func (h *UserHandler) Read(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
+func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
@@ -131,7 +131,7 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	user.OrgID = r.PathValue("organization_id")
+	user.OrgID = r.PathValue("org_id")
 	if err := h.store.Update("User", id, user); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -146,11 +146,11 @@ func (h *UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-func (h *UserHandler) List(w http.ResponseWriter, r *http.Request) {
+func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
-	scopeValue := r.PathValue("organization_id")
+	scopeValue := r.PathValue("org_id")
 	users, err := h.store.List("User", "org_id", scopeValue)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

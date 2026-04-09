@@ -22,20 +22,6 @@ func NewStore(db *sql.DB) *Store {
 // Create inserts a new entity record. Computed fields are excluded.
 func (s *Store) Create(entity string, value any) error {
 	switch entity {
-	case "User":
-		data, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("marshaling User: %w", err)
-		}
-		var v User
-		if err := json.Unmarshal(data, &v); err != nil {
-			return fmt.Errorf("unmarshaling User: %w", err)
-		}
-		_, err = s.db.Exec(
-			`INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`,
-			v.ID, v.Email, v.Role, v.OrgID,
-		)
-		return err
 	case "Organization":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -50,6 +36,20 @@ func (s *Store) Create(entity string, value any) error {
 			v.ID, v.Name,
 		)
 		return err
+	case "User":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshaling User: %w", err)
+		}
+		var v User
+		if err := json.Unmarshal(data, &v); err != nil {
+			return fmt.Errorf("unmarshaling User: %w", err)
+		}
+		_, err = s.db.Exec(
+			`INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`,
+			v.ID, v.Email, v.Role, v.OrgID,
+		)
+		return err
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -58,20 +58,20 @@ func (s *Store) Create(entity string, value any) error {
 // Read retrieves a single entity by ID.
 func (s *Store) Read(entity string, id string) (any, error) {
 	switch entity {
-	case "User":
-		var v User
-		err := s.db.QueryRow(
-			`SELECT "id", "email", "role", "org_id" FROM "users" WHERE "id" = $1`, id,
-		).Scan(&v.ID, &v.Email, &v.Role, &v.OrgID)
-		if err != nil {
-			return nil, err
-		}
-		return v, nil
 	case "Organization":
 		var v Organization
 		err := s.db.QueryRow(
 			`SELECT "id", "name" FROM "organizations" WHERE "id" = $1`, id,
 		).Scan(&v.ID, &v.Name)
+		if err != nil {
+			return nil, err
+		}
+		return v, nil
+	case "User":
+		var v User
+		err := s.db.QueryRow(
+			`SELECT "id", "email", "role", "org_id" FROM "users" WHERE "id" = $1`, id,
+		).Scan(&v.ID, &v.Email, &v.Role, &v.OrgID)
 		if err != nil {
 			return nil, err
 		}
@@ -84,20 +84,6 @@ func (s *Store) Read(entity string, id string) (any, error) {
 // Update modifies an existing entity by ID. Computed fields are excluded.
 func (s *Store) Update(entity string, id string, value any) error {
 	switch entity {
-	case "User":
-		data, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("marshaling User: %w", err)
-		}
-		var v User
-		if err := json.Unmarshal(data, &v); err != nil {
-			return fmt.Errorf("unmarshaling User: %w", err)
-		}
-		_, err = s.db.Exec(
-			`UPDATE "users" SET "email" = $1, "role" = $2, "org_id" = $3 WHERE "id" = $4`,
-			v.Email, v.Role, v.OrgID, id,
-		)
-		return err
 	case "Organization":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -112,6 +98,20 @@ func (s *Store) Update(entity string, id string, value any) error {
 			v.Name, id,
 		)
 		return err
+	case "User":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshaling User: %w", err)
+		}
+		var v User
+		if err := json.Unmarshal(data, &v); err != nil {
+			return fmt.Errorf("unmarshaling User: %w", err)
+		}
+		_, err = s.db.Exec(
+			`UPDATE "users" SET "email" = $1, "role" = $2, "org_id" = $3 WHERE "id" = $4`,
+			v.Email, v.Role, v.OrgID, id,
+		)
+		return err
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -120,11 +120,11 @@ func (s *Store) Update(entity string, id string, value any) error {
 // Delete removes an entity by ID.
 func (s *Store) Delete(entity string, id string) error {
 	switch entity {
-	case "User":
-		_, err := s.db.Exec(`DELETE FROM "users" WHERE "id" = $1`, id)
-		return err
 	case "Organization":
 		_, err := s.db.Exec(`DELETE FROM "organizations" WHERE "id" = $1`, id)
+		return err
+	case "User":
+		_, err := s.db.Exec(`DELETE FROM "users" WHERE "id" = $1`, id)
 		return err
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
@@ -134,34 +134,6 @@ func (s *Store) Delete(entity string, id string) error {
 // List retrieves all entities, optionally filtered by a scope field.
 func (s *Store) List(entity string, scopeField string, scopeValue string) (any, error) {
 	switch entity {
-	case "User":
-		validCols := map[string]bool{"email": true, "role": true, "org_id": true}
-		query := `SELECT "id", "email", "role", "org_id" FROM "users"`
-		var args []any
-		if scopeField != "" && scopeValue != "" {
-			if !validCols[scopeField] {
-				return nil, fmt.Errorf("invalid scope field %q for entity User", scopeField)
-			}
-			query += ` WHERE "` + scopeField + `" = $1`
-			args = append(args, scopeValue)
-		}
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var result []User
-		for rows.Next() {
-			var v User
-			if err := rows.Scan(&v.ID, &v.Email, &v.Role, &v.OrgID); err != nil {
-				return nil, err
-			}
-			result = append(result, v)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return result, nil
 	case "Organization":
 		validCols := map[string]bool{"name": true}
 		query := `SELECT "id", "name" FROM "organizations"`
@@ -190,6 +162,34 @@ func (s *Store) List(entity string, scopeField string, scopeValue string) (any, 
 			return nil, err
 		}
 		return result, nil
+	case "User":
+		validCols := map[string]bool{"email": true, "role": true, "org_id": true}
+		query := `SELECT "id", "email", "role", "org_id" FROM "users"`
+		var args []any
+		if scopeField != "" && scopeValue != "" {
+			if !validCols[scopeField] {
+				return nil, fmt.Errorf("invalid scope field %q for entity User", scopeField)
+			}
+			query += ` WHERE "` + scopeField + `" = $1`
+			args = append(args, scopeValue)
+		}
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var result []User
+		for rows.Next() {
+			var v User
+			if err := rows.Scan(&v.ID, &v.Email, &v.Role, &v.OrgID); err != nil {
+				return nil, err
+			}
+			result = append(result, v)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return result, nil
 	default:
 		return nil, fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -200,49 +200,6 @@ func (s *Store) List(entity string, scopeField string, scopeValue string) (any, 
 // generation value is newer than the existing row's generation.
 func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency string) error {
 	switch entity {
-	case "User":
-		data, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("marshaling User: %w", err)
-		}
-		var v User
-		if err := json.Unmarshal(data, &v); err != nil {
-			return fmt.Errorf("unmarshaling User: %w", err)
-		}
-		validCols := map[string]bool{"email": true, "role": true, "org_id": true}
-		for _, k := range upsertKey {
-			if !validCols[k] {
-				return fmt.Errorf("invalid upsert key field %q for entity User", k)
-			}
-		}
-		query := `INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`
-		if len(upsertKey) > 0 {
-			keySet := make(map[string]bool, len(upsertKey))
-			for _, k := range upsertKey {
-				keySet[k] = true
-			}
-			quotedKeys := make([]string, len(upsertKey))
-			for i, k := range upsertKey {
-				quotedKeys[i] = `"` + k + `"`
-			}
-			var setClauses []string
-			allCols := []string{"email", "role", "org_id"}
-			for _, col := range allCols {
-				if !keySet[col] {
-					setClauses = append(setClauses, `"`+col+`" = EXCLUDED."`+col+`"`)
-				}
-			}
-			if len(setClauses) > 0 {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO UPDATE SET " + strings.Join(setClauses, ", ")
-				if concurrency == "optimistic" {
-					return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
-				}
-			} else {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO NOTHING"
-			}
-		}
-		_, err = s.db.Exec(query, v.ID, v.Email, v.Role, v.OrgID)
-		return err
 	case "Organization":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -286,6 +243,49 @@ func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency
 		}
 		_, err = s.db.Exec(query, v.ID, v.Name)
 		return err
+	case "User":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshaling User: %w", err)
+		}
+		var v User
+		if err := json.Unmarshal(data, &v); err != nil {
+			return fmt.Errorf("unmarshaling User: %w", err)
+		}
+		validCols := map[string]bool{"email": true, "role": true, "org_id": true}
+		for _, k := range upsertKey {
+			if !validCols[k] {
+				return fmt.Errorf("invalid upsert key field %q for entity User", k)
+			}
+		}
+		query := `INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`
+		if len(upsertKey) > 0 {
+			keySet := make(map[string]bool, len(upsertKey))
+			for _, k := range upsertKey {
+				keySet[k] = true
+			}
+			quotedKeys := make([]string, len(upsertKey))
+			for i, k := range upsertKey {
+				quotedKeys[i] = `"` + k + `"`
+			}
+			var setClauses []string
+			allCols := []string{"email", "role", "org_id"}
+			for _, col := range allCols {
+				if !keySet[col] {
+					setClauses = append(setClauses, `"`+col+`" = EXCLUDED."`+col+`"`)
+				}
+			}
+			if len(setClauses) > 0 {
+				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO UPDATE SET " + strings.Join(setClauses, ", ")
+				if concurrency == "optimistic" {
+					return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
+				}
+			} else {
+				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO NOTHING"
+			}
+		}
+		_, err = s.db.Exec(query, v.ID, v.Email, v.Role, v.OrgID)
+		return err
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -297,10 +297,10 @@ func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency
 func (s *Store) Exists(entity string, id string) (bool, error) {
 	var table string
 	switch entity {
-	case "User":
-		table = `"users"`
 	case "Organization":
 		table = `"organizations"`
+	case "User":
+		table = `"users"`
 	default:
 		return false, fmt.Errorf("unknown entity: %s", entity)
 	}

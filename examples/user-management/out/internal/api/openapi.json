@@ -7,10 +7,10 @@
   "paths": {
     "/organizations": {
       "post": {
-        "summary": "Create Organization",
-        "operationId": "createOrganization",
+        "summary": "Create Organization via organizations",
+        "operationId": "createOrganizations",
         "tags": [
-          "Organization"
+          "organizations"
         ],
         "requestBody": {
           "required": true,
@@ -38,10 +38,10 @@
     },
     "/organizations/{id}": {
       "get": {
-        "summary": "Read Organization",
-        "operationId": "readOrganization",
+        "summary": "Read Organization via organizations",
+        "operationId": "readOrganizations",
         "tags": [
-          "Organization"
+          "organizations"
         ],
         "parameters": [
           {
@@ -70,16 +70,16 @@
         }
       }
     },
-    "/organizations/{organization_id}/users": {
+    "/organizations/{org_id}/users": {
       "get": {
-        "summary": "List User entities",
-        "operationId": "listUser",
+        "summary": "List User entities via org-users",
+        "operationId": "listOrgUsers",
         "tags": [
-          "User"
+          "org-users"
         ],
         "parameters": [
           {
-            "name": "organization_id",
+            "name": "org_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -104,14 +104,14 @@
         }
       },
       "post": {
-        "summary": "Create User",
-        "operationId": "createUser",
+        "summary": "Create User via org-users",
+        "operationId": "createOrgUsers",
         "tags": [
-          "User"
+          "org-users"
         ],
         "parameters": [
           {
-            "name": "organization_id",
+            "name": "org_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -143,16 +143,16 @@
         }
       }
     },
-    "/organizations/{organization_id}/users/{id}": {
+    "/organizations/{org_id}/users/{id}": {
       "get": {
-        "summary": "Read User",
-        "operationId": "readUser",
+        "summary": "Read User via org-users",
+        "operationId": "readOrgUsers",
         "tags": [
-          "User"
+          "org-users"
         ],
         "parameters": [
           {
-            "name": "organization_id",
+            "name": "org_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -185,14 +185,14 @@
         }
       },
       "put": {
-        "summary": "Update User",
-        "operationId": "updateUser",
+        "summary": "Update User via org-users",
+        "operationId": "updateOrgUsers",
         "tags": [
-          "User"
+          "org-users"
         ],
         "parameters": [
           {
-            "name": "organization_id",
+            "name": "org_id",
             "in": "path",
             "required": true,
             "schema": {
@@ -225,6 +225,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "summary": "List User entities via all-users",
+        "operationId": "listAllUsers",
+        "tags": [
+          "all-users"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
                 }
               }
             }

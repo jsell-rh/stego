@@ -2,16 +2,16 @@
 
 package storage
 
+// Organization represents the Organization entity.
+type Organization struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // User represents the User entity.
 type User struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	OrgID string `json:"org_id"`
-}
-
-// Organization represents the Organization entity.
-type Organization struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
 }

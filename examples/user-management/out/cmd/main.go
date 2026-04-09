@@ -31,30 +31,32 @@ func main() {
 	defer db.Close()
 
 	// Slot wiring — fills composed via operators.
-	// Slot: before_create (gate) for User
-	beforeCreateUserGate := slots.NewBeforeCreateGate(
+	// Slot: before_create (gate) for org-users
+	beforeCreateOrgUsersGate := slots.NewBeforeCreateGate(
 		rbacpolicy.New(),
 		admincreationpolicy.New(),
 	)
 
-	// Slot: on_entity_changed (fan-out) for User
-	onEntityChangedUserFanOut := slots.NewOnEntityChangedFanOut(
+	// Slot: on_entity_changed (fan-out) for org-users
+	onEntityChangedOrgUsersFanOut := slots.NewOnEntityChangedFanOut(
 		userchangenotifier.New(),
 		auditlogger.New(),
 	)
 
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
-	organizationHandler := api.NewOrganizationHandler(store)
-	userHandler := api.NewUserHandler(store, beforeCreateUserGate, onEntityChangedUserFanOut)
+	organizationsHandler := api.NewOrganizationsHandler(store)
+	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
+	allUsersHandler := api.NewAllUsersHandler(store)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /organizations", organizationHandler.Create)
-	mux.HandleFunc("GET /organizations/{id}", organizationHandler.Read)
-	mux.HandleFunc("POST /organizations/{organization_id}/users", userHandler.Create)
-	mux.HandleFunc("GET /organizations/{organization_id}/users/{id}", userHandler.Read)
-	mux.HandleFunc("PUT /organizations/{organization_id}/users/{id}", userHandler.Update)
-	mux.HandleFunc("GET /organizations/{organization_id}/users", userHandler.List)
+	mux.HandleFunc("POST /organizations", organizationsHandler.Create)
+	mux.HandleFunc("GET /organizations/{id}", organizationsHandler.Read)
+	mux.HandleFunc("POST /organizations/{org_id}/users", orgUsersHandler.Create)
+	mux.HandleFunc("GET /organizations/{org_id}/users/{id}", orgUsersHandler.Read)
+	mux.HandleFunc("PUT /organizations/{org_id}/users/{id}", orgUsersHandler.Update)
+	mux.HandleFunc("GET /organizations/{org_id}/users", orgUsersHandler.List)
+	mux.HandleFunc("GET /users", allUsersHandler.List)
 
 	addr := fmt.Sprintf(":%d", 8080)
 	log.Printf("starting server on %s", addr)

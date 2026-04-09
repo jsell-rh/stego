@@ -7,17 +7,17 @@ import (
 	"net/http"
 )
 
-// OrganizationHandler handles HTTP requests for Organization entities.
-type OrganizationHandler struct {
+// OrganizationsHandler handles HTTP requests for Organization entities.
+type OrganizationsHandler struct {
 	store Storage
 }
 
-// NewOrganizationHandler creates a new OrganizationHandler.
-func NewOrganizationHandler(store Storage) *OrganizationHandler {
-	return &OrganizationHandler{store: store}
+// NewOrganizationsHandler creates a new OrganizationsHandler.
+func NewOrganizationsHandler(store Storage) *OrganizationsHandler {
+	return &OrganizationsHandler{store: store}
 }
 
-func (h *OrganizationHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var organization Organization
 	if err := json.NewDecoder(r.Body).Decode(&organization); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -32,7 +32,7 @@ func (h *OrganizationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(organization)
 }
 
-func (h *OrganizationHandler) Read(w http.ResponseWriter, r *http.Request) {
+func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	organization, err := h.store.Read("Organization", id)
 	if err != nil {
