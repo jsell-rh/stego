@@ -88,3 +88,4 @@ All acceptance criteria were already satisfied by task-019's revision rounds:
 - `79d587f` fix(task-019): round 5 — regenerate example output with collection-aware generators
 
 Verification commit for this task:
+- `3cd9e61` chore(task-020): mark ready-for-review — all ACs satisfied by task-019
