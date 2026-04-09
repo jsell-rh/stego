@@ -504,9 +504,9 @@ func TestStoreUsesGORM(t *testing.T) {
 		t.Error("store.go Get should use s.db.WithContext(ctx).First")
 	}
 
-	// Replace should use s.db.Save.
-	if !strings.Contains(storeContent, "s.db.WithContext(ctx).Save(&v).Error") {
-		t.Error("store.go Replace should use s.db.WithContext(ctx).Save")
+	// Replace should use selective column update (not Save) to preserve computed fields.
+	if !strings.Contains(storeContent, ".Select(") || !strings.Contains(storeContent, ".Updates(&v).Error") {
+		t.Error("store.go Replace should use selective column update via .Select(...).Updates, not Save")
 	}
 
 	// Delete should use s.db.Delete (soft delete).
@@ -1608,5 +1608,86 @@ func TestMultiEntityCompiles(t *testing.T) {
 		if _, err := format.Source(content); err != nil {
 			t.Errorf("%s does not compile: %v\n%s", p, err, string(content))
 		}
+	}
+}
+
+// --- Computed field handling in Upsert ---
+
+func TestComputedFieldsClearedOnUpsert(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Cluster",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, Unique: true},
+					{Name: "spec", Type: types.FieldTypeJsonb},
+					{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The Upsert method should zero computed fields before the GORM Create call,
+	// matching the same behavior as the Create method.
+	upsertIdx := strings.Index(storeContent, "func (s *Store) Upsert(")
+	if upsertIdx < 0 {
+		t.Fatal("Upsert method not found in store.go")
+	}
+	upsertBody := storeContent[upsertIdx:]
+
+	if !strings.Contains(upsertBody, "v.StatusConditions = nil") {
+		t.Error("Upsert should zero computed fields before writing (matching Create)")
+	}
+}
+
+// --- Replace uses selective update ---
+
+func TestReplaceUsesSelectiveUpdate(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{
+				Name: "Cluster",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString, Unique: true},
+					{Name: "spec", Type: types.FieldTypeJsonb},
+					{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+				},
+			},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// Replace should NOT use Save (which overwrites all columns including computed).
+	replaceIdx := strings.Index(storeContent, "func (s *Store) Replace(")
+	if replaceIdx < 0 {
+		t.Fatal("Replace method not found in store.go")
+	}
+	replaceBody := storeContent[replaceIdx:]
+
+	if strings.Contains(replaceBody, ".Save(&v)") {
+		t.Error("Replace must NOT use Save — Save overwrites computed fields with zero values")
+	}
+	if !strings.Contains(replaceBody, ".Select(") {
+		t.Error("Replace should use .Select(writeCols) for selective column update")
+	}
+	if !strings.Contains(replaceBody, ".Updates(&v)") {
+		t.Error("Replace should use .Updates for selective column update")
 	}
 }

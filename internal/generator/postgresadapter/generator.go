@@ -449,7 +449,7 @@ func emitGetMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitReplaceMethod generates the Replace dispatcher using GORM Save (full replace).
+// emitReplaceMethod generates the Replace dispatcher using GORM selective Updates.
 func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Replace modifies an existing entity by ID. Computed fields are excluded.\n")
 	fmt.Fprintf(buf, "func (s *Store) Replace(ctx context.Context, entity string, id string, value any) error {\n")
@@ -475,7 +475,7 @@ func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tv.ID = id\n")
 
-		// Clear computed fields.
+		// Clear computed fields — they are read-only and must not be overwritten.
 		for _, f := range e.Fields {
 			if f.Computed {
 				goName := toPascalCase(f.Name)
@@ -484,7 +484,10 @@ func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
 			}
 		}
 
-		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Save(&v).Error\n")
+		// Use selective column update (not Save) so computed fields are
+		// preserved in the database rather than overwritten with zeros.
+		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Select([]string{%s}).Updates(&v).Error\n",
+			e.Name, quoteStringSlice(writeCols))
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -579,6 +582,16 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Clear computed fields — they are read-only and must not be
+		// persisted on the INSERT path.
+		for _, f := range e.Fields {
+			if f.Computed {
+				goName := toPascalCase(f.Name)
+				goType := fieldTypeToGo(f)
+				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
+			}
+		}
 
 		// Build valid column set for upsert key validation.
 		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
