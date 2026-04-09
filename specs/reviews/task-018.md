@@ -1,0 +1,9 @@
+# Review: Task 018 — Collection Type System
+
+## Round 1
+
+- [ ] **slotVarName produces invalid Go identifiers from hyphenated collection names.** `slotVarName()` in `assembler.go:1460` concatenates the raw collection name into a Go variable name (`base += entity`). Collection names follow kebab-case (spec example: `org-users`), and hyphens are not valid in Go identifiers. The old `SlotDeclaration.Entity` field was always PascalCase (e.g., `User`), so this was safe. The rename to `Collection` introduces the bug — `slotVarName("before_create", "org-users", "Gate")` produces `beforeCreateorg-usersGate`, which will cause a compile error in generated `main.go`. The same issue affects `collectAllSlotVarNames`, `buildSlotVarsByEntity`, and `writeSlotWiring`. The collection name must be sanitized (e.g., strip hyphens and apply camelCase) before concatenation.
+
+- [ ] **Missing fill-collection cross-validation.** Task acceptance criterion #6 requires: "Validate that fill declarations reference existing collection names." The task description explicitly lists this under "Validation": "Validate that fill declarations reference existing collection names." The current `validateFillsExist` function (`validate.go:806`) only checks that `fills/<name>/fill.yaml` exists on disk — it does not parse the fill.yaml or validate that its `Collection` field references a defined collection. This validation is absent.
+
+- [ ] **Assembler error messages still say "entity" where they now mean "collection."** `validateSlotBindingUniqueness` in `assembler.go:1375` emits `"for entity %q"` but receives a collection name via `sb.Collection`. Similarly, `validateSlotVarNameUniqueness` at line 1409 uses a struct field named `entity` to hold a collection name, and its error message says `"entity %q"`. These should say "collection" to match the new semantics.
