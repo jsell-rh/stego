@@ -85,3 +85,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `bc81b4b` fix(task-019): update rest-api generator tests for collection-based naming
 - `79e20b1` feat(task-019): collection-aware code generation pipeline
 - `58525d5` fix(task-019): use collection names in validation error messages
+- `68ab61e` fix(task-019): round 2 revisions — rename, tests, stale terminology
