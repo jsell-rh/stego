@@ -135,10 +135,24 @@ type Wiring struct {
 	// Required when MiddlewareConstructor is non-nil.
 	MiddlewareWrapExpr string
 
-	// NeedsDB indicates whether this component requires a *sql.DB connection.
+	// NeedsDB indicates whether this component requires a database connection.
 	// The assembler uses this to determine whether to emit database setup code
 	// in main.go, replacing fragile string matching on constructor expressions.
+	// When DBBackend is set, NeedsDB is implied and does not need to be set
+	// separately.
 	NeedsDB bool
+
+	// DBBackend specifies which database driver the assembler should use in
+	// the generated main.go. "gorm" emits gorm.Open with the postgres driver;
+	// "sql" (or empty with NeedsDB=true) emits sql.Open for raw database/sql.
+	// When set, NeedsDB is implied.
+	DBBackend string
+
+	// GoModRequires lists module dependencies for the generated go.mod.
+	// Keys are module paths (e.g. "gorm.io/gorm"), values are version
+	// strings (e.g. "v1.25.12"). The assembler collects these from all
+	// component wirings and emits a require block.
+	GoModRequires map[string]string
 
 	// ConstructorDeps maps constructor index to the list of variable names
 	// (from other wirings' constructors) that this constructor references in

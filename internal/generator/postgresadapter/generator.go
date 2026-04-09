@@ -1,6 +1,7 @@
 // Package postgresadapter implements the postgres-adapter component Generator.
-// It produces Go model structs, a Store implementation with CRUD + list + upsert
-// query functions, and migration SQL from the service declaration's entities.
+// It produces GORM-based model structs, a Store implementation with CRUD + list
+// + upsert methods, migration code, SessionFactory, and GenericDao from the
+// service declaration's entities.
 package postgresadapter
 
 import (
@@ -23,9 +24,9 @@ var validFieldNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 // Generator produces the postgres-adapter component's generated code.
 type Generator struct{}
 
-// Generate produces model structs, a Store implementation, and migration SQL
-// for all entities in the service declaration. It returns wiring instructions
-// for main.go assembly.
+// Generate produces GORM-based model structs, a Store implementation, migration
+// code, SessionFactory, and GenericDao for all entities in the service declaration.
+// It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if len(ctx.Entities) == 0 {
 		return nil, nil, nil
@@ -102,17 +103,34 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating store: %w", err)
 	}
 
-	migrationFile, err := generateMigration(ctx.OutputNamespace, ctx.Entities)
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities)
 	if err != nil {
-		return nil, nil, fmt.Errorf("generating migration: %w", err)
+		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}
 
-	files := []gen.File{modelsFile, storeFile, migrationFile}
+	sessionFactoryFile, err := generateSessionFactory(ctx.OutputNamespace)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating session_factory: %w", err)
+	}
 
+	genericDaoFile, err := generateGenericDao(ctx.OutputNamespace)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating generic_dao: %w", err)
+	}
+
+	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile}
+
+	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
 		Imports:      []string{ctx.OutputNamespace},
-		Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewStore(db)"},
+		Constructors: []string{base + ".NewStore(db)"},
 		NeedsDB:      true,
+		DBBackend:    "gorm",
+		GoModRequires: map[string]string{
+			"gorm.io/gorm":            "v1.25.12",
+			"gorm.io/driver/postgres": "v1.5.11",
+			"gorm.io/datatypes":       "v1.2.5",
+		},
 	}
 
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
@@ -127,8 +145,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
 	// Generator-internal identifiers.
-	"Store":    true,
-	"NewStore": true,
+	"Store":       true,
+	"NewStore":    true,
+	"Meta":        true,
+	"GenericDao":  true,
+	"NewGenericDao": true,
+	"SessionFactory": true,
+	"Migrate":     true,
 	// Go keywords.
 	"break": true, "case": true, "chan": true, "const": true,
 	"continue": true, "default": true, "defer": true, "else": true,
@@ -150,55 +173,83 @@ var reservedTypeNames = map[string]bool{
 	"len": true, "make": true, "max": true, "min": true,
 	"new": true, "panic": true, "print": true, "println": true,
 	"real": true, "recover": true,
-	// Import aliases used in generated files. An entity named "sql" would
-	// shadow the "database/sql" import, breaking *sql.DB references.
-	"sql": true, "json": true, "fmt": true, "strings": true, "time": true,
+	// Import aliases used in generated files.
+	"gorm":       true,
+	"clause":     true,
+	"datatypes":  true,
+	"json":       true,
+	"fmt":        true,
+	"time":       true,
 }
 
-// generateModels produces models.go with entity struct definitions.
+// --- Models ---
+
+// generateModels produces models.go with Meta base struct and entity struct
+// definitions using GORM struct tags.
 func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 	var buf bytes.Buffer
 
-	needTime := false
-	needJSON := false
+	needTime := true // Meta always uses time.Time
+	needDatatypes := false
+	needGormDeletedAt := true // Meta always uses gorm.DeletedAt
+	hasRef := false
+
 	for _, e := range entities {
 		for _, f := range e.Fields {
-			if f.Type == types.FieldTypeTimestamp {
-				needTime = true
-			}
 			if f.Type == types.FieldTypeJsonb {
-				needJSON = true
+				needDatatypes = true
+			}
+			if f.Type == types.FieldTypeRef && f.To != "" {
+				hasRef = true
 			}
 		}
 	}
+
+	_ = needTime       // always true
+	_ = needGormDeletedAt // always true
+	_ = hasRef
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 
-	if needTime || needJSON {
-		fmt.Fprintf(&buf, "import (\n")
-		if needJSON {
-			fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-		}
-		if needTime {
-			fmt.Fprintf(&buf, "\t\"time\"\n")
-		}
-		fmt.Fprintf(&buf, ")\n\n")
+	fmt.Fprintf(&buf, "import (\n")
+	if needDatatypes {
+		fmt.Fprintf(&buf, "\t\"gorm.io/datatypes\"\n")
 	}
+	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
+	fmt.Fprintf(&buf, "\t\"time\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
 
+	// Meta base struct.
+	fmt.Fprintf(&buf, "// Meta is the base model, embedded in all entities.\n")
+	fmt.Fprintf(&buf, "type Meta struct {\n")
+	fmt.Fprintf(&buf, "\tID          string         `json:\"id\"`\n")
+	fmt.Fprintf(&buf, "\tCreatedTime time.Time      `json:\"created_time\"`\n")
+	fmt.Fprintf(&buf, "\tUpdatedTime time.Time      `json:\"updated_time\"`\n")
+	fmt.Fprintf(&buf, "\tDeletedAt   gorm.DeletedAt `json:\"-\" gorm:\"index\"`\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Entity structs.
 	for _, e := range entities {
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
 		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
-		fmt.Fprintf(&buf, "\tID string `json:\"id\"`\n")
+		fmt.Fprintf(&buf, "\tMeta\n")
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
-			goType := fieldTypeToGo(f.Type)
-			// Nullable columns (optional or computed) use pointer types so
-			// database/sql.Rows.Scan can receive SQL NULL values. []byte and
-			// json.RawMessage already handle nil correctly.
-			if (f.Optional || f.Computed) && goType != "[]byte" && goType != "json.RawMessage" {
-				goType = "*" + goType
+			goType := fieldTypeToGo(f)
+			gormTag := buildGormTag(f)
+			jsonTag := f.Name
+			if f.Optional {
+				jsonTag += ",omitempty"
 			}
-			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
+			fmt.Fprintf(&buf, "\t%s %s `json:%q gorm:%q`\n", goName, goType, jsonTag, gormTag)
+
+			// Add GORM relationship field for ref types (enables FK constraints
+			// via AutoMigrate).
+			if f.Type == types.FieldTypeRef && f.To != "" {
+				refFieldName := toPascalCase(f.Name) + "Ref"
+				fmt.Fprintf(&buf, "\t%s *%s `json:\"-\" gorm:\"foreignKey:%s\"`\n",
+					refFieldName, f.To, goName)
+			}
 		}
 		fmt.Fprintf(&buf, "}\n\n")
 	}
@@ -214,27 +265,99 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 	}, nil
 }
 
+// fieldTypeToGo maps a field to its Go type representation, accounting for
+// GORM-specific types (datatypes.JSON for jsonb) and nullability.
+func fieldTypeToGo(f types.Field) string {
+	var base string
+	switch f.Type {
+	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
+		base = "string"
+	case types.FieldTypeInt32:
+		base = "int32"
+	case types.FieldTypeInt64:
+		base = "int64"
+	case types.FieldTypeFloat:
+		base = "float32"
+	case types.FieldTypeDouble:
+		base = "float64"
+	case types.FieldTypeBool:
+		base = "bool"
+	case types.FieldTypeBytes:
+		base = "[]byte"
+	case types.FieldTypeTimestamp:
+		base = "time.Time"
+	case types.FieldTypeJsonb:
+		base = "datatypes.JSON"
+	default:
+		base = "any"
+	}
+
+	// Nullable columns (optional or computed) use pointer types so GORM can
+	// distinguish between zero values and NULL. []byte and datatypes.JSON
+	// already handle nil correctly.
+	if (f.Optional || f.Computed) && base != "[]byte" && base != "datatypes.JSON" {
+		base = "*" + base
+	}
+	return base
+}
+
+// buildGormTag constructs the GORM struct tag value for a field.
+func buildGormTag(f types.Field) string {
+	var parts []string
+
+	// Column name mapping.
+	parts = append(parts, "column:"+f.Name)
+
+	// Type overrides.
+	if f.Type == types.FieldTypeJsonb {
+		parts = append(parts, "type:jsonb")
+	}
+
+	// Nullability.
+	if !f.Optional && !f.Computed {
+		parts = append(parts, "not null")
+	}
+
+	// Constraints.
+	if f.Unique {
+		parts = append(parts, "uniqueIndex")
+	}
+
+	if f.MaxLength != nil {
+		parts = append(parts, fmt.Sprintf("size:%d", *f.MaxLength))
+	}
+
+	if f.Default != nil {
+		parts = append(parts, fmt.Sprintf("default:%v", f.Default))
+	}
+
+	return strings.Join(parts, ";")
+}
+
+// --- Store ---
+
 // generateStore produces store.go with the Store type and CRUD + list + upsert
-// + exists methods that dispatch to entity-specific SQL.
+// + exists methods using GORM.
 func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 	var buf bytes.Buffer
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"database/sql\"\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
-	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, "\n")
+	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
+	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Store struct and constructor.
-	fmt.Fprintf(&buf, "// Store provides PostgreSQL-backed storage for all entities.\n")
+	fmt.Fprintf(&buf, "// Store provides GORM-backed storage for all entities.\n")
 	fmt.Fprintf(&buf, "type Store struct {\n")
-	fmt.Fprintf(&buf, "\tdb *sql.DB\n")
+	fmt.Fprintf(&buf, "\tdb *gorm.DB\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	fmt.Fprintf(&buf, "// NewStore creates a new Store with the given database connection.\n")
-	fmt.Fprintf(&buf, "func NewStore(db *sql.DB) *Store {\n")
+	fmt.Fprintf(&buf, "// NewStore creates a new Store with the given GORM connection.\n")
+	fmt.Fprintf(&buf, "func NewStore(db *gorm.DB) *Store {\n")
 	fmt.Fprintf(&buf, "\treturn &Store{db: db}\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
@@ -257,17 +380,13 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 	}, nil
 }
 
-// emitCreateMethod generates the Create dispatcher. Computed fields are
-// excluded from the INSERT column list (they are read-only, populated by fills).
+// emitCreateMethod generates the Create dispatcher using GORM.
 func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Create inserts a new entity record. Computed fields are excluded.\n")
 	fmt.Fprintf(buf, "func (s *Store) Create(entity string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
-		writeCols := writeColumns(e)
-
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
 		fmt.Fprintf(buf, "\t\tif err != nil {\n")
@@ -278,25 +397,16 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		// Build INSERT with positional parameters.
-		cols := append([]string{"id"}, writeCols...)
-		placeholders := make([]string, len(cols))
-		for i := range placeholders {
-			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		// Clear computed fields — they are read-only.
+		for _, f := range e.Fields {
+			if f.Computed {
+				goName := toPascalCase(f.Name)
+				goType := fieldTypeToGo(f)
+				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
+			}
 		}
 
-		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
-		fmt.Fprintf(buf, "\t\t\t`INSERT INTO \"%s\" (%s) VALUES (%s)`,\n",
-			table, sqlQuotedColList(cols), strings.Join(placeholders, ", "))
-
-		// Emit value references.
-		args := []string{"v.ID"}
-		for _, col := range writeCols {
-			args = append(args, "v."+toPascalCase(col))
-		}
-		fmt.Fprintf(buf, "\t\t\t%s,\n", strings.Join(args, ", "))
-		fmt.Fprintf(buf, "\t\t)\n")
-		fmt.Fprintf(buf, "\t\treturn err\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.Create(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -305,31 +415,16 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitReadMethod generates the Read dispatcher. All fields (including computed)
-// are included in the SELECT.
+// emitReadMethod generates the Read dispatcher using GORM.
 func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Read retrieves a single entity by ID.\n")
 	fmt.Fprintf(buf, "func (s *Store) Read(entity string, id string) (any, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
-		allCols := allColumns(e)
-
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-
-		cols := append([]string{"id"}, allCols...)
-		scanArgs := []string{"&v.ID"}
-		for _, col := range allCols {
-			scanArgs = append(scanArgs, "&v."+toPascalCase(col))
-		}
-
-		fmt.Fprintf(buf, "\t\terr := s.db.QueryRow(\n")
-		fmt.Fprintf(buf, "\t\t\t`SELECT %s FROM \"%s\" WHERE \"id\" = $1`, id,\n",
-			sqlQuotedColList(cols), table)
-		fmt.Fprintf(buf, "\t\t).Scan(%s)\n", strings.Join(scanArgs, ", "))
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\tif err := s.db.First(&v, \"id = ?\", id).Error; err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn v, nil\n")
@@ -341,21 +436,17 @@ func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitUpdateMethod generates the Update dispatcher. Computed fields are
-// excluded from the SET clause.
+// emitUpdateMethod generates the Update dispatcher using GORM Save (full replace).
 func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Update modifies an existing entity by ID. Computed fields are excluded.\n")
 	fmt.Fprintf(buf, "func (s *Store) Update(entity string, id string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
 		writeCols := writeColumns(e)
 
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 
-		// If all fields are computed, there are no writable columns and the
-		// UPDATE SET clause would be empty (invalid SQL).
 		if len(writeCols) == 0 {
 			fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"entity %s has no writable fields\")\n", e.Name)
 			continue
@@ -369,26 +460,18 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tv.ID = id\n")
 
-		// Build SET clause with positional parameters.
-		setClauses := make([]string, len(writeCols))
-		for i, col := range writeCols {
-			setClauses[i] = fmt.Sprintf(`"%s" = $%d`, col, i+1)
+		// Clear computed fields.
+		for _, f := range e.Fields {
+			if f.Computed {
+				goName := toPascalCase(f.Name)
+				goType := fieldTypeToGo(f)
+				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
+			}
 		}
-		idParam := fmt.Sprintf("$%d", len(writeCols)+1)
 
-		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(\n")
-		fmt.Fprintf(buf, "\t\t\t`UPDATE \"%s\" SET %s WHERE \"id\" = %s`,\n",
-			table, strings.Join(setClauses, ", "), idParam)
-
-		args := make([]string, 0, len(writeCols)+1)
-		for _, col := range writeCols {
-			args = append(args, "v."+toPascalCase(col))
-		}
-		args = append(args, "id")
-		fmt.Fprintf(buf, "\t\t\t%s,\n", strings.Join(args, ", "))
-		fmt.Fprintf(buf, "\t\t)\n")
-		fmt.Fprintf(buf, "\t\treturn err\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.Save(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -397,17 +480,15 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitDeleteMethod generates the Delete dispatcher.
+// emitDeleteMethod generates the Delete dispatcher using GORM soft delete.
 func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// Delete removes an entity by ID.\n")
+	fmt.Fprintf(buf, "// Delete soft-deletes an entity by ID.\n")
 	fmt.Fprintf(buf, "func (s *Store) Delete(entity string, id string) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\t_, err := s.db.Exec(`DELETE FROM \"%s\" WHERE \"id\" = $1`, id)\n", table)
-		fmt.Fprintf(buf, "\t\treturn err\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.Where(\"id = ?\", id).Delete(&%s{}).Error\n", e.Name)
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -416,23 +497,14 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitListMethod generates the List dispatcher with optional scope filtering.
-// The scope field name is validated against known columns to prevent SQL injection.
+// emitListMethod generates the List dispatcher using GORM with scope filtering.
 func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// List retrieves all entities, optionally filtered by a scope field.\n")
 	fmt.Fprintf(buf, "func (s *Store) List(entity string, scopeField string, scopeValue string) (any, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
 		allCols := allColumns(e)
-
-		cols := append([]string{"id"}, allCols...)
-		scanArgs := make([]string, 0, len(cols))
-		scanArgs = append(scanArgs, "&v.ID")
-		for _, col := range allCols {
-			scanArgs = append(scanArgs, "&v."+toPascalCase(col))
-		}
 
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 
@@ -446,31 +518,16 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		}
 		fmt.Fprintf(buf, "}\n")
 
-		fmt.Fprintf(buf, "\t\tquery := `SELECT %s FROM \"%s\"`\n",
-			sqlQuotedColList(cols), table)
-		fmt.Fprintf(buf, "\t\tvar args []any\n")
+		fmt.Fprintf(buf, "\t\tquery := s.db.Model(&%s{})\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn nil, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tquery += ` WHERE \"` + scopeField + `\" = $1`\n")
-		fmt.Fprintf(buf, "\t\t\targs = append(args, scopeValue)\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		fmt.Fprintf(buf, "\t\trows, err := s.db.Query(query, args...)\n")
-		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tdefer rows.Close()\n")
 		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tfor rows.Next() {\n")
-		fmt.Fprintf(buf, "\t\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\t\tif err := rows.Scan(%s); err != nil {\n", strings.Join(scanArgs, ", "))
-		fmt.Fprintf(buf, "\t\t\t\treturn nil, err\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\tresult = append(result, v)\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif err := rows.Err(); err != nil {\n")
+		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn result, nil\n")
@@ -482,9 +539,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitUpsertMethod generates the Upsert dispatcher with natural-key conflict
-// resolution and optional optimistic concurrency. Computed fields are excluded
-// from the INSERT and SET clauses.
+// emitUpsertMethod generates the Upsert dispatcher using GORM OnConflict clause.
 func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Upsert inserts or updates an entity using natural-key conflict resolution.\n")
 	fmt.Fprintf(buf, "// When concurrency is \"optimistic\", the update only proceeds if the incoming\n")
@@ -493,7 +548,6 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
-		table := tableName(e.Name)
 		writeCols := writeColumns(e)
 		hasGeneration := entityHasField(e, "generation")
 
@@ -506,13 +560,6 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
-
-		// Columns and placeholders.
-		cols := append([]string{"id"}, writeCols...)
-		placeholders := make([]string, len(cols))
-		for i := range placeholders {
-			placeholders[i] = fmt.Sprintf("$%d", i+1)
-		}
 
 		// Build valid column set for upsert key validation.
 		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
@@ -530,58 +577,47 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		// Build base INSERT query.
-		fmt.Fprintf(buf, "\t\tquery := `INSERT INTO \"%s\" (%s) VALUES (%s)`\n",
-			table, sqlQuotedColList(cols), strings.Join(placeholders, ", "))
+		// Build conflict columns.
+		fmt.Fprintf(buf, "\t\tconflictCols := make([]clause.Column, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\tfor i, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\tconflictCols[i] = clause.Column{Name: k}\n")
+		fmt.Fprintf(buf, "\t\t}\n")
 
-		fmt.Fprintf(buf, "\t\tif len(upsertKey) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tkeySet := make(map[string]bool, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\t\tfor _, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\t\tkeySet[k] = true\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-
-		// Quote upsert key columns for SQL.
-		fmt.Fprintf(buf, "\t\t\tquotedKeys := make([]string, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\t\tfor i, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquotedKeys[i] = `\"` + k + `\"`\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-
-		// Build SET clause for non-key, non-id columns.
-		fmt.Fprintf(buf, "\t\t\tvar setClauses []string\n")
-		fmt.Fprintf(buf, "\t\t\tallCols := []string{%s}\n", quoteStringSlice(writeCols))
-		fmt.Fprintf(buf, "\t\t\tfor _, col := range allCols {\n")
-		fmt.Fprintf(buf, "\t\t\t\tif !keySet[col] {\n")
-		fmt.Fprintf(buf, "\t\t\t\t\tsetClauses = append(setClauses, `\"` + col + `\" = EXCLUDED.\"` + col + `\"`)\n")
-		fmt.Fprintf(buf, "\t\t\t\t}\n")
-		fmt.Fprintf(buf, "\t\t\t}\n")
-
-		fmt.Fprintf(buf, "\t\t\tif len(setClauses) > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(quotedKeys, \", \") + \") DO UPDATE SET \" + strings.Join(setClauses, \", \")\n")
-
-		// Optimistic concurrency: only emit the WHERE clause if the entity
-		// actually has a "generation" field. Otherwise emit a runtime error.
-		if hasGeneration {
-			fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\t\tquery += ` WHERE EXCLUDED.\"generation\" > \"%s\".\"generation\"`\n", table)
-			fmt.Fprintf(buf, "\t\t\t\t}\n")
-		} else {
-			fmt.Fprintf(buf, "\t\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\t\treturn fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
-			fmt.Fprintf(buf, "\t\t\t\t}\n")
-		}
-
-		fmt.Fprintf(buf, "\t\t\t} else {\n")
-		fmt.Fprintf(buf, "\t\t\t\tquery += \" ON CONFLICT (\" + strings.Join(quotedKeys, \", \") + \") DO NOTHING\"\n")
+		// Build update columns (non-key, non-id).
+		fmt.Fprintf(buf, "\t\tkeySet := make(map[string]bool, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\tkeySet[k] = true\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tvar updateCols []string\n")
+		fmt.Fprintf(buf, "\t\tfor _, col := range []string{%s} {\n", quoteStringSlice(writeCols))
+		fmt.Fprintf(buf, "\t\t\tif !keySet[col] {\n")
+		fmt.Fprintf(buf, "\t\t\t\tupdateCols = append(updateCols, col)\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		// Emit value references.
-		args := []string{"v.ID"}
-		for _, col := range writeCols {
-			args = append(args, "v."+toPascalCase(col))
+		fmt.Fprintf(buf, "\t\tonConflict := clause.OnConflict{\n")
+		fmt.Fprintf(buf, "\t\t\tColumns: conflictCols,\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		fmt.Fprintf(buf, "\t\tif len(updateCols) > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\tonConflict.DoUpdates = clause.AssignmentColumns(updateCols)\n")
+
+		if hasGeneration {
+			tableName := tableName(e.Name)
+			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
+			fmt.Fprintf(buf, "\t\t\t\tonConflict.Where = clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `EXCLUDED.\"generation\" > \"%s\".\"generation\"`}}}\n", tableName)
+			fmt.Fprintf(buf, "\t\t\t}\n")
+		} else {
+			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
+			fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
+			fmt.Fprintf(buf, "\t\t\t}\n")
 		}
-		fmt.Fprintf(buf, "\t\t_, err = s.db.Exec(query, %s)\n", strings.Join(args, ", "))
-		fmt.Fprintf(buf, "\t\treturn err\n")
+
+		fmt.Fprintf(buf, "\t\t} else {\n")
+		fmt.Fprintf(buf, "\t\t\tonConflict.DoNothing = true\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		fmt.Fprintf(buf, "\t\treturn s.db.Clauses(onConflict).Create(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -590,159 +626,32 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitExistsMethod generates the Exists dispatcher. Returns (bool, error) so
-// callers can distinguish "entity not found" from "database query failed".
+// emitExistsMethod generates the Exists dispatcher using GORM Count.
 func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Exists checks whether an entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "// It returns an error if the database query fails, so callers can\n")
-	fmt.Fprintf(buf, "// distinguish \"not found\" from infrastructure failures.\n")
 	fmt.Fprintf(buf, "func (s *Store) Exists(entity string, id string) (bool, error) {\n")
-	fmt.Fprintf(buf, "\tvar table string\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\ttable = `\"%s\"`\n", tableName(e.Name))
+		fmt.Fprintf(buf, "\t\tvar count int64\n")
+		fmt.Fprintf(buf, "\t\tif err := s.db.Model(&%s{}).Where(\"id = ?\", id).Count(&count).Error; err != nil {\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn count > 0, nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
 	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tvar exists bool\n")
-	// The table name is derived from a compile-time constant entity name,
-	// not user input, so string interpolation is safe here.
-	fmt.Fprintf(buf, "\terr := s.db.QueryRow(\n")
-	fmt.Fprintf(buf, "\t\tfmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %%s WHERE \"id\" = $1)`, table), id,\n")
-	fmt.Fprintf(buf, "\t).Scan(&exists)\n")
-	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\treturn false, err\n")
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\treturn exists, nil\n")
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// generateMigration produces the initial migration SQL file with CREATE TABLE
-// statements for all entities. Computed fields are nullable. Constraints
-// (UNIQUE, NOT NULL, CHECK) are included where specified.
-// validateUniqueComposites checks that all unique_composite field references
-// resolve to actual fields in the entity, and returns deduplicated constraints.
-func validateUniqueComposites(e types.Entity) ([][]string, error) {
-	// Build set of valid field names.
-	validFields := make(map[string]bool, len(e.Fields))
-	for _, f := range e.Fields {
-		validFields[f.Name] = true
-	}
+// --- Migration ---
 
-	// Collect and deduplicate constraints (normalized by sorted key).
-	seen := make(map[string]bool)
-	var constraints [][]string
-	for _, f := range e.Fields {
-		if len(f.UniqueComposite) == 0 {
-			continue
-		}
-		// Validate each referenced field name and detect intra-list duplicates.
-		intraListSeen := make(map[string]bool, len(f.UniqueComposite))
-		for _, ref := range f.UniqueComposite {
-			if intraListSeen[ref] {
-				return nil, fmt.Errorf(
-					"entity %s: field %q has duplicate entry %q in unique_composite",
-					e.Name, f.Name, ref)
-			}
-			intraListSeen[ref] = true
-			if !validFields[ref] {
-				return nil, fmt.Errorf(
-					"entity %s: field %q declares unique_composite referencing non-existent field %q",
-					e.Name, f.Name, ref)
-			}
-		}
-		// Deduplicate by joining the field names as a key.
-		// Use the original order for the constraint (no sorting) but
-		// normalize the key for dedup by sorting a copy.
-		sorted := make([]string, len(f.UniqueComposite))
-		copy(sorted, f.UniqueComposite)
-		// Simple sort for dedup key.
-		for i := 0; i < len(sorted); i++ {
-			for j := i + 1; j < len(sorted); j++ {
-				if sorted[i] > sorted[j] {
-					sorted[i], sorted[j] = sorted[j], sorted[i]
-				}
-			}
-		}
-		key := strings.Join(sorted, ",")
-		if !seen[key] {
-			seen[key] = true
-			constraints = append(constraints, f.UniqueComposite)
-		}
-	}
-	return constraints, nil
-}
-
-// topoSortEntities topologically sorts entities by ref dependencies so that
-// referenced tables are created before referencing tables. Returns an error
-// if a dependency cycle is detected.
-func topoSortEntities(entities []types.Entity) ([]types.Entity, error) {
-	// Build adjacency: entity name → set of entities it depends on (via ref fields).
-	entityIndex := make(map[string]int, len(entities))
-	for i, e := range entities {
-		entityIndex[e.Name] = i
-	}
-
-	// deps[name] = set of entity names that "name" depends on.
-	deps := make(map[string]map[string]bool, len(entities))
-	for _, e := range entities {
-		d := make(map[string]bool)
-		for _, f := range e.Fields {
-			if f.Type == types.FieldTypeRef && f.To != "" {
-				if _, ok := entityIndex[f.To]; ok && f.To != e.Name {
-					d[f.To] = true
-				}
-			}
-		}
-		deps[e.Name] = d
-	}
-
-	// Kahn's algorithm for topological sort.
-	var sorted []types.Entity
-	visited := make(map[string]bool, len(entities))
-
-	for len(sorted) < len(entities) {
-		var ready []string
-		for _, e := range entities {
-			if visited[e.Name] {
-				continue
-			}
-			allSatisfied := true
-			for dep := range deps[e.Name] {
-				if !visited[dep] {
-					allSatisfied = false
-					break
-				}
-			}
-			if allSatisfied {
-				ready = append(ready, e.Name)
-			}
-		}
-		if len(ready) == 0 {
-			// Cycle detected — find the entities involved.
-			var cycle []string
-			for _, e := range entities {
-				if !visited[e.Name] {
-					cycle = append(cycle, e.Name)
-				}
-			}
-			return nil, fmt.Errorf("circular ref dependency among entities: %s",
-				strings.Join(cycle, " → "))
-		}
-		for _, name := range ready {
-			visited[name] = true
-			sorted = append(sorted, entities[entityIndex[name]])
-		}
-	}
-
-	return sorted, nil
-}
-
-func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
+// generateMigrate produces migrate.go with migration infrastructure and the
+// initial migration using GORM AutoMigrate.
+func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
 	var buf bytes.Buffer
 
 	// Sort entities by ref dependencies so referenced tables are created first.
@@ -751,143 +660,141 @@ func generateMigration(ns string, entities []types.Entity) (gen.File, error) {
 		return gen.File{}, err
 	}
 
-	fmt.Fprintf(&buf, "-- Code generated by stego. DO NOT EDIT.\n\n")
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"fmt\"\n")
+	fmt.Fprintf(&buf, "\n")
+	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
 
-	for i, e := range sorted {
-		if i > 0 {
-			fmt.Fprintf(&buf, "\n")
-		}
-		table := tableName(e.Name)
-		fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", sqlQ(table))
-		fmt.Fprintf(&buf, "    %s TEXT PRIMARY KEY", sqlQ("id"))
+	// Migration infrastructure.
+	fmt.Fprintf(&buf, "// MigrationFunc is a function that performs a database migration.\n")
+	fmt.Fprintf(&buf, "type MigrationFunc func(db *gorm.DB) error\n\n")
 
-		for _, f := range e.Fields {
-			fmt.Fprintf(&buf, ",\n")
-			colDef := columnDefinition(f)
-			fmt.Fprintf(&buf, "    %s", colDef)
-			// Emit FOREIGN KEY reference for ref fields.
-			if f.Type == types.FieldTypeRef && f.To != "" {
-				refTable := tableName(f.To)
-				fmt.Fprintf(&buf, " REFERENCES %s(%s)", sqlQ(refTable), sqlQ("id"))
-			}
-		}
+	fmt.Fprintf(&buf, "// Migration represents a named database migration.\n")
+	fmt.Fprintf(&buf, "type Migration struct {\n")
+	fmt.Fprintf(&buf, "\tName string\n")
+	fmt.Fprintf(&buf, "\tFunc MigrationFunc\n")
+	fmt.Fprintf(&buf, "}\n\n")
 
-		// Emit validated, deduplicated table-level UNIQUE constraints.
-		composites, err := validateUniqueComposites(e)
-		if err != nil {
-			return gen.File{}, err
-		}
-		for _, cols := range composites {
-			quotedCols := make([]string, len(cols))
-			for i, c := range cols {
-				quotedCols[i] = sqlQ(c)
-			}
-			fmt.Fprintf(&buf, ",\n    UNIQUE (%s)", strings.Join(quotedCols, ", "))
-		}
+	fmt.Fprintf(&buf, "var migrations []Migration\n\n")
 
-		fmt.Fprintf(&buf, "\n);\n")
+	fmt.Fprintf(&buf, "// Register adds a migration to the ordered migration list.\n")
+	fmt.Fprintf(&buf, "func Register(name string, fn MigrationFunc) {\n")
+	fmt.Fprintf(&buf, "\tmigrations = append(migrations, Migration{Name: name, Func: fn})\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	fmt.Fprintf(&buf, "// Migrate runs all registered migrations in order.\n")
+	fmt.Fprintf(&buf, "func Migrate(db *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\tfor _, m := range migrations {\n")
+	fmt.Fprintf(&buf, "\t\tif err := m.Func(db); err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"migration %%s: %%w\", m.Name, err)\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn nil\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Initial migration registration.
+	fmt.Fprintf(&buf, "func init() {\n")
+	fmt.Fprintf(&buf, "\tRegister(\"001_initial\", func(db *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\t\treturn db.AutoMigrate(\n")
+	for _, e := range sorted {
+		fmt.Fprintf(&buf, "\t\t\t&%s{},\n", e.Name)
+	}
+	fmt.Fprintf(&buf, "\t\t)\n")
+	fmt.Fprintf(&buf, "\t})\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting migrate: %w", err)
 	}
 
 	return gen.File{
-		Path:    path.Join(ns, "migrations", "001_initial.sql"),
-		Content: buf.Bytes(),
+		Path:    path.Join(ns, "migrate.go"),
+		Content: formatted,
 	}, nil
 }
 
-// columnDefinition produces a SQL column definition for a field, including
-// type, nullability, uniqueness, and CHECK constraints. All identifiers are
-// double-quoted to prevent collisions with PostgreSQL reserved words.
-func columnDefinition(f types.Field) string {
-	qName := sqlQ(f.Name)
+// --- SessionFactory ---
 
-	var parts []string
-	parts = append(parts, qName)
-	parts = append(parts, fieldTypeToSQL(f.Type))
+// generateSessionFactory produces session_factory.go with the SessionFactory
+// interface for database connection management.
+func generateSessionFactory(ns string) (gen.File, error) {
+	var buf bytes.Buffer
 
-	// Nullability: computed and optional fields are nullable.
-	if !f.Optional && !f.Computed {
-		parts = append(parts, "NOT NULL")
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+	fmt.Fprintf(&buf, "import \"gorm.io/gorm\"\n\n")
+	fmt.Fprintf(&buf, "// SessionFactory provides database connections for production and testing.\n")
+	fmt.Fprintf(&buf, "type SessionFactory interface {\n")
+	fmt.Fprintf(&buf, "\tNew() *gorm.DB\n")
+	fmt.Fprintf(&buf, "\tClose() error\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting session_factory: %w", err)
 	}
 
-	if f.Unique {
-		parts = append(parts, "UNIQUE")
-	}
-
-	if f.Default != nil {
-		parts = append(parts, fmt.Sprintf("DEFAULT %s", sqlDefault(f)))
-	}
-
-	// Enum CHECK constraint.
-	if f.Type == types.FieldTypeEnum && len(f.Values) > 0 {
-		quoted := make([]string, len(f.Values))
-		for i, v := range f.Values {
-			quoted[i] = fmt.Sprintf("'%s'", sqlEscapeString(v))
-		}
-		parts = append(parts, fmt.Sprintf("CHECK (%s IN (%s))", qName, strings.Join(quoted, ", ")))
-	}
-
-	// String length constraints.
-	if f.MinLength != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (length(%s) >= %d)", qName, *f.MinLength))
-	}
-	if f.MaxLength != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (length(%s) <= %d)", qName, *f.MaxLength))
-	}
-
-	// Pattern constraint.
-	if f.Pattern != "" {
-		parts = append(parts, fmt.Sprintf("CHECK (%s ~ '%s')", qName, sqlEscapeString(f.Pattern)))
-	}
-
-	// Numeric range constraints.
-	if f.Min != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (%s >= %g)", qName, *f.Min))
-	}
-	if f.Max != nil {
-		parts = append(parts, fmt.Sprintf("CHECK (%s <= %g)", qName, *f.Max))
-	}
-
-	return strings.Join(parts, " ")
+	return gen.File{
+		Path:    path.Join(ns, "session_factory.go"),
+		Content: formatted,
+	}, nil
 }
 
-// sqlDefault returns a SQL literal for a field's default value.
-func sqlDefault(f types.Field) string {
-	switch v := f.Default.(type) {
-	case string:
-		return fmt.Sprintf("'%s'", sqlEscapeString(v))
-	case bool:
-		if v {
-			return "TRUE"
-		}
-		return "FALSE"
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
+// --- GenericDao ---
 
-// sqlEscapeString escapes a string for use inside a SQL single-quoted literal
-// by doubling any embedded single quotes. E.g. "it's" → "it”s".
-func sqlEscapeString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
+// generateGenericDao produces generic_dao.go with the GenericDao base type
+// that the tsl-search component uses for query building.
+func generateGenericDao(ns string) (gen.File, error) {
+	var buf bytes.Buffer
+
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+	fmt.Fprintf(&buf, "import \"gorm.io/gorm\"\n\n")
+	fmt.Fprintf(&buf, "// GenericDao provides a base DAO type that the tsl-search component\n")
+	fmt.Fprintf(&buf, "// can build queries on top of with ordering, filtering, JOINs, and pagination.\n")
+	fmt.Fprintf(&buf, "type GenericDao struct {\n")
+	fmt.Fprintf(&buf, "\tDB *gorm.DB\n")
+	fmt.Fprintf(&buf, "}\n\n")
+	fmt.Fprintf(&buf, "// NewGenericDao creates a GenericDao with the given GORM connection.\n")
+	fmt.Fprintf(&buf, "func NewGenericDao(db *gorm.DB) *GenericDao {\n")
+	fmt.Fprintf(&buf, "\treturn &GenericDao{DB: db}\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting generic_dao: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "generic_dao.go"),
+		Content: formatted,
+	}, nil
 }
 
 // --- Helpers ---
 
-// sqlQ wraps a SQL identifier in double quotes for PostgreSQL.
-// This prevents collisions with reserved words (e.g. "order", "group").
-// Embedded double quotes are doubled per PostgreSQL §4.1.1.
-func sqlQ(id string) string {
-	return `"` + strings.ReplaceAll(id, `"`, `""`) + `"`
-}
-
-// sqlQuotedColList produces a SQL column list with each identifier double-quoted.
-// e.g. ["id", "email"] → `"id", "email"`
-func sqlQuotedColList(cols []string) string {
-	quoted := make([]string, len(cols))
-	for i, c := range cols {
-		quoted[i] = sqlQ(c)
+// zeroValue returns the Go zero-value expression for a type string.
+func zeroValue(goType string) string {
+	if strings.HasPrefix(goType, "*") {
+		return "nil"
 	}
-	return strings.Join(quoted, ", ")
+	switch goType {
+	case "string":
+		return `""`
+	case "bool":
+		return "false"
+	case "int32", "int64", "float32", "float64":
+		return "0"
+	case "[]byte":
+		return "nil"
+	case "time.Time":
+		return "time.Time{}"
+	case "datatypes.JSON":
+		return "nil"
+	default:
+		return "nil"
+	}
 }
 
 // entityHasField checks whether an entity has a field with the given name.
@@ -928,20 +835,16 @@ func tableName(entityName string) string {
 }
 
 // pluralize applies basic English pluralization rules to a snake_case word.
-// It handles the common suffixes that require more than just appending "s".
 func pluralize(s string) string {
 	if s == "" {
 		return s
 	}
-	// Words ending in s, x, z, sh, ch → append "es"
 	if strings.HasSuffix(s, "s") || strings.HasSuffix(s, "x") || strings.HasSuffix(s, "z") ||
 		strings.HasSuffix(s, "sh") || strings.HasSuffix(s, "ch") {
 		return s + "es"
 	}
-	// Words ending in consonant+y → replace y with "ies"
 	if strings.HasSuffix(s, "y") && len(s) >= 2 {
 		preceding := s[len(s)-2]
-		// If the character before 'y' is not a vowel, it's consonant+y
 		if !strings.ContainsRune("aeiou", rune(preceding)) {
 			return s[:len(s)-1] + "ies"
 		}
@@ -957,10 +860,6 @@ func toSnakeCase(s string) string {
 	for i, r := range runes {
 		if i > 0 && unicode.IsUpper(r) {
 			prev := runes[i-1]
-			// Insert underscore when:
-			// (a) preceded by a lowercase letter (e.g. "eS" in "AdapterStatus")
-			// (b) preceded by uppercase AND followed by lowercase (end of acronym,
-			//     e.g. "Ps" in "HTTPServer" → "http_server")
 			if unicode.IsLower(prev) {
 				result = append(result, '_')
 			} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
@@ -986,58 +885,7 @@ func toPascalCase(s string) string {
 	return strings.Join(parts, "")
 }
 
-// fieldTypeToGo maps a types.FieldType to its Go type representation.
-func fieldTypeToGo(ft types.FieldType) string {
-	switch ft {
-	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
-		return "string"
-	case types.FieldTypeInt32:
-		return "int32"
-	case types.FieldTypeInt64:
-		return "int64"
-	case types.FieldTypeFloat:
-		return "float32"
-	case types.FieldTypeDouble:
-		return "float64"
-	case types.FieldTypeBool:
-		return "bool"
-	case types.FieldTypeBytes:
-		return "[]byte"
-	case types.FieldTypeTimestamp:
-		return "time.Time"
-	case types.FieldTypeJsonb:
-		return "json.RawMessage"
-	}
-	return "any"
-}
-
-// fieldTypeToSQL maps a types.FieldType to its PostgreSQL column type.
-func fieldTypeToSQL(ft types.FieldType) string {
-	switch ft {
-	case types.FieldTypeString, types.FieldTypeEnum, types.FieldTypeRef:
-		return "TEXT"
-	case types.FieldTypeInt32:
-		return "INTEGER"
-	case types.FieldTypeInt64:
-		return "BIGINT"
-	case types.FieldTypeFloat:
-		return "REAL"
-	case types.FieldTypeDouble:
-		return "DOUBLE PRECISION"
-	case types.FieldTypeBool:
-		return "BOOLEAN"
-	case types.FieldTypeBytes:
-		return "BYTEA"
-	case types.FieldTypeTimestamp:
-		return "TIMESTAMPTZ"
-	case types.FieldTypeJsonb:
-		return "JSONB"
-	}
-	return "TEXT"
-}
-
 // quoteStringSlice produces a Go source literal for a string slice.
-// e.g. ["a", "b"] → `"a", "b"`
 func quoteStringSlice(ss []string) string {
 	quoted := make([]string, len(ss))
 	for i, s := range ss {
@@ -1046,9 +894,70 @@ func quoteStringSlice(ss []string) string {
 	return strings.Join(quoted, ", ")
 }
 
+// --- Topological Sort ---
+
+// topoSortEntities topologically sorts entities by ref dependencies so that
+// referenced tables are created before referencing tables.
+func topoSortEntities(entities []types.Entity) ([]types.Entity, error) {
+	entityIndex := make(map[string]int, len(entities))
+	for i, e := range entities {
+		entityIndex[e.Name] = i
+	}
+
+	deps := make(map[string]map[string]bool, len(entities))
+	for _, e := range entities {
+		d := make(map[string]bool)
+		for _, f := range e.Fields {
+			if f.Type == types.FieldTypeRef && f.To != "" {
+				if _, ok := entityIndex[f.To]; ok && f.To != e.Name {
+					d[f.To] = true
+				}
+			}
+		}
+		deps[e.Name] = d
+	}
+
+	var sorted []types.Entity
+	visited := make(map[string]bool, len(entities))
+
+	for len(sorted) < len(entities) {
+		var ready []string
+		for _, e := range entities {
+			if visited[e.Name] {
+				continue
+			}
+			allSatisfied := true
+			for dep := range deps[e.Name] {
+				if !visited[dep] {
+					allSatisfied = false
+					break
+				}
+			}
+			if allSatisfied {
+				ready = append(ready, e.Name)
+			}
+		}
+		if len(ready) == 0 {
+			var cycle []string
+			for _, e := range entities {
+				if !visited[e.Name] {
+					cycle = append(cycle, e.Name)
+				}
+			}
+			return nil, fmt.Errorf("circular ref dependency among entities: %s",
+				strings.Join(cycle, " → "))
+		}
+		for _, name := range ready {
+			visited[name] = true
+			sorted = append(sorted, entities[entityIndex[name]])
+		}
+	}
+
+	return sorted, nil
+}
+
 // --- Validation ---
 
-// validateEntityUniqueness checks that no entity name appears more than once.
 func validateEntityUniqueness(entities []types.Entity) error {
 	seen := make(map[string]int, len(entities))
 	var dupes []string
@@ -1065,8 +974,6 @@ func validateEntityUniqueness(entities []types.Entity) error {
 	return nil
 }
 
-// validateCaseInsensitiveUniqueness checks that no two entity names produce
-// the same derived table name (via toSnakeCase + pluralize).
 func validateCaseInsensitiveUniqueness(entities []types.Entity) error {
 	seen := make(map[string]string, len(entities))
 	var errs []string
@@ -1087,8 +994,6 @@ func validateCaseInsensitiveUniqueness(entities []types.Entity) error {
 	return nil
 }
 
-// validateReservedNames checks that no entity name collides with
-// generator-internal identifiers.
 func validateReservedNames(entities []types.Entity) error {
 	for _, e := range entities {
 		if reservedTypeNames[e.Name] {
@@ -1100,8 +1005,6 @@ func validateReservedNames(entities []types.Entity) error {
 	return nil
 }
 
-// validateRefTargets checks that every ref field's "to" attribute references
-// an entity that exists in the entity list.
 func validateRefTargets(entities []types.Entity) error {
 	entityNames := make(map[string]bool, len(entities))
 	for _, e := range entities {
@@ -1131,7 +1034,6 @@ func validateRefTargets(entities []types.Entity) error {
 	return nil
 }
 
-// validateFieldUniqueness checks that no entity has duplicate field names.
 func validateFieldUniqueness(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1152,8 +1054,6 @@ func validateFieldUniqueness(entities []types.Entity) error {
 	return nil
 }
 
-// validateFieldNameCharset checks that all field names match the safe identifier
-// pattern [a-zA-Z_][a-zA-Z0-9_]*, which is valid across Go, SQL, and URL targets.
 func validateFieldNameCharset(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1172,8 +1072,6 @@ func validateFieldNameCharset(entities []types.Entity) error {
 	return nil
 }
 
-// validateEntityNameCharset checks that all entity names match the safe identifier
-// pattern [a-zA-Z_][a-zA-Z0-9_]*, which is valid across Go, SQL, and URL targets.
 func validateEntityNameCharset(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1190,9 +1088,6 @@ func validateEntityNameCharset(entities []types.Entity) error {
 	return nil
 }
 
-// validateNoImplicitIDCollision checks that no entity declares a field whose
-// PascalCase form is "ID", which would collide with the implicit ID primary key
-// field the generator adds to every model struct and migration.
 func validateNoImplicitIDCollision(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1211,41 +1106,23 @@ func validateNoImplicitIDCollision(entities []types.Entity) error {
 	return nil
 }
 
-// validGoIdentifier checks that a string is a valid Go identifier: non-empty,
-// starts with a letter or underscore, and contains only letters, digits, or
-// underscores. This is used to validate post-transformation output.
 var validGoIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-// validateDerivedEntityValidity checks that entity names produce valid, usable
-// Go type names. Names like "_" (the blank identifier) or "__" (produces "")
-// pass the input charset regex and reservedTypeNames check but yield invalid or
-// unusable Go identifiers when used as type names in generated code.
 func validateDerivedEntityValidity(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
-		// The blank identifier "_" is valid Go syntax for a type declaration
-		// but cannot be referenced as a type in variable declarations.
 		if e.Name == "_" {
 			errs = append(errs, fmt.Sprintf(
 				"entity name %q is the Go blank identifier and cannot be used as a type name",
 				e.Name))
 			continue
 		}
-		// Entity names consisting solely of underscores produce empty strings
-		// or invalid identifiers. Check that at least one alphabetic character
-		// exists, or more precisely, that the name is a valid Go identifier.
 		if !validGoIdentifier.MatchString(e.Name) {
 			errs = append(errs, fmt.Sprintf(
 				"entity name %q is not a valid Go identifier",
 				e.Name))
 			continue
 		}
-		// Multi-underscore names like "__" pass the regex but produce empty
-		// type names when used with toPascalCase (which strips underscores).
-		// However, entity names are used directly (not via toPascalCase) for
-		// struct type declarations, so the main concern is the blank identifier
-		// and names that only contain underscores (which pass charset but
-		// produce unusable generated code because var v __ is invalid).
 		allUnderscore := true
 		for _, r := range e.Name {
 			if r != '_' {
@@ -1266,10 +1143,6 @@ func validateDerivedEntityValidity(entities []types.Entity) error {
 	return nil
 }
 
-// validateDerivedFieldValidity checks that toPascalCase(f.Name) produces a
-// valid Go identifier for every field. Names like "_" (produces "") or "_123"
-// (produces "123") pass the input charset regex but yield invalid Go identifiers
-// after transformation.
 func validateDerivedFieldValidity(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1289,14 +1162,10 @@ func validateDerivedFieldValidity(entities []types.Entity) error {
 	return nil
 }
 
-// validateDerivedFieldUniqueness checks that toPascalCase(f.Name) produces
-// unique Go struct field names within each entity. Two raw field names that
-// differ (e.g. "_name" and "name", or "foo_bar" and "fooBar") but map to the
-// same PascalCase identifier cause duplicate struct fields and a compile error.
 func validateDerivedFieldUniqueness(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
-		seen := make(map[string]string, len(e.Fields)) // PascalCase → raw name
+		seen := make(map[string]string, len(e.Fields))
 		for _, f := range e.Fields {
 			pascal := toPascalCase(f.Name)
 			if existing, ok := seen[pascal]; ok && existing != f.Name {
@@ -1315,9 +1184,6 @@ func validateDerivedFieldUniqueness(entities []types.Entity) error {
 	return nil
 }
 
-// validateEnumValues checks that every field with type "enum" has a non-empty
-// Values slice. An enum without values is semantically invalid — it degrades
-// to a plain TEXT column with no CHECK constraint.
 func validateEnumValues(entities []types.Entity) error {
 	var errs []string
 	for _, e := range entities {
@@ -1331,7 +1197,6 @@ func validateEnumValues(entities []types.Entity) error {
 					e.Name, f.Name))
 				continue
 			}
-			// Check for duplicate enum values within the list.
 			seen := make(map[string]bool, len(f.Values))
 			for _, v := range f.Values {
 				if seen[v] {
