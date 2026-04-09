@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation", "Collections & Operations" (rest-crud spec), "Generated Code Structure"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
 
 **Review:** [specs/reviews/task-019.md](../reviews/task-019.md)
 
