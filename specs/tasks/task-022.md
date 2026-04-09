@@ -101,3 +101,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - 6750a73 fix(task-022): address 2 round 4 review findings on GORM-based postgres-adapter
 - 4234c05 fix(task-022): add COUNT(*) query and total count to Store.List for pagination
 - c6b4afe fix(task-022): use actual item count for response envelope size field
+- 1486cf7 fix(task-022): add UUID auto-generation via GORM BeforeCreate hook on Meta
