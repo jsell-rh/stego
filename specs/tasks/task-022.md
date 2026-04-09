@@ -98,3 +98,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - aa196e7 fix(task-022): address all 5 review findings on GORM-based postgres-adapter
 - 797894c fix(task-022): address 3 round 2 review findings on GORM-based postgres-adapter
 - cd4df58 fix(task-022): address 3 round 3 review findings on GORM-based postgres-adapter
+- 6750a73 fix(task-022): address 2 round 4 review findings on GORM-based postgres-adapter
