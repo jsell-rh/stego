@@ -1,52 +1,65 @@
-# Task 028: End-to-End Example with All rest-crud Spec Features
+# Task 028: Upsert Operation with Conflict Resolution
 
-**Spec Reference:** "MVP Scope" (spec.md), all sections of rest-crud spec
+**Spec Reference:** "Collections & Operations" (rest-crud spec), "Components > postgres-adapter" (rest-crud spec)
 
 **Status:** `not-started`
 
 ## Description
 
-Update the example service to demonstrate all rest-crud archetype features implemented in Tasks 018-027. This is the final integration verification: a single `service.yaml` + fills that exercises collections, base_path, GORM storage, envelope responses, RFC 9457 errors, request validation, patch, and search. The generated service must compile and represent a realistic use case.
+The rest-crud archetype spec defines `upsert` as an operation alongside `create`, `read`, `update`, `delete`, `list`, and `patch`. Upsert supports natural-key conflict resolution and optimistic concurrency. Task 022 generates the GORM DAO `Upsert()` method; this task adds the `upsert` operation to the type system, collection parsing, validation, and rest-api handler generation.
 
 ### What changes
 
-**Example service (`examples/user-management/service.yaml`):**
-- Add `base_path` (e.g. `/api/user-mgmt/v1`).
-- Add `error_type_base` (e.g. `https://api.example.com/errors/`).
-- Add `patch` operation to at least one collection with `patchable` fields.
-- Ensure `?search=` works on list endpoints.
-- All collections use the named map format.
+**Core types (`internal/types/types.go`):**
+- Add `OpUpsert Operation = "upsert"` to the Operation enum and `ValidOperations` map.
+- Add `UpsertKey []string` field to `Collection` — the natural-key fields for conflict resolution.
+- Add `Concurrency string` field to `Collection` — currently only `"optimistic"` is supported.
 
-**Regenerate and verify:**
-- `stego validate` — passes.
-- `stego plan` — shows expected changeset.
-- `stego apply` — generates all output files.
-- `cd out && go build` — compiles successfully.
-- Generated code includes:
-  - GORM models with Meta embedding and struct tags.
-  - DAO layer with Create/Get/Replace/Delete/List/Upsert/Exists.
-  - RFC 9457 error handling with `application/problem+json`.
-  - Envelope response format with pagination.
-  - OpenAPI validation middleware.
-  - TSL search integration in list handlers.
-  - Patch handler with pointer-field request struct.
-  - Collection-scoped slot wiring in `main.go`.
+**Parser:**
+- Parse `upsert_key` and `concurrency` from collection YAML.
 
-**Documentation update:**
-- Ensure README quick-start and example sections reflect the final state.
+**Validation:**
+- `upsert` in operations requires `upsert_key` to be set.
+- `upsert_key` requires `upsert` in operations.
+- Each field in `upsert_key` must exist on the referenced entity.
+- `upsert_key` fields must not be `computed`.
+- `concurrency` must be `"optimistic"` or empty. When `concurrency: optimistic`, the entity should have a generation or version field for conditional updates.
+
+**rest-api generator:**
+- When a collection includes `upsert`, generate a `PUT /{path}` handler (no `{id}` — upsert identifies by natural key).
+- Handler: decode request body, call DAO `Upsert()` with the collection's `upsert_key` and `concurrency` setting.
+- When `concurrency: optimistic`, the handler returns `200 OK` on update, `201 Created` on insert, and `409 Conflict` (or `204 No Content` via short-circuit) when the incoming generation is not newer.
+- OpenAPI schema includes the upsert endpoint with the entity's request body.
+
+**postgres-adapter generator (coordination with Task 022):**
+- The DAO `Upsert()` method (from Task 022) accepts `upsertKey []string` and `concurrency string`.
+- `upsert_key` maps to `clause.OnConflict{ Columns: [...] }` in GORM.
+- `concurrency: optimistic` adds a WHERE condition to the ON CONFLICT UPDATE clause (e.g. `WHERE excluded.generation > target.generation`).
 
 ## Spec Excerpt
 
-> **Example service:** simplified hyperfleet-api or similar, producing a compilable, runnable Go service from a single `service.yaml` + fills.
+> **Operations** include `create`, `read`, `update`, `delete`, `list`, `upsert`, and `patch`. Upsert supports natural-key conflict resolution and optimistic concurrency:
+> ```yaml
+> collections:
+>   cluster-statuses:
+>     entity: AdapterStatus
+>     scope: { resource_type: Cluster, resource_id: Cluster }
+>     operations: [list, upsert]
+>     upsert_key: [resource_type, resource_id, adapter]
+>     concurrency: optimistic    # only update if generation is newer
+> ```
 
 ## Acceptance Criteria
 
-1. Example `service.yaml` exercises: collections (including multi-path), base_path, error_type_base, patch with patchable, all CRUD operations, slots with gate and fan-out.
-2. `stego validate && stego plan && stego apply` succeeds.
-3. `cd out && go build` compiles the generated service.
-4. Generated `main.go` wires all fills, storage, auth, and search.
-5. Generated code includes GORM models, DAO, RFC 9457 errors, envelope responses, validation middleware, TSL search, patch handlers.
-6. README reflects final state.
+1. `upsert` added to Operation enum and ValidOperations.
+2. `UpsertKey` and `Concurrency` fields added to Collection type and parsed from YAML.
+3. Validation enforces: upsert requires upsert_key; upsert_key fields exist on entity; upsert_key fields not computed; concurrency value is valid.
+4. Upsert handler generated with `PUT /{path}` route (no `{id}` suffix).
+5. Handler calls DAO `Upsert()` with upsert_key and concurrency.
+6. Optimistic concurrency returns appropriate status codes (200/201/409).
+7. OpenAPI schema includes upsert endpoint.
+8. Tests cover upsert generation, validation, and edge cases.
+9. `go build ./cmd/stego` compiles.
 
 ## Task Completion
 
