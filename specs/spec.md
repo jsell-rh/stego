@@ -80,6 +80,17 @@ collections:
 
 Multiple collections referencing the same entity is the normal case. Each collection generates its own handler, routes, and wiring. The entity struct and storage are shared.
 
+**Patch (partial update)** is distinct from update (full replace). When a collection includes `patch` in its operations, it must also declare `patchable` -- the list of fields that can be partially updated:
+```yaml
+collections:
+  clusters:
+    entity: Cluster
+    operations: [create, read, list, patch]
+    patchable: [spec, labels]
+```
+
+The generator produces a patch request struct with pointer fields for only the listed fields (`*string`, `*int32`, `*json.RawMessage`, etc.). A get-then-merge handler fetches the existing record, applies non-nil fields from the patch request, and saves. `patchable` fields must exist on the entity and must not be computed or ref fields. `patch` requires `patchable` and vice versa (bidirectional dependency).
+
 **Computed/derived fields** are read-only fields populated by a fill, never written via the API:
 ```yaml
 entities:
