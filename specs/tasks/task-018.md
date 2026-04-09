@@ -90,3 +90,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `878ed94` fix(task-018): address round 2 review findings for Collection type system
 - `db527ac` fix(task-018): address round 3 review findings — migration errors and test fixtures
 - `467058c` fix(task-018): enforce scope cardinality on Reconcile path (round 4)
+- `b8f3aa6` fix(task-018): update generator error messages from "expose block" to "collection" (round 5)
