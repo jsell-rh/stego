@@ -2470,10 +2470,10 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 	}
 }
 
-func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
-	// Finding 31: When an expose block references a parent entity that is not
-	// itself in the expose list, the generator must return an error at generation
-	// time rather than producing silently non-functional code.
+func TestGenerate_ParentNotInCollectionsListReturnsError(t *testing.T) {
+	// Finding 31: When a collection references a parent entity that is not
+	// itself in the collections list, the generator must return an error at
+	// generation time rather than producing silently non-functional code.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -2487,7 +2487,7 @@ func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			// NodePool references parent Cluster, but Cluster is NOT exposed.
+			// NodePool references parent Cluster, but Cluster has no collection.
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
@@ -2499,7 +2499,7 @@ func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error when parent entity is not in expose list, got nil")
+		t.Fatal("expected error when parent entity is not in collections list, got nil")
 	}
 	if !strings.Contains(err.Error(), "Cluster") {
 		t.Errorf("error should mention the missing parent entity 'Cluster', got: %v", err)
@@ -2507,12 +2507,12 @@ func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "NodePool") {
 		t.Errorf("error should mention the referencing entity 'NodePool', got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expose") {
-		t.Errorf("error should mention the expose list, got: %v", err)
+	if !strings.Contains(err.Error(), "collections list") {
+		t.Errorf("error should mention the collections list, got: %v", err)
 	}
 }
 
-func TestGenerate_MultipleParentsNotInExposeListReportsAll(t *testing.T) {
+func TestGenerate_MultipleParentsNotInCollectionsListReportsAll(t *testing.T) {
 	// Verify all unresolved parent references are reported together.
 	g := &Generator{}
 	ctx := gen.Context{
@@ -2537,9 +2537,9 @@ func TestGenerate_MultipleParentsNotInExposeListReportsAll(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error when parent entities are not in expose list, got nil")
+		t.Fatal("expected error when parent entities are not in collections list, got nil")
 	}
-	// Org is not in the expose list, so Team's reference should fail.
+	// Org is not in the collections list, so Team's reference should fail.
 	if !strings.Contains(err.Error(), "Org") {
 		t.Errorf("error should mention missing parent 'Org', got: %v", err)
 	}
@@ -2977,8 +2977,8 @@ func TestGenerate_CrossEntityHandlerTypeCollisionReturnsError(t *testing.T) {
 	}
 }
 
-func TestGenerate_DuplicateExposeBlocksReturnsError(t *testing.T) {
-	// Finding 36: two expose blocks for the same entity must return an error,
+func TestGenerate_DuplicateCollectionsReturnsError(t *testing.T) {
+	// Finding 36: two collections for the same entity must return an error,
 	// not silently overwrite in the map or produce duplicate type declarations.
 	g := &Generator{}
 	ctx := gen.Context{
@@ -2995,7 +2995,7 @@ func TestGenerate_DuplicateExposeBlocksReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for duplicate expose blocks for the same entity")
+		t.Fatal("expected error for duplicate collections for the same entity")
 	}
 	if !strings.Contains(err.Error(), "User") {
 		t.Errorf("error should mention the duplicated entity 'User', got: %v", err)
@@ -3066,7 +3066,7 @@ func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
 }
 
 func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
-	// Finding 37: an expose block with zero operations must return an error,
+	// Finding 37: a collection with zero operations must return an error,
 	// not produce uncompilable code (unused net/http import, unused handler variable).
 	g := &Generator{}
 	ctx := gen.Context{
@@ -3084,7 +3084,7 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for expose block with empty operations list")
+		t.Fatal("expected error for collection with empty operations list")
 	}
 	if !strings.Contains(err.Error(), "User") {
 		t.Errorf("error should mention entity name, got: %v", err)
@@ -3095,7 +3095,7 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 }
 
 func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
-	// One valid expose block + one empty operations expose block => error.
+	// One valid collection + one empty operations collection => error.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -3112,7 +3112,7 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for expose block with empty operations list")
+		t.Fatal("expected error for collection with empty operations list")
 	}
 	if !strings.Contains(err.Error(), "Org") {
 		t.Errorf("error should mention entity with empty operations, got: %v", err)
@@ -3120,7 +3120,7 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 }
 
 func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
-	// Finding 44: duplicate operations within a single expose block produce
+	// Finding 44: duplicate operations within a single collection produce
 	// duplicate method declarations (compile error), duplicate route
 	// registrations (runtime panic), and duplicate OpenAPI entries (overwrite).
 	g := &Generator{}
@@ -3137,7 +3137,7 @@ func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for duplicate operations in expose block")
+		t.Fatal("expected error for duplicate operations in collection")
 	}
 	if !strings.Contains(err.Error(), "User") {
 		t.Errorf("error should mention the entity with duplicate operations, got: %v", err)

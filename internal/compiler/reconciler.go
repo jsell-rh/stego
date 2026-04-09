@@ -285,10 +285,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	allFiles = append(allFiles, slotFiles...)
 
-	// Validate that slot binding entities are in the expose list. Slot operators
-	// are injected into handler constructors, which only exist for exposed
-	// entities. A slot binding referencing a non-exposed entity would produce
-	// an unused variable in the generated main.go — a Go compile error.
+	// Validate that slot binding collections are in the collections list. Slot
+	// operators are injected into handler constructors, which only exist for
+	// collections. A slot binding referencing a non-existent collection would
+	// produce an unused variable in the generated main.go — a Go compile error.
 	if err := validateSlotBindingEntities(svcDecl.Slots, svcDecl.Collections); err != nil {
 		return nil, err
 	}

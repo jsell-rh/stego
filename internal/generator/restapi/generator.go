@@ -1,6 +1,6 @@
 // Package restapi implements the rest-api component Generator. It produces
 // HTTP handler files, route registration, middleware wiring, and an OpenAPI
-// spec from the service declaration's entities and expose blocks.
+// spec from the service declaration's entities and collections.
 package restapi
 
 import (
@@ -25,7 +25,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
-	// Validate no duplicate expose blocks for the same entity. This must
+	// Validate no duplicate collections for the same entity. This must
 	// happen before any map or iteration to avoid silent overwrites (map)
 	// and duplicate type declarations (iteration).
 	if err := validateExposeUniqueness(ctx.Collections); err != nil {
@@ -67,14 +67,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
-	// Validate that every expose block has at least one operation. An empty
+	// Validate that every collection has at least one operation. An empty
 	// operations list produces unused imports and handler variables — Go
 	// compile errors.
 	if err := validateExposeOperations(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
-	// Validate that no expose block contains duplicate operations. Duplicate
+	// Validate that no collection contains duplicate operations. Duplicate
 	// operations produce duplicate method declarations (compile error),
 	// duplicate route registrations (runtime panic), and duplicate OpenAPI
 	// operation entries (silent overwrite).
@@ -82,7 +82,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
-	// Validate that all parent cross-references resolve within the expose list.
+	// Validate that all parent cross-references resolve within the collections list.
 	if err := validateParentReferences(ctx.Collections, exposeMap); err != nil {
 		return nil, nil, err
 	}
@@ -98,7 +98,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Validate that scope and upsert_key field-name references resolve to
 	// actual entity fields. The generator is the first consumer that knows
-	// both the expose block and the entity's field definitions.
+	// both the collection and the entity's field definitions.
 	if err := validateFieldReferences(ctx.Collections, entityMap); err != nil {
 		return nil, nil, err
 	}
@@ -138,7 +138,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	for _, eb := range ctx.Collections {
 		entity, ok := entityMap[eb.Entity]
 		if !ok {
-			return nil, nil, fmt.Errorf("expose references unknown entity %q", eb.Entity)
+			return nil, nil, fmt.Errorf("collection %q references unknown entity %q", eb.Name, eb.Entity)
 		}
 
 		slotParams := collectEntitySlotParams(eb.Name, ctx.SlotBindings)
@@ -213,7 +213,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return files, wiring, nil
 }
 
-// entityBasePath returns the URL path prefix for an entity's expose block.
+// entityBasePath returns the URL path prefix for an entity's collection.
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
 // from the entity name, prepended with the parent's path if nested.
 // Returns an error if a circular parent reference is detected.
@@ -768,7 +768,7 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 		spec.Components.Schemas[e.Name] = schema
 	}
 
-	// Generate paths from expose blocks.
+	// Generate paths from collections.
 	for _, eb := range expose {
 		basePath, err := entityBasePath(eb, exposeMap)
 		if err != nil {
@@ -1037,7 +1037,7 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 	}
 }
 
-// collectAncestors walks the parent chain from the given expose block and returns
+// collectAncestors walks the parent chain from the given collection and returns
 // all ancestor entity names in top-down order (grandparent before parent).
 // Returns an error if a circular parent reference is detected.
 func collectAncestors(eb types.Collection, exposeMap map[string]types.Collection) ([]string, error) {
@@ -1215,7 +1215,7 @@ func validateScopeCardinality(collections []types.Collection) error {
 }
 
 // validateExposeUniqueness checks that no entity appears more than once in the
-// expose list. Duplicate entries cause duplicate type declarations and silent
+// collections list. Duplicate entries cause duplicate type declarations and silent
 // map overwrites.
 func validateExposeUniqueness(expose []types.Collection) error {
 	seen := make(map[string]int, len(expose))
@@ -1227,13 +1227,13 @@ func validateExposeUniqueness(expose []types.Collection) error {
 		}
 	}
 	if len(dupes) > 0 {
-		return fmt.Errorf("duplicate expose blocks for entities: %s; each entity may only appear once in the expose list", strings.Join(dupes, ", "))
+		return fmt.Errorf("duplicate collections for entities: %s; each entity may only appear once in the collections list", strings.Join(dupes, ", "))
 	}
 	return nil
 }
 
 // validateFieldReferences checks that scope and upsert_key field-name references
-// in expose blocks resolve to actual fields on the referenced entity.
+// in collections resolve to actual fields on the referenced entity.
 func validateFieldReferences(expose []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range expose {
@@ -1249,14 +1249,14 @@ func validateFieldReferences(expose []types.Collection, entityMap map[string]typ
 
 		if len(eb.Scope) > 0 && !fieldSet[eb.ScopeField()] {
 			errs = append(errs, fmt.Sprintf(
-				"expose block for %q references scope field %q, but entity %q has no field with that name",
+				"collection for %q references scope field %q, but entity %q has no field with that name",
 				eb.Entity, eb.ScopeField(), eb.Entity))
 		}
 
 		for _, key := range eb.UpsertKey {
 			if !fieldSet[key] {
 				errs = append(errs, fmt.Sprintf(
-					"expose block for %q references upsert_key field %q, but entity %q has no field with that name",
+					"collection for %q references upsert_key field %q, but entity %q has no field with that name",
 					eb.Entity, key, eb.Entity))
 			}
 		}
@@ -1300,9 +1300,9 @@ func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Colle
 	return result, nil
 }
 
-// validateParentReferences verifies that every expose block's parent field
-// references an entity that is also in the expose list. A parent outside the
-// expose list means the generator cannot produce a correct route — the parent's
+// validateParentReferences verifies that every collection's parent field
+// references an entity that is also in the collections list. A parent outside the
+// collections list means the generator cannot produce a correct route — the parent's
 // path segment and path parameter will be missing, causing every request to fail.
 func validateParentReferences(expose []types.Collection, exposeMap map[string]types.Collection) error {
 	var errs []string
@@ -1310,7 +1310,7 @@ func validateParentReferences(expose []types.Collection, exposeMap map[string]ty
 		if eb.ParentEntity() != "" {
 			if _, ok := exposeMap[eb.ParentEntity()]; !ok {
 				errs = append(errs, fmt.Sprintf(
-					"expose block for %q references parent %q, but %q is not in the expose list",
+					"collection for %q references parent %q, but %q is not in the collections list",
 					eb.Entity, eb.ParentEntity(), eb.ParentEntity()))
 			}
 		}
@@ -1440,7 +1440,7 @@ type openAPISchema struct {
 	Default    any                      `json:"default,omitempty"`
 }
 
-// validateExposeOperations checks that every expose block has at least one
+// validateExposeOperations checks that every collection has at least one
 // operation. An empty operations list produces an unused handler variable and
 // an unused net/http import — both Go compile errors.
 func validateExposeOperations(expose []types.Collection) error {
@@ -1451,7 +1451,7 @@ func validateExposeOperations(expose []types.Collection) error {
 		}
 	}
 	if len(empty) > 0 {
-		return fmt.Errorf("expose blocks with no operations: %s; each expose block must have at least one operation",
+		return fmt.Errorf("collections with no operations: %s; each collection must have at least one operation",
 			strings.Join(empty, ", "))
 	}
 	return nil
@@ -1497,7 +1497,7 @@ func validateRouteCollisions(expose []types.Collection, exposeMap map[string]typ
 }
 
 // validateScopeParentConsistency checks that when both scope and parent are set
-// on an expose block, the scope field is the entity's ref field pointing to the
+// on a collection, the scope field is the entity's ref field pointing to the
 // parent. The scope+parent code path extracts the parent's ID from the URL path
 // parameter and uses it as the filter for the scope field. If the scope field is
 // a different field, the generated code passes the wrong value — semantically
@@ -1527,7 +1527,7 @@ func validateScopeParentConsistency(expose []types.Collection, entityMap map[str
 		}
 		if eb.ScopeField() != refFieldName {
 			errs = append(errs, fmt.Sprintf(
-				"expose block for %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
+				"collection for %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
 				eb.Entity, eb.ScopeField(), eb.ParentEntity(), eb.ScopeField(), eb.ParentEntity(), refFieldName))
 		}
 	}
@@ -1562,7 +1562,7 @@ func validateCaseInsensitiveUniqueness(expose []types.Collection) error {
 	return nil
 }
 
-// validateOperationUniqueness checks that no expose block contains duplicate
+// validateOperationUniqueness checks that no collection contains duplicate
 // operations. Duplicate operations produce duplicate method declarations (Go
 // compile error), duplicate route registrations (Go 1.22 ServeMux runtime
 // panic), and duplicate OpenAPI operation entries (silent overwrite).
@@ -1589,12 +1589,12 @@ func validateOperationUniqueness(expose []types.Collection) error {
 		}
 		if len(dupes) > 0 {
 			errs = append(errs, fmt.Sprintf(
-				"expose block for entity %q has duplicate operations: %s",
+				"collection for entity %q has duplicate operations: %s",
 				eb.Entity, strings.Join(dupes, ", ")))
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("duplicate operations in expose blocks:\n  %s", strings.Join(errs, "\n  "))
+		return fmt.Errorf("duplicate operations in collections:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
