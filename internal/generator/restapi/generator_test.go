@@ -34,7 +34,7 @@ func basicContext() gen.Context {
 				},
 			},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
@@ -220,12 +220,12 @@ func TestGenerate_NestedRouting(t *testing.T) {
 			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -271,12 +271,12 @@ func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 				PathPrefix: "/clusters/{cluster_id}/nodepools",
 			},
 		},
@@ -318,13 +318,12 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id",
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -346,22 +345,26 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 }
 
 func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
-	// When scope is set without a parent, the scope value must come from
-	// a query parameter since no path parameter exists.
+	// When scope is set with a parent entity that IS in the collections list,
+	// the scope value comes from the parent's path parameter (nested routing).
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
 			{Name: "User", Fields: []types.Field{
 				{Name: "email", Type: types.FieldTypeString},
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -373,9 +376,9 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_user.go")
-	// Must use URL query parameter, not PathValue (no path param exists).
-	if !strings.Contains(handler, `r.URL.Query().Get("org_id")`) {
-		t.Error("scope without parent must extract value from query parameter")
+	// Scope with parent entity in collections list uses path parameter.
+	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
+		t.Error("scope with parent in collections must extract value from path parameter")
 	}
 	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
@@ -383,10 +386,10 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 }
 
 func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
-	// When an entity has a parent but no scope, the List method must pass
-	// the raw YAML field name (e.g. "cluster_id") to store.List, not the
-	// PascalCase Go field name ("ClusterID"). This ensures consistency with
-	// scope+parent and scope-only branches.
+	// When an entity has scope pointing to a parent entity that is in
+	// collections, the List method uses the scope+parent path: scope value
+	// comes from the path parameter, and the raw YAML field name (e.g.
+	// "cluster_id") is passed to store.List.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -397,12 +400,12 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -415,11 +418,11 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
 	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
-	if !strings.Contains(handler, `h.store.List("NodePool", "cluster_id", clusterID)`) {
-		t.Error("parent-only List must pass raw YAML field name to store.List, not PascalCase")
+	if !strings.Contains(handler, `h.store.List("NodePool", "cluster_id", scopeValue)`) {
+		t.Error("scope+parent List must pass raw YAML field name to store.List, not PascalCase")
 	}
 	if strings.Contains(handler, `h.store.List("NodePool", "ClusterID"`) {
-		t.Error("parent-only List must not pass PascalCase field name to store.List")
+		t.Error("scope+parent List must not pass PascalCase field name to store.List")
 	}
 }
 
@@ -434,7 +437,7 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 				{Name: "adapter", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:      "AdapterStatus",
 				Operations:  []types.Operation{types.OpList, types.OpUpsert},
@@ -480,7 +483,7 @@ func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 				{Name: "key", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpUpdate, types.OpUpsert},
@@ -588,12 +591,12 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -662,22 +665,27 @@ func hasParam(params []any, name string) bool {
 }
 
 func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
-	// When scope is set without a parent, the handler reads the scope value
-	// from a query parameter. The OpenAPI spec must declare this query parameter.
+	// When scope references a parent entity that is in the collections list,
+	// the handler reads the scope value from the parent's path parameter.
+	// The OpenAPI spec must declare this path parameter on the nested route.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
 			{Name: "User", Fields: []types.Field{
 				{Name: "email", Type: types.FieldTypeString},
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -695,23 +703,24 @@ func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
 	}
 
 	paths := spec["paths"].(map[string]any)
-	usersPath := paths["/users"].(map[string]any)
-	getOp := usersPath["get"].(map[string]any)
+	// With scope pointing to Organization in collections, the route is nested.
+	nestedPath := paths["/organizations/{organization_id}/users"].(map[string]any)
+	getOp := nestedPath["get"].(map[string]any)
 	params, ok := getOp["parameters"].([]any)
 	if !ok || len(params) == 0 {
-		t.Fatal("GET /users (list with scope) must have parameters declared")
+		t.Fatal("GET nested users (list with scope+parent) must have parameters declared")
 	}
 
-	// Find the scope query parameter.
-	foundScopeParam := false
+	// Find the parent path parameter.
+	foundPathParam := false
 	for _, p := range params {
 		param := p.(map[string]any)
-		if param["name"] == "org_id" && param["in"] == "query" {
-			foundScopeParam = true
+		if param["name"] == "organization_id" && param["in"] == "path" {
+			foundPathParam = true
 		}
 	}
-	if !foundScopeParam {
-		t.Error("OpenAPI list operation must declare org_id query parameter when scope is set without parent")
+	if !foundPathParam {
+		t.Error("OpenAPI list operation must declare organization_id path parameter when scope references parent in collections")
 	}
 }
 
@@ -734,7 +743,7 @@ func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 				{Name: "j", Type: types.FieldTypeJsonb},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Thing", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -793,7 +802,7 @@ func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
 				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Cluster",
 				Operations: []types.Operation{types.OpCreate, types.OpUpdate, types.OpUpsert},
@@ -834,7 +843,7 @@ func TestGenerate_ComputedFieldsReadOnlyInOpenAPI(t *testing.T) {
 				{Name: "status_conditions", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -882,7 +891,7 @@ func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
 				{Name: "last_aggregated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "aggregator"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Cluster",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
@@ -925,7 +934,7 @@ func TestGenerate_UnknownEntity(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
 		Entities: []types.Entity{},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Missing", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -996,13 +1005,12 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
-				Scope:      "org_id",
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -1047,7 +1055,7 @@ func TestGenerate_ListOnlyGETRoute(t *testing.T) {
 		Entities: []types.Entity{
 			{Name: "Event", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Event", Operations: []types.Operation{types.OpList}},
 		},
 		OutputNamespace: "internal/api",
@@ -1087,13 +1095,12 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
-				Parent:     "Organization",
-				Scope:      "org_id",
+				Scope:      map[string]string{"org_id": "Organization"},
 				UpsertKey:  []string{"email"},
 			},
 		},
@@ -1134,7 +1141,7 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 }
 
 func TestEntityBasePath_Default(t *testing.T) {
-	eb := types.ExposeBlock{Entity: "User"}
+	eb := types.Collection{Entity: "User"}
 	got, err := entityBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1145,7 +1152,7 @@ func TestEntityBasePath_Default(t *testing.T) {
 }
 
 func TestEntityBasePath_WithPathPrefix(t *testing.T) {
-	eb := types.ExposeBlock{Entity: "User", PathPrefix: "/api/v1/users"}
+	eb := types.Collection{Entity: "User", PathPrefix: "/api/v1/users"}
 	got, err := entityBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1156,10 +1163,10 @@ func TestEntityBasePath_WithPathPrefix(t *testing.T) {
 }
 
 func TestEntityBasePath_Nested(t *testing.T) {
-	exposeMap := map[string]types.ExposeBlock{
+	exposeMap := map[string]types.Collection{
 		"Cluster": {Entity: "Cluster"},
 	}
-	eb := types.ExposeBlock{Entity: "NodePool", Parent: "Cluster"}
+	eb := types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
 	got, err := entityBasePath(eb, exposeMap)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1228,12 +1235,12 @@ func TestGenerate_UpsertWithParentSetsParentID(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpUpsert},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 				UpsertKey:  []string{"name"},
 			},
 		},
@@ -1260,7 +1267,7 @@ func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
 		Entities: []types.Entity{
 			{Name: "Session", Fields: []types.Field{{Name: "token", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Session", Operations: []types.Operation{types.OpDelete}},
 		},
 		OutputNamespace: "internal/api",
@@ -1328,7 +1335,7 @@ func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
 				{Name: "key", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
@@ -1363,7 +1370,7 @@ func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
 				{Name: "last_updated", Type: types.FieldTypeTimestamp, Computed: true, FilledBy: "updater"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Record",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
@@ -1420,7 +1427,7 @@ func TestGenerate_OpenAPIResponseContentForWriteOps(t *testing.T) {
 				{Name: "key", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
@@ -1491,7 +1498,7 @@ func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
 				{Name: "key", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
@@ -1562,12 +1569,12 @@ func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
 						// No ref field to Cluster — this is the bug trigger.
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 					{
 						Entity:     "Widget",
 						Operations: tt.ops,
-						Parent:     "Cluster",
+						Scope:      map[string]string{"cluster_id": "Cluster"},
 						UpsertKey:  []string{"name"},
 					},
 				},
@@ -1603,7 +1610,7 @@ func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
 				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "aggregator"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -1659,7 +1666,7 @@ func TestGenerate_GoKeywordEntityName(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Type",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
@@ -1739,7 +1746,7 @@ func TestGenerate_OpenAPIConstraintAttributes(t *testing.T) {
 				{Name: "label", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Resource", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -1843,17 +1850,17 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 				{Name: "resource_type", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 			{
 				Entity:     "AdapterStatus",
 				Operations: []types.Operation{types.OpList, types.OpUpsert},
-				Parent:     "NodePool",
+				Scope:      map[string]string{"nodepool_id": "NodePool"},
 				UpsertKey:  []string{"resource_type"},
 			},
 		},
@@ -1931,11 +1938,11 @@ func TestGenerate_CircularParentSelfReference(t *testing.T) {
 				{Name: "node_id", Type: types.FieldTypeRef, To: "Node"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Node",
 				Operations: []types.Operation{types.OpList},
-				Parent:     "Node",
+				Scope:      map[string]string{"node_id": "Node"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -1963,16 +1970,16 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 				{Name: "alpha_id", Type: types.FieldTypeRef, To: "Alpha"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Alpha",
 				Operations: []types.Operation{types.OpList},
-				Parent:     "Beta",
+				Scope:      map[string]string{"beta_id": "Beta"},
 			},
 			{
 				Entity:     "Beta",
 				Operations: []types.Operation{types.OpList},
-				Parent:     "Alpha",
+				Scope:      map[string]string{"alpha_id": "Alpha"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -1988,9 +1995,9 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 }
 
 func TestEntityBasePath_CircularParentReturnsError(t *testing.T) {
-	exposeMap := map[string]types.ExposeBlock{
-		"A": {Entity: "A", Parent: "B"},
-		"B": {Entity: "B", Parent: "A"},
+	exposeMap := map[string]types.Collection{
+		"A": {Entity: "A", Scope: map[string]string{"b_id": "B"}},
+		"B": {Entity: "B", Scope: map[string]string{"a_id": "A"}},
 	}
 	_, err := entityBasePath(exposeMap["A"], exposeMap)
 	if err == nil {
@@ -2002,9 +2009,9 @@ func TestEntityBasePath_CircularParentReturnsError(t *testing.T) {
 }
 
 func TestCollectAncestors_CircularParentReturnsError(t *testing.T) {
-	exposeMap := map[string]types.ExposeBlock{
-		"A": {Entity: "A", Parent: "B"},
-		"B": {Entity: "B", Parent: "A"},
+	exposeMap := map[string]types.Collection{
+		"A": {Entity: "A", Scope: map[string]string{"b_id": "B"}},
+		"B": {Entity: "B", Scope: map[string]string{"a_id": "A"}},
 	}
 	_, err := collectAncestors(exposeMap["A"], exposeMap)
 	if err == nil {
@@ -2029,12 +2036,12 @@ func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpUpdate},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -2065,12 +2072,12 @@ func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
 				// No ref field to Cluster.
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "Widget",
 				Operations: []types.Operation{types.OpUpdate},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -2101,7 +2108,7 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -2152,7 +2159,7 @@ func TestGenerate_EntityNamedStorageReturnsError(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Storage",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
@@ -2216,7 +2223,7 @@ func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
 						{Name: "name", Type: types.FieldTypeString},
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
@@ -2274,7 +2281,7 @@ func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
 			ctx := gen.Context{
 				Conventions: types.Convention{Layout: "flat"},
 				Entities:    []types.Entity{{Name: name, Fields: fields}},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
@@ -2324,7 +2331,7 @@ func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
 				{Name: "email", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
@@ -2424,13 +2431,12 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpRead, types.OpList},
-				Scope:      "org_id",
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 			// Team is NOT exposed.
 		},
@@ -2480,12 +2486,12 @@ func TestGenerate_ParentNotInExposeListReturnsError(t *testing.T) {
 				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			// NodePool references parent Cluster, but Cluster is NOT exposed.
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -2522,9 +2528,9 @@ func TestGenerate_MultipleParentsNotInExposeListReportsAll(t *testing.T) {
 				{Name: "team_id", Type: types.FieldTypeRef, To: "Team"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
-			{Entity: "Team", Operations: []types.Operation{types.OpList}, Parent: "Org"},
-			{Entity: "Project", Operations: []types.Operation{types.OpList}, Parent: "Team"},
+		Collections: []types.Collection{
+			{Entity: "Team", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"org_id": "Org"}},
+			{Entity: "Project", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"team_id": "Team"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -2554,12 +2560,12 @@ func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 				PathPrefix: "/orgs/{org_id}/users",
 			},
 		},
@@ -2628,12 +2634,12 @@ func TestGenerate_PathPrefixDivergentParamNamesOpenAPI(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList, types.OpCreate},
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 				PathPrefix: "/orgs/{org_id}/users",
 			},
 		},
@@ -2684,13 +2690,12 @@ func TestGenerate_PathPrefixScopeWithDivergentParamNames(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id",
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"},
 				PathPrefix: "/orgs/{org_id}/users",
 			},
 		},
@@ -2729,18 +2734,18 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 				{Name: "resource_type", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
 			{
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpRead, types.OpList},
-				Parent:     "Cluster",
+				Scope:      map[string]string{"cluster_id": "Cluster"},
 				PathPrefix: "/clusters/{cid}/pools",
 			},
 			{
 				Entity:     "AdapterStatus",
 				Operations: []types.Operation{types.OpList, types.OpUpsert},
-				Parent:     "NodePool",
+				Scope:      map[string]string{"nodepool_id": "NodePool"},
 				PathPrefix: "/clusters/{cid}/pools/{pid}/statuses",
 				UpsertKey:  []string{"resource_type"},
 			},
@@ -2800,18 +2805,18 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 	// If path_prefix has a different number of params than ancestors,
 	// resolveAncestorParams must return an error.
-	exposeMap := map[string]types.ExposeBlock{
+	exposeMap := map[string]types.Collection{
 		"Cluster":  {Entity: "Cluster"},
-		"NodePool": {Entity: "NodePool", Parent: "Cluster"},
+		"NodePool": {Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}},
 	}
 	// path_prefix has 2 params but NodePool only has 1 ancestor (Cluster).
-	eb := types.ExposeBlock{
+	eb := types.Collection{
 		Entity:     "Widget",
-		Parent:     "NodePool",
+		Scope:      map[string]string{"nodepool_id": "NodePool"},
 		PathPrefix: "/a/{x}/b/{y}/c/{z}/widgets",
 	}
 	exposeMap["Widget"] = eb
-	exposeMap["NodePool"] = types.ExposeBlock{Entity: "NodePool", Parent: "Cluster"}
+	exposeMap["NodePool"] = types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
 
 	_, err := resolveAncestorParams(eb, exposeMap)
 	if err == nil {
@@ -2824,19 +2829,26 @@ func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 
 func TestGenerate_InvalidScopeFieldReturnsError(t *testing.T) {
 	// Finding 33: scope field must reference an existing entity field.
+	// The scope's parent entity must also be in collections for parent
+	// validation to pass, allowing the scope field check to fire.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
 			{Name: "User", Fields: []types.Field{
 				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "nonexistent_field",
+				Scope:      map[string]string{"nonexistent_field": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -2867,7 +2879,7 @@ func TestGenerate_InvalidUpsertKeyFieldReturnsError(t *testing.T) {
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpUpsert},
@@ -2902,7 +2914,7 @@ func TestGenerate_CrossEntityHandlerTypeCollisionReturnsError(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "UserHandler", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpRead}},
 			{Entity: "UserHandler", Operations: []types.Operation{types.OpRead}},
 		},
@@ -2930,7 +2942,7 @@ func TestGenerate_DuplicateExposeBlocksReturnsError(t *testing.T) {
 		Entities: []types.Entity{
 			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpCreate}},
 			{Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
@@ -2951,20 +2963,25 @@ func TestGenerate_DuplicateExposeBlocksReturnsError(t *testing.T) {
 
 func TestGenerate_ValidScopeFieldSucceeds(t *testing.T) {
 	// Verify that a valid scope field reference does not produce an error.
+	// The scope's parent entity must also be in entities and collections.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
 			{Name: "User", Fields: []types.Field{
 				{Name: "email", Type: types.FieldTypeString},
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
+			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id",
+				Scope:      map[string]string{"org_id": "Organization"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -2988,7 +3005,7 @@ func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
 				{Name: "adapter", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
 				Entity:     "Status",
 				Operations: []types.Operation{types.OpUpsert},
@@ -3015,7 +3032,7 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 				{Name: "email", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{}},
 		},
 		OutputNamespace: "internal/api",
@@ -3042,7 +3059,7 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
 			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpRead}},
 			{Entity: "Org", Operations: []types.Operation{}},
 		},
@@ -3068,7 +3085,7 @@ func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
 		Entities: []types.Entity{
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpCreate, types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
@@ -3095,7 +3112,7 @@ func TestGenerate_DuplicateOperationsMultipleEntities(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
 			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpRead, types.OpRead}},
 			{Entity: "Org", Operations: []types.Operation{types.OpDelete, types.OpDelete}},
 		},
@@ -3124,7 +3141,7 @@ func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 			{Name: "Alpha", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "Beta", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Alpha", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
 			{Entity: "Beta", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
 		},
@@ -3153,7 +3170,7 @@ func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
 			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "ITEM", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Item", Operations: []types.Operation{types.OpList}},
 			{Entity: "ITEM", Operations: []types.Operation{types.OpList}},
 		},
@@ -3178,7 +3195,7 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 			{Name: "Widget", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "Other", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Widget", Operations: []types.Operation{types.OpList}},                        // auto: /widgets
 			{Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
 		},
@@ -3203,7 +3220,7 @@ func TestGenerate_NoRouteCollisionDifferentPaths(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
 			{Name: "Team", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "User", Operations: []types.Operation{types.OpList}},
 			{Entity: "Team", Operations: []types.Operation{types.OpList}},
 		},
@@ -3232,13 +3249,12 @@ func TestGenerate_ScopeParentInconsistencyReturnsError(t *testing.T) {
 				{Name: "department", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "department", // not the ref field to Organization
-				Parent:     "Organization",
+				Scope:      map[string]string{"department": "Organization"}, // department is not the ref field to Organization
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -3273,13 +3289,12 @@ func TestGenerate_ScopeParentConsistentSucceeds(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
-				Scope:      "org_id", // matches the ref field to Organization
-				Parent:     "Organization",
+				Scope:      map[string]string{"org_id": "Organization"}, // matches the ref field to Organization
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -3320,9 +3335,9 @@ func TestGenerate_MultipleRefFieldsToSameParentReturnsError(t *testing.T) {
 				{Name: "to_account_id", Type: types.FieldTypeRef, To: "Account"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Account", Operations: []types.Operation{types.OpRead}},
-			{Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Parent: "Account"},
+			{Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"account_id": "Account"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3372,9 +3387,9 @@ func TestGenerate_MultipleRefFieldsTwoNodeCycle(t *testing.T) {
 						{Name: "secondary_org_id", Type: types.FieldTypeRef, To: "Org"},
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{Entity: "Org", Operations: []types.Operation{types.OpRead}},
-					{Entity: "Member", Operations: tt.ops, Parent: "Org", UpsertKey: []string{"primary_org_id"}},
+					{Entity: "Member", Operations: tt.ops, Scope: map[string]string{"org_id": "Org"}, UpsertKey: []string{"primary_org_id"}},
 				},
 				OutputNamespace: "internal/api",
 			}
@@ -3418,9 +3433,9 @@ func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
 						// No ref field to Cluster.
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-					{Entity: "Widget", Operations: tt.ops, Parent: "Cluster"},
+					{Entity: "Widget", Operations: tt.ops, Scope: map[string]string{"cluster_id": "Cluster"}},
 				},
 				OutputNamespace: "internal/api",
 			}
@@ -3453,9 +3468,9 @@ func TestGenerate_SingleRefFieldToParentSucceeds(t *testing.T) {
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Org"},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Org", Operations: []types.Operation{types.OpRead}},
-			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpDelete}, Parent: "Org"},
+			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpDelete}, Scope: map[string]string{"org_id": "Org"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3493,7 +3508,7 @@ func TestGenerate_EntityNameIdCompiles(t *testing.T) {
 						{Name: "name", Type: types.FieldTypeString},
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
@@ -3547,7 +3562,7 @@ func TestGenerate_CaseInsensitiveEntityNamesReturnsError(t *testing.T) {
 				{Name: "label", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Item", Operations: []types.Operation{types.OpRead}, PathPrefix: "/items"},
 			{Entity: "ITEM", Operations: []types.Operation{types.OpRead}, PathPrefix: "/things"},
 		},
@@ -3580,7 +3595,7 @@ func TestGenerate_CaseInsensitiveEntityNamesAutoPathCaught(t *testing.T) {
 			{Name: "Foo", Fields: []types.Field{{Name: "a", Type: types.FieldTypeString}}},
 			{Name: "FOO", Fields: []types.Field{{Name: "b", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Foo", Operations: []types.Operation{types.OpRead}},
 			{Entity: "FOO", Operations: []types.Operation{types.OpRead}},
 		},
@@ -3605,7 +3620,7 @@ func TestGenerate_DifferentCaseEntityNamesDifferentEnoughSucceeds(t *testing.T) 
 			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "Order", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{Entity: "Item", Operations: []types.Operation{types.OpRead}},
 			{Entity: "Order", Operations: []types.Operation{types.OpRead}},
 		},
@@ -3633,7 +3648,7 @@ func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 						{Name: "name", Type: types.FieldTypeString},
 					}},
 				},
-				Expose: []types.ExposeBlock{
+				Collections: []types.Collection{
 					{
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
@@ -3684,14 +3699,14 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
 			}},
 		},
-		Expose: []types.ExposeBlock{
-			{Entity: "User", Operations: []types.Operation{
+		Collections: []types.Collection{
+			{Name: "users", Entity: "User", Operations: []types.Operation{
 				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
 			}},
 		},
 		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Entity: "User", Gate: []string{"rbac-policy"}},
-			{Slot: "on_entity_changed", Entity: "User", FanOut: []string{"audit-logger"}},
+			{Slot: "before_create", Collection: "users", Gate: []string{"rbac-policy"}},
+			{Slot: "on_entity_changed", Collection: "users", FanOut: []string{"audit-logger"}},
 		},
 		OutputNamespace: "internal/api",
 		ModuleName:      "github.com/myorg/svc",
@@ -3793,7 +3808,7 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 	if wiring == nil {
 		t.Fatal("wiring is nil")
 	}
-	if wiring.ConstructorEntities == nil || wiring.ConstructorEntities[0] != "User" {
+	if wiring.ConstructorEntities == nil || wiring.ConstructorEntities[0] != "users" {
 		t.Errorf("unexpected ConstructorEntities: %v", wiring.ConstructorEntities)
 	}
 }
@@ -3811,17 +3826,18 @@ func TestGenerate_HandlerWithAuthPackage_IdentityFromContext(t *testing.T) {
 				{Name: "role", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
+		Collections: []types.Collection{
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
 			},
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
-				Entity: "User",
-				Gate:   []string{"test-policy"},
+				Slot:       "before_create",
+				Collection: "users",
+				Gate:       []string{"test-policy"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -3896,11 +3912,11 @@ func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
 				{Name: "active", Type: types.FieldTypeBool},
 			}},
 		},
-		Expose: []types.ExposeBlock{
-			{Entity: "Counter", Operations: []types.Operation{types.OpCreate}},
+		Collections: []types.Collection{
+			{Name: "counters", Entity: "Counter", Operations: []types.Operation{types.OpCreate}},
 		},
 		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Entity: "Counter", Gate: []string{"policy"}},
+			{Slot: "before_create", Collection: "counters", Gate: []string{"policy"}},
 		},
 		OutputNamespace: "internal/api",
 		ModuleName:      "github.com/myorg/svc",
@@ -3952,15 +3968,15 @@ func TestGenerate_NilGuardPassthrough(t *testing.T) {
 				{Name: "label", Type: types.FieldTypeString},
 			}},
 		},
-		Expose: []types.ExposeBlock{
-			{Entity: "Item", Operations: []types.Operation{
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{
 				types.OpCreate, types.OpUpdate, types.OpDelete, types.OpUpsert,
 			}},
 		},
 		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Entity: "Item", Gate: []string{"gate-fill"}},
-			{Slot: "validate", Entity: "Item", Chain: []string{"validate-fill"}},
-			{Slot: "on_entity_changed", Entity: "Item", FanOut: []string{"fanout-fill"}},
+			{Slot: "before_create", Collection: "items", Gate: []string{"gate-fill"}},
+			{Slot: "validate", Collection: "items", Chain: []string{"validate-fill"}},
+			{Slot: "on_entity_changed", Collection: "items", FanOut: []string{"fanout-fill"}},
 		},
 		OutputNamespace: "internal/api",
 		ModuleName:      "github.com/myorg/svc",
@@ -4057,13 +4073,13 @@ func TestGenerate_CrossGeneratorIntegrationCompilation(t *testing.T) {
 				{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
 			}},
 		},
-		Expose: []types.ExposeBlock{
-			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList}},
+		Collections: []types.Collection{
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList}},
 		},
 		SlotBindings: []types.SlotDeclaration{
-			{Slot: "before_create", Entity: "User", Gate: []string{"rbac-policy"}},
-			{Slot: "validate", Entity: "User", Chain: []string{"validate-fill"}},
-			{Slot: "on_entity_changed", Entity: "User", FanOut: []string{"audit-logger"}},
+			{Slot: "before_create", Collection: "users", Gate: []string{"rbac-policy"}},
+			{Slot: "validate", Collection: "users", Chain: []string{"validate-fill"}},
+			{Slot: "on_entity_changed", Collection: "users", FanOut: []string{"audit-logger"}},
 		},
 		OutputNamespace: "internal/api",
 		ModuleName:      moduleName,

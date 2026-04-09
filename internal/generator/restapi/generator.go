@@ -132,7 +132,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, fmt.Errorf("expose references unknown entity %q", eb.Entity)
 		}
 
-		slotParams := collectEntitySlotParams(eb.Entity, ctx.SlotBindings)
+		slotParams := collectEntitySlotParams(eb.Name, ctx.SlotBindings)
 
 		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap, slotParams, slotsImportPath, ctx.AuthPackage)
 		if err != nil {
@@ -147,7 +147,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		if wiring.ConstructorEntities == nil {
 			wiring.ConstructorEntities = make(map[int]string)
 		}
-		wiring.ConstructorEntities[constructorIdx] = entity.Name
+		wiring.ConstructorEntities[constructorIdx] = eb.Name
 		if wiring.ConstructorDeps == nil {
 			wiring.ConstructorDeps = make(map[int][]string)
 		}
