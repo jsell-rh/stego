@@ -79,3 +79,8 @@ The spec defines `Collection` as the 6th core noun: "A scoped, operation-constra
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `103fc68` refactor(restapi): rename ExposeBlock to Collection and update field accessors
+- `1ad115a` refactor(validate): update validate_test.go for Collection types
+- `a2d3f91` fix(restapi): update generator and tests for Collection type changes
+- `beba95d` feat(types): replace ExposeBlock with Collection type system
