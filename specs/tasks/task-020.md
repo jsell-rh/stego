@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation", "Glossary" (six nouns), "Service Declaration example"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 ## Description
 
