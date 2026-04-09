@@ -100,3 +100,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - cd4df58 fix(task-022): address 3 round 3 review findings on GORM-based postgres-adapter
 - 6750a73 fix(task-022): address 2 round 4 review findings on GORM-based postgres-adapter
 - 4234c05 fix(task-022): add COUNT(*) query and total count to Store.List for pagination
+- c6b4afe fix(task-022): use actual item count for response envelope size field
