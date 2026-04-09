@@ -88,3 +88,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `68ab61e` fix(task-019): round 2 revisions — rename, tests, stale terminology
 - `fbf8307` fix(task-019): round 3 revisions — rename expose/entity terminology to collection throughout generator
 - `263650a` fix(task-019): round 4 revisions — path param from scope field, README collections format, stale terminology
+- `79d587f` fix(task-019): round 5 — regenerate example output with collection-aware generators
