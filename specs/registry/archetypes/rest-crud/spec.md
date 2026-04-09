@@ -21,6 +21,7 @@ default_auth: jwt-auth
 conventions:
   layout: flat
   error_handling: problem-details-rfc
+  response_format: envelope
   logging: structured-json
   test_pattern: table-driven
 
@@ -120,6 +121,61 @@ collections:
 ```
 
 The generator produces a patch request struct with pointer fields for only the listed fields (`*string`, `*int32`, `*json.RawMessage`, etc.). A get-then-merge handler fetches the existing record, applies non-nil fields from the patch request, and saves. `patchable` fields must exist on the entity and must not be computed or ref fields. `patch` requires `patchable` and vice versa (bidirectional dependency).
+
+## Base Path
+
+The service declaration includes a `base_path` that is prepended to all collection-derived paths:
+
+```yaml
+kind: service
+name: hyperfleet-api
+archetype: rest-crud
+base_path: /api/hyperfleet/v1
+```
+
+Collection paths are relative to `base_path`. A collection `clusters` with `entity: Cluster` derives the relative path `/clusters`; the full URL becomes `/api/hyperfleet/v1/clusters`. A scoped collection with `scope: { cluster_id: Cluster }` derives `/clusters/{cluster_id}/nodepools`; the full URL becomes `/api/hyperfleet/v1/clusters/{cluster_id}/nodepools`.
+
+When `path_prefix` is set on a collection, it is also relative to `base_path`.
+
+If `base_path` is omitted, collection paths are served from the root (e.g. `/clusters`).
+
+## Response Format
+
+When `response_format: envelope` is set in the archetype conventions, the `rest-api` component wraps all responses:
+
+**Single resource responses** include `id`, `kind`, and `href` metadata:
+```json
+{
+  "id": "abc123",
+  "kind": "Cluster",
+  "href": "/api/hyperfleet/v1/clusters/abc123",
+  "name": "my-cluster",
+  "spec": {}
+}
+```
+
+- `id` -- auto-generated UUID, assigned on create
+- `kind` -- derived from entity name
+- `href` -- `base_path` + collection path + `id`
+
+**List responses** wrap items in a pagination envelope:
+```json
+{
+  "kind": "ClusterList",
+  "page": 1,
+  "size": 10,
+  "total": 42,
+  "items": [...]
+}
+```
+
+The `rest-api` component generates:
+- A presenter function per entity that adds `id`, `kind`, `href` to the response
+- List handlers that accept `page`, `size`, `orderBy`, `order` query parameters
+- List responses with `kind` (entity name + "List"), `page`, `size`, `total`, and `items`
+- The storage interface gains a `ListOptions` parameter for pagination and ordering
+
+When `response_format` is not set or set to `bare`, entities are returned as plain JSON without wrapping.
 
 **Computed/derived fields** are read-only fields populated by a fill, never written via the API:
 ```yaml
