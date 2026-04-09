@@ -1958,7 +1958,7 @@ overrides: none
 	}
 }
 
-func TestValidateSlotCollectionsDefined_NonExposedCollectionRejected(t *testing.T) {
+func TestValidateSlotCollectionsDefined_UndefinedCollectionRejected(t *testing.T) {
 	slots := []types.SlotDeclaration{
 		{Slot: "before_create", Collection: "gadgets", Gate: []string{"my-policy"}},
 	}
