@@ -92,3 +92,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `467058c` fix(task-018): enforce scope cardinality on Reconcile path (round 4)
 - `b8f3aa6` fix(task-018): update generator error messages from "expose block" to "collection" (round 5)
 - `f24586c` fix(task-018): rename validateSlotBindingEntities to validateSlotCollectionsDefined (round 6)
+- `1b25fba` fix(task-018): rename NonExposedCollectionRejected to UndefinedCollectionRejected (round 7)
