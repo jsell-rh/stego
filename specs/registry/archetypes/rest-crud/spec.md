@@ -23,6 +23,7 @@ conventions:
   layout: flat
   error_handling: problem-details-rfc
   response_format: envelope
+  request_validation: openapi-schema
   logging: structured-json
   test_pattern: table-driven
 
@@ -400,6 +401,31 @@ The `rest-api` component generates:
 - Error constructors: `NotFound()`, `BadRequest()`, `Conflict()`, `Validation()`, etc.
 - A `handleError` function that serializes errors as Problem Details with `application/problem+json`
 - Validation errors include a `validation_errors` array with per-field details
+
+## Request Validation
+
+When `request_validation: openapi-schema` is set in the archetype conventions, the `rest-api` component generates middleware that validates request bodies against the generated OpenAPI spec at runtime.
+
+- The generated OpenAPI spec is loaded at server startup
+- POST, PUT, PATCH, and upsert request bodies are validated against the schema
+- Validation uses `kin-openapi` (or equivalent) to check required fields, type constraints, min/max/pattern
+- Validation failures return RFC 9457 Problem Details with per-field `validation_errors`:
+
+```json
+{
+  "type": "https://api.hyperfleet.io/errors/validation-error",
+  "title": "Validation Error",
+  "status": 400,
+  "detail": "Invalid ClusterSpec",
+  "code": "HYPERFLEET-VAL-000",
+  "validation_errors": [
+    { "field": "spec.region", "message": "property 'region' is missing" },
+    { "field": "spec.diskSize", "message": "number must be at least 10" }
+  ]
+}
+```
+
+Entity field constraints (min_length, max_length, pattern, min, max, required) are already encoded in the generated OpenAPI spec. The validation middleware enforces them at runtime without hand-coded validation functions per entity.
 
 ## Open Questions
 
