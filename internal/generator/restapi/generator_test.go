@@ -36,6 +36,7 @@ func basicContext() gen.Context {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
 			},
@@ -75,9 +76,9 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 
 	// Verify file paths.
 	expectedPaths := map[string]bool{
-		"internal/api/handler_user.go": true,
-		"internal/api/router.go":       true,
-		"internal/api/openapi.json":    true,
+		"internal/api/handler_users.go": true,
+		"internal/api/router.go":        true,
+		"internal/api/openapi.json":     true,
 	}
 	for _, f := range files {
 		if !expectedPaths[f.Path] {
@@ -95,8 +96,8 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 	if len(wiring.Constructors) != 1 {
 		t.Fatalf("expected 1 constructor, got %d", len(wiring.Constructors))
 	}
-	if !strings.Contains(wiring.Constructors[0], "NewUserHandler") {
-		t.Errorf("constructor should reference NewUserHandler, got: %s", wiring.Constructors[0])
+	if !strings.Contains(wiring.Constructors[0], "NewUsersHandler") {
+		t.Errorf("constructor should reference NewUsersHandler, got: %s", wiring.Constructors[0])
 	}
 	if len(wiring.Routes) == 0 {
 		t.Fatal("expected routes, got none")
@@ -121,19 +122,19 @@ func TestGenerate_HandlerContainsCRUDMethods(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handlerContent := findFileContent(t, files, "internal/api/handler_user.go")
+	handlerContent := findFileContent(t, files, "internal/api/handler_users.go")
 
 	for _, method := range []string{"create", "read", "update", "delete", "list"} {
-		if !strings.Contains(handlerContent, "func (h *UserHandler) "+strings.ToUpper(method[:1])+method[1:]+"(") {
+		if !strings.Contains(handlerContent, "func (h *UsersHandler) "+strings.ToUpper(method[:1])+method[1:]+"(") {
 			t.Errorf("handler missing %s method", method)
 		}
 	}
 
-	if !strings.Contains(handlerContent, "type UserHandler struct") {
-		t.Error("handler missing UserHandler struct")
+	if !strings.Contains(handlerContent, "type UsersHandler struct") {
+		t.Error("handler missing UsersHandler struct")
 	}
-	if !strings.Contains(handlerContent, "func NewUserHandler(") {
-		t.Error("handler missing NewUserHandler constructor")
+	if !strings.Contains(handlerContent, "func NewUsersHandler(") {
+		t.Error("handler missing NewUsersHandler constructor")
 	}
 }
 
@@ -221,8 +222,9 @@ func TestGenerate_NestedRouting(t *testing.T) {
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -237,7 +239,7 @@ func TestGenerate_NestedRouting(t *testing.T) {
 	}
 
 	// NodePool handler should verify ancestor Cluster exists via checkAncestors.
-	npHandler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	npHandler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	if !strings.Contains(npHandler, "checkAncestors") {
 		t.Error("nested handler missing checkAncestors method")
 	}
@@ -272,8 +274,9 @@ func TestGenerate_NestedRoutingWithPathPrefix(t *testing.T) {
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -319,8 +322,9 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -334,7 +338,7 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
 	// Must use PathValue with the parent path parameter name, not the scope field name.
 	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
 		t.Error("scope with parent must extract value from parent path parameter (organization_id)")
@@ -360,8 +364,9 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -375,7 +380,7 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
 	// Scope with parent entity in collections list uses path parameter.
 	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
 		t.Error("scope with parent in collections must extract value from path parameter")
@@ -401,8 +406,9 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -416,7 +422,7 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
 	if !strings.Contains(handler, `h.store.List("NodePool", "cluster_id", scopeValue)`) {
 		t.Error("scope+parent List must pass raw YAML field name to store.List, not PascalCase")
@@ -439,6 +445,7 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:        "adapter-statuses",
 				Entity:      "AdapterStatus",
 				Operations:  []types.Operation{types.OpList, types.OpUpsert},
 				UpsertKey:   []string{"resource_type", "resource_id", "adapter"},
@@ -453,8 +460,8 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
-	if !strings.Contains(handler, "func (h *AdapterStatusHandler) Upsert(") {
+	handler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
+	if !strings.Contains(handler, "func (h *AdapterStatusesHandler) Upsert(") {
 		t.Error("handler missing upsert method")
 	}
 	if !strings.Contains(handler, `"resource_type"`) {
@@ -485,6 +492,7 @@ func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "items",
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpUpdate, types.OpUpsert},
 				UpsertKey:  []string{"key"},
@@ -498,11 +506,11 @@ func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_item.go")
-	if !strings.Contains(handler, "func (h *ItemHandler) Update(") {
+	handler := findFileContent(t, files, "internal/api/handler_items.go")
+	if !strings.Contains(handler, "func (h *ItemsHandler) Update(") {
 		t.Error("handler missing update method")
 	}
-	if !strings.Contains(handler, "func (h *ItemHandler) Upsert(") {
+	if !strings.Contains(handler, "func (h *ItemsHandler) Upsert(") {
 		t.Error("handler missing upsert method")
 	}
 
@@ -592,8 +600,9 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 			{Name: "NodePool", Fields: []types.Field{{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -681,8 +690,9 @@ func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -744,7 +754,7 @@ func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Thing", Operations: []types.Operation{types.OpRead}},
+			{Name: "things", Entity: "Thing", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -804,6 +814,7 @@ func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "clusters",
 				Entity:     "Cluster",
 				Operations: []types.Operation{types.OpCreate, types.OpUpdate, types.OpUpsert},
 				UpsertKey:  []string{"name"},
@@ -817,11 +828,11 @@ func TestGenerate_ComputedFieldsExcludedFromWriteOps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_cluster.go")
+	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
 
 	// Each write method must zero the computed field after decode.
 	for _, method := range []string{"Create", "Update", "Upsert"} {
-		if !strings.Contains(handler, "func (h *ClusterHandler) "+method+"(") {
+		if !strings.Contains(handler, "func (h *ClustersHandler) "+method+"(") {
 			t.Errorf("handler missing %s method", method)
 			continue
 		}
@@ -844,7 +855,7 @@ func TestGenerate_ComputedFieldsReadOnlyInOpenAPI(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -893,6 +904,7 @@ func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "clusters",
 				Entity:     "Cluster",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
 				UpsertKey:  []string{"name"},
@@ -935,7 +947,7 @@ func TestGenerate_UnknownEntity(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{},
 		Collections: []types.Collection{
-			{Entity: "Missing", Operations: []types.Operation{types.OpRead}},
+			{Name: "missings", Entity: "Missing", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -1006,8 +1018,9 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -1021,16 +1034,16 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have handler_organization.go, handler_user.go, router.go, openapi.json
+	// Should have handler_organizations.go, handler_users.go, router.go, openapi.json
 	if len(files) != 4 {
 		t.Fatalf("expected 4 files, got %d", len(files))
 	}
 
 	expectedPaths := map[string]bool{
-		"internal/api/handler_organization.go": true,
-		"internal/api/handler_user.go":         true,
-		"internal/api/router.go":               true,
-		"internal/api/openapi.json":            true,
+		"internal/api/handler_organizations.go": true,
+		"internal/api/handler_users.go":         true,
+		"internal/api/router.go":                true,
+		"internal/api/openapi.json":             true,
 	}
 	for _, f := range files {
 		if !expectedPaths[f.Path] {
@@ -1056,7 +1069,7 @@ func TestGenerate_ListOnlyGETRoute(t *testing.T) {
 			{Name: "Event", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Event", Operations: []types.Operation{types.OpList}},
+			{Name: "events", Entity: "Event", Operations: []types.Operation{types.OpList}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -1066,12 +1079,12 @@ func TestGenerate_ListOnlyGETRoute(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_event.go")
-	if !strings.Contains(handler, "func (h *EventHandler) List(") {
+	handler := findFileContent(t, files, "internal/api/handler_events.go")
+	if !strings.Contains(handler, "func (h *EventsHandler) List(") {
 		t.Error("handler missing list method")
 	}
 	// Should not have a read method.
-	if strings.Contains(handler, "func (h *EventHandler) Read(") {
+	if strings.Contains(handler, "func (h *EventsHandler) Read(") {
 		t.Error("handler should not have read method when only list is exposed")
 	}
 }
@@ -1096,8 +1109,9 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -1236,8 +1250,9 @@ func TestGenerate_UpsertWithParentSetsParentID(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpUpsert},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -1252,7 +1267,7 @@ func TestGenerate_UpsertWithParentSetsParentID(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	// Upsert must assign parent ID from path parameter, just like create does.
 	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
 		t.Error("upsert handler must assign parent ID from path parameter")
@@ -1268,7 +1283,7 @@ func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
 			{Name: "Session", Fields: []types.Field{{Name: "token", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Session", Operations: []types.Operation{types.OpDelete}},
+			{Name: "sessions", Entity: "Session", Operations: []types.Operation{types.OpDelete}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -1278,7 +1293,7 @@ func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_session.go")
+	handler := findFileContent(t, files, "internal/api/handler_sessions.go")
 	if strings.Contains(handler, `"encoding/json"`) {
 		t.Error("delete-only handler must not import encoding/json (unused import)")
 	}
@@ -1337,6 +1352,7 @@ func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "items",
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList, types.OpUpsert},
 				UpsertKey:  []string{"key"},
@@ -1350,7 +1366,7 @@ func TestGenerate_HandlersSetContentTypeJSON(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_item.go")
+	handler := findFileContent(t, files, "internal/api/handler_items.go")
 	// Count occurrences of Content-Type header setting — must match the number
 	// of methods that write JSON responses (create, read, update, list, upsert = 5).
 	ct := strings.Count(handler, `w.Header().Set("Content-Type", "application/json")`)
@@ -1372,6 +1388,7 @@ func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "records",
 				Entity:     "Record",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
 			},
@@ -1384,7 +1401,7 @@ func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_record.go")
+	handler := findFileContent(t, files, "internal/api/handler_records.go")
 	if !strings.Contains(handler, "record.LastUpdated = time.Time{}") {
 		t.Error("computed timestamp field must be zeroed with time.Time{}, not nil")
 	}
@@ -1429,6 +1446,7 @@ func TestGenerate_OpenAPIResponseContentForWriteOps(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "items",
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpUpsert},
 				UpsertKey:  []string{"key"},
@@ -1500,6 +1518,7 @@ func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "items",
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList, types.OpUpsert},
 				UpsertKey:  []string{"key"},
@@ -1570,8 +1589,9 @@ func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
 					}},
 				},
 				Collections: []types.Collection{
-					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+					{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 					{
+						Name:       "widgets",
 						Entity:     "Widget",
 						Operations: tt.ops,
 						Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -1611,7 +1631,7 @@ func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -1668,6 +1688,7 @@ func TestGenerate_GoKeywordEntityName(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "types",
 				Entity:     "Type",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
 			},
@@ -1747,7 +1768,7 @@ func TestGenerate_OpenAPIConstraintAttributes(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Resource", Operations: []types.Operation{types.OpRead}},
+			{Name: "resources", Entity: "Resource", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -1851,13 +1872,15 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
 			},
 			{
+				Name:       "adapter-statuses",
 				Entity:     "AdapterStatus",
 				Operations: []types.Operation{types.OpList, types.OpUpsert},
 				Scope:      map[string]string{"nodepool_id": "NodePool"},
@@ -1873,7 +1896,7 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 	}
 
 	// AdapterStatus handler must verify BOTH Cluster and NodePool.
-	asHandler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
+	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
 
 	if !strings.Contains(asHandler, "checkAncestors") {
 		t.Error("AdapterStatus handler missing checkAncestors method")
@@ -1894,7 +1917,7 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 	}
 
 	// NodePool handler should still only verify Cluster (its single ancestor).
-	npHandler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	npHandler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
 		t.Error("NodePool handler must verify Cluster existence")
 	}
@@ -1940,6 +1963,7 @@ func TestGenerate_CircularParentSelfReference(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "nodes",
 				Entity:     "Node",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"node_id": "Node"},
@@ -1972,11 +1996,13 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "alphas",
 				Entity:     "Alpha",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"beta_id": "Beta"},
 			},
 			{
+				Name:       "betas",
 				Entity:     "Beta",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"alpha_id": "Alpha"},
@@ -2037,8 +2063,9 @@ func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpUpdate},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -2052,7 +2079,7 @@ func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_nodepool.go")
+	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	// Update must assign parent ID from path parameter, just like create does.
 	if !strings.Contains(handler, `nodepool.ClusterID = r.PathValue("cluster_id")`) {
 		t.Error("update handler must assign parent ID from path parameter")
@@ -2073,8 +2100,9 @@ func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "widgets",
 				Entity:     "Widget",
 				Operations: []types.Operation{types.OpUpdate},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -2109,7 +2137,7 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -2147,21 +2175,22 @@ func TestGenerate_OpenAPIDefaultAttribute(t *testing.T) {
 	}
 }
 
-func TestGenerate_EntityNamedStorageReturnsError(t *testing.T) {
-	// Finding 27: entity named "Storage" collides with the generated Storage
-	// interface in router.go. The generator must return a clear error at
-	// generation time rather than producing code with a redeclaration.
+func TestGenerate_CollectionNamedStorageReturnsError(t *testing.T) {
+	// A collection named "storage" produces collectionToPascalCase → "Storage",
+	// which collides with the generated Storage interface in router.go.
+	// The generator must return a clear error at generation time.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
-			{Name: "Storage", Fields: []types.Field{
+			{Name: "Warehouse", Fields: []types.Field{
 				{Name: "name", Type: types.FieldTypeString},
 			}},
 		},
 		Collections: []types.Collection{
 			{
-				Entity:     "Storage",
+				Name:       "storage",
+				Entity:     "Warehouse",
 				Operations: []types.Operation{types.OpCreate, types.OpRead},
 			},
 		},
@@ -2170,7 +2199,7 @@ func TestGenerate_EntityNamedStorageReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for entity named 'Storage' (collides with generated Storage interface)")
+		t.Fatal("expected error for collection named 'storage' (collides with generated Storage interface)")
 	}
 	if !strings.Contains(err.Error(), "Storage") {
 		t.Errorf("error should mention 'Storage', got: %v", err)
@@ -2214,6 +2243,7 @@ func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
 	// receiver (h) or parameter names (w, r) must not produce compile errors.
 	g := &Generator{}
 
+	collNames := map[string]string{"W": "ws", "R": "rs", "H": "hs"}
 	for _, name := range []string{"W", "R", "H"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := gen.Context{
@@ -2225,6 +2255,7 @@ func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
 				},
 				Collections: []types.Collection{
 					{
+						Name:       collNames[name],
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
 					},
@@ -2266,6 +2297,7 @@ func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
 	// (json, http, time) must not produce compile errors.
 	g := &Generator{}
 
+	importCollNames := map[string]string{"Json": "jsons", "Http": "https", "Time": "times"}
 	for _, name := range []string{"Json", "Http", "Time"} {
 		t.Run(name, func(t *testing.T) {
 			fields := []types.Field{
@@ -2283,6 +2315,7 @@ func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
 				Entities:    []types.Entity{{Name: name, Fields: fields}},
 				Collections: []types.Collection{
 					{
+						Name:       importCollNames[name],
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 					},
@@ -2333,6 +2366,7 @@ func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 			},
@@ -2353,7 +2387,7 @@ func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
 	}
 
 	// Package declarations must use the base of the namespace ("http"), not "api".
-	handlerContent := findFileContent(t, files, "pkg/http/handler_user.go")
+	handlerContent := findFileContent(t, files, "pkg/http/handler_users.go")
 	if !strings.Contains(handlerContent, "package http") {
 		t.Error("handler file should declare 'package http', not 'package api'")
 	}
@@ -2432,8 +2466,9 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpRead, types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -2489,6 +2524,7 @@ func TestGenerate_ParentNotInCollectionsListReturnsError(t *testing.T) {
 		Collections: []types.Collection{
 			// NodePool references parent Cluster, but Cluster has no collection.
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
@@ -2504,11 +2540,11 @@ func TestGenerate_ParentNotInCollectionsListReturnsError(t *testing.T) {
 	if !strings.Contains(err.Error(), "Cluster") {
 		t.Errorf("error should mention the missing parent entity 'Cluster', got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "NodePool") {
-		t.Errorf("error should mention the referencing entity 'NodePool', got: %v", err)
+	if !strings.Contains(err.Error(), "node-pools") {
+		t.Errorf("error should mention the referencing collection 'node-pools', got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "collections list") {
-		t.Errorf("error should mention the collections list, got: %v", err)
+	if !strings.Contains(err.Error(), "collection") {
+		t.Errorf("error should mention collection, got: %v", err)
 	}
 }
 
@@ -2529,8 +2565,8 @@ func TestGenerate_MultipleParentsNotInCollectionsListReportsAll(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Team", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"org_id": "Org"}},
-			{Entity: "Project", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"team_id": "Team"}},
+			{Name: "teams", Entity: "Team", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"org_id": "Org"}},
+			{Name: "projects", Entity: "Project", Operations: []types.Operation{types.OpList}, Scope: map[string]string{"team_id": "Team"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -2561,8 +2597,9 @@ func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -2577,7 +2614,7 @@ func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
 
 	// checkAncestors must use {org_id} from the prefix, NOT {organization_id}
 	// from the convention.
@@ -2635,8 +2672,9 @@ func TestGenerate_PathPrefixDivergentParamNamesOpenAPI(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList, types.OpCreate},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -2691,8 +2729,9 @@ func TestGenerate_PathPrefixScopeWithDivergentParamNames(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}, PathPrefix: "/orgs"},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -2707,7 +2746,7 @@ func TestGenerate_PathPrefixScopeWithDivergentParamNames(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	handler := findFileContent(t, files, "internal/api/handler_user.go")
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
 	// Scope+parent: must use actual prefix param name for PathValue.
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
 		t.Error("scope+parent list must use actual prefix parameter name 'org_id' for scope extraction")
@@ -2735,14 +2774,16 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}, PathPrefix: "/clusters"},
 			{
+				Name:       "node-pools",
 				Entity:     "NodePool",
 				Operations: []types.Operation{types.OpRead, types.OpList},
 				Scope:      map[string]string{"cluster_id": "Cluster"},
 				PathPrefix: "/clusters/{cid}/pools",
 			},
 			{
+				Name:       "adapter-statuses",
 				Entity:     "AdapterStatus",
 				Operations: []types.Operation{types.OpList, types.OpUpsert},
 				Scope:      map[string]string{"nodepool_id": "NodePool"},
@@ -2758,7 +2799,7 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	asHandler := findFileContent(t, files, "internal/api/handler_adapterstatus.go")
+	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
 
 	// checkAncestors must use {cid} and {pid} from the prefix.
 	if !strings.Contains(asHandler, `r.PathValue("cid")`) {
@@ -2888,8 +2929,9 @@ func TestGenerate_InvalidScopeFieldReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"nonexistent_field": "Organization"},
@@ -2925,6 +2967,7 @@ func TestGenerate_InvalidUpsertKeyFieldReturnsError(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "items",
 				Entity:     "Item",
 				Operations: []types.Operation{types.OpUpsert},
 				UpsertKey:  []string{"name", "nonexistent_key"},
@@ -2948,37 +2991,40 @@ func TestGenerate_InvalidUpsertKeyFieldReturnsError(t *testing.T) {
 	}
 }
 
-func TestGenerate_CrossEntityHandlerTypeCollisionReturnsError(t *testing.T) {
-	// Finding 35: entity A named "User" produces "UserHandler" type; if entity B
-	// is named "UserHandler", it collides with A's handler type in the same package.
+func TestGenerate_CrossCollectionHandlerTypeCollisionReturnsError(t *testing.T) {
+	// Two collections whose derived PascalCase names produce the same handler
+	// type must be rejected. E.g., "user-handler" and "users" where one produces
+	// "UserHandler" + "Handler" = "UserHandlerHandler" — but more directly,
+	// a collection named "users" produces handler type "UsersHandler", and if
+	// another entity has a struct named "UsersHandler", that collides.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
 			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "UserHandler", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "UsersHandler", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpRead}},
-			{Entity: "UserHandler", Operations: []types.Operation{types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Name: "users-handlers", Entity: "UsersHandler", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for cross-entity handler type name collision")
+		t.Fatal("expected error for collection-derived handler type name collision")
 	}
-	if !strings.Contains(err.Error(), "UserHandler") {
-		t.Errorf("error should mention the colliding name 'UserHandler', got: %v", err)
+	if !strings.Contains(err.Error(), "UsersHandler") {
+		t.Errorf("error should mention the colliding name 'UsersHandler', got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should mention the source entity 'User', got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should mention the source collection 'users', got: %v", err)
 	}
 }
 
-func TestGenerate_DuplicateCollectionsReturnsError(t *testing.T) {
-	// Finding 36: two collections for the same entity must return an error,
+func TestGenerate_DuplicateCollectionNamesReturnsError(t *testing.T) {
+	// Two collections with the same name must return an error,
 	// not silently overwrite in the map or produce duplicate type declarations.
 	g := &Generator{}
 	ctx := gen.Context{
@@ -2987,18 +3033,18 @@ func TestGenerate_DuplicateCollectionsReturnsError(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpCreate}},
-			{Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpCreate}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for duplicate collections for the same entity")
+		t.Fatal("expected error for duplicate collection names")
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should mention the duplicated entity 'User', got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should mention the duplicated collection name 'users', got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "duplicate") {
 		t.Errorf("error should mention 'duplicate', got: %v", err)
@@ -3021,8 +3067,9 @@ func TestGenerate_ValidScopeFieldSucceeds(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
@@ -3051,6 +3098,7 @@ func TestGenerate_ValidUpsertKeyFieldsSucceeds(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
+				Name:       "statuses",
 				Entity:     "Status",
 				Operations: []types.Operation{types.OpUpsert},
 				UpsertKey:  []string{"resource_type", "resource_id", "adapter"},
@@ -3077,7 +3125,7 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3104,8 +3152,8 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpRead}},
-			{Entity: "Org", Operations: []types.Operation{}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead}},
+			{Name: "orgs", Entity: "Org", Operations: []types.Operation{}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3130,7 +3178,7 @@ func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
 			{Name: "User", Fields: []types.Field{{Name: "email", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpCreate, types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpCreate, types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3157,8 +3205,8 @@ func TestGenerate_DuplicateOperationsMultipleEntities(t *testing.T) {
 			{Name: "Org", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpRead, types.OpRead}},
-			{Entity: "Org", Operations: []types.Operation{types.OpDelete, types.OpDelete}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpRead, types.OpRead}},
+			{Name: "orgs", Entity: "Org", Operations: []types.Operation{types.OpDelete, types.OpDelete}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3186,8 +3234,8 @@ func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 			{Name: "Beta", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Alpha", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
-			{Entity: "Beta", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
+			{Name: "alphas", Entity: "Alpha", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
+			{Name: "betas", Entity: "Beta", Operations: []types.Operation{types.OpList}, PathPrefix: "/items"},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3196,8 +3244,8 @@ func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for route path collision")
 	}
-	if !strings.Contains(err.Error(), "Alpha") || !strings.Contains(err.Error(), "Beta") {
-		t.Errorf("error should mention both colliding entities, got: %v", err)
+	if !strings.Contains(err.Error(), "alphas") || !strings.Contains(err.Error(), "betas") {
+		t.Errorf("error should mention both colliding collections, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "/items") {
 		t.Errorf("error should mention the colliding path, got: %v", err)
@@ -3215,8 +3263,8 @@ func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
 			{Name: "ITEM", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Item", Operations: []types.Operation{types.OpList}},
-			{Entity: "ITEM", Operations: []types.Operation{types.OpList}},
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
+			{Name: "items2", Entity: "ITEM", Operations: []types.Operation{types.OpList}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3225,8 +3273,8 @@ func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for case-insensitive route path collision")
 	}
-	if !strings.Contains(err.Error(), "Item") && !strings.Contains(err.Error(), "ITEM") {
-		t.Errorf("error should mention colliding entities, got: %v", err)
+	if !strings.Contains(err.Error(), "items") && !strings.Contains(err.Error(), "items2") {
+		t.Errorf("error should mention colliding collections, got: %v", err)
 	}
 }
 
@@ -3240,8 +3288,8 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 			{Name: "Other", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Widget", Operations: []types.Operation{types.OpList}},                        // auto: /widgets
-			{Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpList}},                        // auto: /widgets
+			{Name: "others", Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3250,8 +3298,8 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for auto-derived path matching explicit path_prefix")
 	}
-	if !strings.Contains(err.Error(), "Widget") || !strings.Contains(err.Error(), "Other") {
-		t.Errorf("error should mention both colliding entities, got: %v", err)
+	if !strings.Contains(err.Error(), "widgets") || !strings.Contains(err.Error(), "others") {
+		t.Errorf("error should mention both colliding collections, got: %v", err)
 	}
 }
 
@@ -3265,8 +3313,8 @@ func TestGenerate_NoRouteCollisionDifferentPaths(t *testing.T) {
 			{Name: "Team", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "User", Operations: []types.Operation{types.OpList}},
-			{Entity: "Team", Operations: []types.Operation{types.OpList}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpList}},
+			{Name: "teams", Entity: "Team", Operations: []types.Operation{types.OpList}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3294,8 +3342,9 @@ func TestGenerate_ScopeParentInconsistencyReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"department": "Organization"}, // department is not the ref field to Organization
@@ -3334,8 +3383,9 @@ func TestGenerate_ScopeParentConsistentSucceeds(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
 			{
+				Name:       "users",
 				Entity:     "User",
 				Operations: []types.Operation{types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"}, // matches the ref field to Organization
@@ -3380,8 +3430,8 @@ func TestGenerate_MultipleRefFieldsToSameParentReturnsError(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Account", Operations: []types.Operation{types.OpRead}},
-			{Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"account_id": "Account"}},
+			{Name: "accounts", Entity: "Account", Operations: []types.Operation{types.OpRead}},
+			{Name: "transfers", Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"account_id": "Account"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3432,8 +3482,8 @@ func TestGenerate_MultipleRefFieldsTwoNodeCycle(t *testing.T) {
 					}},
 				},
 				Collections: []types.Collection{
-					{Entity: "Org", Operations: []types.Operation{types.OpRead}},
-					{Entity: "Member", Operations: tt.ops, Scope: map[string]string{"org_id": "Org"}, UpsertKey: []string{"primary_org_id"}},
+					{Name: "orgs", Entity: "Org", Operations: []types.Operation{types.OpRead}},
+					{Name: "members", Entity: "Member", Operations: tt.ops, Scope: map[string]string{"org_id": "Org"}, UpsertKey: []string{"primary_org_id"}},
 				},
 				OutputNamespace: "internal/api",
 			}
@@ -3478,8 +3528,8 @@ func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
 					}},
 				},
 				Collections: []types.Collection{
-					{Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
-					{Entity: "Widget", Operations: tt.ops, Scope: map[string]string{"cluster_id": "Cluster"}},
+					{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+					{Name: "widgets", Entity: "Widget", Operations: tt.ops, Scope: map[string]string{"cluster_id": "Cluster"}},
 				},
 				OutputNamespace: "internal/api",
 			}
@@ -3513,8 +3563,8 @@ func TestGenerate_SingleRefFieldToParentSucceeds(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Org", Operations: []types.Operation{types.OpRead}},
-			{Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpDelete}, Scope: map[string]string{"org_id": "Org"}},
+			{Name: "orgs", Entity: "Org", Operations: []types.Operation{types.OpRead}},
+			{Name: "users", Entity: "User", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpDelete}, Scope: map[string]string{"org_id": "Org"}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3543,6 +3593,7 @@ func TestGenerate_EntityNameIdCompiles(t *testing.T) {
 	// Read/Update/Delete methods. safeVarName must escape "id" to "id_".
 	g := &Generator{}
 
+	idCollNames := map[string]string{"Id": "ids", "ID": "id-items"}
 	for _, name := range []string{"Id", "ID"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := gen.Context{
@@ -3554,6 +3605,7 @@ func TestGenerate_EntityNameIdCompiles(t *testing.T) {
 				},
 				Collections: []types.Collection{
 					{
+						Name:       idCollNames[name],
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
 					},
@@ -3591,72 +3643,66 @@ func TestGenerate_EntityNameIdCompiles(t *testing.T) {
 	}
 }
 
-func TestGenerate_CaseInsensitiveEntityNamesReturnsError(t *testing.T) {
-	// Finding 43: two entities whose names differ only in case (e.g. "Item"
-	// and "ITEM") produce colliding handler variable names, handler file
-	// paths, and router variable declarations via strings.ToLower.
+func TestGenerate_CollectionDerivedIdentifierCollision(t *testing.T) {
+	// Two collections whose names produce the same PascalCase identifier
+	// (e.g. "org-users" and "org_users" both → "OrgUsers") must be rejected.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
-			{Name: "Item", Fields: []types.Field{
+			{Name: "User", Fields: []types.Field{
 				{Name: "name", Type: types.FieldTypeString},
-			}},
-			{Name: "ITEM", Fields: []types.Field{
-				{Name: "label", Type: types.FieldTypeString},
 			}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Item", Operations: []types.Operation{types.OpRead}, PathPrefix: "/items"},
-			{Entity: "ITEM", Operations: []types.Operation{types.OpRead}, PathPrefix: "/things"},
+			{Name: "org-users", Entity: "User", Operations: []types.Operation{types.OpRead}, PathPrefix: "/org-users"},
+			{Name: "org_users", Entity: "User", Operations: []types.Operation{types.OpRead}, PathPrefix: "/org_users"},
 		},
 		OutputNamespace: "internal/api",
 	}
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for case-insensitively equivalent entity names")
+		t.Fatal("expected error for collections with colliding derived identifiers")
 	}
-	if !strings.Contains(err.Error(), "case-insensitive") {
-		t.Errorf("error should mention case-insensitive collision, got: %v", err)
+	if !strings.Contains(err.Error(), "org-users") {
+		t.Errorf("error should mention first collection name, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "Item") {
-		t.Errorf("error should mention first entity name, got: %v", err)
+	if !strings.Contains(err.Error(), "org_users") {
+		t.Errorf("error should mention second collection name, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "ITEM") {
-		t.Errorf("error should mention second entity name, got: %v", err)
+	if !strings.Contains(err.Error(), "OrgUsers") {
+		t.Errorf("error should mention the colliding identifier, got: %v", err)
 	}
 }
 
-func TestGenerate_CaseInsensitiveEntityNamesAutoPathCaught(t *testing.T) {
-	// Verify that case-insensitive check catches collisions even when both
-	// entities use auto-derived paths (which also collide via route detection,
-	// but the case-insensitive check should fire first).
+func TestGenerate_CollectionDerivedIdentifierCollisionAutoPath(t *testing.T) {
+	// Verify that derived identifier collision check catches collections whose
+	// names produce the same PascalCase even with auto-derived paths.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
 			{Name: "Foo", Fields: []types.Field{{Name: "a", Type: types.FieldTypeString}}},
-			{Name: "FOO", Fields: []types.Field{{Name: "b", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Foo", Operations: []types.Operation{types.OpRead}},
-			{Entity: "FOO", Operations: []types.Operation{types.OpRead}},
+			{Name: "my-foos", Entity: "Foo", Operations: []types.Operation{types.OpRead}, PathPrefix: "/my-foos"},
+			{Name: "my_foos", Entity: "Foo", Operations: []types.Operation{types.OpRead}, PathPrefix: "/my_foos"},
 		},
 		OutputNamespace: "internal/api",
 	}
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error for case-insensitively equivalent entity names with auto paths")
+		t.Fatal("expected error for collections with colliding derived identifiers")
 	}
-	if !strings.Contains(err.Error(), "case-insensitive") {
-		t.Errorf("error should mention case-insensitive collision, got: %v", err)
+	if !strings.Contains(err.Error(), "MyFoos") {
+		t.Errorf("error should mention colliding identifier, got: %v", err)
 	}
 }
 
-func TestGenerate_DifferentCaseEntityNamesDifferentEnoughSucceeds(t *testing.T) {
-	// Entities with different lowercased names should not be rejected.
+func TestGenerate_DifferentCollectionNamesDifferentEnoughSucceeds(t *testing.T) {
+	// Collections with distinctly different names should not be rejected.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -3665,15 +3711,15 @@ func TestGenerate_DifferentCaseEntityNamesDifferentEnoughSucceeds(t *testing.T) 
 			{Name: "Order", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Entity: "Item", Operations: []types.Operation{types.OpRead}},
-			{Entity: "Order", Operations: []types.Operation{types.OpRead}},
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpRead}},
+			{Name: "orders", Entity: "Order", Operations: []types.Operation{types.OpRead}},
 		},
 		OutputNamespace: "internal/api",
 	}
 
 	_, _, err := g.Generate(ctx)
 	if err != nil {
-		t.Fatalf("unexpected error for entities with distinct lowercased names: %v", err)
+		t.Fatalf("unexpected error for collections with distinct names: %v", err)
 	}
 }
 
@@ -3683,6 +3729,7 @@ func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 	// `%s, err := h.store.Read(...)`. safeVarName must escape "err" to "err_".
 	g := &Generator{}
 
+	errCollNames := map[string]string{"Err": "errs", "ERR": "err-items"}
 	for _, name := range []string{"Err", "ERR"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := gen.Context{
@@ -3694,6 +3741,7 @@ func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 				},
 				Collections: []types.Collection{
 					{
+						Name:       errCollNames[name],
 						Entity:     name,
 						Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList},
 					},
@@ -3765,12 +3813,12 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 	// Find the handler file.
 	var handlerContent string
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_user.go") {
+		if strings.Contains(f.Path, "handler_users.go") {
 			handlerContent = string(f.Content)
 		}
 	}
 	if handlerContent == "" {
-		t.Fatal("handler_user.go not found")
+		t.Fatal("handler_users.go not found")
 	}
 
 	// Verify slot package import.
@@ -3787,7 +3835,7 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 	}
 
 	// Verify constructor accepts slot params.
-	if !strings.Contains(handlerContent, "func NewUserHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot)") {
+	if !strings.Contains(handlerContent, "func NewUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot)") {
 		t.Errorf("constructor missing slot params:\n%s", handlerContent)
 	}
 
@@ -3897,12 +3945,12 @@ func TestGenerate_HandlerWithAuthPackage_IdentityFromContext(t *testing.T) {
 
 	var handlerContent string
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_user.go") {
+		if strings.Contains(f.Path, "handler_users.go") {
 			handlerContent = string(f.Content)
 		}
 	}
 	if handlerContent == "" {
-		t.Fatal("handler_user.go not found")
+		t.Fatal("handler_users.go not found")
 	}
 
 	// Must import the auth package.
@@ -3933,7 +3981,7 @@ func TestGenerate_HandlerWithoutSlotBindings_NoSlotCode(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_user.go") {
+		if strings.Contains(f.Path, "handler_users.go") {
 			content := string(f.Content)
 			if strings.Contains(content, "slots.") {
 				t.Errorf("handler without slot bindings should not reference slots package:\n%s", content)
@@ -3974,12 +4022,12 @@ func TestGenerate_SlotRequestPopulationWithNonStringFields(t *testing.T) {
 
 	var handlerContent string
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_counter.go") {
+		if strings.Contains(f.Path, "handler_counters.go") {
 			handlerContent = string(f.Content)
 		}
 	}
 	if handlerContent == "" {
-		t.Fatal("handler_counter.go not found")
+		t.Fatal("handler_counters.go not found")
 	}
 
 	// fmt must be imported for non-string field conversion.
@@ -4034,12 +4082,12 @@ func TestGenerate_NilGuardPassthrough(t *testing.T) {
 
 	var handlerContent string
 	for _, f := range files {
-		if strings.Contains(f.Path, "handler_item.go") {
+		if strings.Contains(f.Path, "handler_items.go") {
 			handlerContent = string(f.Content)
 		}
 	}
 	if handlerContent == "" {
-		t.Fatal("handler_item.go not found")
+		t.Fatal("handler_items.go not found")
 	}
 
 	// Every slot operator invocation must have a nil guard.
