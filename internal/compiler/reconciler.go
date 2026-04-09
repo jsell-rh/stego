@@ -289,7 +289,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	// operators are injected into handler constructors, which only exist for
 	// collections. A slot binding referencing a non-existent collection would
 	// produce an unused variable in the generated main.go — a Go compile error.
-	if err := validateSlotBindingEntities(svcDecl.Slots, svcDecl.Collections); err != nil {
+	if err := validateSlotCollectionsDefined(svcDecl.Slots, svcDecl.Collections); err != nil {
 		return nil, err
 	}
 
@@ -897,12 +897,12 @@ func FormatPlan(plan *Plan) string {
 	return result.String()
 }
 
-// validateSlotBindingEntities checks that every slot binding with a non-empty
+// validateSlotCollectionsDefined checks that every slot binding with a non-empty
 // Collection field references a collection that exists. Slot operators are
 // injected into handler constructors, which are only generated for collections.
 // A binding referencing a non-existent collection would produce an unused
 // variable — a Go compile error.
-func validateSlotBindingEntities(slots []types.SlotDeclaration, collections []types.Collection) error {
+func validateSlotCollectionsDefined(slots []types.SlotDeclaration, collections []types.Collection) error {
 	if len(slots) == 0 {
 		return nil
 	}

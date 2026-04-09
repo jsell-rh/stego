@@ -1958,7 +1958,7 @@ overrides: none
 	}
 }
 
-func TestValidateSlotBindingEntities_NonExposedCollectionRejected(t *testing.T) {
+func TestValidateSlotCollectionsDefined_NonExposedCollectionRejected(t *testing.T) {
 	slots := []types.SlotDeclaration{
 		{Slot: "before_create", Collection: "gadgets", Gate: []string{"my-policy"}},
 	}
@@ -1966,7 +1966,7 @@ func TestValidateSlotBindingEntities_NonExposedCollectionRejected(t *testing.T) 
 		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create", "read"}},
 	}
 
-	err := validateSlotBindingEntities(slots, collections)
+	err := validateSlotCollectionsDefined(slots, collections)
 	if err == nil {
 		t.Fatal("expected error when slot binding references a non-existent collection")
 	}
@@ -1978,7 +1978,7 @@ func TestValidateSlotBindingEntities_NonExposedCollectionRejected(t *testing.T) 
 	}
 }
 
-func TestValidateSlotBindingEntities_DefinedCollectionAccepted(t *testing.T) {
+func TestValidateSlotCollectionsDefined_DefinedCollectionAccepted(t *testing.T) {
 	slots := []types.SlotDeclaration{
 		{Slot: "before_create", Collection: "widgets", Gate: []string{"my-policy"}},
 	}
@@ -1986,13 +1986,13 @@ func TestValidateSlotBindingEntities_DefinedCollectionAccepted(t *testing.T) {
 		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create", "read"}},
 	}
 
-	err := validateSlotBindingEntities(slots, collections)
+	err := validateSlotCollectionsDefined(slots, collections)
 	if err != nil {
 		t.Fatalf("expected success when slot binding references a defined collection, got: %v", err)
 	}
 }
 
-func TestValidateSlotBindingEntities_EmptyCollectionAccepted(t *testing.T) {
+func TestValidateSlotCollectionsDefined_EmptyCollectionAccepted(t *testing.T) {
 	// Slot bindings with no collection should be accepted.
 	slots := []types.SlotDeclaration{
 		{Slot: "before_create", Gate: []string{"my-policy"}},
@@ -2001,14 +2001,14 @@ func TestValidateSlotBindingEntities_EmptyCollectionAccepted(t *testing.T) {
 		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create"}},
 	}
 
-	err := validateSlotBindingEntities(slots, collections)
+	err := validateSlotCollectionsDefined(slots, collections)
 	if err != nil {
 		t.Fatalf("expected success when slot binding has no collection, got: %v", err)
 	}
 }
 
-func TestValidateSlotBindingEntities_NoSlotsAccepted(t *testing.T) {
-	err := validateSlotBindingEntities(nil, []types.Collection{
+func TestValidateSlotCollectionsDefined_NoSlotsAccepted(t *testing.T) {
+	err := validateSlotCollectionsDefined(nil, []types.Collection{
 		{Name: "widgets", Entity: "Widget"},
 	})
 	if err != nil {
