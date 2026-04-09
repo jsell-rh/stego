@@ -645,7 +645,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.nonexistent_slot
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -694,7 +694,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.before_create
-entity: Gadget
+collection: gadgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -1052,7 +1052,7 @@ message SlotResult { bool ok = 1; }
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-notifier
 implements: event-publisher.on_entity_changed
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -1132,7 +1132,7 @@ message SlotResult { bool ok = 1; }
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-notifier
 implements: event-publisher.on_entity_changed
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -1946,7 +1946,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -1999,7 +1999,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2057,7 +2057,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-notifier
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2114,7 +2114,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2173,7 +2173,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2522,7 +2522,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2580,7 +2580,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2634,7 +2634,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: step-a
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2687,7 +2687,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: notifier
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2741,7 +2741,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2918,7 +2918,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -2974,7 +2974,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -3030,7 +3030,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -3088,7 +3088,7 @@ slots:
 		writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: `+fill+`
 implements: stub-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)

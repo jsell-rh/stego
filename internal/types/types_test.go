@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -500,6 +501,42 @@ overrides: none
 	}
 	if m.Overrides != "none" {
 		t.Errorf("overrides = %q, want %q", m.Overrides, "none")
+	}
+}
+
+func TestSlotDeclarationRejectsDeprecatedEntityKey(t *testing.T) {
+	input := `
+slot: before_create
+entity: User
+gate:
+  - my-policy
+`
+	var sb SlotDeclaration
+	err := yaml.Unmarshal([]byte(input), &sb)
+	if err == nil {
+		t.Fatal("expected error for deprecated 'entity' key in slot declaration, got nil")
+	}
+	if !strings.Contains(err.Error(), "renamed to 'collection'") {
+		t.Errorf("error message should mention renaming to 'collection', got: %v", err)
+	}
+}
+
+func TestFillRejectsDeprecatedEntityKey(t *testing.T) {
+	input := `
+kind: fill
+name: my-policy
+implements: rest-api.before_create
+entity: User
+qualified_by: tester
+qualified_at: 2026-04-01T00:00:00Z
+`
+	var f Fill
+	err := yaml.Unmarshal([]byte(input), &f)
+	if err == nil {
+		t.Fatal("expected error for deprecated 'entity' key in fill declaration, got nil")
+	}
+	if !strings.Contains(err.Error(), "renamed to 'collection'") {
+		t.Errorf("error message should mention renaming to 'collection', got: %v", err)
 	}
 }
 

@@ -278,6 +278,25 @@ type SlotDeclaration struct {
 	ShortCircuit bool     `yaml:"short_circuit,omitempty"`
 }
 
+// UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
+// in the Collection type system migration) and returns a migration error.
+func (sd *SlotDeclaration) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.MappingNode {
+		for i := 0; i < len(value.Content)-1; i += 2 {
+			if value.Content[i].Value == "entity" {
+				return fmt.Errorf("the 'entity' key in slot declarations has been renamed to 'collection' — please update your service.yaml")
+			}
+		}
+	}
+	type rawSD SlotDeclaration
+	var raw rawSD
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*sd = SlotDeclaration(raw)
+	return nil
+}
+
 // ServiceDeclaration is the product team's service definition.
 type ServiceDeclaration struct {
 	Kind        string            `yaml:"kind"`
@@ -465,6 +484,25 @@ type Fill struct {
 	Collection  string    `yaml:"collection"`
 	QualifiedBy string    `yaml:"qualified_by"`
 	QualifiedAt time.Time `yaml:"qualified_at"`
+}
+
+// UnmarshalYAML detects the deprecated `entity:` key (renamed to `collection:`
+// in the Collection type system migration) and returns a migration error.
+func (f *Fill) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.MappingNode {
+		for i := 0; i < len(value.Content)-1; i += 2 {
+			if value.Content[i].Value == "entity" {
+				return fmt.Errorf("the 'entity' key in fill declarations has been renamed to 'collection' — please update your fill.yaml")
+			}
+		}
+	}
+	type rawFill Fill
+	var raw rawFill
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*f = Fill(raw)
+	return nil
 }
 
 // RegistrySource describes a single registry origin in .stego/config.yaml.
