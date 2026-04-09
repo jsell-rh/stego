@@ -35,3 +35,16 @@
 ## Round 7
 
 - [x] [process-revision-complete] **`TestValidateSlotCollectionsDefined_NonExposedCollectionRejected` test function name retains stale "Exposed" terminology from the ExposeBlock model.** The round 6 fix renamed the function prefix from `TestValidateSlotBindingEntities_*` to `TestValidateSlotCollectionsDefined_*` but did not audit the suffix. The test at `reconciler_test.go:1961` is named `TestValidateSlotCollectionsDefined_NonExposedCollectionRejected` — "NonExposed" is a concept from the old ExposeBlock model where entities were "exposed" via expose blocks. In the Collection model, the correct concept is "undefined" or "nonexistent" — a slot references a collection name that doesn't exist in the `collections:` map. The test itself confirms this: it creates a slot binding referencing collection `"gadgets"` when only `"widgets"` is defined, and the assertion at line 1971 says `"expected error when slot binding references a non-existent collection"` (correctly using "non-existent," not "non-exposed"). This is the same class of stale terminology addressed in rounds 1, 2, 5, and 6. Fix: rename the test function suffix from `NonExposedCollectionRejected` to `UndefinedCollectionRejected` (matching the test's own assertion language).
+
+## Round 8
+
+No findings. All acceptance criteria verified:
+
+1. `ExposeBlock` renamed to `Collection` with `Name` field (`types.go:241`).
+2. `Scope` is `map[string]string`; `Parent` field removed. Multi-field scopes rejected with clear error (`validate.go:451`, `generator.go:1202`).
+3. `ServiceDeclaration.Collections` replaces `Expose` — parsed as ordered named map with custom `UnmarshalYAML`/`MarshalYAML` (`types.go:307-477`).
+4. `SlotDeclaration.Collection` and `Fill.Collection` replace `.Entity` — deprecated `entity:` key produces migration error (`types.go:283-298`, `types.go:491-506`).
+5. Parser handles `collections:` named map format; `expose:` rejected with migration error (`types.go:324-326`). Insertion order preserved.
+6. Validation covers: collection→entity refs, scope field/entity refs, slot→collection refs, fill→collection refs (`validate.go:401-540`, `validate.go:616-643`, `validate.go:817-861`). Scope cardinality enforced on both `Validate()` and `Reconcile()` paths.
+7. All 13 test packages pass. Fill.yaml fixtures updated to use `collection:` key. Test function names use Collection terminology.
+8. `go build ./cmd/stego` compiles clean.

@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Glossary" (Collection noun), "Entity/Collection Separation", "Service Declaration example"
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-018.md](../reviews/task-018.md)
 
