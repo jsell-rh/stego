@@ -79,3 +79,6 @@ With the Collection type system in place (Task 018), this task updates all code 
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `bc81b4b` fix(task-019): update rest-api generator tests for collection-based naming
+- `79e20b1` feat(task-019): collection-aware code generation pipeline
