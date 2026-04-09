@@ -22,7 +22,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 						`mux.HandleFunc("GET /users/{id}", userHandler.Read)`,
@@ -123,7 +123,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -318,7 +318,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
 					},
@@ -633,7 +633,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 						"api.NewOrganizationHandler(store)",
 						"api.NewUserHandler(store)",
 					},
-					ConstructorEntities: map[int]string{
+					ConstructorCollections: map[int]string{
 						0: "organizations",
 						1: "users",
 					},
@@ -1193,7 +1193,7 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 						"api.NewUserHandler(store)",
 						"api.NewOrganizationHandler(store)",
 					},
-					ConstructorEntities: map[int]string{
+					ConstructorCollections: map[int]string{
 						0: "users",
 						1: "organizations",
 					},
@@ -1280,7 +1280,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -1344,7 +1344,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 }
 
 func TestAssemble_StructuredEntityMatching(t *testing.T) {
-	// Finding 12: Slot operators are injected via structured ConstructorEntities
+	// Finding 12: Slot operators are injected via structured ConstructorCollections
 	// metadata, not by matching "New<Entity>Handler" naming convention.
 	// This test uses a non-standard constructor name to verify.
 	input := AssemblerInput{
@@ -1359,7 +1359,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 					Imports: []string{"internal/api"},
 					// Non-standard naming: "Controller" instead of "Handler".
 					Constructors:        []string{"api.NewUserController(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userController.Create)`,
 					},
@@ -1405,7 +1405,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 	}
 
 	// Even with non-standard constructor name, slot operators should be
-	// injected because ConstructorEntities provides the entity mapping.
+	// injected because ConstructorCollections provides the entity mapping.
 	if !strings.Contains(code, "api.NewUserController(store, beforeCreateUsersGate)") {
 		t.Errorf("slot operators not injected into non-standard controller constructor in:\n%s", code)
 	}
@@ -1614,7 +1614,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/a"},
 					Constructors:        []string{"a.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /a/users", userHandler.Create)`,
 					},
@@ -1625,7 +1625,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/b"},
 					Constructors:        []string{"b.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /b/users", userHandler.Create)`,
 					},
@@ -2365,7 +2365,7 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
@@ -2703,7 +2703,7 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 						"api.NewUserHandler(store)",
 						"api.NewOrgHandler(store)",
 					},
-					ConstructorEntities: map[int]string{
+					ConstructorCollections: map[int]string{
 						0: "users",
 						1: "orgs",
 					},
@@ -2928,7 +2928,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
@@ -3772,7 +3772,7 @@ func TestAssemble_TopologicalSortConstructors(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					ConstructorDeps:     map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -4104,7 +4104,7 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "users"},
+					ConstructorCollections: map[int]string{0: "users"},
 					ConstructorDeps:     map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,

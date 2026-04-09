@@ -3804,12 +3804,12 @@ func TestGenerate_HandlerWithSlotBindings(t *testing.T) {
 		t.Errorf("before-slot halt branch missing WriteHeader:\n%s", handlerContent)
 	}
 
-	// Verify ConstructorEntities wiring.
+	// Verify ConstructorCollections wiring.
 	if wiring == nil {
 		t.Fatal("wiring is nil")
 	}
-	if wiring.ConstructorEntities == nil || wiring.ConstructorEntities[0] != "users" {
-		t.Errorf("unexpected ConstructorEntities: %v", wiring.ConstructorEntities)
+	if wiring.ConstructorCollections == nil || wiring.ConstructorCollections[0] != "users" {
+		t.Errorf("unexpected ConstructorCollections: %v", wiring.ConstructorCollections)
 	}
 }
 

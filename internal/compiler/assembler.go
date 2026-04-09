@@ -145,7 +145,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 
 	// Build slot operator variable names by collection so we can inject them
 	// into handler constructor calls.
-	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
+	slotVarsByCollection := buildSlotVarsByCollection(input.SlotBindings, hasSlots)
 	// Collect ALL slot var names (including collection-less ones) so constructor
 	// disambiguation can avoid collisions with slot operators.
 	allSlotVarNames := collectAllSlotVarNames(input.SlotBindings, hasSlots)
@@ -170,10 +170,10 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// Slot wiring — create operators before constructors so they can be
 	// injected as handler constructor arguments.
 	if hasSlots {
-		writeSlotWiring(&buf, input, slotVarsByEntity, hasDB, consumedWirings)
+		writeSlotWiring(&buf, input, slotVarsByCollection, hasDB, consumedWirings)
 	}
 
-	wiringRenames, err := writeConstructors(&buf, input, slotVarsByEntity, allSlotVarNames, hasDB, hasRoutes, imports, consumed)
+	wiringRenames, err := writeConstructors(&buf, input, slotVarsByCollection, allSlotVarNames, hasDB, hasRoutes, imports, consumed)
 	if err != nil {
 		return gen.File{}, err
 	}
@@ -661,7 +661,7 @@ type constructorEntry struct {
 	Deps             []string // variable names this constructor depends on
 }
 
-func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult, consumed map[constructorKey]bool) (map[int][]constructorRename, error) {
+func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, slotVarNames map[string]bool, hasDB, hasRoutes bool, imports importResult, consumed map[constructorKey]bool) (map[int][]constructorRename, error) {
 	varNames := make(map[string]int) // for collision detection
 	varUsed := make(map[string]bool)
 	wiringRenames := make(map[int][]constructorRename)
@@ -778,8 +778,8 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity
 		// structured metadata rather than naming convention matching.
 		expr := resolvedExpr
 		cw := input.Wirings[entry.WiringIndex]
-		if entity, ok := cw.Wiring.ConstructorEntities[entry.ConstructorIndex]; ok && entity != "" {
-			if slotVars, ok := slotVarsByEntity[entity]; ok && len(slotVars) > 0 {
+		if collection, ok := cw.Wiring.ConstructorCollections[entry.ConstructorIndex]; ok && collection != "" {
+			if slotVars, ok := slotVarsByCollection[collection]; ok && len(slotVars) > 0 {
 				expr = injectConstructorArgs(resolvedExpr, slotVars)
 			}
 		}
@@ -871,7 +871,7 @@ func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error
 	return sorted, nil
 }
 
-func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity map[string][]string, hasDB bool, consumedWirings map[int]bool) {
+func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, hasDB bool, consumedWirings map[int]bool) {
 	buf.WriteString("\t// Slot wiring — fills composed via operators.\n")
 
 	// Compute fill import aliases (must match writeMainImports exactly).
@@ -886,7 +886,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 	// handler constructors. Variables NOT in this set need `_ =` to prevent
 	// unused variable errors (e.g. when a slot has no collection association).
 	injected := make(map[string]bool)
-	for _, vars := range slotVarsByEntity {
+	for _, vars := range slotVarsByCollection {
 		for _, v := range vars {
 			injected[v] = true
 		}
@@ -1185,10 +1185,10 @@ func injectConstructorArgs(expr string, args []string) string {
 	return prefix + ", " + strings.Join(args, ", ") + suffix
 }
 
-// buildSlotVarsByEntity returns a map from collection name to a list of slot
+// buildSlotVarsByCollection returns a map from collection name to a list of slot
 // operator variable names for that collection. These variables are created by
 // writeSlotWiring and injected into handler constructors by writeConstructors.
-func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[string][]string {
+func buildSlotVarsByCollection(bindings []types.SlotDeclaration, hasSlots bool) map[string][]string {
 	result := make(map[string][]string)
 	if !hasSlots {
 		return result

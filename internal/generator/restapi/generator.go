@@ -144,10 +144,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		constructorIdx := len(wiring.Constructors)
 		wiring.Constructors = append(wiring.Constructors,
 			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), entity.Name))
-		if wiring.ConstructorEntities == nil {
-			wiring.ConstructorEntities = make(map[int]string)
+		if wiring.ConstructorCollections == nil {
+			wiring.ConstructorCollections = make(map[int]string)
 		}
-		wiring.ConstructorEntities[constructorIdx] = eb.Name
+		wiring.ConstructorCollections[constructorIdx] = eb.Name
 		if wiring.ConstructorDeps == nil {
 			wiring.ConstructorDeps = make(map[int][]string)
 		}
@@ -1624,7 +1624,7 @@ func slotCamel(s string) string {
 
 // collectEntitySlotParams collects slot binding parameters for a specific entity.
 // The iteration order (bindings in order, gate before chain before fan-out per
-// binding) must match buildSlotVarsByEntity in the assembler so that constructor
+// binding) must match buildSlotVarsByCollection in the assembler so that constructor
 // parameter positions align with injected arguments.
 func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration) []entitySlotParam {
 	var params []entitySlotParam
