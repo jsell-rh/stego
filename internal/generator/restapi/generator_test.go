@@ -431,6 +431,11 @@ func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_items.go")
 
+	// List handler must import reflect for computing actual item count.
+	if !strings.Contains(handler, `"reflect"`) {
+		t.Error("list handler must import reflect for actual item count computation")
+	}
+
 	// List handler must construct a pagination envelope with kind, page, size, total, items.
 	if !strings.Contains(handler, `"kind":  "ItemList"`) {
 		t.Error("list response must include kind with entity name + 'List'")
@@ -438,8 +443,11 @@ func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
 	if !strings.Contains(handler, `"page":  page`) {
 		t.Error("list response must include the requested page number")
 	}
-	if !strings.Contains(handler, `"size":  size`) {
-		t.Error("list response must include the requested page size")
+	if !strings.Contains(handler, `"size":  actualSize`) {
+		t.Error("list response must include the actual number of items returned")
+	}
+	if !strings.Contains(handler, `actualSize := reflect.ValueOf(`) {
+		t.Error("list response must compute actual item count via reflect.ValueOf().Len()")
 	}
 	if !strings.Contains(handler, `"total": total`) {
 		t.Error("list response must include total count of matching records")

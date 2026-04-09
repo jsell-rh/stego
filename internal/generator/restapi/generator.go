@@ -267,12 +267,14 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	// except delete (which only sends status codes, no JSON body).
 	needJSON := false
 	needStrconv := false
+	needReflect := false
 	for _, op := range eb.Operations {
 		if op != types.OpDelete {
 			needJSON = true
 		}
 		if op == types.OpList {
 			needStrconv = true
+			needReflect = true
 		}
 	}
 
@@ -345,6 +347,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	if needReflect {
+		fmt.Fprintf(&buf, "\t\"reflect\"\n")
+	}
 	if needStrconv {
 		fmt.Fprintf(&buf, "\t\"strconv\"\n")
 	}
@@ -635,11 +640,12 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tactualSize := reflect.ValueOf(%s).Len()\n", lower)
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tresult := map[string]any{\n")
 	fmt.Fprintf(buf, "\t\t\"kind\":  %q,\n", entity.Name+"List")
 	fmt.Fprintf(buf, "\t\t\"page\":  page,\n")
-	fmt.Fprintf(buf, "\t\t\"size\":  size,\n")
+	fmt.Fprintf(buf, "\t\t\"size\":  actualSize,\n")
 	fmt.Fprintf(buf, "\t\t\"total\": total,\n")
 	fmt.Fprintf(buf, "\t\t\"items\": %s,\n", lower)
 	fmt.Fprintf(buf, "\t}\n")
@@ -1204,6 +1210,7 @@ var handlerScopeIdentifiers = map[string]bool{
 	// Import aliases used in handler files.
 	"json":    true, // encoding/json
 	"http":    true, // net/http
+	"reflect": true, // reflect (conditional for List actual item count)
 	"strconv": true, // strconv (conditional for List pagination)
 	"time":    true, // time (conditional, but safer to always guard)
 	"fmt":     true, // not currently imported, but guard for safety
@@ -1211,12 +1218,14 @@ var handlerScopeIdentifiers = map[string]bool{
 	"id":  true, // id := r.PathValue("id")
 	"err": true, // %s, err := h.store.Get(...) in Get method
 	// Generator-emitted local variables in List method body.
-	"page":    true, // page, _ := strconv.Atoi(pageStr)
-	"size":    true, // size, _ := strconv.Atoi(sizeStr)
-	"pageStr": true, // pageStr := r.URL.Query().Get("page")
-	"sizeStr": true, // sizeStr := r.URL.Query().Get("size")
-	"offset":  true, // offset := (page - 1) * size
-	"limit":   true, // limit := size
+	"page":       true, // page, _ := strconv.Atoi(pageStr)
+	"size":       true, // size, _ := strconv.Atoi(sizeStr)
+	"pageStr":    true, // pageStr := r.URL.Query().Get("page")
+	"sizeStr":    true, // sizeStr := r.URL.Query().Get("size")
+	"offset":     true, // offset := (page - 1) * size
+	"limit":      true, // limit := size
+	"total":      true, // total from h.store.List(...)
+	"actualSize": true, // actualSize := reflect.ValueOf(<items>).Len()
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
