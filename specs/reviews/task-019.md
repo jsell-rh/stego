@@ -60,3 +60,18 @@
   - **OpenAPI operation IDs use entity names**: `createOrganization`, `readUser`, `listUser` instead of collection-derived `createOrganizations`, `readOrgUsers`, `listOrgUsers`. Tags are also entity-based (`"Organization"`, `"User"`) instead of collection-based (`"organizations"`, `"org-users"`).
 
   Running `stego apply` in the example directory would produce entirely different output than what is checked in. The example is the MVP demonstration referenced by the spec ("Example service: simplified hyperfleet-api or similar, producing a compilable, runnable Go service from a single service.yaml + fills") and is the first artifact a user encounters after the Quick Start.
+
+## Round 6
+
+No findings. All 22 prior findings have been resolved. Verified:
+
+- [x] All prior round findings marked `[process-revision-complete]`
+- [x] All tests pass (`go test ./...` — 13 packages)
+- [x] Binary compiles (`go build ./cmd/stego/`)
+- [x] Example output in `examples/user-management/out/` uses collection-aware naming throughout (handler files, types, routes, slot wiring, OpenAPI)
+- [x] No stale "expose" terminology in production code function/variable/type names
+- [x] README uses `collections:` format and lists six nouns including Collection
+- [x] `stego init` scaffolds with `collections:` key via custom MarshalYAML
+- [x] `stego fill create --collection` flag tested in `TestRunFillCreateWithCollection`
+- [x] Language validation tested in both `Validate` and `Reconcile` paths
+- [x] Path parameters use scope field names (e.g. `{org_id}`) per AC #2
