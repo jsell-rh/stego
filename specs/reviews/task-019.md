@@ -47,3 +47,16 @@
 - [-] [process-revision-complete] **Stale "expose" comment in `assembler_test.go`** (`internal/compiler/assembler_test.go:4020`): Comment reads `// no expose → no wiring`. Should say "no collections" or similar since the codebase migrated from expose blocks to collections.
 
 - [-] [process-revision-complete] **Path parameter name does not match acceptance criterion #2** (`internal/generator/restapi/generator.go:243`): AC #2 states: `org-users` with `scope: { org_id: Organization }` → `/organizations/{org_id}/users`, with the path parameter `{org_id}` matching the scope field name. The spec (`specs/spec.md:18`) also uses `{org_id}`. The implementation derives the parameter name from the parent entity name: `"{" + strings.ToLower(eb.ParentEntity()) + "_id}"` → `{organization_id}`. The test at `generator_test.go:343` confirms by checking `r.PathValue("organization_id")`. The generated path is `/organizations/{organization_id}/users`, not `/organizations/{org_id}/users` as specified.
+
+## Round 5
+
+- [ ] **Example generated output is stale — uses per-entity naming instead of per-collection naming** (`examples/user-management/out/`): The example's `service.yaml` correctly uses the `collections:` named-map format with three collections (`organizations`, `org-users`, `all-users`), but the checked-in generated output in `out/` was produced by the old per-entity generator and was never regenerated after the collection migration. Specific discrepancies:
+
+  - **Handler files named per entity, not per collection**: `handler_organization.go` and `handler_user.go` exist instead of the expected `handler_organizations.go`, `handler_org_users.go`, and `handler_all_users.go`. (AC #1: "rest-api generator produces one handler per collection")
+  - **Missing handler for `all-users` collection**: Only 2 handler files exist instead of 3. The `all-users` collection (`operations: [list]`) has no handler file, and the `GET /users` route is absent from `main.go`. (AC #1, #3)
+  - **Handler types use entity names**: `OrganizationHandler`, `UserHandler`, `NewOrganizationHandler`, `NewUserHandler` instead of `OrganizationsHandler`, `OrgUsersHandler`, `AllUsersHandler`, etc. (AC #1)
+  - **Path parameters use entity-derived names**: `{organization_id}` throughout handlers, routes, and OpenAPI spec instead of `{org_id}` (the scope field name). (AC #2)
+  - **Slot wiring uses entity-based naming in `main.go`**: Variable names `beforeCreateUserGate`, `onEntityChangedUserFanOut` with comments "for User" instead of `beforeCreateOrgUsersGate`, `onEntityChangedOrgUsersFanOut` with comments "for org-users". (AC #4)
+  - **OpenAPI operation IDs use entity names**: `createOrganization`, `readUser`, `listUser` instead of collection-derived `createOrganizations`, `readOrgUsers`, `listOrgUsers`. Tags are also entity-based (`"Organization"`, `"User"`) instead of collection-based (`"organizations"`, `"org-users"`).
+
+  Running `stego apply` in the example directory would produce entirely different output than what is checked in. The example is the MVP demonstration referenced by the spec ("Example service: simplified hyperfleet-api or similar, producing a compilable, runnable Go service from a single service.yaml + fills") and is the first artifact a user encounters after the Quick Start.
