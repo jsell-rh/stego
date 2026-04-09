@@ -348,8 +348,60 @@ provides:
 slots: []
 ```
 
+## Error Handling (RFC 9457)
+
+The archetype convention `error_handling: problem-details-rfc` directs the `rest-api` component to generate RFC 9457 Problem Details error responses.
+
+**Error response format:**
+```json
+{
+  "type": "https://api.hyperfleet.io/errors/not-found",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Cluster with id 'abc123' not found",
+  "code": "HYPERFLEET-NTF-001",
+  "instance": "/api/hyperfleet/v1/clusters/abc123",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "timestamp": "2026-04-09T12:00:00Z"
+}
+```
+
+- Content-Type: `application/problem+json`
+- `type` -- error category URI (identifier, not necessarily dereferenceable)
+- `title` -- human-readable error category
+- `status` -- HTTP status code
+- `detail` -- context-specific error description
+- `code` -- structured error code: `{SERVICE_PREFIX}-{CATEGORY}-{NUMBER}`
+- `instance` -- the request path that caused the error
+- `trace_id` -- OpenTelemetry trace ID when available
+- `timestamp` -- UTC timestamp of the error
+
+**Service declaration configures:**
+```yaml
+kind: service
+name: hyperfleet-api
+base_path: /api/hyperfleet/v1
+error_type_base: https://api.hyperfleet.io/errors/   # optional, for RFC 9457 type URIs
+```
+
+The error code prefix is derived from the service name (uppercased, hyphens removed): `hyperfleet-api` -> `HYPERFLEET`. Error categories follow a fixed set:
+
+| Category | Codes | HTTP Status | Example |
+|----------|-------|-------------|---------|
+| VAL | Validation errors | 400 | `HYPERFLEET-VAL-001` |
+| AUT | Authentication | 401 | `HYPERFLEET-AUT-001` |
+| AUZ | Authorization | 403 | `HYPERFLEET-AUZ-001` |
+| NTF | Not found | 404 | `HYPERFLEET-NTF-001` |
+| CNF | Conflict | 409 | `HYPERFLEET-CNF-001` |
+| INT | Internal error | 500 | `HYPERFLEET-INT-001` |
+
+The `rest-api` component generates:
+- A `ServiceError` type with RFC 9457 fields
+- Error constructors: `NotFound()`, `BadRequest()`, `Conflict()`, `Validation()`, etc.
+- A `handleError` function that serializes errors as Problem Details with `application/problem+json`
+- Validation errors include a `validation_errors` array with per-field details
+
 ## Open Questions
 
 - Collection path derivation rules need to be specified precisely (how does `scope: { cluster_id: Cluster }` become `/clusters/{cluster_id}/nodepools`?)
 - Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
-- RFC 9457 Problem Details error responses -- the archetype declares `error_handling: problem-details-rfc` but the rest-api generator must implement it
