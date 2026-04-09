@@ -51,13 +51,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		entityMap[e.Name] = e
 	}
 
-	// Build parent lookup: entity name -> its first Collection (for nested routing).
+	// Build parent lookup: entity name → its first collection (for nested routing).
 	// When multiple collections reference the same entity, the first one
 	// provides the path for parent resolution.
-	exposeMap := make(map[string]types.Collection, len(ctx.Collections))
+	collectionMap := make(map[string]types.Collection, len(ctx.Collections))
 	for _, eb := range ctx.Collections {
-		if _, exists := exposeMap[eb.Entity]; !exists {
-			exposeMap[eb.Entity] = eb
+		if _, exists := collectionMap[eb.Entity]; !exists {
+			collectionMap[eb.Entity] = eb
 		}
 	}
 
@@ -86,7 +86,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Validate that all parent cross-references resolve within the collections list.
-	if err := validateParentReferences(ctx.Collections, exposeMap); err != nil {
+	if err := validateParentReferences(ctx.Collections, collectionMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -116,7 +116,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	// Validate that no two collections produce the same route path. Collisions
 	// cause runtime panics (Go 1.22 ServeMux) and OpenAPI path overwrites.
-	if err := validateRouteCollisions(ctx.Collections, exposeMap); err != nil {
+	if err := validateRouteCollisions(ctx.Collections, collectionMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -146,9 +146,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		collPascal := collectionToPascalCase(eb.Name)
 		collCamel := collectionToCamelCase(eb.Name)
 
-		slotParams := collectEntitySlotParams(eb.Name, ctx.SlotBindings)
+		slotParams := collectCollectionSlotParams(eb.Name, ctx.SlotBindings)
 
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap, slotParams, slotsImportPath, ctx.AuthPackage)
+		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, collectionMap, slotParams, slotsImportPath, ctx.AuthPackage)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating handler for collection %s: %w", eb.Name, err)
 		}
@@ -166,7 +166,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
 
-		basePath, err := entityBasePath(eb, exposeMap)
+		basePath, err := collectionBasePath(eb, collectionMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
 		}
@@ -202,7 +202,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files = append(files, routerFile)
 
 	// Generate OpenAPI spec.
-	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, exposeMap)
+	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating openapi spec: %w", err)
 	}
@@ -217,15 +217,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return files, wiring, nil
 }
 
-// entityBasePath returns the URL path prefix for an entity's collection.
+// collectionBasePath returns the URL path prefix for a collection.
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
 // from the entity name, prepended with the parent's path if nested.
 // Returns an error if a circular parent reference is detected.
-func entityBasePath(eb types.Collection, exposeMap map[string]types.Collection) (string, error) {
-	return entityBasePathWithVisited(eb, exposeMap, map[string]bool{eb.Entity: true})
+func collectionBasePath(eb types.Collection, collectionMap map[string]types.Collection) (string, error) {
+	return collectionBasePathWithVisited(eb, collectionMap, map[string]bool{eb.Entity: true})
 }
 
-func entityBasePathWithVisited(eb types.Collection, exposeMap map[string]types.Collection, visited map[string]bool) (string, error) {
+func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string]types.Collection, visited map[string]bool) (string, error) {
 	if eb.PathPrefix != "" {
 		return eb.PathPrefix, nil
 	}
@@ -234,9 +234,9 @@ func entityBasePathWithVisited(eb types.Collection, exposeMap map[string]types.C
 		if visited[eb.ParentEntity()] {
 			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.ParentEntity())
 		}
-		if parentEB, ok := exposeMap[eb.ParentEntity()]; ok {
+		if parentEB, ok := collectionMap[eb.ParentEntity()]; ok {
 			visited[eb.ParentEntity()] = true
-			parentPath, err := entityBasePathWithVisited(parentEB, exposeMap, visited)
+			parentPath, err := collectionBasePathWithVisited(parentEB, collectionMap, visited)
 			if err != nil {
 				return "", err
 			}
@@ -250,7 +250,7 @@ func entityBasePathWithVisited(eb types.Collection, exposeMap map[string]types.C
 // generateHandler produces a single Go handler file for a collection.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.Collection, exposeMap map[string]types.Collection, slotParams []entitySlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
+func generateHandler(ns string, entity types.Entity, eb types.Collection, collectionMap map[string]types.Collection, slotParams []collectionSlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	collPascal := collectionToPascalCase(eb.Name)
@@ -386,7 +386,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, expose
 	var parentParamName string
 	if eb.ParentEntity() != "" {
 		var err error
-		ancestorParams, err = resolveAncestorParams(eb, exposeMap)
+		ancestorParams, err = resolveAncestorParams(eb, collectionMap)
 		if err != nil {
 			return gen.File{}, err
 		}
@@ -396,7 +396,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, expose
 	// Ancestor verification helper for nested routing. Verifies the existence
 	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
 	if eb.ParentEntity() != "" {
-		ancestors, err := collectAncestors(eb, exposeMap)
+		ancestors, err := collectAncestors(eb, collectionMap)
 		if err != nil {
 			return gen.File{}, err
 		}
@@ -465,7 +465,7 @@ func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -503,7 +503,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
+func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string) {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -521,7 +521,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	_, _ = slotParams, slotsAlias
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -557,7 +557,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
+func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string) {
 	collPascal := collectionToPascalCase(eb.Name)
 	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
@@ -574,7 +574,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -613,7 +613,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -668,7 +668,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, expose []types.Collection) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, collections []types.Collection) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	// Build entity map and determine needed imports from entity field types.
@@ -678,7 +678,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.Collectio
 	for _, e := range entities {
 		entityMap[e.Name] = e
 	}
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if entity, ok := entityMap[eb.Entity]; ok {
 			for _, f := range entity.Fields {
 				if f.Type == types.FieldTypeTimestamp {
@@ -720,7 +720,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.Collectio
 	// Deduplicate across collections: multiple collections may reference
 	// the same entity, but the struct is emitted only once.
 	emittedEntities := make(map[string]bool)
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if emittedEntities[eb.Entity] {
 			continue
 		}
@@ -748,7 +748,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.Collectio
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.
-func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collection, exposeMap map[string]types.Collection) (gen.File, error) {
+func generateOpenAPI(ns string, entities []types.Entity, collections []types.Collection, collectionMap map[string]types.Collection) (gen.File, error) {
 	entityMap := make(map[string]types.Entity, len(entities))
 	for _, e := range entities {
 		entityMap[e.Name] = e
@@ -767,7 +767,7 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 	// Generate schemas for exposed entities only. Deduplicate across
 	// collections: multiple collections may reference the same entity.
 	schemaEmitted := make(map[string]bool)
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if schemaEmitted[eb.Entity] {
 			continue
 		}
@@ -791,8 +791,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 	}
 
 	// Generate paths from collections.
-	for _, eb := range expose {
-		basePath, err := entityBasePath(eb, exposeMap)
+	for _, eb := range collections {
+		basePath, err := collectionBasePath(eb, collectionMap)
 		if err != nil {
 			return gen.File{}, err
 		}
@@ -1063,7 +1063,7 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 // collectAncestors walks the parent chain from the given collection and returns
 // all ancestor entity names in top-down order (grandparent before parent).
 // Returns an error if a circular parent reference is detected.
-func collectAncestors(eb types.Collection, exposeMap map[string]types.Collection) ([]string, error) {
+func collectAncestors(eb types.Collection, collectionMap map[string]types.Collection) ([]string, error) {
 	var ancestors []string
 	visited := map[string]bool{eb.Entity: true}
 	current := eb
@@ -1073,7 +1073,7 @@ func collectAncestors(eb types.Collection, exposeMap map[string]types.Collection
 		}
 		visited[current.ParentEntity()] = true
 		ancestors = append(ancestors, current.ParentEntity())
-		parentEB, ok := exposeMap[current.ParentEntity()]
+		parentEB, ok := collectionMap[current.ParentEntity()]
 		if !ok {
 			break
 		}
@@ -1274,9 +1274,9 @@ func validateCollectionNameUniqueness(collections []types.Collection) error {
 
 // validateFieldReferences checks that scope and upsert_key field-name references
 // in collections resolve to actual fields on the referenced entity.
-func validateFieldReferences(expose []types.Collection, entityMap map[string]types.Entity) error {
+func validateFieldReferences(collections []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		entity, ok := entityMap[eb.Entity]
 		if !ok {
 			continue // handled by the unknown entity check later
@@ -1311,8 +1311,8 @@ func validateFieldReferences(expose []types.Collection, entityMap map[string]typ
 // path parameter name used in the route. When path_prefix is set, parameter
 // names are extracted from the prefix and matched positionally with ancestors.
 // When not set, convention-derived names (lowercase_entity + "_id") are used.
-func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Collection) (map[string]string, error) {
-	ancestors, err := collectAncestors(eb, exposeMap)
+func resolveAncestorParams(eb types.Collection, collectionMap map[string]types.Collection) (map[string]string, error) {
+	ancestors, err := collectAncestors(eb, collectionMap)
 	if err != nil {
 		return nil, err
 	}
@@ -1320,7 +1320,7 @@ func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Colle
 		return nil, nil
 	}
 
-	basePath, err := entityBasePath(eb, exposeMap)
+	basePath, err := collectionBasePath(eb, collectionMap)
 	if err != nil {
 		return nil, err
 	}
@@ -1341,14 +1341,14 @@ func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Colle
 }
 
 // validateParentReferences verifies that every collection's parent field
-// references an entity that has at least one collection. A parent outside the
-// collections list means the generator cannot produce a correct route — the parent's
-// path segment and path parameter will be missing, causing every request to fail.
-func validateParentReferences(expose []types.Collection, exposeMap map[string]types.Collection) error {
+// references an entity that has at least one collection in the collectionMap.
+// A parent outside the collections means the generator cannot produce a correct
+// route — the parent's path segment and path parameter will be missing.
+func validateParentReferences(collections []types.Collection, collectionMap map[string]types.Collection) error {
 	var errs []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if eb.ParentEntity() != "" {
-			if _, ok := exposeMap[eb.ParentEntity()]; !ok {
+			if _, ok := collectionMap[eb.ParentEntity()]; !ok {
 				errs = append(errs, fmt.Sprintf(
 					"collection %q references parent entity %q, but no collection exposes %q",
 					eb.Name, eb.ParentEntity(), eb.ParentEntity()))
@@ -1483,9 +1483,9 @@ type openAPISchema struct {
 // validateCollectionOperations checks that every collection has at least one
 // operation. An empty operations list produces an unused handler variable and
 // an unused net/http import — both Go compile errors.
-func validateCollectionOperations(expose []types.Collection) error {
+func validateCollectionOperations(collections []types.Collection) error {
 	var empty []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if len(eb.Operations) == 0 {
 			empty = append(empty, eb.Name)
 		}
@@ -1500,7 +1500,7 @@ func validateCollectionOperations(expose []types.Collection) error {
 // validateRouteCollisions detects duplicate effective route paths between
 // collections. Collisions cause Go 1.22 ServeMux runtime panics (duplicate
 // pattern registrations) and OpenAPI path map overwrites.
-func validateRouteCollisions(expose []types.Collection, exposeMap map[string]types.Collection) error {
+func validateRouteCollisions(collections []types.Collection, collectionMap map[string]types.Collection) error {
 	type pathOwner struct {
 		collection string
 		path       string
@@ -1509,8 +1509,8 @@ func validateRouteCollisions(expose []types.Collection, exposeMap map[string]typ
 	seen := make(map[string]pathOwner)
 	var errs []string
 
-	for _, eb := range expose {
-		basePath, err := entityBasePath(eb, exposeMap)
+	for _, eb := range collections {
+		basePath, err := collectionBasePath(eb, collectionMap)
 		if err != nil {
 			return err
 		}
@@ -1541,9 +1541,9 @@ func validateRouteCollisions(expose []types.Collection, exposeMap map[string]typ
 // parameter and uses it as the filter for the scope field. If the scope field is
 // a different field, the generated code passes the wrong value — semantically
 // broken at runtime.
-func validateScopeParentConsistency(expose []types.Collection, entityMap map[string]types.Entity) error {
+func validateScopeParentConsistency(collections []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
 			continue
 		}
@@ -1603,9 +1603,9 @@ func validateCollectionDerivedUniqueness(collections []types.Collection) error {
 // operations. Duplicate operations produce duplicate method declarations (Go
 // compile error), duplicate route registrations (Go 1.22 ServeMux runtime
 // panic), and duplicate OpenAPI operation entries (silent overwrite).
-func validateOperationUniqueness(expose []types.Collection) error {
+func validateOperationUniqueness(collections []types.Collection) error {
 	var errs []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		seen := make(map[types.Operation]bool, len(eb.Operations))
 		var dupes []string
 		for _, op := range eb.Operations {
@@ -1636,8 +1636,8 @@ func validateOperationUniqueness(expose []types.Collection) error {
 	return nil
 }
 
-// entitySlotParam describes a single slot operator parameter for an entity handler.
-type entitySlotParam struct {
+// collectionSlotParam describes a single slot operator parameter for a collection handler.
+type collectionSlotParam struct {
 	FieldName     string // handler struct field name (e.g., "beforeCreateGate")
 	InterfaceType string // slot interface type without package qualifier (e.g., "BeforeCreateSlot")
 	RequestType   string // slot request type without package qualifier (e.g., "BeforeCreateRequest")
@@ -1689,12 +1689,12 @@ func slotCamel(s string) string {
 	return strings.ToLower(pascal[:1]) + pascal[1:]
 }
 
-// collectEntitySlotParams collects slot binding parameters for a specific collection.
+// collectCollectionSlotParams collects slot binding parameters for a specific collection.
 // The iteration order (bindings in order, gate before chain before fan-out per
 // binding) must match buildSlotVarsByCollection in the assembler so that constructor
 // parameter positions align with injected arguments.
-func collectEntitySlotParams(collectionName string, bindings []types.SlotDeclaration) []entitySlotParam {
-	var params []entitySlotParam
+func collectCollectionSlotParams(collectionName string, bindings []types.SlotDeclaration) []collectionSlotParam {
+	var params []collectionSlotParam
 	for _, sb := range bindings {
 		if sb.Collection != collectionName {
 			continue
@@ -1706,7 +1706,7 @@ func collectEntitySlotParams(collectionName string, bindings []types.SlotDeclara
 		meta := knownSlotRequestMeta[sb.Slot]
 
 		if len(sb.Gate) > 0 {
-			params = append(params, entitySlotParam{
+			params = append(params, collectionSlotParam{
 				FieldName:     sc + "Gate",
 				InterfaceType: ifaceType,
 				RequestType:   reqType,
@@ -1717,7 +1717,7 @@ func collectEntitySlotParams(collectionName string, bindings []types.SlotDeclara
 			})
 		}
 		if len(sb.Chain) > 0 {
-			params = append(params, entitySlotParam{
+			params = append(params, collectionSlotParam{
 				FieldName:     sc + "Chain",
 				InterfaceType: ifaceType,
 				RequestType:   reqType,
@@ -1728,7 +1728,7 @@ func collectEntitySlotParams(collectionName string, bindings []types.SlotDeclara
 			})
 		}
 		if len(sb.FanOut) > 0 {
-			params = append(params, entitySlotParam{
+			params = append(params, collectionSlotParam{
 				FieldName:     sc + "FanOut",
 				InterfaceType: ifaceType,
 				RequestType:   reqType,
@@ -1761,7 +1761,7 @@ var slotAfterOps = map[string]map[types.Operation]bool{
 }
 
 // slotsForOp returns the slot params that fire before and after a given operation.
-func slotsForOp(op types.Operation, params []entitySlotParam) (before, after []entitySlotParam) {
+func slotsForOp(op types.Operation, params []collectionSlotParam) (before, after []collectionSlotParam) {
 	for _, p := range params {
 		if ops, ok := slotBeforeOps[p.SlotName]; ok && ops[op] {
 			before = append(before, p)
@@ -1778,7 +1778,7 @@ func slotsForOp(op types.Operation, params []entitySlotParam) (before, after []e
 // is populated with the decoded entity variable so that fills can inspect the
 // entity being processed. A nil guard wraps the invocation so that when no fills
 // are wired, the handler degrades to passthrough semantics.
-func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param entitySlotParam, entityVarName string, entity types.Entity) {
+func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	// Build populated request with entity data for the fill.
 	// Fields are conditional on the slot's proto-defined request type
@@ -1846,7 +1846,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 // before the HTTP response is written. The request is populated with the entity
 // name and the operation that triggered the slot. A nil guard wraps the invocation
 // so that when no fills are wired, the handler degrades to passthrough semantics.
-func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param entitySlotParam, entityName string, op types.Operation) {
+func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotParam, entityName string, op types.Operation) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{Entity: %q, Action: %q}); slotErr != nil {\n",
 		param.FieldName, slotsAlias, param.RequestType, entityName, string(op))
@@ -1923,9 +1923,9 @@ func needsFmtForSlotFields(entity types.Entity) bool {
 // exposed. Without this upfront check, read-only or delete-only entities with
 // parent silently pass generation but produce semantically hollow nesting (ancestor
 // existence is verified but parent-child ownership is never enforced).
-func validateParentRefFields(expose []types.Collection, entityMap map[string]types.Entity) error {
+func validateParentRefFields(collections []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
-	for _, eb := range expose {
+	for _, eb := range collections {
 		if eb.ParentEntity() == "" {
 			continue
 		}

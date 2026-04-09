@@ -45,7 +45,7 @@ func basicContext() gen.Context {
 	}
 }
 
-func TestGenerate_EmptyExpose(t *testing.T) {
+func TestGenerate_EmptyCollections(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{OutputNamespace: "internal/api"}
 	files, wiring, err := g.Generate(ctx)
@@ -1154,9 +1154,9 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 	}
 }
 
-func TestEntityBasePath_Default(t *testing.T) {
+func TestCollectionBasePath_Default(t *testing.T) {
 	eb := types.Collection{Entity: "User"}
-	got, err := entityBasePath(eb, nil)
+	got, err := collectionBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1165,9 +1165,9 @@ func TestEntityBasePath_Default(t *testing.T) {
 	}
 }
 
-func TestEntityBasePath_WithPathPrefix(t *testing.T) {
+func TestCollectionBasePath_WithPathPrefix(t *testing.T) {
 	eb := types.Collection{Entity: "User", PathPrefix: "/api/v1/users"}
-	got, err := entityBasePath(eb, nil)
+	got, err := collectionBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1176,12 +1176,12 @@ func TestEntityBasePath_WithPathPrefix(t *testing.T) {
 	}
 }
 
-func TestEntityBasePath_Nested(t *testing.T) {
-	exposeMap := map[string]types.Collection{
+func TestCollectionBasePath_Nested(t *testing.T) {
+	collectionMap := map[string]types.Collection{
 		"Cluster": {Entity: "Cluster"},
 	}
 	eb := types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
-	got, err := entityBasePath(eb, exposeMap)
+	got, err := collectionBasePath(eb, collectionMap)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2020,12 +2020,12 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 	}
 }
 
-func TestEntityBasePath_CircularParentReturnsError(t *testing.T) {
-	exposeMap := map[string]types.Collection{
+func TestCollectionBasePath_CircularParentReturnsError(t *testing.T) {
+	collectionMap := map[string]types.Collection{
 		"A": {Entity: "A", Scope: map[string]string{"b_id": "B"}},
 		"B": {Entity: "B", Scope: map[string]string{"a_id": "A"}},
 	}
-	_, err := entityBasePath(exposeMap["A"], exposeMap)
+	_, err := collectionBasePath(collectionMap["A"], collectionMap)
 	if err == nil {
 		t.Fatal("expected error for circular parent reference")
 	}
@@ -2035,11 +2035,11 @@ func TestEntityBasePath_CircularParentReturnsError(t *testing.T) {
 }
 
 func TestCollectAncestors_CircularParentReturnsError(t *testing.T) {
-	exposeMap := map[string]types.Collection{
+	collectionMap := map[string]types.Collection{
 		"A": {Entity: "A", Scope: map[string]string{"b_id": "B"}},
 		"B": {Entity: "B", Scope: map[string]string{"a_id": "A"}},
 	}
-	_, err := collectAncestors(exposeMap["A"], exposeMap)
+	_, err := collectAncestors(collectionMap["A"], collectionMap)
 	if err == nil {
 		t.Fatal("expected error for circular parent reference")
 	}
@@ -2444,10 +2444,10 @@ func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
 	}
 }
 
-func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
-	// Finding 30: OpenAPI schema generation must iterate only over exposed entities,
-	// not all entities in ctx.Entities. Non-exposed entities (e.g. ref targets
-	// managed by a different component) should not appear in the generated spec.
+func TestGenerate_OpenAPISchemasOnlyForCollectionEntities(t *testing.T) {
+	// Finding 30: OpenAPI schema generation must iterate only over collection entities,
+	// not all entities in ctx.Entities. Entities not referenced by any collection
+	// (e.g. ref targets managed by a different component) should not appear in the spec.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -2459,7 +2459,7 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 				{Name: "email", Type: types.FieldTypeString},
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
 			}},
-			// Team is in Entities (for ref resolution) but NOT in Expose.
+			// Team is in Entities (for ref resolution) but NOT in Collections.
 			{Name: "Team", Fields: []types.Field{
 				{Name: "name", Type: types.FieldTypeString},
 				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
@@ -2473,7 +2473,7 @@ func TestGenerate_OpenAPISchemasOnlyForExposedEntities(t *testing.T) {
 				Operations: []types.Operation{types.OpRead, types.OpList},
 				Scope:      map[string]string{"org_id": "Organization"},
 			},
-			// Team is NOT exposed.
+			// Team has no collection.
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -2846,7 +2846,7 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 	// If path_prefix has a different number of params than ancestors,
 	// resolveAncestorParams must return an error.
-	exposeMap := map[string]types.Collection{
+	collectionMap := map[string]types.Collection{
 		"Cluster":  {Entity: "Cluster"},
 		"NodePool": {Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}},
 	}
@@ -2856,10 +2856,10 @@ func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 		Scope:      map[string]string{"nodepool_id": "NodePool"},
 		PathPrefix: "/a/{x}/b/{y}/c/{z}/widgets",
 	}
-	exposeMap["Widget"] = eb
-	exposeMap["NodePool"] = types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
+	collectionMap["Widget"] = eb
+	collectionMap["NodePool"] = types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
 
-	_, err := resolveAncestorParams(eb, exposeMap)
+	_, err := resolveAncestorParams(eb, collectionMap)
 	if err == nil {
 		t.Fatal("expected error for mismatched param count")
 	}
