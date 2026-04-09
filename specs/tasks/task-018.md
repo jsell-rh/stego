@@ -88,3 +88,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `beba95d` feat(types): replace ExposeBlock with Collection type system
 - `6e5b8b8` fix(task-018): address round 1 review findings for Collection type system
 - `878ed94` fix(task-018): address round 2 review findings for Collection type system
+- `db527ac` fix(task-018): address round 3 review findings — migration errors and test fixtures
