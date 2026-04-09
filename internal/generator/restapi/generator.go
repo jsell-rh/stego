@@ -25,24 +25,23 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
-	// Validate no duplicate collections for the same entity. This must
-	// happen before any map or iteration to avoid silent overwrites (map)
-	// and duplicate type declarations (iteration).
-	if err := validateExposeUniqueness(ctx.Collections); err != nil {
+	// Validate collection names are unique. Collection names drive handler
+	// type names, file names, and wiring variable names.
+	if err := validateCollectionNameUniqueness(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
-	// Check for entity name collisions with generator-internal identifiers
-	// and cross-entity derived identifier collisions.
-	if err := checkEntityNameCollisions(ctx.Collections); err != nil {
+	// Check for collection-derived identifier collisions with generator-internal
+	// identifiers, entity struct names, and cross-collection derived names.
+	if err := checkCollectionNameCollisions(ctx.Collections, ctx.Entities); err != nil {
 		return nil, nil, err
 	}
 
-	// Check for case-insensitively equivalent entity names. Two entities
-	// whose names differ only in case (e.g. "Item" and "ITEM") produce
-	// colliding handler variable names, handler file paths, and router
-	// variable declarations via strings.ToLower.
-	if err := validateCaseInsensitiveUniqueness(ctx.Collections); err != nil {
+	// Check for collections whose derived PascalCase identifiers collide.
+	// Two collections like "org-users" and "org_users" both produce
+	// "OrgUsers", causing colliding handler types, file paths, and
+	// variable declarations.
+	if err := validateCollectionDerivedUniqueness(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
@@ -52,10 +51,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		entityMap[e.Name] = e
 	}
 
-	// Build parent lookup: entity name -> its Collection (for nested routing).
+	// Build parent lookup: entity name -> its first Collection (for nested routing).
+	// When multiple collections reference the same entity, the first one
+	// provides the path for parent resolution.
 	exposeMap := make(map[string]types.Collection, len(ctx.Collections))
 	for _, eb := range ctx.Collections {
-		exposeMap[eb.Entity] = eb
+		if _, exists := exposeMap[eb.Entity]; !exists {
+			exposeMap[eb.Entity] = eb
+		}
 	}
 
 	// Validate scope cardinality: multi-field scopes are not yet supported.
@@ -134,25 +137,27 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
-	// Generate handler file per exposed entity.
+	// Generate handler file per collection.
 	for _, eb := range ctx.Collections {
 		entity, ok := entityMap[eb.Entity]
 		if !ok {
 			return nil, nil, fmt.Errorf("collection %q references unknown entity %q", eb.Name, eb.Entity)
 		}
 
+		collPascal := collectionToPascalCase(eb.Name)
+		collCamel := collectionToCamelCase(eb.Name)
+
 		slotParams := collectEntitySlotParams(eb.Name, ctx.SlotBindings)
 
 		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, exposeMap, slotParams, slotsImportPath, ctx.AuthPackage)
 		if err != nil {
-			return nil, nil, fmt.Errorf("generating handler for %s: %w", eb.Entity, err)
+			return nil, nil, fmt.Errorf("generating handler for collection %s: %w", eb.Name, err)
 		}
 		files = append(files, handlerFile)
 
-		lower := strings.ToLower(entity.Name)
 		constructorIdx := len(wiring.Constructors)
 		wiring.Constructors = append(wiring.Constructors,
-			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), entity.Name))
+			fmt.Sprintf("%s.New%sHandler(store)", path.Base(ctx.OutputNamespace), collPascal))
 		if wiring.ConstructorCollections == nil {
 			wiring.ConstructorCollections = make(map[int]string)
 		}
@@ -164,28 +169,28 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 		basePath, err := entityBasePath(eb, exposeMap)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolving path for %s: %w", eb.Entity, err)
+			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
 		}
 		for _, op := range eb.Operations {
 			switch op {
 			case types.OpCreate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", basePath, collCamel))
 			case types.OpRead:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", basePath, collCamel))
 			case types.OpUpdate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", basePath, collCamel))
 			case types.OpDelete:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", basePath, collCamel))
 			case types.OpList:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", basePath, collCamel))
 			case types.OpUpsert:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", basePath, lower))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", basePath, collCamel))
 			}
 		}
 	}
@@ -243,14 +248,15 @@ func entityBasePathWithVisited(eb types.Collection, exposeMap map[string]types.C
 	return base, nil
 }
 
-// generateHandler produces a single Go handler file for an exposed entity.
+// generateHandler produces a single Go handler file for a collection.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
 func generateHandler(ns string, entity types.Entity, eb types.Collection, exposeMap map[string]types.Collection, slotParams []entitySlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
 	var buf bytes.Buffer
 
-	lower := strings.ToLower(entity.Name)
-	handlerType := entity.Name + "Handler"
+	collPascal := collectionToPascalCase(eb.Name)
+	collSnake := collectionToSnakeCase(eb.Name)
+	handlerType := collPascal + "Handler"
 
 	// Determine whether encoding/json is needed. It is used by all operations
 	// except delete (which only sends status codes, no JSON body).
@@ -355,12 +361,12 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, expose
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Constructor.
-	fmt.Fprintf(&buf, "// New%sHandler creates a new %s.\n", entity.Name, handlerType)
+	fmt.Fprintf(&buf, "// New%sHandler creates a new %s.\n", collPascal, handlerType)
 	if len(slotParams) == 0 {
-		fmt.Fprintf(&buf, "func New%sHandler(store Storage) *%s {\n", entity.Name, handlerType)
+		fmt.Fprintf(&buf, "func New%sHandler(store Storage) *%s {\n", collPascal, handlerType)
 		fmt.Fprintf(&buf, "\treturn &%s{store: store}\n", handlerType)
 	} else {
-		fmt.Fprintf(&buf, "func New%sHandler(store Storage", entity.Name)
+		fmt.Fprintf(&buf, "func New%sHandler(store Storage", collPascal)
 		for _, sp := range slotParams {
 			fmt.Fprintf(&buf, ", %s %s.%s", sp.FieldName, slotsAlias, sp.InterfaceType)
 		}
@@ -447,7 +453,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, expose
 	}
 
 	return gen.File{
-		Path:    path.Join(ns, "handler_"+lower+".go"),
+		Path:    path.Join(ns, "handler_"+collSnake+".go"),
 		Content: formatted,
 	}, nil
 }
@@ -461,8 +467,9 @@ func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
 }
 
 func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
@@ -498,8 +505,9 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 }
 
 func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
+	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\t%s, err := h.store.Read(%q, id)\n", lower, entity.Name)
@@ -515,8 +523,9 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 }
 
 func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
@@ -550,7 +559,8 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 }
 
 func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
-	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	collPascal := collectionToPascalCase(eb.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(%q, id); err != nil {\n", entity.Name)
@@ -566,8 +576,9 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 }
 
 func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
-	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 
 	// Scope filtering: when a parent is set the scope value comes from the
@@ -604,8 +615,9 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 }
 
 func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
-	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
+	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
@@ -706,7 +718,14 @@ func generateRouter(ns string, entities []types.Entity, expose []types.Collectio
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Entity types with fields from the entity definitions.
+	// Deduplicate across collections: multiple collections may reference
+	// the same entity, but the struct is emitted only once.
+	emittedEntities := make(map[string]bool)
 	for _, eb := range expose {
+		if emittedEntities[eb.Entity] {
+			continue
+		}
+		emittedEntities[eb.Entity] = true
 		entity := entityMap[eb.Entity]
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", eb.Entity, eb.Entity)
 		fmt.Fprintf(&buf, "type %s struct {\n", eb.Entity)
@@ -746,10 +765,14 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 		Components: openAPIComponents{Schemas: make(map[string]openAPISchema)},
 	}
 
-	// Generate schemas for exposed entities only. Non-exposed entities
-	// (e.g. ref targets managed by other components) should not appear in
-	// the OpenAPI spec — they have no corresponding path operations.
+	// Generate schemas for exposed entities only. Deduplicate across
+	// collections: multiple collections may reference the same entity.
+	schemaEmitted := make(map[string]bool)
 	for _, eb := range expose {
+		if schemaEmitted[eb.Entity] {
+			continue
+		}
+		schemaEmitted[eb.Entity] = true
 		e := entityMap[eb.Entity]
 		schema := openAPISchema{
 			Type:       "object",
@@ -783,8 +806,9 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 		collectionOps := make(map[string]openAPIOperation)
 		itemOps := make(map[string]openAPIOperation)
 
+		collPascal := collectionToPascalCase(eb.Name)
 		for _, op := range eb.Operations {
-			tag := eb.Entity
+			tag := eb.Name
 			ref := "#/components/schemas/" + eb.Entity
 
 			switch op {
@@ -801,8 +825,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 					})
 				}
 				listOp := openAPIOperation{
-					Summary:     "List " + eb.Entity + " entities",
-					OperationID: "list" + eb.Entity,
+					Summary:     "List " + eb.Entity + " entities via " + eb.Name,
+					OperationID: "list" + collPascal,
 					Tags:        []string{tag},
 					Parameters:  listParams,
 					Responses: map[string]openAPIResponse{
@@ -818,8 +842,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 				collectionOps["get"] = listOp
 			case types.OpCreate:
 				createOp := openAPIOperation{
-					Summary:     "Create " + eb.Entity,
-					OperationID: "create" + eb.Entity,
+					Summary:     "Create " + eb.Entity + " via " + eb.Name,
+					OperationID: "create" + collPascal,
 					Tags:        []string{tag},
 					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
@@ -836,9 +860,9 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 				collectionOps["post"] = createOp
 			case types.OpRead:
 				itemOps["get"] = openAPIOperation{
-					Summary:     "Read " + eb.Entity,
-					OperationID: "read" + eb.Entity,
-					Tags:        []string{tag},
+					Summary:     "Read " + eb.Entity + " via " + eb.Name,
+					OperationID: "read" + collPascal,
+					Tags: []string{tag},
 					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
 						In:       "path",
@@ -852,8 +876,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 				}
 			case types.OpUpdate:
 				itemOps["put"] = openAPIOperation{
-					Summary:     "Update " + eb.Entity,
-					OperationID: "update" + eb.Entity,
+					Summary:     "Update " + eb.Entity + " via " + eb.Name,
+					OperationID: "update" + collPascal,
 					Tags:        []string{tag},
 					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
@@ -871,8 +895,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 				}
 			case types.OpDelete:
 				itemOps["delete"] = openAPIOperation{
-					Summary:     "Delete " + eb.Entity,
-					OperationID: "delete" + eb.Entity,
+					Summary:     "Delete " + eb.Entity + " via " + eb.Name,
+					OperationID: "delete" + collPascal,
 					Tags:        []string{tag},
 					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
@@ -886,8 +910,8 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collecti
 				}
 			case types.OpUpsert:
 				upsertOp := openAPIOperation{
-					Summary:     "Upsert " + eb.Entity,
-					OperationID: "upsert" + eb.Entity,
+					Summary:     "Upsert " + eb.Entity + " via " + eb.Name,
+					OperationID: "upsert" + collPascal,
 					Tags:        []string{tag},
 					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
@@ -1159,35 +1183,53 @@ var reservedTypeNames = map[string]bool{
 	"Storage": true, // type Storage interface { ... } in router.go
 }
 
-// checkEntityNameCollisions verifies that no exposed entity name collides with
-// a generator-internal identifier or with another entity's derived type names.
-// Returns an error identifying the collision.
-func checkEntityNameCollisions(expose []types.Collection) error {
-	// Check against static reserved names.
-	for _, eb := range expose {
-		if reservedTypeNames[eb.Entity] {
-			return fmt.Errorf("entity name %q collides with rest-api generator internal identifier %q; rename the entity to avoid a redeclaration error in generated code", eb.Entity, eb.Entity)
+// checkCollectionNameCollisions verifies that no collection-derived handler type
+// name collides with a generator-internal identifier, an entity struct name, or
+// another collection's derived type names.
+func checkCollectionNameCollisions(collections []types.Collection, entities []types.Entity) error {
+	// Build set of entity struct names (emitted in the same package).
+	entityNames := make(map[string]bool, len(entities))
+	for _, e := range entities {
+		entityNames[e.Name] = true
+	}
+
+	for _, c := range collections {
+		cp := collectionToPascalCase(c.Name)
+		handlerName := cp + "Handler"
+		ctorName := "New" + cp + "Handler"
+
+		// Check handler type against reserved names.
+		if reservedTypeNames[handlerName] {
+			return fmt.Errorf("collection %q produces handler type %q which collides with rest-api generator internal identifier; rename the collection", c.Name, handlerName)
+		}
+
+		// Check PascalCase collection name against reserved names.
+		if reservedTypeNames[cp] {
+			return fmt.Errorf("collection %q produces type name %q which collides with rest-api generator internal identifier; rename the collection", c.Name, cp)
+		}
+
+		// Check handler type against entity struct names.
+		if entityNames[handlerName] {
+			return fmt.Errorf("collection %q produces handler type %q which collides with entity struct name %q; rename the collection or entity", c.Name, handlerName, handlerName)
+		}
+
+		// Check constructor against entity struct names.
+		if entityNames[ctorName] {
+			return fmt.Errorf("collection %q produces constructor %q which collides with entity struct name %q; rename the collection or entity", c.Name, ctorName, ctorName)
 		}
 	}
 
-	// Check cross-entity derived identifier collisions. Each entity produces
-	// derived names: "<Entity>Handler" (type) and "New<Entity>Handler" (constructor).
-	// If another entity's direct name matches a derived name, it's a collision.
-	derivedNames := make(map[string]string, len(expose)*2) // derived name -> source entity
-	directNames := make(map[string]bool, len(expose))
-	for _, eb := range expose {
-		directNames[eb.Entity] = true
-	}
-	for _, eb := range expose {
-		handlerName := eb.Entity + "Handler"
-		ctorName := "New" + eb.Entity + "Handler"
-		derivedNames[handlerName] = eb.Entity
-		derivedNames[ctorName] = eb.Entity
-	}
-	for _, eb := range expose {
-		if source, ok := derivedNames[eb.Entity]; ok {
-			return fmt.Errorf("entity name %q collides with derived handler type name from entity %q; rename one of the entities to avoid a redeclaration error in generated code", eb.Entity, source)
+	// Check cross-collection derived identifier collisions.
+	derivedNames := make(map[string]string, len(collections)*2)
+	for _, c := range collections {
+		cp := collectionToPascalCase(c.Name)
+		handlerName := cp + "Handler"
+		ctorName := "New" + cp + "Handler"
+		if source, ok := derivedNames[handlerName]; ok {
+			return fmt.Errorf("collections %q and %q both produce handler type %q; rename one to avoid a redeclaration error", source, c.Name, handlerName)
 		}
+		derivedNames[handlerName] = c.Name
+		derivedNames[ctorName] = c.Name
 	}
 
 	return nil
@@ -1214,20 +1256,19 @@ func validateScopeCardinality(collections []types.Collection) error {
 	return nil
 }
 
-// validateExposeUniqueness checks that no entity appears more than once in the
-// collections list. Duplicate entries cause duplicate type declarations and silent
-// map overwrites.
-func validateExposeUniqueness(expose []types.Collection) error {
-	seen := make(map[string]int, len(expose))
+// validateCollectionNameUniqueness checks that no collection name appears more
+// than once in the collections list.
+func validateCollectionNameUniqueness(collections []types.Collection) error {
+	seen := make(map[string]int, len(collections))
 	var dupes []string
-	for _, eb := range expose {
-		seen[eb.Entity]++
-		if seen[eb.Entity] == 2 {
-			dupes = append(dupes, eb.Entity)
+	for _, c := range collections {
+		seen[c.Name]++
+		if seen[c.Name] == 2 {
+			dupes = append(dupes, c.Name)
 		}
 	}
 	if len(dupes) > 0 {
-		return fmt.Errorf("duplicate collections for entities: %s; each entity may only appear once in the collections list", strings.Join(dupes, ", "))
+		return fmt.Errorf("duplicate collection names: %s", strings.Join(dupes, ", "))
 	}
 	return nil
 }
@@ -1301,7 +1342,7 @@ func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Colle
 }
 
 // validateParentReferences verifies that every collection's parent field
-// references an entity that is also in the collections list. A parent outside the
+// references an entity that has at least one collection. A parent outside the
 // collections list means the generator cannot produce a correct route — the parent's
 // path segment and path parameter will be missing, causing every request to fail.
 func validateParentReferences(expose []types.Collection, exposeMap map[string]types.Collection) error {
@@ -1310,8 +1351,8 @@ func validateParentReferences(expose []types.Collection, exposeMap map[string]ty
 		if eb.ParentEntity() != "" {
 			if _, ok := exposeMap[eb.ParentEntity()]; !ok {
 				errs = append(errs, fmt.Sprintf(
-					"collection for %q references parent %q, but %q is not in the collections list",
-					eb.Entity, eb.ParentEntity(), eb.ParentEntity()))
+					"collection %q references parent entity %q, but no collection exposes %q",
+					eb.Name, eb.ParentEntity(), eb.ParentEntity()))
 			}
 		}
 	}
@@ -1458,13 +1499,12 @@ func validateExposeOperations(expose []types.Collection) error {
 }
 
 // validateRouteCollisions detects duplicate effective route paths between
-// entities. Collisions cause Go 1.22 ServeMux runtime panics (duplicate
-// pattern registrations), OpenAPI path map overwrites, and duplicate handler
-// variable declarations.
+// collections. Collisions cause Go 1.22 ServeMux runtime panics (duplicate
+// pattern registrations) and OpenAPI path map overwrites.
 func validateRouteCollisions(expose []types.Collection, exposeMap map[string]types.Collection) error {
 	type pathOwner struct {
-		entity string
-		path   string
+		collection string
+		path       string
 	}
 	// Track collection and item paths separately.
 	seen := make(map[string]pathOwner)
@@ -1481,12 +1521,12 @@ func validateRouteCollisions(expose []types.Collection, exposeMap map[string]typ
 		for _, p := range []string{collectionPath, itemPath} {
 			// Normalize to lowercase for case-insensitive collision detection.
 			key := strings.ToLower(p)
-			if existing, ok := seen[key]; ok && existing.entity != eb.Entity {
+			if existing, ok := seen[key]; ok && existing.collection != eb.Name {
 				errs = append(errs, fmt.Sprintf(
-					"entities %q and %q both resolve to route path %q",
-					existing.entity, eb.Entity, p))
-			} else {
-				seen[key] = pathOwner{entity: eb.Entity, path: p}
+					"collections %q and %q both resolve to route path %q",
+					existing.collection, eb.Name, p))
+			} else if !ok {
+				seen[key] = pathOwner{collection: eb.Name, path: p}
 			}
 		}
 	}
@@ -1537,27 +1577,25 @@ func validateScopeParentConsistency(expose []types.Collection, entityMap map[str
 	return nil
 }
 
-// validateCaseInsensitiveUniqueness checks that no two exposed entity names are
-// case-insensitively equivalent. Two entities like "Item" and "ITEM" produce
-// colliding handler variable names (both → "itemHandler"), handler file paths
-// (both → "handler_item.go"), and router variable declarations via
-// strings.ToLower. Route collision detection does not catch this when entities
-// have different PathPrefix values.
-func validateCaseInsensitiveUniqueness(expose []types.Collection) error {
-	seen := make(map[string]string, len(expose)) // lowered name → original name
+// validateCollectionDerivedUniqueness checks that no two collections produce
+// the same PascalCase identifier. Two collections like "org-users" and
+// "org_users" both produce "OrgUsers", causing colliding handler types, file
+// paths, and variable declarations.
+func validateCollectionDerivedUniqueness(collections []types.Collection) error {
+	seen := make(map[string]string, len(collections)) // PascalCase → original name
 	var errs []string
-	for _, eb := range expose {
-		lower := strings.ToLower(eb.Entity)
-		if existing, ok := seen[lower]; ok {
+	for _, c := range collections {
+		pascal := collectionToPascalCase(c.Name)
+		if existing, ok := seen[pascal]; ok {
 			errs = append(errs, fmt.Sprintf(
-				"entities %q and %q are case-insensitively equivalent (both produce %q); rename one to avoid colliding handler variable names and file paths in generated code",
-				existing, eb.Entity, lower))
+				"collections %q and %q both produce identifier %q; rename one to avoid colliding handler types and file paths in generated code",
+				existing, c.Name, pascal))
 		} else {
-			seen[lower] = eb.Entity
+			seen[pascal] = c.Name
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("case-insensitive entity name collisions:\n  %s", strings.Join(errs, "\n  "))
+		return fmt.Errorf("collection identifier collisions:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
 }
@@ -1831,6 +1869,37 @@ func fieldToStringExpr(varName, goFieldName, goType string) string {
 		// For numeric, bool, time.Time, and other types, use fmt.Sprintf.
 		return "fmt.Sprintf(\"%v\", " + varName + "." + goFieldName + ")"
 	}
+}
+
+// collectionToPascalCase converts a kebab-case or snake_case collection name
+// to PascalCase for Go type names. E.g., "org-users" → "OrgUsers".
+func collectionToPascalCase(name string) string {
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '-' || r == '_'
+	})
+	var b strings.Builder
+	for _, p := range parts {
+		if len(p) > 0 {
+			b.WriteString(strings.ToUpper(p[:1]) + p[1:])
+		}
+	}
+	return b.String()
+}
+
+// collectionToSnakeCase converts a kebab-case collection name to snake_case
+// for file names. E.g., "org-users" → "org_users".
+func collectionToSnakeCase(name string) string {
+	return strings.ReplaceAll(name, "-", "_")
+}
+
+// collectionToCamelCase converts a kebab-case collection name to camelCase
+// for variable names. E.g., "org-users" → "orgUsers".
+func collectionToCamelCase(name string) string {
+	pascal := collectionToPascalCase(name)
+	if len(pascal) == 0 {
+		return ""
+	}
+	return strings.ToLower(pascal[:1]) + pascal[1:]
 }
 
 // needsFmtForSlotFields returns true if any entity field requires fmt.Sprintf

@@ -64,6 +64,12 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 		})
 	}
 
+	// Validate language: must match archetype's language and only "go" is
+	// supported in MVP.
+	if archetype != nil {
+		result.Errors = append(result.Errors, validateLanguage(svcDecl.Language, archetype.Language)...)
+	}
+
 	// Component and port validation require a valid archetype.
 	var components map[string]*types.Component
 	if archetype != nil {
@@ -858,4 +864,35 @@ func validateFillsExist(slots []types.SlotDeclaration, collections []types.Colle
 		}
 	}
 	return errs, nil
+}
+
+// validateLanguage checks that the service declaration's language matches the
+// archetype's declared language and that only supported languages are used.
+// Only "go" is supported in MVP.
+func validateLanguage(serviceLanguage, archetypeLanguage string) []ValidationError {
+	var errs []ValidationError
+
+	if serviceLanguage == "" {
+		errs = append(errs, ValidationError{
+			Category: "language",
+			Message:  "service declaration is missing the 'language' field",
+		})
+		return errs
+	}
+
+	if serviceLanguage != "go" {
+		errs = append(errs, ValidationError{
+			Category: "language",
+			Message:  fmt.Sprintf("unsupported language %q — only 'go' is supported", serviceLanguage),
+		})
+	}
+
+	if archetypeLanguage != "" && serviceLanguage != archetypeLanguage {
+		errs = append(errs, ValidationError{
+			Category: "language",
+			Message:  fmt.Sprintf("service language %q does not match archetype language %q", serviceLanguage, archetypeLanguage),
+		})
+	}
+
+	return errs
 }

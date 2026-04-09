@@ -125,6 +125,15 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("archetype %q not found in registry", svcDecl.Archetype)
 	}
 
+	// Validate language: must match archetype and only "go" is supported.
+	if langErrs := validateLanguage(svcDecl.Language, archetype.Language); len(langErrs) > 0 {
+		msgs := make([]string, len(langErrs))
+		for i, e := range langErrs {
+			msgs[i] = e.Message
+		}
+		return nil, fmt.Errorf("language validation failed: %s", strings.Join(msgs, "; "))
+	}
+
 	// Collect all component names: archetype components + default_auth + mixin components.
 	componentNames, err := collectComponentNames(archetype, svcDecl, reg)
 	if err != nil {

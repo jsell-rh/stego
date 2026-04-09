@@ -240,12 +240,13 @@ func runFill(args []string) error {
 	}
 }
 
-// runFillCreate implements `stego fill create <name> --slot <s>`.
+// runFillCreate implements `stego fill create <name> --slot <s> [--collection <c>]`.
 // Supports both `fill create <name> --slot <s>` and `fill create --slot <s> <name>`.
 func runFillCreate(args []string) error {
 	fs := flag.NewFlagSet("fill create", flag.ContinueOnError)
 	slotName := fs.String("slot", "", "slot to implement (required)")
 	componentName := fs.String("component", "", "component that owns the slot (required when slot name is ambiguous)")
+	collectionName := fs.String("collection", "", "collection this fill is scoped to")
 
 	// Extract the fill name from args, which may appear before flags.
 	// Collect non-flag args and flag args separately, then parse flags.
@@ -352,6 +353,7 @@ func runFillCreate(args []string) error {
 		Kind:       "fill",
 		Name:       fillName,
 		Implements: ownerComp.Name + "." + *slotName,
+		Collection: *collectionName,
 	}
 	fillData, err := yaml.Marshal(fill)
 	if err != nil {

@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation", "Collections & Operations" (rest-crud spec), "Generated Code Structure"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

@@ -3347,6 +3347,73 @@ collections:
 	}
 }
 
+func TestValidate_LanguageMatchesArchetype(t *testing.T) {
+	_, _, input := setupValidateProject(t)
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("unexpected infrastructure error: %v", err)
+	}
+	// Default setup has language: go matching archetype language: go.
+	for _, e := range result.Errors {
+		if e.Category == "language" {
+			t.Errorf("unexpected language error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_LanguageMismatchReturnsError(t *testing.T) {
+	projectDir, _, input := setupValidateProject(t)
+	// Change service language to something that doesn't match archetype.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: python
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+`
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), serviceYAML)
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("unexpected infrastructure error: %v", err)
+	}
+	assertHasError(t, result, "language", "does not match archetype language")
+}
+
+func TestValidate_UnsupportedLanguageReturnsError(t *testing.T) {
+	projectDir, _, input := setupValidateProject(t)
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: rust
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+`
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), serviceYAML)
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("unexpected infrastructure error: %v", err)
+	}
+	assertHasError(t, result, "language", "unsupported language")
+}
+
 // assertHasError checks that the result contains at least one error with the
 // given category whose message contains the given substring.
 func assertHasError(t *testing.T, result *ValidationResult, category, messageSubstring string) {
