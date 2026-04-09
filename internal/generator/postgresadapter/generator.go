@@ -128,6 +128,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		DBBackend:    "gorm",
 		PostDBCalls:  []string{base + ".Migrate(db)"},
 		GoModRequires: map[string]string{
+			"github.com/google/uuid":  "v1.6.0",
 			"gorm.io/gorm":            "v1.25.12",
 			"gorm.io/driver/postgres": "v1.5.11",
 			"gorm.io/datatypes":       "v1.2.5",
@@ -181,6 +182,7 @@ var reservedTypeNames = map[string]bool{
 	"json":       true,
 	"fmt":        true,
 	"time":       true,
+	"uuid":       true,
 }
 
 // --- Models ---
@@ -213,6 +215,7 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 
 	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"github.com/google/uuid\"\n")
 	if needDatatypes {
 		fmt.Fprintf(&buf, "\t\"gorm.io/datatypes\"\n")
 	}
@@ -227,6 +230,15 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "\tCreatedTime time.Time      `json:\"created_time\" gorm:\"autoCreateTime\"`\n")
 	fmt.Fprintf(&buf, "\tUpdatedTime time.Time      `json:\"updated_time\" gorm:\"autoUpdateTime\"`\n")
 	fmt.Fprintf(&buf, "\tDeletedAt   gorm.DeletedAt `json:\"-\" gorm:\"index\"`\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// BeforeCreate hook auto-generates a UUID for ID if not already set.
+	fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID for ID on create.\n")
+	fmt.Fprintf(&buf, "func (m *Meta) BeforeCreate(tx *gorm.DB) error {\n")
+	fmt.Fprintf(&buf, "\tif m.ID == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tm.ID = uuid.New().String()\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn nil\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Entity structs.

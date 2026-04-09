@@ -264,6 +264,78 @@ func TestMetaTimestampAutoPopulateTags(t *testing.T) {
 	}
 }
 
+func TestMetaBeforeCreateHookGeneratesUUID(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/storage/models.go")
+
+	// models.go should import github.com/google/uuid.
+	if !strings.Contains(content, `"github.com/google/uuid"`) {
+		t.Error("models.go should import github.com/google/uuid")
+	}
+
+	// Meta should have a BeforeCreate GORM hook.
+	if !strings.Contains(content, "func (m *Meta) BeforeCreate(tx *gorm.DB) error") {
+		t.Error("models.go should have BeforeCreate hook on Meta")
+	}
+
+	// The hook should assign uuid.New().String() when ID is empty.
+	if !strings.Contains(content, "uuid.New().String()") {
+		t.Error("BeforeCreate hook should use uuid.New().String() for ID generation")
+	}
+
+	// The hook should only assign when ID is empty (not overwrite provided IDs).
+	if !strings.Contains(content, `m.ID == ""`) {
+		t.Error("BeforeCreate hook should check m.ID == \"\" before assigning")
+	}
+
+	// Verify it compiles.
+	modelsBytes := findFile(t, files, "internal/storage/models.go").Bytes()
+	if _, err := format.Source(modelsBytes); err != nil {
+		t.Errorf("models.go does not compile: %v\n%s", err, string(modelsBytes))
+	}
+}
+
+func TestWiringIncludesUUIDDependency(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wiring == nil {
+		t.Fatal("expected non-nil wiring")
+	}
+
+	if _, ok := wiring.GoModRequires["github.com/google/uuid"]; !ok {
+		t.Error("GoModRequires should include github.com/google/uuid")
+	}
+}
+
+func TestReservedEntityNameUUID(t *testing.T) {
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "uuid", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}},
+		},
+		OutputNamespace: "internal/storage",
+	}
+
+	g := &Generator{}
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for entity name 'uuid' (import alias collision)")
+	}
+	if !strings.Contains(err.Error(), "collides") {
+		t.Errorf("error should mention collision, got: %v", err)
+	}
+}
+
 func TestModelUniqueCompositeGeneratesGormTag(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{
