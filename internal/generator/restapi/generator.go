@@ -21,20 +21,20 @@ type Generator struct{}
 // Generate produces HTTP handler files (one per exposed entity), a router file,
 // and an OpenAPI spec. It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	if len(ctx.Expose) == 0 {
+	if len(ctx.Collections) == 0 {
 		return nil, nil, nil
 	}
 
 	// Validate no duplicate expose blocks for the same entity. This must
 	// happen before any map or iteration to avoid silent overwrites (map)
 	// and duplicate type declarations (iteration).
-	if err := validateExposeUniqueness(ctx.Expose); err != nil {
+	if err := validateExposeUniqueness(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
 	// Check for entity name collisions with generator-internal identifiers
 	// and cross-entity derived identifier collisions.
-	if err := checkEntityNameCollisions(ctx.Expose); err != nil {
+	if err := checkEntityNameCollisions(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
@@ -42,7 +42,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// whose names differ only in case (e.g. "Item" and "ITEM") produce
 	// colliding handler variable names, handler file paths, and router
 	// variable declarations via strings.ToLower.
-	if err := validateCaseInsensitiveUniqueness(ctx.Expose); err != nil {
+	if err := validateCaseInsensitiveUniqueness(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
@@ -52,16 +52,16 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		entityMap[e.Name] = e
 	}
 
-	// Build parent lookup: entity name -> its ExposeBlock (for nested routing).
-	exposeMap := make(map[string]types.ExposeBlock, len(ctx.Expose))
-	for _, eb := range ctx.Expose {
+	// Build parent lookup: entity name -> its Collection (for nested routing).
+	exposeMap := make(map[string]types.Collection, len(ctx.Collections))
+	for _, eb := range ctx.Collections {
 		exposeMap[eb.Entity] = eb
 	}
 
 	// Validate that every expose block has at least one operation. An empty
 	// operations list produces unused imports and handler variables — Go
 	// compile errors.
-	if err := validateExposeOperations(ctx.Expose); err != nil {
+	if err := validateExposeOperations(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
@@ -69,12 +69,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// operations produce duplicate method declarations (compile error),
 	// duplicate route registrations (runtime panic), and duplicate OpenAPI
 	// operation entries (silent overwrite).
-	if err := validateOperationUniqueness(ctx.Expose); err != nil {
+	if err := validateOperationUniqueness(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
 	// Validate that all parent cross-references resolve within the expose list.
-	if err := validateParentReferences(ctx.Expose, exposeMap); err != nil {
+	if err := validateParentReferences(ctx.Collections, exposeMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -83,14 +83,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// parent declaration itself — it must hold regardless of which operations
 	// are exposed. Lazy validation inside operation methods would miss
 	// read-only or delete-only entities.
-	if err := validateParentRefFields(ctx.Expose, entityMap); err != nil {
+	if err := validateParentRefFields(ctx.Collections, entityMap); err != nil {
 		return nil, nil, err
 	}
 
 	// Validate that scope and upsert_key field-name references resolve to
 	// actual entity fields. The generator is the first consumer that knows
 	// both the expose block and the entity's field definitions.
-	if err := validateFieldReferences(ctx.Expose, entityMap); err != nil {
+	if err := validateFieldReferences(ctx.Collections, entityMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -98,14 +98,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// the entity's ref field pointing to the parent. Otherwise the generated
 	// list handler extracts the parent ID from the URL and passes it as the
 	// filter for a different field — semantically wrong.
-	if err := validateScopeParentConsistency(ctx.Expose, entityMap); err != nil {
+	if err := validateScopeParentConsistency(ctx.Collections, entityMap); err != nil {
 		return nil, nil, err
 	}
 
 	// Validate that no two entities produce the same route path. Collisions
 	// cause runtime panics (Go 1.22 ServeMux), OpenAPI path overwrites, and
 	// duplicate variable declarations.
-	if err := validateRouteCollisions(ctx.Expose, exposeMap); err != nil {
+	if err := validateRouteCollisions(ctx.Collections, exposeMap); err != nil {
 		return nil, nil, err
 	}
 
@@ -126,7 +126,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Generate handler file per exposed entity.
-	for _, eb := range ctx.Expose {
+	for _, eb := range ctx.Collections {
 		entity, ok := entityMap[eb.Entity]
 		if !ok {
 			return nil, nil, fmt.Errorf("expose references unknown entity %q", eb.Entity)
@@ -182,14 +182,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Expose)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
 	files = append(files, routerFile)
 
 	// Generate OpenAPI spec.
-	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Expose, exposeMap)
+	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, exposeMap)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating openapi spec: %w", err)
 	}
@@ -208,26 +208,26 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
 // from the entity name, prepended with the parent's path if nested.
 // Returns an error if a circular parent reference is detected.
-func entityBasePath(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (string, error) {
+func entityBasePath(eb types.Collection, exposeMap map[string]types.Collection) (string, error) {
 	return entityBasePathWithVisited(eb, exposeMap, map[string]bool{eb.Entity: true})
 }
 
-func entityBasePathWithVisited(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock, visited map[string]bool) (string, error) {
+func entityBasePathWithVisited(eb types.Collection, exposeMap map[string]types.Collection, visited map[string]bool) (string, error) {
 	if eb.PathPrefix != "" {
 		return eb.PathPrefix, nil
 	}
 	base := "/" + strings.ToLower(eb.Entity) + "s"
-	if eb.Parent != "" {
-		if visited[eb.Parent] {
-			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.Parent)
+	if eb.ParentEntity() != "" {
+		if visited[eb.ParentEntity()] {
+			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.ParentEntity())
 		}
-		if parentEB, ok := exposeMap[eb.Parent]; ok {
-			visited[eb.Parent] = true
+		if parentEB, ok := exposeMap[eb.ParentEntity()]; ok {
+			visited[eb.ParentEntity()] = true
 			parentPath, err := entityBasePathWithVisited(parentEB, exposeMap, visited)
 			if err != nil {
 				return "", err
 			}
-			parentParam := "{" + strings.ToLower(eb.Parent) + "_id}"
+			parentParam := "{" + strings.ToLower(eb.ParentEntity()) + "_id}"
 			return parentPath + "/" + parentParam + base, nil
 		}
 	}
@@ -237,7 +237,7 @@ func entityBasePathWithVisited(eb types.ExposeBlock, exposeMap map[string]types.
 // generateHandler produces a single Go handler file for an exposed entity.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock, slotParams []entitySlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
+func generateHandler(ns string, entity types.Entity, eb types.Collection, exposeMap map[string]types.Collection, slotParams []entitySlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	lower := strings.ToLower(entity.Name)
@@ -370,18 +370,18 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	// otherwise they are derived from entity names via convention.
 	var ancestorParams map[string]string
 	var parentParamName string
-	if eb.Parent != "" {
+	if eb.ParentEntity() != "" {
 		var err error
 		ancestorParams, err = resolveAncestorParams(eb, exposeMap)
 		if err != nil {
 			return gen.File{}, err
 		}
-		parentParamName = ancestorParams[eb.Parent]
+		parentParamName = ancestorParams[eb.ParentEntity()]
 	}
 
 	// Ancestor verification helper for nested routing. Verifies the existence
 	// of all ancestor entities in the URL hierarchy, not just the immediate parent.
-	if eb.Parent != "" {
+	if eb.ParentEntity() != "" {
 		ancestors, err := collectAncestors(eb, exposeMap)
 		if err != nil {
 			return gen.File{}, err
@@ -443,15 +443,15 @@ func generateHandler(ns string, entity types.Entity, eb types.ExposeBlock, expos
 	}, nil
 }
 
-func emitParentCheck(buf *bytes.Buffer, eb types.ExposeBlock) {
-	if eb.Parent != "" {
+func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
+	if eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\tif !h.checkAncestors(w, r) {\n")
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -461,8 +461,8 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
-	if eb.Parent != "" {
-		refField, err := parentRefFieldName(entity, eb.Parent)
+	if eb.ParentEntity() != "" {
+		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
 			return err
 		}
@@ -488,7 +488,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	return nil
 }
 
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, slotParams []entitySlotParam, slotsAlias string) {
+func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -505,7 +505,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	_, _ = slotParams, slotsAlias
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -516,8 +516,8 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
-	if eb.Parent != "" {
-		refField, err := parentRefFieldName(entity, eb.Parent)
+	if eb.ParentEntity() != "" {
+		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
 			return err
 		}
@@ -540,7 +540,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	return nil
 }
 
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, slotParams []entitySlotParam, slotsAlias string) {
+func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []entitySlotParam, slotsAlias string) {
 	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
@@ -556,7 +556,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
+func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -564,15 +564,15 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
 	// a parent, scope is passed as a query parameter.
-	if eb.Scope != "" && eb.Parent != "" {
+	if len(eb.Scope) > 0 && eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
-	} else if eb.Scope != "" {
-		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.Scope)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.Scope)
-	} else if eb.Parent != "" {
-		parentIDVar := strings.ToLower(eb.Parent) + "ID"
-		parentField, err := parentRefRawFieldName(entity, eb.Parent)
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.ScopeField())
+	} else if len(eb.Scope) > 0 {
+		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.ScopeField())
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.ScopeField())
+	} else if eb.ParentEntity() != "" {
+		parentIDVar := strings.ToLower(eb.ParentEntity()) + "ID"
+		parentField, err := parentRefRawFieldName(entity, eb.ParentEntity())
 		if err != nil {
 			return err
 		}
@@ -594,7 +594,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeB
 	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.ExposeBlock, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []entitySlotParam, slotsAlias string, authAlias string) error {
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", entity.Name)
 	emitParentCheck(buf, eb)
@@ -604,8 +604,8 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
-	if eb.Parent != "" {
-		refField, err := parentRefFieldName(entity, eb.Parent)
+	if eb.ParentEntity() != "" {
+		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
 			return err
 		}
@@ -648,7 +648,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Expos
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlock) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, expose []types.Collection) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	// Build entity map and determine needed imports from entity field types.
@@ -721,7 +721,7 @@ func generateRouter(ns string, entities []types.Entity, expose []types.ExposeBlo
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.
-func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (gen.File, error) {
+func generateOpenAPI(ns string, entities []types.Entity, expose []types.Collection, exposeMap map[string]types.Collection) (gen.File, error) {
 	entityMap := make(map[string]types.Entity, len(entities))
 	for _, e := range entities {
 		entityMap[e.Name] = e
@@ -783,9 +783,9 @@ func generateOpenAPI(ns string, entities []types.Entity, expose []types.ExposeBl
 				listParams := append([]openAPIParam{}, parentParams...)
 				// When scope is set without a parent, the scope value is passed
 				// as a query parameter — declare it in the OpenAPI spec.
-				if eb.Scope != "" && eb.Parent == "" {
+				if len(eb.Scope) > 0 && eb.ParentEntity() == "" {
 					listParams = append(listParams, openAPIParam{
-						Name:     eb.Scope,
+						Name:     eb.ScopeField(),
 						In:       "query",
 						Required: false,
 						Schema:   openAPISchema{Type: "string"},
@@ -1031,17 +1031,17 @@ func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Ent
 // collectAncestors walks the parent chain from the given expose block and returns
 // all ancestor entity names in top-down order (grandparent before parent).
 // Returns an error if a circular parent reference is detected.
-func collectAncestors(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) ([]string, error) {
+func collectAncestors(eb types.Collection, exposeMap map[string]types.Collection) ([]string, error) {
 	var ancestors []string
 	visited := map[string]bool{eb.Entity: true}
 	current := eb
-	for current.Parent != "" {
-		if visited[current.Parent] {
-			return nil, fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", current.Parent)
+	for current.ParentEntity() != "" {
+		if visited[current.ParentEntity()] {
+			return nil, fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", current.ParentEntity())
 		}
-		visited[current.Parent] = true
-		ancestors = append(ancestors, current.Parent)
-		parentEB, ok := exposeMap[current.Parent]
+		visited[current.ParentEntity()] = true
+		ancestors = append(ancestors, current.ParentEntity())
+		parentEB, ok := exposeMap[current.ParentEntity()]
 		if !ok {
 			break
 		}
@@ -1153,7 +1153,7 @@ var reservedTypeNames = map[string]bool{
 // checkEntityNameCollisions verifies that no exposed entity name collides with
 // a generator-internal identifier or with another entity's derived type names.
 // Returns an error identifying the collision.
-func checkEntityNameCollisions(expose []types.ExposeBlock) error {
+func checkEntityNameCollisions(expose []types.Collection) error {
 	// Check against static reserved names.
 	for _, eb := range expose {
 		if reservedTypeNames[eb.Entity] {
@@ -1187,7 +1187,7 @@ func checkEntityNameCollisions(expose []types.ExposeBlock) error {
 // validateExposeUniqueness checks that no entity appears more than once in the
 // expose list. Duplicate entries cause duplicate type declarations and silent
 // map overwrites.
-func validateExposeUniqueness(expose []types.ExposeBlock) error {
+func validateExposeUniqueness(expose []types.Collection) error {
 	seen := make(map[string]int, len(expose))
 	var dupes []string
 	for _, eb := range expose {
@@ -1204,7 +1204,7 @@ func validateExposeUniqueness(expose []types.ExposeBlock) error {
 
 // validateFieldReferences checks that scope and upsert_key field-name references
 // in expose blocks resolve to actual fields on the referenced entity.
-func validateFieldReferences(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+func validateFieldReferences(expose []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range expose {
 		entity, ok := entityMap[eb.Entity]
@@ -1217,10 +1217,10 @@ func validateFieldReferences(expose []types.ExposeBlock, entityMap map[string]ty
 			fieldSet[f.Name] = true
 		}
 
-		if eb.Scope != "" && !fieldSet[eb.Scope] {
+		if len(eb.Scope) > 0 && !fieldSet[eb.ScopeField()] {
 			errs = append(errs, fmt.Sprintf(
 				"expose block for %q references scope field %q, but entity %q has no field with that name",
-				eb.Entity, eb.Scope, eb.Entity))
+				eb.Entity, eb.ScopeField(), eb.Entity))
 		}
 
 		for _, key := range eb.UpsertKey {
@@ -1241,7 +1241,7 @@ func validateFieldReferences(expose []types.ExposeBlock, entityMap map[string]ty
 // path parameter name used in the route. When path_prefix is set, parameter
 // names are extracted from the prefix and matched positionally with ancestors.
 // When not set, convention-derived names (lowercase_entity + "_id") are used.
-func resolveAncestorParams(eb types.ExposeBlock, exposeMap map[string]types.ExposeBlock) (map[string]string, error) {
+func resolveAncestorParams(eb types.Collection, exposeMap map[string]types.Collection) (map[string]string, error) {
 	ancestors, err := collectAncestors(eb, exposeMap)
 	if err != nil {
 		return nil, err
@@ -1274,14 +1274,14 @@ func resolveAncestorParams(eb types.ExposeBlock, exposeMap map[string]types.Expo
 // references an entity that is also in the expose list. A parent outside the
 // expose list means the generator cannot produce a correct route — the parent's
 // path segment and path parameter will be missing, causing every request to fail.
-func validateParentReferences(expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) error {
+func validateParentReferences(expose []types.Collection, exposeMap map[string]types.Collection) error {
 	var errs []string
 	for _, eb := range expose {
-		if eb.Parent != "" {
-			if _, ok := exposeMap[eb.Parent]; !ok {
+		if eb.ParentEntity() != "" {
+			if _, ok := exposeMap[eb.ParentEntity()]; !ok {
 				errs = append(errs, fmt.Sprintf(
 					"expose block for %q references parent %q, but %q is not in the expose list",
-					eb.Entity, eb.Parent, eb.Parent))
+					eb.Entity, eb.ParentEntity(), eb.ParentEntity()))
 			}
 		}
 	}
@@ -1413,7 +1413,7 @@ type openAPISchema struct {
 // validateExposeOperations checks that every expose block has at least one
 // operation. An empty operations list produces an unused handler variable and
 // an unused net/http import — both Go compile errors.
-func validateExposeOperations(expose []types.ExposeBlock) error {
+func validateExposeOperations(expose []types.Collection) error {
 	var empty []string
 	for _, eb := range expose {
 		if len(eb.Operations) == 0 {
@@ -1431,7 +1431,7 @@ func validateExposeOperations(expose []types.ExposeBlock) error {
 // entities. Collisions cause Go 1.22 ServeMux runtime panics (duplicate
 // pattern registrations), OpenAPI path map overwrites, and duplicate handler
 // variable declarations.
-func validateRouteCollisions(expose []types.ExposeBlock, exposeMap map[string]types.ExposeBlock) error {
+func validateRouteCollisions(expose []types.Collection, exposeMap map[string]types.Collection) error {
 	type pathOwner struct {
 		entity string
 		path   string
@@ -1472,10 +1472,10 @@ func validateRouteCollisions(expose []types.ExposeBlock, exposeMap map[string]ty
 // parameter and uses it as the filter for the scope field. If the scope field is
 // a different field, the generated code passes the wrong value — semantically
 // broken at runtime.
-func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+func validateScopeParentConsistency(expose []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range expose {
-		if eb.Scope == "" || eb.Parent == "" {
+		if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
 			continue
 		}
 		entity, ok := entityMap[eb.Entity]
@@ -1486,7 +1486,7 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 		// has already guaranteed exactly one exists if parent is set.
 		refFieldName := ""
 		for _, f := range entity.Fields {
-			if f.Type == types.FieldTypeRef && f.To == eb.Parent {
+			if f.Type == types.FieldTypeRef && f.To == eb.ParentEntity() {
 				refFieldName = f.Name
 				break
 			}
@@ -1495,10 +1495,10 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 			// Already caught by validateParentRefFields.
 			continue
 		}
-		if eb.Scope != refFieldName {
+		if eb.ScopeField() != refFieldName {
 			errs = append(errs, fmt.Sprintf(
 				"expose block for %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
-				eb.Entity, eb.Scope, eb.Parent, eb.Scope, eb.Parent, refFieldName))
+				eb.Entity, eb.ScopeField(), eb.ParentEntity(), eb.ScopeField(), eb.ParentEntity(), refFieldName))
 		}
 	}
 	if len(errs) > 0 {
@@ -1513,7 +1513,7 @@ func validateScopeParentConsistency(expose []types.ExposeBlock, entityMap map[st
 // (both → "handler_item.go"), and router variable declarations via
 // strings.ToLower. Route collision detection does not catch this when entities
 // have different PathPrefix values.
-func validateCaseInsensitiveUniqueness(expose []types.ExposeBlock) error {
+func validateCaseInsensitiveUniqueness(expose []types.Collection) error {
 	seen := make(map[string]string, len(expose)) // lowered name → original name
 	var errs []string
 	for _, eb := range expose {
@@ -1536,7 +1536,7 @@ func validateCaseInsensitiveUniqueness(expose []types.ExposeBlock) error {
 // operations. Duplicate operations produce duplicate method declarations (Go
 // compile error), duplicate route registrations (Go 1.22 ServeMux runtime
 // panic), and duplicate OpenAPI operation entries (silent overwrite).
-func validateOperationUniqueness(expose []types.ExposeBlock) error {
+func validateOperationUniqueness(expose []types.Collection) error {
 	var errs []string
 	for _, eb := range expose {
 		seen := make(map[types.Operation]bool, len(eb.Operations))
@@ -1629,7 +1629,7 @@ func slotCamel(s string) string {
 func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration) []entitySlotParam {
 	var params []entitySlotParam
 	for _, sb := range bindings {
-		if sb.Entity != entityName {
+		if sb.Collection != entityName {
 			continue
 		}
 		sp := slotPascal(sb.Slot)
@@ -1825,10 +1825,10 @@ func needsFmtForSlotFields(entity types.Entity) bool {
 // exposed. Without this upfront check, read-only or delete-only entities with
 // parent silently pass generation but produce semantically hollow nesting (ancestor
 // existence is verified but parent-child ownership is never enforced).
-func validateParentRefFields(expose []types.ExposeBlock, entityMap map[string]types.Entity) error {
+func validateParentRefFields(expose []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range expose {
-		if eb.Parent == "" {
+		if eb.ParentEntity() == "" {
 			continue
 		}
 		entity, ok := entityMap[eb.Entity]
@@ -1837,18 +1837,18 @@ func validateParentRefFields(expose []types.ExposeBlock, entityMap map[string]ty
 		}
 		var matches []string
 		for _, f := range entity.Fields {
-			if f.Type == types.FieldTypeRef && f.To == eb.Parent {
+			if f.Type == types.FieldTypeRef && f.To == eb.ParentEntity() {
 				matches = append(matches, f.Name)
 			}
 		}
 		if len(matches) == 0 {
 			errs = append(errs, fmt.Sprintf(
 				"entity %q declares parent %q but has no field of type ref with to: %q",
-				eb.Entity, eb.Parent, eb.Parent))
+				eb.Entity, eb.ParentEntity(), eb.ParentEntity()))
 		} else if len(matches) > 1 {
 			errs = append(errs, fmt.Sprintf(
 				"entity %q has multiple ref fields pointing to parent %q: %s; the parent relationship is ambiguous — use a single ref field per parent entity",
-				eb.Entity, eb.Parent, strings.Join(matches, ", ")))
+				eb.Entity, eb.ParentEntity(), strings.Join(matches, ", ")))
 		}
 	}
 	if len(errs) > 0 {
