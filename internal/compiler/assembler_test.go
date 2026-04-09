@@ -4017,7 +4017,7 @@ func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
-				Wiring: nil, // no expose → no wiring
+				Wiring: nil, // no collections → no wiring
 			},
 			{
 				Name: "postgres-adapter",

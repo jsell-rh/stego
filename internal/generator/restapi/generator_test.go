@@ -339,9 +339,9 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Must use PathValue with the parent path parameter name, not the scope field name.
-	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
-		t.Error("scope with parent must extract value from parent path parameter (organization_id)")
+	// Must use PathValue with the scope field name as the path parameter name.
+	if !strings.Contains(handler, `r.PathValue("org_id")`) {
+		t.Error("scope with parent must extract value from scope field path parameter (org_id)")
 	}
 	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
@@ -381,9 +381,9 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Scope with parent entity in collections list uses path parameter.
-	if !strings.Contains(handler, `r.PathValue("organization_id")`) {
-		t.Error("scope with parent in collections must extract value from path parameter")
+	// Scope with parent entity in collections list uses scope field as path parameter.
+	if !strings.Contains(handler, `r.PathValue("org_id")`) {
+		t.Error("scope with parent in collections must extract value from scope field path parameter")
 	}
 	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
@@ -714,23 +714,23 @@ func TestGenerate_OpenAPIScopeQueryParamWithoutParent(t *testing.T) {
 
 	paths := spec["paths"].(map[string]any)
 	// With scope pointing to Organization in collections, the route is nested.
-	nestedPath := paths["/organizations/{organization_id}/users"].(map[string]any)
+	nestedPath := paths["/organizations/{org_id}/users"].(map[string]any)
 	getOp := nestedPath["get"].(map[string]any)
 	params, ok := getOp["parameters"].([]any)
 	if !ok || len(params) == 0 {
 		t.Fatal("GET nested users (list with scope+parent) must have parameters declared")
 	}
 
-	// Find the parent path parameter.
+	// Find the parent path parameter — uses scope field name.
 	foundPathParam := false
 	for _, p := range params {
 		param := p.(map[string]any)
-		if param["name"] == "organization_id" && param["in"] == "path" {
+		if param["name"] == "org_id" && param["in"] == "path" {
 			foundPathParam = true
 		}
 	}
 	if !foundPathParam {
-		t.Error("OpenAPI list operation must declare organization_id path parameter when scope references parent in collections")
+		t.Error("OpenAPI list operation must declare org_id path parameter when scope references parent in collections")
 	}
 }
 
@@ -2491,17 +2491,17 @@ func TestGenerate_OpenAPISchemasOnlyForCollectionEntities(t *testing.T) {
 
 	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
 
-	// Organization and User should be present (they are exposed).
+	// Organization and User should be present (they have collections).
 	if _, ok := schemas["Organization"]; !ok {
-		t.Error("exposed entity Organization should have an OpenAPI schema")
+		t.Error("entity Organization with a collection should have an OpenAPI schema")
 	}
 	if _, ok := schemas["User"]; !ok {
-		t.Error("exposed entity User should have an OpenAPI schema")
+		t.Error("entity User with a collection should have an OpenAPI schema")
 	}
 
-	// Team should NOT be present (not exposed).
+	// Team should NOT be present (no collection references it).
 	if _, ok := schemas["Team"]; ok {
-		t.Error("non-exposed entity Team should NOT have an OpenAPI schema — it has no path operations")
+		t.Error("entity Team with no collection should NOT have an OpenAPI schema — it has no path operations")
 	}
 }
 
@@ -2582,10 +2582,8 @@ func TestGenerate_MultipleParentsNotInCollectionsListReportsAll(t *testing.T) {
 }
 
 func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
-	// Finding 32: when path_prefix is set with parent and the prefix uses
-	// non-conventional parameter names (e.g. {org_id} instead of {organization_id}),
-	// the generated handler code must use the actual prefix parameter names in
-	// r.PathValue() calls, not convention-derived names.
+	// When path_prefix is set with parent, the generated handler code must use
+	// the actual prefix parameter names in r.PathValue() calls.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -2616,13 +2614,12 @@ func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
 
-	// checkAncestors must use {org_id} from the prefix, NOT {organization_id}
-	// from the convention.
+	// checkAncestors must use {org_id} from the prefix.
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
-		t.Error("checkAncestors must use actual prefix parameter name 'org_id', not convention-derived 'organization_id'")
+		t.Error("checkAncestors must use prefix parameter name 'org_id'")
 	}
 	if strings.Contains(handler, `r.PathValue("organization_id")`) {
-		t.Error("handler must NOT use convention-derived 'organization_id' when path_prefix provides 'org_id'")
+		t.Error("handler must NOT use 'organization_id' when path_prefix provides 'org_id'")
 	}
 
 	// Create method parent ID assignment must use {org_id}.

@@ -240,7 +240,7 @@ func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string
 			if err != nil {
 				return "", err
 			}
-			parentParam := "{" + strings.ToLower(eb.ParentEntity()) + "_id}"
+			parentParam := "{" + eb.ScopeField() + "}"
 			return parentPath + "/" + parentParam + base, nil
 		}
 	}
@@ -764,8 +764,8 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		Components: openAPIComponents{Schemas: make(map[string]openAPISchema)},
 	}
 
-	// Generate schemas for exposed entities only. Deduplicate across
-	// collections: multiple collections may reference the same entity.
+	// Generate schemas only for entities that have collections. Deduplicate
+	// across collections: multiple collections may reference the same entity.
 	schemaEmitted := make(map[string]bool)
 	for _, eb := range collections {
 		if schemaEmitted[eb.Entity] {

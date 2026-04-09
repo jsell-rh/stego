@@ -37,21 +37,23 @@ the fills is essential complexity.
 
 ## Build from source
 
-    git clone https://github.com/jsell-rh/stego.git
-    cd stego
-    go build -o stego ./cmd/stego/
-    go test ./...
-
+```bash
+git clone https://github.com/jsell-rh/stego.git
+cd stego
+go build -o stego ./cmd/stego/
+go test ./...
+```
 This produces a `stego` binary in the repo root.
 
 ## Quick start
 
 Set up environment and initialize a new project:
 
-    export STEGO_REGISTRY=/path/to/stego/registry
-    mkdir my-service && cd my-service
-    /path/to/stego init -archetype rest-crud
-
+```bash
+export STEGO_REGISTRY=/path/to/stego/registry
+mkdir my-service && cd my-service
+/path/to/stego init -archetype rest-crud
+```
 This creates a `service.yaml` scaffold and a `fills/` directory. Edit
 `service.yaml` with your entities and operations:
 
@@ -67,38 +69,45 @@ entities:
       - { name: title, type: string, min_length: 1, max_length: 255 }
       - { name: completed, type: bool, default: false }
 
-expose:
-  - entity: Todo
+collections:
+  todos:
+    entity: Todo
     operations: [create, read, update, delete, list]
 ```
 
 Generate and build:
 
-    stego validate      # check service.yaml against registry
-    stego plan          # see what will be generated
-    stego apply         # generate code into out/
-    cd out && go build  # it's just Go
+```bash
+stego validate      # check service.yaml against registry
+stego plan          # see what will be generated
+stego apply         # generate code into out/
+cd out && go build  # it's just Go
+```
 
 Add business logic via fills:
 
-    stego fill create admin-policy -slot before_create
-    # implement fills/admin-policy/policy.go
-    stego test          # run fill tests
-    stego apply         # re-generate with fills wired in
+```bash
+stego fill create admin-policy -slot before_create -collection todos
+# implement fills/admin-policy/policy.go
+stego test          # run fill tests
+stego apply         # re-generate with fills wired in
+```
 
 ## Run the example
 
 A complete example with fills is included:
 
-    export STEGO_REGISTRY=/path/to/stego/registry
-    cd examples/user-management
-    /path/to/stego plan
-    /path/to/stego apply
-    cd out && go build
+```bash
+export STEGO_REGISTRY=/path/to/stego/registry
+cd examples/user-management
+/path/to/stego plan
+/path/to/stego apply
+cd out && go build
+```
 
 ## Concepts
 
-Five nouns: **Archetype**, **Component**, **Mixin**, **Service Declaration**, **Fill**.
+Six nouns: **Archetype**, **Component**, **Mixin**, **Service Declaration**, **Collection**, **Fill**.
 Seven operators: `use`, `with`, `mixin`, `gate`, `chain`, `fan-out`, `map`.
 
 See [specs/spec.md](specs/spec.md) for the full specification.
