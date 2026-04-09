@@ -2827,6 +2827,50 @@ func TestResolveAncestorParams_MismatchedParamCount(t *testing.T) {
 	}
 }
 
+func TestGenerate_MultiFieldScopeRejected(t *testing.T) {
+	// Round 4 finding: multi-field scope cardinality must be enforced on the
+	// Reconcile() path (via Generate()), not only via Validate(). ScopeField()
+	// and ParentEntity() are non-deterministic for maps with >1 entry.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "Team", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "team_id", Type: types.FieldTypeRef, To: "Team"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "orgs", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "teams", Entity: "Team", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "org-team-widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpList},
+				Scope:      map[string]string{"org_id": "Organization", "team_id": "Team"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for multi-field scope")
+	}
+	if !strings.Contains(err.Error(), "multi-field scopes are not yet supported") {
+		t.Errorf("error should mention multi-field scope unsupported, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "org-team-widgets") {
+		t.Errorf("error should mention the collection name, got: %v", err)
+	}
+}
+
 func TestGenerate_InvalidScopeFieldReturnsError(t *testing.T) {
 	// Finding 33: scope field must reference an existing entity field.
 	// The scope's parent entity must also be in collections for parent

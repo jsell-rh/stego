@@ -58,6 +58,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		exposeMap[eb.Entity] = eb
 	}
 
+	// Validate scope cardinality: multi-field scopes are not yet supported.
+	// ScopeField() and ParentEntity() iterate the map and return the first
+	// element, which is non-deterministic for maps with more than one entry.
+	// This check must run before any validation or generation that calls
+	// ScopeField() or ParentEntity().
+	if err := validateScopeCardinality(ctx.Collections); err != nil {
+		return nil, nil, err
+	}
+
 	// Validate that every expose block has at least one operation. An empty
 	// operations list produces unused imports and handler variables — Go
 	// compile errors.
@@ -1181,6 +1190,27 @@ func checkEntityNameCollisions(expose []types.Collection) error {
 		}
 	}
 
+	return nil
+}
+
+// validateScopeCardinality rejects collections with more than one scope entry.
+// Multi-field scopes are not yet supported — ScopeField() and ParentEntity()
+// iterate the Scope map and return the first element, which is non-deterministic
+// for maps with more than one entry. This check mirrors the validation in
+// validate.go and ensures the invariant is enforced on the Reconcile() path
+// (stego plan / stego apply), not just the Validate() path (stego validate).
+func validateScopeCardinality(collections []types.Collection) error {
+	var errs []string
+	for _, c := range collections {
+		if len(c.Scope) > 1 {
+			errs = append(errs, fmt.Sprintf(
+				"collection %q has %d scope entries but multi-field scopes are not yet supported — scope must contain exactly one entry",
+				c.Name, len(c.Scope)))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("scope cardinality errors:\n  %s", strings.Join(errs, "\n  "))
+	}
 	return nil
 }
 
