@@ -135,6 +135,11 @@ func TestBasicGeneration(t *testing.T) {
 			t.Errorf("GoModRequires missing %q", mod)
 		}
 	}
+
+	// Verify PostDBCalls includes migration call.
+	if len(wiring.PostDBCalls) != 1 || wiring.PostDBCalls[0] != "storage.Migrate(db)" {
+		t.Errorf("expected PostDBCalls=[\"storage.Migrate(db)\"], got %v", wiring.PostDBCalls)
+	}
 }
 
 // --- Generated Go code compiles ---
@@ -349,19 +354,19 @@ func TestStoreUsesGORM(t *testing.T) {
 		t.Error("store.go NewStore should accept *gorm.DB")
 	}
 
-	// Create should use s.db.Create.
-	if !strings.Contains(storeContent, "s.db.Create(&v).Error") {
-		t.Error("store.go Create should use s.db.Create")
+	// Create should use s.db.WithContext(ctx).Create.
+	if !strings.Contains(storeContent, "s.db.WithContext(ctx).Create(&v).Error") {
+		t.Error("store.go Create should use s.db.WithContext(ctx).Create")
 	}
 
-	// Read should use s.db.First.
-	if !strings.Contains(storeContent, `s.db.First(&v, "id = ?", id).Error`) {
-		t.Error("store.go Read should use s.db.First")
+	// Get should use s.db.First.
+	if !strings.Contains(storeContent, `s.db.WithContext(ctx).First(&v, "id = ?", id).Error`) {
+		t.Error("store.go Get should use s.db.WithContext(ctx).First")
 	}
 
-	// Update should use s.db.Save.
-	if !strings.Contains(storeContent, "s.db.Save(&v).Error") {
-		t.Error("store.go Update should use s.db.Save")
+	// Replace should use s.db.Save.
+	if !strings.Contains(storeContent, "s.db.WithContext(ctx).Save(&v).Error") {
+		t.Error("store.go Replace should use s.db.WithContext(ctx).Save")
 	}
 
 	// Delete should use s.db.Delete (soft delete).
@@ -381,13 +386,13 @@ func TestStoreHasAllMethods(t *testing.T) {
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
 	methods := []string{
-		"func (s *Store) Create(",
-		"func (s *Store) Read(",
-		"func (s *Store) Update(",
-		"func (s *Store) Delete(",
-		"func (s *Store) List(",
-		"func (s *Store) Upsert(",
-		"func (s *Store) Exists(",
+		"func (s *Store) Create(ctx context.Context,",
+		"func (s *Store) Get(ctx context.Context,",
+		"func (s *Store) Replace(ctx context.Context,",
+		"func (s *Store) Delete(ctx context.Context,",
+		"func (s *Store) List(ctx context.Context,",
+		"func (s *Store) Upsert(ctx context.Context,",
+		"func (s *Store) Exists(ctx context.Context,",
 	}
 
 	for _, m := range methods {
@@ -704,7 +709,7 @@ func TestComputedFieldsNullableModel(t *testing.T) {
 	}
 }
 
-func TestUpdateAllComputedFieldsReturnsError(t *testing.T) {
+func TestReplaceAllComputedFieldsReturnsError(t *testing.T) {
 	ctx := gen.Context{
 		Entities: []types.Entity{
 			{
@@ -726,7 +731,7 @@ func TestUpdateAllComputedFieldsReturnsError(t *testing.T) {
 
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 	if !strings.Contains(storeContent, "has no writable fields") {
-		t.Error("Update should return error when entity has only computed fields")
+		t.Error("Replace should return error when entity has only computed fields")
 	}
 }
 
@@ -963,7 +968,7 @@ func TestExistsMethodUsesCount(t *testing.T) {
 	if !strings.Contains(storeContent, ".Count(&count)") {
 		t.Error("Exists should use GORM Count")
 	}
-	if !strings.Contains(storeContent, "func (s *Store) Exists(entity string, id string) (bool, error)") {
+	if !strings.Contains(storeContent, "func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, error)") {
 		t.Error("Exists should return (bool, error)")
 	}
 	if !strings.Contains(storeContent, "return false, err") {
@@ -988,6 +993,32 @@ func TestListScopeValidation(t *testing.T) {
 	}
 	if !strings.Contains(storeContent, "invalid scope field") {
 		t.Error("List should return error for invalid scope field")
+	}
+}
+
+func TestListPagination(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// List should accept offset and limit parameters.
+	if !strings.Contains(storeContent, "offset int, limit int") {
+		t.Error("List should accept offset and limit parameters")
+	}
+
+	// List should apply Offset.
+	if !strings.Contains(storeContent, "query.Offset(offset)") {
+		t.Error("List should apply Offset for pagination")
+	}
+
+	// List should apply Limit.
+	if !strings.Contains(storeContent, "query.Limit(limit)") {
+		t.Error("List should apply Limit for pagination")
 	}
 }
 

@@ -206,6 +206,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		} else {
 			writeDBSetup(&buf)
 		}
+
+		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
+		writePostDBCalls(&buf, input, consumedWirings)
 	}
 
 	// Slot wiring — create operators before constructors so they can be
@@ -430,7 +433,27 @@ func writeGORMDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\tlog.Fatal(err)\n")
-	buf.WriteString("\t}\n\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tsqlDB, err := db.DB()\n")
+	buf.WriteString("\tif err != nil {\n")
+	buf.WriteString("\t\tlog.Fatal(err)\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tdefer sqlDB.Close()\n\n")
+}
+
+// writePostDBCalls emits post-database-setup calls from consumed component
+// wirings (e.g. storage.Migrate(db)). Each call is wrapped in error handling.
+func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings map[int]bool) {
+	for i, cw := range input.Wirings {
+		if !consumedWirings[i] || cw.Wiring == nil {
+			continue
+		}
+		for _, call := range cw.Wiring.PostDBCalls {
+			fmt.Fprintf(buf, "\tif err := %s; err != nil {\n", call)
+			buf.WriteString("\t\tlog.Fatal(err)\n")
+			buf.WriteString("\t}\n")
+		}
+	}
 }
 
 // gormImport describes a GORM third-party import needed in main.go.
@@ -483,6 +506,7 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes bool) map[string]bool {
 		vars["db"] = true
 		vars["err"] = true
 		if isGORM {
+			vars["sqlDB"] = true
 			// GORM import aliases used in writeGORMDBSetup.
 			vars["gorm"] = true
 			vars["postgres"] = true

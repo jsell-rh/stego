@@ -243,7 +243,7 @@ func TestGenerate_NestedRouting(t *testing.T) {
 	if !strings.Contains(npHandler, "checkAncestors") {
 		t.Error("nested handler missing checkAncestors method")
 	}
-	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
+	if !strings.Contains(npHandler, `h.store.Exists(r.Context(), "Cluster"`) {
 		t.Error("nested handler missing parent Exists check")
 	}
 	if !strings.Contains(npHandler, `"Cluster not found"`) {
@@ -343,7 +343,7 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
 		t.Error("scope with parent must extract value from scope field path parameter (org_id)")
 	}
-	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
+	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, offset, limit)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
 	}
 }
@@ -385,7 +385,7 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
 		t.Error("scope with parent in collections must extract value from scope field path parameter")
 	}
-	if !strings.Contains(handler, `h.store.List("User", "org_id", scopeValue)`) {
+	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, offset, limit)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
 	}
 }
@@ -424,10 +424,10 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
-	if !strings.Contains(handler, `h.store.List("NodePool", "cluster_id", scopeValue)`) {
+	if !strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "cluster_id", scopeValue, offset, limit)`) {
 		t.Error("scope+parent List must pass raw YAML field name to store.List, not PascalCase")
 	}
-	if strings.Contains(handler, `h.store.List("NodePool", "ClusterID"`) {
+	if strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "ClusterID"`) {
 		t.Error("scope+parent List must not pass PascalCase field name to store.List")
 	}
 }
@@ -1902,23 +1902,23 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 		t.Error("AdapterStatus handler missing checkAncestors method")
 	}
 	// Must check Cluster existence (grandparent).
-	if !strings.Contains(asHandler, `h.store.Exists("Cluster"`) {
+	if !strings.Contains(asHandler, `h.store.Exists(r.Context(), "Cluster"`) {
 		t.Error("AdapterStatus handler must verify Cluster (grandparent) existence")
 	}
 	// Must check NodePool existence (parent).
-	if !strings.Contains(asHandler, `h.store.Exists("NodePool"`) {
+	if !strings.Contains(asHandler, `h.store.Exists(r.Context(), "NodePool"`) {
 		t.Error("AdapterStatus handler must verify NodePool (parent) existence")
 	}
 	// Cluster check must come before NodePool check (top-down order).
-	clusterIdx := strings.Index(asHandler, `h.store.Exists("Cluster"`)
-	nodepoolIdx := strings.Index(asHandler, `h.store.Exists("NodePool"`)
+	clusterIdx := strings.Index(asHandler, `h.store.Exists(r.Context(), "Cluster"`)
+	nodepoolIdx := strings.Index(asHandler, `h.store.Exists(r.Context(), "NodePool"`)
 	if clusterIdx > nodepoolIdx {
 		t.Error("Cluster (grandparent) verification must come before NodePool (parent)")
 	}
 
 	// NodePool handler should still only verify Cluster (its single ancestor).
 	npHandler := findFileContent(t, files, "internal/api/handler_node_pools.go")
-	if !strings.Contains(npHandler, `h.store.Exists("Cluster"`) {
+	if !strings.Contains(npHandler, `h.store.Exists(r.Context(), "Cluster"`) {
 		t.Error("NodePool handler must verify Cluster existence")
 	}
 	// NodePool should NOT verify NodePool (it's not its own ancestor).
@@ -3723,7 +3723,7 @@ func TestGenerate_DifferentCollectionNamesDifferentEnoughSucceeds(t *testing.T) 
 func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 	// Finding 45: entity named "Err" or "ERR" produces strings.ToLower → "err",
 	// which collides with the hardcoded `err` in the Read method's dual-assignment
-	// `%s, err := h.store.Read(...)`. safeVarName must escape "err" to "err_".
+	// `%s, err := h.store.Get(...)`. safeVarName must escape "err" to "err_".
 	g := &Generator{}
 
 	errCollNames := map[string]string{"Err": "errs", "ERR": "err-items"}

@@ -126,6 +126,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		Constructors: []string{base + ".NewStore(db)"},
 		NeedsDB:      true,
 		DBBackend:    "gorm",
+		PostDBCalls:  []string{base + ".Migrate(db)"},
 		GoModRequires: map[string]string{
 			"gorm.io/gorm":            "v1.25.12",
 			"gorm.io/driver/postgres": "v1.5.11",
@@ -343,6 +344,7 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"context\"\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\n")
@@ -362,8 +364,8 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "}\n\n")
 
 	emitCreateMethod(&buf, entities)
-	emitReadMethod(&buf, entities)
-	emitUpdateMethod(&buf, entities)
+	emitGetMethod(&buf, entities)
+	emitReplaceMethod(&buf, entities)
 	emitDeleteMethod(&buf, entities)
 	emitListMethod(&buf, entities)
 	emitUpsertMethod(&buf, entities)
@@ -383,7 +385,7 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 // emitCreateMethod generates the Create dispatcher using GORM.
 func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Create inserts a new entity record. Computed fields are excluded.\n")
-	fmt.Fprintf(buf, "func (s *Store) Create(entity string, value any) error {\n")
+	fmt.Fprintf(buf, "func (s *Store) Create(ctx context.Context, entity string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -406,7 +408,7 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 			}
 		}
 
-		fmt.Fprintf(buf, "\t\treturn s.db.Create(&v).Error\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Create(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -415,16 +417,16 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitReadMethod generates the Read dispatcher using GORM.
-func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// Read retrieves a single entity by ID.\n")
-	fmt.Fprintf(buf, "func (s *Store) Read(entity string, id string) (any, error) {\n")
+// emitGetMethod generates the Get dispatcher using GORM.
+func emitGetMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Get retrieves a single entity by ID.\n")
+	fmt.Fprintf(buf, "func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
-		fmt.Fprintf(buf, "\t\tif err := s.db.First(&v, \"id = ?\", id).Error; err != nil {\n")
+		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).First(&v, \"id = ?\", id).Error; err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn v, nil\n")
@@ -436,10 +438,10 @@ func emitReadMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitUpdateMethod generates the Update dispatcher using GORM Save (full replace).
-func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// Update modifies an existing entity by ID. Computed fields are excluded.\n")
-	fmt.Fprintf(buf, "func (s *Store) Update(entity string, id string, value any) error {\n")
+// emitReplaceMethod generates the Replace dispatcher using GORM Save (full replace).
+func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
+	fmt.Fprintf(buf, "// Replace modifies an existing entity by ID. Computed fields are excluded.\n")
+	fmt.Fprintf(buf, "func (s *Store) Replace(ctx context.Context, entity string, id string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -471,7 +473,7 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 			}
 		}
 
-		fmt.Fprintf(buf, "\t\treturn s.db.Save(&v).Error\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Save(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -483,12 +485,12 @@ func emitUpdateMethod(buf *bytes.Buffer, entities []types.Entity) {
 // emitDeleteMethod generates the Delete dispatcher using GORM soft delete.
 func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Delete soft-deletes an entity by ID.\n")
-	fmt.Fprintf(buf, "func (s *Store) Delete(entity string, id string) error {\n")
+	fmt.Fprintf(buf, "func (s *Store) Delete(ctx context.Context, entity string, id string) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\treturn s.db.Where(\"id = ?\", id).Delete(&%s{}).Error\n", e.Name)
+		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Where(\"id = ?\", id).Delete(&%s{}).Error\n", e.Name)
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -499,8 +501,8 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 // emitListMethod generates the List dispatcher using GORM with scope filtering.
 func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// List retrieves all entities, optionally filtered by a scope field.\n")
-	fmt.Fprintf(buf, "func (s *Store) List(entity string, scopeField string, scopeValue string) (any, error) {\n")
+	fmt.Fprintf(buf, "// List retrieves entities with optional scope filtering and pagination.\n")
+	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -518,7 +520,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		}
 		fmt.Fprintf(buf, "}\n")
 
-		fmt.Fprintf(buf, "\t\tquery := s.db.Model(&%s{})\n", e.Name)
+		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn nil, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
@@ -526,6 +528,12 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
+		fmt.Fprintf(buf, "\t\tif offset > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Offset(offset)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tif limit > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Limit(limit)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
@@ -544,7 +552,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Upsert inserts or updates an entity using natural-key conflict resolution.\n")
 	fmt.Fprintf(buf, "// When concurrency is \"optimistic\", the update only proceeds if the incoming\n")
 	fmt.Fprintf(buf, "// generation value is newer than the existing row's generation.\n")
-	fmt.Fprintf(buf, "func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency string) error {\n")
+	fmt.Fprintf(buf, "func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -617,7 +625,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\tonConflict.DoNothing = true\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		fmt.Fprintf(buf, "\t\treturn s.db.Clauses(onConflict).Create(&v).Error\n")
+		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Clauses(onConflict).Create(&v).Error\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -629,13 +637,13 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 // emitExistsMethod generates the Exists dispatcher using GORM Count.
 func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "// Exists checks whether an entity with the given ID exists.\n")
-	fmt.Fprintf(buf, "func (s *Store) Exists(entity string, id string) (bool, error) {\n")
+	fmt.Fprintf(buf, "func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tvar count int64\n")
-		fmt.Fprintf(buf, "\t\tif err := s.db.Model(&%s{}).Where(\"id = ?\", id).Count(&count).Error; err != nil {\n", e.Name)
+		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Count(&count).Error; err != nil {\n", e.Name)
 		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn count > 0, nil\n")

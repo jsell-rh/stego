@@ -162,6 +162,13 @@ type Wiring struct {
 	// from the target constructor's expression via rawConstructorVarName
 	// (e.g. "store" for storage.NewStore(db)).
 	ConstructorDeps map[int][]string
+
+	// PostDBCalls lists Go expressions that should be called after database
+	// setup and before constructor declarations in the generated main.go.
+	// Each expression must return an error (e.g. "storage.Migrate(db)").
+	// The assembler wraps each call in error handling:
+	//   if err := <expr>; err != nil { log.Fatal(err) }
+	PostDBCalls []string
 }
 
 // ValidateNamespace checks that every file path in files is under the given

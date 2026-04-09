@@ -266,10 +266,13 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	// Determine whether encoding/json is needed. It is used by all operations
 	// except delete (which only sends status codes, no JSON body).
 	needJSON := false
+	needStrconv := false
 	for _, op := range eb.Operations {
 		if op != types.OpDelete {
 			needJSON = true
-			break
+		}
+		if op == types.OpList {
+			needStrconv = true
 		}
 	}
 
@@ -342,6 +345,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	if needStrconv {
+		fmt.Fprintf(&buf, "\t\"strconv\"\n")
+	}
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
@@ -416,7 +422,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", idParam)
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
-			fmt.Fprintf(&buf, "\t%sExists, %sErr := h.store.Exists(%q, %s)\n", idVar, idVar, anc, idVar)
+			fmt.Fprintf(&buf, "\t%sExists, %sErr := h.store.Exists(r.Context(), %q, %s)\n", idVar, idVar, anc, idVar)
 			fmt.Fprintf(&buf, "\tif %sErr != nil {\n", idVar)
 			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n")
 			fmt.Fprintf(&buf, "\t\treturn false\n")
@@ -494,7 +500,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	for _, sp := range before {
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
-	fmt.Fprintf(buf, "\tif err := h.store.Create(%q, %s); err != nil {\n", entity.Name, lower)
+	fmt.Fprintf(buf, "\tif err := h.store.Create(r.Context(), %q, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -515,7 +521,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	fmt.Fprintf(buf, "\t%s, err := h.store.Read(%q, id)\n", lower, entity.Name)
+	fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusNotFound)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
@@ -550,7 +556,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	for _, sp := range before {
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
-	fmt.Fprintf(buf, "\tif err := h.store.Update(%q, id, %s); err != nil {\n", entity.Name, lower)
+	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -568,7 +574,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	fmt.Fprintf(buf, "\tif err := h.store.Delete(%q, id); err != nil {\n", entity.Name)
+	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -586,15 +592,21 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 
+	// Parse pagination parameters from query string.
+	fmt.Fprintf(buf, "\toffsetStr := r.URL.Query().Get(\"offset\")\n")
+	fmt.Fprintf(buf, "\tlimitStr := r.URL.Query().Get(\"limit\")\n")
+	fmt.Fprintf(buf, "\toffset, _ := strconv.Atoi(offsetStr)\n")
+	fmt.Fprintf(buf, "\tlimit, _ := strconv.Atoi(limitStr)\n")
+
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
 	// a parent, scope is passed as a query parameter.
 	if len(eb.Scope) > 0 && eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
 	} else if len(eb.Scope) > 0 {
 		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.ScopeField())
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, scopeValue)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
 	} else if eb.ParentEntity() != "" {
 		parentIDVar := strings.ToLower(eb.ParentEntity()) + "ID"
 		parentField, err := parentRefRawFieldName(entity, eb.ParentEntity())
@@ -602,9 +614,9 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 			return err
 		}
 		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentParamName)
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, %q, %s)\n", lower, entity.Name, parentField, parentIDVar)
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, %q, %s, offset, limit)\n", lower, entity.Name, parentField, parentIDVar)
 	} else {
-		fmt.Fprintf(buf, "\t%s, err := h.store.List(%q, \"\", \"\")\n", lower, entity.Name)
+		fmt.Fprintf(buf, "\t%s, err := h.store.List(r.Context(), %q, \"\", \"\", offset, limit)\n", lower, entity.Name)
 	}
 
 	fmt.Fprintf(buf, "\tif err != nil {\n")
@@ -657,7 +669,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	if concurrency == "" {
 		concurrency = "none"
 	}
-	fmt.Fprintf(buf, "\tif err := h.store.Upsert(%q, %s, upsertKey, %q); err != nil {\n", entity.Name, lower, concurrency)
+	fmt.Fprintf(buf, "\tif err := h.store.Upsert(r.Context(), %q, %s, upsertKey, %q); err != nil {\n", entity.Name, lower, concurrency)
 	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -698,28 +710,27 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
-	// Only emit import block if entity types need it (json.RawMessage, time.Time).
-	if needJSON || needTime {
-		fmt.Fprintf(&buf, "import (\n")
-		if needJSON {
-			fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-		}
-		if needTime {
-			fmt.Fprintf(&buf, "\t\"time\"\n")
-		}
-		fmt.Fprintf(&buf, ")\n\n")
+	// Always need context for the Storage interface.
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"context\"\n")
+	if needJSON {
+		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	}
+	if needTime {
+		fmt.Fprintf(&buf, "\t\"time\"\n")
+	}
+	fmt.Fprintf(&buf, ")\n\n")
 
 	// Storage interface used by all handlers.
 	fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
 	fmt.Fprintf(&buf, "type Storage interface {\n")
-	fmt.Fprintf(&buf, "\tCreate(entity string, value any) error\n")
-	fmt.Fprintf(&buf, "\tRead(entity string, id string) (any, error)\n")
-	fmt.Fprintf(&buf, "\tUpdate(entity string, id string, value any) error\n")
-	fmt.Fprintf(&buf, "\tDelete(entity string, id string) error\n")
-	fmt.Fprintf(&buf, "\tList(entity string, scopeField string, scopeValue string) (any, error)\n")
-	fmt.Fprintf(&buf, "\tUpsert(entity string, value any, upsertKey []string, concurrency string) error\n")
-	fmt.Fprintf(&buf, "\tExists(entity string, id string) (bool, error)\n")
+	fmt.Fprintf(&buf, "\tCreate(ctx context.Context, entity string, value any) error\n")
+	fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
+	fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
+	fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
+	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, error)\n")
+	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error\n")
+	fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Entity types with fields from the entity definitions.
@@ -1159,13 +1170,19 @@ var handlerScopeIdentifiers = map[string]bool{
 	"w": true,
 	"r": true,
 	// Import aliases used in handler files.
-	"json": true, // encoding/json
-	"http": true, // net/http
-	"time": true, // time (conditional, but safer to always guard)
-	"fmt":  true, // not currently imported, but guard for safety
-	// Generator-emitted local variables in Read/Update/Delete method bodies.
+	"json":    true, // encoding/json
+	"http":    true, // net/http
+	"strconv": true, // strconv (conditional for List pagination)
+	"time":    true, // time (conditional, but safer to always guard)
+	"fmt":     true, // not currently imported, but guard for safety
+	// Generator-emitted local variables in Get/Replace/Delete method bodies.
 	"id":  true, // id := r.PathValue("id")
-	"err": true, // %s, err := h.store.Read(...) in Read method
+	"err": true, // %s, err := h.store.Get(...) in Get method
+	// Generator-emitted local variables in List method body.
+	"offset":    true, // offset, _ := strconv.Atoi(...)
+	"limit":     true, // limit, _ := strconv.Atoi(...)
+	"offsetStr": true, // offsetStr := r.URL.Query().Get("offset")
+	"limitStr":  true, // limitStr := r.URL.Query().Get("limit")
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it

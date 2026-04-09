@@ -4380,5 +4380,109 @@ func TestAssemble_FillImportsGatedOnHasSlots(t *testing.T) {
 	}
 }
 
+func TestAssemble_GORMDBSetupClosesConnection(t *testing.T) {
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler(store)"},
+					Routes:       []string{`mux.HandleFunc("GET /items", handler.List)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+					DBBackend:    "gorm",
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+			break
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// GORM setup should retrieve underlying sql.DB and defer close.
+	if !strings.Contains(code, "sqlDB, err := db.DB()") {
+		t.Error("GORM setup should retrieve underlying *sql.DB")
+	}
+	if !strings.Contains(code, "defer sqlDB.Close()") {
+		t.Error("GORM setup should defer close of underlying *sql.DB")
+	}
+}
+
+func TestAssemble_PostDBCallsEmitted(t *testing.T) {
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler(store)"},
+					Routes:       []string{`mux.HandleFunc("GET /items", handler.List)`},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+					DBBackend:    "gorm",
+					PostDBCalls:  []string{"storage.Migrate(db)"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+			break
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// PostDBCalls should be emitted after DB setup.
+	if !strings.Contains(code, "storage.Migrate(db)") {
+		t.Error("main.go should contain storage.Migrate(db) call")
+	}
+	// The call should be wrapped in error handling.
+	if !strings.Contains(code, "if err := storage.Migrate(db); err != nil") {
+		t.Error("storage.Migrate(db) should be wrapped in error handling")
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
