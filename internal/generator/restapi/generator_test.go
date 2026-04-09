@@ -3134,8 +3134,8 @@ func TestGenerate_EmptyOperationsListReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for collection with empty operations list")
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should mention entity name, got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should mention collection name, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "operation") {
 		t.Errorf("error should mention operations, got: %v", err)
@@ -3162,8 +3162,8 @@ func TestGenerate_EmptyOperationsAmongValid(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for collection with empty operations list")
 	}
-	if !strings.Contains(err.Error(), "Org") {
-		t.Errorf("error should mention entity with empty operations, got: %v", err)
+	if !strings.Contains(err.Error(), "orgs") {
+		t.Errorf("error should mention collection with empty operations, got: %v", err)
 	}
 }
 
@@ -3187,8 +3187,8 @@ func TestGenerate_DuplicateOperationsReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for duplicate operations in collection")
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should mention the entity with duplicate operations, got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should mention the collection with duplicate operations, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "create") {
 		t.Errorf("error should mention the duplicated operation, got: %v", err)
@@ -3215,11 +3215,11 @@ func TestGenerate_DuplicateOperationsMultipleEntities(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for duplicate operations")
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should mention User, got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should mention users collection, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "Org") {
-		t.Errorf("error should mention Org, got: %v", err)
+	if !strings.Contains(err.Error(), "orgs") {
+		t.Errorf("error should mention orgs collection, got: %v", err)
 	}
 }
 

@@ -18,7 +18,7 @@ import (
 // Generator produces the rest-api component's generated code.
 type Generator struct{}
 
-// Generate produces HTTP handler files (one per exposed entity), a router file,
+// Generate produces HTTP handler files (one per collection), a router file,
 // and an OpenAPI spec. It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if len(ctx.Collections) == 0 {
@@ -1290,15 +1290,15 @@ func validateFieldReferences(expose []types.Collection, entityMap map[string]typ
 
 		if len(eb.Scope) > 0 && !fieldSet[eb.ScopeField()] {
 			errs = append(errs, fmt.Sprintf(
-				"collection for %q references scope field %q, but entity %q has no field with that name",
-				eb.Entity, eb.ScopeField(), eb.Entity))
+				"collection %q references scope field %q, but entity %q has no field with that name",
+				eb.Name, eb.ScopeField(), eb.Entity))
 		}
 
 		for _, key := range eb.UpsertKey {
 			if !fieldSet[key] {
 				errs = append(errs, fmt.Sprintf(
-					"collection for %q references upsert_key field %q, but entity %q has no field with that name",
-					eb.Entity, key, eb.Entity))
+					"collection %q references upsert_key field %q, but entity %q has no field with that name",
+					eb.Name, key, eb.Entity))
 			}
 		}
 	}
@@ -1488,7 +1488,7 @@ func validateExposeOperations(expose []types.Collection) error {
 	var empty []string
 	for _, eb := range expose {
 		if len(eb.Operations) == 0 {
-			empty = append(empty, eb.Entity)
+			empty = append(empty, eb.Name)
 		}
 	}
 	if len(empty) > 0 {
@@ -1567,8 +1567,8 @@ func validateScopeParentConsistency(expose []types.Collection, entityMap map[str
 		}
 		if eb.ScopeField() != refFieldName {
 			errs = append(errs, fmt.Sprintf(
-				"collection for %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
-				eb.Entity, eb.ScopeField(), eb.ParentEntity(), eb.ScopeField(), eb.ParentEntity(), refFieldName))
+				"collection %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
+				eb.Name, eb.ScopeField(), eb.ParentEntity(), eb.ScopeField(), eb.ParentEntity(), refFieldName))
 		}
 	}
 	if len(errs) > 0 {
@@ -1627,8 +1627,8 @@ func validateOperationUniqueness(expose []types.Collection) error {
 		}
 		if len(dupes) > 0 {
 			errs = append(errs, fmt.Sprintf(
-				"collection for entity %q has duplicate operations: %s",
-				eb.Entity, strings.Join(dupes, ", ")))
+				"collection %q has duplicate operations: %s",
+				eb.Name, strings.Join(dupes, ", ")))
 		}
 	}
 	if len(errs) > 0 {
@@ -1690,14 +1690,14 @@ func slotCamel(s string) string {
 	return strings.ToLower(pascal[:1]) + pascal[1:]
 }
 
-// collectEntitySlotParams collects slot binding parameters for a specific entity.
+// collectEntitySlotParams collects slot binding parameters for a specific collection.
 // The iteration order (bindings in order, gate before chain before fan-out per
 // binding) must match buildSlotVarsByCollection in the assembler so that constructor
 // parameter positions align with injected arguments.
-func collectEntitySlotParams(entityName string, bindings []types.SlotDeclaration) []entitySlotParam {
+func collectEntitySlotParams(collectionName string, bindings []types.SlotDeclaration) []entitySlotParam {
 	var params []entitySlotParam
 	for _, sb := range bindings {
-		if sb.Collection != entityName {
+		if sb.Collection != collectionName {
 			continue
 		}
 		sp := slotPascal(sb.Slot)
