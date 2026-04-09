@@ -95,3 +95,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - 055716f feat(task-022): replace raw SQL postgres-adapter with GORM-based generation
+- aa196e7 fix(task-022): address all 5 review findings on GORM-based postgres-adapter
