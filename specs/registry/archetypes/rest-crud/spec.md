@@ -169,13 +169,33 @@ When `response_format: envelope` is set in the archetype conventions, the `rest-
 }
 ```
 
+**List query parameters** (following the rh-trex pattern):
+- `page` -- 1-indexed page number (default: 1)
+- `size` -- items per page (default: 100, max: 65500)
+- `orderBy` -- comma-separated, each entry is `field_name` or `field_name asc|desc` (default direction: asc)
+- `search` -- TSL filter expression (see Open Questions)
+- `fields` -- sparse fieldset selection, comma-separated field names (`id` is always included even if not listed)
+
+**List response fields:**
+- `kind` -- entity name + "List" (e.g. "ClusterList")
+- `page` -- the requested page number
+- `size` -- the actual number of items returned (may be less than requested on the last page)
+- `total` -- total count of matching records across all pages
+- `items` -- array of presented entities
+
+**Pagination mechanics:**
+- Count total matching records first (`SELECT COUNT(*)`)
+- Fetch page via `OFFSET (page-1)*size LIMIT size`
+- `orderBy` field names are validated against entity fields; invalid fields are rejected with 400
+- SQL injection prevented by field name validation + hardcoded direction strings (only `asc` or `desc`)
+- `size` capped at 65500 (PostgreSQL parameter limit); values above are silently clamped
+
 The `rest-api` component generates:
 - A presenter function per entity that adds `id`, `kind`, `href` to the response
-- List handlers that accept `page`, `size`, `orderBy`, `order` query parameters
-- List responses with `kind` (entity name + "List"), `page`, `size`, `total`, and `items`
+- List handlers that parse and validate pagination query parameters
 - The storage interface gains a `ListOptions` parameter for pagination and ordering
 
-When `response_format` is not set or set to `bare`, entities are returned as plain JSON without wrapping.
+When `response_format` is not set or set to `bare`, entities are returned as plain JSON without wrapping or pagination.
 
 **Computed/derived fields** are read-only fields populated by a fill, never written via the API:
 ```yaml
