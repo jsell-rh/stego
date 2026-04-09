@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation", "Glossary" (six nouns), "Service Declaration example"
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 
@@ -81,3 +81,10 @@ slots:
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+All acceptance criteria were already satisfied by task-019's revision rounds:
+
+- `263650a` fix(task-019): round 4 revisions — path param from scope field, README collections format, stale terminology
+- `79d587f` fix(task-019): round 5 — regenerate example output with collection-aware generators
+
+Verification commit for this task:
