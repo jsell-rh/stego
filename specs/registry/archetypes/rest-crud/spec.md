@@ -283,12 +283,12 @@ slots:
 
 ### postgres-adapter
 
-Generates Go model structs, SQL queries, and database migrations. Migration diffing strategy is owned by this component (not by stego core).
+Generates GORM-based model structs, DAO layer, and database migrations. Uses GORM as the ORM, following the proven rh-trex/hyperfleet-api pattern.
 
 ```yaml
 kind: component
 name: postgres-adapter
-version: 1.4.0
+version: 2.0.0
 output_namespace: internal/storage
 
 requires: []
@@ -297,6 +297,54 @@ provides:
 
 slots: []
 ```
+
+**Generated model structs** embed a `Meta` base and use GORM tags:
+```go
+// Meta is the base model, embedded in all entities.
+type Meta struct {
+    ID          string
+    CreatedTime time.Time
+    UpdatedTime time.Time
+    DeletedAt   gorm.DeletedAt `gorm:"index"`
+}
+
+type Cluster struct {
+    Meta
+    Name   string         `json:"name" gorm:"uniqueIndex;size:53;not null"`
+    Spec   datatypes.JSON `json:"spec" gorm:"type:jsonb;not null"`
+    Labels datatypes.JSON `json:"labels,omitempty" gorm:"type:jsonb"`
+    // ...
+}
+```
+
+- GORM tags are derived from entity field constraints (unique, min/max length, optional, type)
+- `jsonb` fields use `gorm.io/datatypes.JSON`
+- `ref` fields generate foreign key relationships
+- `computed` fields are included in the model but excluded from create/update inputs
+- Soft delete via `gorm.DeletedAt` (all deletes are soft by default)
+
+**Generated DAO layer** provides per-entity data access:
+- `Create(ctx, entity)` -- `g2.Create(entity)`
+- `Get(ctx, id)` -- `g2.First(&entity, id)`
+- `Replace(ctx, entity)` -- `g2.Save(entity)` (used by both update and patch)
+- `Delete(ctx, id)` -- soft delete via GORM
+- `List(ctx, listArgs)` -- `g2.Offset(offset).Limit(limit).Find(&list)` with pagination
+- `Upsert(ctx, entity, upsertKey, concurrency)` -- `g2.Clauses(clause.OnConflict{...})`
+- `Exists(ctx, id)` -- existence check for parent verification
+
+**GenericDao** provides the base for the `tsl-search` component to build queries with ordering, filtering, JOINs, and pagination.
+
+**Migrations** use GORM AutoMigrate at startup. The component generates migration structs registered in order, following the hyperfleet-api migration pattern:
+```go
+// internal/storage/migrations/001_initial.go
+func init() {
+    Register("001_initial", func(g2 *gorm.DB) error {
+        return g2.AutoMigrate(&Cluster{}, &NodePool{}, &AdapterStatus{})
+    })
+}
+```
+
+**Session factory** manages database connections with a `SessionFactory` interface, supporting both production (PostgreSQL) and test (testcontainers) configurations.
 
 ### tsl-search
 
