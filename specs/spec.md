@@ -31,183 +31,21 @@ Entities define data (fields, types, constraints). Collections define access pat
 
 This makes multi-path access the default case, not an exception. REST APIs project entity graphs onto URL trees; that projection is inherently 1:N.
 
-## Collections & Operations
-
-**Operations** include `create`, `read`, `update`, `delete`, `list`, `upsert`, and `patch`. Upsert supports natural-key conflict resolution and optimistic concurrency:
-```yaml
-collections:
-  cluster-statuses:
-    entity: AdapterStatus
-    scope: { resource_type: Cluster, resource_id: Cluster }
-    operations: [list, upsert]
-    upsert_key: [resource_type, resource_id, adapter]
-    concurrency: optimistic    # only update if generation is newer
-```
-
-**Scoped collections** generate nested routing. The `scope` field maps entity fields to parent entities. The compiler derives the URL path and generates parent existence verification at each level:
-```yaml
-collections:
-  clusters:
-    entity: Cluster
-    operations: [create, read, list]
-    # path derived: /clusters
-
-  cluster-nodepools:
-    entity: NodePool
-    scope: { cluster_id: Cluster }
-    operations: [create, read, list]
-    # path derived: /clusters/{cluster_id}/nodepools
-
-  all-nodepools:
-    entity: NodePool
-    operations: [list]
-    # path derived: /nodepools
-
-  cluster-statuses:
-    entity: AdapterStatus
-    scope: { resource_type: Cluster, resource_id: Cluster }
-    operations: [list, upsert]
-    upsert_key: [resource_type, resource_id, adapter]
-    # path derived: /clusters/{cluster_id}/statuses
-
-  nodepool-statuses:
-    entity: AdapterStatus
-    scope: { resource_type: NodePool, resource_id: NodePool }
-    operations: [list, upsert]
-    upsert_key: [resource_type, resource_id, adapter]
-    # path derived: /clusters/{cluster_id}/nodepools/{nodepool_id}/statuses
-```
-
-Multiple collections referencing the same entity is the normal case. Each collection generates its own handler, routes, and wiring. The entity struct and storage are shared.
-
-**Patch (partial update)** is distinct from update (full replace). When a collection includes `patch` in its operations, it must also declare `patchable` -- the list of fields that can be partially updated:
-```yaml
-collections:
-  clusters:
-    entity: Cluster
-    operations: [create, read, list, patch]
-    patchable: [spec, labels]
-```
-
-The generator produces a patch request struct with pointer fields for only the listed fields (`*string`, `*int32`, `*json.RawMessage`, etc.). A get-then-merge handler fetches the existing record, applies non-nil fields from the patch request, and saves. `patchable` fields must exist on the entity and must not be computed or ref fields. `patch` requires `patchable` and vice versa (bidirectional dependency).
-
-**Computed/derived fields** are read-only fields populated by a fill, never written via the API:
-```yaml
-entities:
-  - name: Cluster
-    fields:
-      - { name: name, type: string, unique: true }
-      - { name: spec, type: jsonb }
-      - { name: status_conditions, type: jsonb, computed: true, filled_by: status-aggregator }
-```
-
-**Short-circuit chains** allow a step to halt the pipeline and return a result early. The slot proto includes a `halt` field:
-```yaml
-slots:
-  - slot: process_adapter_status
-    chain:
-      - validate-mandatory-conditions    # can halt with 400
-      - discard-stale-generation         # can halt with 204 (no-op)
-      - persist-status
-      - aggregate-resource-status
-    short_circuit: true                  # enables halt semantics
-```
-```protobuf
-message SlotResult {
-  bool ok = 1;
-  string error_message = 2;
-  bool halt = 3;           // stop the chain, return this result
-  int32 status_code = 4;   // HTTP status for the halted response
-}
-```
-
 ## Slot/Fill Contract
 
 Slots are defined as protobuf service definitions. Each component owns its own slot protos (no sharing between components -- duplication is cheaper than coupling). Fills implement the generated interface in the target language.
 
 Common stable types (Identity, SlotResult) live in a shared `stego.common` proto package. The bar for inclusion is very high.
 
-```protobuf
-// registry/components/rest-api/slots/before_create.proto
-syntax = "proto3";
-package stego.components.rest_api.slots;
-import "stego/common/types.proto";
-
-service BeforeCreate {
-  rpc Evaluate(BeforeCreateRequest) returns (stego.common.SlotResult);
-}
-
-message BeforeCreateRequest {
-  stego.common.CreateRequest input = 1;
-  stego.common.Identity caller = 2;
-}
-```
-
 ## File Types
 
 ### Platform team creates:
 
-**Archetype:**
-```yaml
-# registry/archetypes/rest-crud/archetype.yaml
-kind: archetype
-name: rest-crud
-language: go
-version: 3.0.0
+**Archetype** -- a curated component set with conventions. See [specs/registry/archetypes/rest-crud/spec.md](registry/archetypes/rest-crud/spec.md) for the `rest-crud` archetype specification.
 
-components:
-  - rest-api
-  - postgres-adapter
-  - otel-tracing
-  - health-check
+**Component** -- a Go package implementing the `Generator` interface, with a config schema, ports, slots, and an output namespace. Each component also has `slots/*.proto` for slot contracts.
 
-default_auth: jwt-auth
-
-conventions:
-  layout: flat
-  error_handling: problem-details-rfc
-  logging: structured-json
-  test_pattern: table-driven
-
-compatible_mixins:
-  - event-publisher
-  - async-worker
-```
-
-**Component:**
-```yaml
-# registry/components/rest-api/component.yaml
-kind: component
-name: rest-api
-version: 2.1.0
-
-config:
-  port: { type: int, default: 8080 }
-  expose:
-    type: list
-    items:
-      entity: { type: entity-ref }
-      operations: { type: list, items: { enum: [create, read, update, delete, list] } }
-      scope: { type: field-ref, optional: true }
-
-requires:
-  - auth-provider
-  - storage-adapter
-
-provides:
-  - http-server
-  - openapi-spec
-
-slots:
-  - name: before_create
-    proto: stego.components.rest_api.slots.BeforeCreate
-    default: passthrough
-  - name: validate
-    proto: stego.components.rest_api.slots.Validate
-    default: passthrough
-```
-
-Each component also has `slots/*.proto` for slot contracts.
+**Mixin** -- adds components and slots to an archetype without changing its conventions.
 
 ## Code Generation Mechanism
 
@@ -341,24 +179,6 @@ project/
     go.mod
     openapi.yaml
     Dockerfile
-```
-
-**Mixin:**
-```yaml
-# registry/mixins/event-publisher/mixin.yaml
-kind: mixin
-name: event-publisher
-version: 1.0.0
-
-adds_components:
-  - kafka-producer
-
-adds_slots:
-  - name: on_entity_changed
-    proto: stego.mixins.event_publisher.slots.OnEntityChanged
-    default: noop
-
-overrides: none  # cannot override archetype conventions
 ```
 
 ### Product team creates:
@@ -586,8 +406,5 @@ Single archetype (`rest-crud`), end-to-end with fills and slots working. Full CL
 
 ## Open Questions
 
-- How to handle complex query patterns (TSL search) -- reusable component or archetype concern?
 - The first ~10 services will be blocked waiting for components that don't exist yet. Mitigation: seed the registry from existing real services; allow early services to be fill-heavy with TODOs to extract reusable components later
-- Collection path derivation rules need to be specified precisely (how does `scope: { cluster_id: Cluster }` become `/clusters/{cluster_id}/nodepools`?)
-- Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
 
