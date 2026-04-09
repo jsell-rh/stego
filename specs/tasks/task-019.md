@@ -40,10 +40,14 @@ With the Collection type system in place (Task 018), this task updates all code 
 - `stego validate`: Validation uses collections throughout.
 - All other commands pass through without structural changes.
 
+**Validation (`internal/compiler/validate.go`):**
+- Validate that the service declaration's `language` field matches the archetype's declared `language`. If they disagree, it is a validation error. Only `go` is supported in MVP; any other value is rejected. (Spec: "Stego is Written in Go")
+
 **Tests:**
 - Update all generator tests with collection-based fixtures.
 - Update compiler tests.
 - Update CLI tests.
+- Add tests for language validation (match, mismatch, unsupported language).
 
 ### What does NOT change
 
@@ -67,7 +71,8 @@ With the Collection type system in place (Task 018), this task updates all code 
 6. `stego init` scaffolds with `collections:` format.
 7. `stego fill create` accepts `--collection` flag.
 8. `stego drift` detects changes in collection-derived files.
-9. All tests pass. `go build ./cmd/stego` compiles.
+9. Language validation: service `language` must match archetype `language`; non-`go` values rejected with clear error.
+10. All tests pass. `go build ./cmd/stego` compiles.
 
 ## Task Completion
 
