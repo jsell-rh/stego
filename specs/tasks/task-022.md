@@ -91,3 +91,5 @@ The rest-crud archetype spec defines the postgres-adapter as GORM-based, followi
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 055716f feat(task-022): replace raw SQL postgres-adapter with GORM-based generation
