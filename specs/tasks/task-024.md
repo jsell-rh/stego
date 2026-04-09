@@ -16,6 +16,9 @@ The rest-crud archetype spec defines `response_format: envelope` as a convention
 **Archetype YAML (`registry/archetypes/rest-crud/archetype.yaml`):**
 - Add `response_format: envelope` to conventions.
 
+**Component YAML (`registry/components/postgres-adapter/component.yaml`):**
+- Update version from `1.4.0` to `2.0.0` to reflect the GORM migration (Task 022).
+
 **rest-api generator (`internal/generator/restapi/`):**
 
 **Single resource responses:**
