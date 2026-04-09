@@ -611,9 +611,8 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\tonConflict.DoUpdates = clause.AssignmentColumns(updateCols)\n")
 
 		if hasGeneration {
-			tableName := tableName(e.Name)
 			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\tonConflict.Where = clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `EXCLUDED.\"generation\" > \"%s\".\"generation\"`}}}\n", tableName)
+			fmt.Fprintf(buf, "\t\t\t\tonConflict.Where = clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: `EXCLUDED.\"generation\" > \"generation\"`}}}\n")
 			fmt.Fprintf(buf, "\t\t\t}\n")
 		} else {
 			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")

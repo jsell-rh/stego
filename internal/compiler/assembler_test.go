@@ -4484,5 +4484,77 @@ func TestAssemble_PostDBCallsEmitted(t *testing.T) {
 	}
 }
 
+func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
+	// When two components share the same path.Base (e.g. both "storage"),
+	// one gets a disambiguated alias (e.g. storage2). PostDBCalls expressions
+	// must use the disambiguated alias.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler(storeA, storeB)"},
+					Routes:       []string{`mux.HandleFunc("GET /items", handler.List)`},
+				},
+			},
+			{
+				Name: "storage-a",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStoreA(db)"},
+					NeedsDB:      true,
+					DBBackend:    "gorm",
+					PostDBCalls:  []string{"storage.MigrateA(db)"},
+				},
+			},
+			{
+				Name: "storage-b",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"pkg/storage"},
+					Constructors: []string{"storage.NewStoreB(db)"},
+					NeedsDB:      true,
+					DBBackend:    "gorm",
+					PostDBCalls:  []string{"storage.MigrateB(db)"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+			break
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Both Migrate calls should exist with correct aliases.
+	hasMigrateA := strings.Contains(code, "MigrateA(db)")
+	hasMigrateB := strings.Contains(code, "MigrateB(db)")
+	if !hasMigrateA {
+		t.Errorf("main.go should contain MigrateA(db) call\n\ngenerated code:\n%s", code)
+	}
+	if !hasMigrateB {
+		t.Errorf("main.go should contain MigrateB(db) call\n\ngenerated code:\n%s", code)
+	}
+	// The two expressions should use DIFFERENT aliases since their imports
+	// share path.Base("storage").
+	if strings.Count(code, "storage.MigrateA") > 0 && strings.Count(code, "storage.MigrateB") > 0 {
+		t.Error("both PostDBCalls use the same alias 'storage' — one should be disambiguated (e.g. storage2)")
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

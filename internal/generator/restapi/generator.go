@@ -592,11 +592,23 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 
-	// Parse pagination parameters from query string.
-	fmt.Fprintf(buf, "\toffsetStr := r.URL.Query().Get(\"offset\")\n")
-	fmt.Fprintf(buf, "\tlimitStr := r.URL.Query().Get(\"limit\")\n")
-	fmt.Fprintf(buf, "\toffset, _ := strconv.Atoi(offsetStr)\n")
-	fmt.Fprintf(buf, "\tlimit, _ := strconv.Atoi(limitStr)\n")
+	// Parse page/size pagination parameters (spec-defined, 1-indexed).
+	// Defaults: page=1, size=100. Max size=65500 (PostgreSQL parameter limit).
+	fmt.Fprintf(buf, "\tpageStr := r.URL.Query().Get(\"page\")\n")
+	fmt.Fprintf(buf, "\tsizeStr := r.URL.Query().Get(\"size\")\n")
+	fmt.Fprintf(buf, "\tpage, _ := strconv.Atoi(pageStr)\n")
+	fmt.Fprintf(buf, "\tif page < 1 {\n")
+	fmt.Fprintf(buf, "\t\tpage = 1\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tsize, _ := strconv.Atoi(sizeStr)\n")
+	fmt.Fprintf(buf, "\tif size < 1 {\n")
+	fmt.Fprintf(buf, "\t\tsize = 100\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tif size > 65500 {\n")
+	fmt.Fprintf(buf, "\t\tsize = 65500\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\toffset := (page - 1) * size\n")
+	fmt.Fprintf(buf, "\tlimit := size\n")
 
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
@@ -831,6 +843,19 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			switch op {
 			case types.OpList:
 				listParams := append([]openAPIParam{}, parentParams...)
+				// Pagination query parameters (spec-defined).
+				listParams = append(listParams, openAPIParam{
+					Name:     "page",
+					In:       "query",
+					Required: false,
+					Schema:   openAPISchema{Type: "integer", Default: 1},
+				})
+				listParams = append(listParams, openAPIParam{
+					Name:     "size",
+					In:       "query",
+					Required: false,
+					Schema:   openAPISchema{Type: "integer", Default: 100},
+				})
 				// When scope is set without a parent, the scope value is passed
 				// as a query parameter — declare it in the OpenAPI spec.
 				if len(eb.Scope) > 0 && eb.ParentEntity() == "" {
@@ -1179,10 +1204,12 @@ var handlerScopeIdentifiers = map[string]bool{
 	"id":  true, // id := r.PathValue("id")
 	"err": true, // %s, err := h.store.Get(...) in Get method
 	// Generator-emitted local variables in List method body.
-	"offset":    true, // offset, _ := strconv.Atoi(...)
-	"limit":     true, // limit, _ := strconv.Atoi(...)
-	"offsetStr": true, // offsetStr := r.URL.Query().Get("offset")
-	"limitStr":  true, // limitStr := r.URL.Query().Get("limit")
+	"page":    true, // page, _ := strconv.Atoi(pageStr)
+	"size":    true, // size, _ := strconv.Atoi(sizeStr)
+	"pageStr": true, // pageStr := r.URL.Query().Get("page")
+	"sizeStr": true, // sizeStr := r.URL.Query().Get("size")
+	"offset":  true, // offset := (page - 1) * size
+	"limit":   true, // limit := size
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it

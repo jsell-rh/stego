@@ -346,6 +346,33 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, offset, limit)`) {
 		t.Error("scope filtering must pass the scope field name to store.List")
 	}
+
+	// List handler must parse page/size (spec-defined) query parameters, not
+	// raw offset/limit.
+	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
+		t.Error("list handler must parse 'page' query parameter (spec-defined pagination)")
+	}
+	if !strings.Contains(handler, `r.URL.Query().Get("size")`) {
+		t.Error("list handler must parse 'size' query parameter (spec-defined pagination)")
+	}
+	// Default page=1, size=100.
+	if !strings.Contains(handler, "page = 1") {
+		t.Error("list handler must default page to 1 when missing or invalid")
+	}
+	if !strings.Contains(handler, "size = 100") {
+		t.Error("list handler must default size to 100 when missing or invalid")
+	}
+	// Clamp size to 65500 (PostgreSQL parameter limit).
+	if !strings.Contains(handler, "size > 65500") {
+		t.Error("list handler must clamp size to max 65500")
+	}
+	// Convert page/size to offset/limit for store.
+	if !strings.Contains(handler, "offset := (page - 1) * size") {
+		t.Error("list handler must convert page/size to offset via (page-1)*size")
+	}
+	if !strings.Contains(handler, "limit := size") {
+		t.Error("list handler must set limit to size")
+	}
 }
 
 func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
@@ -638,11 +665,17 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 		t.Error("POST /clusters/{cluster_id}/nodepools missing cluster_id parameter")
 	}
 
-	// GET (list) must declare cluster_id parameter.
+	// GET (list) must declare cluster_id parameter and pagination params.
 	getOp := npColOps["get"].(map[string]any)
 	getParams, _ := getOp["parameters"].([]any)
 	if !hasParam(getParams, "cluster_id") {
 		t.Error("GET /clusters/{cluster_id}/nodepools missing cluster_id parameter")
+	}
+	if !hasParam(getParams, "page") {
+		t.Error("GET (list) must declare 'page' query parameter in OpenAPI spec")
+	}
+	if !hasParam(getParams, "size") {
+		t.Error("GET (list) must declare 'size' query parameter in OpenAPI spec")
 	}
 
 	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}

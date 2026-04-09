@@ -208,7 +208,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		}
 
 		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
-		writePostDBCalls(&buf, input, consumedWirings)
+		writePostDBCalls(&buf, input, consumedWirings, imports)
 	}
 
 	// Slot wiring — create operators before constructors so they can be
@@ -443,13 +443,22 @@ func writeGORMDBSetup(buf *bytes.Buffer) {
 
 // writePostDBCalls emits post-database-setup calls from consumed component
 // wirings (e.g. storage.Migrate(db)). Each call is wrapped in error handling.
-func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings map[int]bool) {
+// Import alias renames are applied so that package-qualified references match
+// the disambiguated import aliases (e.g. "storage.Migrate(db)" →
+// "storage2.Migrate(db)" when the storage alias was disambiguated).
+func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings map[int]bool, imports importResult) {
 	for i, cw := range input.Wirings {
 		if !consumedWirings[i] || cw.Wiring == nil {
 			continue
 		}
 		for _, call := range cw.Wiring.PostDBCalls {
-			fmt.Fprintf(buf, "\tif err := %s; err != nil {\n", call)
+			resolvedCall := call
+			if renames, ok := imports.Renames[i]; ok {
+				for oldBase, newAlias := range renames {
+					resolvedCall = replaceIdentRef(resolvedCall, oldBase, newAlias)
+				}
+			}
+			fmt.Fprintf(buf, "\tif err := %s; err != nil {\n", resolvedCall)
 			buf.WriteString("\t\tlog.Fatal(err)\n")
 			buf.WriteString("\t}\n")
 		}
