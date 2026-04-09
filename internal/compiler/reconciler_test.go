@@ -2137,3 +2137,166 @@ func TestReconcile_OutDirEqualsProjectDirRejected(t *testing.T) {
 		t.Errorf("error should explain OutDir must be a subdirectory, got: %v", err)
 	}
 }
+
+func TestReconcile_LanguageMismatch(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	// Service declares language: python, archetype declares language: go.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: python
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings: {}
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	compDir := filepath.Join(registryDir, "components", "stub-api")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	compYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires: []
+provides:
+  - http-server
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{wiring: &gen.Wiring{}},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error for language mismatch")
+	}
+	if !strings.Contains(err.Error(), "language") {
+		t.Errorf("error should mention language, got: %v", err)
+	}
+}
+
+func TestReconcile_UnsupportedLanguage(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	// Service declares language: rust, archetype also declares rust — matches,
+	// but "rust" is not supported in MVP.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: rust
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: rust
+version: 1.0.0
+components:
+  - stub-api
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings: {}
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	compDir := filepath.Join(registryDir, "components", "stub-api")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	compYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires: []
+provides:
+  - http-server
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{wiring: &gen.Wiring{}},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error for unsupported language")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("error should mention 'unsupported', got: %v", err)
+	}
+}

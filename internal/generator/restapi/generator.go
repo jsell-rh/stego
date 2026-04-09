@@ -73,7 +73,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// Validate that every collection has at least one operation. An empty
 	// operations list produces unused imports and handler variables — Go
 	// compile errors.
-	if err := validateExposeOperations(ctx.Collections); err != nil {
+	if err := validateCollectionOperations(ctx.Collections); err != nil {
 		return nil, nil, err
 	}
 
@@ -114,9 +114,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
-	// Validate that no two entities produce the same route path. Collisions
-	// cause runtime panics (Go 1.22 ServeMux), OpenAPI path overwrites, and
-	// duplicate variable declarations.
+	// Validate that no two collections produce the same route path. Collisions
+	// cause runtime panics (Go 1.22 ServeMux) and OpenAPI path overwrites.
 	if err := validateRouteCollisions(ctx.Collections, exposeMap); err != nil {
 		return nil, nil, err
 	}
@@ -449,7 +448,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, expose
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting %s handler: %w", entity.Name, err)
+		return gen.File{}, fmt.Errorf("formatting %s handler: %w", eb.Name, err)
 	}
 
 	return gen.File{
@@ -1481,10 +1480,10 @@ type openAPISchema struct {
 	Default    any                      `json:"default,omitempty"`
 }
 
-// validateExposeOperations checks that every collection has at least one
+// validateCollectionOperations checks that every collection has at least one
 // operation. An empty operations list produces an unused handler variable and
 // an unused net/http import — both Go compile errors.
-func validateExposeOperations(expose []types.Collection) error {
+func validateCollectionOperations(expose []types.Collection) error {
 	var empty []string
 	for _, eb := range expose {
 		if len(eb.Operations) == 0 {

@@ -403,6 +403,46 @@ func TestRunFillCreateUnambiguousSlotWithCorrectComponent(t *testing.T) {
 	}
 }
 
+func TestRunFillCreateWithCollection(t *testing.T) {
+	tmp := t.TempDir()
+	setupMinimalRegistry(t, tmp)
+
+	projDir := filepath.Join(tmp, "fillproject-collection")
+	if err := os.MkdirAll(filepath.Join(projDir, "fills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(projDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(origDir)
+	t.Setenv("STEGO_REGISTRY", filepath.Join(tmp, "registry"))
+
+	// --collection scopes the fill to a specific collection.
+	err := runFillCreate([]string{"my-policy", "--slot", "before_create", "--collection", "org-users"})
+	if err != nil {
+		t.Fatalf("runFillCreate with --collection failed: %v", err)
+	}
+
+	fillYAML := filepath.Join(projDir, "fills", "my-policy", "fill.yaml")
+	data, err := os.ReadFile(fillYAML)
+	if err != nil {
+		t.Fatalf("fill.yaml not created: %v", err)
+	}
+
+	var fill types.Fill
+	if err := yaml.Unmarshal(data, &fill); err != nil {
+		t.Fatalf("fill.yaml is not valid YAML: %v", err)
+	}
+	if fill.Collection != "org-users" {
+		t.Errorf("expected collection=org-users, got %q", fill.Collection)
+	}
+	if fill.Implements != "rest-api.before_create" {
+		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
+	}
+}
+
 func TestRunRegistrySearch(t *testing.T) {
 	tmp := t.TempDir()
 	setupMinimalRegistry(t, tmp)
