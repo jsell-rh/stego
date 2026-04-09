@@ -50,7 +50,7 @@
 
 ## Round 5
 
-- [ ] **Example generated output is stale — uses per-entity naming instead of per-collection naming** (`examples/user-management/out/`): The example's `service.yaml` correctly uses the `collections:` named-map format with three collections (`organizations`, `org-users`, `all-users`), but the checked-in generated output in `out/` was produced by the old per-entity generator and was never regenerated after the collection migration. Specific discrepancies:
+- [-] [process-revision-complete] **Example generated output is stale — uses per-entity naming instead of per-collection naming** (`examples/user-management/out/`): The example's `service.yaml` correctly uses the `collections:` named-map format with three collections (`organizations`, `org-users`, `all-users`), but the checked-in generated output in `out/` was produced by the old per-entity generator and was never regenerated after the collection migration. Specific discrepancies:
 
   - **Handler files named per entity, not per collection**: `handler_organization.go` and `handler_user.go` exist instead of the expected `handler_organizations.go`, `handler_org_users.go`, and `handler_all_users.go`. (AC #1: "rest-api generator produces one handler per collection")
   - **Missing handler for `all-users` collection**: Only 2 handler files exist instead of 3. The `all-users` collection (`operations: [list]`) has no handler file, and the `GET /users` route is absent from `main.go`. (AC #1, #3)
