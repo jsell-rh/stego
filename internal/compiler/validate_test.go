@@ -445,7 +445,7 @@ slots:
 	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
 name: my-policy
 implements: rest-api.before_create
-entity: Widget
+collection: widgets
 qualified_by: tester
 qualified_at: 2026-04-01
 `)
@@ -467,6 +467,53 @@ qualified_at: 2026-04-01
 			t.Errorf("unexpected fill error: %s", e.Message)
 		}
 	}
+}
+
+func TestValidate_FillBadCollection(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+slots:
+  - slot: before_create
+    collection: widgets
+    gate:
+      - my-policy
+`)
+
+	// Create the fill directory and fill.yaml with a bad collection reference.
+	fillDir := filepath.Join(projectDir, "fills", "my-policy")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: my-policy
+implements: rest-api.before_create
+collection: nonexistent-collection
+qualified_by: tester
+qualified_at: 2026-04-01
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "fill", "nonexistent-collection")
 }
 
 func TestValidate_CollectionBadEntity(t *testing.T) {

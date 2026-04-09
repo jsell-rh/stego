@@ -154,8 +154,8 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate slot binding uniqueness (no duplicate slot+entity+operator).
 	result.Errors = append(result.Errors, validateSlotBindingUniquenessCollect(svcDecl.Slots)...)
 
-	// Validate fills exist on disk.
-	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, input.ProjectDir)
+	// Validate fills exist on disk and reference valid collections.
+	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir)
 	if fillInfraErr != nil {
 		return nil, fillInfraErr
 	}
@@ -800,13 +800,19 @@ func validateMixinUniqueness(mixins []string) []ValidationError {
 }
 
 // validateFillsExist checks that each fill referenced in slot bindings has a
-// fills/<name>/fill.yaml file in the project directory. It returns validation
-// errors for missing fills, and returns an infrastructure Go error for
-// unexpected filesystem failures (e.g. permission denied).
-func validateFillsExist(slots []types.SlotDeclaration, projectDir string) ([]ValidationError, error) {
+// fills/<name>/fill.yaml file in the project directory and that the fill's
+// Collection field references a defined collection name. It returns validation
+// errors for missing fills or invalid collection references, and returns an
+// infrastructure Go error for unexpected filesystem or parsing failures.
+func validateFillsExist(slots []types.SlotDeclaration, collections []types.Collection, projectDir string) ([]ValidationError, error) {
 	fillNames := collectFillNames(slots)
 	if len(fillNames) == 0 {
 		return nil, nil
+	}
+
+	collectionNames := make(map[string]bool, len(collections))
+	for _, c := range collections {
+		collectionNames[c.Name] = true
 	}
 
 	var errs []ValidationError
@@ -821,6 +827,24 @@ func validateFillsExist(slots []types.SlotDeclaration, projectDir string) ([]Val
 			} else {
 				return nil, fmt.Errorf("checking fill %q at %s: %w", name, fillPath, err)
 			}
+			continue
+		}
+
+		// Parse the fill and validate its Collection field.
+		fill, err := parser.ParseFill(fillPath)
+		if err != nil {
+			return nil, fmt.Errorf("parsing fill %q at %s: %w", name, fillPath, err)
+		}
+		if fill.Collection != "" && !collectionNames[fill.Collection] {
+			var names []string
+			for _, c := range collections {
+				names = append(names, c.Name)
+			}
+			sort.Strings(names)
+			errs = append(errs, ValidationError{
+				Category: "fill",
+				Message:  fmt.Sprintf("fill %q references collection %q which is not defined (available collections: %v)", name, fill.Collection, names),
+			})
 		}
 	}
 	return errs, nil

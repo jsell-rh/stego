@@ -220,7 +220,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 	}
 	// Verify the handler constructor includes slot operator arguments
 	// with entity-scoped variable names.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate, onEntityChangedusersFanOut)") {
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUsersGate, onEntityChangedUsersFanOut)") {
 		t.Errorf("slot operators not injected into handler constructor in:\n%s", code)
 	}
 }
@@ -706,7 +706,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 
 	// Verify slot operators are injected into handler constructor
 	// with entity-scoped variable names.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate, onEntityChangedusersFanOut)") {
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUsersGate, onEntityChangedUsersFanOut)") {
 		t.Errorf("slot operators not injected into User handler constructor in:\n%s", code)
 	}
 
@@ -1159,19 +1159,19 @@ func TestAssemble_NoDB_WhenNeedsDBFalse(t *testing.T) {
 
 func TestSlotVarName(t *testing.T) {
 	tests := []struct {
-		slot, entity, suffix string
-		want                 string
+		slot, collection, suffix string
+		want                     string
 	}{
-		{"before_create", "users", "Gate", "beforeCreateusersGate"},
-		{"before_create", "organizations", "Gate", "beforeCreateorganizationsGate"},
-		{"on_entity_changed", "users", "FanOut", "onEntityChangedusersFanOut"},
+		{"before_create", "org-users", "Gate", "beforeCreateOrgUsersGate"},
+		{"before_create", "organizations", "Gate", "beforeCreateOrganizationsGate"},
+		{"on_entity_changed", "all-users", "FanOut", "onEntityChangedAllUsersFanOut"},
 		{"process_adapter_status", "", "Chain", "processAdapterStatusChain"},
 	}
 	for _, tt := range tests {
-		got := slotVarName(tt.slot, tt.entity, tt.suffix)
+		got := slotVarName(tt.slot, tt.collection, tt.suffix)
 		if got != tt.want {
 			t.Errorf("slotVarName(%q, %q, %q) = %q, want %q",
-				tt.slot, tt.entity, tt.suffix, got, tt.want)
+				tt.slot, tt.collection, tt.suffix, got, tt.want)
 		}
 	}
 }
@@ -1249,20 +1249,20 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
 	}
 
-	// Verify distinct variable names per entity.
-	if !strings.Contains(code, "beforeCreateusersGate :=") {
-		t.Errorf("missing beforeCreateusersGate in:\n%s", code)
+	// Verify distinct variable names per collection.
+	if !strings.Contains(code, "beforeCreateUsersGate :=") {
+		t.Errorf("missing beforeCreateUsersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateorganizationsGate :=") {
-		t.Errorf("missing beforeCreateorganizationsGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateOrganizationsGate :=") {
+		t.Errorf("missing beforeCreateOrganizationsGate in:\n%s", code)
 	}
 
 	// Verify each handler gets its own operator injected.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate)") {
-		t.Errorf("User handler should receive beforeCreateusersGate in:\n%s", code)
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUsersGate)") {
+		t.Errorf("User handler should receive beforeCreateUsersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "api.NewOrganizationHandler(store, beforeCreateorganizationsGate)") {
-		t.Errorf("Organization handler should receive beforeCreateorganizationsGate in:\n%s", code)
+	if !strings.Contains(code, "api.NewOrganizationHandler(store, beforeCreateOrganizationsGate)") {
+		t.Errorf("Organization handler should receive beforeCreateOrganizationsGate in:\n%s", code)
 	}
 }
 
@@ -1290,10 +1290,10 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 				Name: "slot-component",
 				Wiring: &gen.Wiring{
 					Imports: []string{"internal/slotops"},
-					// This constructor produces var name "beforeCreateusersGate"
+					// This constructor produces var name "beforeCreateUsersGate"
 					// which collides with the slot operator variable.
-					Constructors: []string{"slotops.NewBeforeCreateusersGate()"},
-					Routes:       []string{`mux.HandleFunc("GET /gate", beforeCreateusersGate.Get)`},
+					Constructors: []string{"slotops.NewBeforeCreateUsersGate()"},
+					Routes:       []string{`mux.HandleFunc("GET /gate", beforeCreateUsersGate.Get)`},
 				},
 			},
 			{
@@ -1338,8 +1338,8 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 	}
 
 	// The constructor should get a disambiguated name.
-	if !strings.Contains(code, "beforeCreateusersGate2 :=") {
-		t.Errorf("constructor var should be disambiguated to beforeCreateusersGate2 in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateUsersGate2 :=") {
+		t.Errorf("constructor var should be disambiguated to beforeCreateUsersGate2 in:\n%s", code)
 	}
 }
 
@@ -1406,7 +1406,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 
 	// Even with non-standard constructor name, slot operators should be
 	// injected because ConstructorEntities provides the entity mapping.
-	if !strings.Contains(code, "api.NewUserController(store, beforeCreateusersGate)") {
+	if !strings.Contains(code, "api.NewUserController(store, beforeCreateUsersGate)") {
 		t.Errorf("slot operators not injected into non-standard controller constructor in:\n%s", code)
 	}
 
@@ -2414,10 +2414,10 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 	}
 
 	// Both operators should be present with distinct variable names.
-	if !strings.Contains(code, "beforeCreateusersGate") {
+	if !strings.Contains(code, "beforeCreateUsersGate") {
 		t.Errorf("missing gate operator in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateusersFanOut") {
+	if !strings.Contains(code, "beforeCreateUsersFanOut") {
 		t.Errorf("missing fan-out operator in:\n%s", code)
 	}
 }
@@ -2758,11 +2758,11 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 	}
 
 	// Both should have distinct variable names because collections differ.
-	if !strings.Contains(code, "beforeCreateusersGate") {
-		t.Errorf("missing beforeCreateusersGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateUsersGate") {
+		t.Errorf("missing beforeCreateUsersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateorgsGate") {
-		t.Errorf("missing beforeCreateorgsGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateOrgsGate") {
+		t.Errorf("missing beforeCreateOrgsGate in:\n%s", code)
 	}
 }
 

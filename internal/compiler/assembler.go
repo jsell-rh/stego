@@ -110,7 +110,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	hasRoutes := hasAnyRoutes(input)
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 
-	// Validate no duplicate (slot, entity, operator) triples before processing.
+	// Validate no duplicate (slot, collection, operator) triples before processing.
 	if err := validateSlotBindingUniqueness(input.SlotBindings); err != nil {
 		return gen.File{}, err
 	}
@@ -143,10 +143,10 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	consumed, effectiveHasDB := computeConsumedConstructors(input, hasRoutes)
 	hasDB := effectiveHasDB
 
-	// Build slot operator variable names by entity so we can inject them
+	// Build slot operator variable names by collection so we can inject them
 	// into handler constructor calls.
 	slotVarsByEntity := buildSlotVarsByEntity(input.SlotBindings, hasSlots)
-	// Collect ALL slot var names (including entity-less ones) so constructor
+	// Collect ALL slot var names (including collection-less ones) so constructor
 	// disambiguation can avoid collisions with slot operators.
 	allSlotVarNames := collectAllSlotVarNames(input.SlotBindings, hasSlots)
 
@@ -884,7 +884,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 
 	// Build a set of operator variable names that will be injected into
 	// handler constructors. Variables NOT in this set need `_ =` to prevent
-	// unused variable errors (e.g. when a slot has no entity association).
+	// unused variable errors (e.g. when a slot has no collection association).
 	injected := make(map[string]bool)
 	for _, vars := range slotVarsByEntity {
 		for _, v := range vars {
@@ -1185,8 +1185,8 @@ func injectConstructorArgs(expr string, args []string) string {
 	return prefix + ", " + strings.Join(args, ", ") + suffix
 }
 
-// buildSlotVarsByEntity returns a map from entity name to a list of slot
-// operator variable names for that entity. These variables are created by
+// buildSlotVarsByEntity returns a map from collection name to a list of slot
+// operator variable names for that collection. These variables are created by
 // writeSlotWiring and injected into handler constructors by writeConstructors.
 func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[string][]string {
 	result := make(map[string][]string)
@@ -1344,11 +1344,11 @@ func validateConstructorUniqueness(wirings []ComponentWiring) error {
 }
 
 // validateSlotBindingUniqueness checks that no two slot bindings share the same
-// (slot, entity, operator) composite key. Duplicate bindings would produce
+// (slot, collection, operator) composite key. Duplicate bindings would produce
 // duplicate variable declarations in the generated main.go.
 func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 	type compositeKey struct {
-		slot, entity, operator string
+		slot, collection, operator string
 	}
 	seen := make(map[compositeKey]bool)
 
@@ -1365,13 +1365,13 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 			if !op.has {
 				continue
 			}
-			key := compositeKey{slot: sb.Slot, entity: sb.Collection, operator: op.name}
+			key := compositeKey{slot: sb.Slot, collection: sb.Collection, operator: op.name}
 			if seen[key] {
-				entityDesc := ""
+				collectionDesc := ""
 				if sb.Collection != "" {
-					entityDesc = fmt.Sprintf(" for entity %q", sb.Collection)
+					collectionDesc = fmt.Sprintf(" for collection %q", sb.Collection)
 				}
-				return fmt.Errorf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name)
+				return fmt.Errorf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, collectionDesc, op.name)
 			}
 			seen[key] = true
 		}
@@ -1399,14 +1399,14 @@ func stdlibAliases(hasRoutes, hasDB bool) []string {
 }
 
 // validateSlotVarNameUniqueness checks that no two slot bindings produce the
-// same derived variable name. Distinct raw composite keys (slot, entity, operator)
+// same derived variable name. Distinct raw composite keys (slot, collection, operator)
 // can normalize to the same camelCase identifier when the slot names differ only
 // in underscore structure (e.g. "before_create" and "before__create" both produce
 // "beforeCreate" via snakeToCamel). This would produce duplicate := declarations
 // in the generated main.go.
 func validateSlotVarNameUniqueness(bindings []types.SlotDeclaration) error {
 	type varSource struct {
-		slot, entity, operator string
+		slot, collection, operator string
 	}
 	seen := make(map[string]varSource) // derived var name → first source
 
@@ -1425,14 +1425,14 @@ func validateSlotVarNameUniqueness(bindings []types.SlotDeclaration) error {
 				continue
 			}
 			varName := slotVarName(sb.Slot, sb.Collection, op.suffix)
-			source := varSource{slot: sb.Slot, entity: sb.Collection, operator: op.name}
+			source := varSource{slot: sb.Slot, collection: sb.Collection, operator: op.name}
 			if first, ok := seen[varName]; ok {
 				// Only report if the raw composite keys differ — if they're
 				// identical, validateSlotBindingUniqueness already catches it.
-				if first.slot != source.slot || first.entity != source.entity || first.operator != source.operator {
-					return fmt.Errorf("slot bindings %q (entity %q, operator %q) and %q (entity %q, operator %q) produce the same variable name %q — slot names must be distinct after normalization",
-						first.slot, first.entity, first.operator,
-						source.slot, source.entity, source.operator,
+				if first.slot != source.slot || first.collection != source.collection || first.operator != source.operator {
+					return fmt.Errorf("slot bindings %q (collection %q, operator %q) and %q (collection %q, operator %q) produce the same variable name %q — slot names must be distinct after normalization",
+						first.slot, first.collection, first.operator,
+						source.slot, source.collection, source.operator,
 						varName)
 				}
 			}
@@ -1453,14 +1453,29 @@ func generatedImportPath(moduleName, outDirName, relativePath string) string {
 	return moduleName + "/" + relativePath
 }
 
+// kebabToPascal converts a kebab-case string to PascalCase.
+// "org-users" → "OrgUsers", "all-users" → "AllUsers"
+func kebabToPascal(s string) string {
+	parts := strings.Split(s, "-")
+	var result strings.Builder
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		result.WriteString(strings.ToUpper(p[:1]) + p[1:])
+	}
+	return result.String()
+}
+
 // slotVarName derives a unique slot operator variable name from the slot name,
-// entity name (may be empty), and operator type suffix ("Gate", "Chain", "FanOut").
-// When an entity is set, the entity name is included to disambiguate per-entity
-// bindings of the same slot (e.g. "beforeCreateUserGate" vs "beforeCreateOrgGate").
-func slotVarName(slot, entity, operatorSuffix string) string {
+// collection name (may be empty), and operator type suffix ("Gate", "Chain", "FanOut").
+// When a collection is set, the collection name is sanitized (kebab-case → PascalCase)
+// and included to disambiguate per-collection bindings of the same slot
+// (e.g. "beforeCreateOrgUsersGate" vs "beforeCreateAllUsersGate").
+func slotVarName(slot, collection, operatorSuffix string) string {
 	base := snakeToCamel(slot)
-	if entity != "" {
-		base += entity
+	if collection != "" {
+		base += kebabToPascal(collection)
 	}
 	return base + operatorSuffix
 }
