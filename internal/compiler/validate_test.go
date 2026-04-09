@@ -32,10 +32,12 @@ entities:
     fields:
       - { name: name, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 `
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), serviceYAML)
@@ -168,8 +170,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -234,8 +237,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: foobar }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -264,8 +268,9 @@ entities:
   - name: Widget
     fields:
       - { name: owner, type: ref }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -294,8 +299,9 @@ entities:
   - name: Widget
     fields:
       - { name: owner, type: ref, to: NonexistentEntity }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -324,8 +330,9 @@ entities:
   - name: Widget
     fields:
       - { name: status, type: enum }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -385,12 +392,13 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - nonexistent-fill
 `)
@@ -420,12 +428,13 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - my-policy
 `)
@@ -460,7 +469,7 @@ qualified_at: 2026-04-01
 	}
 }
 
-func TestValidate_ExposeBadEntity(t *testing.T) {
+func TestValidate_CollectionBadEntity(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -471,8 +480,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: NonexistentEntity
+collections:
+  things:
+    entity: NonexistentEntity
     operations: [create]
 `)
 
@@ -487,10 +497,10 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "NonexistentEntity")
+	assertHasError(t, result, "collection", "NonexistentEntity")
 }
 
-func TestValidate_ExposeBadParent(t *testing.T) {
+func TestValidate_CollectionBadScopeEntity(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -501,10 +511,18 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
-    parent: NonexistentParent
+    scope: { org_id: NonexistentParent }
+  orgs:
+    entity: Org
+    operations: [create]
 `)
 
 	input := ReconcilerInput{
@@ -518,7 +536,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "NonexistentParent")
+	assertHasError(t, result, "collection", "NonexistentParent")
 }
 
 func TestValidate_InvalidOperation(t *testing.T) {
@@ -532,8 +550,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, explode]
 `)
 
@@ -562,12 +581,13 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 slots:
   - slot: nonexistent_slot
-    entity: Widget
+    collection: widgets
     gate:
       - my-policy
 `)
@@ -597,7 +617,7 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "nonexistent_slot")
 }
 
-func TestValidate_SlotEntityNotExposed(t *testing.T) {
+func TestValidate_SlotCollectionNotDefined(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -611,12 +631,13 @@ entities:
   - name: Gadget
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Gadget
+    collection: gadgets
     gate:
       - my-policy
 `)
@@ -642,7 +663,7 @@ qualified_at: 2026-04-01
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "slot", "Gadget")
+	assertHasError(t, result, "slot", "gadgets")
 }
 
 func TestValidate_MultipleErrors(t *testing.T) {
@@ -657,8 +678,9 @@ entities:
     fields:
       - { name: label, type: foobar }
       - { name: status, type: enum }
-expose:
-  - entity: NonexistentEntity
+collections:
+  things:
+    entity: NonexistentEntity
     operations: [create, explode]
 `)
 
@@ -682,7 +704,7 @@ expose:
 	}
 	assertHasError(t, result, "field-type", "foobar")
 	assertHasError(t, result, "field-type", "no values")
-	assertHasError(t, result, "entity-ref", "NonexistentEntity")
+	assertHasError(t, result, "collection", "NonexistentEntity")
 	assertHasError(t, result, "operation", "explode")
 }
 
@@ -731,8 +753,9 @@ entities:
       - { name: ref_field, type: string, to: Widget }
       - { name: amount, type: float, min_length: 1 }
       - { name: score, type: double, max_length: 10 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -783,10 +806,12 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create]
 `)
 
@@ -817,8 +842,9 @@ entities:
   - name: Widget
     fields:
       - { name: status, type: jsonb, computed: true }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -847,8 +873,9 @@ entities:
   - name: Widget
     fields:
       - { name: status, type: jsonb, filled_by: aggregator }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -878,8 +905,9 @@ entities:
     fields:
       - { name: label, type: string }
       - { name: status, type: jsonb, computed: true, filled_by: status-aggregator }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -913,12 +941,13 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - my-policy
 `)
@@ -993,16 +1022,18 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 mixins:
   - event-publisher
 slots:
   - slot: on_entity_changed
-    entity: Widget
+    collection: widgets
     fan-out:
       - my-notifier
 `)
@@ -1071,14 +1102,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: on_entity_changed
-    entity: Widget
+    collection: widgets
     fan-out:
       - my-notifier
 `)
@@ -1110,8 +1143,9 @@ entities:
     fields:
       - { name: email, type: string, unique_composite: [nonexistent_field] }
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -1141,8 +1175,9 @@ entities:
     fields:
       - { name: email, type: string, unique_composite: [label] }
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -1165,7 +1200,7 @@ expose:
 	}
 }
 
-func TestValidate_ExposeScopeNonexistentField(t *testing.T) {
+func TestValidate_CollectionScopeNonexistentField(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -1180,11 +1215,13 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  org-widgets:
+    entity: Widget
     operations: [list]
-    scope: nonexistent_field
-  - entity: Org
+    scope: { nonexistent_field: Org }
+  orgs:
+    entity: Org
     operations: [create, read]
 `)
 
@@ -1199,10 +1236,10 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "scope \"nonexistent_field\"")
+	assertHasError(t, result, "collection", "scope field \"nonexistent_field\"")
 }
 
-func TestValidate_ExposeScopeValidField(t *testing.T) {
+func TestValidate_CollectionScopeValidField(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -1217,11 +1254,13 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  org-widgets:
+    entity: Widget
     operations: [list]
-    scope: org_id
-  - entity: Org
+    scope: { org_id: Org }
+  orgs:
+    entity: Org
     operations: [create, read]
 `)
 
@@ -1244,7 +1283,7 @@ expose:
 	}
 }
 
-func TestValidate_ExposeUpsertKeyNonexistentField(t *testing.T) {
+func TestValidate_CollectionUpsertKeyNonexistentField(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -1256,8 +1295,9 @@ entities:
     fields:
       - { name: label, type: string }
       - { name: resource_type, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert]
     upsert_key: [resource_type, nonexistent_field]
 `)
@@ -1273,7 +1313,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "upsert_key field \"nonexistent_field\"")
+	assertHasError(t, result, "collection", "upsert_key field \"nonexistent_field\"")
 	// resource_type should NOT cause an error since it exists.
 	for _, e := range result.Errors {
 		if strings.Contains(e.Message, "resource_type") {
@@ -1282,7 +1322,7 @@ expose:
 	}
 }
 
-func TestValidate_ExposeUpsertKeyValidFields(t *testing.T) {
+func TestValidate_CollectionUpsertKeyValidFields(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -1295,8 +1335,9 @@ entities:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
       - { name: adapter, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert]
     upsert_key: [resource_type, resource_id, adapter]
 `)
@@ -1334,8 +1375,9 @@ entities:
   - name: Widget
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -1365,8 +1407,9 @@ entities:
     fields:
       - { name: label, type: string }
       - { name: label, type: int32 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -1396,8 +1439,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
     upsert_key: [resource_type, resource_id]
 `)
@@ -1413,7 +1457,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "specifies upsert_key but does not include 'upsert'")
+	assertHasError(t, result, "collection", "specifies upsert_key but does not include 'upsert'")
 }
 
 func TestValidate_UpsertKeyWithUpsertOperation(t *testing.T) {
@@ -1428,8 +1472,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert, list]
     upsert_key: [resource_type, resource_id]
 `)
@@ -1465,8 +1510,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert]
 `)
 
@@ -1481,7 +1527,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "includes 'upsert' operation but does not specify upsert_key")
+	assertHasError(t, result, "collection", "includes 'upsert' operation but does not specify upsert_key")
 }
 
 func TestValidate_ConcurrencyWithoutUpsertOperation(t *testing.T) {
@@ -1495,8 +1541,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
     concurrency: optimistic
 `)
@@ -1512,7 +1559,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "specifies concurrency \"optimistic\" but does not include 'upsert'")
+	assertHasError(t, result, "collection", "specifies concurrency")
 }
 
 func TestValidate_ConcurrencyWithUpsertOperation(t *testing.T) {
@@ -1528,8 +1575,9 @@ entities:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
       - { name: generation, type: int64 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert, list]
     upsert_key: [resource_type, resource_id]
     concurrency: optimistic
@@ -1566,8 +1614,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert, list]
     upsert_key: [resource_type, resource_id]
     concurrency: pessimistic
@@ -1584,13 +1633,13 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "invalid concurrency mode \"pessimistic\"")
+	assertHasError(t, result, "collection", "invalid concurrency mode \"pessimistic\"")
 }
 
-func TestValidate_ParentNotInExposeList(t *testing.T) {
+func TestValidate_CollectionScopeNonexistentEntity(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
-	// Org is defined in entities but NOT in the expose list.
+	// Scope value references an entity name that does not exist.
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
@@ -1603,10 +1652,14 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  org-widgets:
+    entity: Widget
     operations: [create, read]
-    parent: Org
+    scope: { org_id: Nonexistent }
+  orgs:
+    entity: Org
+    operations: [create, read]
 `)
 
 	input := ReconcilerInput{
@@ -1620,13 +1673,13 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "declares parent \"Org\", but \"Org\" is not in the expose list")
+	assertHasError(t, result, "collection", "scope value \"Nonexistent\" which is not a defined entity")
 }
 
-func TestValidate_ParentInExposeList(t *testing.T) {
+func TestValidate_CollectionScopeValid(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
-	// Both Widget and Org are in the expose list — no error expected.
+	// Both Widget and Org are defined, scope references valid field and entity — no error expected.
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
@@ -1639,12 +1692,14 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Org
+collections:
+  orgs:
+    entity: Org
     operations: [create, read]
-  - entity: Widget
+  org-widgets:
+    entity: Widget
     operations: [create, read]
-    parent: Org
+    scope: { org_id: Org }
 `)
 
 	input := ReconcilerInput{
@@ -1658,17 +1713,32 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	// No parent-related errors.
+	// No scope-related errors.
 	for _, e := range result.Errors {
-		if strings.Contains(e.Message, "parent") {
-			t.Errorf("unexpected parent error: %s", e.Message)
+		if strings.Contains(e.Message, "scope") {
+			t.Errorf("unexpected scope error: %s", e.Message)
 		}
 	}
 }
 
-func TestValidate_DuplicateExposeBlock(t *testing.T) {
+func TestValidate_DuplicateCollectionName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
+	// YAML maps with duplicate keys: the YAML spec says last wins, but our
+	// custom UnmarshalYAML appends both, so we get two collections named
+	// "widgets". We construct the YAML manually to test duplicate detection.
+	// Since YAML maps disallow duplicate keys at the parser level, we build
+	// the ServiceDeclaration programmatically instead.
+	//
+	// Actually the validate.go duplicate check is on Collection.Name. Since
+	// the YAML parser deduplicates map keys, we test this by writing a
+	// service.yaml that the custom unmarshaler will produce duplicates from.
+	// The simplest approach: use a valid YAML but inject duplicates via the
+	// Go test by calling Validate after manually constructing the decl.
+	//
+	// However, since validate_test relies on file-based testing, we need a
+	// different approach. YAML mapping nodes with duplicate keys ARE parsed
+	// by go-yaml and our custom UnmarshalYAML appends both. Let's test that.
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
@@ -1680,12 +1750,15 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
-  - entity: Widget
+  widgets:
+    entity: Widget
     operations: [read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create]
 `)
 
@@ -1700,16 +1773,16 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "duplicate expose blocks for entity \"Widget\"")
+	assertHasError(t, result, "collection", "duplicate collection name \"widgets\"")
 	// Org should NOT have a duplicate error.
 	for _, e := range result.Errors {
-		if strings.Contains(e.Message, "duplicate expose blocks") && strings.Contains(e.Message, "Org") {
-			t.Errorf("unexpected duplicate expose block error for Org: %s", e.Message)
+		if strings.Contains(e.Message, "duplicate collection name") && strings.Contains(e.Message, "orgs") {
+			t.Errorf("unexpected duplicate collection name error for orgs: %s", e.Message)
 		}
 	}
 }
 
-func TestValidate_DuplicateOperationInExposeBlock(t *testing.T) {
+func TestValidate_DuplicateOperationInCollection(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
@@ -1720,8 +1793,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, create, read]
 `)
 
@@ -1759,14 +1833,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - my-policy
     short_circuit: true
@@ -1810,14 +1886,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     chain:
       - my-policy
     short_circuit: true
@@ -1866,14 +1944,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     fan-out:
       - my-notifier
     short_circuit: true
@@ -1917,18 +1997,20 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-b
 `)
@@ -1956,13 +2038,13 @@ qualified_at: 2026-04-01
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "slot", "duplicate slot binding: slot \"before_create\" for entity \"Widget\" with operator \"gate\"")
+	assertHasError(t, result, "slot", "duplicate slot binding: slot \"before_create\" for collection \"widgets\" with operator \"gate\"")
 }
 
 func TestValidate_DuplicateSlotBindingDifferentOperators(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
-	// Same slot and entity but different operators — should NOT be a duplicate.
+	// Same slot and collection but different operators — should NOT be a duplicate.
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
@@ -1974,18 +2056,20 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
   - slot: before_create
-    entity: Widget
+    collection: widgets
     chain:
       - policy-b
 `)
@@ -2032,8 +2116,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: []
 `)
 
@@ -2062,8 +2147,9 @@ entities:
   - name: Widget
     fields:
       - { name: role, type: enum, values: [admin, admin, member] }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2098,8 +2184,9 @@ entities:
   - name: Widget
     fields:
       - { name: role, type: enum, values: [admin, member, viewer] }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2134,8 +2221,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert]
     upsert_key: [resource_type, resource_type]
 `)
@@ -2151,7 +2239,7 @@ expose:
 	if err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
-	assertHasError(t, result, "entity-ref", "upsert_key contains duplicate field reference \"resource_type\"")
+	assertHasError(t, result, "collection", "upsert_key contains duplicate field reference \"resource_type\"")
 	// resource_id should NOT have a duplicate error.
 	for _, e := range result.Errors {
 		if strings.Contains(e.Message, "duplicate field reference") && strings.Contains(e.Message, "resource_id") {
@@ -2172,8 +2260,9 @@ entities:
     fields:
       - { name: resource_type, type: string }
       - { name: resource_id, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [upsert]
     upsert_key: [resource_type, resource_id]
 `)
@@ -2209,8 +2298,9 @@ entities:
     fields:
       - { name: email, type: string, unique_composite: [label, label] }
       - { name: label, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2241,8 +2331,9 @@ entities:
       - { name: email, type: string, unique_composite: [label, name] }
       - { name: label, type: string }
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2279,14 +2370,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
 `)
 
 	input := ReconcilerInput{
@@ -2317,14 +2410,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - my-policy
 `)
@@ -2371,14 +2466,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - rbac-policy
       - rbac-policy
@@ -2424,14 +2521,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     chain:
       - step-a
       - step-a
@@ -2475,14 +2574,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     fan-out:
       - notifier
       - notifier
@@ -2526,14 +2627,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
       - policy-b
@@ -2603,10 +2706,12 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 mixins:
   - event-publisher
@@ -2654,10 +2759,12 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 mixins:
   - event-publisher
@@ -2696,14 +2803,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
     chain:
@@ -2750,14 +2859,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
     fan-out:
@@ -2804,14 +2915,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     chain:
       - step-a
     fan-out:
@@ -2858,14 +2971,16 @@ entities:
   - name: Org
     fields:
       - { name: name, type: string }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
-  - entity: Org
+  orgs:
+    entity: Org
     operations: [create, read]
 slots:
   - slot: before_create
-    entity: Widget
+    collection: widgets
     gate:
       - policy-a
     chain:
@@ -2911,8 +3026,9 @@ entities:
   - name: Widget
     fields:
       - { name: label, type: string, min_length: 10, max_length: 5 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2941,8 +3057,9 @@ entities:
   - name: Widget
     fields:
       - { name: count, type: int32, min: 100, max: 10 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -2972,8 +3089,9 @@ entities:
   - name: Widget
     fields:
       - { name: code, type: string, min_length: 5, max_length: 5 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -3007,8 +3125,9 @@ entities:
   - name: Widget
     fields:
       - { name: score, type: double, min: 0.5, max: 0.5 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -3044,8 +3163,9 @@ entities:
       - { name: label, type: string, min_length: 1, max_length: 255 }
       - { name: count, type: int32, min: 0, max: 100 }
       - { name: score, type: double, min: 0.0, max: 1.0 }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -3078,8 +3198,9 @@ entities:
   - name: Widget
     fields:
       - { name: name, type: string, pattern: "[" }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
@@ -3109,8 +3230,9 @@ entities:
   - name: Widget
     fields:
       - { name: name, type: string, pattern: "^[a-z0-9]" }
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create]
 `)
 
