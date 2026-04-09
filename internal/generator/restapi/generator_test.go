@@ -4433,3 +4433,158 @@ type ValidateSlot interface {
 		t.Fatalf("cross-generator integration compilation failed:\n%s\n%s", err, output)
 	}
 }
+
+// --- base_path tests ---
+
+func TestGenerate_BasePathPrependedToRoutes(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.BasePath = "/api/v1"
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, r := range wiring.Routes {
+		if !strings.Contains(r, "/api/v1/users") {
+			t.Errorf("route should contain /api/v1/users, got: %s", r)
+		}
+	}
+}
+
+func TestGenerate_BasePathOmittedRoutesFromRoot(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	// BasePath is empty — paths should start from root.
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, r := range wiring.Routes {
+		if strings.Contains(r, "/api/") {
+			t.Errorf("route should not contain /api/ when base_path is empty, got: %s", r)
+		}
+	}
+	foundRoot := false
+	for _, r := range wiring.Routes {
+		if strings.Contains(r, "\"/users") || strings.Contains(r, " /users") {
+			foundRoot = true
+		}
+	}
+	if !foundRoot {
+		t.Errorf("expected route containing /users (from root), got: %v", wiring.Routes)
+	}
+}
+
+func TestGenerate_BasePathInOpenAPIPaths(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.BasePath = "/api/hyperfleet/v1"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
+
+	var spec map[string]any
+	if err := json.Unmarshal(openapiBytes, &spec); err != nil {
+		t.Fatalf("openapi.json is not valid JSON: %v", err)
+	}
+
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatal("missing paths in openapi spec")
+	}
+
+	if _, ok := paths["/api/hyperfleet/v1/users"]; !ok {
+		t.Errorf("missing /api/hyperfleet/v1/users in openapi paths, got: %v", mapKeys(paths))
+	}
+	if _, ok := paths["/api/hyperfleet/v1/users/{id}"]; !ok {
+		t.Errorf("missing /api/hyperfleet/v1/users/{id} in openapi paths, got: %v", mapKeys(paths))
+	}
+}
+
+func TestGenerate_BasePathWithNestedRoutes(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpList}},
+			{Name: "nodepools", Entity: "NodePool", Operations: []types.Operation{types.OpList},
+				Scope: map[string]string{"cluster_id": "Cluster"}},
+		},
+		BasePath:        "/api/v1",
+		OutputNamespace: "internal/api",
+	}
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	routeStr := strings.Join(wiring.Routes, "\n")
+	if !strings.Contains(routeStr, "/api/v1/clusters") {
+		t.Errorf("expected route with /api/v1/clusters, got:\n%s", routeStr)
+	}
+	if !strings.Contains(routeStr, "/api/v1/clusters/{cluster_id}/nodepools") {
+		t.Errorf("expected route with /api/v1/clusters/{cluster_id}/nodepools, got:\n%s", routeStr)
+	}
+}
+
+func TestGenerate_BasePathWithPathPrefix(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpList},
+				PathPrefix: "/custom/widgets"},
+		},
+		BasePath:        "/api/v2",
+		OutputNamespace: "internal/api",
+	}
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	routeStr := strings.Join(wiring.Routes, "\n")
+	if !strings.Contains(routeStr, "/api/v2/custom/widgets") {
+		t.Errorf("expected route with /api/v2/custom/widgets, got:\n%s", routeStr)
+	}
+}
+
+func TestGenerate_BasePathValidation(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.BasePath = "no-leading-slash"
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error for base_path without leading slash")
+	}
+	if !strings.Contains(err.Error(), "base_path") {
+		t.Errorf("error should mention base_path, got: %v", err)
+	}
+}
+
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}

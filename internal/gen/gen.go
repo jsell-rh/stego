@@ -68,6 +68,10 @@ type Context struct {
 	// to import auth.IdentityFromContext for extracting caller identity from
 	// the request context. Empty if no auth component is resolved.
 	AuthPackage string
+
+	// BasePath is prepended to all collection-derived routes (e.g.
+	// "/api/hyperfleet/v1"). Empty string means paths are served from root.
+	BasePath string
 }
 
 // File represents a single generated output file.

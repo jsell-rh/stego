@@ -117,6 +117,14 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 		}
 	}
 
+	// Validate base_path starts with "/" if set.
+	if svcDecl.BasePath != "" && !strings.HasPrefix(svcDecl.BasePath, "/") {
+		result.Errors = append(result.Errors, ValidationError{
+			Category: "service",
+			Message:  fmt.Sprintf("base_path must start with '/', got %q", svcDecl.BasePath),
+		})
+	}
+
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
 

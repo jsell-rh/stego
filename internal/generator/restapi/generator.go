@@ -25,6 +25,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
+	// Validate base_path if provided.
+	if ctx.BasePath != "" && !strings.HasPrefix(ctx.BasePath, "/") {
+		return nil, nil, fmt.Errorf("base_path must start with '/', got %q", ctx.BasePath)
+	}
+
 	// Validate collection names are unique. Collection names drive handler
 	// type names, file names, and wiring variable names.
 	if err := validateCollectionNameUniqueness(ctx.Collections); err != nil {
@@ -166,10 +171,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
 
-		basePath, err := collectionBasePath(eb, collectionMap)
+		collPath, err := collectionBasePath(eb, collectionMap)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
 		}
+		basePath := ctx.BasePath + collPath
 		for _, op := range eb.Operations {
 			switch op {
 			case types.OpCreate:
@@ -202,7 +208,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files = append(files, routerFile)
 
 	// Generate OpenAPI spec.
-	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap)
+	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap, ctx.BasePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating openapi spec: %w", err)
 	}
@@ -748,7 +754,7 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.
-func generateOpenAPI(ns string, entities []types.Entity, collections []types.Collection, collectionMap map[string]types.Collection) (gen.File, error) {
+func generateOpenAPI(ns string, entities []types.Entity, collections []types.Collection, collectionMap map[string]types.Collection, basePath string) (gen.File, error) {
 	entityMap := make(map[string]types.Entity, len(entities))
 	for _, e := range entities {
 		entityMap[e.Name] = e
@@ -792,15 +798,16 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 
 	// Generate paths from collections.
 	for _, eb := range collections {
-		basePath, err := collectionBasePath(eb, collectionMap)
+		collPath, err := collectionBasePath(eb, collectionMap)
 		if err != nil {
 			return gen.File{}, err
 		}
-		collectionPath := basePath
-		itemPath := basePath + "/{id}"
+		fullPath := basePath + collPath
+		collectionPath := fullPath
+		itemPath := fullPath + "/{id}"
 
 		// Extract parent path parameters from the URL template.
-		parentParams := pathParamsToOpenAPI(extractPathParams(basePath))
+		parentParams := pathParamsToOpenAPI(extractPathParams(collPath))
 
 		collectionOps := make(map[string]openAPIOperation)
 		itemOps := make(map[string]openAPIOperation)

@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Base Path" (rest-crud spec), "Error Handling (RFC 9457)" (rest-crud spec)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

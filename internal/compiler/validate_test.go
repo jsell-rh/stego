@@ -3426,3 +3426,76 @@ func assertHasError(t *testing.T, result *ValidationResult, category, messageSub
 	t.Errorf("expected error with category %q containing %q, got:\n%s",
 		category, messageSubstring, FormatValidation(result))
 }
+
+func TestValidate_BasePathInvalid(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+base_path: no-leading-slash
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "service", "base_path")
+}
+
+func TestValidate_BasePathValid(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+base_path: /api/v1
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+  orgs:
+    entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors with valid base_path, got:\n%s", FormatValidation(result))
+	}
+}

@@ -670,3 +670,117 @@ func TestParseErrorLineInfoNoContext(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }
+
+func TestParseServiceDeclarationBasePath(t *testing.T) {
+	input := []byte(`
+kind: service
+name: hyperfleet-api
+archetype: rest-crud
+language: go
+base_path: /api/hyperfleet/v1
+entities:
+  - name: Cluster
+    fields:
+      - { name: name, type: string }
+collections:
+  clusters:
+    entity: Cluster
+    operations: [create, read]
+`)
+	sd, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if sd.BasePath != "/api/hyperfleet/v1" {
+		t.Errorf("BasePath = %q, want %q", sd.BasePath, "/api/hyperfleet/v1")
+	}
+}
+
+func TestParseServiceDeclarationErrorTypeBase(t *testing.T) {
+	input := []byte(`
+kind: service
+name: hyperfleet-api
+archetype: rest-crud
+language: go
+error_type_base: https://api.hyperfleet.io/errors/
+entities:
+  - name: Cluster
+    fields:
+      - { name: name, type: string }
+collections:
+  clusters:
+    entity: Cluster
+    operations: [create, read]
+`)
+	sd, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if sd.ErrorTypeBase != "https://api.hyperfleet.io/errors/" {
+		t.Errorf("ErrorTypeBase = %q, want %q", sd.ErrorTypeBase, "https://api.hyperfleet.io/errors/")
+	}
+}
+
+func TestParseServiceDeclarationBasePathOmitted(t *testing.T) {
+	input := []byte(`
+kind: service
+name: test
+archetype: rest-crud
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create]
+`)
+	sd, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if sd.BasePath != "" {
+		t.Errorf("BasePath should be empty when omitted, got %q", sd.BasePath)
+	}
+	if sd.ErrorTypeBase != "" {
+		t.Errorf("ErrorTypeBase should be empty when omitted, got %q", sd.ErrorTypeBase)
+	}
+}
+
+func TestRoundTripServiceDeclarationWithBasePath(t *testing.T) {
+	input := []byte(`
+kind: service
+name: test
+archetype: rest-crud
+language: go
+base_path: /api/v1
+error_type_base: https://example.com/errors/
+entities:
+  - name: Item
+    fields:
+      - { name: label, type: string }
+collections:
+  items:
+    entity: Item
+    operations: [create]
+`)
+	sd, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	data, err := yaml.Marshal(sd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var sd2 types.ServiceDeclaration
+	if err := yaml.Unmarshal(data, &sd2); err != nil {
+		t.Fatalf("unmarshal round-trip: %v", err)
+	}
+	if sd2.BasePath != "/api/v1" {
+		t.Errorf("BasePath after round-trip = %q, want %q", sd2.BasePath, "/api/v1")
+	}
+	if sd2.ErrorTypeBase != "https://example.com/errors/" {
+		t.Errorf("ErrorTypeBase after round-trip = %q, want %q", sd2.ErrorTypeBase, "https://example.com/errors/")
+	}
+}

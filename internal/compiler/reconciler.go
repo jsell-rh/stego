@@ -265,6 +265,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			OutputNamespace: comp.OutputNamespace,
 			OutDirName:      outDirName,
 			AuthPackage:     authPackage,
+			BasePath:        svcDecl.BasePath,
 		}
 
 		files, wiring, err := generator.Generate(ctx)
