@@ -86,3 +86,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `79e20b1` feat(task-019): collection-aware code generation pipeline
 - `58525d5` fix(task-019): use collection names in validation error messages
 - `68ab61e` fix(task-019): round 2 revisions — rename, tests, stale terminology
+- `fbf8307` fix(task-019): round 3 revisions — rename expose/entity terminology to collection throughout generator
