@@ -134,43 +134,44 @@ fields:
 	}
 }
 
-func TestExposeBlockUnmarshal(t *testing.T) {
+func TestCollectionUnmarshal(t *testing.T) {
 	input := `
 entity: AdapterStatus
 operations: [list, upsert]
 upsert_key: [resource_type, resource_id, adapter]
 concurrency: optimistic
 path_prefix: /clusters/{cluster_id}/nodepools/{nodepool_id}/statuses
-parent: NodePool
+scope:
+  nodepool_id: NodePool
 `
-	var eb ExposeBlock
-	if err := yaml.Unmarshal([]byte(input), &eb); err != nil {
+	var c Collection
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if eb.Entity != "AdapterStatus" {
-		t.Errorf("entity = %q, want %q", eb.Entity, "AdapterStatus")
+	if c.Entity != "AdapterStatus" {
+		t.Errorf("entity = %q, want %q", c.Entity, "AdapterStatus")
 	}
-	if len(eb.Operations) != 2 {
-		t.Fatalf("operations count = %d, want 2", len(eb.Operations))
+	if len(c.Operations) != 2 {
+		t.Fatalf("operations count = %d, want 2", len(c.Operations))
 	}
-	if eb.Operations[0] != OpList || eb.Operations[1] != OpUpsert {
-		t.Errorf("operations = %v, want [list, upsert]", eb.Operations)
+	if c.Operations[0] != OpList || c.Operations[1] != OpUpsert {
+		t.Errorf("operations = %v, want [list, upsert]", c.Operations)
 	}
-	if len(eb.UpsertKey) != 3 {
-		t.Errorf("upsert_key count = %d, want 3", len(eb.UpsertKey))
+	if len(c.UpsertKey) != 3 {
+		t.Errorf("upsert_key count = %d, want 3", len(c.UpsertKey))
 	}
-	if eb.Concurrency != ConcurrencyOptimistic {
-		t.Errorf("concurrency = %q, want %q", eb.Concurrency, ConcurrencyOptimistic)
+	if c.Concurrency != ConcurrencyOptimistic {
+		t.Errorf("concurrency = %q, want %q", c.Concurrency, ConcurrencyOptimistic)
 	}
-	if eb.Parent != "NodePool" {
-		t.Errorf("parent = %q, want %q", eb.Parent, "NodePool")
+	if c.Scope["nodepool_id"] != "NodePool" {
+		t.Errorf("scope[nodepool_id] = %q, want %q", c.Scope["nodepool_id"], "NodePool")
 	}
 }
 
 func TestSlotDeclarationUnmarshal(t *testing.T) {
 	input := `
 slot: before_create
-entity: User
+collection: org-users
 gate:
   - rbac-policy
   - admin-creation-policy
@@ -182,8 +183,8 @@ gate:
 	if sb.Slot != "before_create" {
 		t.Errorf("slot = %q, want %q", sb.Slot, "before_create")
 	}
-	if sb.Entity != "User" {
-		t.Errorf("entity = %q, want %q", sb.Entity, "User")
+	if sb.Collection != "org-users" {
+		t.Errorf("collection = %q, want %q", sb.Collection, "org-users")
 	}
 	if len(sb.Gate) != 2 {
 		t.Fatalf("gate count = %d, want 2", len(sb.Gate))
@@ -227,21 +228,22 @@ entities:
   - name: Organization
     fields:
       - { name: name, type: string, unique: true }
-expose:
-  - entity: Organization
+collections:
+  organizations:
+    entity: Organization
     operations: [create, read]
-  - entity: User
+  org-users:
+    entity: User
+    scope: { org_id: Organization }
     operations: [create, read, update, list]
-    scope: org_id
-    parent: Organization
 slots:
   - slot: before_create
-    entity: User
+    collection: org-users
     gate:
       - rbac-policy
       - admin-creation-policy
   - slot: on_entity_changed
-    entity: User
+    collection: org-users
     fan-out:
       - user-change-notifier
       - audit-logger
@@ -267,11 +269,26 @@ overrides:
 	if len(sd.Entities) != 2 {
 		t.Errorf("entities count = %d, want 2", len(sd.Entities))
 	}
-	if len(sd.Expose) != 2 {
-		t.Errorf("expose count = %d, want 2", len(sd.Expose))
+	if len(sd.Collections) != 2 {
+		t.Errorf("collections count = %d, want 2", len(sd.Collections))
+	}
+	if sd.Collections[0].Name != "organizations" {
+		t.Errorf("collections[0].name = %q, want %q", sd.Collections[0].Name, "organizations")
+	}
+	if sd.Collections[0].Entity != "Organization" {
+		t.Errorf("collections[0].entity = %q, want %q", sd.Collections[0].Entity, "Organization")
+	}
+	if sd.Collections[1].Name != "org-users" {
+		t.Errorf("collections[1].name = %q, want %q", sd.Collections[1].Name, "org-users")
+	}
+	if sd.Collections[1].Scope["org_id"] != "Organization" {
+		t.Errorf("collections[1].scope = %v, want {org_id: Organization}", sd.Collections[1].Scope)
 	}
 	if len(sd.Slots) != 2 {
 		t.Errorf("slots count = %d, want 2", len(sd.Slots))
+	}
+	if sd.Slots[0].Collection != "org-users" {
+		t.Errorf("slots[0].collection = %q, want %q", sd.Slots[0].Collection, "org-users")
 	}
 	if len(sd.Mixins) != 1 || sd.Mixins[0] != "event-publisher" {
 		t.Errorf("mixins = %v, want [event-publisher]", sd.Mixins)
@@ -491,7 +508,7 @@ func TestFillUnmarshal(t *testing.T) {
 kind: fill
 name: admin-creation-policy
 implements: rest-api.before_create
-entity: User
+collection: org-users
 qualified_by: jsell
 qualified_at: 2026-04-06T00:00:00Z
 `
@@ -505,8 +522,8 @@ qualified_at: 2026-04-06T00:00:00Z
 	if f.Implements != "rest-api.before_create" {
 		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
 	}
-	if f.Entity != "User" {
-		t.Errorf("entity = %q, want %q", f.Entity, "User")
+	if f.Collection != "org-users" {
+		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
 	}
 	if f.QualifiedBy != "jsell" {
 		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")

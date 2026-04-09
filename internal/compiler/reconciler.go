@@ -248,7 +248,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		ctx := gen.Context{
 			Conventions:     archetype.Conventions,
 			Entities:        svcDecl.Entities,
-			Expose:          svcDecl.Expose,
+			Collections:     svcDecl.Collections,
 			SlotBindings:    svcDecl.Slots,
 			ModuleName:      input.ModuleName,
 			SlotsPackage:    slotsPackage,
@@ -289,7 +289,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	// are injected into handler constructors, which only exist for exposed
 	// entities. A slot binding referencing a non-exposed entity would produce
 	// an unused variable in the generated main.go — a Go compile error.
-	if err := validateSlotBindingEntities(svcDecl.Slots, svcDecl.Expose); err != nil {
+	if err := validateSlotBindingEntities(svcDecl.Slots, svcDecl.Collections); err != nil {
 		return nil, err
 	}
 
@@ -898,34 +898,33 @@ func FormatPlan(plan *Plan) string {
 }
 
 // validateSlotBindingEntities checks that every slot binding with a non-empty
-// Entity field references an entity that is in the expose list. Slot operators
-// are injected into handler constructors, which are only generated for exposed
-// entities. A binding referencing a non-exposed entity would produce an unused
+// Collection field references a collection that exists. Slot operators are
+// injected into handler constructors, which are only generated for collections.
+// A binding referencing a non-existent collection would produce an unused
 // variable — a Go compile error.
-func validateSlotBindingEntities(slots []types.SlotDeclaration, expose []types.ExposeBlock) error {
+func validateSlotBindingEntities(slots []types.SlotDeclaration, collections []types.Collection) error {
 	if len(slots) == 0 {
 		return nil
 	}
 
-	// Build set of exposed entity names.
-	exposedEntities := make(map[string]bool, len(expose))
-	for _, eb := range expose {
-		exposedEntities[eb.Entity] = true
+	// Build set of collection names.
+	collectionNames := make(map[string]bool, len(collections))
+	for _, c := range collections {
+		collectionNames[c.Name] = true
 	}
 
 	for _, sb := range slots {
-		if sb.Entity == "" {
+		if sb.Collection == "" {
 			continue
 		}
-		if !exposedEntities[sb.Entity] {
-			// Collect exposed entity names for a helpful error message.
-			var exposed []string
-			for _, eb := range expose {
-				exposed = append(exposed, eb.Entity)
+		if !collectionNames[sb.Collection] {
+			var names []string
+			for _, c := range collections {
+				names = append(names, c.Name)
 			}
-			return fmt.Errorf("slot binding %q declares entity %q but %q is not in the expose list — "+
-				"slot operators can only be wired to entities that have handler constructors (exposed entities: %v)",
-				sb.Slot, sb.Entity, sb.Entity, exposed)
+			return fmt.Errorf("slot binding %q references collection %q but %q is not defined — "+
+				"slot operators can only be wired to defined collections (available: %v)",
+				sb.Slot, sb.Collection, sb.Collection, names)
 		}
 	}
 	return nil

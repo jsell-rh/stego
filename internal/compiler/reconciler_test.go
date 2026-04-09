@@ -41,8 +41,9 @@ entities:
     fields:
       - { name: label, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 `
 	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
@@ -395,7 +396,7 @@ name: test-service
 archetype: nonexistent
 language: go
 entities: []
-expose: []
+collections: {}
 `
 	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -607,7 +608,7 @@ name: test-service
 archetype: test-arch
 language: go
 entities: []
-expose: []
+collections: {}
 mixins:
   - test-mixin
 `
@@ -680,8 +681,9 @@ entities:
       - { name: label, type: string }
       - { name: color, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 `
 	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
@@ -1216,8 +1218,9 @@ entities:
     fields:
       - { name: label, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 
 overrides:
@@ -1310,8 +1313,9 @@ entities:
     fields:
       - { name: label, type: int32 }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 `
 	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
@@ -1452,8 +1456,9 @@ entities:
     fields:
       - { name: label, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 
 overrides:
@@ -1953,71 +1958,68 @@ overrides: none
 	}
 }
 
-func TestValidateSlotBindingEntities_NonExposedEntityRejected(t *testing.T) {
+func TestValidateSlotBindingEntities_NonExposedCollectionRejected(t *testing.T) {
 	slots := []types.SlotDeclaration{
-		{Slot: "before_create", Entity: "Gadget", Gate: []string{"my-policy"}},
+		{Slot: "before_create", Collection: "gadgets", Gate: []string{"my-policy"}},
 	}
-	expose := []types.ExposeBlock{
-		{Entity: "Widget", Operations: []types.Operation{"create", "read"}},
+	collections := []types.Collection{
+		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create", "read"}},
 	}
 
-	err := validateSlotBindingEntities(slots, expose)
+	err := validateSlotBindingEntities(slots, collections)
 	if err == nil {
-		t.Fatal("expected error when slot binding entity is not in expose list")
+		t.Fatal("expected error when slot binding references a non-existent collection")
 	}
-	if !strings.Contains(err.Error(), "Gadget") {
-		t.Errorf("error should mention the non-exposed entity name, got: %v", err)
+	if !strings.Contains(err.Error(), "gadgets") {
+		t.Errorf("error should mention the missing collection name, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "before_create") {
 		t.Errorf("error should mention the slot name, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expose") {
-		t.Errorf("error should mention the expose list, got: %v", err)
-	}
 }
 
-func TestValidateSlotBindingEntities_ExposedEntityAccepted(t *testing.T) {
+func TestValidateSlotBindingEntities_DefinedCollectionAccepted(t *testing.T) {
 	slots := []types.SlotDeclaration{
-		{Slot: "before_create", Entity: "Widget", Gate: []string{"my-policy"}},
+		{Slot: "before_create", Collection: "widgets", Gate: []string{"my-policy"}},
 	}
-	expose := []types.ExposeBlock{
-		{Entity: "Widget", Operations: []types.Operation{"create", "read"}},
+	collections := []types.Collection{
+		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create", "read"}},
 	}
 
-	err := validateSlotBindingEntities(slots, expose)
+	err := validateSlotBindingEntities(slots, collections)
 	if err != nil {
-		t.Fatalf("expected success when slot binding entity is in expose list, got: %v", err)
+		t.Fatalf("expected success when slot binding references a defined collection, got: %v", err)
 	}
 }
 
-func TestValidateSlotBindingEntities_EmptyEntityAccepted(t *testing.T) {
-	// Slot bindings with no entity should be accepted (they get _ = suppression).
+func TestValidateSlotBindingEntities_EmptyCollectionAccepted(t *testing.T) {
+	// Slot bindings with no collection should be accepted.
 	slots := []types.SlotDeclaration{
 		{Slot: "before_create", Gate: []string{"my-policy"}},
 	}
-	expose := []types.ExposeBlock{
-		{Entity: "Widget", Operations: []types.Operation{"create"}},
+	collections := []types.Collection{
+		{Name: "widgets", Entity: "Widget", Operations: []types.Operation{"create"}},
 	}
 
-	err := validateSlotBindingEntities(slots, expose)
+	err := validateSlotBindingEntities(slots, collections)
 	if err != nil {
-		t.Fatalf("expected success when slot binding has no entity, got: %v", err)
+		t.Fatalf("expected success when slot binding has no collection, got: %v", err)
 	}
 }
 
 func TestValidateSlotBindingEntities_NoSlotsAccepted(t *testing.T) {
-	err := validateSlotBindingEntities(nil, []types.ExposeBlock{
-		{Entity: "Widget"},
+	err := validateSlotBindingEntities(nil, []types.Collection{
+		{Name: "widgets", Entity: "Widget"},
 	})
 	if err != nil {
 		t.Fatalf("expected success with no slot bindings, got: %v", err)
 	}
 }
 
-func TestReconcile_SlotBindingEntityNotInExposeListRejected(t *testing.T) {
+func TestReconcile_SlotBindingCollectionNotDefinedRejected(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
 
-	// Write a service.yaml with a slot binding referencing an entity not in expose.
+	// Write a service.yaml with a slot binding referencing a non-existent collection.
 	serviceYAML := `kind: service
 name: test-service
 archetype: test-arch
@@ -2031,13 +2033,14 @@ entities:
     fields:
       - { name: name, type: string }
 
-expose:
-  - entity: Widget
+collections:
+  widgets:
+    entity: Widget
     operations: [create, read]
 
 slots:
   - slot: before_create
-    entity: Gadget
+    collection: gadgets
     gate:
       - my-policy
 `
@@ -2101,13 +2104,10 @@ slots:
 		ModuleName:  "github.com/test/svc",
 	})
 	if err == nil {
-		t.Fatal("expected error when slot binding entity is not in expose list")
+		t.Fatal("expected error when slot binding references a non-existent collection")
 	}
-	if !strings.Contains(err.Error(), "Gadget") {
-		t.Errorf("error should mention the non-exposed entity, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "expose") {
-		t.Errorf("error should mention the expose list, got: %v", err)
+	if !strings.Contains(err.Error(), "gadgets") {
+		t.Errorf("error should mention the missing collection, got: %v", err)
 	}
 }
 

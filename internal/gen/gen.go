@@ -29,8 +29,8 @@ type Context struct {
 	// Entities defined in the service declaration.
 	Entities []types.Entity
 
-	// Expose blocks from the service declaration.
-	Expose []types.ExposeBlock
+	// Collections from the service declaration.
+	Collections []types.Collection
 
 	// SlotBindings from the service declaration, in declaration order.
 	// The ordering is significant: generators and the assembler must iterate

@@ -114,11 +114,11 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
 
-	// Validate expose block references.
-	result.Errors = append(result.Errors, validateExposeReferences(svcDecl.Expose, svcDecl.Entities)...)
+	// Validate collection references.
+	result.Errors = append(result.Errors, validateCollectionReferences(svcDecl.Collections, svcDecl.Entities)...)
 
-	// Validate expose block operations and operation-dependent attributes.
-	result.Errors = append(result.Errors, validateExposeOps(svcDecl.Expose)...)
+	// Validate collection operations and operation-dependent attributes.
+	result.Errors = append(result.Errors, validateCollectionOps(svcDecl.Collections)...)
 
 	// Validate no duplicate mixin names.
 	result.Errors = append(result.Errors, validateMixinUniqueness(svcDecl.Mixins)...)
@@ -138,8 +138,8 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 		result.Errors = append(result.Errors, validateSlotNames(svcDecl.Slots, components, mixinSlots)...)
 	}
 
-	// Validate slot binding entities are in the expose list.
-	result.Errors = append(result.Errors, validateSlotBindingEntitiesCollect(svcDecl.Slots, svcDecl.Expose)...)
+	// Validate slot binding collections reference existing collection names.
+	result.Errors = append(result.Errors, validateSlotBindingCollections(svcDecl.Slots, svcDecl.Collections)...)
 
 	// Validate short_circuit is only used with chain operator.
 	result.Errors = append(result.Errors, validateSlotBindingShortCircuit(svcDecl.Slots)...)
@@ -393,12 +393,12 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 	return errs
 }
 
-// validateExposeReferences checks that each expose block references a defined
-// entity and a defined parent (if set), that field-ref attributes (scope,
-// upsert_key) resolve to actual fields on the referenced entity, that
-// operation-dependent attributes (upsert_key, concurrency) require the upsert
-// operation, and that parent entities are in the expose list.
-func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entity) []ValidationError {
+// validateCollectionReferences checks that each collection references a defined
+// entity, that scope field names exist on the referenced entity and scope
+// values reference existing entities, that field-ref attributes (upsert_key)
+// resolve to actual fields, and that operation-dependent attributes
+// (upsert_key, concurrency) require the upsert operation.
+func validateCollectionReferences(collections []types.Collection, entities []types.Entity) []ValidationError {
 	entityNames := make(map[string]bool, len(entities))
 	entityFields := make(map[string]map[string]bool, len(entities))
 	for _, e := range entities {
@@ -410,79 +410,73 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 		entityFields[e.Name] = fields
 	}
 
-	// Check for duplicate expose blocks (same entity appearing more than once).
+	// Check for duplicate collection names.
 	var errs []ValidationError
-	exposeCount := make(map[string]int, len(expose))
-	for _, eb := range expose {
-		exposeCount[eb.Entity]++
+	collCount := make(map[string]int, len(collections))
+	for _, c := range collections {
+		collCount[c.Name]++
 	}
-	var duplicateExposeEntities []string
-	for entity, count := range exposeCount {
+	var duplicateNames []string
+	for name, count := range collCount {
 		if count > 1 {
-			duplicateExposeEntities = append(duplicateExposeEntities, entity)
+			duplicateNames = append(duplicateNames, name)
 		}
 	}
-	sort.Strings(duplicateExposeEntities)
-	for _, entity := range duplicateExposeEntities {
+	sort.Strings(duplicateNames)
+	for _, name := range duplicateNames {
 		errs = append(errs, ValidationError{
-			Category: "entity-ref",
-			Message:  fmt.Sprintf("expose list contains duplicate expose blocks for entity %q", entity),
+			Category: "collection",
+			Message:  fmt.Sprintf("duplicate collection name %q", name),
 		})
 	}
 
-	// Build set of exposed entity names for parent-in-expose-list validation.
-	exposedEntities := make(map[string]bool, len(expose))
-	for _, eb := range expose {
-		exposedEntities[eb.Entity] = true
+	// Build set of collection names for scope-entity-in-collections validation.
+	collectionNames := make(map[string]bool, len(collections))
+	for _, c := range collections {
+		collectionNames[c.Name] = true
 	}
-	for _, eb := range expose {
-		if !entityNames[eb.Entity] {
+
+	for _, c := range collections {
+		if !entityNames[c.Entity] {
 			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block references entity %q which is not defined in entities", eb.Entity),
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q references entity %q which is not defined in entities", c.Name, c.Entity),
 			})
-			// Skip field-ref validation when the entity itself is unresolved.
 			continue
 		}
-		if eb.Parent != "" {
-			if !entityNames[eb.Parent] {
+
+		// Validate scope: each key must be a field on the entity, each value
+		// must be a defined entity name.
+		for fieldName, targetEntity := range c.Scope {
+			if !entityFields[c.Entity][fieldName] {
 				errs = append(errs, ValidationError{
-					Category: "entity-ref",
-					Message:  fmt.Sprintf("expose block for entity %q references parent %q which is not defined in entities", eb.Entity, eb.Parent),
-				})
-			} else if !exposedEntities[eb.Parent] {
-				errs = append(errs, ValidationError{
-					Category: "entity-ref",
-					Message:  fmt.Sprintf("expose block for entity %q declares parent %q, but %q is not in the expose list — parent entities must have their own expose block to generate the parent route and existence verification", eb.Entity, eb.Parent, eb.Parent),
+					Category: "collection",
+					Message:  fmt.Sprintf("collection %q has scope field %q which is not a field on entity %q", c.Name, fieldName, c.Entity),
 				})
 			}
-		}
-
-		// Validate scope field reference.
-		if eb.Scope != "" {
-			if !entityFields[eb.Entity][eb.Scope] {
+			if !entityNames[targetEntity] {
 				errs = append(errs, ValidationError{
-					Category: "entity-ref",
-					Message:  fmt.Sprintf("expose block for entity %q has scope %q which is not a field on entity %q", eb.Entity, eb.Scope, eb.Entity),
+					Category: "collection",
+					Message:  fmt.Sprintf("collection %q has scope value %q which is not a defined entity", c.Name, targetEntity),
 				})
 			}
 		}
 
 		// Validate upsert_key field name references and intra-list uniqueness.
 		{
-			ukSeen := make(map[string]bool, len(eb.UpsertKey))
-			for _, keyField := range eb.UpsertKey {
+			ukSeen := make(map[string]bool, len(c.UpsertKey))
+			for _, keyField := range c.UpsertKey {
 				if ukSeen[keyField] {
 					errs = append(errs, ValidationError{
-						Category: "entity-ref",
-						Message:  fmt.Sprintf("expose block for entity %q: upsert_key contains duplicate field reference %q", eb.Entity, keyField),
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: upsert_key contains duplicate field reference %q", c.Name, keyField),
 					})
 				}
 				ukSeen[keyField] = true
-				if !entityFields[eb.Entity][keyField] {
+				if !entityFields[c.Entity][keyField] {
 					errs = append(errs, ValidationError{
-						Category: "entity-ref",
-						Message:  fmt.Sprintf("expose block for entity %q has upsert_key field %q which is not a field on entity %q", eb.Entity, keyField, eb.Entity),
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q has upsert_key field %q which is not a field on entity %q", c.Name, keyField, c.Entity),
 					})
 				}
 			}
@@ -490,7 +484,7 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 
 		// Determine whether upsert is in the operations list.
 		hasUpsertOp := false
-		for _, op := range eb.Operations {
+		for _, op := range c.Operations {
 			if op == types.OpUpsert {
 				hasUpsertOp = true
 				break
@@ -498,63 +492,63 @@ func validateExposeReferences(expose []types.ExposeBlock, entities []types.Entit
 		}
 
 		// Validate bidirectional upsert/upsert_key dependency.
-		if len(eb.UpsertKey) > 0 && !hasUpsertOp {
+		if len(c.UpsertKey) > 0 && !hasUpsertOp {
 			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block for entity %q specifies upsert_key but does not include 'upsert' in its operations list — upsert_key requires the upsert operation", eb.Entity),
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q specifies upsert_key but does not include 'upsert' in its operations list — upsert_key requires the upsert operation", c.Name),
 			})
 		}
-		if hasUpsertOp && len(eb.UpsertKey) == 0 {
+		if hasUpsertOp && len(c.UpsertKey) == 0 {
 			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block for entity %q includes 'upsert' operation but does not specify upsert_key — upsert requires a natural key for conflict resolution", eb.Entity),
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q includes 'upsert' operation but does not specify upsert_key — upsert requires a natural key for conflict resolution", c.Name),
 			})
 		}
 
 		// Validate concurrency requires upsert operation.
-		if eb.Concurrency != "" && !hasUpsertOp {
+		if c.Concurrency != "" && !hasUpsertOp {
 			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block for entity %q specifies concurrency %q but does not include 'upsert' in its operations list — concurrency is only meaningful with the upsert operation", eb.Entity, eb.Concurrency),
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q specifies concurrency %q but does not include 'upsert' in its operations list — concurrency is only meaningful with the upsert operation", c.Name, c.Concurrency),
 			})
 		}
 
 		// Validate concurrency value is a recognized mode.
-		if eb.Concurrency != "" && !types.ValidConcurrencyModes[eb.Concurrency] {
+		if c.Concurrency != "" && !types.ValidConcurrencyModes[c.Concurrency] {
 			var validModes []string
 			for mode := range types.ValidConcurrencyModes {
 				validModes = append(validModes, string(mode))
 			}
 			sort.Strings(validModes)
 			errs = append(errs, ValidationError{
-				Category: "entity-ref",
-				Message:  fmt.Sprintf("expose block for entity %q has invalid concurrency mode %q — valid modes: %v", eb.Entity, eb.Concurrency, validModes),
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q has invalid concurrency mode %q — valid modes: %v", c.Name, c.Concurrency, validModes),
 			})
 		}
 	}
 	return errs
 }
 
-// validateExposeOps checks that each operation in expose blocks is valid and
-// that no operation appears more than once within a single expose block.
-func validateExposeOps(expose []types.ExposeBlock) []ValidationError {
+// validateCollectionOps checks that each operation in collections is valid and
+// that no operation appears more than once within a single collection.
+func validateCollectionOps(collections []types.Collection) []ValidationError {
 	var errs []ValidationError
-	for _, eb := range expose {
-		// Check for empty operations list — an expose block with no operations
+	for _, c := range collections {
+		// Check for empty operations list — a collection with no operations
 		// is semantically void.
-		if len(eb.Operations) == 0 {
+		if len(c.Operations) == 0 {
 			errs = append(errs, ValidationError{
 				Category: "operation",
-				Message:  fmt.Sprintf("expose block for entity %q has no operations — each expose block must have at least one operation", eb.Entity),
+				Message:  fmt.Sprintf("collection %q has no operations — each collection must have at least one operation", c.Name),
 			})
 		}
 
-		opSeen := make(map[types.Operation]bool, len(eb.Operations))
-		for _, op := range eb.Operations {
+		opSeen := make(map[types.Operation]bool, len(c.Operations))
+		for _, op := range c.Operations {
 			if opSeen[op] {
 				errs = append(errs, ValidationError{
 					Category: "operation",
-					Message:  fmt.Sprintf("expose block for entity %q has duplicate operation %q", eb.Entity, op),
+					Message:  fmt.Sprintf("collection %q has duplicate operation %q", c.Name, op),
 				})
 			}
 			opSeen[op] = true
@@ -562,7 +556,7 @@ func validateExposeOps(expose []types.ExposeBlock) []ValidationError {
 			if !types.ValidOperations[op] {
 				errs = append(errs, ValidationError{
 					Category: "operation",
-					Message:  fmt.Sprintf("expose block for entity %q has invalid operation %q", eb.Entity, op),
+					Message:  fmt.Sprintf("collection %q has invalid operation %q", c.Name, op),
 				})
 			}
 		}
@@ -606,33 +600,33 @@ func validateSlotNames(slots []types.SlotDeclaration, components map[string]*typ
 	return errs
 }
 
-// validateSlotBindingEntitiesCollect is the error-collecting variant of
-// validateSlotBindingEntities — it collects all violations rather than
-// returning on the first.
-func validateSlotBindingEntitiesCollect(slots []types.SlotDeclaration, expose []types.ExposeBlock) []ValidationError {
+// validateSlotBindingCollections checks that each slot binding with a
+// non-empty Collection field references a collection that is defined in
+// the collections list.
+func validateSlotBindingCollections(slots []types.SlotDeclaration, collections []types.Collection) []ValidationError {
 	if len(slots) == 0 {
 		return nil
 	}
 
-	exposedEntities := make(map[string]bool, len(expose))
-	for _, eb := range expose {
-		exposedEntities[eb.Entity] = true
+	collectionNames := make(map[string]bool, len(collections))
+	for _, c := range collections {
+		collectionNames[c.Name] = true
 	}
 
 	var errs []ValidationError
 	for _, sb := range slots {
-		if sb.Entity == "" {
+		if sb.Collection == "" {
 			continue
 		}
-		if !exposedEntities[sb.Entity] {
-			var exposed []string
-			for _, eb := range expose {
-				exposed = append(exposed, eb.Entity)
+		if !collectionNames[sb.Collection] {
+			var names []string
+			for _, c := range collections {
+				names = append(names, c.Name)
 			}
 			errs = append(errs, ValidationError{
 				Category: "slot",
-				Message: fmt.Sprintf("slot binding %q declares entity %q which is not in the expose list (exposed entities: %v)",
-					sb.Slot, sb.Entity, exposed),
+				Message: fmt.Sprintf("slot binding %q references collection %q which is not defined (available collections: %v)",
+					sb.Slot, sb.Collection, names),
 			})
 		}
 	}
@@ -657,12 +651,12 @@ func validateSlotBindingShortCircuit(slots []types.SlotDeclaration) []Validation
 }
 
 // validateSlotBindingUniquenessCollect checks that no two slot bindings share
-// the same composite key (slot, entity, operator type). Duplicate bindings
+// the same composite key (slot, collection, operator type). Duplicate bindings
 // produce duplicate variable declarations in generated code. This is the
 // error-collecting variant used by Validate.
 func validateSlotBindingUniquenessCollect(slots []types.SlotDeclaration) []ValidationError {
 	type compositeKey struct {
-		slot, entity, operator string
+		slot, collection, operator string
 	}
 	seen := make(map[compositeKey]bool)
 
@@ -680,15 +674,15 @@ func validateSlotBindingUniquenessCollect(slots []types.SlotDeclaration) []Valid
 			if !op.has {
 				continue
 			}
-			key := compositeKey{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			key := compositeKey{slot: sb.Slot, collection: sb.Collection, operator: op.name}
 			if seen[key] {
-				entityDesc := ""
-				if sb.Entity != "" {
-					entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+				collDesc := ""
+				if sb.Collection != "" {
+					collDesc = fmt.Sprintf(" for collection %q", sb.Collection)
 				}
 				errs = append(errs, ValidationError{
 					Category: "slot",
-					Message:  fmt.Sprintf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name),
+					Message:  fmt.Sprintf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, collDesc, op.name),
 				})
 			}
 			seen[key] = true
@@ -706,8 +700,8 @@ func validateSlotBindingOperatorPresence(slots []types.SlotDeclaration) []Valida
 	for _, sb := range slots {
 		if len(sb.Gate) == 0 && len(sb.Chain) == 0 && len(sb.FanOut) == 0 {
 			entityDesc := ""
-			if sb.Entity != "" {
-				entityDesc = fmt.Sprintf(" on entity %q", sb.Entity)
+			if sb.Collection != "" {
+				entityDesc = fmt.Sprintf(" on collection %q", sb.Collection)
 			}
 			errs = append(errs, ValidationError{
 				Category: "slot",
@@ -738,8 +732,8 @@ func validateSlotBindingOperatorExclusivity(slots []types.SlotDeclaration) []Val
 		}
 		if len(present) > 1 {
 			entityDesc := ""
-			if sb.Entity != "" {
-				entityDesc = fmt.Sprintf(" on entity %q", sb.Entity)
+			if sb.Collection != "" {
+				entityDesc = fmt.Sprintf(" on collection %q", sb.Collection)
 			}
 			errs = append(errs, ValidationError{
 				Category: "slot",
@@ -758,8 +752,8 @@ func validateSlotBindingFillUniqueness(slots []types.SlotDeclaration) []Validati
 	var errs []ValidationError
 	for _, sb := range slots {
 		entityDesc := ""
-		if sb.Entity != "" {
-			entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+		if sb.Collection != "" {
+			entityDesc = fmt.Sprintf(" for collection %q", sb.Collection)
 		}
 
 		for _, opInfo := range []struct {

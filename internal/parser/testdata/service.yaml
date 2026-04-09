@@ -14,23 +14,24 @@ entities:
     fields:
       - { name: name, type: string, unique: true }
 
-expose:
-  - entity: Organization
+collections:
+  organizations:
+    entity: Organization
     operations: [create, read]
-  - entity: User
+  org-users:
+    entity: User
+    scope: { org_id: Organization }
     operations: [create, read, update, list]
-    scope: org_id
-    parent: Organization
 
 slots:
   - slot: before_create
-    entity: User
+    collection: org-users
     gate:
       - rbac-policy
       - admin-creation-policy
 
   - slot: on_entity_changed
-    entity: User
+    collection: org-users
     fan-out:
       - user-change-notifier
       - audit-logger

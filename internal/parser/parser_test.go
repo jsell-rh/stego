@@ -227,21 +227,24 @@ func TestParseServiceDeclaration(t *testing.T) {
 		t.Errorf("entities[0].fields[2] = %+v, want ref to Organization", user.Fields[2])
 	}
 
-	// Expose
-	if len(sd.Expose) != 2 {
-		t.Fatalf("expose count = %d, want 2", len(sd.Expose))
+	// Collections
+	if len(sd.Collections) != 2 {
+		t.Fatalf("collections count = %d, want 2", len(sd.Collections))
 	}
-	if sd.Expose[0].Entity != "Organization" {
-		t.Errorf("expose[0].entity = %q, want %q", sd.Expose[0].Entity, "Organization")
+	if sd.Collections[0].Name != "organizations" {
+		t.Errorf("collections[0].name = %q, want %q", sd.Collections[0].Name, "organizations")
 	}
-	if len(sd.Expose[0].Operations) != 2 {
-		t.Errorf("expose[0].operations count = %d, want 2", len(sd.Expose[0].Operations))
+	if sd.Collections[0].Entity != "Organization" {
+		t.Errorf("collections[0].entity = %q, want %q", sd.Collections[0].Entity, "Organization")
 	}
-	if sd.Expose[1].Scope != "org_id" {
-		t.Errorf("expose[1].scope = %q, want %q", sd.Expose[1].Scope, "org_id")
+	if len(sd.Collections[0].Operations) != 2 {
+		t.Errorf("collections[0].operations count = %d, want 2", len(sd.Collections[0].Operations))
 	}
-	if sd.Expose[1].Parent != "Organization" {
-		t.Errorf("expose[1].parent = %q, want %q", sd.Expose[1].Parent, "Organization")
+	if sd.Collections[1].Name != "org-users" {
+		t.Errorf("collections[1].name = %q, want %q", sd.Collections[1].Name, "org-users")
+	}
+	if sd.Collections[1].Scope["org_id"] != "Organization" {
+		t.Errorf("collections[1].scope = %v, want {org_id: Organization}", sd.Collections[1].Scope)
 	}
 
 	// Slots
@@ -290,8 +293,8 @@ func TestParseFill(t *testing.T) {
 	if f.Implements != "rest-api.before_create" {
 		t.Errorf("implements = %q, want %q", f.Implements, "rest-api.before_create")
 	}
-	if f.Entity != "User" {
-		t.Errorf("entity = %q, want %q", f.Entity, "User")
+	if f.Collection != "org-users" {
+		t.Errorf("collection = %q, want %q", f.Collection, "org-users")
 	}
 	if f.QualifiedBy != "jsell" {
 		t.Errorf("qualified_by = %q, want %q", f.QualifiedBy, "jsell")
@@ -516,6 +519,63 @@ func TestRoundTripFill(t *testing.T) {
 	}
 	if !reflect.DeepEqual(*f, f2) {
 		t.Errorf("round-trip mismatch:\n  original: %+v\n  got:      %+v", *f, f2)
+	}
+}
+
+// --- collections: parsing and expose: rejection ---
+
+func TestParseServiceDeclarationRejectsExpose(t *testing.T) {
+	input := []byte(`
+kind: service
+name: test
+archetype: rest-crud
+language: go
+entities: []
+expose:
+  - entity: User
+    operations: [create]
+`)
+	_, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err == nil {
+		t.Fatal("expected error for 'expose:' key, got nil")
+	}
+	if !strings.Contains(err.Error(), "expose") || !strings.Contains(err.Error(), "collections") {
+		t.Errorf("error = %q, want mention of 'expose' and 'collections'", err.Error())
+	}
+}
+
+func TestParseServiceDeclarationCollectionsOrder(t *testing.T) {
+	input := []byte(`
+kind: service
+name: test
+archetype: rest-crud
+language: go
+entities: []
+collections:
+  alpha:
+    entity: A
+    operations: [create]
+  beta:
+    entity: B
+    operations: [read]
+  gamma:
+    entity: C
+    operations: [list]
+`)
+	sd, err := ParseServiceDeclarationFromBytes(input, "test.yaml")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(sd.Collections) != 3 {
+		t.Fatalf("collections count = %d, want 3", len(sd.Collections))
+	}
+	// Verify insertion order is preserved.
+	names := []string{sd.Collections[0].Name, sd.Collections[1].Name, sd.Collections[2].Name}
+	want := []string{"alpha", "beta", "gamma"}
+	for i, n := range names {
+		if n != want[i] {
+			t.Errorf("collections[%d].name = %q, want %q", i, n, want[i])
+		}
 	}
 }
 

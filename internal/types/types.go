@@ -1,6 +1,12 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
 
 // FieldType enumerates the primitive and stego-specific field types.
 type FieldType string
@@ -228,21 +234,44 @@ var ValidConcurrencyModes = map[ConcurrencyMode]bool{
 	ConcurrencyOptimistic: true,
 }
 
-// ExposeBlock declares which entity operations are exposed.
-type ExposeBlock struct {
-	Entity      string          `yaml:"entity"`
-	Operations  []Operation     `yaml:"operations"`
-	Scope       string          `yaml:"scope,omitempty"`
-	Parent      string          `yaml:"parent,omitempty"`
-	PathPrefix  string          `yaml:"path_prefix,omitempty"`
-	UpsertKey   []string        `yaml:"upsert_key,omitempty"`
-	Concurrency ConcurrencyMode `yaml:"concurrency,omitempty"`
+// Collection is a scoped, operation-constrained access pattern over an entity.
+// Multiple collections can reference the same entity. Each collection generates
+// its own handler, routes, and wiring. The Name field is populated from the map
+// key during parsing and is not serialized to YAML.
+type Collection struct {
+	Name        string            `yaml:"-"`
+	Entity      string            `yaml:"entity"`
+	Operations  []Operation       `yaml:"operations"`
+	Scope       map[string]string `yaml:"scope,omitempty"`
+	PathPrefix  string            `yaml:"path_prefix,omitempty"`
+	UpsertKey   []string          `yaml:"upsert_key,omitempty"`
+	Concurrency ConcurrencyMode   `yaml:"concurrency,omitempty"`
+}
+
+// ScopeField returns the scope field name (key) from the Scope map. For
+// single-scope collections, this is the only key. Returns empty string if no
+// scope is defined.
+func (c Collection) ScopeField() string {
+	for k := range c.Scope {
+		return k
+	}
+	return ""
+}
+
+// ParentEntity returns the scope value (entity name) from the Scope map. For
+// single-scope collections, this is the only value. Returns empty string if
+// no scope is defined.
+func (c Collection) ParentEntity() string {
+	for _, v := range c.Scope {
+		return v
+	}
+	return ""
 }
 
 // SlotDeclaration describes how a slot is bound in a service declaration.
 type SlotDeclaration struct {
 	Slot         string   `yaml:"slot"`
-	Entity       string   `yaml:"entity,omitempty"`
+	Collection   string   `yaml:"collection,omitempty"`
 	Gate         []string `yaml:"gate,omitempty"`
 	Chain        []string `yaml:"chain,omitempty"`
 	FanOut       []string `yaml:"fan-out,omitempty"`
@@ -251,15 +280,181 @@ type SlotDeclaration struct {
 
 // ServiceDeclaration is the product team's service definition.
 type ServiceDeclaration struct {
-	Kind      string            `yaml:"kind"`
-	Name      string            `yaml:"name"`
-	Archetype string            `yaml:"archetype"`
-	Language  string            `yaml:"language"`
-	Entities  []Entity          `yaml:"entities"`
-	Expose    []ExposeBlock     `yaml:"expose"`
-	Slots     []SlotDeclaration `yaml:"slots"`
-	Mixins    []string          `yaml:"mixins,omitempty"`
-	Overrides map[string]any    `yaml:"overrides,omitempty"`
+	Kind        string            `yaml:"kind"`
+	Name        string            `yaml:"name"`
+	Archetype   string            `yaml:"archetype"`
+	Language    string            `yaml:"language"`
+	Entities    []Entity          `yaml:"entities"`
+	Collections []Collection      `yaml:"-"`
+	Slots       []SlotDeclaration `yaml:"slots"`
+	Mixins      []string          `yaml:"mixins,omitempty"`
+	Overrides   map[string]any    `yaml:"overrides,omitempty"`
+}
+
+// UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
+// It parses the `collections:` key as a named map (preserving insertion order)
+// and rejects the legacy `expose:` key with a migration error.
+func (sd *ServiceDeclaration) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected a mapping node for service declaration")
+	}
+
+	// First pass: check for legacy expose: key and extract collections.
+	for i := 0; i < len(value.Content)-1; i += 2 {
+		key := value.Content[i].Value
+		if key == "expose" {
+			return fmt.Errorf("'expose' is no longer supported; use 'collections' instead — see spec for the named-map format")
+		}
+	}
+
+	// Decode all standard fields using an alias to avoid recursion.
+	type rawSD ServiceDeclaration
+	var raw rawSD
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+
+	// Parse collections: as an ordered named map.
+	for i := 0; i < len(value.Content)-1; i += 2 {
+		keyNode := value.Content[i]
+		valNode := value.Content[i+1]
+		if keyNode.Value != "collections" {
+			continue
+		}
+		if valNode.Kind != yaml.MappingNode {
+			return fmt.Errorf("'collections' must be a mapping")
+		}
+		for j := 0; j < len(valNode.Content)-1; j += 2 {
+			collName := valNode.Content[j].Value
+			var coll Collection
+			if err := valNode.Content[j+1].Decode(&coll); err != nil {
+				return fmt.Errorf("parsing collection %q: %w", collName, err)
+			}
+			coll.Name = collName
+			raw.Collections = append(raw.Collections, coll)
+		}
+		break
+	}
+
+	*sd = ServiceDeclaration(raw)
+	return nil
+}
+
+// MarshalYAML implements custom YAML marshaling for ServiceDeclaration.
+// It serializes Collections as an ordered map under the `collections:` key.
+func (sd ServiceDeclaration) MarshalYAML() (any, error) {
+	// Build an ordered map for collections.
+	collMap := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, c := range sd.Collections {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: c.Name}
+		// Marshal the collection without the Name field.
+		valNode := &yaml.Node{}
+		valBytes, err := yaml.Marshal(c)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling collection %q: %w", c.Name, err)
+		}
+		if err := yaml.Unmarshal(valBytes, valNode); err != nil {
+			return nil, fmt.Errorf("re-encoding collection %q: %w", c.Name, err)
+		}
+		// valNode is a document node; get the inner mapping.
+		if len(valNode.Content) > 0 {
+			collMap.Content = append(collMap.Content, keyNode, valNode.Content[0])
+		}
+	}
+
+	// Build a top-level ordered map preserving field order.
+	m := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+	addField := func(key, value string) {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
+		)
+	}
+
+	addField("kind", sd.Kind)
+	addField("name", sd.Name)
+	addField("archetype", sd.Archetype)
+	addField("language", sd.Language)
+
+	// Entities.
+	if len(sd.Entities) > 0 {
+		entNode := &yaml.Node{}
+		entBytes, err := yaml.Marshal(sd.Entities)
+		if err != nil {
+			return nil, err
+		}
+		if err := yaml.Unmarshal(entBytes, entNode); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "entities"},
+			entNode.Content[0],
+		)
+	}
+
+	// Collections.
+	if len(sd.Collections) > 0 {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "collections"},
+			&collMap,
+		)
+	}
+
+	// Slots.
+	if len(sd.Slots) > 0 {
+		sNode := &yaml.Node{}
+		sBytes, err := yaml.Marshal(sd.Slots)
+		if err != nil {
+			return nil, err
+		}
+		if err := yaml.Unmarshal(sBytes, sNode); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "slots"},
+			sNode.Content[0],
+		)
+	}
+
+	// Mixins.
+	if len(sd.Mixins) > 0 {
+		mNode := &yaml.Node{}
+		mBytes, err := yaml.Marshal(sd.Mixins)
+		if err != nil {
+			return nil, err
+		}
+		if err := yaml.Unmarshal(mBytes, mNode); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "mixins"},
+			mNode.Content[0],
+		)
+	}
+
+	// Overrides.
+	if len(sd.Overrides) > 0 {
+		keys := make([]string, 0, len(sd.Overrides))
+		for k := range sd.Overrides {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		oNode := &yaml.Node{}
+		oBytes, err := yaml.Marshal(sd.Overrides)
+		if err != nil {
+			return nil, err
+		}
+		if err := yaml.Unmarshal(oBytes, oNode); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "overrides"},
+			oNode.Content[0],
+		)
+	}
+
+	return &m, nil
 }
 
 // Fill represents a human-authored implementation of a slot contract.
@@ -267,7 +462,7 @@ type Fill struct {
 	Kind        string    `yaml:"kind"`
 	Name        string    `yaml:"name"`
 	Implements  string    `yaml:"implements"`
-	Entity      string    `yaml:"entity"`
+	Collection  string    `yaml:"collection"`
 	QualifiedBy string    `yaml:"qualified_by"`
 	QualifiedAt time.Time `yaml:"qualified_at"`
 }

@@ -381,13 +381,13 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 	}
 	for _, sb := range bindings {
 		if len(sb.Gate) > 0 {
-			result[slotVarName(sb.Slot, sb.Entity, "Gate")] = true
+			result[slotVarName(sb.Slot, sb.Collection, "Gate")] = true
 		}
 		if len(sb.Chain) > 0 {
-			result[slotVarName(sb.Slot, sb.Entity, "Chain")] = true
+			result[slotVarName(sb.Slot, sb.Collection, "Chain")] = true
 		}
 		if len(sb.FanOut) > 0 {
-			result[slotVarName(sb.Slot, sb.Entity, "FanOut")] = true
+			result[slotVarName(sb.Slot, sb.Collection, "FanOut")] = true
 		}
 	}
 	return result
@@ -895,12 +895,12 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 	for _, sb := range input.SlotBindings {
 		slotPascal := snakeToPascal(sb.Slot)
 		entityComment := ""
-		if sb.Entity != "" {
-			entityComment = fmt.Sprintf(" for %s", sb.Entity)
+		if sb.Collection != "" {
+			entityComment = fmt.Sprintf(" for %s", sb.Collection)
 		}
 
 		if len(sb.Gate) > 0 {
-			varName := slotVarName(sb.Slot, sb.Entity, "Gate")
+			varName := slotVarName(sb.Slot, sb.Collection, "Gate")
 			fmt.Fprintf(buf, "\t// Slot: %s (gate)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sGate(\n", varName, slotPascal)
 			for _, fillName := range sb.Gate {
@@ -915,7 +915,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 		}
 
 		if len(sb.Chain) > 0 {
-			varName := slotVarName(sb.Slot, sb.Entity, "Chain")
+			varName := slotVarName(sb.Slot, sb.Collection, "Chain")
 			scStr := "false"
 			if sb.ShortCircuit {
 				scStr = "true"
@@ -934,7 +934,7 @@ func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByEntity m
 		}
 
 		if len(sb.FanOut) > 0 {
-			varName := slotVarName(sb.Slot, sb.Entity, "FanOut")
+			varName := slotVarName(sb.Slot, sb.Collection, "FanOut")
 			fmt.Fprintf(buf, "\t// Slot: %s (fan-out)%s\n", sb.Slot, entityComment)
 			fmt.Fprintf(buf, "\t%s := slots.New%sFanOut(\n", varName, slotPascal)
 			for _, fillName := range sb.FanOut {
@@ -1194,17 +1194,17 @@ func buildSlotVarsByEntity(bindings []types.SlotDeclaration, hasSlots bool) map[
 		return result
 	}
 	for _, sb := range bindings {
-		if sb.Entity == "" {
+		if sb.Collection == "" {
 			continue
 		}
 		if len(sb.Gate) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "Gate"))
+			result[sb.Collection] = append(result[sb.Collection], slotVarName(sb.Slot, sb.Collection, "Gate"))
 		}
 		if len(sb.Chain) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "Chain"))
+			result[sb.Collection] = append(result[sb.Collection], slotVarName(sb.Slot, sb.Collection, "Chain"))
 		}
 		if len(sb.FanOut) > 0 {
-			result[sb.Entity] = append(result[sb.Entity], slotVarName(sb.Slot, sb.Entity, "FanOut"))
+			result[sb.Collection] = append(result[sb.Collection], slotVarName(sb.Slot, sb.Collection, "FanOut"))
 		}
 	}
 	return result
@@ -1365,11 +1365,11 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 			if !op.has {
 				continue
 			}
-			key := compositeKey{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			key := compositeKey{slot: sb.Slot, entity: sb.Collection, operator: op.name}
 			if seen[key] {
 				entityDesc := ""
-				if sb.Entity != "" {
-					entityDesc = fmt.Sprintf(" for entity %q", sb.Entity)
+				if sb.Collection != "" {
+					entityDesc = fmt.Sprintf(" for entity %q", sb.Collection)
 				}
 				return fmt.Errorf("duplicate slot binding: slot %q%s with operator %q appears more than once", sb.Slot, entityDesc, op.name)
 			}
@@ -1424,8 +1424,8 @@ func validateSlotVarNameUniqueness(bindings []types.SlotDeclaration) error {
 			if !op.has {
 				continue
 			}
-			varName := slotVarName(sb.Slot, sb.Entity, op.suffix)
-			source := varSource{slot: sb.Slot, entity: sb.Entity, operator: op.name}
+			varName := slotVarName(sb.Slot, sb.Collection, op.suffix)
+			source := varSource{slot: sb.Slot, entity: sb.Collection, operator: op.name}
 			if first, ok := seen[varName]; ok {
 				// Only report if the raw composite keys differ — if they're
 				// identical, validateSlotBindingUniqueness already catches it.

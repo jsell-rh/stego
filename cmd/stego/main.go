@@ -152,8 +152,8 @@ func runInit(args []string) error {
 		Name:      projectName,
 		Archetype: *archetype,
 		Language:  arch.Language,
-		Entities:  []types.Entity{},
-		Expose:    []types.ExposeBlock{},
+		Entities:    []types.Entity{},
+		Collections: []types.Collection{},
 	}
 
 	svcData, err := yaml.Marshal(svc)

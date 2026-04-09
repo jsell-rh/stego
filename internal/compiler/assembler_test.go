@@ -22,7 +22,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 						`mux.HandleFunc("GET /users/{id}", userHandler.Read)`,
@@ -123,7 +123,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -141,12 +141,12 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"rbac-policy", "admin-creation-policy"},
 			},
 			{
 				Slot:   "on_entity_changed",
-				Entity: "User",
+				Collection: "users",
 				FanOut: []string{"user-change-notifier", "audit-logger"},
 			},
 		},
@@ -210,7 +210,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 	}
 
 	// Verify entity annotation in comments.
-	if !strings.Contains(code, "for User") {
+	if !strings.Contains(code, "for users") {
 		t.Errorf("missing entity annotation in slot wiring comments")
 	}
 
@@ -220,7 +220,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 	}
 	// Verify the handler constructor includes slot operator arguments
 	// with entity-scoped variable names.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate, onEntityChangedUserFanOut)") {
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate, onEntityChangedusersFanOut)") {
 		t.Errorf("slot operators not injected into handler constructor in:\n%s", code)
 	}
 }
@@ -318,7 +318,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
 					},
@@ -634,8 +634,8 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 						"api.NewUserHandler(store)",
 					},
 					ConstructorEntities: map[int]string{
-						0: "Organization",
-						1: "User",
+						0: "organizations",
+						1: "users",
 					},
 					Routes: []string{
 						`mux.HandleFunc("POST /organizations", organizationHandler.Create)`,
@@ -651,12 +651,12 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"rbac-policy", "admin-creation-policy"},
 			},
 			{
 				Slot:   "on_entity_changed",
-				Entity: "User",
+				Collection: "users",
 				FanOut: []string{"user-change-notifier", "audit-logger"},
 			},
 		},
@@ -706,7 +706,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 
 	// Verify slot operators are injected into handler constructor
 	// with entity-scoped variable names.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate, onEntityChangedUserFanOut)") {
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate, onEntityChangedusersFanOut)") {
 		t.Errorf("slot operators not injected into User handler constructor in:\n%s", code)
 	}
 
@@ -1162,9 +1162,9 @@ func TestSlotVarName(t *testing.T) {
 		slot, entity, suffix string
 		want                 string
 	}{
-		{"before_create", "User", "Gate", "beforeCreateUserGate"},
-		{"before_create", "Organization", "Gate", "beforeCreateOrganizationGate"},
-		{"on_entity_changed", "User", "FanOut", "onEntityChangedUserFanOut"},
+		{"before_create", "users", "Gate", "beforeCreateusersGate"},
+		{"before_create", "organizations", "Gate", "beforeCreateorganizationsGate"},
+		{"on_entity_changed", "users", "FanOut", "onEntityChangedusersFanOut"},
 		{"process_adapter_status", "", "Chain", "processAdapterStatusChain"},
 	}
 	for _, tt := range tests {
@@ -1194,8 +1194,8 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 						"api.NewOrganizationHandler(store)",
 					},
 					ConstructorEntities: map[int]string{
-						0: "User",
-						1: "Organization",
+						0: "users",
+						1: "organizations",
 					},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -1215,12 +1215,12 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"user-policy"},
 			},
 			{
 				Slot:   "before_create",
-				Entity: "Organization",
+				Collection: "organizations",
 				Gate:   []string{"org-policy"},
 			},
 		},
@@ -1250,19 +1250,19 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 	}
 
 	// Verify distinct variable names per entity.
-	if !strings.Contains(code, "beforeCreateUserGate :=") {
-		t.Errorf("missing beforeCreateUserGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateusersGate :=") {
+		t.Errorf("missing beforeCreateusersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateOrganizationGate :=") {
-		t.Errorf("missing beforeCreateOrganizationGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateorganizationsGate :=") {
+		t.Errorf("missing beforeCreateorganizationsGate in:\n%s", code)
 	}
 
 	// Verify each handler gets its own operator injected.
-	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateUserGate)") {
-		t.Errorf("User handler should receive beforeCreateUserGate in:\n%s", code)
+	if !strings.Contains(code, "api.NewUserHandler(store, beforeCreateusersGate)") {
+		t.Errorf("User handler should receive beforeCreateusersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "api.NewOrganizationHandler(store, beforeCreateOrganizationGate)") {
-		t.Errorf("Organization handler should receive beforeCreateOrganizationGate in:\n%s", code)
+	if !strings.Contains(code, "api.NewOrganizationHandler(store, beforeCreateorganizationsGate)") {
+		t.Errorf("Organization handler should receive beforeCreateorganizationsGate in:\n%s", code)
 	}
 }
 
@@ -1280,7 +1280,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -1290,10 +1290,10 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 				Name: "slot-component",
 				Wiring: &gen.Wiring{
 					Imports: []string{"internal/slotops"},
-					// This constructor produces var name "beforeCreateUserGate"
+					// This constructor produces var name "beforeCreateusersGate"
 					// which collides with the slot operator variable.
-					Constructors: []string{"slotops.NewBeforeCreateUserGate()"},
-					Routes:       []string{`mux.HandleFunc("GET /gate", beforeCreateUserGate.Get)`},
+					Constructors: []string{"slotops.NewBeforeCreateusersGate()"},
+					Routes:       []string{`mux.HandleFunc("GET /gate", beforeCreateusersGate.Get)`},
 				},
 			},
 			{
@@ -1308,7 +1308,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"user-policy"},
 			},
 		},
@@ -1338,8 +1338,8 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 	}
 
 	// The constructor should get a disambiguated name.
-	if !strings.Contains(code, "beforeCreateUserGate2 :=") {
-		t.Errorf("constructor var should be disambiguated to beforeCreateUserGate2 in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateusersGate2 :=") {
+		t.Errorf("constructor var should be disambiguated to beforeCreateusersGate2 in:\n%s", code)
 	}
 }
 
@@ -1359,7 +1359,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 					Imports: []string{"internal/api"},
 					// Non-standard naming: "Controller" instead of "Handler".
 					Constructors:        []string{"api.NewUserController(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userController.Create)`,
 					},
@@ -1377,7 +1377,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"user-policy"},
 			},
 		},
@@ -1406,7 +1406,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 
 	// Even with non-standard constructor name, slot operators should be
 	// injected because ConstructorEntities provides the entity mapping.
-	if !strings.Contains(code, "api.NewUserController(store, beforeCreateUserGate)") {
+	if !strings.Contains(code, "api.NewUserController(store, beforeCreateusersGate)") {
 		t.Errorf("slot operators not injected into non-standard controller constructor in:\n%s", code)
 	}
 
@@ -1614,7 +1614,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/a"},
 					Constructors:        []string{"a.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /a/users", userHandler.Create)`,
 					},
@@ -1625,7 +1625,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/b"},
 					Constructors:        []string{"b.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /b/users", userHandler.Create)`,
 					},
@@ -2324,12 +2324,12 @@ func TestAssemble_DuplicateSlotBinding(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-a"},
 			},
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-b"},
 			},
 		},
@@ -2346,8 +2346,8 @@ func TestAssemble_DuplicateSlotBinding(t *testing.T) {
 	if !strings.Contains(err.Error(), "before_create") {
 		t.Errorf("error should identify the slot name, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "User") {
-		t.Errorf("error should identify the entity, got: %v", err)
+	if !strings.Contains(err.Error(), "users") {
+		t.Errorf("error should identify the collection, got: %v", err)
 	}
 }
 
@@ -2365,7 +2365,7 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
@@ -2381,12 +2381,12 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-a"},
 			},
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				FanOut: []string{"notifier"},
 			},
 		},
@@ -2414,10 +2414,10 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 	}
 
 	// Both operators should be present with distinct variable names.
-	if !strings.Contains(code, "beforeCreateUserGate") {
+	if !strings.Contains(code, "beforeCreateusersGate") {
 		t.Errorf("missing gate operator in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateUserFanOut") {
+	if !strings.Contains(code, "beforeCreateusersFanOut") {
 		t.Errorf("missing fan-out operator in:\n%s", code)
 	}
 }
@@ -2659,12 +2659,12 @@ func TestAssemble_SlotVarNameNormalizationCollision(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-a"},
 			},
 			{
 				Slot:   "before__create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-b"},
 			},
 		},
@@ -2704,8 +2704,8 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 						"api.NewOrgHandler(store)",
 					},
 					ConstructorEntities: map[int]string{
-						0: "User",
-						1: "Org",
+						0: "users",
+						1: "orgs",
 					},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -2725,12 +2725,12 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"policy-a"},
 			},
 			{
 				Slot:   "before__create",
-				Entity: "Org",
+				Collection: "orgs",
 				Gate:   []string{"policy-b"},
 			},
 		},
@@ -2757,12 +2757,12 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
 	}
 
-	// Both should have distinct variable names because entities differ.
-	if !strings.Contains(code, "beforeCreateUserGate") {
-		t.Errorf("missing beforeCreateUserGate in:\n%s", code)
+	// Both should have distinct variable names because collections differ.
+	if !strings.Contains(code, "beforeCreateusersGate") {
+		t.Errorf("missing beforeCreateusersGate in:\n%s", code)
 	}
-	if !strings.Contains(code, "beforeCreateOrgGate") {
-		t.Errorf("missing beforeCreateOrgGate in:\n%s", code)
+	if !strings.Contains(code, "beforeCreateorgsGate") {
+		t.Errorf("missing beforeCreateorgsGate in:\n%s", code)
 	}
 }
 
@@ -2928,7 +2928,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
@@ -2944,7 +2944,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"my-policy"},
 			},
 		},
@@ -3496,12 +3496,12 @@ func TestGenerateGoMod_NoReplaceDirectivesWithFills(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"admin-creation-policy"},
 			},
 			{
 				Slot:   "on_entity_changed",
-				Entity: "User",
+				Collection: "users",
 				FanOut: []string{"audit-logger", "user-change-notifier"},
 			},
 		},
@@ -3568,7 +3568,7 @@ func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"admin-creation-policy"},
 			},
 		},
@@ -3627,7 +3627,7 @@ func TestAssemble_GoModAtProjectRoot(t *testing.T) {
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
-				Entity: "User",
+				Collection: "users",
 				Gate:   []string{"admin-creation-policy"},
 			},
 		},
@@ -3772,7 +3772,7 @@ func TestAssemble_TopologicalSortConstructors(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					ConstructorDeps:     map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -4104,7 +4104,7 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports:             []string{"internal/api"},
 					Constructors:        []string{"api.NewUserHandler(store)"},
-					ConstructorEntities: map[int]string{0: "User"},
+					ConstructorEntities: map[int]string{0: "users"},
 					ConstructorDeps:     map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
