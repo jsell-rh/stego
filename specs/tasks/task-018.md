@@ -86,3 +86,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - `1ad115a` refactor(validate): update validate_test.go for Collection types
 - `a2d3f91` fix(restapi): update generator and tests for Collection type changes
 - `beba95d` feat(types): replace ExposeBlock with Collection type system
+- `6e5b8b8` fix(task-018): address round 1 review findings for Collection type system
