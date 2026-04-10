@@ -163,7 +163,7 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	}
 	orgsetting.OrgID = r.PathValue("org_id")
 	upsertKey := []string{"org_id", "key"}
-	created, err := h.store.Upsert(r.Context(), "OrgSetting", orgsetting, upsertKey, "optimistic")
+	created, result, err := h.store.Upsert(r.Context(), "OrgSetting", orgsetting, upsertKey, "optimistic")
 	if err != nil {
 		if errors.Is(err, ErrConflict) {
 			handleError(w, r, Conflict("optimistic concurrency conflict: incoming generation is not newer"))
@@ -172,24 +172,12 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, InternalError(err.Error()))
 		return
 	}
-	if !created {
-		listResult, listErr := h.store.List(r.Context(), "OrgSetting", "org_id", r.PathValue("org_id"), ListOptions{Page: 1, Size: 65500})
-		if listErr == nil {
-			if items, ok := listResult.Items.([]OrgSetting); ok {
-				for _, item := range items {
-					if item.OrgID == orgsetting.OrgID && item.Key == orgsetting.Key {
-						orgsetting = item
-						break
-					}
-				}
-			}
-		}
-	}
 	w.Header().Set("Content-Type", "application/json")
+	resultID := reflect.ValueOf(result).FieldByName("ID").String()
 	if created {
 		w.WriteHeader(http.StatusCreated)
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-settings"+"/"+orgsetting.ID))
+	json.NewEncoder(w).Encode(presentEntity(result, "OrgSetting", resultID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-settings/"+resultID))
 }

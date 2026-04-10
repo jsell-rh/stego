@@ -51,8 +51,10 @@ type Storage interface {
 	Delete(ctx context.Context, entity string, id string) error
 	List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)
 	// Upsert returns true when a new row was created, false when an existing row was updated.
+	// The second return value is the actual persisted entity as stored in the database
+	// (with the real ID, timestamps, etc.), derived from the RETURNING clause.
 	// Implementations must return ErrConflict when optimistic concurrency check fails.
-	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)
+	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, any, error)
 	Exists(ctx context.Context, entity string, id string) (bool, error)
 }
 
