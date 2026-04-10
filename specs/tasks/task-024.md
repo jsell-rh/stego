@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Response Format" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
 
 **Review:** [specs/reviews/task-024.md](../reviews/task-024.md)
 
