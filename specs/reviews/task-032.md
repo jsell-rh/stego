@@ -13,3 +13,14 @@
 - [x] [process-revision-complete] **`jwk_cert_file` component config field ignored by generator.** The component.yaml declares `jwk_cert_file` as a config field (`type: string, optional: true`). The generator reads `jwk_cert_url` from `ctx.ComponentConfig` (generator.go:31-35) and bakes it into `NewJWTHandler()` as the default `keysURL` (generator.go:159). It also reads `public_paths` (generator.go:38-46). However, `jwk_cert_file` is never read from `ComponentConfig`. The generated `NewJWTHandler()` does not set `keysFile`, and the wiring constructor `auth.NewJWTHandler().Build()` (generator.go:66) does not chain `.WithKeysFile()`. The `JWK_CERT_FILE` env var override in `Build()` (generator.go:205-207) works at runtime, but a service declaration's config override for `jwk_cert_file` has no effect — the value is silently discarded. This is inconsistent with how `jwk_cert_url` is handled (config value baked into generated default, env var overrides at runtime).
 
 - [x] [process-revision-complete] **`AUTH_ENABLED` checked per-request instead of at startup.** The spec's Wiring section states: "`main.go` reads `JWK_CERT_URL`, `JWK_CERT_FILE`, and `AUTH_ENABLED` from environment." The implementation reads `JWK_CERT_URL` and `JWK_CERT_FILE` once in `Build()` at startup (generator.go:201-207), but reads `AUTH_ENABLED` per-request inside the middleware closure via `os.Getenv("AUTH_ENABLED")` (generator.go:222). The spec says "When `AUTH_ENABLED=false`, the middleware is a passthrough (no auth check)" — the word "passthrough" implies the middleware is a no-op, decided at startup. The current implementation checks the env var on every incoming request, which means: (a) the background key refresh goroutine starts and runs even when auth is disabled, and (b) the middleware is not a true passthrough but an active per-request conditional bypass. `AUTH_ENABLED` should be read in `Build()` alongside the other two env vars, and when false, `Build()` should return a simple passthrough middleware without starting the refresh goroutine.
+
+## Round 3
+
+No findings. All acceptance criteria verified:
+
+1. `component.yaml` matches spec definition.
+2. Generated `middleware.go` includes JWTHandler struct, builder pattern, JWK key fetching (URL and file with correct refresh intervals), RSA signature validation, public path bypass (exact matching), unknown kid handling with 30-second cooldown (TOCTOU-safe), and Stop() method.
+3. Generated `context.go` includes Payload struct with correct claim fallback chains, and all required context accessors.
+4. Wiring struct correctly includes imports, constructor (with conditional `.WithKeysFile()` chaining when `jwk_cert_file` config is set), MiddlewareConstructor, MiddlewareWrapExpr, and GoModRequires.
+5. 19 generator tests cover structure, correctness, compilation, env var wiring order, TOCTOU prevention, config field consumption, and AUTH_ENABLED lifecycle.
+6. `go test ./...` passes (15/15 suites).
