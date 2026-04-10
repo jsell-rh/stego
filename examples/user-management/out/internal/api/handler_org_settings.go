@@ -126,9 +126,16 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		itemData, _ := json.Marshal(item)
+		itemData, err := json.Marshal(item)
+		if err != nil {
+			handleError(w, r, InternalError("internal error"))
+			return
+		}
 		var apiItem OrgSetting
-		json.Unmarshal(itemData, &apiItem)
+		if err := json.Unmarshal(itemData, &apiItem); err != nil {
+			handleError(w, r, InternalError("internal error"))
+			return
+		}
 		presentedItems[i] = presentEntity(apiItem, "OrgSetting", itemID, hrefBase+"/"+itemID)
 		if len(fields) > 0 {
 			allowed := map[string]bool{"id": true, "kind": true, "href": true}

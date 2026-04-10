@@ -1004,9 +1004,16 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 		fmt.Fprintf(buf, "\t\titemID := reflect.ValueOf(item).FieldByName(\"ID\").String()\n")
 		// Convert storage type to API type via JSON roundtrip, stripping
 		// storage metadata (created_time, updated_time).
-		fmt.Fprintf(buf, "\t\titemData, _ := json.Marshal(item)\n")
+		fmt.Fprintf(buf, "\t\titemData, err := json.Marshal(item)\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\t\treturn\n")
+		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar apiItem %s\n", entity.Name)
-		fmt.Fprintf(buf, "\t\tjson.Unmarshal(itemData, &apiItem)\n")
+		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(itemData, &apiItem); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\t\treturn\n")
+		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tpresentedItems[i] = presentEntity(apiItem, %q, itemID, hrefBase+\"/\"+itemID)\n", entity.Name)
 		// Sparse fieldset filtering: when the fields query parameter is specified,
 		// remove non-selected fields from the presented entity map. Metadata keys

@@ -7701,3 +7701,48 @@ func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
 		t.Error("unscoped Read must marshal 'existing' for API type conversion")
 	}
 }
+
+func TestGenerate_ListStorageAPIConversionChecksErrors(t *testing.T) {
+	// Round 10 finding: List handler's storage→API JSON roundtrip must check
+	// marshal and unmarshal errors, matching the Read handler's error handling.
+	// Previously, List used `itemData, _ := json.Marshal(item)` (blank
+	// identifier) and `json.Unmarshal(itemData, &apiItem)` (uncaptured return),
+	// while Read properly checked both errors and returned InternalError.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
+	if listSection == "" {
+		t.Fatal("could not find List method in widgets handler")
+	}
+
+	// json.Marshal error must be captured (not discarded via blank identifier).
+	if strings.Contains(listSection, "itemData, _ := json.Marshal") {
+		t.Error("List handler must not discard json.Marshal error via blank identifier; must check err")
+	}
+	if !strings.Contains(listSection, "itemData, err := json.Marshal(item)") {
+		t.Error("List handler must capture json.Marshal error into err variable")
+	}
+
+	// json.Unmarshal error must be captured and checked.
+	if !strings.Contains(listSection, "if err := json.Unmarshal(itemData, &apiItem); err != nil") {
+		t.Error("List handler must check json.Unmarshal error")
+	}
+
+	// Both errors must produce InternalError responses.
+	// Count InternalError calls in the list section — there should be at least
+	// two: one for marshal failure and one for unmarshal failure.
+	marshalErrIdx := strings.Index(listSection, "itemData, err := json.Marshal(item)")
+	if marshalErrIdx == -1 {
+		t.Fatal("could not find json.Marshal call in List method")
+	}
+	afterMarshal := listSection[marshalErrIdx:]
+	if !strings.Contains(afterMarshal, `InternalError("internal error")`) {
+		t.Error("List handler must return InternalError on json.Marshal/Unmarshal failure")
+	}
+}
