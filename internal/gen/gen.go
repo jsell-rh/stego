@@ -83,6 +83,13 @@ type Context struct {
 	// are constructed as ErrorTypeBase + error-slug. When empty, error types
 	// use "about:blank" per RFC 9457.
 	ErrorTypeBase string
+
+	// PeerNamespaces maps component names to their output namespace paths.
+	// Generators use this to construct import paths when they need to
+	// reference types defined by other components (e.g. the storage adapter
+	// imports the API package's ListOptions/ListResult types to satisfy
+	// the Storage interface).
+	PeerNamespaces map[string]string
 }
 
 // File represents a single generated output file.

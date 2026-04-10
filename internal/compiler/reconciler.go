@@ -241,6 +241,16 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 	}
 
+	// Build peer namespace map so generators can reference types from other
+	// components (e.g. storage adapter imports API package's ListOptions).
+	peerNamespaces := make(map[string]string, len(componentNames))
+	for _, compName := range componentNames {
+		comp := components[compName]
+		if comp.OutputNamespace != "" {
+			peerNamespaces[compName] = comp.OutputNamespace
+		}
+	}
+
 	// Run all component generators in archetype-declared order.
 	var allFiles []gen.File
 	var wirings []ComponentWiring
@@ -268,6 +278,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			BasePath:        svcDecl.BasePath,
 			ServiceName:     svcDecl.Name,
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
+			PeerNamespaces:  peerNamespaces,
 		}
 
 		files, wiring, err := generator.Generate(ctx)

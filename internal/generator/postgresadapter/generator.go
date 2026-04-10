@@ -98,7 +98,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating models: %w", err)
 	}
 
-	storeFile, err := generateStore(ctx.OutputNamespace, ctx.Entities)
+	storeFile, err := generateStore(ctx.OutputNamespace, ctx.Entities, ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating store: %w", err)
 	}
@@ -362,8 +362,27 @@ func buildGormTag(f types.Field) string {
 
 // generateStore produces store.go with the Store type and CRUD + list + upsert
 // + exists methods using GORM.
-func generateStore(ns string, entities []types.Entity) (gen.File, error) {
+func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.File, error) {
 	var buf bytes.Buffer
+
+	// Determine the API package import path for referencing Storage interface
+	// types (ListOptions, ListResult). The storage package implements the API
+	// package's Storage interface and must use its types for Go interface
+	// satisfaction.
+	apiNS := ""
+	if ctx.PeerNamespaces != nil {
+		apiNS = ctx.PeerNamespaces["rest-api"]
+	}
+	apiPkg := ""
+	apiAlias := ""
+	if apiNS != "" && ctx.ModuleName != "" {
+		if ctx.OutDirName != "" {
+			apiPkg = ctx.ModuleName + "/" + ctx.OutDirName + "/" + apiNS
+		} else {
+			apiPkg = ctx.ModuleName + "/" + apiNS
+		}
+		apiAlias = path.Base(apiNS)
+	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -371,9 +390,36 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\n")
+	if apiPkg != "" {
+		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)
+	}
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
+
+	// When the API package is not available (e.g., standalone generation),
+	// define the Storage interface types locally.
+	if apiAlias == "" {
+		fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
+		fmt.Fprintf(&buf, "type OrderByField struct {\n")
+		fmt.Fprintf(&buf, "\tField     string\n")
+		fmt.Fprintf(&buf, "\tDirection string\n")
+		fmt.Fprintf(&buf, "}\n\n")
+
+		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, and field selection parameters.\n")
+		fmt.Fprintf(&buf, "type ListOptions struct {\n")
+		fmt.Fprintf(&buf, "\tPage    int\n")
+		fmt.Fprintf(&buf, "\tSize    int\n")
+		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
+		fmt.Fprintf(&buf, "\tFields  []string\n")
+		fmt.Fprintf(&buf, "}\n\n")
+
+		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
+		fmt.Fprintf(&buf, "type ListResult struct {\n")
+		fmt.Fprintf(&buf, "\tItems any\n")
+		fmt.Fprintf(&buf, "\tTotal int64\n")
+		fmt.Fprintf(&buf, "}\n\n")
+	}
 
 	// Store struct and constructor.
 	fmt.Fprintf(&buf, "// Store provides GORM-backed storage for all entities.\n")
@@ -390,7 +436,7 @@ func generateStore(ns string, entities []types.Entity) (gen.File, error) {
 	emitGetMethod(&buf, entities)
 	emitReplaceMethod(&buf, entities)
 	emitDeleteMethod(&buf, entities)
-	emitListMethod(&buf, entities)
+	emitListMethod(&buf, entities, apiAlias)
 	emitUpsertMethod(&buf, entities)
 	emitExistsMethod(&buf, entities)
 
@@ -525,15 +571,23 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-// emitListMethod generates the List dispatcher using GORM with scope filtering.
-// The method performs a COUNT(*) query first to get the total matching records,
-// then fetches the requested page via OFFSET/LIMIT, returning both the results
-// and the total count for pagination envelopes.
-func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
-	fmt.Fprintf(buf, "// List retrieves entities with optional scope filtering and pagination.\n")
+// emitListMethod generates the List dispatcher using GORM with scope filtering,
+// ordering, and pagination. Accepts ListOptions (from the rest-api Storage
+// interface) and returns ListResult. When apiAlias is set, types are qualified
+// with the API package alias (e.g. api.ListOptions); otherwise, local type
+// definitions are used.
+func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	listOptsType := "ListOptions"
+	listResultType := "ListResult"
+	if apiAlias != "" {
+		listOptsType = apiAlias + ".ListOptions"
+		listResultType = apiAlias + ".ListResult"
+	}
+
+	fmt.Fprintf(buf, "// List retrieves entities with optional scope filtering, ordering, and pagination.\n")
 	fmt.Fprintf(buf, "// It performs a COUNT(*) query first to get the total matching records,\n")
-	fmt.Fprintf(buf, "// then fetches the requested page via OFFSET/LIMIT.\n")
-	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, int64, error) {\n")
+	fmt.Fprintf(buf, "// then applies ordering and fetches the requested page via OFFSET/LIMIT.\n")
+	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts %s) (%s, error) {\n", listOptsType, listResultType)
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -541,7 +595,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 
-		// Build valid column set for scope validation.
+		// Build valid column set for scope and orderBy validation.
 		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
 		for i, col := range allCols {
 			if i > 0 {
@@ -554,7 +608,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn nil, 0, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", listResultType, e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
@@ -562,24 +616,46 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity) {
 		// Count total matching records before applying pagination.
 		fmt.Fprintf(buf, "\t\tvar total int64\n")
 		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil, 0, err\n")
+		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
 		fmt.Fprintf(buf, "\t\t}\n")
 
+		// Apply ordering from ListOptions. Field names are validated by the
+		// handler; direction strings are hardcoded to "asc" or "desc" only.
+		fmt.Fprintf(buf, "\t\tfor _, ob := range opts.OrderBy {\n")
+		fmt.Fprintf(buf, "\t\t\tif validCols[ob.Field] {\n")
+		fmt.Fprintf(buf, "\t\t\t\tquery = query.Order(ob.Field + \" \" + ob.Direction)\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Apply sparse fieldset selection.
+		fmt.Fprintf(buf, "\t\tif len(opts.Fields) > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\t// Always include id; add requested fields that exist.\n")
+		fmt.Fprintf(buf, "\t\t\tselectCols := []string{\"id\"}\n")
+		fmt.Fprintf(buf, "\t\t\tfor _, f := range opts.Fields {\n")
+		fmt.Fprintf(buf, "\t\t\t\tif validCols[f] {\n")
+		fmt.Fprintf(buf, "\t\t\t\t\tselectCols = append(selectCols, f)\n")
+		fmt.Fprintf(buf, "\t\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Select(selectCols)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Pagination via OFFSET/LIMIT computed from Page and Size.
+		fmt.Fprintf(buf, "\t\toffset := (opts.Page - 1) * opts.Size\n")
 		fmt.Fprintf(buf, "\t\tif offset > 0 {\n")
 		fmt.Fprintf(buf, "\t\t\tquery = query.Offset(offset)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif limit > 0 {\n")
-		fmt.Fprintf(buf, "\t\t\tquery = query.Limit(limit)\n")
+		fmt.Fprintf(buf, "\t\tif opts.Size > 0 {\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Limit(opts.Size)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn nil, 0, err\n")
+		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
 		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn result, total, nil\n")
+		fmt.Fprintf(buf, "\t\treturn %s{Items: result, Total: total}, nil\n", listResultType)
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn nil, 0, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t\treturn %s{}, fmt.Errorf(\"unknown entity: %%s\", entity)\n", listResultType)
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "}\n\n")
 }

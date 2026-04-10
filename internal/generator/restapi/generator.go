@@ -153,7 +153,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 		slotParams := collectCollectionSlotParams(eb.Name, ctx.SlotBindings)
 
-		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, collectionMap, slotParams, slotsImportPath, ctx.AuthPackage)
+		collPath, err := collectionBasePath(eb, collectionMap)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
+		}
+		hrefBase := ctx.BasePath + collPath
+
+		handlerFile, err := generateHandler(ctx.OutputNamespace, entity, eb, collectionMap, slotParams, slotsImportPath, ctx.AuthPackage, ctx.Conventions.ResponseFormat, hrefBase)
 		if err != nil {
 			return nil, nil, fmt.Errorf("generating handler for collection %s: %w", eb.Name, err)
 		}
@@ -171,37 +177,32 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
 
-		collPath, err := collectionBasePath(eb, collectionMap)
-		if err != nil {
-			return nil, nil, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
-		}
-		basePath := ctx.BasePath + collPath
 		for _, op := range eb.Operations {
 			switch op {
 			case types.OpCreate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", hrefBase, collCamel))
 			case types.OpRead:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", hrefBase, collCamel))
 			case types.OpUpdate:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", hrefBase, collCamel))
 			case types.OpDelete:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", hrefBase, collCamel))
 			case types.OpList:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", hrefBase, collCamel))
 			case types.OpUpsert:
 				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", basePath, collCamel))
+					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", hrefBase, collCamel))
 			}
 		}
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
@@ -222,6 +223,22 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files = append(files, openapiFile)
 
 	wiring.Imports = []string{ctx.OutputNamespace}
+
+	// When envelope format is enabled and any collection has create or upsert,
+	// the generated handler imports github.com/google/uuid for ID generation.
+	if ctx.Conventions.ResponseFormat == "envelope" {
+		for _, eb := range ctx.Collections {
+			for _, op := range eb.Operations {
+				if op == types.OpCreate || op == types.OpUpsert {
+					if wiring.GoModRequires == nil {
+						wiring.GoModRequires = make(map[string]string)
+					}
+					wiring.GoModRequires["github.com/google/uuid"] = "v1.6.0"
+					break
+				}
+			}
+		}
+	}
 
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
@@ -263,12 +280,14 @@ func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string
 // generateHandler produces a single Go handler file for a collection.
 // Each operation is a separate method with http.HandlerFunc signature, registered
 // individually in the router via Go 1.22 method+pattern routes.
-func generateHandler(ns string, entity types.Entity, eb types.Collection, collectionMap map[string]types.Collection, slotParams []collectionSlotParam, slotsImportPath string, authImportPath string) (gen.File, error) {
+func generateHandler(ns string, entity types.Entity, eb types.Collection, collectionMap map[string]types.Collection, slotParams []collectionSlotParam, slotsImportPath string, authImportPath string, responseFormat string, hrefBase string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	collPascal := collectionToPascalCase(eb.Name)
 	collSnake := collectionToSnakeCase(eb.Name)
 	handlerType := collPascal + "Handler"
+
+	envelope := responseFormat == "envelope"
 
 	// Determine whether encoding/json is needed. It is used by all operations
 	// except delete (which only sends status codes, no JSON body).
@@ -276,17 +295,42 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	needStrconv := false
 	needReflect := false
 	needErrors := false
+	needStrings := false
+	needUUID := false
+	hasList := false
+	hasCreate := false
+	hasUpsert := false
 	for _, op := range eb.Operations {
 		if op != types.OpDelete {
 			needJSON = true
 		}
 		if op == types.OpList {
 			needStrconv = true
-			needReflect = true
+			hasList = true
 		}
 		if op == types.OpRead {
 			needErrors = true
 		}
+		if op == types.OpCreate {
+			hasCreate = true
+		}
+		if op == types.OpUpsert {
+			hasUpsert = true
+		}
+	}
+	// reflect is needed for list to compute actual item count from ListResult.Items
+	// (which is typed as any). Both envelope and bare modes need strconv for
+	// page/size parsing, but only envelope uses reflect for actualSize.
+	if hasList && envelope {
+		needReflect = true
+	}
+	// When envelope + create or upsert, generate UUID for entity ID.
+	if envelope && (hasCreate || hasUpsert) {
+		needUUID = true
+	}
+	// orderBy parsing requires strings.Split and strings.TrimSpace.
+	if hasList {
+		needStrings = true
 	}
 
 	// Determine whether time package is needed (computed timestamp fields
@@ -367,11 +411,18 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	if needStrconv {
 		fmt.Fprintf(&buf, "\t\"strconv\"\n")
 	}
+	if needStrings {
+		fmt.Fprintf(&buf, "\t\"strings\"\n")
+	}
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
-	if slotsAlias != "" || authAlias != "" {
+	needExternalImports := slotsAlias != "" || authAlias != "" || needUUID
+	if needExternalImports {
 		fmt.Fprintf(&buf, "\n")
+		if needUUID {
+			fmt.Fprintf(&buf, "\t\"github.com/google/uuid\"\n")
+		}
 		if authAlias != "" {
 			fmt.Fprintf(&buf, "\t%s %q\n", authAlias, authImportPath)
 		}
@@ -460,17 +511,17 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		var opErr error
 		switch op {
 		case types.OpCreate:
-			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
+			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpRead:
-			generateReadMethod(&buf, entity, eb, slotParams, slotsAlias)
+			generateReadMethod(&buf, entity, eb, slotParams, slotsAlias, envelope, hrefBase)
 		case types.OpUpdate:
-			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
+			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpDelete:
 			generateDeleteMethod(&buf, entity, eb, slotParams, slotsAlias)
 		case types.OpList:
-			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
+			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope)
 		case types.OpUpsert:
-			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
+			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -496,7 +547,7 @@ func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
 	}
 }
 
-func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
+func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -506,6 +557,10 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	// When envelope format is enabled, generate a UUID for the entity ID.
+	if envelope {
+		fmt.Fprintf(buf, "\t%s.ID = uuid.New().String()\n", lower)
+	}
 	emitClearComputedFields(buf, lower, entity)
 	if eb.ParentEntity() != "" {
 		refField, err := parentRefFieldName(entity, eb.ParentEntity())
@@ -529,12 +584,17 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusCreated)\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	if envelope {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %q+\"/\"+%s.ID))\n",
+			lower, entity.Name, lower, hrefBase, lower)
+	} else {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	}
 	fmt.Fprintf(buf, "}\n\n")
 	return nil
 }
 
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string) {
+func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -550,13 +610,18 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	if envelope {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %q+\"/\"+id))\n",
+			lower, entity.Name, hrefBase)
+	} else {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	}
 	fmt.Fprintf(buf, "}\n\n")
 	// Read has no before or after slot lifecycle points.
 	_, _ = slotParams, slotsAlias
 }
 
-func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
+func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -587,7 +652,12 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpUpdate)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	if envelope {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %q+\"/\"+id))\n",
+			lower, entity.Name, hrefBase)
+	} else {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	}
 	fmt.Fprintf(buf, "}\n\n")
 	return nil
 }
@@ -609,9 +679,8 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "}\n\n")
 }
 
-func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string) error {
+func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool) error {
 	collPascal := collectionToPascalCase(eb.Name)
-	lower := safeVarName(strings.ToLower(entity.Name)) + "s"
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 
@@ -630,18 +699,69 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\tif size > 65500 {\n")
 	fmt.Fprintf(buf, "\t\tsize = 65500\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\toffset := (page - 1) * size\n")
-	fmt.Fprintf(buf, "\tlimit := size\n")
+
+	// Build valid fields set for orderBy and fields validation.
+	fmt.Fprintf(buf, "\tvalidFields := map[string]bool{")
+	for i, f := range entity.Fields {
+		if i > 0 {
+			fmt.Fprintf(buf, ", ")
+		}
+		fmt.Fprintf(buf, "%q: true", f.Name)
+	}
+	fmt.Fprintf(buf, "}\n")
+
+	// Parse orderBy query parameter: comma-separated "field_name" or
+	// "field_name asc|desc" (default direction: asc).
+	fmt.Fprintf(buf, "\tvar orderBy []OrderByField\n")
+	fmt.Fprintf(buf, "\tif orderByStr := r.URL.Query().Get(\"orderBy\"); orderByStr != \"\" {\n")
+	fmt.Fprintf(buf, "\t\tfor _, entry := range strings.Split(orderByStr, \",\") {\n")
+	fmt.Fprintf(buf, "\t\t\tentry = strings.TrimSpace(entry)\n")
+	fmt.Fprintf(buf, "\t\t\tif entry == \"\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\tcontinue\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tparts := strings.Fields(entry)\n")
+	fmt.Fprintf(buf, "\t\t\tfieldName := parts[0]\n")
+	fmt.Fprintf(buf, "\t\t\tdir := \"asc\"\n")
+	fmt.Fprintf(buf, "\t\t\tif len(parts) > 1 {\n")
+	fmt.Fprintf(buf, "\t\t\t\td := strings.ToLower(parts[1])\n")
+	fmt.Fprintf(buf, "\t\t\t\tif d != \"asc\" && d != \"desc\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\t\thandleError(w, r, BadRequest(\"invalid orderBy direction: \"+parts[1]+\"; must be 'asc' or 'desc'\"))\n")
+	fmt.Fprintf(buf, "\t\t\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\t\tdir = d\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tif !validFields[fieldName] {\n")
+	fmt.Fprintf(buf, "\t\t\t\thandleError(w, r, BadRequest(\"invalid orderBy field: \"+fieldName))\n")
+	fmt.Fprintf(buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\torderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
+
+	// Parse fields query parameter: comma-separated field names for sparse
+	// fieldset selection. "id" is always included even if not listed.
+	fmt.Fprintf(buf, "\tvar fields []string\n")
+	fmt.Fprintf(buf, "\tif fieldsStr := r.URL.Query().Get(\"fields\"); fieldsStr != \"\" {\n")
+	fmt.Fprintf(buf, "\t\tfor _, f := range strings.Split(fieldsStr, \",\") {\n")
+	fmt.Fprintf(buf, "\t\t\tf = strings.TrimSpace(f)\n")
+	fmt.Fprintf(buf, "\t\t\tif f != \"\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\tfields = append(fields, f)\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
+
+	// Build ListOptions.
+	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}\n")
 
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
 	// a parent, scope is passed as a query parameter.
 	if len(eb.Scope) > 0 && eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\tscopeValue := r.PathValue(%q)\n", parentParamName)
-		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, scopeValue, opts)\n", entity.Name, eb.ScopeField())
 	} else if len(eb.Scope) > 0 {
 		fmt.Fprintf(buf, "\tscopeValue := r.URL.Query().Get(%q)\n", eb.ScopeField())
-		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, scopeValue, offset, limit)\n", lower, entity.Name, eb.ScopeField())
+		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, scopeValue, opts)\n", entity.Name, eb.ScopeField())
 	} else if eb.ParentEntity() != "" {
 		parentIDVar := strings.ToLower(eb.ParentEntity()) + "ID"
 		parentField, err := parentRefRawFieldName(entity, eb.ParentEntity())
@@ -649,32 +769,40 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 			return err
 		}
 		fmt.Fprintf(buf, "\t%s := r.PathValue(%q)\n", parentIDVar, parentParamName)
-		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, %q, %s, offset, limit)\n", lower, entity.Name, parentField, parentIDVar)
+		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, %q, %s, opts)\n", entity.Name, parentField, parentIDVar)
 	} else {
-		fmt.Fprintf(buf, "\t%s, total, err := h.store.List(r.Context(), %q, \"\", \"\", offset, limit)\n", lower, entity.Name)
+		fmt.Fprintf(buf, "\tlistResult, err := h.store.List(r.Context(), %q, \"\", \"\", opts)\n", entity.Name)
 	}
 
 	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tactualSize := reflect.ValueOf(%s).Len()\n", lower)
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tresult := map[string]any{\n")
-	fmt.Fprintf(buf, "\t\t\"kind\":  %q,\n", entity.Name+"List")
-	fmt.Fprintf(buf, "\t\t\"page\":  page,\n")
-	fmt.Fprintf(buf, "\t\t\"size\":  actualSize,\n")
-	fmt.Fprintf(buf, "\t\t\"total\": total,\n")
-	fmt.Fprintf(buf, "\t\t\"items\": %s,\n", lower)
-	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(result)\n")
+
+	if envelope {
+		// Envelope response with pagination metadata. The actual item count
+		// comes from reflect since ListResult.Items is typed as any.
+		fmt.Fprintf(buf, "\tactualSize := reflect.ValueOf(listResult.Items).Len()\n")
+		fmt.Fprintf(buf, "\tresult := map[string]any{\n")
+		fmt.Fprintf(buf, "\t\t\"kind\":  %q,\n", entity.Name+"List")
+		fmt.Fprintf(buf, "\t\t\"page\":  page,\n")
+		fmt.Fprintf(buf, "\t\t\"size\":  actualSize,\n")
+		fmt.Fprintf(buf, "\t\t\"total\": listResult.Total,\n")
+		fmt.Fprintf(buf, "\t\t\"items\": listResult.Items,\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(result)\n")
+	} else {
+		// Bare response: return items array directly.
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(listResult.Items)\n")
+	}
 	fmt.Fprintf(buf, "}\n\n")
 	// List has no before or after slot lifecycle points.
 	_, _ = slotParams, slotsAlias
 	return nil
 }
 
-func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) error {
+func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -684,6 +812,13 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	// When envelope format is enabled, generate a UUID for the entity ID
+	// if the client didn't provide one (covers the insert path of upsert).
+	if envelope {
+		fmt.Fprintf(buf, "\tif %s.ID == \"\" {\n", lower)
+		fmt.Fprintf(buf, "\t\t%s.ID = uuid.New().String()\n", lower)
+		fmt.Fprintf(buf, "\t}\n")
+	}
 	emitClearComputedFields(buf, lower, entity)
 	if eb.ParentEntity() != "" {
 		refField, err := parentRefFieldName(entity, eb.ParentEntity())
@@ -721,7 +856,12 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusOK)\n")
-	fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	if envelope {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %q+\"/\"+%s.ID))\n",
+			lower, entity.Name, lower, hrefBase, lower)
+	} else {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	}
 	fmt.Fprintf(buf, "}\n\n")
 	return nil
 }
@@ -729,8 +869,10 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, collections []types.Collection) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat string) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
+
+	envelope := responseFormat == "envelope"
 
 	// Build entity map and determine needed imports from entity field types.
 	entityMap := make(map[string]types.Entity, len(entities))
@@ -752,6 +894,11 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 		}
 	}
 
+	// When envelope is enabled, the presentEntity helper uses encoding/json.
+	if envelope {
+		needJSON = true
+	}
+
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	// Always need context for the Storage interface.
 	fmt.Fprintf(&buf, "import (\n")
@@ -771,6 +918,29 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
 	fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
 
+	// OrderByField represents a single ordering criterion for list queries.
+	fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
+	fmt.Fprintf(&buf, "type OrderByField struct {\n")
+	fmt.Fprintf(&buf, "\tField     string\n")
+	fmt.Fprintf(&buf, "\tDirection string // \"asc\" or \"desc\"\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ListOptions for pagination and ordering.
+	fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, and field selection parameters.\n")
+	fmt.Fprintf(&buf, "type ListOptions struct {\n")
+	fmt.Fprintf(&buf, "\tPage    int\n")
+	fmt.Fprintf(&buf, "\tSize    int\n")
+	fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
+	fmt.Fprintf(&buf, "\tFields  []string\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ListResult wraps list query results with total count for pagination.
+	fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
+	fmt.Fprintf(&buf, "type ListResult struct {\n")
+	fmt.Fprintf(&buf, "\tItems any\n")
+	fmt.Fprintf(&buf, "\tTotal int64\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
 	// Storage interface used by all handlers.
 	fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
 	fmt.Fprintf(&buf, "// Get must return ErrNotFound when the entity does not exist.\n")
@@ -779,7 +949,7 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
 	fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
 	fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
-	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, offset int, limit int) (any, int64, error)\n")
+	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)\n")
 	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error\n")
 	fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
 	fmt.Fprintf(&buf, "}\n\n")
@@ -796,11 +966,30 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 		entity := entityMap[eb.Entity]
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", eb.Entity, eb.Entity)
 		fmt.Fprintf(&buf, "type %s struct {\n", eb.Entity)
+		// ID field for entity identity. Used by envelope responses and
+		// passed through to the storage layer on create.
+		fmt.Fprintf(&buf, "\tID string `json:\"id,omitempty\"`\n")
 		for _, f := range entity.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f.Type)
 			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
 		}
+		fmt.Fprintf(&buf, "}\n\n")
+	}
+
+	// When envelope format is enabled, emit a presentEntity helper that wraps
+	// entity data with id, kind, and href metadata.
+	if envelope {
+		fmt.Fprintf(&buf, "// presentEntity wraps an entity with id, kind, and href metadata for\n")
+		fmt.Fprintf(&buf, "// envelope-format responses.\n")
+		fmt.Fprintf(&buf, "func presentEntity(entity any, kind, id, href string) map[string]any {\n")
+		fmt.Fprintf(&buf, "\tdata, _ := json.Marshal(entity)\n")
+		fmt.Fprintf(&buf, "\tresult := map[string]any{}\n")
+		fmt.Fprintf(&buf, "\tjson.Unmarshal(data, &result)\n")
+		fmt.Fprintf(&buf, "\tresult[\"id\"] = id\n")
+		fmt.Fprintf(&buf, "\tresult[\"kind\"] = kind\n")
+		fmt.Fprintf(&buf, "\tresult[\"href\"] = href\n")
+		fmt.Fprintf(&buf, "\treturn result\n")
 		fmt.Fprintf(&buf, "}\n\n")
 	}
 
@@ -1469,15 +1658,18 @@ var handlerScopeIdentifiers = map[string]bool{
 	// Generator-emitted local variables in Get/Replace/Delete method bodies.
 	"id":  true, // id := r.PathValue("id")
 	"err": true, // %s, err := h.store.Get(...) in Get method
+	"strings": true, // strings (conditional for List orderBy/fields parsing)
 	// Generator-emitted local variables in List method body.
 	"page":       true, // page, _ := strconv.Atoi(pageStr)
 	"size":       true, // size, _ := strconv.Atoi(sizeStr)
 	"pageStr":    true, // pageStr := r.URL.Query().Get("page")
 	"sizeStr":    true, // sizeStr := r.URL.Query().Get("size")
-	"offset":     true, // offset := (page - 1) * size
-	"limit":      true, // limit := size
-	"total":      true, // total from h.store.List(...)
 	"actualSize": true, // actualSize := reflect.ValueOf(<items>).Len()
+	"orderBy":    true, // var orderBy []OrderByField
+	"fields":     true, // var fields []string
+	"opts":       true, // opts := ListOptions{...}
+	"listResult": true, // listResult, err := h.store.List(...)
+	"uuid":       true, // github.com/google/uuid import alias
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
