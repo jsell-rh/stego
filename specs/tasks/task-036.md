@@ -44,7 +44,7 @@ The spec says "the resolver must load that component from the registry." Current
 
 ## Progress
 
-`not-started`
+`ready-for-review`
 
 ## Commits
 

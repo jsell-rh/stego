@@ -504,3 +504,245 @@ func TestResolveMutualCycle(t *testing.T) {
 		t.Errorf("comp-b port-a = %q, want %q", result.Bindings["comp-b"]["port-a"], "comp-a")
 	}
 }
+
+func TestResolveOverrideLoadsComponentFromRegistry(t *testing.T) {
+	// The override component (rh-sso-auth) is not in the initial set.
+	// The resolver should load it via ComponentLoader, add it to the active
+	// set, and exclude the replaced default (jwt-auth).
+	components := restCrudComponents()
+
+	rhSSOAuth := &types.Component{
+		Name:    "rh-sso-auth",
+		Version: "1.0.0",
+		Provides: []types.Port{
+			{Name: "auth-provider"},
+		},
+	}
+
+	result, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "rh-sso-auth",
+		},
+		ComponentLoader: func(name string) *types.Component {
+			if name == "rh-sso-auth" {
+				return rhSSOAuth
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	// Override should be the auth-provider binding.
+	restBindings := result.Bindings["rest-api"]
+	if restBindings["auth-provider"] != "rh-sso-auth" {
+		t.Errorf("rest-api auth-provider = %q, want %q", restBindings["auth-provider"], "rh-sso-auth")
+	}
+
+	// rh-sso-auth should be in the active set.
+	if _, ok := result.ActiveComponents["rh-sso-auth"]; !ok {
+		t.Error("rh-sso-auth should be in ActiveComponents")
+	}
+	// jwt-auth (the replaced default) should NOT be in the active set.
+	if _, ok := result.ActiveComponents["jwt-auth"]; ok {
+		t.Error("jwt-auth should be excluded from ActiveComponents (replaced by rh-sso-auth)")
+	}
+	// Other components should still be present.
+	if _, ok := result.ActiveComponents["rest-api"]; !ok {
+		t.Error("rest-api should be in ActiveComponents")
+	}
+	if _, ok := result.ActiveComponents["postgres-adapter"]; !ok {
+		t.Error("postgres-adapter should be in ActiveComponents")
+	}
+}
+
+func TestResolveOverrideReplacesArchetypeDefault(t *testing.T) {
+	// When the override component is already in the active set, the resolver
+	// should still exclude the replaced default.
+	components := restCrudComponents()
+	components["rh-sso-auth"] = &types.Component{
+		Name:    "rh-sso-auth",
+		Version: "1.0.0",
+		Provides: []types.Port{
+			{Name: "auth-provider"},
+		},
+	}
+
+	result, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "rh-sso-auth",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	restBindings := result.Bindings["rest-api"]
+	if restBindings["auth-provider"] != "rh-sso-auth" {
+		t.Errorf("rest-api auth-provider = %q, want %q", restBindings["auth-provider"], "rh-sso-auth")
+	}
+
+	// jwt-auth should be excluded from active set.
+	if _, ok := result.ActiveComponents["jwt-auth"]; ok {
+		t.Error("jwt-auth should be excluded from ActiveComponents (replaced by override)")
+	}
+	// rh-sso-auth should be in active set.
+	if _, ok := result.ActiveComponents["rh-sso-auth"]; !ok {
+		t.Error("rh-sso-auth should be in ActiveComponents")
+	}
+}
+
+func TestResolveOverrideNonExistentComponentInRegistry(t *testing.T) {
+	// Override references a component that doesn't exist in the registry.
+	components := restCrudComponents()
+
+	_, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "nonexistent-auth",
+		},
+		ComponentLoader: func(name string) *types.Component {
+			return nil // not found
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for override referencing non-existent component, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Port != "auth-provider" || ib.BoundTo != "nonexistent-auth" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "not found in registry") {
+		t.Errorf("expected reason to mention 'not found in registry', got: %q", ib.Reason)
+	}
+}
+
+func TestResolveOverrideComponentDoesNotProvidePort(t *testing.T) {
+	// Override component exists in registry but doesn't provide the required port.
+	components := restCrudComponents()
+
+	wrongComponent := &types.Component{
+		Name:    "wrong-component",
+		Version: "1.0.0",
+		Provides: []types.Port{
+			{Name: "something-else"},
+		},
+	}
+
+	_, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "wrong-component",
+		},
+		ComponentLoader: func(name string) *types.Component {
+			if name == "wrong-component" {
+				return wrongComponent
+			}
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for override component that doesn't provide port, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Port != "auth-provider" || ib.BoundTo != "wrong-component" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "does not provide port") {
+		t.Errorf("expected reason to mention 'does not provide port', got: %q", ib.Reason)
+	}
+}
+
+func TestResolveOverrideWithoutLoaderAndMissingComponent(t *testing.T) {
+	// Override references a component not in the active set, and no loader
+	// is configured. This should produce an error.
+	components := restCrudComponents()
+
+	_, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "rh-sso-auth",
+		},
+		// ComponentLoader is nil — no way to load override.
+	})
+	if err == nil {
+		t.Fatal("expected error for override without loader, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if !strings.Contains(ib.Reason, "not in the active set") {
+		t.Errorf("expected reason to mention 'not in the active set', got: %q", ib.Reason)
+	}
+}
+
+func TestResolveActiveComponentsReturned(t *testing.T) {
+	// Verify that ActiveComponents is populated even without overrides.
+	result, err := Resolve(ResolveInput{
+		Components: restCrudComponents(),
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error: %v", err)
+	}
+
+	if len(result.ActiveComponents) != len(restCrudComponents()) {
+		t.Errorf("ActiveComponents count = %d, want %d", len(result.ActiveComponents), len(restCrudComponents()))
+	}
+	for name := range restCrudComponents() {
+		if _, ok := result.ActiveComponents[name]; !ok {
+			t.Errorf("expected %q in ActiveComponents", name)
+		}
+	}
+}

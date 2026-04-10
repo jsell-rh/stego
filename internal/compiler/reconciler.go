@@ -134,20 +134,20 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("language validation failed: %s", strings.Join(msgs, "; "))
 	}
 
-	// Collect all component names: archetype components + default_auth + mixin components.
-	componentNames, err := collectComponentNames(archetype, svcDecl, reg)
+	// Collect baseline component names: archetype components + default_auth + mixin components.
+	baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Look up all components from registry.
-	components := make(map[string]*types.Component)
-	for _, name := range componentNames {
+	// Look up baseline components from registry.
+	baselineComponents := make(map[string]*types.Component)
+	for _, name := range baselineNames {
 		comp := reg.Component(name)
 		if comp == nil {
 			return nil, fmt.Errorf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name)
 		}
-		components[name] = comp
+		baselineComponents[name] = comp
 	}
 
 	// Extract port binding overrides from service declaration.
@@ -160,15 +160,44 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 	}
 
-	// Resolve ports.
-	_, err = ports.Resolve(ports.ResolveInput{
-		Components:        components,
+	// Resolve ports. The resolver loads override components from the registry
+	// and excludes replaced archetype defaults from the active component set.
+	resolution, err := ports.Resolve(ports.ResolveInput{
+		Components:        baselineComponents,
 		ArchetypeBindings: archetype.Bindings,
 		ServiceOverrides:  servicePortOverrides,
+		ComponentLoader:   reg.Component,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("resolving ports: %w", err)
 	}
+
+	// Use the resolver's active component set (post-override) for all
+	// downstream processing. Rebuild an ordered component name list:
+	// preserve baseline order (filtering out replaced defaults), then
+	// append newly loaded override components.
+	components := resolution.ActiveComponents
+	componentNames := make([]string, 0, len(components))
+	for _, name := range baselineNames {
+		if _, ok := components[name]; ok {
+			componentNames = append(componentNames, name)
+		}
+	}
+	// Append override components that were loaded by the resolver and are
+	// not already in the ordered list (i.e. they were not in the baseline).
+	// Sort for deterministic ordering.
+	baselineSet := make(map[string]bool, len(baselineNames))
+	for _, name := range baselineNames {
+		baselineSet[name] = true
+	}
+	var newOverrides []string
+	for name := range components {
+		if !baselineSet[name] {
+			newOverrides = append(newOverrides, name)
+		}
+	}
+	sort.Strings(newOverrides)
+	componentNames = append(componentNames, newOverrides...)
 
 	// Determine the slots package path. Slots are placed outside internal/
 	// so that fills (which live at the project root, outside out/) can import
@@ -417,66 +446,22 @@ func isProjectRootFile(filePath string) bool {
 // collectComponentNames assembles the ordered list of component names from the
 // archetype, default_auth, and any mixin-added components.
 func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
-	// Build the set of components that are replaced by service port overrides.
-	// When a service overrides a port binding (e.g. auth-provider: rh-sso-auth),
-	// the archetype's default component for that port (e.g. jwt-auth) should be
-	// excluded and replaced by the override component. This prevents both
-	// the old and new component from generating code into the same namespace.
-	servicePortOverrides := make(map[string]string)
-	for key, val := range svcDecl.Overrides {
-		if strVal, ok := val.(string); ok {
-			servicePortOverrides[key] = strVal
-		}
-	}
-	// Map from default component name -> override component name, for ports
-	// where the service declares an override.
-	replaced := make(map[string]string)
-	for port, overrideComp := range servicePortOverrides {
-		if defaultComp, ok := archetype.Bindings[port]; ok && defaultComp != overrideComp {
-			replaced[defaultComp] = overrideComp
-		}
-	}
-
+	// Collect the baseline component set from the archetype, default_auth,
+	// and mixins. Override-component replacement is handled by ports.Resolve().
 	seen := make(map[string]bool)
 	var names []string
 
 	for _, name := range archetype.Components {
-		actual := name
-		if override, ok := replaced[name]; ok {
-			actual = override
-		}
-		if !seen[actual] {
-			seen[actual] = true
-			names = append(names, actual)
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
 		}
 	}
 
 	if archetype.DefaultAuth != "" {
-		authComp := archetype.DefaultAuth
-		if override, ok := replaced[authComp]; ok {
-			authComp = override
-		}
-		if !seen[authComp] {
-			seen[authComp] = true
-			names = append(names, authComp)
-		}
-	}
-
-	// Include any service port override components that were not replacements
-	// of archetype defaults (e.g. overrides for ports whose default was not in
-	// the archetype's component list or bindings).
-	// Sort the map keys first to ensure deterministic component ordering
-	// across runs (Go map iteration order is non-deterministic).
-	overridePorts := make([]string, 0, len(servicePortOverrides))
-	for port := range servicePortOverrides {
-		overridePorts = append(overridePorts, port)
-	}
-	sort.Strings(overridePorts)
-	for _, port := range overridePorts {
-		overrideComp := servicePortOverrides[port]
-		if !seen[overrideComp] {
-			seen[overrideComp] = true
-			names = append(names, overrideComp)
+		if !seen[archetype.DefaultAuth] {
+			seen[archetype.DefaultAuth] = true
+			names = append(names, archetype.DefaultAuth)
 		}
 	}
 

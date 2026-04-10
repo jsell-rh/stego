@@ -15,6 +15,10 @@ import (
 type Resolution struct {
 	// Bindings maps component name -> port name -> providing component name.
 	Bindings map[string]map[string]string
+	// ActiveComponents is the final set of components after resolution,
+	// including any override components loaded from the registry and excluding
+	// any archetype default components that were replaced by overrides.
+	ActiveComponents map[string]*types.Component
 }
 
 // ResolutionError represents a port resolution failure.
@@ -87,6 +91,11 @@ type ResolveInput struct {
 	// ServiceOverrides are port->component mappings from the service declaration
 	// that take precedence over archetype bindings.
 	ServiceOverrides map[string]string
+	// ComponentLoader loads a component by name from the registry. When a
+	// service override references a component not in Components, the resolver
+	// calls this function to load it. If nil, override components must already
+	// be present in Components.
+	ComponentLoader func(name string) *types.Component
 }
 
 // Resolve performs port resolution: for each component's required ports, it
@@ -98,6 +107,73 @@ type ResolveInput struct {
 // Returns a Resolution on success, or a *ResolutionError listing all
 // unresolved, ambiguous, and invalid binding errors.
 func Resolve(input ResolveInput) (*Resolution, error) {
+	// Build the active component set: start with input components, then load
+	// any override components from the registry and exclude replaced defaults.
+	active := make(map[string]*types.Component, len(input.Components))
+	for name, comp := range input.Components {
+		active[name] = comp
+	}
+
+	var resErr ResolutionError
+
+	// Load override components not already in the active set, and exclude
+	// archetype defaults that are replaced by overrides.
+	// Process override ports in sorted order for deterministic error messages.
+	overridePorts := make([]string, 0, len(input.ServiceOverrides))
+	for port := range input.ServiceOverrides {
+		overridePorts = append(overridePorts, port)
+	}
+	sort.Strings(overridePorts)
+
+	for _, port := range overridePorts {
+		overrideComp := input.ServiceOverrides[port]
+
+		// If the override component is not in the active set, try to load it.
+		if _, exists := active[overrideComp]; !exists {
+			if input.ComponentLoader == nil {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+					Component: "", // not yet assigned — override is at port level
+					Port:      port,
+					BoundTo:   overrideComp,
+					Reason:    fmt.Sprintf("override references component %q which is not in the active set and no component loader is configured", overrideComp),
+				})
+				continue
+			}
+			loaded := input.ComponentLoader(overrideComp)
+			if loaded == nil {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+					Component: "", // not yet assigned
+					Port:      port,
+					BoundTo:   overrideComp,
+					Reason:    fmt.Sprintf("override component %q not found in registry", overrideComp),
+				})
+				continue
+			}
+			// Validate the loaded component actually provides the port.
+			if !compProvidesPort(loaded, port) {
+				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+					Component: "", // not yet assigned
+					Port:      port,
+					BoundTo:   overrideComp,
+					Reason:    fmt.Sprintf("override component %q does not provide port %q", overrideComp, port),
+				})
+				continue
+			}
+			active[overrideComp] = loaded
+		}
+
+		// Exclude the archetype default component that this override replaces,
+		// to prevent both from generating code into the same namespace.
+		if defaultComp, ok := input.ArchetypeBindings[port]; ok && defaultComp != overrideComp {
+			delete(active, defaultComp)
+		}
+	}
+
+	// Return early if override loading produced errors.
+	if resErr.hasErrors() {
+		return nil, &resErr
+	}
+
 	// Merge bindings: archetype defaults, then service overrides on top.
 	effectiveBindings := make(map[string]string)
 	for port, comp := range input.ArchetypeBindings {
@@ -110,7 +186,7 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 	// Build providers index: port name -> list of component names that provide it.
 	// Used only for error classification when no binding exists.
 	providers := make(map[string][]string)
-	for name, comp := range input.Components {
+	for name, comp := range active {
 		for _, p := range comp.Provides {
 			providers[p.Name] = append(providers[p.Name], name)
 		}
@@ -121,21 +197,20 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 	}
 
 	result := &Resolution{
-		Bindings: make(map[string]map[string]string),
+		Bindings:         make(map[string]map[string]string),
+		ActiveComponents: active,
 	}
-
-	var resErr ResolutionError
 
 	// Resolve each component's required ports.
 	// Process component names in sorted order for deterministic output.
-	componentNames := make([]string, 0, len(input.Components))
-	for name := range input.Components {
+	componentNames := make([]string, 0, len(active))
+	for name := range active {
 		componentNames = append(componentNames, name)
 	}
 	sort.Strings(componentNames)
 
 	for _, compName := range componentNames {
-		comp := input.Components[compName]
+		comp := active[compName]
 		if len(comp.Requires) == 0 {
 			continue
 		}
@@ -183,8 +258,8 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 				continue
 			}
 
-			// Verify the bound component exists.
-			boundComp, exists := input.Components[bound]
+			// Verify the bound component exists in the active set.
+			boundComp, exists := active[bound]
 			if !exists {
 				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
 					Component: compName,

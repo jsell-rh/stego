@@ -73,45 +73,50 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	// Component and port validation require a valid archetype.
 	var components map[string]*types.Component
 	if archetype != nil {
-		componentNames, err := collectComponentNames(archetype, svcDecl, reg)
+		baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
 		if err != nil {
 			result.Errors = append(result.Errors, ValidationError{
 				Category: "component",
 				Message:  err.Error(),
 			})
 		} else {
-			// Look up all components.
-			components = make(map[string]*types.Component)
-			for _, name := range componentNames {
+			// Look up baseline components.
+			baselineComponents := make(map[string]*types.Component)
+			allFound := true
+			for _, name := range baselineNames {
 				comp := reg.Component(name)
 				if comp == nil {
 					result.Errors = append(result.Errors, ValidationError{
 						Category: "component",
 						Message:  fmt.Sprintf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name),
 					})
+					allFound = false
 				} else {
-					components[name] = comp
+					baselineComponents[name] = comp
 				}
 			}
 
-			// Validate port resolution (only if we resolved all components).
-			if len(components) == len(componentNames) {
+			// Validate port resolution (only if we resolved all baseline components).
+			if allFound {
 				servicePortOverrides := make(map[string]string)
 				for key, val := range svcDecl.Overrides {
 					if strVal, ok := val.(string); ok {
 						servicePortOverrides[key] = strVal
 					}
 				}
-				_, portErr := ports.Resolve(ports.ResolveInput{
-					Components:        components,
+				resolution, portErr := ports.Resolve(ports.ResolveInput{
+					Components:        baselineComponents,
 					ArchetypeBindings: archetype.Bindings,
 					ServiceOverrides:  servicePortOverrides,
+					ComponentLoader:   reg.Component,
 				})
 				if portErr != nil {
 					result.Errors = append(result.Errors, ValidationError{
 						Category: "port",
 						Message:  portErr.Error(),
 					})
+				} else {
+					components = resolution.ActiveComponents
 				}
 			}
 		}
