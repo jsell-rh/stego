@@ -6411,3 +6411,40 @@ func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName st
 		}
 	}
 }
+
+func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
+	// Round 4 Finding: The fields query parameter must filter the response map
+	// to only include requested fields plus metadata (id, kind, href). Without
+	// filtering, non-selected fields appear with zero values (empty strings, 0,
+	// etc.) violating sparse fieldset semantics.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+	if listBody == "" {
+		t.Fatal("could not find List method in handler")
+	}
+
+	// The list handler must filter presented items when fields is non-empty.
+	// It should build an allowed set including metadata keys and requested fields,
+	// then delete non-allowed keys from the presented map.
+	if !strings.Contains(listBody, `if len(fields) > 0`) {
+		t.Error("List handler must check if fields is non-empty to trigger sparse filtering")
+	}
+
+	// Metadata keys (id, kind, href) must always be retained regardless of
+	// the fields selection.
+	if !strings.Contains(listBody, `"id": true, "kind": true, "href": true`) {
+		t.Error("sparse fieldset filter must always allow metadata keys: id, kind, href")
+	}
+
+	// Non-selected fields must be removed from the presented entity map.
+	if !strings.Contains(listBody, `delete(presentedItems[i], k)`) {
+		t.Error("sparse fieldset filter must delete non-allowed keys from presented items")
+	}
+}

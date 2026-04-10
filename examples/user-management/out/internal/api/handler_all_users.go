@@ -96,6 +96,17 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
 		presentedItems[i] = presentEntity(item, "User", itemID, hrefBase+"/"+itemID)
+		if len(fields) > 0 {
+			allowed := map[string]bool{"id": true, "kind": true, "href": true}
+			for _, f := range fields {
+				allowed[f] = true
+			}
+			for k := range presentedItems[i] {
+				if !allowed[k] {
+					delete(presentedItems[i], k)
+				}
+			}
+		}
 	}
 	result := map[string]any{
 		"kind":  "UserList",
