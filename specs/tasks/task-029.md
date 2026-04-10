@@ -75,3 +75,5 @@ The rest-crud archetype spec defines short-circuit chain semantics where a chain
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `df2d91e` feat(task-029): short-circuit chain semantics — verify and enforce on Reconcile path
