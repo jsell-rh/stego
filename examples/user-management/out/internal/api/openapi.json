@@ -157,6 +157,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "TSL filter expression for searching entities",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -433,6 +442,15 @@
             "in": "query",
             "required": false,
             "description": "Comma-separated field names for sparse fieldset selection",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "TSL filter expression for searching entities",
             "schema": {
               "type": "string"
             }

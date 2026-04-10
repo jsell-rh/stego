@@ -81,7 +81,8 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, "id")
 		}
 	}
-	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}
+	searchExpr := r.URL.Query().Get("search")
+	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}
 	listResult, err := h.store.List(r.Context(), "User", "", "", opts)
 	if err != nil {
 		handleError(w, r, InternalError(err.Error()))

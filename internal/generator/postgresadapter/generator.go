@@ -384,6 +384,22 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		apiAlias = path.Base(apiNS)
 	}
 
+	// Determine the search package import path for TSL search integration.
+	searchNS := ""
+	if ctx.PeerNamespaces != nil {
+		searchNS = ctx.PeerNamespaces["tsl-search"]
+	}
+	searchPkg := ""
+	searchAlias := ""
+	if searchNS != "" && ctx.ModuleName != "" {
+		if ctx.OutDirName != "" {
+			searchPkg = ctx.ModuleName + "/" + ctx.OutDirName + "/" + searchNS
+		} else {
+			searchPkg = ctx.ModuleName + "/" + searchNS
+		}
+		searchAlias = path.Base(searchNS)
+	}
+
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"context\"\n")
@@ -392,6 +408,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\n")
 	if apiPkg != "" {
 		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)
+	}
+	if searchPkg != "" {
+		fmt.Fprintf(&buf, "\t%s %q\n", searchAlias, searchPkg)
 	}
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
@@ -406,12 +425,13 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		fmt.Fprintf(&buf, "\tDirection string\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
-		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, and field selection parameters.\n")
+		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
 		fmt.Fprintf(&buf, "type ListOptions struct {\n")
 		fmt.Fprintf(&buf, "\tPage    int\n")
 		fmt.Fprintf(&buf, "\tSize    int\n")
 		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
 		fmt.Fprintf(&buf, "\tFields  []string\n")
+		fmt.Fprintf(&buf, "\tSearch  string\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
 		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
@@ -436,7 +456,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	emitGetMethod(&buf, entities)
 	emitReplaceMethod(&buf, entities)
 	emitDeleteMethod(&buf, entities)
-	emitListMethod(&buf, entities, apiAlias)
+	emitListMethod(&buf, entities, apiAlias, searchAlias)
 	emitUpsertMethod(&buf, entities)
 	emitExistsMethod(&buf, entities)
 
@@ -572,11 +592,12 @@ func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
 }
 
 // emitListMethod generates the List dispatcher using GORM with scope filtering,
-// ordering, and pagination. Accepts ListOptions (from the rest-api Storage
-// interface) and returns ListResult. When apiAlias is set, types are qualified
-// with the API package alias (e.g. api.ListOptions); otherwise, local type
-// definitions are used.
-func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+// ordering, search, and pagination. Accepts ListOptions (from the rest-api
+// Storage interface) and returns ListResult. When apiAlias is set, types are
+// qualified with the API package alias (e.g. api.ListOptions); otherwise,
+// local type definitions are used. When searchAlias is set, TSL search
+// expressions from opts.Search are parsed and applied as WHERE clauses.
+func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string, searchAlias string) {
 	listOptsType := "ListOptions"
 	listResultType := "ListResult"
 	if apiAlias != "" {
@@ -612,6 +633,19 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Apply TSL search filter when the search engine is available.
+		if searchAlias != "" {
+			fmt.Fprintf(buf, "\t\tif opts.Search != \"\" {\n")
+			fmt.Fprintf(buf, "\t\t\tsearchResult, err := %s.NewSearchEngine().ParseSearch(%q, opts.Search)\n", searchAlias, e.Name)
+			fmt.Fprintf(buf, "\t\t\tif err != nil {\n")
+			fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"search error: %%w\", err)\n", listResultType)
+			fmt.Fprintf(buf, "\t\t\t}\n")
+			fmt.Fprintf(buf, "\t\t\tif searchResult != nil {\n")
+			fmt.Fprintf(buf, "\t\t\t\tquery = query.Where(searchResult.Where, searchResult.Args...)\n")
+			fmt.Fprintf(buf, "\t\t\t}\n")
+			fmt.Fprintf(buf, "\t\t}\n")
+		}
 
 		// Count total matching records before applying pagination.
 		fmt.Fprintf(buf, "\t\tvar total int64\n")

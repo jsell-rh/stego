@@ -46,7 +46,7 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 		t.Errorf("DefaultAuth = %q, want %q", a.DefaultAuth, "jwt-auth")
 	}
 
-	wantComponents := []string{"rest-api", "postgres-adapter", "otel-tracing", "health-check"}
+	wantComponents := []string{"rest-api", "postgres-adapter", "tsl-search", "otel-tracing", "health-check"}
 	if len(a.Components) != len(wantComponents) {
 		t.Fatalf("Components count = %d, want %d", len(a.Components), len(wantComponents))
 	}

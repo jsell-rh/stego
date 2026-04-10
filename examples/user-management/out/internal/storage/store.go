@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	api "github.com/example/service/out/internal/api"
+	search "github.com/example/service/out/internal/search"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -126,6 +127,15 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
+		if opts.Search != "" {
+			searchResult, err := search.NewSearchEngine().ParseSearch("Organization", opts.Search)
+			if err != nil {
+				return api.ListResult{}, fmt.Errorf("search error: %w", err)
+			}
+			if searchResult != nil {
+				query = query.Where(searchResult.Where, searchResult.Args...)
+			}
+		}
 		var total int64
 		if err := query.Count(&total).Error; err != nil {
 			return api.ListResult{}, err
@@ -165,6 +175,15 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity User", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
+		}
+		if opts.Search != "" {
+			searchResult, err := search.NewSearchEngine().ParseSearch("User", opts.Search)
+			if err != nil {
+				return api.ListResult{}, fmt.Errorf("search error: %w", err)
+			}
+			if searchResult != nil {
+				query = query.Where(searchResult.Where, searchResult.Args...)
+			}
 		}
 		var total int64
 		if err := query.Count(&total).Error; err != nil {

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package stego.components.tsl_search.slots;
+
+service ResolveField {
+  rpc Resolve(ResolveFieldRequest) returns (ResolveFieldResponse);
+}
+
+message ResolveFieldRequest {
+  string entity = 1;
+  string field_name = 2;
+}
+
+message ResolveFieldResponse {
+  string column_expression = 1;
+  string table_prefix = 2;
+}

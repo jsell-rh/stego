@@ -1795,3 +1795,90 @@ func TestReplaceUsesSelectiveUpdate(t *testing.T) {
 		t.Error("Replace should use .Updates for selective column update")
 	}
 }
+
+func TestSearchIntegrationWhenTslSearchPeer(t *testing.T) {
+	// When tsl-search is a peer component, the postgres-adapter should import
+	// the search package and apply TSL search filtering in the List method.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ModuleName = "github.com/myorg/svc"
+	ctx.OutDirName = "out"
+	ctx.PeerNamespaces = map[string]string{
+		"rest-api":   "internal/api",
+		"tsl-search": "internal/search",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var storeContent string
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "store.go") {
+			storeContent = string(f.Bytes())
+			break
+		}
+	}
+	if storeContent == "" {
+		t.Fatal("store.go not found in generated files")
+	}
+
+	// Must import the search package.
+	if !strings.Contains(storeContent, `"github.com/myorg/svc/out/internal/search"`) {
+		t.Error("store.go must import the search package when tsl-search is a peer")
+	}
+
+	// List method must handle search.
+	if !strings.Contains(storeContent, "opts.Search") {
+		t.Error("List method must check opts.Search when tsl-search is a peer")
+	}
+
+	// Must call ParseSearch.
+	if !strings.Contains(storeContent, "ParseSearch") {
+		t.Error("List method must call search.ParseSearch when tsl-search is a peer")
+	}
+
+	// Must apply WHERE clause from search result.
+	if !strings.Contains(storeContent, "searchResult.Where") {
+		t.Error("List method must apply search WHERE clause")
+	}
+}
+
+func TestNoSearchImportWithoutTslSearchPeer(t *testing.T) {
+	// When tsl-search is NOT a peer component, the search package should not
+	// be imported and search filtering should not be generated.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ModuleName = "github.com/myorg/svc"
+	ctx.OutDirName = "out"
+	ctx.PeerNamespaces = map[string]string{
+		"rest-api": "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var storeContent string
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "store.go") {
+			storeContent = string(f.Bytes())
+			break
+		}
+	}
+	if storeContent == "" {
+		t.Fatal("store.go not found in generated files")
+	}
+
+	// Must NOT import the search package.
+	if strings.Contains(storeContent, "internal/search") {
+		t.Error("store.go must NOT import search package when tsl-search is not a peer")
+	}
+
+	// Must NOT have search handling.
+	if strings.Contains(storeContent, "ParseSearch") {
+		t.Error("List method must NOT call ParseSearch when tsl-search is not a peer")
+	}
+}

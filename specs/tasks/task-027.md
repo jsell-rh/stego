@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Components > tsl-search" (rest-crud spec)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

@@ -51,6 +51,7 @@ func main() {
 		auditlogger.New(),
 	)
 
+	validationMiddleware := api.NewValidationMiddleware()
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
 	organizationsHandler := api.NewOrganizationsHandler(store)
@@ -68,5 +69,5 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", 8080)
 	log.Printf("starting server on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, authMiddleware(mux)))
+	log.Fatal(http.ListenAndServe(addr, authMiddleware(validationMiddleware(mux))))
 }

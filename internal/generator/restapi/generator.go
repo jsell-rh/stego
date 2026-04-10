@@ -832,8 +832,11 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 
+	// Parse search query parameter (TSL expression for filtering).
+	fmt.Fprintf(buf, "\tsearchExpr := r.URL.Query().Get(\"search\")\n")
+
 	// Build ListOptions.
-	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}\n")
+	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
 
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
@@ -1120,12 +1123,13 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// ListOptions for pagination and ordering.
-	fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, and field selection parameters.\n")
+	fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
 	fmt.Fprintf(&buf, "type ListOptions struct {\n")
 	fmt.Fprintf(&buf, "\tPage    int\n")
 	fmt.Fprintf(&buf, "\tSize    int\n")
 	fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
 	fmt.Fprintf(&buf, "\tFields  []string\n")
+	fmt.Fprintf(&buf, "\tSearch  string // TSL search expression from ?search= query parameter\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// ListResult wraps list query results with total count for pagination.
@@ -1671,6 +1675,13 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Description: "Comma-separated field names for sparse fieldset selection",
 					Schema:      openAPISchema{Type: "string"},
 				})
+				listParams = append(listParams, openAPIParam{
+					Name:        "search",
+					In:          "query",
+					Required:    false,
+					Description: "TSL filter expression for searching entities",
+					Schema:      openAPISchema{Type: "string"},
+				})
 				// When scope is set without a parent, the scope value is passed
 				// as a query parameter — declare it in the OpenAPI spec.
 				if len(eb.Scope) > 0 && eb.ParentEntity() == "" {
@@ -2143,6 +2154,7 @@ var handlerScopeIdentifiers = map[string]bool{
 	"orderBy":    true, // var orderBy []OrderByField
 	"fields":     true, // var fields []string
 	"opts":       true, // opts := ListOptions{...}
+	"searchExpr": true, // searchExpr := r.URL.Query().Get("search")
 	"listResult": true, // listResult, err := h.store.List(...)
 	"uuid":       true, // github.com/google/uuid import alias
 }

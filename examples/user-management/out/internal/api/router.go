@@ -18,12 +18,13 @@ type OrderByField struct {
 	Direction string // "asc" or "desc"
 }
 
-// ListOptions contains pagination, ordering, and field selection parameters.
+// ListOptions contains pagination, ordering, field selection, and search parameters.
 type ListOptions struct {
 	Page    int
 	Size    int
 	OrderBy []OrderByField
 	Fields  []string
+	Search  string // TSL search expression from ?search= query parameter
 }
 
 // ListResult wraps list query results with total count for pagination.

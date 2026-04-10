@@ -5488,8 +5488,13 @@ func TestGenerate_ListQueryParametersParsing(t *testing.T) {
 		t.Error("list handler must parse fields query parameter")
 	}
 
+	// search parsing.
+	if !strings.Contains(handler, `r.URL.Query().Get("search")`) {
+		t.Error("list handler must parse search query parameter")
+	}
+
 	// ListOptions construction.
-	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}`) {
+	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
 		t.Error("list handler must construct ListOptions from parsed parameters")
 	}
 }
@@ -5958,6 +5963,9 @@ func TestGenerate_OpenAPIListOrderByAndFieldsParams(t *testing.T) {
 	}
 	if !paramNames["fields"] {
 		t.Error("OpenAPI list operation must include 'fields' query parameter")
+	}
+	if !paramNames["search"] {
+		t.Error("OpenAPI list operation must include 'search' query parameter")
 	}
 	if !paramNames["page"] {
 		t.Error("OpenAPI list operation must include 'page' query parameter")

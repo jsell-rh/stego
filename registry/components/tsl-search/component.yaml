@@ -1,0 +1,15 @@
+kind: component
+name: tsl-search
+version: 1.0.0
+output_namespace: internal/search
+
+requires:
+  - storage-adapter
+
+provides:
+  - search-engine
+
+slots:
+  - name: resolve_field
+    proto: stego.components.tsl_search.slots.ResolveField
+    default: column-name-lookup

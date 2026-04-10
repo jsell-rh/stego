@@ -221,7 +221,8 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, "id")
 		}
 	}
-	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}
+	searchExpr := r.URL.Query().Get("search")
+	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}
 	scopeValue := r.PathValue("org_id")
 	listResult, err := h.store.List(r.Context(), "User", "org_id", scopeValue, opts)
 	if err != nil {
