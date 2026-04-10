@@ -65,8 +65,8 @@ last_applied:
         go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: f26c3a72b985189ccccd2fc8ea25fcdd96aa441cb59d6379c24e031370a2b9f8
-        internal/api/handler_org_settings.go: b8ff8ad784107600e8a18cdf22657d4429f0fcf7ba8279822d6a01cc5066a273
-        internal/api/handler_org_users.go: c72fe5db82a88e162088350e62d7a92fe57d54cda685a84da1c9476bf2ef5880
+        internal/api/handler_org_settings.go: 1dbf64fa9c0bbd7b1e4acd566047844136e940bda78d221d23bb57ae3c629113
+        internal/api/handler_org_users.go: 176cdb7088420563fc1cddf775bcba75fbb92c70ed1224b6df57a9365fb1dc0c
         internal/api/handler_organizations.go: 03b138c5158c3f2041fe1b0f9b1cb858bff9f4d66932799f839fd584617394bf
         internal/api/openapi.json: 6bb4e784a2ffe099f9ebff4a40ee1dedec3f0de216efc50fee557ccceeef06d4
         internal/api/router.go: 86209962eb2b2ac6d8ca67243a2f611f2bf9d905feb59dda2110ba963f4e7fe0

@@ -128,7 +128,7 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	user, err := h.store.Get(r.Context(), "User", id)
+	existing, err := h.store.Get(r.Context(), "User", id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			handleError(w, r, NotFound("User", id))
@@ -137,8 +137,23 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	scopeData, err := json.Marshal(existing)
+	if err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	var scopeMap map[string]any
+	if err := json.Unmarshal(scopeData, &scopeMap); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	scopeVal, _ := scopeMap["org_id"].(string)
+	if scopeVal != r.PathValue("org_id") {
+		handleError(w, r, NotFound("User", id))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(existing, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -146,6 +161,30 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	existing, err := h.store.Get(r.Context(), "User", id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
+		return
+	}
+	scopeData, err := json.Marshal(existing)
+	if err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	var scopeMap map[string]any
+	if err := json.Unmarshal(scopeData, &scopeMap); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	scopeVal, _ := scopeMap["org_id"].(string)
+	if scopeVal != r.PathValue("org_id") {
+		handleError(w, r, NotFound("User", id))
+		return
+	}
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
@@ -178,6 +217,30 @@ func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	existing, err := h.store.Get(r.Context(), "User", id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
+		return
+	}
+	scopeData, err := json.Marshal(existing)
+	if err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	var scopeMap map[string]any
+	if err := json.Unmarshal(scopeData, &scopeMap); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	scopeVal, _ := scopeMap["org_id"].(string)
+	if scopeVal != r.PathValue("org_id") {
+		handleError(w, r, NotFound("User", id))
+		return
+	}
 	if err := h.store.Delete(r.Context(), "User", id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			handleError(w, r, NotFound("User", id))
@@ -331,6 +394,10 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 	var user User
 	if err := json.Unmarshal(existingData, &user); err != nil {
 		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	if user.OrgID != r.PathValue("org_id") {
+		handleError(w, r, NotFound("User", id))
 		return
 	}
 	var patch OrgUsersPatchRequest
