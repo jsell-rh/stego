@@ -83,3 +83,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - a04680d feat(task-034): rh-sso-auth end-to-end verification example
+- f3c1bf9 fix(task-034): move env var reading to main.go wiring, fix map iteration order
