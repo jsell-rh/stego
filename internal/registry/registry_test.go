@@ -107,8 +107,8 @@ func TestLoad(t *testing.T) {
 		if pg == nil {
 			t.Fatal("Component(postgres-adapter) returned nil")
 		}
-		if pg.Version != "1.4.0" {
-			t.Errorf("postgres-adapter Version = %q, want %q", pg.Version, "1.4.0")
+		if pg.Version != "2.0.0" {
+			t.Errorf("postgres-adapter Version = %q, want %q", pg.Version, "2.0.0")
 		}
 		if len(pg.Provides) != 1 || pg.Provides[0].Name != "storage-adapter" {
 			t.Errorf("postgres-adapter Provides unexpected: %+v", pg.Provides)

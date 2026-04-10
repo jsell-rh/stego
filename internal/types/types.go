@@ -119,10 +119,11 @@ type SlotDefinition struct {
 
 // Convention captures the archetype's conventions.
 type Convention struct {
-	Layout        string `yaml:"layout"`
-	ErrorHandling string `yaml:"error_handling"`
-	Logging       string `yaml:"logging"`
-	TestPattern   string `yaml:"test_pattern"`
+	Layout         string `yaml:"layout"`
+	ErrorHandling  string `yaml:"error_handling"`
+	ResponseFormat string `yaml:"response_format"`
+	Logging        string `yaml:"logging"`
+	TestPattern    string `yaml:"test_pattern"`
 }
 
 // Archetype represents a curated component set with conventions.
