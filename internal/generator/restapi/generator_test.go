@@ -4703,11 +4703,12 @@ func TestDeriveErrorPrefix(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"hyperfleet-api", "HYPERFLEETAPI"},
-		{"user-management", "USERMANAGEMENT"},
-		{"simple", "SIMPLE"},
-		{"a-b-c", "ABC"},
-		{"", ""},
+		{"hyperfleet-api", "HYPERFLEET"},        // spec golden example
+		{"user-management", "USER"},             // drops last segment
+		{"simple", "SIMPLE"},                    // no hyphens, kept as-is
+		{"a-b-c", "AB"},                         // drops last, joins remaining
+		{"my-cool-service", "MYCOOL"},           // multi-segment project name
+		{"", ""},                                // edge case
 	}
 	for _, tt := range tests {
 		got := deriveErrorPrefix(tt.input)
@@ -4752,18 +4753,18 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 	}
 
 	// AC2: Error constructors for all six categories.
-	// Prefix for "hyperfleet-api" is "HYPERFLEETAPI" (uppercased, hyphens removed).
+	// Prefix for "hyperfleet-api" is "HYPERFLEET" (last segment dropped, uppercased).
 	constructors := []struct {
 		name string
 		code string
 	}{
-		{"func NotFound(", "HYPERFLEETAPI-NTF-001"},
-		{"func BadRequest(", "HYPERFLEETAPI-VAL-001"},
-		{"func Conflict(", "HYPERFLEETAPI-CNF-001"},
-		{"func Validation(", "HYPERFLEETAPI-VAL-000"},
-		{"func Unauthorized(", "HYPERFLEETAPI-AUT-001"},
-		{"func Forbidden(", "HYPERFLEETAPI-AUZ-001"},
-		{"func InternalError(", "HYPERFLEETAPI-INT-001"},
+		{"func NotFound(", "HYPERFLEET-NTF-001"},
+		{"func BadRequest(", "HYPERFLEET-VAL-001"},
+		{"func Conflict(", "HYPERFLEET-CNF-001"},
+		{"func Validation(", "HYPERFLEET-VAL-000"},
+		{"func Unauthorized(", "HYPERFLEET-AUT-001"},
+		{"func Forbidden(", "HYPERFLEET-AUZ-001"},
+		{"func InternalError(", "HYPERFLEET-INT-001"},
 	}
 	for _, c := range constructors {
 		if !strings.Contains(errorsContent, c.name) {
@@ -4785,6 +4786,7 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 
 func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 	// AC3: Error code prefix derived from service name.
+	// "user-management" → drops last segment → "USER"
 	g := &Generator{}
 	ctx := basicContext()
 	ctx.ServiceName = "user-management"
@@ -4796,10 +4798,10 @@ func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 
 	errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	if !strings.Contains(errorsContent, "USERMANAGEMENT-NTF-001") {
+	if !strings.Contains(errorsContent, "USER-NTF-001") {
 		t.Error("error code prefix not derived from service name 'user-management'")
 	}
-	if !strings.Contains(errorsContent, "USERMANAGEMENT-VAL-001") {
+	if !strings.Contains(errorsContent, "USER-VAL-001") {
 		t.Error("error code prefix not derived from service name 'user-management'")
 	}
 }
@@ -4962,6 +4964,28 @@ func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
 
 	if !strings.Contains(errorsContent, "time.Now().UTC().Format(time.RFC3339)") {
 		t.Error("handleError should populate timestamp with UTC RFC3339")
+	}
+}
+
+func TestGenerate_HandleErrorPopulatesTraceID(t *testing.T) {
+	// handleError should populate trace_id from W3C Trace Context header
+	// (OpenTelemetry propagation format: version-traceId-parentId-flags).
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, `r.Header.Get("Traceparent")`) {
+		t.Error("handleError should extract trace ID from Traceparent header")
+	}
+	if !strings.Contains(errorsContent, "svcErr.TraceID = parts[1]") {
+		t.Error("handleError should set TraceID from traceparent parts")
 	}
 }
 

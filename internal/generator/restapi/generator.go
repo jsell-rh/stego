@@ -797,11 +797,15 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 }
 
 // deriveErrorPrefix converts a service name to an error code prefix by
-// uppercasing and removing hyphens. E.g., "hyperfleet-api" → "HYPERFLEET".
+// dropping the last hyphen-delimited segment (typically a service type like
+// "api", "svc", "service"), joining the remaining segments, and uppercasing.
+// E.g., "hyperfleet-api" → "HYPERFLEET".
 func deriveErrorPrefix(serviceName string) string {
-	// Remove hyphens, then uppercase.
-	clean := strings.ReplaceAll(serviceName, "-", "")
-	return strings.ToUpper(clean)
+	parts := strings.Split(serviceName, "-")
+	if len(parts) > 1 {
+		parts = parts[:len(parts)-1]
+	}
+	return strings.ToUpper(strings.Join(parts, ""))
 }
 
 // generateErrors produces the errors.go file with RFC 9457 Problem Details
@@ -815,6 +819,7 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\t\"time\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
@@ -931,6 +936,12 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 	fmt.Fprintf(&buf, "func handleError(w http.ResponseWriter, r *http.Request, svcErr *ServiceError) {\n")
 	fmt.Fprintf(&buf, "\tsvcErr.Instance = r.URL.Path\n")
 	fmt.Fprintf(&buf, "\tsvcErr.Timestamp = time.Now().UTC().Format(time.RFC3339)\n")
+	fmt.Fprintf(&buf, "\t// Extract trace ID from W3C Trace Context header (OpenTelemetry propagation).\n")
+	fmt.Fprintf(&buf, "\tif tp := r.Header.Get(\"Traceparent\"); tp != \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tif parts := strings.Split(tp, \"-\"); len(parts) >= 2 {\n")
+	fmt.Fprintf(&buf, "\t\t\tsvcErr.TraceID = parts[1]\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/problem+json\")\n")
 	fmt.Fprintf(&buf, "\tw.WriteHeader(svcErr.Status)\n")
 	fmt.Fprintf(&buf, "\tjson.NewEncoder(w).Encode(svcErr)\n")
