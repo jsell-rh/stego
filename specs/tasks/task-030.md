@@ -66,3 +66,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - de3a87a fix(task-030): address all 2 review findings from round 4
 - badca29 fix(task-030): address all 2 review findings from round 5
 - d17eeeb fix(task-030): demonstrate halt semantics with Ok=true, Halt=true fill
+- bc882d7 fix(task-030): regenerate example output with scope enforcement for individual-resource operations
