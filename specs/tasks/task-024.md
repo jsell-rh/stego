@@ -99,3 +99,8 @@ The rest-crud archetype spec defines `response_format: envelope` as a convention
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+- 72693c9 feat(task-024): add ResponseFormat to Convention, update configs
+- cfd01bd feat(task-024): implement response envelope format with pagination
+- 68c8250 test(task-024): add tests for envelope format, pagination, and query params
+- 9b49ee5 chore(task-024): regenerate example output with envelope format
+- 8b23e1e chore(task-024): mark task ready-for-review
