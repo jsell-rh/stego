@@ -2,7 +2,9 @@
 
 **Spec Reference:** [specs/registry/archetypes/rest-crud/spec.md](../registry/archetypes/rest-crud/spec.md) -- "Path Derivation Rules (must be implemented)"
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-035.md](../reviews/task-035.md)
 
 **Depends on:** task-019 (collection-aware code generation pipeline)
 
