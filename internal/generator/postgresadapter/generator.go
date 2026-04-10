@@ -753,19 +753,6 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias strin
 			}
 		}
 
-		// Pre-check existence to distinguish insert from update.
-		// Uses the JSON representation to build a WHERE clause from upsert key fields.
-		fmt.Fprintf(buf, "\t\tvar valueMap map[string]any\n")
-		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &valueMap); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"unmarshaling %s to map: %%w\", err)\n", e.Name)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\twhereClause := make(map[string]any, len(upsertKey))\n")
-		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
-		fmt.Fprintf(buf, "\t\t\twhereClause[k] = valueMap[k]\n")
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tvar existingCount int64\n")
-		fmt.Fprintf(buf, "\t\ts.db.WithContext(ctx).Model(&v).Where(whereClause).Count(&existingCount)\n")
-
 		// Build valid column set for upsert key validation.
 		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
 		for i, col := range writeCols {
@@ -821,14 +808,40 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias strin
 		fmt.Fprintf(buf, "\t\t\tonConflict.DoNothing = true\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Clauses(onConflict).Create(&v)\n")
-		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, result.Error\n")
+		// Use a transaction to atomically check existence and perform the
+		// upsert, eliminating the TOCTOU race between a separate COUNT and
+		// the INSERT...ON CONFLICT.
+		fmt.Fprintf(buf, "\t\tvar created bool\n")
+		fmt.Fprintf(buf, "\t\terr = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {\n")
+
+		// Build WHERE clause from upsert key fields inside the transaction.
+		fmt.Fprintf(buf, "\t\t\tvar valueMap map[string]any\n")
+		fmt.Fprintf(buf, "\t\t\tif err := json.Unmarshal(data, &valueMap); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"unmarshaling %s to map: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\twhereClause := make(map[string]any, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\t\tfor _, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\t\twhereClause[k] = valueMap[k]\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tvar existingCount int64\n")
+		fmt.Fprintf(buf, "\t\t\tif err := tx.Model(&%s{}).Where(whereClause).Count(&existingCount).Error; err != nil {\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t\treturn err\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+
+		fmt.Fprintf(buf, "\t\t\tresult := tx.Clauses(onConflict).Create(&v)\n")
+		fmt.Fprintf(buf, "\t\t\tif result.Error != nil {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn result.Error\n")
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" && result.RowsAffected == 0 {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflictRef)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tcreated = existingCount == 0\n")
+		fmt.Fprintf(buf, "\t\t\treturn nil\n")
+		fmt.Fprintf(buf, "\t\t})\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\tif concurrency == \"optimistic\" && result.RowsAffected == 0 {\n")
-		fmt.Fprintf(buf, "\t\t\treturn false, %s\n", errConflictRef)
-		fmt.Fprintf(buf, "\t\t}\n")
-		fmt.Fprintf(buf, "\t\treturn existingCount == 0, nil\n")
+		fmt.Fprintf(buf, "\t\treturn created, nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")

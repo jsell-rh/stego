@@ -660,6 +660,28 @@ func TestUpsertUsesGORMOnConflict(t *testing.T) {
 		t.Error("store.go missing quoted generation column reference in optimistic concurrency")
 	}
 
+	// Verify the upsert uses a transaction to atomically check existence
+	// and perform the INSERT...ON CONFLICT (no TOCTOU race).
+	upsertIdx := strings.Index(storeContent, "func (s *Store) Upsert(")
+	if upsertIdx < 0 {
+		t.Fatal("Upsert method not found in store.go")
+	}
+	upsertBody := storeContent[upsertIdx:]
+
+	if !strings.Contains(upsertBody, "s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {") {
+		t.Error("Upsert should wrap COUNT + INSERT in a transaction to prevent TOCTOU race")
+	}
+
+	// Verify the COUNT query error is checked inside the transaction.
+	if !strings.Contains(upsertBody, "tx.Model(&AdapterStatus{}).Where(whereClause).Count(&existingCount).Error") {
+		t.Error("Upsert should check COUNT query error via .Error")
+	}
+
+	// Verify the INSERT uses the transaction handle (tx), not the store's db.
+	if !strings.Contains(upsertBody, "tx.Clauses(onConflict).Create(&v)") {
+		t.Error("Upsert should use the transaction handle (tx) for the INSERT, not s.db")
+	}
+
 	// Verify it compiles.
 	storeBytes := findFile(t, files, "internal/storage/store.go").Bytes()
 	if _, err := format.Source(storeBytes); err != nil {

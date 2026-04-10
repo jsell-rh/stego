@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Collections & Operations" (rest-crud spec), "Components > postgres-adapter" (rest-crud spec)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-028.md](../reviews/task-028.md)
 
