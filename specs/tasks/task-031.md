@@ -61,3 +61,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 - 92ef2c0 feat(task-031): enforce scoped collection access in rest-api generator
 - dd1f90a fix(task-031): preserve storage metadata in scoped Read response
+- c00d3e9 fix(task-031): ensure scoped collections import encoding/json for scope verification
