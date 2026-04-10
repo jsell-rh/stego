@@ -77,3 +77,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - 8bd6c1d feat(task-023): generate RFC 9457 Problem Details error handling
+- 39db311 fix(task-023): correct error prefix derivation and add trace_id population
