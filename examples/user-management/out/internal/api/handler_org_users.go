@@ -102,7 +102,11 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.store.Create(r.Context(), "User", user); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrConflict) {
+			handleError(w, r, Conflict("resource already exists"))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	if h.onEntityChangedFanOut != nil {
@@ -147,7 +151,11 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	user.ID = id
 	user.OrgID = r.PathValue("org_id")
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrConflict) {
+			handleError(w, r, Conflict("resource already exists"))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	if h.onEntityChangedFanOut != nil {
@@ -302,11 +310,20 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrNotFound) {
 			handleError(w, r, NotFound("User", id))
 		} else {
-			handleError(w, r, InternalError(err.Error()))
+			handleError(w, r, InternalError("internal error"))
 		}
 		return
 	}
-	user := existing.(User)
+	existingData, err := json.Marshal(existing)
+	if err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
+	var user User
+	if err := json.Unmarshal(existingData, &user); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	var patch OrgUsersPatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
@@ -322,7 +339,11 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		user.Metadata = patch.Metadata
 	}
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrConflict) {
+			handleError(w, r, Conflict("resource already exists"))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	if h.onEntityChangedFanOut != nil {

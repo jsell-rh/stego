@@ -74,7 +74,11 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := h.store.Create(r.Context(), "Organization", organization); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrConflict) {
+			handleError(w, r, Conflict("resource already exists"))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

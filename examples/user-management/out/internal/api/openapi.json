@@ -956,7 +956,6 @@
           }
         },
         "required": [
-          "org_id",
           "key",
           "value",
           "generation"
@@ -1030,8 +1029,7 @@
         "required": [
           "email",
           "display_name",
-          "role",
-          "org_id"
+          "role"
         ]
       }
     }

@@ -6632,12 +6632,15 @@ func TestGenerate_PatchOperation(t *testing.T) {
 		t.Error("handler missing Patch method")
 	}
 
-	// Verify get-then-merge: fetches existing, type-asserts, decodes patch, applies.
+	// Verify get-then-merge: fetches existing, converts via JSON, decodes patch, applies.
 	if !strings.Contains(handler, "h.store.Get(r.Context()") {
 		t.Error("Patch handler must fetch existing entity via store.Get")
 	}
-	if !strings.Contains(handler, "existing.(Cluster)") {
-		t.Error("Patch handler must type-assert Get result to entity type")
+	if !strings.Contains(handler, "json.Marshal(existing)") {
+		t.Error("Patch handler must marshal Get result for cross-package type conversion")
+	}
+	if !strings.Contains(handler, "json.Unmarshal(existingData") {
+		t.Error("Patch handler must unmarshal Get result into API-package entity type")
 	}
 	if !strings.Contains(handler, "var patch ClustersPatchRequest") {
 		t.Error("Patch handler must decode into patch request struct")

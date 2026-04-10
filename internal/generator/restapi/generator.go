@@ -351,7 +351,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			needStrconv = true
 			hasList = true
 		}
-		if op == types.OpRead || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
+		if op == types.OpCreate || op == types.OpRead || op == types.OpUpdate || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
 			needErrors = true
 		}
 		if op == types.OpCreate {
@@ -637,7 +637,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(r.Context(), %q, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	// After-slots: on_entity_changed fires after create.
@@ -712,7 +716,11 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
@@ -1064,16 +1072,27 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 
 	// Step 1: Fetch existing entity.
+	// The store returns a storage-package type, so we convert via JSON
+	// marshal/unmarshal to avoid cross-package type assertion panics.
 	fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
 	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
 	fmt.Fprintf(buf, "\t\t} else {\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\t%s := existing.(%s)\n", lower, entity.Name)
+	fmt.Fprintf(buf, "\texistingData, err := json.Marshal(existing)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(existingData, &%s); err != nil {\n", lower)
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
 
 	// Step 2: Decode patch request.
 	fmt.Fprintf(buf, "\tvar patch %s\n", patchReqType)
@@ -1099,7 +1118,11 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 
 	// Step 4: Save via Replace (full entity save after merge).
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 
@@ -1676,6 +1699,19 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		Components: openAPIComponents{Schemas: make(map[string]openAPISchema)},
 	}
 
+	// Collect scope fields per entity — these are URL-path-derived fields
+	// that should NOT be required in request body schemas (per item 202).
+	// Multiple collections may scope the same entity on different fields.
+	entityScopeFields := make(map[string]map[string]bool)
+	for _, eb := range collections {
+		if eb.ScopeField() != "" {
+			if entityScopeFields[eb.Entity] == nil {
+				entityScopeFields[eb.Entity] = make(map[string]bool)
+			}
+			entityScopeFields[eb.Entity][eb.ScopeField()] = true
+		}
+	}
+
 	// Generate schemas only for entities that have collections. Deduplicate
 	// across collections: multiple collections may reference the same entity.
 	schemaEmitted := make(map[string]bool)
@@ -1689,10 +1725,13 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			Type:       "object",
 			Properties: make(map[string]openAPISchema),
 		}
+		scopeFields := entityScopeFields[eb.Entity]
 		var required []string
 		for _, f := range e.Fields {
 			schema.Properties[f.Name] = fieldToOpenAPISchema(f)
-			if !f.Optional && !f.Computed {
+			// Scope fields are derived from URL path parameters, not the
+			// request body — exclude them from the required array.
+			if !f.Optional && !f.Computed && !scopeFields[f.Name] {
 				required = append(required, f.Name)
 			}
 		}

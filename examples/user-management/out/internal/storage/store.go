@@ -6,7 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	api "github.com/example/service/out/internal/api"
 	search "github.com/example/service/out/internal/search"
@@ -25,6 +27,7 @@ func NewStore(db *gorm.DB) *Store {
 }
 
 // Create inserts a new entity record. Computed fields are excluded.
+// Returns ErrConflict when a unique constraint violation occurs.
 func (s *Store) Create(ctx context.Context, entity string, value any) error {
 	switch entity {
 	case "Organization":
@@ -36,7 +39,13 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling Organization: %w", err)
 		}
-		return s.db.WithContext(ctx).Create(&v).Error
+		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return api.ErrConflict
+			}
+			return err
+		}
+		return nil
 	case "User":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -46,7 +55,13 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling User: %w", err)
 		}
-		return s.db.WithContext(ctx).Create(&v).Error
+		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return api.ErrConflict
+			}
+			return err
+		}
+		return nil
 	case "OrgSetting":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -56,30 +71,46 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling OrgSetting: %w", err)
 		}
-		return s.db.WithContext(ctx).Create(&v).Error
+		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return api.ErrConflict
+			}
+			return err
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
 // Get retrieves a single entity by ID.
+// Returns ErrNotFound when no entity with the given ID exists.
 func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) {
 	switch entity {
 	case "Organization":
 		var v Organization
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, api.ErrNotFound
+			}
 			return nil, err
 		}
 		return v, nil
 	case "User":
 		var v User
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, api.ErrNotFound
+			}
 			return nil, err
 		}
 		return v, nil
 	case "OrgSetting":
 		var v OrgSetting
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, api.ErrNotFound
+			}
 			return nil, err
 		}
 		return v, nil
@@ -540,4 +571,16 @@ func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, err
 	default:
 		return false, fmt.Errorf("unknown entity: %s", entity)
 	}
+}
+
+// isUniqueConstraintError checks whether a database error is a unique
+// constraint violation (PostgreSQL error code 23505).
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "duplicate key value violates unique constraint") ||
+		strings.Contains(errStr, "SQLSTATE 23505") ||
+		strings.Contains(errStr, "duplicated key not allowed")
 }

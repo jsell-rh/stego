@@ -433,11 +433,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\t\"context\"\n")
 	fmt.Fprintf(&buf, "\t\"database/sql\"\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	if apiAlias == "" {
-		// Standalone mode needs errors for ErrSearch.
-		fmt.Fprintf(&buf, "\t\"errors\"\n")
-	}
+	fmt.Fprintf(&buf, "\t\"errors\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\n")
 	if apiPkg != "" {
 		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)
@@ -473,11 +471,15 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		fmt.Fprintf(&buf, "\tTotal int64\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
+		fmt.Fprintf(&buf, "// ErrNotFound is returned by Get when the entity does not exist.\n")
+		fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
+
 		fmt.Fprintf(&buf, "// ErrSearch is returned when a search expression is invalid.\n")
 		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
 
-		fmt.Fprintf(&buf, "// ErrConflict is returned by Upsert when optimistic concurrency check fails.\n")
-		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
+		fmt.Fprintf(&buf, "// ErrConflict is returned when a unique constraint is violated or\n")
+		fmt.Fprintf(&buf, "// optimistic concurrency check fails.\n")
+		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"conflict\")\n\n")
 	}
 
 	// Store struct and constructor.
@@ -491,13 +493,14 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\treturn &Store{db: db}\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	emitCreateMethod(&buf, entities)
-	emitGetMethod(&buf, entities)
+	emitCreateMethod(&buf, entities, apiAlias)
+	emitGetMethod(&buf, entities, apiAlias)
 	emitReplaceMethod(&buf, entities)
 	emitDeleteMethod(&buf, entities)
 	emitListMethod(&buf, entities, apiAlias, searchAlias)
 	emitUpsertMethod(&buf, entities, apiAlias)
 	emitExistsMethod(&buf, entities)
+	emitHelpers(&buf)
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -511,8 +514,16 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 }
 
 // emitCreateMethod generates the Create dispatcher using GORM.
-func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
+// Translates unique constraint violations to ErrConflict so handlers
+// can return 409 instead of 500.
+func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	errConflictRef := "ErrConflict"
+	if apiAlias != "" {
+		errConflictRef = apiAlias + ".ErrConflict"
+	}
+
 	fmt.Fprintf(buf, "// Create inserts a new entity record. Computed fields are excluded.\n")
+	fmt.Fprintf(buf, "// Returns ErrConflict when a unique constraint violation occurs.\n")
 	fmt.Fprintf(buf, "func (s *Store) Create(ctx context.Context, entity string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
@@ -536,7 +547,13 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 			}
 		}
 
-		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Create(&v).Error\n")
+		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).Create(&v).Error; err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\tif isUniqueConstraintError(err) {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflictRef)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\treturn err\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -546,8 +563,16 @@ func emitCreateMethod(buf *bytes.Buffer, entities []types.Entity) {
 }
 
 // emitGetMethod generates the Get dispatcher using GORM.
-func emitGetMethod(buf *bytes.Buffer, entities []types.Entity) {
+// Translates gorm.ErrRecordNotFound to the domain sentinel ErrNotFound
+// so handlers can distinguish not-found (404) from infrastructure errors (500).
+func emitGetMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	errNotFoundRef := "ErrNotFound"
+	if apiAlias != "" {
+		errNotFoundRef = apiAlias + ".ErrNotFound"
+	}
+
 	fmt.Fprintf(buf, "// Get retrieves a single entity by ID.\n")
+	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
 	fmt.Fprintf(buf, "func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
@@ -555,6 +580,9 @@ func emitGetMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := s.db.WithContext(ctx).First(&v, \"id = ?\", id).Error; err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn nil, %s\n", errNotFoundRef)
+		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn v, nil\n")
@@ -897,6 +925,21 @@ func emitExistsMethod(buf *bytes.Buffer, entities []types.Entity) {
 	fmt.Fprintf(buf, "\tdefault:\n")
 	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
 	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "}\n\n")
+}
+
+// emitHelpers generates utility functions used by the Store methods.
+func emitHelpers(buf *bytes.Buffer) {
+	fmt.Fprintf(buf, "// isUniqueConstraintError checks whether a database error is a unique\n")
+	fmt.Fprintf(buf, "// constraint violation (PostgreSQL error code 23505).\n")
+	fmt.Fprintf(buf, "func isUniqueConstraintError(err error) bool {\n")
+	fmt.Fprintf(buf, "\tif err == nil {\n")
+	fmt.Fprintf(buf, "\t\treturn false\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\terrStr := err.Error()\n")
+	fmt.Fprintf(buf, "\treturn strings.Contains(errStr, \"duplicate key value violates unique constraint\") ||\n")
+	fmt.Fprintf(buf, "\t\tstrings.Contains(errStr, \"SQLSTATE 23505\") ||\n")
+	fmt.Fprintf(buf, "\t\tstrings.Contains(errStr, \"duplicated key not allowed\")\n")
 	fmt.Fprintf(buf, "}\n\n")
 }
 
