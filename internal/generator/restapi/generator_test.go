@@ -6308,6 +6308,80 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 	assertEnvelopeResourceSchema(t, upsertedSchema, "upsert")
 }
 
+func TestGenerate_FieldsQueryParameterValidation(t *testing.T) {
+	// Round 3 Finding 1: The fields query parameter must validate field names
+	// against the entity's fields, same as orderBy validation. Unvalidated
+	// field names in ListOptions.Fields reach the storage layer SQL SELECT.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+	if listBody == "" {
+		t.Fatal("could not find List method in handler")
+	}
+
+	// Fields must be validated against validFields — same map used by orderBy.
+	if !strings.Contains(listBody, `validFields[f]`) {
+		t.Error("fields query parameter must validate each field name against validFields")
+	}
+
+	// Invalid field names must be rejected with a BadRequest error.
+	if !strings.Contains(listBody, `BadRequest("invalid fields value: "`) {
+		t.Error("invalid fields value must return BadRequest error")
+	}
+
+	// "id" must be accepted without validFields check (it's the implicit primary key,
+	// not an entity-declared field).
+	if !strings.Contains(listBody, `f != "id" && !validFields[f]`) {
+		t.Error("fields validation must allow 'id' even though it's not in validFields")
+	}
+}
+
+func TestGenerate_OpenAPIListItemsEnvelopeSchema(t *testing.T) {
+	// Round 3 Finding 2: When response_format is envelope, the OpenAPI list
+	// response items array must use the presented entity schema (allOf with
+	// id/kind/href), not the bare entity ref. The handler runs each list item
+	// through presentEntity(), so the spec must match.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
+	getOp := widgetsPath["get"].(map[string]any)
+	responses := getOp["responses"].(map[string]any)
+	ok200 := responses["200"].(map[string]any)
+	content := ok200["content"].(map[string]any)
+	jsonMedia := content["application/json"].(map[string]any)
+	schema := jsonMedia["schema"].(map[string]any)
+
+	// The envelope list response is an object with items property.
+	props := schema["properties"].(map[string]any)
+	itemsProp := props["items"].(map[string]any)
+	if itemsProp["type"] != "array" {
+		t.Fatalf("envelope items property must be type 'array', got %q", itemsProp["type"])
+	}
+
+	// The items array element schema must use allOf with envelope metadata,
+	// not a bare $ref — because each item is run through presentEntity().
+	itemsSchema := itemsProp["items"].(map[string]any)
+	assertEnvelopeResourceSchema(t, itemsSchema, "list items")
+}
+
 // assertEnvelopeResourceSchema verifies that a schema uses allOf to compose the
 // entity ref with envelope metadata (id, kind, href).
 func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName string) {

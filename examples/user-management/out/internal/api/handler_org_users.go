@@ -205,11 +205,16 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		hasID := false
 		for _, f := range strings.Split(fieldsStr, ",") {
 			f = strings.TrimSpace(f)
-			if f != "" {
-				fields = append(fields, f)
-				if f == "id" {
-					hasID = true
-				}
+			if f == "" {
+				continue
+			}
+			if f != "id" && !validFields[f] {
+				handleError(w, r, BadRequest("invalid fields value: "+f))
+				return
+			}
+			fields = append(fields, f)
+			if f == "id" {
+				hasID = true
 			}
 		}
 		if !hasID {

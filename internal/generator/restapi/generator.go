@@ -746,16 +746,23 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 
 	// Parse fields query parameter: comma-separated field names for sparse
 	// fieldset selection. "id" is always included even if not listed.
+	// Field names are validated against the entity's fields to prevent
+	// unvalidated names from reaching the storage layer's SQL SELECT clause.
 	fmt.Fprintf(buf, "\tvar fields []string\n")
 	fmt.Fprintf(buf, "\tif fieldsStr := r.URL.Query().Get(\"fields\"); fieldsStr != \"\" {\n")
 	fmt.Fprintf(buf, "\t\thasID := false\n")
 	fmt.Fprintf(buf, "\t\tfor _, f := range strings.Split(fieldsStr, \",\") {\n")
 	fmt.Fprintf(buf, "\t\t\tf = strings.TrimSpace(f)\n")
-	fmt.Fprintf(buf, "\t\t\tif f != \"\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\tfields = append(fields, f)\n")
-	fmt.Fprintf(buf, "\t\t\t\tif f == \"id\" {\n")
-	fmt.Fprintf(buf, "\t\t\t\t\thasID = true\n")
-	fmt.Fprintf(buf, "\t\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tif f == \"\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\tcontinue\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tif f != \"id\" && !validFields[f] {\n")
+	fmt.Fprintf(buf, "\t\t\t\thandleError(w, r, BadRequest(\"invalid fields value: \"+f))\n")
+	fmt.Fprintf(buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tfields = append(fields, f)\n")
+	fmt.Fprintf(buf, "\t\t\tif f == \"id\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\thasID = true\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif !hasID {\n")
@@ -1360,6 +1367,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 				}
 				var listResponseSchema openAPISchema
 				if responseFormat == "envelope" {
+					itemSchema := envelopeResourceSchema(ref)
 					listResponseSchema = openAPISchema{
 						Type: "object",
 						Properties: map[string]openAPISchema{
@@ -1367,7 +1375,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 							"page":  {Type: "integer"},
 							"size":  {Type: "integer"},
 							"total": {Type: "integer"},
-							"items": {Type: "array", Items: &openAPISchema{Ref: ref}},
+							"items": {Type: "array", Items: &itemSchema},
 						},
 					}
 				} else {

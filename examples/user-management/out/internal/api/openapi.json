@@ -170,7 +170,25 @@
                     "items": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/User"
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/User"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "href": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
                       }
                     },
                     "kind": {
@@ -431,7 +449,25 @@
                     "items": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/User"
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/User"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "href": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
                       }
                     },
                     "kind": {
