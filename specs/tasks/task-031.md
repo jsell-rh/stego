@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation" (spec.md:24-31), "Collections & Operations" (rest-crud spec, lines 80-114)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** None (all prerequisites complete)
 

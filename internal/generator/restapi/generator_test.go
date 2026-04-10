@@ -7490,3 +7490,190 @@ func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
 		t.Error("validation middleware should use NoopAuthenticationFunc to skip auth during validation")
 	}
 }
+
+func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "users",
+				Entity:     "User",
+				Operations: []types.Operation{types.OpRead},
+				Scope:      map[string]string{"org_id": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+	// Read handler for scoped collection must verify scope field after Get.
+	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
+		t.Error("scoped Read handler must verify entity scope field matches URL path parameter")
+	}
+	// Must return 404 on scope mismatch.
+	if !strings.Contains(handler, `NotFound("User", id)`) {
+		t.Error("scoped Read handler must return NotFound on scope mismatch")
+	}
+	// Must convert via JSON roundtrip to access scope field.
+	if !strings.Contains(handler, "json.Marshal(existing)") {
+		t.Error("scoped Read handler must marshal Get result for scope check")
+	}
+}
+
+func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "users",
+				Entity:     "User",
+				Operations: []types.Operation{types.OpUpdate},
+				Scope:      map[string]string{"org_id": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+	// Update handler for scoped collection must pre-fetch and verify scope.
+	if !strings.Contains(handler, `existing.OrgID != r.PathValue("org_id")`) {
+		t.Error("scoped Update handler must verify existing entity scope field matches URL path parameter")
+	}
+	// Must fetch existing entity before body decode to check scope.
+	if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
+		t.Error("scoped Update handler must call store.Get to verify scope before Replace")
+	}
+}
+
+func TestGenerate_ScopedPatchVerifiesScope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "users",
+				Entity:     "User",
+				Operations: []types.Operation{types.OpPatch},
+				Scope:      map[string]string{"org_id": "Organization"},
+				Patchable:  []string{"email"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+	// Patch handler already does store.Get + JSON roundtrip; scope check
+	// must be added after the unmarshal.
+	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
+		t.Error("scoped Patch handler must verify entity scope field matches URL path parameter")
+	}
+}
+
+func TestGenerate_ScopedDeleteVerifiesScope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "users",
+				Entity:     "User",
+				Operations: []types.Operation{types.OpDelete},
+				Scope:      map[string]string{"org_id": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+	// Delete handler for scoped collection must fetch and verify scope
+	// before performing the delete.
+	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
+		t.Error("scoped Delete handler must verify entity scope field matches URL path parameter")
+	}
+	if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
+		t.Error("scoped Delete handler must call store.Get to verify scope before Delete")
+	}
+}
+
+func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpRead, types.OpDelete}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_items.go")
+	// Unscoped collections must NOT have scope verification code.
+	if strings.Contains(handler, "scopeData") {
+		t.Error("unscoped collection handler must not contain scope verification code")
+	}
+	// Read in unscoped collection assigns Get result directly to the entity var.
+	if !strings.Contains(handler, `item, err := h.store.Get(r.Context(), "Item", id)`) {
+		t.Error("unscoped Read must assign Get result directly without scope roundtrip")
+	}
+}

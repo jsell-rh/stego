@@ -573,17 +573,17 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		case types.OpCreate:
 			opErr = generateCreateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpRead:
-			generateReadMethod(&buf, entity, eb, slotParams, slotsAlias, envelope, hrefBase)
+			generateReadMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
 		case types.OpUpdate:
 			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpDelete:
-			generateDeleteMethod(&buf, entity, eb, slotParams, slotsAlias)
+			generateDeleteMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
 		case types.OpList:
 			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
 		case types.OpUpsert:
 			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpPatch:
-			opErr = generatePatchMethod(&buf, entity, eb, slotParams, slotsAlias, envelope, hrefBase)
+			opErr = generatePatchMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -607,6 +607,23 @@ func emitParentCheck(buf *bytes.Buffer, eb types.Collection) {
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
 	}
+}
+
+// emitScopeCheck emits code that verifies the fetched entity's scope field
+// matches the URL path parameter for scoped collections. This prevents
+// cross-scope data access (e.g. reading a user from org A via org B's URL).
+// The variable named by localVar must already hold the deserialized api-type
+// entity (e.g. after JSON roundtrip from store.Get result).
+// Only emits code when the collection has a scope with a parent entity.
+func emitScopeCheck(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, localVar string) {
+	if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
+		return
+	}
+	scopeGoField := toPascalCase(eb.ScopeField())
+	fmt.Fprintf(buf, "\tif %s.%s != r.PathValue(%q) {\n", localVar, scopeGoField, parentParamName)
+	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
 }
 
 func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
@@ -661,13 +678,20 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) {
+func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
+	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
 	fmt.Fprintf(buf, "func (h *%sHandler) Read(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
+	if isScoped {
+		// For scoped collections, fetch as 'existing' then convert via JSON
+		// roundtrip to the api type so we can verify the scope field.
+		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
+	} else {
+		fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
+	}
 	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -676,6 +700,20 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	if isScoped {
+		// Convert storage type to api type via JSON roundtrip.
+		fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
+		fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &%s); err != nil {\n", lower)
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		emitScopeCheck(buf, entity, eb, parentParamName, lower)
+	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if envelope {
 		hrefExpr := resolvedHrefExpr(hrefBase, "id")
@@ -692,9 +730,35 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
+	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
+	if isScoped {
+		// For scoped collections, verify the target entity belongs to this
+		// scope before accepting the update. Fetch the existing entity first,
+		// convert via JSON roundtrip, and compare the scope field.
+		fmt.Fprintf(buf, "\texistingVal, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+		fmt.Fprintf(buf, "\t\t} else {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\texistingData, err := json.Marshal(existingVal)\n")
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\tvar existing %s\n", entity.Name)
+		fmt.Fprintf(buf, "\tif err := json.Unmarshal(existingData, &existing); err != nil {\n")
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		emitScopeCheck(buf, entity, eb, parentParamName, "existing")
+	}
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
@@ -740,11 +804,38 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string) {
+func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string) {
 	collPascal := collectionToPascalCase(eb.Name)
+	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
 	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
+	if isScoped {
+		// For scoped collections, verify the target entity belongs to this
+		// scope before deleting. Fetch the existing entity, convert via JSON
+		// roundtrip, and compare the scope field.
+		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+		fmt.Fprintf(buf, "\t\t} else {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		lower := safeVarName(strings.ToLower(entity.Name))
+		fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
+		fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &%s); err != nil {\n", lower)
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		emitScopeCheck(buf, entity, eb, parentParamName, lower)
+	}
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -1044,7 +1135,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) error {
+func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 
@@ -1106,6 +1197,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+	emitScopeCheck(buf, entity, eb, parentParamName, lower)
 
 	// Step 2: Decode patch request.
 	fmt.Fprintf(buf, "\tvar patch %s\n", patchReqType)
@@ -2274,10 +2366,14 @@ var handlerScopeIdentifiers = map[string]bool{
 	"time":    true, // time (conditional, but safer to always guard)
 	"fmt":     true, // not currently imported, but guard for safety
 	// Generator-emitted local variables in Get/Replace/Delete/Patch/Upsert method bodies.
-	"id":        true, // id := r.PathValue("id")
-	"err":       true, // %s, err := h.store.Get(...) in Get method
-	"existing":  true, // existing, err := h.store.Get(...) in Patch method
-	"patch":     true, // var patch <PatchReqType> in Patch method
+	"id":           true, // id := r.PathValue("id")
+	"err":          true, // %s, err := h.store.Get(...) in Get method
+	"existing":     true, // existing, err := h.store.Get(...) in Patch method
+	"existingVal":  true, // existingVal, err := h.store.Get(...) in scoped Update method
+	"existingData": true, // existingData, err := json.Marshal(existing) in Patch/Update
+	"scopeData":    true, // scopeData, err := json.Marshal(existing) in scoped Read/Delete
+	"scopeValue":   true, // scopeValue := r.PathValue(...) in scoped List method
+	"patch":        true, // var patch <PatchReqType> in Patch method
 	"strings":   true, // strings (conditional for List orderBy/fields parsing)
 	"created":   true, // created, err := h.store.Upsert(...) in Upsert method
 	"upsertKey": true, // upsertKey := []string{...} in Upsert method
