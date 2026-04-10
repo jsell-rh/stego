@@ -646,6 +646,11 @@ func TestUpsertUsesGORMOnConflict(t *testing.T) {
 		t.Error("store.go should import gorm.io/gorm/clause for upsert")
 	}
 
+	// Should import database/sql for transaction isolation level.
+	if !strings.Contains(storeContent, `"database/sql"`) {
+		t.Error("store.go should import database/sql for sql.TxOptions in upsert transaction")
+	}
+
 	// Should use clause.OnConflict.
 	if !strings.Contains(storeContent, "clause.OnConflict") {
 		t.Error("store.go upsert should use clause.OnConflict")
@@ -670,6 +675,12 @@ func TestUpsertUsesGORMOnConflict(t *testing.T) {
 
 	if !strings.Contains(upsertBody, "s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {") {
 		t.Error("Upsert should wrap COUNT + INSERT in a transaction to prevent TOCTOU race")
+	}
+
+	// Verify the transaction uses SERIALIZABLE isolation to prevent TOCTOU race
+	// between COUNT and INSERT under concurrent upserts (per checklist item 193).
+	if !strings.Contains(upsertBody, "&sql.TxOptions{Isolation: sql.LevelSerializable}") {
+		t.Error("Upsert transaction must use sql.LevelSerializable isolation to prevent TOCTOU race")
 	}
 
 	// Verify the COUNT query error is checked inside the transaction.
@@ -1495,7 +1506,7 @@ func TestReservedEntityNameGoKeywords(t *testing.T) {
 }
 
 func TestReservedEntityNameImportAliases(t *testing.T) {
-	aliases := []string{"gorm", "clause", "datatypes", "json", "fmt", "time"}
+	aliases := []string{"gorm", "clause", "datatypes", "json", "fmt", "sql", "time"}
 
 	for _, name := range aliases {
 		t.Run(name, func(t *testing.T) {

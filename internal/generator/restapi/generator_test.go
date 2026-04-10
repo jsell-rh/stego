@@ -2466,6 +2466,9 @@ func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
 		// Generator-emitted locals in Patch method.
 		{"existing", "existing_"},
 		{"patch", "patch_"},
+		// Generator-emitted locals in Upsert method.
+		{"created", "created_"},
+		{"upsertKey", "upsertKey_"},
 		// Non-colliding names should pass through unchanged.
 		{"user", "user"},
 		{"cluster", "cluster"},
@@ -7139,6 +7142,60 @@ func TestGenerate_PatchEntityNamedExistingOrPatchCompiles(t *testing.T) {
 				t.Fatalf("entity named %q with patch operation does not compile:\n%s\n%s", name, err, output)
 			}
 		})
+	}
+}
+
+func TestGenerate_UpsertEntityNamedCreatedCompiles(t *testing.T) {
+	// Checklist item 188: generateUpsertMethod introduces hardcoded local
+	// variable names "created" and "upsertKey" which must be guarded in
+	// handlerScopeIdentifiers. An entity named "Created" whose
+	// strings.ToLower produces "created" would collide with the return-value
+	// variable in the upsert handler without the guard.
+	g := &Generator{}
+
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Created", Fields: []types.Field{
+				{Name: "label", Type: types.FieldTypeString},
+				{Name: "key_field", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "createds",
+				Entity:     "Created",
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey:  []string{"key_field"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("entity named 'Created' with upsert operation does not compile:\n%s\n%s", err, output)
 	}
 }
 

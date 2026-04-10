@@ -181,6 +181,7 @@ var reservedTypeNames = map[string]bool{
 	"datatypes":  true,
 	"json":       true,
 	"fmt":        true,
+	"sql":        true,
 	"time":       true,
 	"uuid":       true,
 }
@@ -403,6 +404,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"context\"\n")
+	fmt.Fprintf(&buf, "\t\"database/sql\"\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	if apiAlias == "" {
 		// Standalone mode needs errors for ErrSearch.
@@ -837,7 +839,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias strin
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\tcreated = existingCount == 0\n")
 		fmt.Fprintf(buf, "\t\t\treturn nil\n")
-		fmt.Fprintf(buf, "\t\t})\n")
+		fmt.Fprintf(buf, "\t\t}, &sql.TxOptions{Isolation: sql.LevelSerializable})\n")
 		fmt.Fprintf(buf, "\t\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn false, err\n")
 		fmt.Fprintf(buf, "\t\t}\n")
