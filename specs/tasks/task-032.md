@@ -100,3 +100,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - 946db29 feat(task-032): add rh-sso-auth component registry definition
 - 55ca496 feat(task-032): implement rh-sso-auth generator with JWK and RSA validation
 - cfb9a91 chore(task-032): mark task ready-for-review
+- a14e1d5 fix(task-032): wire env var overrides and fix tryRefresh TOCTOU race
