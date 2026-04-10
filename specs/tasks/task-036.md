@@ -2,6 +2,8 @@
 
 ## Spec Reference
 
+**Status:** `ready-for-review`
+
 **specs/spec.md — Port Resolution, item 3:**
 
 > When an override references a component not in the archetype's component list, the resolver must load that component from the registry and include it in the active component set. This enables swapping components (e.g. `jwt-auth` -> `rh-sso-auth`) without modifying the archetype.
@@ -44,7 +46,7 @@ The spec says "the resolver must load that component from the registry." Current
 
 ## Progress
 
-`needs-revision`
+`ready-for-review`
 
 ## Review
 
