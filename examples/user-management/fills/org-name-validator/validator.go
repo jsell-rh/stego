@@ -9,8 +9,8 @@ import (
 )
 
 // OrgNameValidator rejects organization names containing reserved words.
-// Demonstrates short-circuit chain semantics: returns halt=true with a 400
-// status when the name is invalid, stopping the chain before provisioning.
+// Demonstrates the rejection behavioral state (Ok=false): the chain stops
+// on the error before provisioning runs.
 type OrgNameValidator struct{}
 
 // New returns a new OrgNameValidator that implements the BeforeCreateSlot interface.
@@ -30,7 +30,6 @@ func (v *OrgNameValidator) Evaluate(_ context.Context, req *slots.BeforeCreateRe
 		if strings.Contains(lower, r) {
 			return &slots.SlotResult{
 				Ok:           false,
-				Halt:         true,
 				StatusCode:   int32(http.StatusBadRequest),
 				ErrorMessage: "organization name must not contain reserved word: " + r,
 			}, nil

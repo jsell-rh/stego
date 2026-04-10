@@ -22,8 +22,8 @@ func TestRejectsReservedName(t *testing.T) {
 	if result.Ok {
 		t.Error("expected Ok=false for reserved name")
 	}
-	if !result.Halt {
-		t.Error("expected Halt=true for short-circuit chain")
+	if result.Halt {
+		t.Error("expected Halt=false; rejection uses Ok=false, not Halt")
 	}
 	if result.StatusCode != int32(http.StatusBadRequest) {
 		t.Errorf("expected status 400, got %d", result.StatusCode)
