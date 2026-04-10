@@ -73,3 +73,5 @@ The rest-crud archetype convention `error_handling: problem-details-rfc` is alre
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 8bd6c1d feat(task-023): generate RFC 9457 Problem Details error handling
