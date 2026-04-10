@@ -106,3 +106,6 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - 68c8250 test(task-024): add tests for envelope format, pagination, and query params
 - 9b49ee5 chore(task-024): regenerate example output with envelope format
 - 8b23e1e chore(task-024): mark task ready-for-review
+- f8a2edc fix(task-024): address round 1 review findings — href resolution, list presentation, OpenAPI completeness
+- 4acd44e chore(task-024): regenerate example output with round 1 fixes
+- c6463e9 chore(task-024): mark task ready-for-review after round 1 fixes
