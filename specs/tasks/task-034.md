@@ -79,3 +79,5 @@ Verify each row in the "Differences from jwt-auth" table:
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- a04680d feat(task-034): rh-sso-auth end-to-end verification example
