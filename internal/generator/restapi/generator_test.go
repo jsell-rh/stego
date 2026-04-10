@@ -1226,7 +1226,12 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 			}},
 		},
 		Collections: []types.Collection{
-			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Name:       "organizations",
+				Entity:     "Organization",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpPatch},
+				Patchable:  []string{"name", "metadata"},
+			},
 			{
 				Name:       "users",
 				Entity:     "User",
@@ -6446,5 +6451,378 @@ func TestGenerate_FieldsSparseFieldsetFiltersResponse(t *testing.T) {
 	// Non-selected fields must be removed from the presented entity map.
 	if !strings.Contains(listBody, `delete(presentedItems[i], k)`) {
 		t.Error("sparse fieldset filter must delete non-allowed keys from presented items")
+	}
+}
+
+func TestGenerate_PatchOperation(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-agg"},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "clusters",
+				Entity:     "Cluster",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList, types.OpPatch},
+				Patchable:  []string{"spec", "labels"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+
+	// Verify patch request struct is generated with pointer fields.
+	if !strings.Contains(handler, "type ClustersPatchRequest struct") {
+		t.Error("handler missing ClustersPatchRequest struct")
+	}
+	// spec is jsonb → json.RawMessage (reference type, no pointer).
+	if !strings.Contains(handler, "Spec") || !strings.Contains(handler, "json.RawMessage") {
+		t.Error("patch request missing Spec field as json.RawMessage")
+	}
+	// labels is jsonb → json.RawMessage (reference type, no pointer).
+	if !strings.Contains(handler, "Labels") {
+		t.Error("patch request missing Labels field")
+	}
+
+	// Verify Patch method exists.
+	if !strings.Contains(handler, "func (h *ClustersHandler) Patch(") {
+		t.Error("handler missing Patch method")
+	}
+
+	// Verify get-then-merge: fetches existing, type-asserts, decodes patch, applies.
+	if !strings.Contains(handler, "h.store.Get(r.Context()") {
+		t.Error("Patch handler must fetch existing entity via store.Get")
+	}
+	if !strings.Contains(handler, "existing.(Cluster)") {
+		t.Error("Patch handler must type-assert Get result to entity type")
+	}
+	if !strings.Contains(handler, "var patch ClustersPatchRequest") {
+		t.Error("Patch handler must decode into patch request struct")
+	}
+	if !strings.Contains(handler, "h.store.Replace(r.Context()") {
+		t.Error("Patch handler must save merged entity via store.Replace")
+	}
+
+	// Verify apply-non-nil logic for patchable fields.
+	if !strings.Contains(handler, "if patch.Spec != nil") {
+		t.Error("Patch handler must check patch.Spec != nil before applying")
+	}
+	if !strings.Contains(handler, "if patch.Labels != nil") {
+		t.Error("Patch handler must check patch.Labels != nil before applying")
+	}
+
+	// Verify route is PATCH method on /{id} path.
+	found := false
+	for _, route := range wiring.Routes {
+		if strings.Contains(route, "PATCH") && strings.Contains(route, "{id}") && strings.Contains(route, "Patch") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("wiring must include PATCH /{path}/{id} route")
+	}
+}
+
+func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
+	// Verify that non-reference-type patchable fields get pointer types.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+				{Name: "score", Type: types.FieldTypeDouble},
+				{Name: "active", Type: types.FieldTypeBool},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"name", "count", "score", "active"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Pointer fields for value types.
+	if !strings.Contains(handler, "*string") {
+		t.Error("patch request missing *string pointer field")
+	}
+	if !strings.Contains(handler, "*int32") {
+		t.Error("patch request missing *int32 pointer field")
+	}
+	if !strings.Contains(handler, "*float64") {
+		t.Error("patch request missing *float64 pointer field")
+	}
+	if !strings.Contains(handler, "*bool") {
+		t.Error("patch request missing *bool pointer field")
+	}
+
+	// Verify pointer dereference in apply logic.
+	if !strings.Contains(handler, "*patch.Name") {
+		t.Error("Patch handler must dereference pointer field Name")
+	}
+	if !strings.Contains(handler, "*patch.Count") {
+		t.Error("Patch handler must dereference pointer field Count")
+	}
+}
+
+func TestGenerate_PatchOpenAPISchema(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "clusters",
+				Entity:     "Cluster",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"spec", "labels"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiContent := findFileContent(t, files, "internal/api/openapi.json")
+
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiContent), &spec); err != nil {
+		t.Fatalf("openapi spec is not valid JSON: %v", err)
+	}
+
+	// Verify patch operation exists on /{path}/{id}.
+	paths, _ := spec["paths"].(map[string]any)
+	itemPath, ok := paths["/clusters/{id}"].(map[string]any)
+	if !ok {
+		t.Fatal("missing /clusters/{id} path in OpenAPI spec")
+	}
+	patchOp, ok := itemPath["patch"].(map[string]any)
+	if !ok {
+		t.Fatal("missing patch operation on /clusters/{id}")
+	}
+	if opID, _ := patchOp["operationId"].(string); opID != "patchClusters" {
+		t.Errorf("expected operationId 'patchClusters', got %q", opID)
+	}
+
+	// Verify patch request body references the patch schema.
+	reqBody, _ := patchOp["requestBody"].(map[string]any)
+	if reqBody == nil {
+		t.Fatal("patch operation missing requestBody")
+	}
+	reqContent, _ := reqBody["content"].(map[string]any)
+	jsonSchema, _ := reqContent["application/json"].(map[string]any)
+	schema, _ := jsonSchema["schema"].(map[string]any)
+	ref, _ := schema["$ref"].(string)
+	if ref != "#/components/schemas/ClustersPatchRequest" {
+		t.Errorf("expected patch request body ref to ClustersPatchRequest, got %q", ref)
+	}
+
+	// Verify the patch schema exists in components/schemas.
+	components, _ := spec["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	patchSchema, ok := schemas["ClustersPatchRequest"].(map[string]any)
+	if !ok {
+		t.Fatal("missing ClustersPatchRequest in OpenAPI schemas")
+	}
+	props, _ := patchSchema["properties"].(map[string]any)
+	if _, ok := props["spec"]; !ok {
+		t.Error("ClustersPatchRequest schema missing 'spec' property")
+	}
+	if _, ok := props["labels"]; !ok {
+		t.Error("ClustersPatchRequest schema missing 'labels' property")
+	}
+	// Non-patchable fields must not be in the patch schema.
+	if _, ok := props["name"]; ok {
+		t.Error("ClustersPatchRequest schema must NOT include non-patchable field 'name'")
+	}
+}
+
+func TestGenerate_PatchCompilesAsPackage(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+				{Name: "price", Type: types.FieldTypeDouble},
+				{Name: "active", Type: types.FieldTypeBool},
+				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
+				{Name: "created_at", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpPatch},
+				Patchable:  []string{"name", "count", "price", "active", "data"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with patch does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_PatchOnlyCompilesAsPackage(t *testing.T) {
+	// Verify that a collection with only patch+read operations compiles.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Config", Fields: []types.Field{
+				{Name: "value", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "configs",
+				Entity:     "Config",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"value"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with patch-only does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_PatchWithEnvelopeCompilesAsPackage(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions:     types.Convention{Layout: "flat", ResponseFormat: "envelope"},
+		OutputNamespace: "internal/api",
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"name", "data"},
+			},
+		},
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with patch+envelope does not compile:\n%s\n%s", err, output)
 	}
 }

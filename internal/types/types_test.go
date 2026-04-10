@@ -25,7 +25,7 @@ func TestFieldTypeValidation(t *testing.T) {
 }
 
 func TestOperationValidation(t *testing.T) {
-	valid := []Operation{OpCreate, OpRead, OpUpdate, OpDelete, OpList, OpUpsert}
+	valid := []Operation{OpCreate, OpRead, OpUpdate, OpDelete, OpList, OpUpsert, OpPatch}
 	for _, op := range valid {
 		if !ValidOperations[op] {
 			t.Errorf("expected %q to be a valid operation", op)

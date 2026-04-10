@@ -197,6 +197,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			case types.OpUpsert:
 				wiring.Routes = append(wiring.Routes,
 					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", hrefBase, collCamel))
+			case types.OpPatch:
+				wiring.Routes = append(wiring.Routes,
+					fmt.Sprintf("mux.HandleFunc(\"PATCH %s/{id}\", %sHandler.Patch)", hrefBase, collCamel))
 			}
 		}
 	}
@@ -308,7 +311,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			needStrconv = true
 			hasList = true
 		}
-		if op == types.OpRead {
+		if op == types.OpRead || op == types.OpPatch {
 			needErrors = true
 		}
 		if op == types.OpCreate {
@@ -522,6 +525,8 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
 		case types.OpUpsert:
 			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
+		case types.OpPatch:
+			opErr = generatePatchMethod(&buf, entity, eb, slotParams, slotsAlias, envelope, hrefBase)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -905,6 +910,104 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		hrefExpr := resolvedHrefExpr(hrefBase, lower+".ID")
 		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %s))\n",
 			lower, entity.Name, lower, hrefExpr)
+	} else {
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+	}
+	fmt.Fprintf(buf, "}\n\n")
+	return nil
+}
+
+func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) error {
+	collPascal := collectionToPascalCase(eb.Name)
+	lower := safeVarName(strings.ToLower(entity.Name))
+
+	// Build a map of patchable field names for quick lookup.
+	patchableSet := make(map[string]bool, len(eb.Patchable))
+	for _, pf := range eb.Patchable {
+		patchableSet[pf] = true
+	}
+
+	// Collect the fields that are patchable for this collection.
+	var patchFields []types.Field
+	for _, f := range entity.Fields {
+		if patchableSet[f.Name] {
+			patchFields = append(patchFields, f)
+		}
+	}
+
+	patchReqType := collPascal + "PatchRequest"
+
+	// Emit the patch request struct with pointer fields.
+	fmt.Fprintf(buf, "// %s contains the fields that can be partially updated.\n", patchReqType)
+	fmt.Fprintf(buf, "type %s struct {\n", patchReqType)
+	for _, f := range patchFields {
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		// Pointer types for partial update detection (nil = not provided).
+		// []byte and json.RawMessage are already reference types, so they
+		// don't need an extra pointer level.
+		switch goType {
+		case "[]byte", "json.RawMessage":
+			fmt.Fprintf(buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
+		default:
+			fmt.Fprintf(buf, "\t%s *%s `json:%q`\n", goName, goType, f.Name)
+		}
+	}
+	fmt.Fprintf(buf, "}\n\n")
+
+	// Emit the Patch method.
+	fmt.Fprintf(buf, "func (h *%sHandler) Patch(w http.ResponseWriter, r *http.Request) {\n", collPascal)
+	emitParentCheck(buf, eb)
+	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
+
+	// Step 1: Fetch existing entity.
+	fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\t%s := existing.(%s)\n", lower, entity.Name)
+
+	// Step 2: Decode patch request.
+	fmt.Fprintf(buf, "\tvar patch %s\n", patchReqType)
+	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&patch); err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+
+	// Step 3: Apply non-nil fields from patch request to existing entity.
+	for _, f := range patchFields {
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		switch goType {
+		case "[]byte", "json.RawMessage":
+			// Reference types: nil means not provided.
+			fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
+			fmt.Fprintf(buf, "\t\t%s.%s = patch.%s\n", lower, goName, goName)
+			fmt.Fprintf(buf, "\t}\n")
+		default:
+			// Pointer types: nil means not provided, dereference if set.
+			fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
+			fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
+			fmt.Fprintf(buf, "\t}\n")
+		}
+	}
+
+	// Step 4: Save via Replace (full entity save after merge).
+	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+
+	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
+	if envelope {
+		hrefExpr := resolvedHrefExpr(hrefBase, "id")
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %s))\n",
+			lower, entity.Name, hrefExpr)
 	} else {
 		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
 	}
@@ -1513,6 +1616,47 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					upsertOp.Parameters = nil
 				}
 				collectionOps["put"] = upsertOp
+			case types.OpPatch:
+				// Build patch request schema with only the patchable fields.
+				patchSchema := openAPISchema{
+					Type:       "object",
+					Properties: make(map[string]openAPISchema),
+				}
+				entity := entityMap[eb.Entity]
+				patchableSet := make(map[string]bool, len(eb.Patchable))
+				for _, pf := range eb.Patchable {
+					patchableSet[pf] = true
+				}
+				for _, f := range entity.Fields {
+					if patchableSet[f.Name] {
+						patchSchema.Properties[f.Name] = fieldToOpenAPISchema(f)
+					}
+				}
+				patchSchemaName := collPascal + "PatchRequest"
+				spec.Components.Schemas[patchSchemaName] = patchSchema
+
+				responseSchema := openAPISchema{Ref: ref}
+				if responseFormat == "envelope" {
+					responseSchema = envelopeResourceSchema(ref)
+				}
+				itemOps["patch"] = openAPIOperation{
+					Summary:     "Patch " + eb.Entity + " via " + eb.Name,
+					OperationID: "patch" + collPascal,
+					Tags:        []string{tag},
+					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
+						Name:     "id",
+						In:       "path",
+						Required: true,
+						Schema:   openAPISchema{Type: "string"},
+					}),
+					RequestBody: &openAPIRequestBody{
+						Required: true,
+						Content:  jsonContent(openAPISchema{Ref: "#/components/schemas/" + patchSchemaName}),
+					},
+					Responses: map[string]openAPIResponse{
+						"200": {Description: "Patched", Content: jsonContent(responseSchema)},
+					},
+				}
 			}
 		}
 

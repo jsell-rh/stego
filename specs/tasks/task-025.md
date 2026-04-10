@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Collections & Operations > Patch" (rest-crud spec)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

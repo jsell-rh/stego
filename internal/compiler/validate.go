@@ -549,6 +549,80 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 				Message:  fmt.Sprintf("collection %q has invalid concurrency mode %q — valid modes: %v", c.Name, c.Concurrency, validModes),
 			})
 		}
+
+		// Determine whether patch is in the operations list.
+		hasPatchOp := false
+		for _, op := range c.Operations {
+			if op == types.OpPatch {
+				hasPatchOp = true
+				break
+			}
+		}
+
+		// Validate bidirectional patch/patchable dependency.
+		if len(c.Patchable) > 0 && !hasPatchOp {
+			errs = append(errs, ValidationError{
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q specifies patchable but does not include 'patch' in its operations list — patchable requires the patch operation", c.Name),
+			})
+		}
+		if hasPatchOp && len(c.Patchable) == 0 {
+			errs = append(errs, ValidationError{
+				Category: "collection",
+				Message:  fmt.Sprintf("collection %q includes 'patch' operation but does not specify patchable — patch requires a list of patchable fields", c.Name),
+			})
+		}
+
+		// Validate patchable field references and constraints.
+		if len(c.Patchable) > 0 && entityNames[c.Entity] {
+			// Build field map for constraint checks.
+			entityFieldMap := make(map[string]types.Field, len(entities))
+			for _, e := range entities {
+				if e.Name == c.Entity {
+					for _, f := range e.Fields {
+						entityFieldMap[f.Name] = f
+					}
+					break
+				}
+			}
+
+			patchSeen := make(map[string]bool, len(c.Patchable))
+			for _, pf := range c.Patchable {
+				// Duplicate check.
+				if patchSeen[pf] {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: patchable contains duplicate field reference %q", c.Name, pf),
+					})
+				}
+				patchSeen[pf] = true
+
+				// Field existence check.
+				if !entityFields[c.Entity][pf] {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q has patchable field %q which is not a field on entity %q", c.Name, pf, c.Entity),
+					})
+					continue
+				}
+
+				// Patchable fields must not be computed.
+				f := entityFieldMap[pf]
+				if f.Computed {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: patchable field %q is computed — computed fields cannot be patched", c.Name, pf),
+					})
+				}
+				// Patchable fields must not be ref type.
+				if f.Type == types.FieldTypeRef {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: patchable field %q is a ref type — ref fields cannot be patched", c.Name, pf),
+					})
+				}
+			}
+		}
 	}
 	return errs
 }

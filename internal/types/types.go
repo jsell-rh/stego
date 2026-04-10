@@ -50,6 +50,7 @@ const (
 	OpDelete Operation = "delete"
 	OpList   Operation = "list"
 	OpUpsert Operation = "upsert"
+	OpPatch  Operation = "patch"
 )
 
 // ValidOperations is the set of all valid Operation values.
@@ -60,6 +61,7 @@ var ValidOperations = map[Operation]bool{
 	OpDelete: true,
 	OpList:   true,
 	OpUpsert: true,
+	OpPatch:  true,
 }
 
 // Field represents a single field within an entity definition.
@@ -247,6 +249,7 @@ type Collection struct {
 	PathPrefix  string            `yaml:"path_prefix,omitempty"`
 	UpsertKey   []string          `yaml:"upsert_key,omitempty"`
 	Concurrency ConcurrencyMode   `yaml:"concurrency,omitempty"`
+	Patchable   []string          `yaml:"patchable,omitempty"`
 }
 
 // ScopeField returns the scope field name (key) from the Scope map. For

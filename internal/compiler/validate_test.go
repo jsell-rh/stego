@@ -3499,3 +3499,238 @@ collections:
 		t.Fatalf("expected no errors with valid base_path, got:\n%s", FormatValidation(result))
 	}
 }
+
+func TestValidate_PatchWithoutPatchable(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "includes 'patch' operation but does not specify patchable")
+}
+
+func TestValidate_PatchableWithoutPatch(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+    patchable: [name]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "specifies patchable but does not include 'patch'")
+}
+
+func TestValidate_PatchableFieldNotOnEntity(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+    patchable: [nonexistent]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "patchable field \"nonexistent\" which is not a field on entity")
+}
+
+func TestValidate_PatchableComputedField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+      - { name: status, type: string, computed: true, filled_by: status-agg }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+    patchable: [status]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "patchable field \"status\" is computed")
+}
+
+func TestValidate_PatchableRefField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+    patchable: [org_id]
+  orgs:
+    entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "patchable field \"org_id\" is a ref type")
+}
+
+func TestValidate_PatchableDuplicateField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+      - { name: label, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+    patchable: [name, name]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "patchable contains duplicate field reference \"name\"")
+}
+
+func TestValidate_PatchWithValidPatchable(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: name, type: string }
+      - { name: label, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read, patch]
+    patchable: [name, label]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors with valid patch+patchable, got:\n%s", FormatValidation(result))
+	}
+}
