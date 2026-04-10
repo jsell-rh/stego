@@ -12,19 +12,30 @@
 
 Fix `collectionBasePath()` in `internal/generator/restapi/generator.go` to derive URL path segments from the entity name (pluralized, lowercased) instead of the collection name.
 
-### Current Bug
+### Spec Clarification (resolved)
 
-The generator uses `eb.Name` (the collection name) as the URL segment. For scoped collections this produces incorrect paths:
+The rest-crud spec had an internal inconsistency: the stated derivation rule says "entity name (pluralized, lowercased)" but the YAML examples showed `AdapterStatus → statuses`, which no mechanical application of that rule can produce (`lowercase + pluralize` yields `adapterstatuses`).
 
-- `cluster-nodepools` -> `/clusters/{cluster_id}/cluster-nodepools` (wrong)
-- Should be: `/clusters/{cluster_id}/nodepools` (entity `NodePool` -> `nodepools`)
+**Resolution:** The spec has been updated so examples are consistent with the stated rule. The derivation algorithm is: `lowercase(entityName)` then `pluralize`. Multi-word PascalCase names are treated as a single token:
+- `NodePool` → `nodepool` → `nodepools`
+- `AdapterStatus` → `adapterstatus` → `adapterstatuses`
+- `Cluster` → `cluster` → `clusters`
+
+If a shorter path segment is preferred (e.g. `statuses` instead of `adapterstatuses`), the collection should use `path_prefix` to override.
 
 ### Path Derivation Rules
 
-1. **Unscoped collection:** path = `/{entity_plural}` (e.g. entity `Cluster` -> `/clusters`)
-2. **Scoped collection:** path = `/{parent_plural}/{parent_id_param}/{entity_plural}` (e.g. entity `NodePool` scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools`)
-3. **Multi-level scope:** chains parent paths recursively (e.g. entity `AdapterStatus` scoped to `NodePool` which is scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses`)
+1. **Unscoped collection:** path = `/{entity_plural}` (e.g. entity `Cluster` → `/clusters`)
+2. **Scoped collection:** path = `/{parent_plural}/{parent_id_param}/{entity_plural}` (e.g. entity `NodePool` scoped to `Cluster` → `/clusters/{cluster_id}/nodepools`)
+3. **Multi-level scope:** chains parent paths recursively (e.g. entity `AdapterStatus` scoped to `NodePool` which is scoped to `Cluster` → `/clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses`)
 4. **`path_prefix` override:** when set on a collection, replaces the derived path entirely (relative to `base_path`)
+
+### Review Round 1 Findings (to address)
+
+1. **`entityPathSegment()` algorithm:** The `strings.ToLower(entityName) + pluralize()` approach is correct for the updated spec. The previous review flagged `adapterstatuses` as wrong because the old spec examples showed `statuses` — the spec has been corrected.
+2. **Test `TestCollectionBasePath_MultiLevel`:** The test at `generator_test.go:1449` expects `/clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses` — verify this matches the current implementation output.
+3. **Test `TestEntityPathSegment`:** The test at `generator_test.go:1463` expects `{"AdapterStatus", "adapterstatuses"}` — verify this matches the current implementation output.
+4. **Example service `OrgSetting`:** The generated output produces `/organizations/{org_id}/orgsettings` for entity `OrgSetting`. Per the updated rule, this is correct (`orgsetting` → `orgsettings`).
 
 ### Implementation Notes
 
@@ -38,14 +49,14 @@ The generator uses `eb.Name` (the collection name) as the URL segment. For scope
 
 > Collection paths must be derived from the entity name (pluralized, lowercased), not from the collection name. The collection name is an identifier for the service declaration; the URL path comes from the entity.
 >
-> Current bug: the generator uses the collection name (`cluster-nodepools`) as the URL segment instead of the entity plural (`nodepools`). This produces `/clusters/{cluster_id}/cluster-nodepools` instead of `/clusters/{cluster_id}/nodepools`.
+> The derivation algorithm: `lowercase(entityName)` then `pluralize`. Multi-word PascalCase names are treated as a single token (e.g. `NodePool` -> `nodepool` -> `nodepools`, `AdapterStatus` -> `adapterstatus` -> `adapterstatuses`). Use `path_prefix` on the collection to override the derived segment when a shorter path is preferred.
 
 ## Acceptance Criteria
 
 1. `collectionBasePath()` derives URL segments from entity name, not collection name.
-2. Unscoped collection `clusters` with entity `Cluster` -> path `/clusters`.
-3. Scoped collection `cluster-nodepools` with entity `NodePool` scoped to `Cluster` -> path `/clusters/{cluster_id}/nodepools`.
-4. Multi-level scoped collection with entity `AdapterStatus` scoped through `NodePool` -> `Cluster` -> path `/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses`.
+2. Unscoped collection `clusters` with entity `Cluster` → path `/clusters`.
+3. Scoped collection `cluster-nodepools` with entity `NodePool` scoped to `Cluster` → path `/clusters/{cluster_id}/nodepools`.
+4. Multi-level scoped collection with entity `AdapterStatus` scoped through `NodePool` → `Cluster` → path `/clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses`.
 5. `path_prefix` override still takes precedence over derived paths.
 6. OpenAPI spec, handler routes, href expressions, and wiring all reflect the corrected paths.
 7. Example service output updated to reflect correct entity-derived paths.

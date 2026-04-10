@@ -27,7 +27,7 @@ Entities define data (fields, types, constraints). Collections define access pat
 - Multiple collections can reference the same entity with different scopes and operations.
 - Each collection generates its own handler. The entity struct is shared.
 - Slots bind to collections, not entities. Different access paths can have different business logic.
-- Paths are derived from collection names and scopes, or declared explicitly via `path_prefix`.
+- Paths are derived from entity names (lowercased, pluralized) and scopes, or declared explicitly via `path_prefix`.
 
 This makes multi-path access the default case, not an exception. REST APIs project entity graphs onto URL trees; that projection is inherently 1:N.
 
