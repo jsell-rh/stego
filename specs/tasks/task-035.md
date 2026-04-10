@@ -55,3 +55,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 0cb87ef fix(task-035): derive URL paths from entity name, not collection name
