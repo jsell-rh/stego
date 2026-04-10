@@ -93,7 +93,16 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 
-	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities)
+	// Build upsert key lookup: entity name → list of upsert key field sets.
+	// Each collection with an upsert_key contributes a composite unique index.
+	upsertKeys := make(map[string][][]string)
+	for _, c := range ctx.Collections {
+		if len(c.UpsertKey) > 0 {
+			upsertKeys[c.Entity] = append(upsertKeys[c.Entity], c.UpsertKey)
+		}
+	}
+
+	modelsFile, err := generateModels(ctx.OutputNamespace, ctx.Entities, upsertKeys)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating models: %w", err)
 	}
@@ -190,7 +199,7 @@ var reservedTypeNames = map[string]bool{
 
 // generateModels produces models.go with Meta base struct and entity struct
 // definitions using GORM struct tags.
-func generateModels(ns string, entities []types.Entity) (gen.File, error) {
+func generateModels(ns string, entities []types.Entity, upsertKeys map[string][][]string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	needTime := true // Meta always uses time.Time
@@ -244,6 +253,18 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 
 	// Entity structs.
 	for _, e := range entities {
+		// Build upsert key index lookup for this entity.
+		// Maps field name → list of composite index names it participates in.
+		upsertIdxByField := make(map[string][]string)
+		if keys, ok := upsertKeys[e.Name]; ok {
+			for _, keyFields := range keys {
+				idxName := "upsert_" + strings.Join(keyFields, "_")
+				for _, kf := range keyFields {
+					upsertIdxByField[kf] = append(upsertIdxByField[kf], idxName)
+				}
+			}
+		}
+
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
 		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
 		fmt.Fprintf(&buf, "\tMeta\n")
@@ -251,6 +272,12 @@ func generateModels(ns string, entities []types.Entity) (gen.File, error) {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f)
 			gormTag := buildGormTag(f)
+			// Append upsert key composite unique indexes.
+			if idxNames, ok := upsertIdxByField[f.Name]; ok {
+				for _, idx := range idxNames {
+					gormTag += ";uniqueIndex:" + idx
+				}
+			}
 			jsonTag := f.Name
 			if f.Optional {
 				jsonTag += ",omitempty"

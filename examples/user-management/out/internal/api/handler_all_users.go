@@ -94,7 +94,7 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/users"
+	hrefBase := "/api/user-mgmt/v1/all-users"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)

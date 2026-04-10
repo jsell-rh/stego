@@ -61,22 +61,22 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
-        cmd/main.go: e4f8f9b1c3e48f0d0eb32a7d9e19ced60f15751026eeea954a266178be57a6f3
+        cmd/main.go: 69cb1269a5b5c0c3768e73ff2f990c8c5d0de39552e864e38787e4f08523cab7
         go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
-        internal/api/errors.go: 17f2f35bf435b45ad2d33819bde91aa5f297df2c4f8c799e86a0ba11beab5a79
-        internal/api/handler_all_users.go: 8afbeb00f72ba942d4c6f2f341543f834f941482e3c87a6680335f48d5d698c8
-        internal/api/handler_org_settings.go: f1dac2716b9bc388397b2b2366d5884acae58f695b627f6063e658d9a1934c26
-        internal/api/handler_org_users.go: 420e0e1eea8ac236f6be174ac03ba185c2b1ead27e70341923e6a671f8778acd
-        internal/api/handler_organizations.go: a0168957b01e05a8c43db96e24fe5e4d72c27760a038ea7561d9d17c1c96a7df
-        internal/api/openapi.json: 2fea687db4903cc37209ebfc1a52dcb4f3730d2239b465fd3351e00e4f715a4b
-        internal/api/router.go: b115adf071ec43b5137656c7d21f17cf21e4ab6804c6890934ee44532655f47e
+        internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
+        internal/api/handler_all_users.go: f26c3a72b985189ccccd2fc8ea25fcdd96aa441cb59d6379c24e031370a2b9f8
+        internal/api/handler_org_settings.go: b8ff8ad784107600e8a18cdf22657d4429f0fcf7ba8279822d6a01cc5066a273
+        internal/api/handler_org_users.go: 8543d00357ed7c6adb8bb626b8b100b11ed6cd699a1a9b05b1b3a8861c46d512
+        internal/api/handler_organizations.go: 3abb3363567c82039d784e3afb98a7865f095d34b21a7bc142f7d853a405725e
+        internal/api/openapi.json: b830d8b9baf6ea8f34e530c6807ebb13072c8e7cd7a0981e36ae66ddcf3a30cd
+        internal/api/router.go: 86209962eb2b2ac6d8ca67243a2f611f2bf9d905feb59dda2110ba963f4e7fe0
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/middleware.go: ccadca735a6731c61c20733a72c22b80e12b8b98b90da88c437b6cd8b13c9de0
         internal/search/field_map.go: f84a53753b62db86e9908d6a9eae9f97e6c930f950f16cda2bfa212b8c6bbad6
         internal/search/search.go: 8e517214792a8e844ae687ae45d364895588893ca4c9028470599302dec55089
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
         internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
-        internal/storage/models.go: e1784cf78985e008015e9e5cef93884ef7a8f96d6d997085365ffaf5234504dc
+        internal/storage/models.go: 070abe4729d630a4b2b6e7e1fe975cb6cc22ebb9a956689bd28c44f6da69dd33
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 52cb9850c1b55b7d21039e0a6ccd907e59ddec154715db73f54a3e1c421fe1b5
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f

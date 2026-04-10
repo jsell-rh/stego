@@ -35,7 +35,7 @@ func NotFound(entityKind, id string) *ServiceError {
 		Title:  "Not Found",
 		Status: http.StatusNotFound,
 		Detail: entityKind + " with id '" + id + "' not found",
-		Code:   "USER-NTF-001",
+		Code:   "USERMANAGEMENT-NTF-001",
 	}
 }
 
@@ -46,7 +46,7 @@ func BadRequest(detail string) *ServiceError {
 		Title:  "Bad Request",
 		Status: http.StatusBadRequest,
 		Detail: detail,
-		Code:   "USER-VAL-001",
+		Code:   "USERMANAGEMENT-VAL-001",
 	}
 }
 
@@ -57,7 +57,7 @@ func Conflict(detail string) *ServiceError {
 		Title:  "Conflict",
 		Status: http.StatusConflict,
 		Detail: detail,
-		Code:   "USER-CNF-001",
+		Code:   "USERMANAGEMENT-CNF-001",
 	}
 }
 
@@ -68,7 +68,7 @@ func Validation(errors []ValidationError) *ServiceError {
 		Title:            "Validation Error",
 		Status:           http.StatusBadRequest,
 		Detail:           "One or more fields failed validation",
-		Code:             "USER-VAL-000",
+		Code:             "USERMANAGEMENT-VAL-000",
 		ValidationErrors: errors,
 	}
 }
@@ -80,7 +80,7 @@ func Unauthorized(detail string) *ServiceError {
 		Title:  "Unauthorized",
 		Status: http.StatusUnauthorized,
 		Detail: detail,
-		Code:   "USER-AUT-001",
+		Code:   "USERMANAGEMENT-AUT-001",
 	}
 }
 
@@ -91,7 +91,7 @@ func Forbidden(detail string) *ServiceError {
 		Title:  "Forbidden",
 		Status: http.StatusForbidden,
 		Detail: detail,
-		Code:   "USER-AUZ-001",
+		Code:   "USERMANAGEMENT-AUZ-001",
 	}
 }
 
@@ -102,7 +102,7 @@ func InternalError(detail string) *ServiceError {
 		Title:  "Internal Server Error",
 		Status: http.StatusInternalServerError,
 		Detail: detail,
-		Code:   "USER-INT-001",
+		Code:   "USERMANAGEMENT-INT-001",
 	}
 }
 
@@ -143,7 +143,7 @@ func errorForStatus(status int, detail string) *ServiceError {
 		Title:  http.StatusText(status),
 		Status: status,
 		Detail: detail,
-		Code:   "USER" + "-" + category + "-001",
+		Code:   "USERMANAGEMENT" + "-" + category + "-001",
 	}
 }
 

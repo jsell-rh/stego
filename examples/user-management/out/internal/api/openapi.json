@@ -5,6 +5,112 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/user-mgmt/v1/all-users": {
+      "get": {
+        "summary": "List User entities via all-users",
+        "operationId": "listAllUsers",
+        "tags": [
+          "all-users"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          },
+          {
+            "name": "orderBy",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of field_name or field_name asc|desc",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated field names for sparse fieldset selection",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "TSL filter expression for searching entities",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/User"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "href": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "kind": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/user-mgmt/v1/organizations": {
       "get": {
         "summary": "List Organization entities via organizations",
@@ -232,7 +338,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/orgsettings": {
+    "/api/user-mgmt/v1/organizations/{org_id}/org-settings": {
       "get": {
         "summary": "List OrgSetting entities via org-settings",
         "operationId": "listOrgSettings",
@@ -434,7 +540,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/users": {
+    "/api/user-mgmt/v1/organizations/{org_id}/org-users": {
       "get": {
         "summary": "List User entities via org-users",
         "operationId": "listOrgUsers",
@@ -605,7 +711,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/users/{id}": {
+    "/api/user-mgmt/v1/organizations/{org_id}/org-users/{id}": {
       "delete": {
         "summary": "Delete User via org-users",
         "operationId": "deleteOrgUsers",
@@ -821,112 +927,6 @@
                       }
                     }
                   ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/user-mgmt/v1/users": {
-      "get": {
-        "summary": "List User entities via all-users",
-        "operationId": "listAllUsers",
-        "tags": [
-          "all-users"
-        ],
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 1
-            }
-          },
-          {
-            "name": "size",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 100
-            }
-          },
-          {
-            "name": "orderBy",
-            "in": "query",
-            "required": false,
-            "description": "Comma-separated list of field_name or field_name asc|desc",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "fields",
-            "in": "query",
-            "required": false,
-            "description": "Comma-separated field names for sparse fieldset selection",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "search",
-            "in": "query",
-            "required": false,
-            "description": "TSL filter expression for searching entities",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "allOf": [
-                          {
-                            "$ref": "#/components/schemas/User"
-                          },
-                          {
-                            "type": "object",
-                            "properties": {
-                              "href": {
-                                "type": "string"
-                              },
-                              "id": {
-                                "type": "string"
-                              },
-                              "kind": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    "kind": {
-                      "type": "string"
-                    },
-                    "page": {
-                      "type": "integer"
-                    },
-                    "size": {
-                      "type": "integer"
-                    },
-                    "total": {
-                      "type": "integer"
-                    }
-                  }
                 }
               }
             }

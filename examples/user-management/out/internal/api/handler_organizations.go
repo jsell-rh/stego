@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -42,7 +43,7 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 				Entity: "Organization",
 				Fields: map[string]string{
 					"name":        organization.Name,
-					"description": organization.Description,
+					"description": fmt.Sprintf("%v", organization.Description),
 				},
 			},
 			Caller: func() *slots.Identity {

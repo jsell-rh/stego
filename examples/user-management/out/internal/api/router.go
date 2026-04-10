@@ -58,19 +58,19 @@ type Storage interface {
 
 // Organization represents the Organization entity.
 type Organization struct {
-	ID          string `json:"id,omitempty"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID          string  `json:"id,omitempty"`
+	Name        string  `json:"name"`
+	Description *string `json:"description,omitempty"`
 }
 
 // User represents the User entity.
 type User struct {
-	ID          string          `json:"id,omitempty"`
-	Email       string          `json:"email"`
-	DisplayName string          `json:"display_name"`
-	Role        string          `json:"role"`
-	OrgID       string          `json:"org_id"`
-	Metadata    json.RawMessage `json:"metadata"`
+	ID          string           `json:"id,omitempty"`
+	Email       string           `json:"email"`
+	DisplayName string           `json:"display_name"`
+	Role        string           `json:"role"`
+	OrgID       string           `json:"org_id"`
+	Metadata    *json.RawMessage `json:"metadata,omitempty"`
 }
 
 // OrgSetting represents the OrgSetting entity.

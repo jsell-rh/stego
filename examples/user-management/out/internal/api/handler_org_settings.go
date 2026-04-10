@@ -119,7 +119,7 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/orgsettings"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/org-settings"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
@@ -172,11 +172,24 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, InternalError(err.Error()))
 		return
 	}
+	if !created {
+		listResult, listErr := h.store.List(r.Context(), "OrgSetting", "org_id", r.PathValue("org_id"), ListOptions{Page: 1, Size: 65500})
+		if listErr == nil {
+			if items, ok := listResult.Items.([]OrgSetting); ok {
+				for _, item := range items {
+					if item.OrgID == orgsetting.OrgID && item.Key == orgsetting.Key {
+						orgsetting = item
+						break
+					}
+				}
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if created {
 		w.WriteHeader(http.StatusCreated)
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/orgsettings"+"/"+orgsetting.ID))
+	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-settings"+"/"+orgsetting.ID))
 }

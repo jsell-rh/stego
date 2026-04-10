@@ -46,9 +46,9 @@ type User struct {
 // OrgSetting represents the OrgSetting entity.
 type OrgSetting struct {
 	Meta
-	OrgID      string         `json:"org_id" gorm:"column:org_id;not null"`
+	OrgID      string         `json:"org_id" gorm:"column:org_id;not null;uniqueIndex:upsert_org_id_key"`
 	OrgIDRef   *Organization  `json:"-" gorm:"foreignKey:OrgID"`
-	Key        string         `json:"key" gorm:"column:key;not null;size:255"`
+	Key        string         `json:"key" gorm:"column:key;not null;size:255;uniqueIndex:upsert_org_id_key"`
 	Value      datatypes.JSON `json:"value" gorm:"column:value;type:jsonb;not null"`
 	Generation int64          `json:"generation" gorm:"column:generation;not null"`
 }

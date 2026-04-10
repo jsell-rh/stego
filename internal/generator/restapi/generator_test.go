@@ -257,12 +257,12 @@ func TestGenerate_NestedRouting(t *testing.T) {
 	}
 	foundNestedRoute := false
 	for _, r := range wiring.Routes {
-		if strings.Contains(r, "cluster_id") && strings.Contains(r, "nodepools") {
+		if strings.Contains(r, "cluster_id") && strings.Contains(r, "node-pools") {
 			foundNestedRoute = true
 		}
 	}
 	if !foundNestedRoute {
-		t.Errorf("expected nested route with cluster_id and nodepools, got routes: %v", wiring.Routes)
+		t.Errorf("expected nested route with cluster_id and node-pools, got routes: %v", wiring.Routes)
 	}
 }
 
@@ -849,10 +849,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 
 	paths := spec["paths"].(map[string]any)
 
-	// Check nested collection path: /clusters/{cluster_id}/nodepools
-	npCollection, ok := paths["/clusters/{cluster_id}/nodepools"]
+	// Check nested collection path: /clusters/{cluster_id}/node-pools
+	npCollection, ok := paths["/clusters/{cluster_id}/node-pools"]
 	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/nodepools path")
+		t.Fatal("missing /clusters/{cluster_id}/node-pools path")
 	}
 	npColOps := npCollection.(map[string]any)
 
@@ -860,14 +860,14 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 	postOp := npColOps["post"].(map[string]any)
 	postParams, _ := postOp["parameters"].([]any)
 	if !hasParam(postParams, "cluster_id") {
-		t.Error("POST /clusters/{cluster_id}/nodepools missing cluster_id parameter")
+		t.Error("POST /clusters/{cluster_id}/node-pools missing cluster_id parameter")
 	}
 
 	// GET (list) must declare cluster_id parameter and pagination params.
 	getOp := npColOps["get"].(map[string]any)
 	getParams, _ := getOp["parameters"].([]any)
 	if !hasParam(getParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools missing cluster_id parameter")
+		t.Error("GET /clusters/{cluster_id}/node-pools missing cluster_id parameter")
 	}
 	if !hasParam(getParams, "page") {
 		t.Error("GET (list) must declare 'page' query parameter in OpenAPI spec")
@@ -876,10 +876,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 		t.Error("GET (list) must declare 'size' query parameter in OpenAPI spec")
 	}
 
-	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}
-	npItem, ok := paths["/clusters/{cluster_id}/nodepools/{id}"]
+	// Check nested item path: /clusters/{cluster_id}/node-pools/{id}
+	npItem, ok := paths["/clusters/{cluster_id}/node-pools/{id}"]
 	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/nodepools/{id} path")
+		t.Fatal("missing /clusters/{cluster_id}/node-pools/{id} path")
 	}
 	npItemOps := npItem.(map[string]any)
 
@@ -887,10 +887,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 	readOp := npItemOps["get"].(map[string]any)
 	readParams, _ := readOp["parameters"].([]any)
 	if !hasParam(readParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing cluster_id parameter")
+		t.Error("GET /clusters/{cluster_id}/node-pools/{id} missing cluster_id parameter")
 	}
 	if !hasParam(readParams, "id") {
-		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing id parameter")
+		t.Error("GET /clusters/{cluster_id}/node-pools/{id} missing id parameter")
 	}
 }
 
@@ -1392,7 +1392,7 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 }
 
 func TestCollectionBasePath_Default(t *testing.T) {
-	eb := types.Collection{Entity: "User"}
+	eb := types.Collection{Name: "users", Entity: "User"}
 	got, err := collectionBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1403,7 +1403,7 @@ func TestCollectionBasePath_Default(t *testing.T) {
 }
 
 func TestCollectionBasePath_WithPathPrefix(t *testing.T) {
-	eb := types.Collection{Entity: "User", PathPrefix: "/api/v1/users"}
+	eb := types.Collection{Name: "users", Entity: "User", PathPrefix: "/api/v1/users"}
 	got, err := collectionBasePath(eb, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1415,15 +1415,15 @@ func TestCollectionBasePath_WithPathPrefix(t *testing.T) {
 
 func TestCollectionBasePath_Nested(t *testing.T) {
 	collectionMap := map[string]types.Collection{
-		"Cluster": {Entity: "Cluster"},
+		"Cluster": {Name: "clusters", Entity: "Cluster"},
 	}
-	eb := types.Collection{Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
+	eb := types.Collection{Name: "cluster-nodepools", Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}}
 	got, err := collectionBasePath(eb, collectionMap)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "/clusters/{cluster_id}/nodepools" {
-		t.Errorf("expected /clusters/{cluster_id}/nodepools, got %s", got)
+	if got != "/clusters/{cluster_id}/cluster-nodepools" {
+		t.Errorf("expected /clusters/{cluster_id}/cluster-nodepools, got %s", got)
 	}
 }
 
@@ -2259,8 +2259,8 @@ func TestGenerate_CircularParentTwoNodeCycle(t *testing.T) {
 
 func TestCollectionBasePath_CircularParentReturnsError(t *testing.T) {
 	collectionMap := map[string]types.Collection{
-		"A": {Entity: "A", Scope: map[string]string{"b_id": "B"}},
-		"B": {Entity: "B", Scope: map[string]string{"a_id": "A"}},
+		"A": {Name: "as", Entity: "A", Scope: map[string]string{"b_id": "B"}},
+		"B": {Name: "bs", Entity: "B", Scope: map[string]string{"a_id": "A"}},
 	}
 	_, err := collectionBasePath(collectionMap["A"], collectionMap)
 	if err == nil {
@@ -3493,18 +3493,18 @@ func TestGenerate_RouteCollisionSamePathPrefix(t *testing.T) {
 }
 
 func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
-	// Two entity names that are case-insensitively equivalent produce the
-	// same auto-derived path (both → /items).
+	// Two collection names that are case-insensitively equivalent produce the
+	// same route path (both → /items).
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
 		Entities: []types.Entity{
 			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
-			{Name: "ITEM", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Widget", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
 			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
-			{Name: "items2", Entity: "ITEM", Operations: []types.Operation{types.OpList}},
+			{Name: "Items", Entity: "Widget", Operations: []types.Operation{types.OpList}},
 		},
 		OutputNamespace: "internal/api",
 	}
@@ -3513,7 +3513,7 @@ func TestGenerate_RouteCollisionCaseInsensitive(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for case-insensitive route path collision")
 	}
-	if !strings.Contains(err.Error(), "items") && !strings.Contains(err.Error(), "items2") {
+	if !strings.Contains(err.Error(), "items") && !strings.Contains(err.Error(), "Items") {
 		t.Errorf("error should mention colliding collections, got: %v", err)
 	}
 }
@@ -4829,12 +4829,12 @@ func TestDeriveErrorPrefix(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"hyperfleet-api", "HYPERFLEET"},        // spec golden example
-		{"user-management", "USER"},             // drops last segment
-		{"simple", "SIMPLE"},                    // no hyphens, kept as-is
-		{"a-b-c", "AB"},                         // drops last, joins remaining
-		{"my-cool-service", "MYCOOL"},           // multi-segment project name
-		{"", ""},                                // edge case
+		{"hyperfleet-api", "HYPERFLEETAPI"},         // spec golden example: hyphens removed, uppercased
+		{"user-management", "USERMANAGEMENT"},       // hyphens removed, uppercased
+		{"simple", "SIMPLE"},                        // no hyphens, kept as-is
+		{"a-b-c", "ABC"},                            // all segments joined, uppercased
+		{"my-cool-service", "MYCOOLSERVICE"},        // multi-segment project name
+		{"", ""},                                    // edge case
 	}
 	for _, tt := range tests {
 		got := deriveErrorPrefix(tt.input)
@@ -4879,18 +4879,18 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 	}
 
 	// AC2: Error constructors for all six categories.
-	// Prefix for "hyperfleet-api" is "HYPERFLEET" (last segment dropped, uppercased).
+	// Prefix for "hyperfleet-api" is "HYPERFLEETAPI" (hyphens removed, uppercased).
 	constructors := []struct {
 		name string
 		code string
 	}{
-		{"func NotFound(", "HYPERFLEET-NTF-001"},
-		{"func BadRequest(", "HYPERFLEET-VAL-001"},
-		{"func Conflict(", "HYPERFLEET-CNF-001"},
-		{"func Validation(", "HYPERFLEET-VAL-000"},
-		{"func Unauthorized(", "HYPERFLEET-AUT-001"},
-		{"func Forbidden(", "HYPERFLEET-AUZ-001"},
-		{"func InternalError(", "HYPERFLEET-INT-001"},
+		{"func NotFound(", "HYPERFLEETAPI-NTF-001"},
+		{"func BadRequest(", "HYPERFLEETAPI-VAL-001"},
+		{"func Conflict(", "HYPERFLEETAPI-CNF-001"},
+		{"func Validation(", "HYPERFLEETAPI-VAL-000"},
+		{"func Unauthorized(", "HYPERFLEETAPI-AUT-001"},
+		{"func Forbidden(", "HYPERFLEETAPI-AUZ-001"},
+		{"func InternalError(", "HYPERFLEETAPI-INT-001"},
 	}
 	for _, c := range constructors {
 		if !strings.Contains(errorsContent, c.name) {
@@ -4912,7 +4912,7 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 
 func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 	// AC3: Error code prefix derived from service name.
-	// "user-management" → drops last segment → "USER"
+	// "user-management" → hyphens removed, uppercased → "USERMANAGEMENT"
 	g := &Generator{}
 	ctx := basicContext()
 	ctx.ServiceName = "user-management"
@@ -4924,10 +4924,10 @@ func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
 
 	errorsContent := findFileContent(t, files, "internal/api/errors.go")
 
-	if !strings.Contains(errorsContent, "USER-NTF-001") {
+	if !strings.Contains(errorsContent, "USERMANAGEMENT-NTF-001") {
 		t.Error("error code prefix not derived from service name 'user-management'")
 	}
-	if !strings.Contains(errorsContent, "USER-VAL-001") {
+	if !strings.Contains(errorsContent, "USERMANAGEMENT-VAL-001") {
 		t.Error("error code prefix not derived from service name 'user-management'")
 	}
 }
@@ -6646,18 +6646,20 @@ func TestGenerate_PatchOperation(t *testing.T) {
 		t.Error("Patch handler must save merged entity via store.Replace")
 	}
 
-	// Verify apply-non-nil logic for patchable fields (pointer dereference).
+	// Verify apply-non-nil logic for patchable fields (pointer dereference for
+	// non-optional fields, direct pointer assignment for optional fields).
 	if !strings.Contains(handler, "if patch.Spec != nil") {
 		t.Error("Patch handler must check patch.Spec != nil before applying")
 	}
 	if !strings.Contains(handler, "*patch.Spec") {
-		t.Error("Patch handler must dereference pointer field Spec")
+		t.Error("Patch handler must dereference pointer field Spec (non-optional)")
 	}
 	if !strings.Contains(handler, "if patch.Labels != nil") {
 		t.Error("Patch handler must check patch.Labels != nil before applying")
 	}
-	if !strings.Contains(handler, "*patch.Labels") {
-		t.Error("Patch handler must dereference pointer field Labels")
+	// Labels is optional → entity field is already a pointer → assign directly.
+	if !strings.Contains(handler, "cluster.Labels = patch.Labels") {
+		t.Error("Patch handler must assign optional pointer field Labels directly (not dereference)")
 	}
 
 	// Verify route is PATCH method on /{id} path.

@@ -291,7 +291,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 // collectionBasePath returns the URL path prefix for a collection.
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
-// from the entity name, prepended with the parent's path if nested.
+// from the collection name, prepended with the parent's path if nested.
 // Returns an error if a circular parent reference is detected.
 func collectionBasePath(eb types.Collection, collectionMap map[string]types.Collection) (string, error) {
 	return collectionBasePathWithVisited(eb, collectionMap, map[string]bool{eb.Entity: true})
@@ -301,7 +301,7 @@ func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string
 	if eb.PathPrefix != "" {
 		return eb.PathPrefix, nil
 	}
-	base := "/" + strings.ToLower(eb.Entity) + "s"
+	base := "/" + eb.Name
 	if eb.ParentEntity() != "" {
 		if visited[eb.ParentEntity()] {
 			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.ParentEntity())
@@ -973,6 +973,39 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	for _, sp := range after {
 		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpUpsert)
 	}
+	// When the upsert updated an existing row, the pre-computed ID on the
+	// local entity variable is a phantom — the DB preserved the existing
+	// row's ID. Read the actual record back via List with the upsert key
+	// fields as a scope filter so the response returns the real ID.
+	fmt.Fprintf(buf, "\tif !created {\n")
+	if eb.ParentEntity() != "" {
+		fmt.Fprintf(buf, "\t\tlistResult, listErr := h.store.List(r.Context(), %q, %q, r.PathValue(%q), ListOptions{Page: 1, Size: 65500})\n",
+			entity.Name, eb.ScopeField(), parentParamName)
+	} else {
+		fmt.Fprintf(buf, "\t\tlistResult, listErr := h.store.List(r.Context(), %q, \"\", \"\", ListOptions{Page: 1, Size: 65500})\n",
+			entity.Name)
+	}
+	fmt.Fprintf(buf, "\t\tif listErr == nil {\n")
+	fmt.Fprintf(buf, "\t\t\tif items, ok := listResult.Items.([]%s); ok {\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\tfor _, item := range items {\n")
+	// Match the upsert key fields to find the actual record.
+	for i, k := range eb.UpsertKey {
+		goName := toPascalCase(k)
+		if i == 0 {
+			fmt.Fprintf(buf, "\t\t\t\t\tif item.%s == %s.%s", goName, lower, goName)
+		} else {
+			fmt.Fprintf(buf, " && item.%s == %s.%s", goName, lower, goName)
+		}
+	}
+	fmt.Fprintf(buf, " {\n")
+	fmt.Fprintf(buf, "\t\t\t\t\t\t%s = item\n", lower)
+	fmt.Fprintf(buf, "\t\t\t\t\t\tbreak\n")
+	fmt.Fprintf(buf, "\t\t\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
+
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	fmt.Fprintf(buf, "\tif created {\n")
 	fmt.Fprintf(buf, "\t\tw.WriteHeader(http.StatusCreated)\n")
@@ -1054,7 +1087,13 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 		goName := toPascalCase(f.Name)
 		// All patchable fields are pointers; nil means not provided, dereference if set.
 		fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
-		fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
+		if f.Optional {
+			// Entity field is already a pointer; assign patch pointer directly.
+			fmt.Fprintf(buf, "\t\t%s.%s = patch.%s\n", lower, goName, goName)
+		} else {
+			// Entity field is a value type; dereference the patch pointer.
+			fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
+		}
 		fmt.Fprintf(buf, "\t}\n")
 	}
 
@@ -1063,6 +1102,12 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
+
+	// Step 5: Invoke after-slots (e.g., on_entity_changed fan-out).
+	_, after := slotsForOp(types.OpPatch, slotParams)
+	for _, sp := range after {
+		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpPatch)
+	}
 
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if envelope {
@@ -1199,7 +1244,16 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 		for _, f := range entity.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f.Type)
-			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
+			jsonTag := f.Name
+			if f.Optional {
+				// Optional fields use pointer types to distinguish absent
+				// from zero-value in JSON deserialization. Reference types
+				// (json.RawMessage, []byte) also get pointer wrapping per
+				// spec to distinguish JSON null from absent.
+				goType = "*" + goType
+				jsonTag += ",omitempty"
+			}
+			fmt.Fprintf(&buf, "\t%s %s `json:%q`\n", goName, goType, jsonTag)
 		}
 		fmt.Fprintf(&buf, "}\n\n")
 	}
@@ -1232,15 +1286,10 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 }
 
 // deriveErrorPrefix converts a service name to an error code prefix by
-// dropping the last hyphen-delimited segment (typically a service type like
-// "api", "svc", "service"), joining the remaining segments, and uppercasing.
-// E.g., "hyperfleet-api" → "HYPERFLEET".
+// removing hyphens and uppercasing.
+// E.g., "hyperfleet-api" → "HYPERFLEETAPI", "user-management" → "USERMANAGEMENT".
 func deriveErrorPrefix(serviceName string) string {
-	parts := strings.Split(serviceName, "-")
-	if len(parts) > 1 {
-		parts = parts[:len(parts)-1]
-	}
-	return strings.ToUpper(strings.Join(parts, ""))
+	return strings.ToUpper(strings.ReplaceAll(serviceName, "-", ""))
 }
 
 // generateErrors produces the errors.go file with RFC 9457 Problem Details
@@ -2821,6 +2870,7 @@ var slotAfterOps = map[string]map[types.Operation]bool{
 		types.OpUpdate: true,
 		types.OpDelete: true,
 		types.OpUpsert: true,
+		types.OpPatch:  true,
 	},
 }
 
@@ -2853,7 +2903,15 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t\t\tFields: map[string]string{\n")
 	for _, f := range entity.Fields {
 		goName := toPascalCase(f.Name)
-		fmt.Fprintf(buf, "\t\t\t\t\t%q: %s,\n", f.Name, fieldToStringExpr(entityVarName, goName, fieldTypeToGo(f.Type)))
+		goType := fieldTypeToGo(f.Type)
+		if f.Optional {
+			// Optional fields are pointer types in the API struct.
+			// Use fmt.Sprintf to handle nil pointers safely.
+			fmt.Fprintf(buf, "\t\t\t\t\t%q: fmt.Sprintf(\"%%v\", %s.%s),\n",
+				f.Name, entityVarName, goName)
+		} else {
+			fmt.Fprintf(buf, "\t\t\t\t\t%q: %s,\n", f.Name, fieldToStringExpr(entityVarName, goName, goType))
+		}
 	}
 	fmt.Fprintf(buf, "\t\t\t\t},\n")
 	fmt.Fprintf(buf, "\t\t\t},\n")
@@ -2969,6 +3027,10 @@ func collectionToCamelCase(name string) string {
 // for string conversion in slot request population.
 func needsFmtForSlotFields(entity types.Entity) bool {
 	for _, f := range entity.Fields {
+		if f.Optional {
+			// Optional fields use fmt.Sprintf for nil-safe string conversion.
+			return true
+		}
 		goType := fieldTypeToGo(f.Type)
 		switch goType {
 		case "string", "[]byte", "json.RawMessage":

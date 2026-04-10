@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -70,7 +71,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 					"display_name": user.DisplayName,
 					"role":         user.Role,
 					"org_id":       user.OrgID,
-					"metadata":     string(user.Metadata),
+					"metadata":     fmt.Sprintf("%v", user.Metadata),
 				},
 			},
 			Caller: func() *slots.Identity {
@@ -112,7 +113,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+user.ID))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+user.ID))
 }
 
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +131,7 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +157,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +255,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/users"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/org-users"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
@@ -318,12 +319,18 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		user.Role = *patch.Role
 	}
 	if patch.Metadata != nil {
-		user.Metadata = *patch.Metadata
+		user.Metadata = patch.Metadata
 	}
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
 		handleError(w, r, InternalError(err.Error()))
 		return
 	}
+	if h.onEntityChangedFanOut != nil {
+		if _, slotErr := h.onEntityChangedFanOut.Evaluate(r.Context(), &slots.OnEntityChangedRequest{Entity: "User", Action: "patch"}); slotErr != nil {
+			handleError(w, r, InternalError(slotErr.Error()))
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
 }
