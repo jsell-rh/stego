@@ -444,8 +444,11 @@ func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
 	if !strings.Contains(handler, `"size":  actualSize`) {
 		t.Error("list response must include the actual number of items returned")
 	}
-	if !strings.Contains(handler, `actualSize := reflect.ValueOf(`) {
-		t.Error("list response must compute actual item count via reflect.ValueOf().Len()")
+	if !strings.Contains(handler, `itemsSlice := reflect.ValueOf(listResult.Items)`) {
+		t.Error("list response must use reflect to access list items")
+	}
+	if !strings.Contains(handler, `actualSize := itemsSlice.Len()`) {
+		t.Error("list response must compute actual item count via itemsSlice.Len()")
 	}
 	if !strings.Contains(handler, `"total": listResult.Total`) {
 		t.Error("list response must include total count of matching records")
@@ -5436,8 +5439,12 @@ func TestGenerate_EnvelopeListResponse(t *testing.T) {
 	if !strings.Contains(handler, `"total": listResult.Total`) {
 		t.Error("list response must include total from ListResult")
 	}
-	if !strings.Contains(handler, `"items": listResult.Items`) {
-		t.Error("list response must include items from ListResult")
+	if !strings.Contains(handler, `"items": presentedItems`) {
+		t.Error("list response must include presented items")
+	}
+	// Each list item must be run through presentEntity for id/kind/href metadata.
+	if !strings.Contains(handler, `presentEntity(item,`) {
+		t.Error("list items must be run through presentEntity for envelope metadata")
 	}
 }
 
@@ -5740,4 +5747,359 @@ func extractMethodBody(source, sigPrefix string) string {
 		return rest
 	}
 	return rest[:nextFunc+1]
+}
+
+// --- Task 024 Round 1 Revision: Findings 1-4 ---
+
+func TestGenerate_EnvelopeScopedCollectionHrefResolved(t *testing.T) {
+	// Finding 1: href for scoped collections must resolve path parameters using
+	// r.PathValue() at runtime, not embed template literals like {org_id}.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ErrorHandling:  "problem-details-rfc",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{Name: "org-users", Entity: "User",
+				Scope:      map[string]string{"org_id": "Organization"},
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+		BasePath:        "/api/v1",
+		ServiceName:     "user-service",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_org_users.go")
+
+	// The generated handler must NOT contain unresolved {org_id} template literals.
+	if strings.Contains(handler, `{org_id}`) {
+		t.Error("scoped collection handler must NOT contain unresolved {org_id} template literals in href")
+	}
+
+	// Instead, it must resolve the path parameter using r.PathValue("org_id").
+	if !strings.Contains(handler, `r.PathValue("org_id")`) {
+		t.Error("scoped collection handler must use r.PathValue(\"org_id\") to resolve href path parameters")
+	}
+
+	// Create method must produce a resolved href.
+	createSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Create(")
+	if createSection == "" {
+		t.Fatal("could not find Create method in org-users handler")
+	}
+	if strings.Contains(createSection, `{org_id}`) {
+		t.Error("Create method must not contain unresolved {org_id} in presentEntity call")
+	}
+	if !strings.Contains(createSection, `r.PathValue("org_id")`) {
+		t.Error("Create method must resolve org_id via r.PathValue for href construction")
+	}
+
+	// Read method must produce a resolved href.
+	readSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Read(")
+	if readSection == "" {
+		t.Fatal("could not find Read method in org-users handler")
+	}
+	if strings.Contains(readSection, `{org_id}`) {
+		t.Error("Read method must not contain unresolved {org_id} in presentEntity call")
+	}
+
+	// Update method must produce a resolved href.
+	updateSection := extractMethodBody(handler, "func (h *OrgUsersHandler) Update(")
+	if updateSection == "" {
+		t.Fatal("could not find Update method in org-users handler")
+	}
+	if strings.Contains(updateSection, `{org_id}`) {
+		t.Error("Update method must not contain unresolved {org_id} in presentEntity call")
+	}
+}
+
+func TestGenerate_EnvelopeListItemsPresented(t *testing.T) {
+	// Finding 2: List response items must be run through presentEntity()
+	// to include id, kind, and href metadata — matching single-resource responses.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	listSection := extractMethodBody(handler, "func (h *WidgetsHandler) List(")
+	if listSection == "" {
+		t.Fatal("could not find List method in widgets handler")
+	}
+
+	// List must iterate items and present each one.
+	if !strings.Contains(listSection, "presentedItems") {
+		t.Error("list handler must build presentedItems array with presented entities")
+	}
+
+	// Each item must be wrapped through presentEntity.
+	if !strings.Contains(listSection, `presentEntity(item,`) {
+		t.Error("list handler must call presentEntity on each item")
+	}
+
+	// The envelope must use presentedItems, not raw listResult.Items.
+	if strings.Contains(listSection, `"items": listResult.Items`) {
+		t.Error("list envelope must use presented items, not raw listResult.Items")
+	}
+
+	// Items must reflect the entity kind.
+	if !strings.Contains(listSection, `"Widget"`) {
+		t.Error("list handler must pass entity name as kind to presentEntity for each item")
+	}
+}
+
+func TestGenerate_EnvelopeListItemsHrefForScoped(t *testing.T) {
+	// Finding 2 extension: List items for scoped collections must have resolved hrefs.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ErrorHandling:  "problem-details-rfc",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "org-users", Entity: "User",
+				Scope:      map[string]string{"org_id": "Organization"},
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+		ServiceName:     "user-service",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_org_users.go")
+	listSection := extractMethodBody(handler, "func (h *OrgUsersHandler) List(")
+	if listSection == "" {
+		t.Fatal("could not find List method in org-users handler")
+	}
+
+	// The hrefBase in the list handler must be resolved using r.PathValue,
+	// not contain literal {org_id}.
+	if strings.Contains(listSection, `{org_id}`) {
+		t.Error("list handler hrefBase must not contain unresolved {org_id} template literal")
+	}
+	if !strings.Contains(listSection, `r.PathValue("org_id")`) {
+		t.Error("list handler must resolve org_id via r.PathValue for item hrefs")
+	}
+}
+
+func TestGenerate_OpenAPIListOrderByAndFieldsParams(t *testing.T) {
+	// Finding 3: OpenAPI spec must declare orderBy and fields query parameters
+	// for list operations.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
+	getOp := widgetsPath["get"].(map[string]any)
+	params := getOp["parameters"].([]any)
+
+	// Collect parameter names.
+	paramNames := make(map[string]bool)
+	for _, p := range params {
+		pm := p.(map[string]any)
+		paramNames[pm["name"].(string)] = true
+	}
+
+	if !paramNames["orderBy"] {
+		t.Error("OpenAPI list operation must include 'orderBy' query parameter")
+	}
+	if !paramNames["fields"] {
+		t.Error("OpenAPI list operation must include 'fields' query parameter")
+	}
+	if !paramNames["page"] {
+		t.Error("OpenAPI list operation must include 'page' query parameter")
+	}
+	if !paramNames["size"] {
+		t.Error("OpenAPI list operation must include 'size' query parameter")
+	}
+}
+
+func TestGenerate_OpenAPIListResponseEnvelopeSchema(t *testing.T) {
+	// Finding 4: When response_format is envelope, the OpenAPI list response
+	// schema must be an object with kind/page/size/total/items — not a plain array.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
+	getOp := widgetsPath["get"].(map[string]any)
+	responses := getOp["responses"].(map[string]any)
+	ok200 := responses["200"].(map[string]any)
+	content := ok200["content"].(map[string]any)
+	jsonMedia := content["application/json"].(map[string]any)
+	schema := jsonMedia["schema"].(map[string]any)
+
+	// Schema must be an object, not an array.
+	if schema["type"] != "object" {
+		t.Errorf("envelope list response schema type must be 'object', got %q", schema["type"])
+	}
+
+	// Must have envelope properties.
+	props := schema["properties"].(map[string]any)
+	for _, field := range []string{"kind", "page", "size", "total", "items"} {
+		if _, ok := props[field]; !ok {
+			t.Errorf("envelope list response schema must include property %q", field)
+		}
+	}
+
+	// Items property must be an array of entity refs.
+	itemsProp := props["items"].(map[string]any)
+	if itemsProp["type"] != "array" {
+		t.Errorf("envelope items property must be type 'array', got %q", itemsProp["type"])
+	}
+}
+
+func TestGenerate_OpenAPIBareListResponseIsArray(t *testing.T) {
+	// When response_format is bare, the OpenAPI list response schema must
+	// remain a plain array (no envelope).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	itemsPath := paths["/items"].(map[string]any)
+	getOp := itemsPath["get"].(map[string]any)
+	responses := getOp["responses"].(map[string]any)
+	ok200 := responses["200"].(map[string]any)
+	content := ok200["content"].(map[string]any)
+	jsonMedia := content["application/json"].(map[string]any)
+	schema := jsonMedia["schema"].(map[string]any)
+
+	// Bare mode: list response schema must be a plain array.
+	if schema["type"] != "array" {
+		t.Errorf("bare list response schema type must be 'array', got %q", schema["type"])
+	}
+}
+
+func TestResolvedHrefExpr_FlatPath(t *testing.T) {
+	// For flat paths (no parameters), resolvedHrefExpr produces a simple literal.
+	expr := resolvedHrefExpr("/api/v1/widgets", "widget.ID")
+	if strings.Contains(expr, "PathValue") {
+		t.Error("flat path href should not use PathValue")
+	}
+	if !strings.Contains(expr, `"/api/v1/widgets"`) {
+		t.Errorf("flat path href should contain the literal path, got: %s", expr)
+	}
+	if !strings.Contains(expr, "widget.ID") {
+		t.Errorf("flat path href should contain the id expression, got: %s", expr)
+	}
+}
+
+func TestResolvedHrefExpr_ScopedPath(t *testing.T) {
+	// For scoped paths, resolvedHrefExpr substitutes {param} with r.PathValue().
+	expr := resolvedHrefExpr("/organizations/{org_id}/users", "user.ID")
+	if strings.Contains(expr, "{org_id}") {
+		t.Errorf("scoped path href must not contain literal {org_id}, got: %s", expr)
+	}
+	if !strings.Contains(expr, `r.PathValue("org_id")`) {
+		t.Errorf("scoped path href must use r.PathValue(\"org_id\"), got: %s", expr)
+	}
+	if !strings.Contains(expr, "user.ID") {
+		t.Errorf("scoped path href must contain the id expression, got: %s", expr)
+	}
+}
+
+func TestResolvedHrefExpr_MultiLevel(t *testing.T) {
+	// For multi-level scoped paths, all parameters must be resolved.
+	expr := resolvedHrefExpr("/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses", "status.ID")
+	if strings.Contains(expr, "{cluster_id}") || strings.Contains(expr, "{nodepool_id}") {
+		t.Errorf("multi-level path must not contain unresolved params, got: %s", expr)
+	}
+	if !strings.Contains(expr, `r.PathValue("cluster_id")`) {
+		t.Errorf("must resolve cluster_id, got: %s", expr)
+	}
+	if !strings.Contains(expr, `r.PathValue("nodepool_id")`) {
+		t.Errorf("must resolve nodepool_id, got: %s", expr)
+	}
+}
+
+func TestResolvedHrefBaseExpr_FlatPath(t *testing.T) {
+	expr := resolvedHrefBaseExpr("/api/v1/widgets")
+	if strings.Contains(expr, "PathValue") {
+		t.Error("flat path hrefBase should not use PathValue")
+	}
+}
+
+func TestResolvedHrefBaseExpr_ScopedPath(t *testing.T) {
+	expr := resolvedHrefBaseExpr("/organizations/{org_id}/users")
+	if strings.Contains(expr, "{org_id}") {
+		t.Errorf("scoped path hrefBase must not contain literal {org_id}, got: %s", expr)
+	}
+	if !strings.Contains(expr, `r.PathValue("org_id")`) {
+		t.Errorf("scoped path hrefBase must use r.PathValue, got: %s", expr)
+	}
 }
