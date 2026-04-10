@@ -86,3 +86,5 @@ overrides:
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 8d0a5c3 feat(task-033): rh-sso-auth assembler integration & wiring
