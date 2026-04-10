@@ -4,7 +4,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	"github.com/google/uuid"
 )
 
 // OrganizationsHandler handles HTTP requests for Organization entities.
@@ -20,25 +23,30 @@ func NewOrganizationsHandler(store Storage) *OrganizationsHandler {
 func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var organization Organization
 	if err := json.NewDecoder(r.Body).Decode(&organization); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	if err := h.store.Create("Organization", organization); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	organization.ID = uuid.New().String()
+	if err := h.store.Create(r.Context(), "Organization", organization); err != nil {
+		handleError(w, r, InternalError(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(organization)
+	json.NewEncoder(w).Encode(presentEntity(organization, "Organization", organization.ID, "/organizations"+"/"+organization.ID))
 }
 
 func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	organization, err := h.store.Read("Organization", id)
+	organization, err := h.store.Get(r.Context(), "Organization", id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("Organization", id))
+		} else {
+			handleError(w, r, InternalError(err.Error()))
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(organization)
+	json.NewEncoder(w).Encode(presentEntity(organization, "Organization", id, "/organizations"+"/"+id))
 }

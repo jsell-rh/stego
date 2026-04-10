@@ -2,25 +2,70 @@
 
 package api
 
+import (
+	"context"
+	"encoding/json"
+	"errors"
+)
+
+// ErrNotFound is returned by Storage.Get when the requested entity does not exist.
+// Storage implementations must return this error (or wrap it) for not-found cases.
+var ErrNotFound = errors.New("entity not found")
+
+// OrderByField represents a single ordering criterion.
+type OrderByField struct {
+	Field     string
+	Direction string // "asc" or "desc"
+}
+
+// ListOptions contains pagination, ordering, and field selection parameters.
+type ListOptions struct {
+	Page    int
+	Size    int
+	OrderBy []OrderByField
+	Fields  []string
+}
+
+// ListResult wraps list query results with total count for pagination.
+type ListResult struct {
+	Items any
+	Total int64
+}
+
 // Storage is the interface that handlers use to interact with the data store.
+// Get must return ErrNotFound when the entity does not exist.
 type Storage interface {
-	Create(entity string, value any) error
-	Read(entity string, id string) (any, error)
-	Update(entity string, id string, value any) error
-	Delete(entity string, id string) error
-	List(entity string, scopeField string, scopeValue string) (any, error)
-	Upsert(entity string, value any, upsertKey []string, concurrency string) error
-	Exists(entity string, id string) (bool, error)
+	Create(ctx context.Context, entity string, value any) error
+	Get(ctx context.Context, entity string, id string) (any, error)
+	Replace(ctx context.Context, entity string, id string, value any) error
+	Delete(ctx context.Context, entity string, id string) error
+	List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)
+	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error
+	Exists(ctx context.Context, entity string, id string) (bool, error)
 }
 
 // Organization represents the Organization entity.
 type Organization struct {
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 }
 
 // User represents the User entity.
 type User struct {
+	ID    string `json:"id,omitempty"`
 	Email string `json:"email"`
 	Role  string `json:"role"`
 	OrgID string `json:"org_id"`
+}
+
+// presentEntity wraps an entity with id, kind, and href metadata for
+// envelope-format responses.
+func presentEntity(entity any, kind, id, href string) map[string]any {
+	data, _ := json.Marshal(entity)
+	result := map[string]any{}
+	json.Unmarshal(data, &result)
+	result["id"] = id
+	result["kind"] = kind
+	result["href"] = href
+	return result
 }

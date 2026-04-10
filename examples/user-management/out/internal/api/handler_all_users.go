@@ -5,6 +5,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
+	"strconv"
+	"strings"
 )
 
 // AllUsersHandler handles HTTP requests for User entities.
@@ -18,11 +21,68 @@ func NewAllUsersHandler(store Storage) *AllUsersHandler {
 }
 
 func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.List("User", "", "")
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	size, _ := strconv.Atoi(sizeStr)
+	if size < 1 {
+		size = 100
+	}
+	if size > 65500 {
+		size = 65500
+	}
+	validFields := map[string]bool{"email": true, "role": true, "org_id": true}
+	var orderBy []OrderByField
+	if orderByStr := r.URL.Query().Get("orderBy"); orderByStr != "" {
+		for _, entry := range strings.Split(orderByStr, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			parts := strings.Fields(entry)
+			fieldName := parts[0]
+			dir := "asc"
+			if len(parts) > 1 {
+				d := strings.ToLower(parts[1])
+				if d != "asc" && d != "desc" {
+					handleError(w, r, BadRequest("invalid orderBy direction: "+parts[1]+"; must be 'asc' or 'desc'"))
+					return
+				}
+				dir = d
+			}
+			if !validFields[fieldName] {
+				handleError(w, r, BadRequest("invalid orderBy field: "+fieldName))
+				return
+			}
+			orderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})
+		}
+	}
+	var fields []string
+	if fieldsStr := r.URL.Query().Get("fields"); fieldsStr != "" {
+		for _, f := range strings.Split(fieldsStr, ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				fields = append(fields, f)
+			}
+		}
+	}
+	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}
+	listResult, err := h.store.List(r.Context(), "User", "", "", opts)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		handleError(w, r, InternalError(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	actualSize := reflect.ValueOf(listResult.Items).Len()
+	result := map[string]any{
+		"kind":  "UserList",
+		"page":  page,
+		"size":  actualSize,
+		"total": listResult.Total,
+		"items": listResult.Items,
+	}
+	json.NewEncoder(w).Encode(result)
 }

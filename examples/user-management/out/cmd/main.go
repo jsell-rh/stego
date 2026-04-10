@@ -3,7 +3,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	auth "github.com/example/service/out/internal/auth"
 	storage "github.com/example/service/out/internal/storage"
 	slots "github.com/example/service/out/slots"
+	postgres "gorm.io/driver/postgres"
+	gorm "gorm.io/gorm"
 )
 
 func main() {
@@ -24,12 +25,19 @@ func main() {
 	if dsn == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
 	}
-	db, err := sql.Open("postgres", dsn)
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sqlDB.Close()
 
+	if err := storage.Migrate(db); err != nil {
+		log.Fatal(err)
+	}
 	// Slot wiring — fills composed via operators.
 	// Slot: before_create (gate) for org-users
 	beforeCreateOrgUsersGate := slots.NewBeforeCreateGate(

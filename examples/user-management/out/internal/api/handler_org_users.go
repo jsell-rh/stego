@@ -4,10 +4,15 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"reflect"
+	"strconv"
+	"strings"
 
 	auth "github.com/example/service/out/internal/auth"
 	slots "github.com/example/service/out/slots"
+	"github.com/google/uuid"
 )
 
 // OrgUsersHandler handles HTTP requests for User entities.
@@ -30,16 +35,16 @@ func NewOrgUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, 
 func (h *OrgUsersHandler) checkAncestors(w http.ResponseWriter, r *http.Request) bool {
 	organizationID := r.PathValue("org_id")
 	if organizationID == "" {
-		http.Error(w, "missing org_id", http.StatusBadRequest)
+		handleError(w, r, BadRequest("missing org_id"))
 		return false
 	}
-	organizationIDExists, organizationIDErr := h.store.Exists("Organization", organizationID)
+	organizationIDExists, organizationIDErr := h.store.Exists(r.Context(), "Organization", organizationID)
 	if organizationIDErr != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		handleError(w, r, InternalError("internal error"))
 		return false
 	}
 	if !organizationIDExists {
-		http.Error(w, "Organization not found", http.StatusNotFound)
+		handleError(w, r, NotFound("Organization", organizationID))
 		return false
 	}
 	return true
@@ -51,9 +56,10 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
+	user.ID = uuid.New().String()
 	user.OrgID = r.PathValue("org_id")
 	if h.beforeCreateGate != nil {
 		slotReq := &slots.BeforeCreateRequest{
@@ -72,7 +78,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		slotResult, slotErr := h.beforeCreateGate.Evaluate(r.Context(), slotReq)
 		if slotErr != nil {
-			http.Error(w, slotErr.Error(), http.StatusInternalServerError)
+			handleError(w, r, InternalError(slotErr.Error()))
 			return
 		}
 		if !slotResult.Ok {
@@ -80,7 +86,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 			if slotResult.StatusCode > 0 {
 				sc = int(slotResult.StatusCode)
 			}
-			http.Error(w, slotResult.ErrorMessage, sc)
+			handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))
 			return
 		}
 		if slotResult.Halt {
@@ -92,19 +98,19 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := h.store.Create("User", user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.store.Create(r.Context(), "User", user); err != nil {
+		handleError(w, r, InternalError(err.Error()))
 		return
 	}
 	if h.onEntityChangedFanOut != nil {
 		if _, slotErr := h.onEntityChangedFanOut.Evaluate(r.Context(), &slots.OnEntityChangedRequest{Entity: "User", Action: "create"}); slotErr != nil {
-			http.Error(w, slotErr.Error(), http.StatusInternalServerError)
+			handleError(w, r, InternalError(slotErr.Error()))
 			return
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/organizations/{org_id}/users"+"/"+user.ID))
 }
 
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -112,13 +118,17 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	user, err := h.store.Read("User", id)
+	user, err := h.store.Get(r.Context(), "User", id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else {
+			handleError(w, r, InternalError(err.Error()))
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/{org_id}/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -128,34 +138,91 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var user User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
 	user.OrgID = r.PathValue("org_id")
-	if err := h.store.Update("User", id, user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
+		handleError(w, r, InternalError(err.Error()))
 		return
 	}
 	if h.onEntityChangedFanOut != nil {
 		if _, slotErr := h.onEntityChangedFanOut.Evaluate(r.Context(), &slots.OnEntityChangedRequest{Entity: "User", Action: "update"}); slotErr != nil {
-			http.Error(w, slotErr.Error(), http.StatusInternalServerError)
+			handleError(w, r, InternalError(slotErr.Error()))
 			return
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/{org_id}/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	size, _ := strconv.Atoi(sizeStr)
+	if size < 1 {
+		size = 100
+	}
+	if size > 65500 {
+		size = 65500
+	}
+	validFields := map[string]bool{"email": true, "role": true, "org_id": true}
+	var orderBy []OrderByField
+	if orderByStr := r.URL.Query().Get("orderBy"); orderByStr != "" {
+		for _, entry := range strings.Split(orderByStr, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			parts := strings.Fields(entry)
+			fieldName := parts[0]
+			dir := "asc"
+			if len(parts) > 1 {
+				d := strings.ToLower(parts[1])
+				if d != "asc" && d != "desc" {
+					handleError(w, r, BadRequest("invalid orderBy direction: "+parts[1]+"; must be 'asc' or 'desc'"))
+					return
+				}
+				dir = d
+			}
+			if !validFields[fieldName] {
+				handleError(w, r, BadRequest("invalid orderBy field: "+fieldName))
+				return
+			}
+			orderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})
+		}
+	}
+	var fields []string
+	if fieldsStr := r.URL.Query().Get("fields"); fieldsStr != "" {
+		for _, f := range strings.Split(fieldsStr, ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				fields = append(fields, f)
+			}
+		}
+	}
+	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}
 	scopeValue := r.PathValue("org_id")
-	users, err := h.store.List("User", "org_id", scopeValue)
+	listResult, err := h.store.List(r.Context(), "User", "org_id", scopeValue, opts)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		handleError(w, r, InternalError(err.Error()))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	actualSize := reflect.ValueOf(listResult.Items).Len()
+	result := map[string]any{
+		"kind":  "UserList",
+		"page":  page,
+		"size":  actualSize,
+		"total": listResult.Total,
+		"items": listResult.Items,
+	}
+	json.NewEncoder(w).Encode(result)
 }

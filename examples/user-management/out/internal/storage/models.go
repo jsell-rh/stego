@@ -2,16 +2,39 @@
 
 package storage
 
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"time"
+)
+
+// Meta is the base model, embedded in all entities.
+type Meta struct {
+	ID          string         `json:"id"`
+	CreatedTime time.Time      `json:"created_time" gorm:"autoCreateTime"`
+	UpdatedTime time.Time      `json:"updated_time" gorm:"autoUpdateTime"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+}
+
+// BeforeCreate is a GORM hook that auto-generates a UUID for ID on create.
+func (m *Meta) BeforeCreate(tx *gorm.DB) error {
+	if m.ID == "" {
+		m.ID = uuid.New().String()
+	}
+	return nil
+}
+
 // Organization represents the Organization entity.
 type Organization struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	Meta
+	Name string `json:"name" gorm:"column:name;not null;uniqueIndex"`
 }
 
 // User represents the User entity.
 type User struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
-	OrgID string `json:"org_id"`
+	Meta
+	Email    string        `json:"email" gorm:"column:email;not null;uniqueIndex"`
+	Role     string        `json:"role" gorm:"column:role;not null"`
+	OrgID    string        `json:"org_id" gorm:"column:org_id;not null"`
+	OrgIDRef *Organization `json:"-" gorm:"foreignKey:OrgID"`
 }

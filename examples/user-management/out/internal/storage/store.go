@@ -3,24 +3,27 @@
 package storage
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+
+	api "github.com/example/service/out/internal/api"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-// Store provides PostgreSQL-backed storage for all entities.
+// Store provides GORM-backed storage for all entities.
 type Store struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
-// NewStore creates a new Store with the given database connection.
-func NewStore(db *sql.DB) *Store {
+// NewStore creates a new Store with the given GORM connection.
+func NewStore(db *gorm.DB) *Store {
 	return &Store{db: db}
 }
 
 // Create inserts a new entity record. Computed fields are excluded.
-func (s *Store) Create(entity string, value any) error {
+func (s *Store) Create(ctx context.Context, entity string, value any) error {
 	switch entity {
 	case "Organization":
 		data, err := json.Marshal(value)
@@ -31,11 +34,7 @@ func (s *Store) Create(entity string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling Organization: %w", err)
 		}
-		_, err = s.db.Exec(
-			`INSERT INTO "organizations" ("id", "name") VALUES ($1, $2)`,
-			v.ID, v.Name,
-		)
-		return err
+		return s.db.WithContext(ctx).Create(&v).Error
 	case "User":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -45,34 +44,24 @@ func (s *Store) Create(entity string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling User: %w", err)
 		}
-		_, err = s.db.Exec(
-			`INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`,
-			v.ID, v.Email, v.Role, v.OrgID,
-		)
-		return err
+		return s.db.WithContext(ctx).Create(&v).Error
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
-// Read retrieves a single entity by ID.
-func (s *Store) Read(entity string, id string) (any, error) {
+// Get retrieves a single entity by ID.
+func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) {
 	switch entity {
 	case "Organization":
 		var v Organization
-		err := s.db.QueryRow(
-			`SELECT "id", "name" FROM "organizations" WHERE "id" = $1`, id,
-		).Scan(&v.ID, &v.Name)
-		if err != nil {
+		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			return nil, err
 		}
 		return v, nil
 	case "User":
 		var v User
-		err := s.db.QueryRow(
-			`SELECT "id", "email", "role", "org_id" FROM "users" WHERE "id" = $1`, id,
-		).Scan(&v.ID, &v.Email, &v.Role, &v.OrgID)
-		if err != nil {
+		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			return nil, err
 		}
 		return v, nil
@@ -81,8 +70,8 @@ func (s *Store) Read(entity string, id string) (any, error) {
 	}
 }
 
-// Update modifies an existing entity by ID. Computed fields are excluded.
-func (s *Store) Update(entity string, id string, value any) error {
+// Replace modifies an existing entity by ID. Computed fields are excluded.
+func (s *Store) Replace(ctx context.Context, entity string, id string, value any) error {
 	switch entity {
 	case "Organization":
 		data, err := json.Marshal(value)
@@ -93,11 +82,8 @@ func (s *Store) Update(entity string, id string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling Organization: %w", err)
 		}
-		_, err = s.db.Exec(
-			`UPDATE "organizations" SET "name" = $1 WHERE "id" = $2`,
-			v.Name, id,
-		)
-		return err
+		v.ID = id
+		return s.db.WithContext(ctx).Model(&Organization{}).Where("id = ?", id).Select([]string{"name"}).Updates(&v).Error
 	case "User":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -107,98 +93,119 @@ func (s *Store) Update(entity string, id string, value any) error {
 		if err := json.Unmarshal(data, &v); err != nil {
 			return fmt.Errorf("unmarshaling User: %w", err)
 		}
-		_, err = s.db.Exec(
-			`UPDATE "users" SET "email" = $1, "role" = $2, "org_id" = $3 WHERE "id" = $4`,
-			v.Email, v.Role, v.OrgID, id,
-		)
-		return err
+		v.ID = id
+		return s.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Select([]string{"email", "role", "org_id"}).Updates(&v).Error
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
-// Delete removes an entity by ID.
-func (s *Store) Delete(entity string, id string) error {
+// Delete soft-deletes an entity by ID.
+func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 	switch entity {
 	case "Organization":
-		_, err := s.db.Exec(`DELETE FROM "organizations" WHERE "id" = $1`, id)
-		return err
+		return s.db.WithContext(ctx).Where("id = ?", id).Delete(&Organization{}).Error
 	case "User":
-		_, err := s.db.Exec(`DELETE FROM "users" WHERE "id" = $1`, id)
-		return err
+		return s.db.WithContext(ctx).Where("id = ?", id).Delete(&User{}).Error
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
-// List retrieves all entities, optionally filtered by a scope field.
-func (s *Store) List(entity string, scopeField string, scopeValue string) (any, error) {
+// List retrieves entities with optional scope filtering, ordering, and pagination.
+// It performs a COUNT(*) query first to get the total matching records,
+// then applies ordering and fetches the requested page via OFFSET/LIMIT.
+func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts api.ListOptions) (api.ListResult, error) {
 	switch entity {
 	case "Organization":
 		validCols := map[string]bool{"name": true}
-		query := `SELECT "id", "name" FROM "organizations"`
-		var args []any
+		query := s.db.WithContext(ctx).Model(&Organization{})
 		if scopeField != "" && scopeValue != "" {
 			if !validCols[scopeField] {
-				return nil, fmt.Errorf("invalid scope field %q for entity Organization", scopeField)
+				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity Organization", scopeField)
 			}
-			query += ` WHERE "` + scopeField + `" = $1`
-			args = append(args, scopeValue)
+			query = query.Where(scopeField+" = ?", scopeValue)
 		}
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			return nil, err
+		var total int64
+		if err := query.Count(&total).Error; err != nil {
+			return api.ListResult{}, err
 		}
-		defer rows.Close()
+		for _, ob := range opts.OrderBy {
+			if validCols[ob.Field] {
+				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if len(opts.Fields) > 0 {
+			// Always include id; add requested fields that exist.
+			selectCols := []string{"id"}
+			for _, f := range opts.Fields {
+				if validCols[f] {
+					selectCols = append(selectCols, f)
+				}
+			}
+			query = query.Select(selectCols)
+		}
+		offset := (opts.Page - 1) * opts.Size
+		if offset > 0 {
+			query = query.Offset(offset)
+		}
+		if opts.Size > 0 {
+			query = query.Limit(opts.Size)
+		}
 		var result []Organization
-		for rows.Next() {
-			var v Organization
-			if err := rows.Scan(&v.ID, &v.Name); err != nil {
-				return nil, err
-			}
-			result = append(result, v)
+		if err := query.Find(&result).Error; err != nil {
+			return api.ListResult{}, err
 		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return result, nil
+		return api.ListResult{Items: result, Total: total}, nil
 	case "User":
 		validCols := map[string]bool{"email": true, "role": true, "org_id": true}
-		query := `SELECT "id", "email", "role", "org_id" FROM "users"`
-		var args []any
+		query := s.db.WithContext(ctx).Model(&User{})
 		if scopeField != "" && scopeValue != "" {
 			if !validCols[scopeField] {
-				return nil, fmt.Errorf("invalid scope field %q for entity User", scopeField)
+				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity User", scopeField)
 			}
-			query += ` WHERE "` + scopeField + `" = $1`
-			args = append(args, scopeValue)
+			query = query.Where(scopeField+" = ?", scopeValue)
 		}
-		rows, err := s.db.Query(query, args...)
-		if err != nil {
-			return nil, err
+		var total int64
+		if err := query.Count(&total).Error; err != nil {
+			return api.ListResult{}, err
 		}
-		defer rows.Close()
+		for _, ob := range opts.OrderBy {
+			if validCols[ob.Field] {
+				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if len(opts.Fields) > 0 {
+			// Always include id; add requested fields that exist.
+			selectCols := []string{"id"}
+			for _, f := range opts.Fields {
+				if validCols[f] {
+					selectCols = append(selectCols, f)
+				}
+			}
+			query = query.Select(selectCols)
+		}
+		offset := (opts.Page - 1) * opts.Size
+		if offset > 0 {
+			query = query.Offset(offset)
+		}
+		if opts.Size > 0 {
+			query = query.Limit(opts.Size)
+		}
 		var result []User
-		for rows.Next() {
-			var v User
-			if err := rows.Scan(&v.ID, &v.Email, &v.Role, &v.OrgID); err != nil {
-				return nil, err
-			}
-			result = append(result, v)
+		if err := query.Find(&result).Error; err != nil {
+			return api.ListResult{}, err
 		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return result, nil
+		return api.ListResult{Items: result, Total: total}, nil
 	default:
-		return nil, fmt.Errorf("unknown entity: %s", entity)
+		return api.ListResult{}, fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
 // Upsert inserts or updates an entity using natural-key conflict resolution.
 // When concurrency is "optimistic", the update only proceeds if the incoming
 // generation value is newer than the existing row's generation.
-func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency string) error {
+func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error {
 	switch entity {
 	case "Organization":
 		data, err := json.Marshal(value)
@@ -215,34 +222,32 @@ func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency
 				return fmt.Errorf("invalid upsert key field %q for entity Organization", k)
 			}
 		}
-		query := `INSERT INTO "organizations" ("id", "name") VALUES ($1, $2)`
-		if len(upsertKey) > 0 {
-			keySet := make(map[string]bool, len(upsertKey))
-			for _, k := range upsertKey {
-				keySet[k] = true
-			}
-			quotedKeys := make([]string, len(upsertKey))
-			for i, k := range upsertKey {
-				quotedKeys[i] = `"` + k + `"`
-			}
-			var setClauses []string
-			allCols := []string{"name"}
-			for _, col := range allCols {
-				if !keySet[col] {
-					setClauses = append(setClauses, `"`+col+`" = EXCLUDED."`+col+`"`)
-				}
-			}
-			if len(setClauses) > 0 {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO UPDATE SET " + strings.Join(setClauses, ", ")
-				if concurrency == "optimistic" {
-					return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity Organization")
-				}
-			} else {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO NOTHING"
+		conflictCols := make([]clause.Column, len(upsertKey))
+		for i, k := range upsertKey {
+			conflictCols[i] = clause.Column{Name: k}
+		}
+		keySet := make(map[string]bool, len(upsertKey))
+		for _, k := range upsertKey {
+			keySet[k] = true
+		}
+		var updateCols []string
+		for _, col := range []string{"name"} {
+			if !keySet[col] {
+				updateCols = append(updateCols, col)
 			}
 		}
-		_, err = s.db.Exec(query, v.ID, v.Name)
-		return err
+		onConflict := clause.OnConflict{
+			Columns: conflictCols,
+		}
+		if len(updateCols) > 0 {
+			onConflict.DoUpdates = clause.AssignmentColumns(updateCols)
+			if concurrency == "optimistic" {
+				return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity Organization")
+			}
+		} else {
+			onConflict.DoNothing = true
+		}
+		return s.db.WithContext(ctx).Clauses(onConflict).Create(&v).Error
 	case "User":
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -258,58 +263,53 @@ func (s *Store) Upsert(entity string, value any, upsertKey []string, concurrency
 				return fmt.Errorf("invalid upsert key field %q for entity User", k)
 			}
 		}
-		query := `INSERT INTO "users" ("id", "email", "role", "org_id") VALUES ($1, $2, $3, $4)`
-		if len(upsertKey) > 0 {
-			keySet := make(map[string]bool, len(upsertKey))
-			for _, k := range upsertKey {
-				keySet[k] = true
-			}
-			quotedKeys := make([]string, len(upsertKey))
-			for i, k := range upsertKey {
-				quotedKeys[i] = `"` + k + `"`
-			}
-			var setClauses []string
-			allCols := []string{"email", "role", "org_id"}
-			for _, col := range allCols {
-				if !keySet[col] {
-					setClauses = append(setClauses, `"`+col+`" = EXCLUDED."`+col+`"`)
-				}
-			}
-			if len(setClauses) > 0 {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO UPDATE SET " + strings.Join(setClauses, ", ")
-				if concurrency == "optimistic" {
-					return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
-				}
-			} else {
-				query += " ON CONFLICT (" + strings.Join(quotedKeys, ", ") + ") DO NOTHING"
+		conflictCols := make([]clause.Column, len(upsertKey))
+		for i, k := range upsertKey {
+			conflictCols[i] = clause.Column{Name: k}
+		}
+		keySet := make(map[string]bool, len(upsertKey))
+		for _, k := range upsertKey {
+			keySet[k] = true
+		}
+		var updateCols []string
+		for _, col := range []string{"email", "role", "org_id"} {
+			if !keySet[col] {
+				updateCols = append(updateCols, col)
 			}
 		}
-		_, err = s.db.Exec(query, v.ID, v.Email, v.Role, v.OrgID)
-		return err
+		onConflict := clause.OnConflict{
+			Columns: conflictCols,
+		}
+		if len(updateCols) > 0 {
+			onConflict.DoUpdates = clause.AssignmentColumns(updateCols)
+			if concurrency == "optimistic" {
+				return fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
+			}
+		} else {
+			onConflict.DoNothing = true
+		}
+		return s.db.WithContext(ctx).Clauses(onConflict).Create(&v).Error
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
 // Exists checks whether an entity with the given ID exists.
-// It returns an error if the database query fails, so callers can
-// distinguish "not found" from infrastructure failures.
-func (s *Store) Exists(entity string, id string) (bool, error) {
-	var table string
+func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, error) {
 	switch entity {
 	case "Organization":
-		table = `"organizations"`
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&Organization{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return false, err
+		}
+		return count > 0, nil
 	case "User":
-		table = `"users"`
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return false, err
+		}
+		return count > 0, nil
 	default:
 		return false, fmt.Errorf("unknown entity: %s", entity)
 	}
-	var exists bool
-	err := s.db.QueryRow(
-		fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE "id" = $1)`, table), id,
-	).Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
 }
