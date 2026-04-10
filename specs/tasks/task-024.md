@@ -111,3 +111,5 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - c6463e9 chore(task-024): mark task ready-for-review after round 1 fixes
 - ecea349 fix(task-024): address round 2 review findings — fields id, update ID, OpenAPI envelope
 - 4c25767 chore(task-024): mark task ready-for-review after round 2 fixes
+- ac4d859 fix(task-024): address round 3 review findings — fields validation, OpenAPI list items schema
+- 36e4398 chore(task-024): mark task ready-for-review after round 3 fixes
