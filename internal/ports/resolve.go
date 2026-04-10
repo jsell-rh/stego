@@ -78,6 +78,9 @@ type InvalidBinding struct {
 }
 
 func (ib InvalidBinding) Error() string {
+	if ib.Component == "" {
+		return fmt.Sprintf("invalid binding for port %q: %s", ib.Port, ib.Reason)
+	}
 	return fmt.Sprintf("invalid binding for port %q required by %q: %s", ib.Port, ib.Component, ib.Reason)
 }
 

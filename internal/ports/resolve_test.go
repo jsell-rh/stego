@@ -639,6 +639,16 @@ func TestResolveOverrideNonExistentComponentInRegistry(t *testing.T) {
 	if !strings.Contains(ib.Reason, "not found in registry") {
 		t.Errorf("expected reason to mention 'not found in registry', got: %q", ib.Reason)
 	}
+
+	// Override-phase errors have no requiring component — the error message
+	// must not contain 'required by ""'.
+	errMsg := ib.Error()
+	if strings.Contains(errMsg, `required by ""`) {
+		t.Errorf("override error message should not contain 'required by \"\"', got: %q", errMsg)
+	}
+	if strings.Contains(errMsg, `required by`) {
+		t.Errorf("override error message should omit 'required by' when no component context exists, got: %q", errMsg)
+	}
 }
 
 func TestResolveOverrideComponentDoesNotProvidePort(t *testing.T) {
@@ -688,6 +698,16 @@ func TestResolveOverrideComponentDoesNotProvidePort(t *testing.T) {
 	if !strings.Contains(ib.Reason, "does not provide port") {
 		t.Errorf("expected reason to mention 'does not provide port', got: %q", ib.Reason)
 	}
+
+	// Override-phase errors have no requiring component — the error message
+	// must not contain 'required by ""'.
+	errMsg := ib.Error()
+	if strings.Contains(errMsg, `required by ""`) {
+		t.Errorf("override error message should not contain 'required by \"\"', got: %q", errMsg)
+	}
+	if strings.Contains(errMsg, `required by`) {
+		t.Errorf("override error message should omit 'required by' when no component context exists, got: %q", errMsg)
+	}
 }
 
 func TestResolveOverrideWithoutLoaderAndMissingComponent(t *testing.T) {
@@ -721,6 +741,48 @@ func TestResolveOverrideWithoutLoaderAndMissingComponent(t *testing.T) {
 	ib := resErr.InvalidBinding[0]
 	if !strings.Contains(ib.Reason, "not in the active set") {
 		t.Errorf("expected reason to mention 'not in the active set', got: %q", ib.Reason)
+	}
+
+	// Override-phase errors have no requiring component — the error message
+	// must not contain 'required by ""'.
+	errMsg := ib.Error()
+	if strings.Contains(errMsg, `required by ""`) {
+		t.Errorf("override error message should not contain 'required by \"\"', got: %q", errMsg)
+	}
+	if strings.Contains(errMsg, `required by`) {
+		t.Errorf("override error message should omit 'required by' when no component context exists, got: %q", errMsg)
+	}
+}
+
+func TestInvalidBindingErrorFormat(t *testing.T) {
+	// With a component (binding-resolution phase): message includes "required by".
+	withComp := InvalidBinding{
+		Component: "rest-api",
+		Port:      "storage-adapter",
+		BoundTo:   "nonexistent",
+		Reason:    "binding references non-existent component \"nonexistent\"",
+	}
+	msg := withComp.Error()
+	if !strings.Contains(msg, `required by "rest-api"`) {
+		t.Errorf("expected 'required by \"rest-api\"' in error with component, got: %q", msg)
+	}
+
+	// Without a component (override phase): message omits "required by".
+	withoutComp := InvalidBinding{
+		Component: "",
+		Port:      "auth-provider",
+		BoundTo:   "nonexistent-auth",
+		Reason:    "override component \"nonexistent-auth\" not found in registry",
+	}
+	msg = withoutComp.Error()
+	if strings.Contains(msg, "required by") {
+		t.Errorf("expected no 'required by' in error without component, got: %q", msg)
+	}
+	if !strings.Contains(msg, `invalid binding for port "auth-provider"`) {
+		t.Errorf("expected port identification in error, got: %q", msg)
+	}
+	if !strings.Contains(msg, "not found in registry") {
+		t.Errorf("expected reason in error, got: %q", msg)
 	}
 }
 
