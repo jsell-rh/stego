@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Collections & Operations > Patch" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-025.md](../reviews/task-025.md)
 
