@@ -68,3 +68,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - d17eeeb fix(task-030): demonstrate halt semantics with Ok=true, Halt=true fill
 - bc882d7 fix(task-030): regenerate example output with scope enforcement for individual-resource operations
 - a98984f fix(task-030): address all 4 review findings from round 8
+- dd05e43 fix(task-030): apply storage→API type conversion in generator, regenerate output
