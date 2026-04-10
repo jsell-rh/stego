@@ -66,3 +66,5 @@ The rest-crud archetype spec defines `upsert` as an operation alongside `create`
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `db56356` feat(task-028): add upsert operation with conflict resolution
