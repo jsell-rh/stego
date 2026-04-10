@@ -2,7 +2,9 @@
 
 **Spec Reference:** [specs/registry/components/rh-sso-auth/spec.md](../registry/components/rh-sso-auth/spec.md)
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-032.md](../reviews/task-032.md)
 
 **Depends on:** task-011 (jwt-auth pattern), task-009 (rest-api generator pattern)
 

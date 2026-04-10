@@ -1,0 +1,9 @@
+# Review: Task 032 — rh-sso-auth Component Definition & Generator
+
+## Round 1
+
+- [ ] **JWK_CERT_URL environment variable override not implemented.** The spec (Environment Variables section) states: "`JWK_CERT_URL` -- JWK endpoint URL for key discovery (overrides config default)". The generated middleware bakes the URL at generation time from the component config (generator.go:159) and never reads `os.Getenv("JWK_CERT_URL")` at runtime. The spec's Wiring section also states: "main.go reads JWK_CERT_URL, JWK_CERT_FILE, and AUTH_ENABLED from environment." Only AUTH_ENABLED is read at runtime (generator.go:213); JWK_CERT_URL is not.
+
+- [ ] **JWK_CERT_FILE not wired at all.** The spec defines `JWK_CERT_FILE` as an environment variable ("local JWK file path (overrides URL if set)") and lists `jwk_cert_file` as an optional component config field. The generator reads `jwk_cert_url` from ComponentConfig (generator.go:31) but never reads `jwk_cert_file`. The generated middleware has a `WithKeysFile()` builder method but it is unreachable: the wiring constructor is hardcoded as `auth.NewJWTHandler().Build()` (generator.go:66) with no chaining. Neither the generator nor the generated code reads `os.Getenv("JWK_CERT_FILE")`. The key source priority logic (file > URL, spec line 47) is structurally present in the generated code but cannot be activated.
+
+- [ ] **tryRefresh has a TOCTOU race that defeats the 30-second cooldown.** The spec states: "A 30-second cooldown prevents refresh storms." In the generated `tryRefresh()`, the cooldown check acquires `Lock`, checks `lastRefresh`, then releases `Lock` before calling `refreshKeys()` (generator.go:278-285). `refreshKeys()` later re-acquires `Lock` to update `lastRefresh` (generator.go:339-341). Between the unlock and the lastRefresh update, concurrent goroutines can also pass the cooldown check and initiate parallel refreshes — exactly the "refresh storm" the spec says the cooldown prevents.
