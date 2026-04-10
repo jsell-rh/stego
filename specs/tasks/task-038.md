@@ -62,3 +62,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - `11925e1` feat(assembler): read PORT from env var instead of hardcoding
+- `c780653` fix(task-038): remove orphaned fmt references from covered map and comments
