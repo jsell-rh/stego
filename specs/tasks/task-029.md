@@ -2,7 +2,9 @@
 
 **Spec Reference:** "Slot/Fill Contract > Short-circuit chains" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [specs/reviews/task-029.md](../reviews/task-029.md)
 
 ## Description
 
