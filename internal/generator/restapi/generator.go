@@ -2225,7 +2225,7 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	case types.FieldTypeRef:
 		s.Type = "string"
 	case types.FieldTypeJsonb:
-		s.Type = "object"
+		s.Description = "Arbitrary JSON value"
 	}
 	if f.Computed {
 		s.ReadOnly = true
@@ -2737,21 +2737,22 @@ type openAPIComponents struct {
 }
 
 type openAPISchema struct {
-	Type       string                   `json:"type,omitempty"`
-	Format     string                   `json:"format,omitempty"`
-	Properties map[string]openAPISchema `json:"properties,omitempty"`
-	Required   []string                 `json:"required,omitempty"`
-	Items      *openAPISchema           `json:"items,omitempty"`
-	Ref        string                   `json:"$ref,omitempty"`
-	Enum       []string                 `json:"enum,omitempty"`
-	ReadOnly   bool                     `json:"readOnly,omitempty"`
-	MinLength  *int                     `json:"minLength,omitempty"`
-	MaxLength  *int                     `json:"maxLength,omitempty"`
-	Pattern    string                   `json:"pattern,omitempty"`
-	Minimum    *float64                 `json:"minimum,omitempty"`
-	Maximum    *float64                 `json:"maximum,omitempty"`
-	Default    any                      `json:"default,omitempty"`
-	AllOf      []openAPISchema          `json:"allOf,omitempty"`
+	Type        string                   `json:"type,omitempty"`
+	Format      string                   `json:"format,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	Properties  map[string]openAPISchema `json:"properties,omitempty"`
+	Required    []string                 `json:"required,omitempty"`
+	Items       *openAPISchema           `json:"items,omitempty"`
+	Ref         string                   `json:"$ref,omitempty"`
+	Enum        []string                 `json:"enum,omitempty"`
+	ReadOnly    bool                     `json:"readOnly,omitempty"`
+	MinLength   *int                     `json:"minLength,omitempty"`
+	MaxLength   *int                     `json:"maxLength,omitempty"`
+	Pattern     string                   `json:"pattern,omitempty"`
+	Minimum     *float64                 `json:"minimum,omitempty"`
+	Maximum     *float64                 `json:"maximum,omitempty"`
+	Default     any                      `json:"default,omitempty"`
+	AllOf       []openAPISchema          `json:"allOf,omitempty"`
 }
 
 // validateCollectionOperations checks that every collection has at least one

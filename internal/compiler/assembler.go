@@ -1,5 +1,5 @@
 // Package compiler assembles component wirings, slot bindings, and fill
-// declarations into shared generated files (cmd/main.go, go.mod).
+// declarations into shared generated files (main.go, go.mod).
 package compiler
 
 import (
@@ -54,7 +54,7 @@ type ComponentWiring struct {
 }
 
 // Assemble produces the shared generated files from component wirings and
-// slot bindings. Currently produces cmd/main.go and go.mod. No files are
+// slot bindings. Currently produces main.go and go.mod. No files are
 // ever generated under fills/ — that directory is human-owned.
 func Assemble(input AssemblerInput) ([]gen.File, error) {
 	if input.ModuleName == "" {
@@ -243,7 +243,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	return gen.File{
-		Path:    "cmd/main.go",
+		Path:    "main.go",
 		Content: formatted,
 	}, nil
 }

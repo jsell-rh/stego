@@ -1019,7 +1019,6 @@ func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 		{"ts", "string"},
 		{"e", "string"},
 		{"r", "string"},
-		{"j", "object"},
 	}
 
 	for _, tt := range tests {
@@ -1027,6 +1026,16 @@ func TestGenerate_OpenAPIFieldTypes(t *testing.T) {
 		if p["type"] != tt.wantType {
 			t.Errorf("field %s: expected type %q, got %q", tt.field, tt.wantType, p["type"])
 		}
+	}
+
+	// jsonb fields should have no "type" constraint (accepts any JSON value)
+	// and a description indicating arbitrary JSON.
+	jsonbField := props["j"].(map[string]any)
+	if _, hasType := jsonbField["type"]; hasType {
+		t.Errorf("jsonb field j: expected no type constraint, got type=%q", jsonbField["type"])
+	}
+	if desc, ok := jsonbField["description"].(string); !ok || desc == "" {
+		t.Errorf("jsonb field j: expected non-empty description, got %q", jsonbField["description"])
 	}
 }
 
@@ -4655,14 +4664,11 @@ type ValidateSlot interface {
 		}
 	}
 
-	// Write a stub storage package so the `store` variable resolves in main.go.
+	// Write a stub storage file so the `store` variable resolves in main.go.
 	// The wiring constructor is `api.NewUserHandler(store, ...)` — the assembler
 	// creates `store` from the postgres-adapter wiring. Since we only have the
 	// rest-api wiring here, we need to provide a store variable.
-	storeStub := filepath.Join(tmpDir, "cmd", "store_stub.go")
-	if err := os.MkdirAll(filepath.Dir(storeStub), 0755); err != nil {
-		t.Fatalf("mkdir for store stub: %v", err)
-	}
+	storeStub := filepath.Join(tmpDir, "store_stub.go")
 	storeStubContent := "package main\n\nimport api \"" + moduleName + "/internal/api\"\n\nvar store api.Storage\n"
 	if err := os.WriteFile(storeStub, []byte(storeStubContent), 0644); err != nil {
 		t.Fatalf("writing store stub: %v", err)

@@ -126,7 +126,11 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		presentedItems[i] = presentEntity(item, "OrgSetting", itemID, hrefBase+"/"+itemID)
+		// Convert storage type to API type for consistent response shape.
+		itemData, _ := json.Marshal(item)
+		var apiItem OrgSetting
+		json.Unmarshal(itemData, &apiItem)
+		presentedItems[i] = presentEntity(apiItem, "OrgSetting", itemID, hrefBase+"/"+itemID)
 		if len(fields) > 0 {
 			allowed := map[string]bool{"id": true, "kind": true, "href": true}
 			for _, f := range fields {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -32,7 +33,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
-	f, err := generateMiddleware(ns, pkg, header)
+	f, err := generateMiddleware(ns, pkg, header, ctx.ServiceName, ctx.ErrorTypeBase)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -54,10 +55,22 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return files, wiring, nil
 }
 
+// deriveErrorPrefix converts a service name to an error code prefix by
+// removing hyphens and uppercasing.
+func deriveErrorPrefix(serviceName string) string {
+	return strings.ToUpper(strings.ReplaceAll(serviceName, "-", ""))
+}
+
 // generateMiddleware produces the middleware.go file containing the Identity
 // struct, JWT validation logic, context helpers, and the middleware constructor.
-func generateMiddleware(ns, pkg, header string) (gen.File, error) {
+func generateMiddleware(ns, pkg, header, serviceName, errorTypeBase string) (gen.File, error) {
 	var buf bytes.Buffer
+
+	errorPrefix := deriveErrorPrefix(serviceName)
+	errorTypeURI := "about:blank"
+	if errorTypeBase != "" {
+		errorTypeURI = errorTypeBase + "unauthorized"
+	}
 
 	fmt.Fprintf(&buf, "package %s\n\n", pkg)
 	fmt.Fprintf(&buf, "import (\n")
@@ -67,6 +80,7 @@ func generateMiddleware(ns, pkg, header string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, "\t\"time\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
 
 	// Identity struct matching stego.common.Identity proto.
@@ -142,12 +156,12 @@ func generateMiddleware(ns, pkg, header string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
 	fmt.Fprintf(&buf, "\t\t\ttoken := extractToken(r)\n")
 	fmt.Fprintf(&buf, "\t\t\tif token == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\t\t\thttp.Error(w, \"missing authentication token\", http.StatusUnauthorized)\n")
+	fmt.Fprintf(&buf, "\t\t\t\twriteAuthError(w, r, \"missing authentication token\")\n")
 	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
 	fmt.Fprintf(&buf, "\t\t\t}\n")
 	fmt.Fprintf(&buf, "\t\t\tclaims, err := parseJWT(token)\n")
 	fmt.Fprintf(&buf, "\t\t\tif err != nil {\n")
-	fmt.Fprintf(&buf, "\t\t\t\thttp.Error(w, \"invalid authentication token\", http.StatusUnauthorized)\n")
+	fmt.Fprintf(&buf, "\t\t\t\twriteAuthError(w, r, \"invalid authentication token\")\n")
 	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
 	fmt.Fprintf(&buf, "\t\t\t}\n")
 	fmt.Fprintf(&buf, "\t\t\tid := Identity{\n")
@@ -159,6 +173,24 @@ func generateMiddleware(ns, pkg, header string) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\t\tnext.ServeHTTP(w, r.WithContext(ctx))\n")
 	fmt.Fprintf(&buf, "\t\t})\n")
 	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// writeAuthError helper — produces RFC 9457 Problem Details JSON.
+	fmt.Fprintf(&buf, "// writeAuthError writes an RFC 9457 Problem Details error response\n")
+	fmt.Fprintf(&buf, "// with Content-Type application/problem+json for authentication failures.\n")
+	fmt.Fprintf(&buf, "func writeAuthError(w http.ResponseWriter, r *http.Request, detail string) {\n")
+	fmt.Fprintf(&buf, "\tresp := map[string]any{\n")
+	fmt.Fprintf(&buf, "\t\t\"type\":      %q,\n", errorTypeURI)
+	fmt.Fprintf(&buf, "\t\t\"title\":     \"Unauthorized\",\n")
+	fmt.Fprintf(&buf, "\t\t\"status\":    http.StatusUnauthorized,\n")
+	fmt.Fprintf(&buf, "\t\t\"detail\":    detail,\n")
+	fmt.Fprintf(&buf, "\t\t\"code\":      %q,\n", errorPrefix+"-AUT-001")
+	fmt.Fprintf(&buf, "\t\t\"instance\":  r.URL.Path,\n")
+	fmt.Fprintf(&buf, "\t\t\"timestamp\": time.Now().UTC().Format(time.RFC3339),\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/problem+json\")\n")
+	fmt.Fprintf(&buf, "\tw.WriteHeader(http.StatusUnauthorized)\n")
+	fmt.Fprintf(&buf, "\tjson.NewEncoder(w).Encode(resp)\n")
 	fmt.Fprintf(&buf, "}\n")
 
 	formatted, err := format.Source(buf.Bytes())

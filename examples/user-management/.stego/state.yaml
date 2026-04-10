@@ -61,7 +61,7 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
-        cmd/main.go: 69cb1269a5b5c0c3768e73ff2f990c8c5d0de39552e864e38787e4f08523cab7
+        main.go: 69cb1269a5b5c0c3768e73ff2f990c8c5d0de39552e864e38787e4f08523cab7
         go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: f26c3a72b985189ccccd2fc8ea25fcdd96aa441cb59d6379c24e031370a2b9f8

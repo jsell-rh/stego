@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Identity represents the caller's identity extracted from a JWT token.
@@ -78,12 +79,12 @@ func NewAuthMiddleware() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractToken(r)
 			if token == "" {
-				http.Error(w, "missing authentication token", http.StatusUnauthorized)
+				writeAuthError(w, r, "missing authentication token")
 				return
 			}
 			claims, err := parseJWT(token)
 			if err != nil {
-				http.Error(w, "invalid authentication token", http.StatusUnauthorized)
+				writeAuthError(w, r, "invalid authentication token")
 				return
 			}
 			id := Identity{
@@ -95,4 +96,21 @@ func NewAuthMiddleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// writeAuthError writes an RFC 9457 Problem Details error response
+// with Content-Type application/problem+json for authentication failures.
+func writeAuthError(w http.ResponseWriter, r *http.Request, detail string) {
+	resp := map[string]any{
+		"type":      "https://api.example.com/errors/unauthorized",
+		"title":     "Unauthorized",
+		"status":    http.StatusUnauthorized,
+		"detail":    detail,
+		"code":      "USERMANAGEMENT-AUT-001",
+		"instance":  r.URL.Path,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(resp)
 }

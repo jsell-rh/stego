@@ -53,7 +53,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 	var mainGo, goMod gen.File
 	for _, f := range files {
 		switch f.Path {
-		case "cmd/main.go":
+		case "main.go":
 			mainGo = f
 		case "go.mod":
 			goMod = f
@@ -160,7 +160,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -266,7 +266,7 @@ func TestAssemble_ChainWithShortCircuit(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -342,7 +342,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -395,7 +395,7 @@ func TestAssemble_NoRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -505,7 +505,7 @@ func TestAssemble_DefaultPort(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -543,7 +543,7 @@ func TestAssemble_NilWiring(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -586,7 +586,7 @@ func TestAssemble_DeduplicatesFillImports(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -670,7 +670,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -859,7 +859,7 @@ func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T)
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -922,7 +922,7 @@ func TestAssemble_ConstructorVarNameCollision_BothConsumed(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -980,7 +980,7 @@ func TestAssemble_FillImportAliasCollision(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1039,7 +1039,7 @@ func TestAssemble_ComponentImportAliasCollision(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1108,7 +1108,7 @@ func TestAssemble_NeedsDB_StructuredMetadata(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1146,7 +1146,7 @@ func TestAssemble_NoDB_WhenNeedsDBFalse(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1234,7 +1234,7 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1322,7 +1322,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1391,7 +1391,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1458,7 +1458,7 @@ func TestAssemble_UnifiedImportAliasNamespace(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1524,7 +1524,7 @@ func TestAssemble_SlotsAliasCollisionWithComponent(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1579,7 +1579,7 @@ func TestAssemble_FillAliasCollisionWithComponent(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1641,7 +1641,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1697,7 +1697,7 @@ func TestAssemble_NoRoutesNoDB_NoLogImport(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -1841,7 +1841,7 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 
 			var mainGo gen.File
 			for _, f := range files {
-				if f.Path == "cmd/main.go" {
+				if f.Path == "main.go" {
 					mainGo = f
 				}
 			}
@@ -1984,7 +1984,7 @@ func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2076,7 +2076,7 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 
 			var mainGo gen.File
 			for _, f := range files {
-				if f.Path == "cmd/main.go" {
+				if f.Path == "main.go" {
 					mainGo = f
 				}
 			}
@@ -2131,7 +2131,7 @@ func TestAssemble_ImportAliasRenameInRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2282,7 +2282,7 @@ func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2400,7 +2400,7 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2566,7 +2566,7 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 
 			var mainGo gen.File
 			for _, f := range files {
-				if f.Path == "cmd/main.go" {
+				if f.Path == "main.go" {
 					mainGo = f
 				}
 			}
@@ -2618,7 +2618,7 @@ func TestAssemble_StdlibAliasShadowingByFill(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2744,7 +2744,7 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2817,7 +2817,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByConstructor(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2885,7 +2885,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByFillAlias(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -2958,7 +2958,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3032,7 +3032,7 @@ func TestAssemble_SharedImportPathAcrossWirings(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3104,7 +3104,7 @@ func TestAssemble_SharedImportPathNoDisambiguation(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3174,7 +3174,7 @@ func TestAssemble_MultiPassRenameInterference(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3246,7 +3246,7 @@ func TestAssemble_PreReservedRenameDoesNotCorruptRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3316,7 +3316,7 @@ func TestAssemble_PreReservedRename_StdlibAlias(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3392,7 +3392,7 @@ func TestAssemble_NonStdlibAliasRenameAppliedToRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3460,7 +3460,7 @@ func TestAssemble_InterConstructorRenameStillAppliedToRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3582,7 +3582,7 @@ func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
 
 	var mainContent string
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainContent = string(f.Content)
 			break
 		}
@@ -3734,7 +3734,7 @@ func TestAssemble_StructStyleMiddleware(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3797,7 +3797,7 @@ func TestAssemble_TopologicalSortConstructors(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3915,7 +3915,7 @@ func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -3986,7 +3986,7 @@ func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4046,7 +4046,7 @@ func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4138,7 +4138,7 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4240,7 +4240,7 @@ func TestAssemble_TransitiveDep_NoFalsePositiveSubstring(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4304,7 +4304,7 @@ func TestAssemble_FillAliasConsistency_NoRoutesWithNeedsDB(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4360,7 +4360,7 @@ func TestAssemble_FillImportsGatedOnHasSlots(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4414,7 +4414,7 @@ func TestAssemble_GORMDBSetupClosesConnection(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 			break
 		}
@@ -4466,7 +4466,7 @@ func TestAssemble_PostDBCallsEmitted(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 			break
 		}
@@ -4532,7 +4532,7 @@ func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 			break
 		}
@@ -4606,7 +4606,7 @@ func TestAssemble_AdditionalMiddlewares(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}
@@ -4660,7 +4660,7 @@ func TestAssemble_AdditionalMiddlewares_NoAuth(t *testing.T) {
 
 	var mainGo gen.File
 	for _, f := range files {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			mainGo = f
 		}
 	}

@@ -91,7 +91,7 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	organization, err := h.store.Get(r.Context(), "Organization", id)
+	existing, err := h.store.Get(r.Context(), "Organization", id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			handleError(w, r, NotFound("Organization", id))
@@ -100,6 +100,11 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// Convert storage type to API type to ensure consistent response shape
+	// across all operations (Read, Create, Update all return the same fields).
+	data, _ := json.Marshal(existing)
+	var organization Organization
+	json.Unmarshal(data, &organization)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(presentEntity(organization, "Organization", id, "/api/user-mgmt/v1/organizations"+"/"+id))
 }
@@ -197,7 +202,11 @@ func (h *OrganizationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		presentedItems[i] = presentEntity(item, "Organization", itemID, hrefBase+"/"+itemID)
+		// Convert storage type to API type for consistent response shape.
+		itemData, _ := json.Marshal(item)
+		var apiItem Organization
+		json.Unmarshal(itemData, &apiItem)
+		presentedItems[i] = presentEntity(apiItem, "Organization", itemID, hrefBase+"/"+itemID)
 		if len(fields) > 0 {
 			allowed := map[string]bool{"id": true, "kind": true, "href": true}
 			for _, f := range fields {

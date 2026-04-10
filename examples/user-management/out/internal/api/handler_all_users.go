@@ -101,7 +101,11 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		presentedItems[i] = presentEntity(item, "User", itemID, hrefBase+"/"+itemID)
+		// Convert storage type to API type for consistent response shape.
+		itemData, _ := json.Marshal(item)
+		var apiItem User
+		json.Unmarshal(itemData, &apiItem)
+		presentedItems[i] = presentEntity(apiItem, "User", itemID, hrefBase+"/"+itemID)
 		if len(fields) > 0 {
 			allowed := map[string]bool{"id": true, "kind": true, "href": true}
 			for _, f := range fields {

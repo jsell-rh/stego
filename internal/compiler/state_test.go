@@ -27,7 +27,7 @@ func TestSaveAndLoadState(t *testing.T) {
 				"rest-api": {Version: "2.1.0", SHA: "f4e5d6"},
 			},
 			Files: map[string]string{
-				"cmd/main.go":           "hash1",
+				"main.go":           "hash1",
 				"internal/api/handler.go": "hash2",
 			},
 		},
@@ -97,7 +97,7 @@ func TestSaveAndLoadState_WithEntityFieldState(t *testing.T) {
 					{Name: "score", Type: "int32", Hash: "hash2"},
 				},
 			},
-			Files: map[string]string{"cmd/main.go": "hash3"},
+			Files: map[string]string{"main.go": "hash3"},
 		},
 	}
 

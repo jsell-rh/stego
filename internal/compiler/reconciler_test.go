@@ -168,7 +168,7 @@ func TestReconcile_PlanShowsGenerateForNewProject(t *testing.T) {
 	expectedPaths := map[string]bool{
 		"internal/api/handler.go":      false,
 		"internal/storage/store.go":    false,
-		"cmd/main.go":                  false,
+		"main.go":                  false,
 		"go.mod":                       false,
 	}
 	for _, f := range plan.Files {
@@ -235,7 +235,7 @@ func TestReconcile_ApplyWritesFiles(t *testing.T) {
 	}
 
 	// Verify main.go was written.
-	mainPath := filepath.Join(outDir, "cmd", "main.go")
+	mainPath := filepath.Join(outDir, "main.go")
 	data, err = os.ReadFile(mainPath)
 	if err != nil {
 		t.Fatalf("main.go not written: %v", err)
@@ -1260,7 +1260,7 @@ overrides:
 	// The assembler renders port as: fmt.Sprintf(":%d", 9090)
 	found := false
 	for _, f := range plan.GeneratedFiles {
-		if f.Path == "cmd/main.go" {
+		if f.Path == "main.go" {
 			content := string(f.Bytes())
 			if strings.Contains(content, "9090") {
 				found = true
