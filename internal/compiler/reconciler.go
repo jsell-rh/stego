@@ -316,6 +316,18 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 
+	// Validate short_circuit is only used with chain operator. The assembler
+	// passes the ShortCircuit flag to chain constructors — on a gate or fan-out
+	// binding the flag is silently ignored, which is a configuration mistake.
+	// This mirrors the check in Validate() per item 155.
+	if scErrs := validateSlotBindingShortCircuit(svcDecl.Slots); len(scErrs) > 0 {
+		msgs := make([]string, len(scErrs))
+		for i, e := range scErrs {
+			msgs[i] = e.Message
+		}
+		return nil, fmt.Errorf("slot validation failed: %s", strings.Join(msgs, "; "))
+	}
+
 	// Assemble shared files (main.go, go.mod).
 	assemblerInput := AssemblerInput{
 		ModuleName:   input.ModuleName,

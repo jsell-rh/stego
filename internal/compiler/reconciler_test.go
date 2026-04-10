@@ -2111,6 +2111,100 @@ slots:
 	}
 }
 
+func TestReconcile_ShortCircuitWithoutChainRejected(t *testing.T) {
+	// Item 155: short_circuit validation must be enforced on the Reconcile path,
+	// not just Validate. A user running `stego plan` directly should see the
+	// same error as `stego validate`.
+	projectDir, registryDir := setupTestProject(t)
+
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+
+slots:
+  - slot: before_create
+    collection: widgets
+    gate:
+      - my-policy
+    short_circuit: true
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add slot proto for before_create under stub-api component.
+	slotsDir := filepath.Join(registryDir, "components", "stub-api", "slots")
+	if err := os.MkdirAll(slotsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	protoContent := `syntax = "proto3";
+package stego.components.stub_api.slots;
+
+service BeforeCreate {
+  rpc Evaluate(BeforeCreateRequest) returns (SlotResult);
+}
+
+message BeforeCreateRequest {
+  string input = 1;
+}
+
+message SlotResult {
+  bool ok = 1;
+  string error_message = 2;
+}
+`
+	if err := os.WriteFile(filepath.Join(slotsDir, "before_create.proto"), []byte(protoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	compYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots:
+  - name: before_create
+    proto: stego.components.stub_api.slots.BeforeCreate
+    default: passthrough
+`
+	if err := os.WriteFile(filepath.Join(registryDir, "components", "stub-api", "component.yaml"), []byte(compYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{wiring: &gen.Wiring{}},
+		"stub-store": &stubGenerator{},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error when short_circuit is set without chain operator")
+	}
+	if !strings.Contains(err.Error(), "short_circuit") {
+		t.Errorf("error should mention short_circuit, got: %v", err)
+	}
+}
+
 func TestReconcile_OutDirEqualsProjectDirRejected(t *testing.T) {
 	// Finding 25: When OutDir equals ProjectDir, filepath.Rel returns "."
 	// which produces invalid Go import paths (module/./internal/api).
