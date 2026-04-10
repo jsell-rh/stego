@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Error Handling (RFC 9457)" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-023.md](../reviews/task-023.md)
 
