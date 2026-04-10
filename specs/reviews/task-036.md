@@ -1,0 +1,5 @@
+# Review: Task 036 — Port Resolver Loads Override Components from Registry
+
+## Findings
+
+- [ ] **Override `InvalidBinding` errors produce malformed user-facing error messages.** When override validation fails (component not found in registry, component does not provide port, or no component loader configured), the `InvalidBinding` struct is created with `Component: ""` (`resolve.go:134`, `resolve.go:144`, `resolve.go:154`). The `InvalidBinding.Error()` method at `resolve.go:80` formats this as `invalid binding for port "auth-provider" required by "": <reason>`. The `required by ""` fragment is meaningless to users. Override-phase errors are port-level, not component-level, so the `Component` field has no applicable value — but the error format doesn't account for this. Either the `Error()` method should handle the empty-component case (e.g. omitting `required by` when `Component` is empty), or the `InvalidBinding` struct needs a way to distinguish override-phase errors from binding-resolution-phase errors so the message can be formatted appropriately.

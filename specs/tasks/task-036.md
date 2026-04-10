@@ -44,7 +44,11 @@ The spec says "the resolver must load that component from the registry." Current
 
 ## Progress
 
-`ready-for-review`
+`needs-revision`
+
+## Review
+
+[specs/reviews/task-036.md](../reviews/task-036.md)
 
 ## Commits
 
