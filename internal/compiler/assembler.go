@@ -575,7 +575,7 @@ type constructorRename struct {
 	FinalVar         string
 	// PreReserved is true when the rename was caused by collision with an
 	// assembler-internal variable (mux, addr, db, dsn, err) or stdlib
-	// import alias (log, fmt, http, os, sql). Pre-reserved renames must
+	// import alias (log, http, os, sql). Pre-reserved renames must
 	// NOT be applied to route expressions because the route's reference
 	// to the identifier (e.g. mux.HandleFunc) refers to the assembler's
 	// own variable, not the constructor. The constructor was directly
@@ -814,7 +814,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 
 	// Track assembler-internal identifiers that the assembler itself emits
 	// into the function body (mux, addr, db, dsn, err) and stdlib import
-	// aliases (log, fmt, http, os, sql). Renames caused by collision with
+	// aliases (log, http, os, sql). Renames caused by collision with
 	// these identifiers must NOT be applied to route expressions because
 	// the route's reference to the identifier (e.g. mux.HandleFunc) refers
 	// to the assembler's own variable, not the constructor. The constructor
@@ -838,7 +838,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	}
 
 	// Seed with assembler-internal template variables (mux, addr, db, dsn,
-	// err) and standard library import aliases (log, fmt, http, os, sql)
+	// err) and standard library import aliases (log, http, os, sql)
 	// that are emitted by writeDBSetup, writeRouteRegistration, and
 	// writeServerStart into the same function scope.
 	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes) {
@@ -1614,7 +1614,7 @@ func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) [
 	}
 	// Include aliases for any remaining extra stdlib packages not already
 	// covered by the conditions above.
-	covered := map[string]bool{"os": true, "strings": true, "fmt": true, "http": true, "log": true, "sql": true}
+	covered := map[string]bool{"os": true, "strings": true, "http": true, "log": true, "sql": true}
 	for pkg := range extraStdlib {
 		alias := path.Base(pkg)
 		if !covered[alias] {

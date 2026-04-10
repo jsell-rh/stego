@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Generated Runtime Configuration" (rest-crud spec, lines 526-544)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-038.md](../reviews/task-038.md)
 
