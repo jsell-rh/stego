@@ -60,3 +60,5 @@ The rest-crud archetype spec defines `patch` as a distinct operation from `updat
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- e34e173 feat(task-025): add patch operation with patchable fields
