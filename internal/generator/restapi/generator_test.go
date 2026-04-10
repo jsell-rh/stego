@@ -6103,3 +6103,237 @@ func TestResolvedHrefBaseExpr_ScopedPath(t *testing.T) {
 		t.Errorf("scoped path hrefBase must use r.PathValue, got: %s", expr)
 	}
 }
+
+// --- Task 024 Round 2 Revision: Findings 1-3 ---
+
+func TestGenerate_EnvelopeFieldsIDAlwaysIncluded(t *testing.T) {
+	// Round 2 Finding 1: The fields query parameter must ensure "id" is always
+	// included in the field list even if the user does not list it.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	listBody := extractMethodBody(handler, "func (h *WidgetsHandler) List")
+	if listBody == "" {
+		t.Fatal("could not find List method in handler")
+	}
+
+	// The fields parsing code must check for "id" and inject it if missing.
+	if !strings.Contains(listBody, `hasID`) {
+		t.Error("List handler must track whether 'id' is in the fields list")
+	}
+	if !strings.Contains(listBody, `fields = append(fields, "id")`) {
+		t.Error("List handler must append 'id' to fields when not listed by user")
+	}
+}
+
+func TestGenerate_EnvelopeUpdateSetsEntityIDFromPath(t *testing.T) {
+	// Round 2 Finding 2: The Update handler must set entity.ID = id from the
+	// path parameter before passing the entity to storage. Otherwise the stored
+	// entity has an empty or client-provided ID that may not match the URL.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+	updateBody := extractMethodBody(handler, "func (h *WidgetsHandler) Update")
+	if updateBody == "" {
+		t.Fatal("could not find Update method in handler")
+	}
+
+	// Must set entity ID from path before storage call.
+	if !strings.Contains(updateBody, "widget.ID = id") {
+		t.Error("Update handler must set entity.ID = id from the path parameter")
+	}
+
+	// The ID assignment must come before the store.Replace call.
+	idAssignIdx := strings.Index(updateBody, "widget.ID = id")
+	storeCallIdx := strings.Index(updateBody, "h.store.Replace")
+	if idAssignIdx == -1 || storeCallIdx == -1 {
+		t.Fatal("could not find ID assignment or store.Replace call")
+	}
+	if idAssignIdx > storeCallIdx {
+		t.Error("entity.ID = id must come before h.store.Replace call")
+	}
+}
+
+func TestGenerate_OpenAPISingleResourceEnvelopeSchema(t *testing.T) {
+	// Round 2 Finding 3: When response_format is envelope, single-resource
+	// response schemas (create, read, update) must reflect the envelope format
+	// with id, kind, href metadata — not just the bare entity ref.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+
+	// Check create (POST /api/v1/widgets → 201 response).
+	widgetsPath := paths["/api/v1/widgets"].(map[string]any)
+	postOp := widgetsPath["post"].(map[string]any)
+	postResponses := postOp["responses"].(map[string]any)
+	created := postResponses["201"].(map[string]any)
+	createdContent := created["content"].(map[string]any)
+	createdMedia := createdContent["application/json"].(map[string]any)
+	createdSchema := createdMedia["schema"].(map[string]any)
+	assertEnvelopeResourceSchema(t, createdSchema, "create")
+
+	// Check read (GET /api/v1/widgets/{id} → 200 response).
+	itemPath := paths["/api/v1/widgets/{id}"].(map[string]any)
+	getOp := itemPath["get"].(map[string]any)
+	getResponses := getOp["responses"].(map[string]any)
+	ok200 := getResponses["200"].(map[string]any)
+	okContent := ok200["content"].(map[string]any)
+	okMedia := okContent["application/json"].(map[string]any)
+	okSchema := okMedia["schema"].(map[string]any)
+	assertEnvelopeResourceSchema(t, okSchema, "read")
+
+	// Check update (PUT /api/v1/widgets/{id} → 200 response).
+	putOp := itemPath["put"].(map[string]any)
+	putResponses := putOp["responses"].(map[string]any)
+	updated := putResponses["200"].(map[string]any)
+	updatedContent := updated["content"].(map[string]any)
+	updatedMedia := updatedContent["application/json"].(map[string]any)
+	updatedSchema := updatedMedia["schema"].(map[string]any)
+	assertEnvelopeResourceSchema(t, updatedSchema, "update")
+}
+
+func TestGenerate_OpenAPISingleResourceBareSchema(t *testing.T) {
+	// When response_format is bare or unset, single-resource response schemas
+	// must remain plain entity refs (no allOf envelope).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+
+	// Create response: must use plain $ref.
+	itemsPath := paths["/items"].(map[string]any)
+	postOp := itemsPath["post"].(map[string]any)
+	postResponses := postOp["responses"].(map[string]any)
+	created := postResponses["201"].(map[string]any)
+	createdContent := created["content"].(map[string]any)
+	createdMedia := createdContent["application/json"].(map[string]any)
+	createdSchema := createdMedia["schema"].(map[string]any)
+	if _, hasAllOf := createdSchema["allOf"]; hasAllOf {
+		t.Error("bare mode create response schema should not use allOf envelope")
+	}
+	if createdSchema["$ref"] != "#/components/schemas/Item" {
+		t.Errorf("bare mode create response schema should use direct $ref, got %v", createdSchema)
+	}
+}
+
+func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
+	// Upsert response schema must also use envelope when response_format is envelope.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{
+				Name: "Resource",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "type", Type: types.FieldTypeString},
+				},
+			},
+		},
+		Collections: []types.Collection{
+			{
+				Name:      "resources",
+				Entity:    "Resource",
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey: []string{"name", "type"},
+			},
+		},
+		OutputNamespace: "internal/api",
+		BasePath:        "/api/v1",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiJSON := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiJSON), &spec); err != nil {
+		t.Fatalf("failed to parse openapi.json: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	resourcesPath := paths["/api/v1/resources"].(map[string]any)
+	putOp := resourcesPath["put"].(map[string]any)
+	putResponses := putOp["responses"].(map[string]any)
+	upserted := putResponses["200"].(map[string]any)
+	upsertedContent := upserted["content"].(map[string]any)
+	upsertedMedia := upsertedContent["application/json"].(map[string]any)
+	upsertedSchema := upsertedMedia["schema"].(map[string]any)
+	assertEnvelopeResourceSchema(t, upsertedSchema, "upsert")
+}
+
+// assertEnvelopeResourceSchema verifies that a schema uses allOf to compose the
+// entity ref with envelope metadata (id, kind, href).
+func assertEnvelopeResourceSchema(t *testing.T, schema map[string]any, opName string) {
+	t.Helper()
+	allOf, ok := schema["allOf"].([]any)
+	if !ok || len(allOf) < 2 {
+		t.Errorf("%s response schema must use allOf with entity ref and envelope properties, got %v", opName, schema)
+		return
+	}
+
+	// First element should be the entity $ref.
+	refPart := allOf[0].(map[string]any)
+	if _, hasRef := refPart["$ref"]; !hasRef {
+		t.Errorf("%s response schema allOf[0] must be entity $ref, got %v", opName, refPart)
+	}
+
+	// Second element should have properties for id, kind, href.
+	propsPart := allOf[1].(map[string]any)
+	props, ok := propsPart["properties"].(map[string]any)
+	if !ok {
+		t.Errorf("%s response schema allOf[1] must have properties, got %v", opName, propsPart)
+		return
+	}
+	for _, field := range []string{"id", "kind", "href"} {
+		if _, exists := props[field]; !exists {
+			t.Errorf("%s response envelope schema must include %q property", opName, field)
+		}
+	}
+}

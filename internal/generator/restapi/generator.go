@@ -635,6 +635,9 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
+	// The path parameter is the authoritative identity for the entity being
+	// updated — the decoded body may have an empty or mismatched ID field.
+	fmt.Fprintf(buf, "\t%s.ID = id\n", lower)
 	if eb.ParentEntity() != "" {
 		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
@@ -745,11 +748,18 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	// fieldset selection. "id" is always included even if not listed.
 	fmt.Fprintf(buf, "\tvar fields []string\n")
 	fmt.Fprintf(buf, "\tif fieldsStr := r.URL.Query().Get(\"fields\"); fieldsStr != \"\" {\n")
+	fmt.Fprintf(buf, "\t\thasID := false\n")
 	fmt.Fprintf(buf, "\t\tfor _, f := range strings.Split(fieldsStr, \",\") {\n")
 	fmt.Fprintf(buf, "\t\t\tf = strings.TrimSpace(f)\n")
 	fmt.Fprintf(buf, "\t\t\tif f != \"\" {\n")
 	fmt.Fprintf(buf, "\t\t\t\tfields = append(fields, f)\n")
+	fmt.Fprintf(buf, "\t\t\t\tif f == \"id\" {\n")
+	fmt.Fprintf(buf, "\t\t\t\t\thasID = true\n")
+	fmt.Fprintf(buf, "\t\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t\tif !hasID {\n")
+	fmt.Fprintf(buf, "\t\t\tfields = append(fields, \"id\")\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 
@@ -1380,6 +1390,10 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 				}
 				collectionOps["get"] = listOp
 			case types.OpCreate:
+				responseSchema := openAPISchema{Ref: ref}
+				if responseFormat == "envelope" {
+					responseSchema = envelopeResourceSchema(ref)
+				}
 				createOp := openAPIOperation{
 					Summary:     "Create " + eb.Entity + " via " + eb.Name,
 					OperationID: "create" + collPascal,
@@ -1390,7 +1404,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"201": {Description: "Created", Content: jsonContent(openAPISchema{Ref: ref})},
+						"201": {Description: "Created", Content: jsonContent(responseSchema)},
 					},
 				}
 				if len(createOp.Parameters) == 0 {
@@ -1398,6 +1412,10 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 				}
 				collectionOps["post"] = createOp
 			case types.OpRead:
+				responseSchema := openAPISchema{Ref: ref}
+				if responseFormat == "envelope" {
+					responseSchema = envelopeResourceSchema(ref)
+				}
 				itemOps["get"] = openAPIOperation{
 					Summary:     "Read " + eb.Entity + " via " + eb.Name,
 					OperationID: "read" + collPascal,
@@ -1409,11 +1427,15 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Schema:   openAPISchema{Type: "string"},
 					}),
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Successful response", Content: jsonContent(openAPISchema{Ref: ref})},
+						"200": {Description: "Successful response", Content: jsonContent(responseSchema)},
 						"404": {Description: "Not found"},
 					},
 				}
 			case types.OpUpdate:
+				responseSchema := openAPISchema{Ref: ref}
+				if responseFormat == "envelope" {
+					responseSchema = envelopeResourceSchema(ref)
+				}
 				itemOps["put"] = openAPIOperation{
 					Summary:     "Update " + eb.Entity + " via " + eb.Name,
 					OperationID: "update" + collPascal,
@@ -1429,7 +1451,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Updated", Content: jsonContent(openAPISchema{Ref: ref})},
+						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
 					},
 				}
 			case types.OpDelete:
@@ -1448,6 +1470,10 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					},
 				}
 			case types.OpUpsert:
+				responseSchema := openAPISchema{Ref: ref}
+				if responseFormat == "envelope" {
+					responseSchema = envelopeResourceSchema(ref)
+				}
 				upsertOp := openAPIOperation{
 					Summary:     "Upsert " + eb.Entity + " via " + eb.Name,
 					OperationID: "upsert" + collPascal,
@@ -1458,7 +1484,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Upserted", Content: jsonContent(openAPISchema{Ref: ref})},
+						"200": {Description: "Upserted", Content: jsonContent(responseSchema)},
 					},
 				}
 				if len(upsertOp.Parameters) == 0 {
@@ -1969,6 +1995,25 @@ func jsonContent(schema openAPISchema) map[string]openAPIMediaType {
 	}
 }
 
+// envelopeResourceSchema returns an OpenAPI schema that composes the entity
+// reference with the envelope metadata fields (id, kind, href) added by
+// presentEntity. Uses allOf to extend the entity schema.
+func envelopeResourceSchema(entityRef string) openAPISchema {
+	return openAPISchema{
+		AllOf: []openAPISchema{
+			{Ref: entityRef},
+			{
+				Type: "object",
+				Properties: map[string]openAPISchema{
+					"id":   {Type: "string"},
+					"kind": {Type: "string"},
+					"href": {Type: "string"},
+				},
+			},
+		},
+	}
+}
+
 // toPascalCase converts a snake_case string to PascalCase, treating "id" as
 // the acronym "ID" per Go conventions.
 func toPascalCase(s string) string {
@@ -2081,6 +2126,7 @@ type openAPISchema struct {
 	Minimum    *float64                 `json:"minimum,omitempty"`
 	Maximum    *float64                 `json:"maximum,omitempty"`
 	Default    any                      `json:"default,omitempty"`
+	AllOf      []openAPISchema          `json:"allOf,omitempty"`
 }
 
 // validateCollectionOperations checks that every collection has at least one

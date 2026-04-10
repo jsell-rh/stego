@@ -62,11 +62,18 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	var fields []string
 	if fieldsStr := r.URL.Query().Get("fields"); fieldsStr != "" {
+		hasID := false
 		for _, f := range strings.Split(fieldsStr, ",") {
 			f = strings.TrimSpace(f)
 			if f != "" {
 				fields = append(fields, f)
+				if f == "id" {
+					hasID = true
+				}
 			}
+		}
+		if !hasID {
+			fields = append(fields, "id")
 		}
 	}
 	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}

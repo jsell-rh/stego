@@ -141,6 +141,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
+	user.ID = id
 	user.OrgID = r.PathValue("org_id")
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
 		handleError(w, r, InternalError(err.Error()))
@@ -201,11 +202,18 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	var fields []string
 	if fieldsStr := r.URL.Query().Get("fields"); fieldsStr != "" {
+		hasID := false
 		for _, f := range strings.Split(fieldsStr, ",") {
 			f = strings.TrimSpace(f)
 			if f != "" {
 				fields = append(fields, f)
+				if f == "id" {
+					hasID = true
+				}
 			}
+		}
+		if !hasID {
+			fields = append(fields, "id")
 		}
 	}
 	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}
