@@ -94,3 +94,7 @@ The generator returns a `gen.Wiring` struct with:
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 946db29 feat(task-032): add rh-sso-auth component registry definition
+- 55ca496 feat(task-032): implement rh-sso-auth generator with JWK and RSA validation
+- cfb9a91 chore(task-032): mark task ready-for-review
