@@ -48,4 +48,4 @@ The spec says "the resolver must load that component from the registry." Current
 
 ## Commits
 
-(none yet)
+- 413a753 feat(task-036): port resolver loads override components from registry
