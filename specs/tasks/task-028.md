@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Collections & Operations" (rest-crud spec), "Components > postgres-adapter" (rest-crud spec)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

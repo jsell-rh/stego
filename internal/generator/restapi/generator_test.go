@@ -588,6 +588,121 @@ func TestGenerate_UpsertOperation(t *testing.T) {
 	}
 }
 
+func TestGenerate_UpsertStatusCodes(t *testing.T) {
+	// Verifies that the upsert handler distinguishes created (201),
+	// updated (200), and conflict (409) via the store return values.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "generation", Type: types.FieldTypeInt64},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:        "widgets",
+				Entity:      "Widget",
+				Operations:  []types.Operation{types.OpUpsert},
+				UpsertKey:   []string{"name"},
+				Concurrency: types.ConcurrencyOptimistic,
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Handler must use the (bool, error) return from store.Upsert.
+	if !strings.Contains(handler, "created, err := h.store.Upsert(") {
+		t.Error("handler must capture 'created' return value from store.Upsert")
+	}
+
+	// Handler must check for ErrConflict and return 409.
+	if !strings.Contains(handler, "errors.Is(err, ErrConflict)") {
+		t.Error("handler must check for ErrConflict")
+	}
+	if !strings.Contains(handler, "Conflict(") {
+		t.Error("handler must call Conflict() for optimistic concurrency failure")
+	}
+
+	// Handler must return 201 when created.
+	if !strings.Contains(handler, "http.StatusCreated") {
+		t.Error("handler must return 201 Created for new inserts")
+	}
+
+	// Handler must return 200 when updated.
+	if !strings.Contains(handler, "http.StatusOK") {
+		t.Error("handler must return 200 OK for updates")
+	}
+
+	// Router must define ErrConflict sentinel.
+	router := findFileContent(t, files, "internal/api/router.go")
+	if !strings.Contains(router, "ErrConflict") {
+		t.Error("router must define ErrConflict sentinel variable")
+	}
+
+	// Store interface must return (bool, error) for Upsert.
+	if !strings.Contains(router, "Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)") {
+		t.Error("Store.Upsert must return (bool, error)")
+	}
+}
+
+func TestGenerate_UpsertOpenAPIResponses(t *testing.T) {
+	// Verifies that the OpenAPI spec includes 200, 201, and 409 responses
+	// for upsert operations.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey:  []string{"name"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiBytes := findFileBytes(t, files, "internal/api/openapi.json")
+	var specMap map[string]any
+	if err := json.Unmarshal(openapiBytes, &specMap); err != nil {
+		t.Fatalf("invalid OpenAPI JSON: %v", err)
+	}
+
+	paths := specMap["paths"].(map[string]any)
+	widgetsPath := paths["/widgets"].(map[string]any)
+	putOp := widgetsPath["put"].(map[string]any)
+	responses := putOp["responses"].(map[string]any)
+
+	if _, ok := responses["200"]; !ok {
+		t.Error("upsert OpenAPI must include 200 response")
+	}
+	if _, ok := responses["201"]; !ok {
+		t.Error("upsert OpenAPI must include 201 response")
+	}
+	if _, ok := responses["409"]; !ok {
+		t.Error("upsert OpenAPI must include 409 response")
+	}
+}
+
 func TestGenerate_UpdateAndUpsertOnSameEntity(t *testing.T) {
 	// Verifies that update (PUT /path/{id}) and upsert (PUT /path) use
 	// different route patterns and do not create duplicate switch cases.

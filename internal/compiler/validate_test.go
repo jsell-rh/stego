@@ -1408,6 +1408,45 @@ collections:
 	}
 }
 
+func TestValidate_UpsertKeyComputedFieldRejected(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: resource_type, type: string }
+      - { name: status, type: string, computed: true, filled_by: status-aggregator }
+collections:
+  widgets:
+    entity: Widget
+    operations: [upsert]
+    upsert_key: [resource_type, status]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "upsert_key field \"status\" is computed")
+	// resource_type is not computed and should NOT cause an error.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "resource_type") && strings.Contains(e.Message, "computed") {
+			t.Errorf("unexpected computed error for non-computed field resource_type: %s", e.Message)
+		}
+	}
+}
+
 func TestValidate_DuplicateEntityName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 

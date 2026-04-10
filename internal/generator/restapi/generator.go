@@ -351,7 +351,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			needStrconv = true
 			hasList = true
 		}
-		if op == types.OpRead || op == types.OpPatch || op == types.OpList {
+		if op == types.OpRead || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
 			needErrors = true
 		}
 		if op == types.OpCreate {
@@ -961,7 +961,12 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	if concurrency == "" {
 		concurrency = "none"
 	}
-	fmt.Fprintf(buf, "\tif err := h.store.Upsert(r.Context(), %q, %s, upsertKey, %q); err != nil {\n", entity.Name, lower, concurrency)
+	fmt.Fprintf(buf, "\tcreated, err := h.store.Upsert(r.Context(), %q, %s, upsertKey, %q)\n", entity.Name, lower, concurrency)
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"optimistic concurrency conflict: incoming generation is not newer\"))\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -969,7 +974,11 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpUpsert)
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
-	fmt.Fprintf(buf, "\tw.WriteHeader(http.StatusOK)\n")
+	fmt.Fprintf(buf, "\tif created {\n")
+	fmt.Fprintf(buf, "\t\tw.WriteHeader(http.StatusCreated)\n")
+	fmt.Fprintf(buf, "\t} else {\n")
+	fmt.Fprintf(buf, "\t\tw.WriteHeader(http.StatusOK)\n")
+	fmt.Fprintf(buf, "\t}\n")
 	if envelope {
 		hrefExpr := resolvedHrefExpr(hrefBase, lower+".ID")
 		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, %s.ID, %s))\n",
@@ -1119,6 +1128,13 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
 	fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
 
+	// ErrConflict is returned by Storage.Upsert when optimistic concurrency
+	// check fails (incoming generation is not newer than existing).
+	fmt.Fprintf(&buf, "// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.\n")
+	fmt.Fprintf(&buf, "// Storage implementations must return this error when the upsert is a no-op due to\n")
+	fmt.Fprintf(&buf, "// the incoming generation not being newer than the existing row's generation.\n")
+	fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
+
 	// ErrSearch is returned by Storage.List when the search expression is invalid
 	// (parse failure, unknown field). Handlers use errors.Is to distinguish
 	// client-input search errors (400) from infrastructure errors (500).
@@ -1159,7 +1175,9 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
 	fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
 	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)\n")
-	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error\n")
+	fmt.Fprintf(&buf, "\t// Upsert returns true when a new row was created, false when an existing row was updated.\n")
+	fmt.Fprintf(&buf, "\t// Implementations must return ErrConflict when optimistic concurrency check fails.\n")
+	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)\n")
 	fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
@@ -1830,7 +1848,9 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 						Content:  jsonContent(openAPISchema{Ref: ref}),
 					},
 					Responses: map[string]openAPIResponse{
-						"200": {Description: "Upserted", Content: jsonContent(responseSchema)},
+						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
+						"201": {Description: "Created", Content: jsonContent(responseSchema)},
+						"409": {Description: "Conflict — optimistic concurrency check failed"},
 					},
 				}
 				if len(upsertOp.Parameters) == 0 {
@@ -2190,6 +2210,7 @@ func safeVarName(name string) string {
 var reservedTypeNames = map[string]bool{
 	"Storage":         true, // type Storage interface { ... } in router.go
 	"ErrNotFound":     true, // var ErrNotFound in router.go
+	"ErrConflict":     true, // var ErrConflict in router.go
 	"ErrSearch":       true, // var ErrSearch in router.go
 	"ServiceError":    true, // type ServiceError struct { ... } in errors.go
 	"ValidationError": true, // type ValidationError struct { ... } in errors.go

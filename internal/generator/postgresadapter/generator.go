@@ -446,6 +446,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 
 		fmt.Fprintf(&buf, "// ErrSearch is returned when a search expression is invalid.\n")
 		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
+
+		fmt.Fprintf(&buf, "// ErrConflict is returned by Upsert when optimistic concurrency check fails.\n")
+		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
 	}
 
 	// Store struct and constructor.
@@ -464,7 +467,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	emitReplaceMethod(&buf, entities)
 	emitDeleteMethod(&buf, entities)
 	emitListMethod(&buf, entities, apiAlias, searchAlias)
-	emitUpsertMethod(&buf, entities)
+	emitUpsertMethod(&buf, entities, apiAlias)
 	emitExistsMethod(&buf, entities)
 
 	formatted, err := format.Source(buf.Bytes())
@@ -709,11 +712,21 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 }
 
 // emitUpsertMethod generates the Upsert dispatcher using GORM OnConflict clause.
-func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
+// Returns (created bool, err error) where created indicates whether a new row was
+// inserted (true) vs an existing row was updated (false). Returns ErrConflict when
+// optimistic concurrency check fails (incoming generation is not newer).
+func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	errConflictRef := "ErrConflict"
+	if apiAlias != "" {
+		errConflictRef = apiAlias + ".ErrConflict"
+	}
+
 	fmt.Fprintf(buf, "// Upsert inserts or updates an entity using natural-key conflict resolution.\n")
 	fmt.Fprintf(buf, "// When concurrency is \"optimistic\", the update only proceeds if the incoming\n")
 	fmt.Fprintf(buf, "// generation value is newer than the existing row's generation.\n")
-	fmt.Fprintf(buf, "func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error {\n")
+	fmt.Fprintf(buf, "// Returns true when a new row was created, false when an existing row was updated.\n")
+	fmt.Fprintf(buf, "// Returns ErrConflict when optimistic concurrency check fails.\n")
+	fmt.Fprintf(buf, "func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error) {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -723,11 +736,11 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
 		fmt.Fprintf(buf, "\t\tdata, err := json.Marshal(value)\n")
 		fmt.Fprintf(buf, "\t\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"marshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar v %s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &v); err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"unmarshaling %s: %%w\", err)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t}\n")
 
 		// Clear computed fields — they are read-only and must not be
@@ -739,6 +752,19 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 				fmt.Fprintf(buf, "\t\tv.%s = %s\n", goName, zeroValue(goType))
 			}
 		}
+
+		// Pre-check existence to distinguish insert from update.
+		// Uses the JSON representation to build a WHERE clause from upsert key fields.
+		fmt.Fprintf(buf, "\t\tvar valueMap map[string]any\n")
+		fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(data, &valueMap); err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn false, fmt.Errorf(\"unmarshaling %s to map: %%w\", err)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\twhereClause := make(map[string]any, len(upsertKey))\n")
+		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
+		fmt.Fprintf(buf, "\t\t\twhereClause[k] = valueMap[k]\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tvar existingCount int64\n")
+		fmt.Fprintf(buf, "\t\ts.db.WithContext(ctx).Model(&v).Where(whereClause).Count(&existingCount)\n")
 
 		// Build valid column set for upsert key validation.
 		fmt.Fprintf(buf, "\t\tvalidCols := map[string]bool{")
@@ -752,7 +778,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[k] {\n")
-		fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"invalid upsert key field %%q for entity %s\", k)\n", e.Name)
+		fmt.Fprintf(buf, "\t\t\t\treturn false, fmt.Errorf(\"invalid upsert key field %%q for entity %s\", k)\n", e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
@@ -787,7 +813,7 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 			fmt.Fprintf(buf, "\t\t\t}\n")
 		} else {
 			fmt.Fprintf(buf, "\t\t\tif concurrency == \"optimistic\" {\n")
-			fmt.Fprintf(buf, "\t\t\t\treturn fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
+			fmt.Fprintf(buf, "\t\t\t\treturn false, fmt.Errorf(\"optimistic concurrency requires a 'generation' field on entity %s\")\n", e.Name)
 			fmt.Fprintf(buf, "\t\t\t}\n")
 		}
 
@@ -795,11 +821,18 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity) {
 		fmt.Fprintf(buf, "\t\t\tonConflict.DoNothing = true\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
-		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Clauses(onConflict).Create(&v).Error\n")
+		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Clauses(onConflict).Create(&v)\n")
+		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn false, result.Error\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tif concurrency == \"optimistic\" && result.RowsAffected == 0 {\n")
+		fmt.Fprintf(buf, "\t\t\treturn false, %s\n", errConflictRef)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn existingCount == 0, nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
-	fmt.Fprintf(buf, "\t\treturn fmt.Errorf(\"unknown entity: %%s\", entity)\n")
+	fmt.Fprintf(buf, "\t\treturn false, fmt.Errorf(\"unknown entity: %%s\", entity)\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "}\n\n")
 }

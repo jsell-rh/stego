@@ -486,8 +486,20 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 			}
 		}
 
-		// Validate upsert_key field name references and intra-list uniqueness.
-		{
+		// Validate upsert_key field name references, intra-list uniqueness,
+		// and constraint that upsert_key fields must not be computed.
+		if len(c.UpsertKey) > 0 {
+			// Build field map for constraint checks.
+			entityFieldMap := make(map[string]types.Field)
+			for _, e := range entities {
+				if e.Name == c.Entity {
+					for _, f := range e.Fields {
+						entityFieldMap[f.Name] = f
+					}
+					break
+				}
+			}
+
 			ukSeen := make(map[string]bool, len(c.UpsertKey))
 			for _, keyField := range c.UpsertKey {
 				if ukSeen[keyField] {
@@ -501,6 +513,16 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 					errs = append(errs, ValidationError{
 						Category: "collection",
 						Message:  fmt.Sprintf("collection %q has upsert_key field %q which is not a field on entity %q", c.Name, keyField, c.Entity),
+					})
+					continue
+				}
+				// Upsert key fields must not be computed — computed fields are
+				// read-only and populated by fills, so they cannot serve as
+				// natural keys for conflict resolution.
+				if f, ok := entityFieldMap[keyField]; ok && f.Computed {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: upsert_key field %q is computed — computed fields cannot be used as upsert keys", c.Name, keyField),
 					})
 				}
 			}
