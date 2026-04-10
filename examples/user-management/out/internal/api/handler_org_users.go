@@ -110,7 +110,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/organizations/{org_id}/users"+"/"+user.ID))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+user.ID))
 }
 
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,7 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/{org_id}/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +153,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/{org_id}/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -216,13 +216,21 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	actualSize := reflect.ValueOf(listResult.Items).Len()
+	hrefBase := "/organizations/" + r.PathValue("org_id") + "/users"
+	itemsSlice := reflect.ValueOf(listResult.Items)
+	actualSize := itemsSlice.Len()
+	presentedItems := make([]map[string]any, actualSize)
+	for i := 0; i < actualSize; i++ {
+		item := itemsSlice.Index(i).Interface()
+		itemID := reflect.ValueOf(item).FieldByName("ID").String()
+		presentedItems[i] = presentEntity(item, "User", itemID, hrefBase+"/"+itemID)
+	}
 	result := map[string]any{
 		"kind":  "UserList",
 		"page":  page,
 		"size":  actualSize,
 		"total": listResult.Total,
-		"items": listResult.Items,
+		"items": presentedItems,
 	}
 	json.NewEncoder(w).Encode(result)
 }

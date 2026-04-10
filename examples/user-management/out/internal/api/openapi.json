@@ -103,6 +103,24 @@
               "type": "integer",
               "default": 100
             }
+          },
+          {
+            "name": "orderBy",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of field_name or field_name asc|desc",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated field names for sparse fieldset selection",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -111,9 +129,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/User"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      }
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -275,6 +310,24 @@
               "type": "integer",
               "default": 100
             }
+          },
+          {
+            "name": "orderBy",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated list of field_name or field_name asc|desc",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "description": "Comma-separated field names for sparse fieldset selection",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -283,9 +336,26 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/User"
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      }
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "total": {
+                      "type": "integer"
+                    }
                   }
                 }
               }

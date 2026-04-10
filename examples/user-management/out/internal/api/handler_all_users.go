@@ -76,13 +76,21 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	actualSize := reflect.ValueOf(listResult.Items).Len()
+	hrefBase := "/users"
+	itemsSlice := reflect.ValueOf(listResult.Items)
+	actualSize := itemsSlice.Len()
+	presentedItems := make([]map[string]any, actualSize)
+	for i := 0; i < actualSize; i++ {
+		item := itemsSlice.Index(i).Interface()
+		itemID := reflect.ValueOf(item).FieldByName("ID").String()
+		presentedItems[i] = presentEntity(item, "User", itemID, hrefBase+"/"+itemID)
+	}
 	result := map[string]any{
 		"kind":  "UserList",
 		"page":  page,
 		"size":  actualSize,
 		"total": listResult.Total,
-		"items": listResult.Items,
+		"items": presentedItems,
 	}
 	json.NewEncoder(w).Encode(result)
 }

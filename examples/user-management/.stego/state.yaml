@@ -39,10 +39,10 @@ last_applied:
         cmd/main.go: e15b624463637a6e9ce8ee2d8467dc200601978678ee5a5852be6fa0cac18637
         go.mod: 68e47f8aec3d45cc8764829f54341531243303c6d5336a756eda02db1e8847f4
         internal/api/errors.go: 5fd1701c5bb2b54301bea6104448030f1c266652147ff5085e29b268f5ab9ddd
-        internal/api/handler_all_users.go: cf532cc817c7840e3a3e620a8fe72051e102c41108c29a1d5884fdae4d12850b
-        internal/api/handler_org_users.go: ec7b5c633e637c0e094ef52528f7aebfdcdc2c8b7df2a7a5aee008e15e7c1fce
+        internal/api/handler_all_users.go: 1a424b33e5191cbbb3ec6561907b73c6df2242482a8c2f0953d2fe34a0b87353
+        internal/api/handler_org_users.go: 649fc950791a356a435d3ce3ddb37df62c6f4fd14f89db3c5e0830e725a44d56
         internal/api/handler_organizations.go: 602e05773225a834f310d21b4db134889a666b111673c8f63c71fcc7fd63d3b6
-        internal/api/openapi.json: 05b70bb75d5a3eaed3657a6fcf56fcef3f76025869dc9ead6c55bc6a2f7134b9
+        internal/api/openapi.json: a9a46df1a86bcb0ec6224437f264150aee0817624193cb506e1f00e76f345fac
         internal/api/router.go: 8b70ee0fc785327bfe07b5ba42b8d449626bd00ddf66139c4313fc57cb78b5b9
         internal/auth/middleware.go: ccadca735a6731c61c20733a72c22b80e12b8b98b90da88c437b6cd8b13c9de0
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
