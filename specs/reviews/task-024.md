@@ -27,3 +27,11 @@
 ## Round 4
 
 - [x] [process-revision-complete] **`fields` sparse fieldset does not produce sparse responses — non-selected fields appear with zero values.** In `internal/generator/restapi/generator.go`, `generateListMethod` (lines 747–771) parses and validates the `fields` query parameter and passes it to the storage layer via `ListOptions.Fields`. However, the response construction (lines 803–825) runs each list item through `presentEntity()` which marshals the entire entity struct via `json.Marshal(entity)` and unmarshals into a `map[string]any`. Entity struct fields use `json:"field_name"` tags without `omitempty` (except `ID`), so non-selected fields appear in the response with their Go zero values (empty strings, 0, false, null). The spec (Response Format, List query parameters) describes `fields` as "sparse fieldset selection" — the standard meaning of sparse fieldset (e.g. JSON:API) is that the response contains only the requested fields. The handler parses and validates the selection but does not filter the response map to remove non-selected fields. Visible in generated `handler_all_users.go`: `?fields=email` produces items containing `{"id":"...","kind":"User","href":"...","email":"user@test.com","role":"","org_id":""}` — the `role` and `org_id` fields are present with empty-string zero values instead of being absent from the response. The generated entity struct at `router.go` lines 53–59 confirms: `Role string \`json:"role"\`` and `OrgID string \`json:"org_id"\`` lack `omitempty`, and `presentEntity` (lines 63–71) does not filter by requested fields.
+
+## Round 5
+
+No findings. All acceptance criteria verified:
+- AC1–AC10 pass.
+- Round 4 fix correctly implements response-side sparse fieldset filtering: the generated list handler builds an `allowed` set from metadata keys (`id`, `kind`, `href`) plus user-requested `fields`, then deletes non-allowed keys from each presented item map.
+- Generated example output (`handler_all_users.go`, `handler_org_users.go`) contains the filtering logic.
+- `go build ./cmd/stego` compiles. All tests pass (`go test ./...`).
