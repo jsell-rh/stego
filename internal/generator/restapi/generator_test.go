@@ -5578,8 +5578,8 @@ func TestGenerate_EnvelopeListResponse(t *testing.T) {
 	if !strings.Contains(handler, `"items": presentedItems`) {
 		t.Error("list response must include presented items")
 	}
-	// Each list item must be run through presentEntity for id/kind/href metadata.
-	if !strings.Contains(handler, `presentEntity(item,`) {
+	// Each list item must be converted to API type and run through presentEntity for id/kind/href metadata.
+	if !strings.Contains(handler, `presentEntity(apiItem,`) {
 		t.Error("list items must be run through presentEntity for envelope metadata")
 	}
 }
@@ -5992,8 +5992,8 @@ func TestGenerate_EnvelopeListItemsPresented(t *testing.T) {
 		t.Error("list handler must build presentedItems array with presented entities")
 	}
 
-	// Each item must be wrapped through presentEntity.
-	if !strings.Contains(listSection, `presentEntity(item,`) {
+	// Each item must be converted to API type and wrapped through presentEntity.
+	if !strings.Contains(listSection, `presentEntity(apiItem,`) {
 		t.Error("list handler must call presentEntity on each item")
 	}
 
@@ -7543,10 +7543,10 @@ func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
 	if !strings.Contains(handler, "json.Marshal(existing)") {
 		t.Error("scoped Read handler must marshal Get result for scope check")
 	}
-	// Must encode original 'existing' value, not the converted type, to
-	// preserve storage metadata fields (created_time, updated_time).
-	if !strings.Contains(handler, "json.NewEncoder(w).Encode(existing)") {
-		t.Error("scoped Read handler must encode original storage value to preserve metadata")
+	// After scope check, must convert storage type to API type via JSON
+	// unmarshal of scopeData, stripping storage metadata for consistent responses.
+	if !strings.Contains(handler, "json.Unmarshal(scopeData, &") {
+		t.Error("scoped Read handler must unmarshal scopeData into API type")
 	}
 }
 
@@ -7693,8 +7693,11 @@ func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
 	if strings.Contains(handler, "scopeData") || strings.Contains(handler, "scopeMap") || strings.Contains(handler, "scopeVal") {
 		t.Error("unscoped collection handler must not contain scope verification code")
 	}
-	// Read in unscoped collection assigns Get result directly to the entity var.
-	if !strings.Contains(handler, `item, err := h.store.Get(r.Context(), "Item", id)`) {
-		t.Error("unscoped Read must assign Get result directly without scope roundtrip")
+	// Read fetches into 'existing' and converts to API type via JSON roundtrip.
+	if !strings.Contains(handler, `existing, err := h.store.Get(r.Context(), "Item", id)`) {
+		t.Error("unscoped Read must fetch into 'existing' variable")
+	}
+	if !strings.Contains(handler, "json.Marshal(existing)") {
+		t.Error("unscoped Read must marshal 'existing' for API type conversion")
 	}
 }

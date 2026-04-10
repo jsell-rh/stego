@@ -100,11 +100,16 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// Convert storage type to API type to ensure consistent response shape
-	// across all operations (Read, Create, Update all return the same fields).
-	data, _ := json.Marshal(existing)
+	existingData, err := json.Marshal(existing)
+	if err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	var organization Organization
-	json.Unmarshal(data, &organization)
+	if err := json.Unmarshal(existingData, &organization); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(presentEntity(organization, "Organization", id, "/api/user-mgmt/v1/organizations"+"/"+id))
 }
@@ -202,7 +207,6 @@ func (h *OrganizationsHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		// Convert storage type to API type for consistent response shape.
 		itemData, _ := json.Marshal(item)
 		var apiItem Organization
 		json.Unmarshal(itemData, &apiItem)

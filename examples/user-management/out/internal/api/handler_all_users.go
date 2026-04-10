@@ -101,7 +101,6 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		// Convert storage type to API type for consistent response shape.
 		itemData, _ := json.Marshal(item)
 		var apiItem User
 		json.Unmarshal(itemData, &apiItem)

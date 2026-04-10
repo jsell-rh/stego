@@ -152,9 +152,11 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
-	// Convert storage type to API type for consistent response shape.
 	var user User
-	json.Unmarshal(scopeData, &user)
+	if err := json.Unmarshal(scopeData, &user); err != nil {
+		handleError(w, r, InternalError("internal error"))
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
 }
@@ -345,7 +347,6 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		// Convert storage type to API type for consistent response shape.
 		itemData, _ := json.Marshal(item)
 		var apiItem User
 		json.Unmarshal(itemData, &apiItem)
