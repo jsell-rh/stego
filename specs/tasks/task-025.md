@@ -64,3 +64,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - e34e173 feat(task-025): add patch operation with patchable fields
+- e9807d6 fix(task-025): address round 1 — patchable timestamp import and OpenAPI 404
