@@ -961,15 +961,12 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	for _, f := range patchFields {
 		goName := toPascalCase(f.Name)
 		goType := fieldTypeToGo(f.Type)
-		// Pointer types for partial update detection (nil = not provided).
-		// []byte and json.RawMessage are already reference types, so they
-		// don't need an extra pointer level.
-		switch goType {
-		case "[]byte", "json.RawMessage":
-			fmt.Fprintf(buf, "\t%s %s `json:%q`\n", goName, goType, f.Name)
-		default:
-			fmt.Fprintf(buf, "\t%s *%s `json:%q`\n", goName, goType, f.Name)
-		}
+		// All patchable fields use pointer types for partial update detection
+		// (nil = not provided). This includes reference types like
+		// json.RawMessage and []byte — the pointer wrapper distinguishes
+		// "not provided" from JSON null (which deserializes to a non-nil
+		// byte slice containing the literal "null").
+		fmt.Fprintf(buf, "\t%s *%s `json:%q`\n", goName, goType, f.Name)
 	}
 	fmt.Fprintf(buf, "}\n\n")
 
@@ -1000,19 +997,10 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	// Step 3: Apply non-nil fields from patch request to existing entity.
 	for _, f := range patchFields {
 		goName := toPascalCase(f.Name)
-		goType := fieldTypeToGo(f.Type)
-		switch goType {
-		case "[]byte", "json.RawMessage":
-			// Reference types: nil means not provided.
-			fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
-			fmt.Fprintf(buf, "\t\t%s.%s = patch.%s\n", lower, goName, goName)
-			fmt.Fprintf(buf, "\t}\n")
-		default:
-			// Pointer types: nil means not provided, dereference if set.
-			fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
-			fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
-			fmt.Fprintf(buf, "\t}\n")
-		}
+		// All patchable fields are pointers; nil means not provided, dereference if set.
+		fmt.Fprintf(buf, "\tif patch.%s != nil {\n", goName)
+		fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
+		fmt.Fprintf(buf, "\t}\n")
 	}
 
 	// Step 4: Save via Replace (full entity save after merge).

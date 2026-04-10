@@ -6489,11 +6489,11 @@ func TestGenerate_PatchOperation(t *testing.T) {
 	if !strings.Contains(handler, "type ClustersPatchRequest struct") {
 		t.Error("handler missing ClustersPatchRequest struct")
 	}
-	// spec is jsonb → json.RawMessage (reference type, no pointer).
-	if !strings.Contains(handler, "Spec") || !strings.Contains(handler, "json.RawMessage") {
-		t.Error("patch request missing Spec field as json.RawMessage")
+	// spec is jsonb → *json.RawMessage (pointer for nil = not provided).
+	if !strings.Contains(handler, "*json.RawMessage") {
+		t.Error("patch request missing Spec field as *json.RawMessage")
 	}
-	// labels is jsonb → json.RawMessage (reference type, no pointer).
+	// labels is jsonb → *json.RawMessage (pointer for nil = not provided).
 	if !strings.Contains(handler, "Labels") {
 		t.Error("patch request missing Labels field")
 	}
@@ -6517,12 +6517,18 @@ func TestGenerate_PatchOperation(t *testing.T) {
 		t.Error("Patch handler must save merged entity via store.Replace")
 	}
 
-	// Verify apply-non-nil logic for patchable fields.
+	// Verify apply-non-nil logic for patchable fields (pointer dereference).
 	if !strings.Contains(handler, "if patch.Spec != nil") {
 		t.Error("Patch handler must check patch.Spec != nil before applying")
 	}
+	if !strings.Contains(handler, "*patch.Spec") {
+		t.Error("Patch handler must dereference pointer field Spec")
+	}
 	if !strings.Contains(handler, "if patch.Labels != nil") {
 		t.Error("Patch handler must check patch.Labels != nil before applying")
+	}
+	if !strings.Contains(handler, "*patch.Labels") {
+		t.Error("Patch handler must dereference pointer field Labels")
 	}
 
 	// Verify route is PATCH method on /{id} path.
@@ -6539,7 +6545,7 @@ func TestGenerate_PatchOperation(t *testing.T) {
 }
 
 func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
-	// Verify that non-reference-type patchable fields get pointer types.
+	// Verify that ALL patchable fields get pointer types, including reference types.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -6549,6 +6555,8 @@ func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
 				{Name: "count", Type: types.FieldTypeInt32},
 				{Name: "score", Type: types.FieldTypeDouble},
 				{Name: "active", Type: types.FieldTypeBool},
+				{Name: "metadata", Type: types.FieldTypeJsonb},
+				{Name: "payload", Type: types.FieldTypeBytes},
 			}},
 		},
 		Collections: []types.Collection{
@@ -6556,7 +6564,7 @@ func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
 				Name:       "widgets",
 				Entity:     "Widget",
 				Operations: []types.Operation{types.OpRead, types.OpPatch},
-				Patchable:  []string{"name", "count", "score", "active"},
+				Patchable:  []string{"name", "count", "score", "active", "metadata", "payload"},
 			},
 		},
 		OutputNamespace: "internal/api",
@@ -6582,13 +6590,26 @@ func TestGenerate_PatchOperationWithPointerFields(t *testing.T) {
 	if !strings.Contains(handler, "*bool") {
 		t.Error("patch request missing *bool pointer field")
 	}
+	// Pointer fields for reference types (spec mandates *json.RawMessage, *[]byte).
+	if !strings.Contains(handler, "*json.RawMessage") {
+		t.Error("patch request missing *json.RawMessage pointer field for jsonb")
+	}
+	if !strings.Contains(handler, "*[]byte") {
+		t.Error("patch request missing *[]byte pointer field for bytes")
+	}
 
-	// Verify pointer dereference in apply logic.
+	// Verify pointer dereference in apply logic for all types.
 	if !strings.Contains(handler, "*patch.Name") {
 		t.Error("Patch handler must dereference pointer field Name")
 	}
 	if !strings.Contains(handler, "*patch.Count") {
 		t.Error("Patch handler must dereference pointer field Count")
+	}
+	if !strings.Contains(handler, "*patch.Metadata") {
+		t.Error("Patch handler must dereference pointer field Metadata")
+	}
+	if !strings.Contains(handler, "*patch.Payload") {
+		t.Error("Patch handler must dereference pointer field Payload")
 	}
 }
 
