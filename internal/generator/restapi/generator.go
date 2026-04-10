@@ -1935,9 +1935,11 @@ var handlerScopeIdentifiers = map[string]bool{
 	"strconv": true, // strconv (conditional for List pagination)
 	"time":    true, // time (conditional, but safer to always guard)
 	"fmt":     true, // not currently imported, but guard for safety
-	// Generator-emitted local variables in Get/Replace/Delete method bodies.
-	"id":  true, // id := r.PathValue("id")
-	"err": true, // %s, err := h.store.Get(...) in Get method
+	// Generator-emitted local variables in Get/Replace/Delete/Patch method bodies.
+	"id":       true, // id := r.PathValue("id")
+	"err":      true, // %s, err := h.store.Get(...) in Get method
+	"existing": true, // existing, err := h.store.Get(...) in Patch method
+	"patch":    true, // var patch <PatchReqType> in Patch method
 	"strings": true, // strings (conditional for List orderBy/fields parsing)
 	// Generator-emitted local variables in List method body.
 	"page":       true, // page, _ := strconv.Atoi(pageStr)

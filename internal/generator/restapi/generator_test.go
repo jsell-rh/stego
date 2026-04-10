@@ -2348,6 +2348,9 @@ func TestSafeVarName_HandlerScopeIdentifiers(t *testing.T) {
 		{"http", "http_"},
 		{"time", "time_"},
 		{"fmt", "fmt_"},
+		// Generator-emitted locals in Patch method.
+		{"existing", "existing_"},
+		{"patch", "patch_"},
 		// Non-colliding names should pass through unchanged.
 		{"user", "user"},
 		{"cluster", "cluster"},
@@ -6955,5 +6958,63 @@ func TestGenerate_PatchOpenAPIIncludes404Response(t *testing.T) {
 	responses, _ := patchOp["responses"].(map[string]any)
 	if _, ok := responses["404"]; !ok {
 		t.Error("patch OpenAPI spec must include 404 response (handler performs Get before merge)")
+	}
+}
+
+func TestGenerate_PatchEntityNamedExistingOrPatchCompiles(t *testing.T) {
+	// Checklist item 188: generatePatchMethod introduces hardcoded local
+	// variable names "existing" and "patch" which must be guarded in
+	// handlerScopeIdentifiers. An entity named "Existing" or "Patch" whose
+	// strings.ToLower produces "existing" or "patch" would collide with
+	// those locals without the guard.
+	g := &Generator{}
+
+	collNames := map[string]string{"Existing": "existings", "Patch": "patches"}
+	for _, name := range []string{"Existing", "Patch"} {
+		t.Run(name, func(t *testing.T) {
+			ctx := gen.Context{
+				Conventions: types.Convention{Layout: "flat"},
+				Entities: []types.Entity{
+					{Name: name, Fields: []types.Field{
+						{Name: "label", Type: types.FieldTypeString},
+					}},
+				},
+				Collections: []types.Collection{
+					{
+						Name:       collNames[name],
+						Entity:     name,
+						Operations: []types.Operation{types.OpRead, types.OpPatch},
+						Patchable:  []string{"label"},
+					},
+				},
+				OutputNamespace: "internal/api",
+			}
+
+			files, _, err := g.Generate(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			tmpDir := t.TempDir()
+			goMod := "module testpkg\n\ngo 1.22\n"
+			if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+				t.Fatalf("writing go.mod: %v", err)
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, ".go") {
+					continue
+				}
+				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+					t.Fatalf("writing %s: %v", f.Path, err)
+				}
+			}
+			cmd := exec.Command("go", "build", ".")
+			cmd.Dir = tmpDir
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("entity named %q with patch operation does not compile:\n%s\n%s", name, err, output)
+			}
+		})
 	}
 }
