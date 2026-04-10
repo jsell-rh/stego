@@ -465,7 +465,15 @@ func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDec
 	// Include any service port override components that were not replacements
 	// of archetype defaults (e.g. overrides for ports whose default was not in
 	// the archetype's component list or bindings).
-	for _, overrideComp := range servicePortOverrides {
+	// Sort the map keys first to ensure deterministic component ordering
+	// across runs (Go map iteration order is non-deterministic).
+	overridePorts := make([]string, 0, len(servicePortOverrides))
+	for port := range servicePortOverrides {
+		overridePorts = append(overridePorts, port)
+	}
+	sort.Strings(overridePorts)
+	for _, port := range overridePorts {
+		overrideComp := servicePortOverrides[port]
 		if !seen[overrideComp] {
 			seen[overrideComp] = true
 			names = append(names, overrideComp)

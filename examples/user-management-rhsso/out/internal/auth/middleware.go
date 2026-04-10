@@ -34,13 +34,14 @@ type jwk struct {
 
 // JWTHandler manages JWK key discovery, caching, and JWT validation.
 type JWTHandler struct {
-	keysURL     string
-	keysFile    string
-	publicPaths map[string]bool
-	keys        map[string]*rsa.PublicKey
-	mu          sync.RWMutex
-	stopCh      chan struct{}
-	lastRefresh time.Time
+	keysURL      string
+	keysFile     string
+	publicPaths  map[string]bool
+	keys         map[string]*rsa.PublicKey
+	mu           sync.RWMutex
+	stopCh       chan struct{}
+	lastRefresh  time.Time
+	authDisabled bool
 }
 
 // NewJWTHandler creates a new JWTHandler with default configuration.
@@ -59,15 +60,21 @@ func NewJWTHandler() *JWTHandler {
 }
 
 // WithKeysURL sets the JWK endpoint URL for key discovery.
+// Empty string is a no-op, preserving the config default.
 func (h *JWTHandler) WithKeysURL(url string) *JWTHandler {
-	h.keysURL = url
+	if url != "" {
+		h.keysURL = url
+	}
 	return h
 }
 
 // WithKeysFile sets the local JWK file path for key discovery.
 // When set, takes priority over the URL source.
+// Empty string is a no-op.
 func (h *JWTHandler) WithKeysFile(path string) *JWTHandler {
-	h.keysFile = path
+	if path != "" {
+		h.keysFile = path
+	}
 	return h
 }
 
@@ -78,24 +85,25 @@ func (h *JWTHandler) WithPublicPath(path string) *JWTHandler {
 	return h
 }
 
+// WithAuthEnabled configures whether authentication is enabled.
+// When set to "false" (case-insensitive), auth is disabled and
+// Build() returns a passthrough middleware. Any other value
+// (including empty string) leaves auth enabled.
+func (h *JWTHandler) WithAuthEnabled(val string) *JWTHandler {
+	if strings.EqualFold(val, "false") {
+		h.authDisabled = true
+	}
+	return h
+}
+
 // Build initializes the key cache and starts the background refresh
 // goroutine. Returns the middleware function.
-// When AUTH_ENABLED=false, returns a passthrough middleware without starting
-// the refresh goroutine.
+// When auth is disabled via WithAuthEnabled("false"), returns a passthrough
+// middleware without starting the refresh goroutine.
 func (h *JWTHandler) Build() func(http.Handler) http.Handler {
-	// Read runtime configuration from environment variables.
-	// JWK_CERT_URL overrides the config default.
-	if url := os.Getenv("JWK_CERT_URL"); url != "" {
-		h.keysURL = url
-	}
-	// JWK_CERT_FILE overrides URL if set.
-	if file := os.Getenv("JWK_CERT_FILE"); file != "" {
-		h.keysFile = file
-	}
-
-	// AUTH_ENABLED=false disables auth entirely (development mode).
-	// Return a passthrough middleware without starting key refresh.
-	if strings.EqualFold(os.Getenv("AUTH_ENABLED"), "false") {
+	// Auth disabled: return a passthrough middleware without starting
+	// the key refresh goroutine.
+	if h.authDisabled {
 		return func(next http.Handler) http.Handler {
 			return next
 		}

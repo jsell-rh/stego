@@ -202,6 +202,13 @@ type Wiring struct {
 	// `defer jwtHandler.Stop()` after `jwtHandler := auth.NewJWTHandler()`.
 	// The assembler prepends the disambiguated variable name and a dot.
 	ConstructorDeferCalls map[int]string
+
+	// StdlibImports lists standard library packages that must be imported
+	// in main.go for this component's constructor expressions or wiring to
+	// work. For example, a component whose constructor expression uses
+	// os.Getenv() should list "os". The assembler adds these to the stdlib
+	// import block and seeds their aliases into the disambiguation maps.
+	StdlibImports []string
 }
 
 // MiddlewareSpec describes a middleware constructor and how it wraps the

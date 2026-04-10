@@ -61,7 +61,7 @@ func main() {
 
 	validationMiddleware := api.NewValidationMiddleware()
 	store := storage.NewStore(db)
-	jWTHandler := auth.NewJWTHandler()
+	jWTHandler := auth.NewJWTHandler().WithKeysURL(os.Getenv("JWK_CERT_URL")).WithKeysFile(os.Getenv("JWK_CERT_FILE")).WithAuthEnabled(os.Getenv("AUTH_ENABLED"))
 	defer jWTHandler.Stop()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)

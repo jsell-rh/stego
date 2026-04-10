@@ -62,8 +62,9 @@ func TestGenerateDefaultConfig(t *testing.T) {
 	if len(wiring.Imports) != 1 || wiring.Imports[0] != "internal/auth" {
 		t.Errorf("expected imports [internal/auth], got %v", wiring.Imports)
 	}
-	if len(wiring.Constructors) != 1 || wiring.Constructors[0] != "auth.NewJWTHandler()" {
-		t.Errorf("expected constructor auth.NewJWTHandler(), got %v", wiring.Constructors)
+	expectedConstructor := `auth.NewJWTHandler().WithKeysURL(os.Getenv("JWK_CERT_URL")).WithKeysFile(os.Getenv("JWK_CERT_FILE")).WithAuthEnabled(os.Getenv("AUTH_ENABLED"))`
+	if len(wiring.Constructors) != 1 || wiring.Constructors[0] != expectedConstructor {
+		t.Errorf("expected constructor with env var builder chains, got %v", wiring.Constructors)
 	}
 	if wiring.MiddlewareConstructor == nil {
 		t.Fatal("expected non-nil MiddlewareConstructor")
@@ -235,19 +236,20 @@ func TestGenerateMiddlewareContent(t *testing.T) {
 		t.Error("middleware should use error type URI from ErrorTypeBase")
 	}
 
-	// AUTH_ENABLED env check.
-	if !strings.Contains(content, `os.Getenv("AUTH_ENABLED")`) {
-		t.Error("middleware should check AUTH_ENABLED environment variable")
+	// WithAuthEnabled builder method.
+	if !strings.Contains(content, "func (h *JWTHandler) WithAuthEnabled(") {
+		t.Error("middleware should contain WithAuthEnabled builder method")
+	}
+	if !strings.Contains(content, "h.authDisabled") {
+		t.Error("middleware should use authDisabled field for auth enable/disable")
 	}
 
-	// JWK_CERT_URL env override in Build().
-	if !strings.Contains(content, `os.Getenv("JWK_CERT_URL")`) {
-		t.Error("Build() should read JWK_CERT_URL from environment")
+	// Builder methods should be no-op for empty strings (env var not set).
+	if !strings.Contains(content, `if url != ""`) {
+		t.Error("WithKeysURL should be a no-op when url is empty")
 	}
-
-	// JWK_CERT_FILE env override in Build().
-	if !strings.Contains(content, `os.Getenv("JWK_CERT_FILE")`) {
-		t.Error("Build() should read JWK_CERT_FILE from environment")
+	if !strings.Contains(content, `if path != ""`) {
+		t.Error("WithKeysFile should be a no-op when path is empty")
 	}
 
 	// Refresh intervals.
@@ -375,8 +377,9 @@ func TestGenerateCustomNamespace(t *testing.T) {
 	if wiring.Imports[0] != "pkg/authn" {
 		t.Errorf("expected import pkg/authn, got %s", wiring.Imports[0])
 	}
-	if wiring.Constructors[0] != "authn.NewJWTHandler()" {
-		t.Errorf("expected constructor authn.NewJWTHandler(), got %s", wiring.Constructors[0])
+	expectedCtor := `authn.NewJWTHandler().WithKeysURL(os.Getenv("JWK_CERT_URL")).WithKeysFile(os.Getenv("JWK_CERT_FILE")).WithAuthEnabled(os.Getenv("AUTH_ENABLED"))`
+	if wiring.Constructors[0] != expectedCtor {
+		t.Errorf("expected constructor with env var builder chains, got %s", wiring.Constructors[0])
 	}
 
 	// Verify compilation.
@@ -593,50 +596,42 @@ func TestMiddlewareWiringIsFunctionType(t *testing.T) {
 
 // --- Runtime env var configuration in Build() ---
 
-func TestBuildReadsEnvVarsAtRuntime(t *testing.T) {
+func TestEnvVarsReadViaBuilderMethods(t *testing.T) {
 	ctx := gen.Context{
 		OutputNamespace: "internal/auth",
 		ComponentConfig: map[string]any{},
 		ServiceName:     "test-service",
 	}
 	g := &Generator{}
-	files, _, err := g.Generate(ctx)
+	_, wiring, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	content := string(files[0].Content)
+	// Env vars must be read in the wiring constructor expression (main.go),
+	// not inside Build() (middleware.go). The spec says "main.go reads
+	// JWK_CERT_URL, JWK_CERT_FILE, and AUTH_ENABLED from environment."
+	ctor := wiring.Constructors[0]
 
-	// Build() must read JWK_CERT_URL before the initial key load.
-	urlIdx := strings.Index(content, `os.Getenv("JWK_CERT_URL")`)
-	if urlIdx < 0 {
-		t.Fatal("Build() must read JWK_CERT_URL from environment")
+	if !strings.Contains(ctor, `os.Getenv("JWK_CERT_URL")`) {
+		t.Errorf("wiring constructor must read JWK_CERT_URL via os.Getenv, got %s", ctor)
 	}
-
-	// Build() must read JWK_CERT_FILE before the initial key load.
-	fileIdx := strings.Index(content, `os.Getenv("JWK_CERT_FILE")`)
-	if fileIdx < 0 {
-		t.Fatal("Build() must read JWK_CERT_FILE from environment")
+	if !strings.Contains(ctor, `os.Getenv("JWK_CERT_FILE")`) {
+		t.Errorf("wiring constructor must read JWK_CERT_FILE via os.Getenv, got %s", ctor)
 	}
-
-	// Both env var reads must appear before the initial key load (refreshKeys call).
-	refreshIdx := strings.Index(content, "h.refreshKeys()")
-	if refreshIdx < 0 {
-		t.Fatal("Build() must call refreshKeys()")
-	}
-	if urlIdx > refreshIdx {
-		t.Error("JWK_CERT_URL env read must occur before initial refreshKeys() call")
-	}
-	if fileIdx > refreshIdx {
-		t.Error("JWK_CERT_FILE env read must occur before initial refreshKeys() call")
+	if !strings.Contains(ctor, `os.Getenv("AUTH_ENABLED")`) {
+		t.Errorf("wiring constructor must read AUTH_ENABLED via os.Getenv, got %s", ctor)
 	}
 
-	// Verify the env var reads set the handler fields.
-	if !strings.Contains(content, "h.keysURL = url") {
-		t.Error("JWK_CERT_URL env var should set h.keysURL")
+	// StdlibImports must include "os" so the assembler imports it in main.go.
+	hasOS := false
+	for _, pkg := range wiring.StdlibImports {
+		if pkg == "os" {
+			hasOS = true
+		}
 	}
-	if !strings.Contains(content, "h.keysFile = file") {
-		t.Error("JWK_CERT_FILE env var should set h.keysFile")
+	if !hasOS {
+		t.Error("wiring StdlibImports must include \"os\" for os.Getenv calls in main.go")
 	}
 }
 
@@ -716,7 +711,7 @@ func TestGenerateJWKCertFileFromConfig(t *testing.T) {
 		ServiceName: "test-service",
 	}
 	g := &Generator{}
-	files, wiring, err := g.Generate(ctx)
+	files, _, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -727,17 +722,6 @@ func TestGenerateJWKCertFileFromConfig(t *testing.T) {
 		t.Error("NewJWTHandler() should bake jwk_cert_file config value as keysFile default")
 	}
 
-	// The wiring constructor must chain .WithKeysFile().
-	if len(wiring.Constructors) != 1 {
-		t.Fatalf("expected 1 constructor, got %d", len(wiring.Constructors))
-	}
-	if !strings.Contains(wiring.Constructors[0], ".WithKeysFile(") {
-		t.Errorf("wiring constructor should chain .WithKeysFile() when jwk_cert_file is set, got %s", wiring.Constructors[0])
-	}
-	if !strings.Contains(wiring.Constructors[0], `"/etc/keys/jwk.json"`) {
-		t.Errorf("wiring constructor should contain the config file path, got %s", wiring.Constructors[0])
-	}
-
 	// Verify file still compiles.
 	rendered := files[0].Bytes()
 	if _, err := format.Source(rendered); err != nil {
@@ -745,7 +729,9 @@ func TestGenerateJWKCertFileFromConfig(t *testing.T) {
 	}
 }
 
-func TestGenerateJWKCertFileAbsentFromConfig(t *testing.T) {
+func TestEnvVarBuilderMethodsAlwaysChained(t *testing.T) {
+	// Env var builder methods are always chained in the wiring constructor
+	// regardless of config — the env vars provide runtime overrides.
 	ctx := gen.Context{
 		OutputNamespace: "internal/auth",
 		ComponentConfig: map[string]any{},
@@ -757,16 +743,21 @@ func TestGenerateJWKCertFileAbsentFromConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// When jwk_cert_file is not set, the wiring constructor should NOT chain
-	// .WithKeysFile().
-	if strings.Contains(wiring.Constructors[0], ".WithKeysFile(") {
-		t.Errorf("wiring constructor should not chain .WithKeysFile() when jwk_cert_file is absent, got %s", wiring.Constructors[0])
+	ctor := wiring.Constructors[0]
+	if !strings.Contains(ctor, `.WithKeysURL(os.Getenv("JWK_CERT_URL"))`) {
+		t.Errorf("wiring constructor must always chain .WithKeysURL(os.Getenv(\"JWK_CERT_URL\")), got %s", ctor)
+	}
+	if !strings.Contains(ctor, `.WithKeysFile(os.Getenv("JWK_CERT_FILE"))`) {
+		t.Errorf("wiring constructor must always chain .WithKeysFile(os.Getenv(\"JWK_CERT_FILE\")), got %s", ctor)
+	}
+	if !strings.Contains(ctor, `.WithAuthEnabled(os.Getenv("AUTH_ENABLED"))`) {
+		t.Errorf("wiring constructor must always chain .WithAuthEnabled(os.Getenv(\"AUTH_ENABLED\")), got %s", ctor)
 	}
 }
 
 // --- AUTH_ENABLED startup-time evaluation ---
 
-func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
+func TestAuthDisabledCheckedAtBuildNotPerRequest(t *testing.T) {
 	ctx := gen.Context{
 		OutputNamespace: "internal/auth",
 		ComponentConfig: map[string]any{},
@@ -780,8 +771,9 @@ func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
 
 	content := string(files[0].Content)
 
-	// AUTH_ENABLED must be checked in Build(), not in the request handler closure.
-	// Find the Build() method body.
+	// Auth disable must be checked in Build() via authDisabled field, not in
+	// the request handler closure and not by reading env vars at startup.
+	// The env var reading happens in main.go via WithAuthEnabled() builder method.
 	buildIdx := strings.Index(content, "func (h *JWTHandler) Build()")
 	if buildIdx < 0 {
 		t.Fatal("middleware must contain Build method")
@@ -794,10 +786,10 @@ func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
 		buildBody = buildBody[:nextFuncIdx+1]
 	}
 
-	// AUTH_ENABLED env var check must appear in Build body.
-	authEnabledIdx := strings.Index(buildBody, `os.Getenv("AUTH_ENABLED")`)
-	if authEnabledIdx < 0 {
-		t.Fatal("Build() must check AUTH_ENABLED at startup")
+	// Build() must check h.authDisabled before refreshKeys.
+	authDisabledIdx := strings.Index(buildBody, "h.authDisabled")
+	if authDisabledIdx < 0 {
+		t.Fatal("Build() must check h.authDisabled at startup")
 	}
 
 	// The passthrough must appear BEFORE refreshKeys (i.e., no goroutine started).
@@ -805,14 +797,14 @@ func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
 	if refreshIdx < 0 {
 		t.Fatal("Build() must call refreshKeys()")
 	}
-	if authEnabledIdx > refreshIdx {
-		t.Error("AUTH_ENABLED check must appear before refreshKeys() so passthrough skips goroutine startup")
+	if authDisabledIdx > refreshIdx {
+		t.Error("authDisabled check must appear before refreshKeys() so passthrough skips goroutine startup")
 	}
 
-	// When AUTH_ENABLED=false, the return must be a simple passthrough (return next).
+	// When auth disabled, the return must be a simple passthrough (return next).
 	passthroughIdx := strings.Index(buildBody, "return next\n")
 	if passthroughIdx < 0 {
-		t.Error("Build() must return a passthrough (return next) when AUTH_ENABLED=false")
+		t.Error("Build() must return a passthrough (return next) when auth is disabled")
 	}
 
 	// The passthrough must not start any goroutine.
@@ -824,13 +816,23 @@ func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
 		t.Error("passthrough return must appear before goroutine start (disabled path returns early)")
 	}
 
-	// Verify the per-request closure does NOT contain AUTH_ENABLED check.
-	closureStart := strings.Index(buildBody, "return http.HandlerFunc(")
-	if closureStart < 0 {
-		t.Fatal("Build() must return an http.HandlerFunc for enabled auth")
+	// Verify Build() does NOT read env vars directly — env vars are read via
+	// builder methods in main.go, not inside the generated middleware code.
+	if strings.Contains(buildBody, `os.Getenv("AUTH_ENABLED")`) {
+		t.Error("Build() must NOT read AUTH_ENABLED env var directly; it should use the authDisabled field set by WithAuthEnabled()")
 	}
-	closureBody := buildBody[closureStart:]
-	if strings.Contains(closureBody, `os.Getenv("AUTH_ENABLED")`) {
-		t.Error("per-request closure must NOT check AUTH_ENABLED; it should be decided at Build() time")
+	if strings.Contains(buildBody, `os.Getenv("JWK_CERT_URL")`) {
+		t.Error("Build() must NOT read JWK_CERT_URL env var directly; it should use the keysURL field set by WithKeysURL()")
+	}
+	if strings.Contains(buildBody, `os.Getenv("JWK_CERT_FILE")`) {
+		t.Error("Build() must NOT read JWK_CERT_FILE env var directly; it should use the keysFile field set by WithKeysFile()")
+	}
+
+	// Verify WithAuthEnabled builder method exists and sets authDisabled.
+	if !strings.Contains(content, "func (h *JWTHandler) WithAuthEnabled(val string)") {
+		t.Error("middleware must contain WithAuthEnabled builder method")
+	}
+	if !strings.Contains(content, `strings.EqualFold(val, "false")`) {
+		t.Error("WithAuthEnabled must check for 'false' case-insensitively")
 	}
 }

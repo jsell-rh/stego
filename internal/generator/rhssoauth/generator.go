@@ -71,10 +71,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// (not the middleware function). Build() is called in the MiddlewareWrapExpr
 	// to produce the func(http.Handler) http.Handler, and Stop() is deferred
 	// for cleanup of the background key refresh goroutine.
+	//
+	// Environment variables are read in main.go via builder method chaining
+	// per the spec's Wiring section: "main.go reads JWK_CERT_URL,
+	// JWK_CERT_FILE, and AUTH_ENABLED from environment."
 	constructorExpr := fmt.Sprintf("%s.NewJWTHandler()", pkg)
-	if jwkCertFile != "" {
-		constructorExpr += fmt.Sprintf(".WithKeysFile(%q)", jwkCertFile)
-	}
+	constructorExpr += `.WithKeysURL(os.Getenv("JWK_CERT_URL"))`
+	constructorExpr += `.WithKeysFile(os.Getenv("JWK_CERT_FILE"))`
+	constructorExpr += `.WithAuthEnabled(os.Getenv("AUTH_ENABLED"))`
 
 	middlewareIdx := 0
 	wiring := &gen.Wiring{
@@ -86,6 +90,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		GoModRequires: map[string]string{
 			"github.com/golang-jwt/jwt/v4": "v4.5.1",
 		},
+		StdlibImports: []string{"os"},
 	}
 
 	if err := gen.ValidateNamespace(ns, files); err != nil {
@@ -159,13 +164,14 @@ func generateMiddleware(ns, pkg, jwkCertURL, jwkCertFile string, publicPaths []s
 	// --- JWTHandler ---
 	buf.WriteString("// JWTHandler manages JWK key discovery, caching, and JWT validation.\n")
 	buf.WriteString("type JWTHandler struct {\n")
-	buf.WriteString("\tkeysURL     string\n")
-	buf.WriteString("\tkeysFile    string\n")
-	buf.WriteString("\tpublicPaths map[string]bool\n")
-	buf.WriteString("\tkeys        map[string]*rsa.PublicKey\n")
-	buf.WriteString("\tmu          sync.RWMutex\n")
-	buf.WriteString("\tstopCh      chan struct{}\n")
-	buf.WriteString("\tlastRefresh time.Time\n")
+	buf.WriteString("\tkeysURL      string\n")
+	buf.WriteString("\tkeysFile     string\n")
+	buf.WriteString("\tpublicPaths  map[string]bool\n")
+	buf.WriteString("\tkeys         map[string]*rsa.PublicKey\n")
+	buf.WriteString("\tmu           sync.RWMutex\n")
+	buf.WriteString("\tstopCh       chan struct{}\n")
+	buf.WriteString("\tlastRefresh  time.Time\n")
+	buf.WriteString("\tauthDisabled bool\n")
 	buf.WriteString("}\n\n")
 
 	// --- Builder pattern ---
@@ -193,15 +199,21 @@ func generateMiddleware(ns, pkg, jwkCertURL, jwkCertFile string, publicPaths []s
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("// WithKeysURL sets the JWK endpoint URL for key discovery.\n")
+	buf.WriteString("// Empty string is a no-op, preserving the config default.\n")
 	buf.WriteString("func (h *JWTHandler) WithKeysURL(url string) *JWTHandler {\n")
-	buf.WriteString("\th.keysURL = url\n")
+	buf.WriteString("\tif url != \"\" {\n")
+	buf.WriteString("\t\th.keysURL = url\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\treturn h\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("// WithKeysFile sets the local JWK file path for key discovery.\n")
 	buf.WriteString("// When set, takes priority over the URL source.\n")
+	buf.WriteString("// Empty string is a no-op.\n")
 	buf.WriteString("func (h *JWTHandler) WithKeysFile(path string) *JWTHandler {\n")
-	buf.WriteString("\th.keysFile = path\n")
+	buf.WriteString("\tif path != \"\" {\n")
+	buf.WriteString("\t\th.keysFile = path\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\treturn h\n")
 	buf.WriteString("}\n\n")
 
@@ -212,24 +224,26 @@ func generateMiddleware(ns, pkg, jwkCertURL, jwkCertFile string, publicPaths []s
 	buf.WriteString("\treturn h\n")
 	buf.WriteString("}\n\n")
 
+	buf.WriteString("// WithAuthEnabled configures whether authentication is enabled.\n")
+	buf.WriteString("// When set to \"false\" (case-insensitive), auth is disabled and\n")
+	buf.WriteString("// Build() returns a passthrough middleware. Any other value\n")
+	buf.WriteString("// (including empty string) leaves auth enabled.\n")
+	buf.WriteString("func (h *JWTHandler) WithAuthEnabled(val string) *JWTHandler {\n")
+	buf.WriteString("\tif strings.EqualFold(val, \"false\") {\n")
+	buf.WriteString("\t\th.authDisabled = true\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn h\n")
+	buf.WriteString("}\n\n")
+
 	// --- Build ---
 	buf.WriteString("// Build initializes the key cache and starts the background refresh\n")
 	buf.WriteString("// goroutine. Returns the middleware function.\n")
-	buf.WriteString("// When AUTH_ENABLED=false, returns a passthrough middleware without starting\n")
-	buf.WriteString("// the refresh goroutine.\n")
+	buf.WriteString("// When auth is disabled via WithAuthEnabled(\"false\"), returns a passthrough\n")
+	buf.WriteString("// middleware without starting the refresh goroutine.\n")
 	buf.WriteString("func (h *JWTHandler) Build() func(http.Handler) http.Handler {\n")
-	buf.WriteString("\t// Read runtime configuration from environment variables.\n")
-	buf.WriteString("\t// JWK_CERT_URL overrides the config default.\n")
-	buf.WriteString("\tif url := os.Getenv(\"JWK_CERT_URL\"); url != \"\" {\n")
-	buf.WriteString("\t\th.keysURL = url\n")
-	buf.WriteString("\t}\n")
-	buf.WriteString("\t// JWK_CERT_FILE overrides URL if set.\n")
-	buf.WriteString("\tif file := os.Getenv(\"JWK_CERT_FILE\"); file != \"\" {\n")
-	buf.WriteString("\t\th.keysFile = file\n")
-	buf.WriteString("\t}\n\n")
-	buf.WriteString("\t// AUTH_ENABLED=false disables auth entirely (development mode).\n")
-	buf.WriteString("\t// Return a passthrough middleware without starting key refresh.\n")
-	buf.WriteString("\tif strings.EqualFold(os.Getenv(\"AUTH_ENABLED\"), \"false\") {\n")
+	buf.WriteString("\t// Auth disabled: return a passthrough middleware without starting\n")
+	buf.WriteString("\t// the key refresh goroutine.\n")
+	buf.WriteString("\tif h.authDisabled {\n")
 	buf.WriteString("\t\treturn func(next http.Handler) http.Handler {\n")
 	buf.WriteString("\t\t\treturn next\n")
 	buf.WriteString("\t\t}\n")

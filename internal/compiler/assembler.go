@@ -272,25 +272,46 @@ type importResult struct {
 func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, isGORM bool, consumedWirings map[int]bool) importResult {
 	buf.WriteString("import (\n")
 
+	// Collect additional stdlib imports requested by consumed component wirings.
+	extraStdlib := make(map[string]bool)
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil || !consumedWirings[i] {
+			continue
+		}
+		for _, pkg := range cw.Wiring.StdlibImports {
+			extraStdlib[pkg] = true
+		}
+	}
+
 	// Standard library imports.
-	var stdImports []string
+	stdlibNeeded := make(map[string]bool)
 	if hasDB && !isGORM {
-		stdImports = append(stdImports, `"database/sql"`)
+		stdlibNeeded["database/sql"] = true
 	}
 	// fmt is only used in writeServerStart which is gated on hasRoutes.
 	if hasRoutes {
-		stdImports = append(stdImports, `"fmt"`)
+		stdlibNeeded["fmt"] = true
 	}
 	// log is used in writeDBSetup and writeServerStart.
 	if hasDB || hasRoutes {
-		stdImports = append(stdImports, `"log"`)
+		stdlibNeeded["log"] = true
 	}
 	if hasRoutes {
-		stdImports = append(stdImports, `"net/http"`)
+		stdlibNeeded["net/http"] = true
 	}
 	if hasDB {
-		stdImports = append(stdImports, `"os"`)
+		stdlibNeeded["os"] = true
 	}
+	// Add component-requested stdlib imports.
+	for pkg := range extraStdlib {
+		stdlibNeeded[pkg] = true
+	}
+	// Sort for deterministic output.
+	var stdImports []string
+	for pkg := range stdlibNeeded {
+		stdImports = append(stdImports, fmt.Sprintf("%q", pkg))
+	}
+	sort.Strings(stdImports)
 	for _, imp := range stdImports {
 		fmt.Fprintf(buf, "\t%s\n", imp)
 	}
@@ -306,7 +327,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// non-stdlib imports cannot shadow them. A component import like
 	// "internal/sql" would otherwise get alias "sql", shadowing the
 	// stdlib "database/sql" import.
-	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM) {
+	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM, extraStdlib) {
 		aliases[name]++
 		aliasUsed[name] = true
 	}
@@ -1394,9 +1415,20 @@ func buildFillAliasMap(input AssemblerInput, hasDB, isGORM bool, consumedWirings
 	aliasUsed := make(map[string]bool)
 	seen := make(map[string]bool)
 
+	// Collect extra stdlib imports from consumed wirings (must match writeMainImports).
+	extraStdlib := make(map[string]bool)
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil || !consumedWirings[i] {
+			continue
+		}
+		for _, pkg := range cw.Wiring.StdlibImports {
+			extraStdlib[pkg] = true
+		}
+	}
+
 	// Seed stdlib aliases (must match writeMainImports exactly).
 	hasRoutes := hasAnyRoutes(input)
-	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM) {
+	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM, extraStdlib) {
 		aliases[name]++
 		aliasUsed[name] = true
 	}
@@ -1565,12 +1597,12 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 // import alias disambiguation maps to prevent non-stdlib imports from shadowing
 // them (e.g. component "internal/sql" getting alias "sql" and shadowing
 // "database/sql").
-func stdlibAliases(hasRoutes, hasDB, isGORM bool) []string {
+func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) []string {
 	var names []string
 	if hasDB && !isGORM {
 		names = append(names, "sql")
 	}
-	if hasDB {
+	if hasDB || extraStdlib["os"] {
 		names = append(names, "os")
 	}
 	if hasRoutes {
@@ -1578,6 +1610,18 @@ func stdlibAliases(hasRoutes, hasDB, isGORM bool) []string {
 	}
 	if hasDB || hasRoutes {
 		names = append(names, "log")
+	}
+	if extraStdlib["strings"] {
+		names = append(names, "strings")
+	}
+	// Include aliases for any remaining extra stdlib packages not already
+	// covered by the conditions above.
+	covered := map[string]bool{"os": true, "strings": true, "fmt": true, "http": true, "log": true, "sql": true}
+	for pkg := range extraStdlib {
+		alias := path.Base(pkg)
+		if !covered[alias] {
+			names = append(names, alias)
+		}
 	}
 	return names
 }
