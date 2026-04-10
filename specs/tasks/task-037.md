@@ -58,3 +58,5 @@ The rest-crud archetype spec has amended the error code prefix derivation algori
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- b176ed0 fix(restapi): strip common suffixes in deriveErrorPrefix
