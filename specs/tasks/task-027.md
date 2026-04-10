@@ -82,3 +82,5 @@ slots:
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- f70b449 feat(task-027): add tsl-search component generator
