@@ -4,9 +4,6 @@ version: 2.1.0
 output_namespace: internal/api
 
 config:
-  port:
-    type: int
-    default: 8080
   expose:
     type: list
     items:

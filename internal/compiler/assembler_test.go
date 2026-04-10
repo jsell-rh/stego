@@ -1789,6 +1789,13 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 			wantVar:     "err2 :=",
 			hasDB:       true,
 		},
+		{
+			name:        "port collision with routes",
+			constructor: "networking.NewPort()",
+			rawVarName:  "port",
+			wantVar:     "port2 :=",
+			hasRoutes:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2023,7 +2030,7 @@ func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 
 func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 	// Finding 16: Constructors that derive stdlib import alias names (log,
-	// fmt, http) must be disambiguated to prevent shadowing.
+	// os, http) must be disambiguated to prevent shadowing.
 	tests := []struct {
 		name        string
 		constructor string
