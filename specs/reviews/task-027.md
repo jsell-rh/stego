@@ -10,3 +10,13 @@
 
 - [-] [process-revision-complete] **Invalid search expressions and unknown fields return HTTP 500 instead of 400.** The spec states "Field name validation against entity field definitions (disallowed/unknown fields rejected with 400)." The generated list handlers pass the search expression to `store.List()`, which wraps parse/validation errors as `fmt.Errorf("search error: %w", err)`. The handler then catches all store errors with `handleError(w, r, InternalError(err.Error()))`, which returns 500. A malformed search expression or a reference to an unknown field produces 500 Internal Server Error instead of the 400 Bad Request required by the spec. The rest-api generator should either parse/validate the search expression at the handler layer (before calling store), or the store should return a typed error that the handler can distinguish from internal errors.
   - **Files:** `internal/generator/restapi/generator.go` (list handler error handling), `examples/user-management/out/internal/api/handler_all_users.go:87-89`, `examples/user-management/out/internal/api/handler_org_users.go` (same pattern)
+
+## Round 2
+
+No findings. All three round 1 issues were correctly resolved:
+
+1. Module path: `GoModRequires` now uses `github.com/yaacov/tree-search-language/v5` at `v5.2.12`, consistent with the `/v5/` import paths in generated code and the example `go.mod`.
+2. Parameterization: Generated code uses the TSL v5 SQL walker's `Sqlizer` return type, calling `filter.ToSql()` to extract parameterized SQL with bound args. Squirrel parameterization now happens correctly inside the walker.
+3. Error codes: `ErrSearch` sentinel in `api` package, store wraps search errors via `fmt.Errorf("%w: %s", ErrSearch, err)`, list handlers use `errors.Is(err, ErrSearch)` to return 400 for client-input errors.
+
+All tests pass (`go test -count=1 ./...`). Build succeeds (`go build ./cmd/stego`).
