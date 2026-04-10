@@ -2,11 +2,13 @@
 
 **Spec Reference:** "Error Handling (RFC 9457)" (rest-crud spec, line 484)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Depends on:** None (all prerequisites complete)
 
 **Blocks:** task-039 (example regeneration)
+
+**Review:** [specs/reviews/task-037.md](../reviews/task-037.md)
 
 ## Description
 
