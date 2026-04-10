@@ -1489,6 +1489,164 @@ overrides:
 	}
 }
 
+func TestReconcile_OverrideLoadsComponentFromRegistryViaResolver(t *testing.T) {
+	// Integration test for AC 9: the override component (rh-sso-auth) is NOT
+	// in the archetype's component list. The resolver must load it via
+	// ComponentLoader (backed by reg.Component), add it to the active set,
+	// and exclude the replaced default (jwt-auth). Downstream generators
+	// receive the modified active set.
+	projectDir, registryDir := setupTestProject(t)
+
+	// Add jwt-auth to the registry (archetype default for auth-provider).
+	jwtDir := filepath.Join(registryDir, "components", "jwt-auth")
+	if err := os.MkdirAll(jwtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jwtYAML := `kind: component
+name: jwt-auth
+version: 1.0.0
+output_namespace: internal/auth
+requires: []
+provides:
+  - auth-provider
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(jwtDir, "component.yaml"), []byte(jwtYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Add rh-sso-auth to the registry — NOT in the archetype's component list.
+	rhSSODir := filepath.Join(registryDir, "components", "rh-sso-auth")
+	if err := os.MkdirAll(rhSSODir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rhSSOYAML := `kind: component
+name: rh-sso-auth
+version: 1.0.0
+output_namespace: internal/auth
+requires: []
+provides:
+  - auth-provider
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(rhSSODir, "component.yaml"), []byte(rhSSOYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update archetype: includes jwt-auth as default_auth, binds auth-provider.
+	// rh-sso-auth is NOT in the components list.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+default_auth: jwt-auth
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+bindings:
+  storage-adapter: stub-store
+  auth-provider: jwt-auth
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update stub-api to require auth-provider.
+	apiDir := filepath.Join(registryDir, "components", "stub-api")
+	apiYAML := `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+  - auth-provider
+provides:
+  - http-server
+slots: []
+`
+	if err := os.WriteFile(filepath.Join(apiDir, "component.yaml"), []byte(apiYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Service.yaml overrides auth-provider to rh-sso-auth (not in archetype).
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+
+overrides:
+  auth-provider: rh-sso-auth
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use tracking generators to verify which components are in the active set.
+	// rh-sso-auth should be called (loaded from registry by the resolver);
+	// jwt-auth should NOT be called (excluded as the replaced default).
+	calledGenerators := make(map[string]bool)
+	trackingGenerators := map[string]gen.Generator{
+		"stub-api":   &trackingStubGenerator{name: "stub-api", called: calledGenerators},
+		"stub-store": &trackingStubGenerator{name: "stub-store", called: calledGenerators},
+		"jwt-auth":   &trackingStubGenerator{name: "jwt-auth", called: calledGenerators},
+		"rh-sso-auth": &trackingStubGenerator{name: "rh-sso-auth", called: calledGenerators},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  trackingGenerators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile with tracking generators failed: %v", err)
+	}
+
+	// rh-sso-auth should have been called (loaded from registry by resolver).
+	if !calledGenerators["rh-sso-auth"] {
+		t.Error("expected rh-sso-auth generator to be called (loaded from registry as override)")
+	}
+	// jwt-auth should NOT have been called (excluded as replaced default).
+	if calledGenerators["jwt-auth"] {
+		t.Error("jwt-auth generator should NOT be called (replaced by rh-sso-auth override)")
+	}
+	// stub-api and stub-store should still be called.
+	if !calledGenerators["stub-api"] {
+		t.Error("expected stub-api generator to be called")
+	}
+	if !calledGenerators["stub-store"] {
+		t.Error("expected stub-store generator to be called")
+	}
+}
+
+// trackingStubGenerator is a stub generator that records when it is called.
+type trackingStubGenerator struct {
+	name   string
+	called map[string]bool
+}
+
+func (g *trackingStubGenerator) Generate(_ gen.Context) ([]gen.File, *gen.Wiring, error) {
+	g.called[g.name] = true
+	return nil, nil, nil
+}
+
 func TestReconcile_NoNamespaceComponentProducingFilesRejected(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
 

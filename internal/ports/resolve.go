@@ -135,7 +135,7 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 		if _, exists := active[overrideComp]; !exists {
 			if input.ComponentLoader == nil {
 				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
-					Component: "", // not yet assigned — override is at port level
+					Component: "",
 					Port:      port,
 					BoundTo:   overrideComp,
 					Reason:    fmt.Sprintf("override references component %q which is not in the active set and no component loader is configured", overrideComp),
@@ -145,24 +145,29 @@ func Resolve(input ResolveInput) (*Resolution, error) {
 			loaded := input.ComponentLoader(overrideComp)
 			if loaded == nil {
 				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
-					Component: "", // not yet assigned
+					Component: "",
 					Port:      port,
 					BoundTo:   overrideComp,
 					Reason:    fmt.Sprintf("override component %q not found in registry", overrideComp),
 				})
 				continue
 			}
-			// Validate the loaded component actually provides the port.
-			if !compProvidesPort(loaded, port) {
-				resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
-					Component: "", // not yet assigned
-					Port:      port,
-					BoundTo:   overrideComp,
-					Reason:    fmt.Sprintf("override component %q does not provide port %q", overrideComp, port),
-				})
-				continue
-			}
 			active[overrideComp] = loaded
+		}
+
+		// Validate the override component provides the overridden port.
+		// This check applies to ALL override components — both newly loaded
+		// and pre-existing — because a component already in the active set
+		// may have been included for a different purpose (e.g. provides
+		// "tracing" but not "auth-provider").
+		if !compProvidesPort(active[overrideComp], port) {
+			resErr.InvalidBinding = append(resErr.InvalidBinding, InvalidBinding{
+				Component: "",
+				Port:      port,
+				BoundTo:   overrideComp,
+				Reason:    fmt.Sprintf("override component %q does not provide port %q", overrideComp, port),
+			})
+			continue
 		}
 
 		// Exclude the archetype default component that this override replaces,

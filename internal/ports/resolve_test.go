@@ -603,6 +603,50 @@ func TestResolveOverrideReplacesArchetypeDefault(t *testing.T) {
 	}
 }
 
+func TestResolveOverrideExistingComponentDoesNotProvidePort(t *testing.T) {
+	// Override auth-provider to otel-tracing, which is already in the active
+	// set but provides "tracing", not "auth-provider". The resolver must
+	// reject this even though the component is already present.
+	components := restCrudComponents()
+
+	_, err := Resolve(ResolveInput{
+		Components: components,
+		ArchetypeBindings: map[string]string{
+			"storage-adapter": "postgres-adapter",
+			"auth-provider":   "jwt-auth",
+		},
+		ServiceOverrides: map[string]string{
+			"auth-provider": "otel-tracing",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for override to component that doesn't provide the port, got nil")
+	}
+
+	var resErr *ResolutionError
+	if !errors.As(err, &resErr) {
+		t.Fatalf("expected *ResolutionError, got %T: %v", err, err)
+	}
+	if len(resErr.InvalidBinding) != 1 {
+		t.Fatalf("expected 1 invalid binding, got %d: %+v", len(resErr.InvalidBinding), resErr.InvalidBinding)
+	}
+
+	ib := resErr.InvalidBinding[0]
+	if ib.Port != "auth-provider" || ib.BoundTo != "otel-tracing" {
+		t.Errorf("unexpected invalid binding: %+v", ib)
+	}
+	if !strings.Contains(ib.Reason, "does not provide port") {
+		t.Errorf("expected reason to mention 'does not provide port', got: %q", ib.Reason)
+	}
+
+	// The archetype default (jwt-auth) should NOT have been deleted from the
+	// active set since the override was invalid.
+	errMsg := ib.Error()
+	if strings.Contains(errMsg, `required by`) {
+		t.Errorf("override error message should omit 'required by' when no component context exists, got: %q", errMsg)
+	}
+}
+
 func TestResolveOverrideNonExistentComponentInRegistry(t *testing.T) {
 	// Override references a component that doesn't exist in the registry.
 	components := restCrudComponents()
