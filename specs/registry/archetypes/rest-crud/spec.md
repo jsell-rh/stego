@@ -320,8 +320,56 @@ type Cluster struct {
 - GORM tags are derived from entity field constraints (unique, min/max length, optional, type)
 - `jsonb` fields use `gorm.io/datatypes.JSON`
 - `ref` fields generate foreign key relationships
-- `computed` fields are included in the model but excluded from create/update inputs
+- `computed` fields are included in the model but excluded from create/update inputs (see **Server-Managed Fields and Request Schemas**)
 - Soft delete via `gorm.DeletedAt` (all deletes are soft by default)
+
+## Server-Managed Fields and Request Schemas
+
+Not all entity fields belong in API request bodies. The `rest-api` component must generate separate OpenAPI schemas for create and update requests that exclude **server-managed fields** -- fields whose values are assigned or derived by the server, not provided by the client.
+
+A field is server-managed if any of the following apply:
+
+1. **`computed: true`** -- filled by a slot, never client-written
+2. **`type: timestamp`** -- server-assigned timestamps (`created_time`, `updated_time`, etc.)
+3. **Named `created_by` or `updated_by`** -- populated from the authenticated identity (JWT claims)
+4. **Named `generation`** -- server-managed version counter, incremented on mutation
+
+The `id` field (from `Meta`) is always server-assigned and excluded from all request schemas.
+
+**Generated OpenAPI schemas per entity:**
+
+| Schema | Used by | Includes | Excludes |
+|--------|---------|----------|----------|
+| `{Entity}` | GET responses | All fields + `id`, `kind`, `href` envelope | Nothing |
+| `{Entity}CreateRequest` | POST request body | Client-provided fields only | Server-managed fields, `id` |
+| `{Entity}PatchRequest` | PATCH request body | `patchable` fields as optional | Everything else |
+
+Example for the `Cluster` entity:
+
+```yaml
+# Entity fields from service.yaml
+fields:
+  - { name: name, type: string, unique: true }
+  - { name: spec, type: jsonb }
+  - { name: labels, type: jsonb, optional: true }
+  - { name: status, type: jsonb, computed: true, filled_by: status-aggregator }
+  - { name: generation, type: int32, default: 1 }
+  - { name: created_by, type: string }
+  - { name: updated_by, type: string }
+  - { name: created_time, type: timestamp }
+  - { name: updated_time, type: timestamp }
+```
+
+Generated `ClusterCreateRequest` schema includes only: `name` (required), `spec` (required), `labels` (optional). The remaining fields are server-managed.
+
+The create handler must populate server-managed fields before persisting:
+- `id` -- generate UUID v7
+- `created_by`, `updated_by` -- extract from JWT identity in request context
+- `created_time`, `updated_time` -- set to `time.Now()`
+- `generation` -- use the declared `default` value (e.g. `1`)
+- `computed` fields -- leave nil/zero; filled asynchronously by their declared fill
+
+The `kind` field in the request body (if present) is validated against the entity name but is not persisted -- it is a client-side type assertion. If absent, the server does not reject the request. If present and wrong, the server returns 400.
 
 **Generated DAO layer** provides per-entity data access:
 - `Create(ctx, entity)` -- `g2.Create(entity)`
@@ -433,7 +481,7 @@ base_path: /api/hyperfleet/v1
 error_type_base: https://api.hyperfleet.io/errors/   # optional, for RFC 9457 type URIs
 ```
 
-The error code prefix is derived from the service name (uppercased, hyphens removed): `hyperfleet-api` -> `HYPERFLEET`. Error categories follow a fixed set:
+The error code prefix is derived from the service name by: (1) stripping common suffixes (`-api`, `-service`, `-server`), (2) removing remaining hyphens, (3) uppercasing. Examples: `hyperfleet-api` -> `HYPERFLEET`, `user-management` -> `USERMANAGEMENT`, `order-service` -> `ORDER`. Error categories follow a fixed set:
 
 | Category | Codes | HTTP Status | Example |
 |----------|-------|-------------|---------|
@@ -474,6 +522,26 @@ When `request_validation: openapi-schema` is set in the archetype conventions, t
 ```
 
 Entity field constraints (min_length, max_length, pattern, min, max, required) are already encoded in the generated OpenAPI spec. The validation middleware enforces them at runtime without hand-coded validation functions per entity.
+
+## Generated Runtime Configuration
+
+The generated `main.go` reads runtime configuration from environment variables. These are not configurable in `service.yaml` -- they are deployment concerns.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | -- | PostgreSQL connection string |
+| `PORT` | No | `8080` | HTTP listen port |
+
+The generated server must read `PORT` from the environment (falling back to `8080`) rather than hardcoding the port. This is required for testability (integration tests need to run the server on a non-default port) and for container orchestration (port assignment by the platform).
+
+```go
+port := os.Getenv("PORT")
+if port == "" {
+    port = "8080"
+}
+```
+
+Additional environment variables are defined by individual components (e.g. `JWK_CERT_URL` by `rh-sso-auth`, `AUTH_ENABLED` by auth components).
 
 ## Open Questions
 
