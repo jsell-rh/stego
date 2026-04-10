@@ -2,7 +2,9 @@
 
 **Spec Reference:** "MVP Scope" (spec.md), all sections of rest-crud spec
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-030.md](../reviews/task-030.md)
 
 ## Description
 
