@@ -56,3 +56,5 @@ The spec says "the resolver must load that component from the registry." Current
 
 - 413a753 feat(task-036): port resolver loads override components from registry
 - c82e92a fix(task-036): handle empty Component in InvalidBinding error formatting
+- 89acbb0 fix(task-036): override port validation gap and missing integration test
+- 23c8a40 chore(task-036): mark ready-for-review after needs-revision fixes
