@@ -71,3 +71,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 - `db56356` feat(task-028): add upsert operation with conflict resolution
 - `a2ba2fd` fix(task-028): wrap upsert COUNT+INSERT in transaction and check COUNT error
+- `ca04452` fix(task-028): set SERIALIZABLE isolation and add upsert scope identifiers
