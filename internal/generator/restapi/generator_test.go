@@ -7573,8 +7573,9 @@ func TestGenerate_ScopedUpdateVerifiesScope(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Update handler for scoped collection must pre-fetch and verify scope.
-	if !strings.Contains(handler, `existing.OrgID != r.PathValue("org_id")`) {
+	// Update handler for scoped collection must pre-fetch and verify scope
+	// using map[string]any approach (consistent with Read and Delete handlers).
+	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
 		t.Error("scoped Update handler must verify existing entity scope field matches URL path parameter")
 	}
 	// Must fetch existing entity before body decode to check scope.
@@ -7650,12 +7651,16 @@ func TestGenerate_ScopedDeleteVerifiesScope(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
 	// Delete handler for scoped collection must fetch and verify scope
-	// before performing the delete.
-	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
+	// before performing the delete using map[string]any approach.
+	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
 		t.Error("scoped Delete handler must verify entity scope field matches URL path parameter")
 	}
 	if !strings.Contains(handler, `h.store.Get(r.Context(), "User", id)`) {
 		t.Error("scoped Delete handler must call store.Get to verify scope before Delete")
+	}
+	// Verify encoding/json is imported even when delete is the only operation.
+	if !strings.Contains(handler, `"encoding/json"`) {
+		t.Error("scoped delete-only collection must import encoding/json for scope verification")
 	}
 }
 

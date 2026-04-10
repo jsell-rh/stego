@@ -332,8 +332,12 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	envelope := responseFormat == "envelope"
 
 	// Determine whether encoding/json is needed. It is used by all operations
-	// except delete (which only sends status codes, no JSON body).
-	needJSON := false
+	// except delete (which only sends status codes, no JSON body). However,
+	// scoped collections always need encoding/json because scope verification
+	// uses json.Marshal/json.Unmarshal to extract the scope field value from
+	// the store result (which is typed as any).
+	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
+	needJSON := isScoped
 	needStrconv := false
 	needReflect := false
 	needErrors := false
@@ -763,9 +767,10 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	if isScoped {
 		// For scoped collections, verify the target entity belongs to this
-		// scope before accepting the update. Fetch the existing entity first,
-		// convert via JSON roundtrip, and compare the scope field.
-		fmt.Fprintf(buf, "\texistingVal, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
+		// scope before accepting the update. Fetch the existing entity and use
+		// map[string]any for the scope field lookup (consistent with the Read
+		// handler approach, avoiding typed-struct roundtrip).
+		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
 		fmt.Fprintf(buf, "\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 		fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -774,17 +779,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\texistingData, err := json.Marshal(existingVal)\n")
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tvar existing %s\n", entity.Name)
-		fmt.Fprintf(buf, "\tif err := json.Unmarshal(existingData, &existing); err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		emitScopeCheck(buf, entity, eb, parentParamName, "existing")
+		emitMapScopeCheck(buf, entity, eb, parentParamName)
 	}
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
@@ -839,8 +834,8 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	if isScoped {
 		// For scoped collections, verify the target entity belongs to this
-		// scope before deleting. Fetch the existing entity, convert via JSON
-		// roundtrip, and compare the scope field.
+		// scope before deleting. Fetch the existing entity and use map[string]any
+		// for the scope field lookup (consistent with the Read handler approach).
 		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
 		fmt.Fprintf(buf, "\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
@@ -850,18 +845,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
-		lower := safeVarName(strings.ToLower(entity.Name))
-		fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-		fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &%s); err != nil {\n", lower)
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		emitScopeCheck(buf, entity, eb, parentParamName, lower)
+		emitMapScopeCheck(buf, entity, eb, parentParamName)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
