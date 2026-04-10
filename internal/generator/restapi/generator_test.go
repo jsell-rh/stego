@@ -344,8 +344,8 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
 		t.Error("scope with parent must extract value from scope field path parameter (org_id)")
 	}
-	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, offset, limit)`) {
-		t.Error("scope filtering must pass the scope field name to store.List")
+	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, opts)`) {
+		t.Error("scope filtering must pass the scope field name and opts to store.List")
 	}
 
 	// List handler must parse page/size (spec-defined) query parameters, not
@@ -367,22 +367,19 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 	if !strings.Contains(handler, "size > 65500") {
 		t.Error("list handler must clamp size to max 65500")
 	}
-	// Convert page/size to offset/limit for store.
-	if !strings.Contains(handler, "offset := (page - 1) * size") {
-		t.Error("list handler must convert page/size to offset via (page-1)*size")
-	}
-	if !strings.Contains(handler, "limit := size") {
-		t.Error("list handler must set limit to size")
+	// Build ListOptions with Page and Size.
+	if !strings.Contains(handler, "opts := ListOptions{Page: page, Size: size") {
+		t.Error("list handler must construct ListOptions with Page and Size")
 	}
 
-	// List handler must capture total count from store.List.
-	if !strings.Contains(handler, ", total, err := h.store.List(") {
-		t.Error("list handler must capture total count from store.List 3-return-value")
+	// List handler must capture listResult from store.List.
+	if !strings.Contains(handler, "listResult, err := h.store.List(") {
+		t.Error("list handler must capture listResult from store.List 2-return-value")
 	}
 
-	// List handler must include total in the response.
-	if !strings.Contains(handler, `"total": total`) {
-		t.Error("list handler must include total count in the response")
+	// In bare mode (no envelope), list handler encodes items directly.
+	if !strings.Contains(handler, "listResult.Items") {
+		t.Error("list handler must use listResult.Items")
 	}
 }
 
@@ -406,16 +403,16 @@ func TestGenerate_ListStorageInterfaceReturnsTotalCount(t *testing.T) {
 
 	router := findFileContent(t, files, "internal/api/router.go")
 
-	// Storage interface List must return (any, int64, error) for total count.
-	if !strings.Contains(router, "(any, int64, error)") {
-		t.Error("Storage.List must return (any, int64, error) to carry total count for pagination")
+	// Storage interface List must accept ListOptions and return (ListResult, error).
+	if !strings.Contains(router, "opts ListOptions) (ListResult, error)") {
+		t.Error("Storage.List must accept ListOptions and return (ListResult, error) for pagination")
 	}
 }
 
 func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{
-		Conventions: types.Convention{Layout: "flat"},
+		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
 		Entities: []types.Entity{
 			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
@@ -450,7 +447,7 @@ func TestGenerate_ListResponseIncludesPaginationEnvelope(t *testing.T) {
 	if !strings.Contains(handler, `actualSize := reflect.ValueOf(`) {
 		t.Error("list response must compute actual item count via reflect.ValueOf().Len()")
 	}
-	if !strings.Contains(handler, `"total": total`) {
+	if !strings.Contains(handler, `"total": listResult.Total`) {
 		t.Error("list response must include total count of matching records")
 	}
 	if !strings.Contains(handler, `"items":`) {
@@ -495,8 +492,8 @@ func TestGenerate_ScopeFilteringWithoutParent(t *testing.T) {
 	if !strings.Contains(handler, `r.PathValue("org_id")`) {
 		t.Error("scope with parent in collections must extract value from scope field path parameter")
 	}
-	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, offset, limit)`) {
-		t.Error("scope filtering must pass the scope field name to store.List")
+	if !strings.Contains(handler, `h.store.List(r.Context(), "User", "org_id", scopeValue, opts)`) {
+		t.Error("scope filtering must pass the scope field name and opts to store.List")
 	}
 }
 
@@ -534,7 +531,7 @@ func TestGenerate_ParentOnlyListPassesRawFieldName(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_node_pools.go")
 	// Must pass raw YAML field name "cluster_id", not PascalCase "ClusterID".
-	if !strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "cluster_id", scopeValue, offset, limit)`) {
+	if !strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "cluster_id", scopeValue, opts)`) {
 		t.Error("scope+parent List must pass raw YAML field name to store.List, not PascalCase")
 	}
 	if strings.Contains(handler, `h.store.List(r.Context(), "NodePool", "ClusterID"`) {
@@ -5299,4 +5296,448 @@ func mapKeys(m map[string]any) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// --- Task 024: Response Envelope Format with Pagination ---
+
+func envelopeContext() gen.Context {
+	return gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ErrorHandling:  "problem-details-rfc",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{
+				Name: "Widget",
+				Fields: []types.Field{
+					{Name: "name", Type: types.FieldTypeString},
+					{Name: "color", Type: types.FieldTypeString},
+				},
+			},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpUpdate, types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+		BasePath:        "/api/v1",
+		ServiceName:     "widget-service",
+	}
+}
+
+func TestGenerate_ResponseFormatConvention(t *testing.T) {
+	// AC1: ResponseFormat added to Convention struct
+	conv := types.Convention{ResponseFormat: "envelope"}
+	if conv.ResponseFormat != "envelope" {
+		t.Errorf("expected ResponseFormat 'envelope', got %q", conv.ResponseFormat)
+	}
+}
+
+func TestGenerate_EnvelopeSingleResourceCreate(t *testing.T) {
+	// AC2: Single resource responses include id, kind, href when envelope is enabled.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Create handler must generate a UUID for the entity ID.
+	if !strings.Contains(handler, `uuid.New().String()`) {
+		t.Error("Create handler must generate a UUID when envelope is enabled")
+	}
+
+	// Create handler must use presentEntity to wrap the response.
+	if !strings.Contains(handler, `presentEntity(`) {
+		t.Error("Create handler must use presentEntity for envelope response")
+	}
+
+	// Verify kind is the entity name.
+	if !strings.Contains(handler, `"Widget"`) {
+		t.Error("Create handler must pass entity name as kind to presentEntity")
+	}
+
+	// Verify href includes the base path.
+	if !strings.Contains(handler, `"/api/v1/widgets"`) {
+		t.Error("Create handler must include base_path + collection path in href")
+	}
+}
+
+func TestGenerate_EnvelopeSingleResourceRead(t *testing.T) {
+	// AC2: Single resource Read includes id, kind, href.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Read handler must use presentEntity.
+	if !strings.Contains(handler, `presentEntity(widget,`) {
+		t.Error("Read handler must use presentEntity for envelope response")
+	}
+
+	// Read handler must use the path ID for the envelope.
+	if !strings.Contains(handler, `"/api/v1/widgets"+"/"+id`) {
+		t.Error("Read handler must construct href from base_path + collection_path + id")
+	}
+}
+
+func TestGenerate_EnvelopeSingleResourceUpdate(t *testing.T) {
+	// AC2: Single resource Update includes id, kind, href.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Update handler must use presentEntity with id from path.
+	updateSection := extractMethodBody(handler, "func (h *WidgetsHandler) Update")
+	if updateSection == "" {
+		t.Fatal("could not find Update method in handler")
+	}
+	if !strings.Contains(updateSection, `presentEntity(`) {
+		t.Error("Update handler must use presentEntity for envelope response")
+	}
+}
+
+func TestGenerate_EnvelopeListResponse(t *testing.T) {
+	// AC3: List responses include kind, page, size, total, items envelope.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// List handler must construct envelope with all required fields.
+	if !strings.Contains(handler, `"kind":  "WidgetList"`) {
+		t.Error("list response must include kind with entity name + 'List'")
+	}
+	if !strings.Contains(handler, `"page":  page`) {
+		t.Error("list response must include page")
+	}
+	if !strings.Contains(handler, `"size":  actualSize`) {
+		t.Error("list response must include actual size")
+	}
+	if !strings.Contains(handler, `"total": listResult.Total`) {
+		t.Error("list response must include total from ListResult")
+	}
+	if !strings.Contains(handler, `"items": listResult.Items`) {
+		t.Error("list response must include items from ListResult")
+	}
+}
+
+func TestGenerate_ListQueryParametersParsing(t *testing.T) {
+	// AC4: List query parameters parsed and validated: page, size, orderBy, fields.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// page and size parsing.
+	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
+		t.Error("list handler must parse page query parameter")
+	}
+	if !strings.Contains(handler, `r.URL.Query().Get("size")`) {
+		t.Error("list handler must parse size query parameter")
+	}
+
+	// orderBy parsing.
+	if !strings.Contains(handler, `r.URL.Query().Get("orderBy")`) {
+		t.Error("list handler must parse orderBy query parameter")
+	}
+	if !strings.Contains(handler, `strings.Split(orderByStr, ",")`) {
+		t.Error("list handler must split orderBy by comma")
+	}
+
+	// fields parsing.
+	if !strings.Contains(handler, `r.URL.Query().Get("fields")`) {
+		t.Error("list handler must parse fields query parameter")
+	}
+
+	// ListOptions construction.
+	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields}`) {
+		t.Error("list handler must construct ListOptions from parsed parameters")
+	}
+}
+
+func TestGenerate_SizeCappedAt65500(t *testing.T) {
+	// AC5: size capped at 65500.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	if !strings.Contains(handler, `size > 65500`) {
+		t.Error("list handler must cap size at 65500")
+	}
+	if !strings.Contains(handler, `size = 65500`) {
+		t.Error("list handler must clamp size to 65500 when exceeded")
+	}
+}
+
+func TestGenerate_OrderByFieldValidation(t *testing.T) {
+	// AC6: orderBy field names validated against entity fields.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Valid fields set must include entity field names.
+	if !strings.Contains(handler, `"name": true`) {
+		t.Error("validFields must include entity field 'name'")
+	}
+	if !strings.Contains(handler, `"color": true`) {
+		t.Error("validFields must include entity field 'color'")
+	}
+
+	// Validation check on orderBy field names.
+	if !strings.Contains(handler, `validFields[fieldName]`) {
+		t.Error("orderBy must validate field names against validFields")
+	}
+
+	// Direction validation.
+	if !strings.Contains(handler, `d != "asc" && d != "desc"`) {
+		t.Error("orderBy must validate direction is 'asc' or 'desc'")
+	}
+
+	// Invalid field produces 400 error.
+	if !strings.Contains(handler, `BadRequest("invalid orderBy field: "`) {
+		t.Error("invalid orderBy field must return BadRequest error")
+	}
+}
+
+func TestGenerate_StorageInterfaceListOptionsAndResult(t *testing.T) {
+	// AC7: Storage interface includes ListOptions and ListResult types.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	// ListOptions type.
+	if !strings.Contains(router, "type ListOptions struct") {
+		t.Error("router.go must define ListOptions struct")
+	}
+	if !strings.Contains(router, "Page    int") {
+		t.Error("ListOptions must have Page int field")
+	}
+	if !strings.Contains(router, "Size    int") {
+		t.Error("ListOptions must have Size int field")
+	}
+	if !strings.Contains(router, "OrderBy []OrderByField") {
+		t.Error("ListOptions must have OrderBy []OrderByField field")
+	}
+	if !strings.Contains(router, "Fields  []string") {
+		t.Error("ListOptions must have Fields []string field")
+	}
+
+	// ListResult type.
+	if !strings.Contains(router, "type ListResult struct") {
+		t.Error("router.go must define ListResult struct")
+	}
+
+	// OrderByField type.
+	if !strings.Contains(router, "type OrderByField struct") {
+		t.Error("router.go must define OrderByField struct")
+	}
+
+	// Storage interface List method uses new types.
+	if !strings.Contains(router, "List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)") {
+		t.Error("Storage.List must use ListOptions parameter and return ListResult")
+	}
+}
+
+func TestGenerate_BareResponseFormatPreservesBehavior(t *testing.T) {
+	// AC8: response_format: bare (or unset) preserves current behavior.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{
+				types.OpCreate, types.OpRead, types.OpList,
+			}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_items.go")
+
+	// Bare mode: no presentEntity calls.
+	if strings.Contains(handler, "presentEntity(") {
+		t.Error("bare mode must NOT use presentEntity")
+	}
+
+	// Bare mode: no UUID generation.
+	if strings.Contains(handler, "uuid.New()") {
+		t.Error("bare mode must NOT generate UUIDs")
+	}
+
+	// Bare mode: list should return items directly, not in an envelope.
+	if strings.Contains(handler, `"kind":`) {
+		t.Error("bare mode list must NOT include envelope fields")
+	}
+
+	// Bare mode: list should encode listResult.Items directly.
+	if !strings.Contains(handler, "json.NewEncoder(w).Encode(listResult.Items)") {
+		t.Error("bare mode list must encode listResult.Items directly")
+	}
+
+	// Bare mode: should NOT import reflect (no actualSize computation).
+	if strings.Contains(handler, `"reflect"`) {
+		t.Error("bare mode list must NOT import reflect")
+	}
+}
+
+func TestGenerate_EntityStructIncludesID(t *testing.T) {
+	// Entity structs include an ID field for envelope support.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	// After go/format, struct fields may be tab-aligned. Check both parts.
+	if !strings.Contains(router, "ID") || !strings.Contains(router, `json:"id,omitempty"`) {
+		t.Error("entity struct must include ID string field with json:\"id,omitempty\" tag")
+	}
+}
+
+func TestGenerate_PresentEntityHelper(t *testing.T) {
+	// When envelope is enabled, router.go includes presentEntity helper.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	if !strings.Contains(router, "func presentEntity(entity any, kind, id, href string) map[string]any") {
+		t.Error("router.go must include presentEntity helper when envelope is enabled")
+	}
+}
+
+func TestGenerate_PresentEntityNotInBareMode(t *testing.T) {
+	// When envelope is NOT set, router.go should NOT include presentEntity.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+	if strings.Contains(router, "func presentEntity") {
+		t.Error("bare mode router.go must NOT include presentEntity helper")
+	}
+}
+
+func TestGenerate_EnvelopeCreateUUIDGoModRequires(t *testing.T) {
+	// When envelope + create op, wiring must include uuid dependency.
+	g := &Generator{}
+	ctx := envelopeContext()
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wiring.GoModRequires == nil {
+		t.Fatal("wiring.GoModRequires should not be nil when envelope + create")
+	}
+	if _, ok := wiring.GoModRequires["github.com/google/uuid"]; !ok {
+		t.Error("wiring.GoModRequires must include github.com/google/uuid when envelope + create")
+	}
+}
+
+func TestGenerate_BareCreateNoUUIDGoModRequires(t *testing.T) {
+	// When bare mode + create op, wiring should NOT require uuid.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{types.OpCreate}},
+		},
+		OutputNamespace: "internal/api",
+	}
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wiring.GoModRequires != nil {
+		if _, ok := wiring.GoModRequires["github.com/google/uuid"]; ok {
+			t.Error("bare mode must NOT require github.com/google/uuid")
+		}
+	}
+}
+
+// extractMethodBody extracts the body of a method starting with the given signature prefix.
+func extractMethodBody(source, sigPrefix string) string {
+	idx := strings.Index(source, sigPrefix)
+	if idx == -1 {
+		return ""
+	}
+	// Find the next function definition or end of file.
+	rest := source[idx:]
+	nextFunc := strings.Index(rest[1:], "\nfunc ")
+	if nextFunc == -1 {
+		return rest
+	}
+	return rest[:nextFunc+1]
 }

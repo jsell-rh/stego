@@ -1206,9 +1206,9 @@ func TestListScopeValidation(t *testing.T) {
 	if !strings.Contains(storeContent, "invalid scope field") {
 		t.Error("List should return error for invalid scope field")
 	}
-	// Scope validation error should return zero total alongside the error.
-	if !strings.Contains(storeContent, "return nil, 0, fmt.Errorf") {
-		t.Error("List scope validation error should return (nil, 0, error)")
+	// Scope validation error should return empty ListResult alongside the error.
+	if !strings.Contains(storeContent, "return ListResult{}, fmt.Errorf") {
+		t.Error("List scope validation error should return (ListResult{}, error)")
 	}
 }
 
@@ -1222,14 +1222,14 @@ func TestListPagination(t *testing.T) {
 
 	storeContent := findFileContent(t, files, "internal/storage/store.go")
 
-	// List should accept offset and limit parameters.
-	if !strings.Contains(storeContent, "offset int, limit int") {
-		t.Error("List should accept offset and limit parameters")
+	// List should accept ListOptions parameter.
+	if !strings.Contains(storeContent, "opts ListOptions") {
+		t.Error("List should accept opts ListOptions parameter")
 	}
 
-	// List should return (any, int64, error) to carry total count.
-	if !strings.Contains(storeContent, "(any, int64, error)") {
-		t.Error("List should return (any, int64, error) to include total count")
+	// List should return (ListResult, error) to carry items and total count.
+	if !strings.Contains(storeContent, "(ListResult, error)") {
+		t.Error("List should return (ListResult, error)")
 	}
 
 	// List should perform COUNT(*) before fetching the page.
@@ -1242,19 +1242,27 @@ func TestListPagination(t *testing.T) {
 		t.Error("List should declare total count variable")
 	}
 
-	// List should return total alongside results.
-	if !strings.Contains(storeContent, "return result, total, nil") {
-		t.Error("List should return results and total count")
+	// List should return ListResult with items and total.
+	if !strings.Contains(storeContent, "return ListResult{Items: result, Total: total}, nil") {
+		t.Error("List should return ListResult with Items and Total")
 	}
 
-	// List should apply Offset.
+	// List should apply Offset computed from Page and Size.
 	if !strings.Contains(storeContent, "query.Offset(offset)") {
 		t.Error("List should apply Offset for pagination")
 	}
 
-	// List should apply Limit.
-	if !strings.Contains(storeContent, "query.Limit(limit)") {
+	// List should apply Limit from opts.Size.
+	if !strings.Contains(storeContent, "query.Limit(opts.Size)") {
 		t.Error("List should apply Limit for pagination")
+	}
+
+	// store.go should define ListOptions and ListResult types.
+	if !strings.Contains(storeContent, "type ListOptions struct") {
+		t.Error("store.go should define ListOptions type")
+	}
+	if !strings.Contains(storeContent, "type ListResult struct") {
+		t.Error("store.go should define ListResult type")
 	}
 }
 
