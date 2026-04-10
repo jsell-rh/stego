@@ -2,7 +2,9 @@
 
 **Spec Reference:** "Request Validation" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [specs/reviews/task-026.md](../reviews/task-026.md)
 
 ## Description
 
