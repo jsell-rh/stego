@@ -1468,11 +1468,19 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	}, nil
 }
 
-// deriveErrorPrefix converts a service name to an error code prefix by
-// removing hyphens and uppercasing.
-// E.g., "hyperfleet-api" → "HYPERFLEETAPI", "user-management" → "USERMANAGEMENT".
+// deriveErrorPrefix converts a service name to an error code prefix by:
+// (1) stripping common suffixes (-api, -service, -server),
+// (2) removing remaining hyphens, (3) uppercasing.
+// E.g., "hyperfleet-api" → "HYPERFLEET", "user-management" → "USERMANAGEMENT".
 func deriveErrorPrefix(serviceName string) string {
-	return strings.ToUpper(strings.ReplaceAll(serviceName, "-", ""))
+	name := serviceName
+	for _, suffix := range []string{"-api", "-service", "-server"} {
+		if strings.HasSuffix(name, suffix) {
+			name = strings.TrimSuffix(name, suffix)
+			break
+		}
+	}
+	return strings.ToUpper(strings.ReplaceAll(name, "-", ""))
 }
 
 // generateErrors produces the errors.go file with RFC 9457 Problem Details

@@ -4899,11 +4899,14 @@ func TestDeriveErrorPrefix(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"hyperfleet-api", "HYPERFLEETAPI"},         // spec golden example: hyphens removed, uppercased
-		{"user-management", "USERMANAGEMENT"},       // hyphens removed, uppercased
+		{"hyperfleet-api", "HYPERFLEET"},            // spec example: strip -api, uppercase
+		{"order-service", "ORDER"},                  // spec example: strip -service, uppercase
+		{"my-cool-server", "MYCOOL"},                // strip -server suffix
+		{"user-management", "USERMANAGEMENT"},       // no suffix to strip, hyphens removed
 		{"simple", "SIMPLE"},                        // no hyphens, kept as-is
 		{"a-b-c", "ABC"},                            // all segments joined, uppercased
-		{"my-cool-service", "MYCOOLSERVICE"},        // multi-segment project name
+		{"just-api", "JUST"},                        // strip -api from short name
+		{"api", "API"},                              // no leading hyphen, not stripped
 		{"", ""},                                    // edge case
 	}
 	for _, tt := range tests {
@@ -4949,18 +4952,18 @@ func TestGenerate_ErrorsFileGenerated(t *testing.T) {
 	}
 
 	// AC2: Error constructors for all six categories.
-	// Prefix for "hyperfleet-api" is "HYPERFLEETAPI" (hyphens removed, uppercased).
+	// Prefix for "hyperfleet-api" is "HYPERFLEET" (strip -api, remove hyphens, uppercase).
 	constructors := []struct {
 		name string
 		code string
 	}{
-		{"func NotFound(", "HYPERFLEETAPI-NTF-001"},
-		{"func BadRequest(", "HYPERFLEETAPI-VAL-001"},
-		{"func Conflict(", "HYPERFLEETAPI-CNF-001"},
-		{"func Validation(", "HYPERFLEETAPI-VAL-000"},
-		{"func Unauthorized(", "HYPERFLEETAPI-AUT-001"},
-		{"func Forbidden(", "HYPERFLEETAPI-AUZ-001"},
-		{"func InternalError(", "HYPERFLEETAPI-INT-001"},
+		{"func NotFound(", "HYPERFLEET-NTF-001"},
+		{"func BadRequest(", "HYPERFLEET-VAL-001"},
+		{"func Conflict(", "HYPERFLEET-CNF-001"},
+		{"func Validation(", "HYPERFLEET-VAL-000"},
+		{"func Unauthorized(", "HYPERFLEET-AUT-001"},
+		{"func Forbidden(", "HYPERFLEET-AUZ-001"},
+		{"func InternalError(", "HYPERFLEET-INT-001"},
 	}
 	for _, c := range constructors {
 		if !strings.Contains(errorsContent, c.name) {

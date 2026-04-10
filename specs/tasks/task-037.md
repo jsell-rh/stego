@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Error Handling (RFC 9457)" (rest-crud spec, line 484)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** None (all prerequisites complete)
 
