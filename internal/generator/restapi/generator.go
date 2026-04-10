@@ -351,7 +351,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			needStrconv = true
 			hasList = true
 		}
-		if op == types.OpCreate || op == types.OpRead || op == types.OpUpdate || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
+		if op == types.OpCreate || op == types.OpRead || op == types.OpUpdate || op == types.OpDelete || op == types.OpPatch || op == types.OpList || op == types.OpUpsert {
 			needErrors = true
 		}
 		if op == types.OpCreate {
@@ -744,7 +744,11 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	_, after := slotsForOp(types.OpDelete, slotParams)
@@ -2933,6 +2937,39 @@ func slotsForOp(op types.Operation, params []collectionSlotParam) (before, after
 // are wired, the handler degrades to passthrough semantics.
 func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
+	// Pre-compute string values for optional (pointer) fields so the map
+	// literal uses meaningful values rather than Go debug output from %v.
+	for _, f := range entity.Fields {
+		if !f.Optional {
+			continue
+		}
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		localVar := f.Name + "Val"
+		switch goType {
+		case "string":
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = *%s.%s\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		case "json.RawMessage":
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = string(*%s.%s)\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		case "[]byte":
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = string(*%s.%s)\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		default:
+			// For numeric, bool, time.Time: dereference pointer before Sprintf.
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = fmt.Sprintf(\"%%v\", *%s.%s)\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		}
+	}
 	// Build populated request with entity data for the fill.
 	// Fields are conditional on the slot's proto-defined request type
 	// (checklist item 46: polymorphic struct literal emission).
@@ -2944,10 +2981,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 		goName := toPascalCase(f.Name)
 		goType := fieldTypeToGo(f.Type)
 		if f.Optional {
-			// Optional fields are pointer types in the API struct.
-			// Use fmt.Sprintf to handle nil pointers safely.
-			fmt.Fprintf(buf, "\t\t\t\t\t%q: fmt.Sprintf(\"%%v\", %s.%s),\n",
-				f.Name, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t\t\t%q: %s,\n", f.Name, f.Name+"Val")
 		} else {
 			fmt.Fprintf(buf, "\t\t\t\t\t%q: %s,\n", f.Name, fieldToStringExpr(entityVarName, goName, goType))
 		}
@@ -3066,11 +3100,19 @@ func collectionToCamelCase(name string) string {
 // for string conversion in slot request population.
 func needsFmtForSlotFields(entity types.Entity) bool {
 	for _, f := range entity.Fields {
-		if f.Optional {
-			// Optional fields use fmt.Sprintf for nil-safe string conversion.
-			return true
-		}
 		goType := fieldTypeToGo(f.Type)
+		if f.Optional {
+			// Optional pointer fields: only numeric/bool/time types need fmt.Sprintf
+			// for dereferenced conversion. string and json.RawMessage/[]byte use
+			// direct dereference or string() conversion.
+			switch goType {
+			case "string", "[]byte", "json.RawMessage":
+				// These don't need fmt.
+			default:
+				return true
+			}
+			continue
+		}
 		switch goType {
 		case "string", "[]byte", "json.RawMessage":
 			// These don't need fmt.

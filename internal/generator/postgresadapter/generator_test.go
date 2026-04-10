@@ -576,9 +576,16 @@ func TestStoreUsesGORM(t *testing.T) {
 		t.Error("store.go Get should use s.db.WithContext(ctx).First")
 	}
 
-	// Replace should use selective column update (not Save) to preserve computed fields.
-	if !strings.Contains(storeContent, ".Select(") || !strings.Contains(storeContent, ".Updates(&v).Error") {
+	// Replace should use selective column update (not Save) to preserve computed fields,
+	// check RowsAffected for not-found, and translate unique constraint errors.
+	if !strings.Contains(storeContent, ".Select(") || !strings.Contains(storeContent, ".Updates(&v)") {
 		t.Error("store.go Replace should use selective column update via .Select(...).Updates, not Save")
+	}
+	if !strings.Contains(storeContent, "result.RowsAffected == 0") {
+		t.Error("store.go Replace should check RowsAffected == 0 for ErrNotFound")
+	}
+	if !strings.Contains(storeContent, "isUniqueConstraintError(result.Error)") {
+		t.Error("store.go Replace should translate unique constraint violations to ErrConflict")
 	}
 
 	// Delete should use s.db.Delete (soft delete).

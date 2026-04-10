@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -38,12 +37,16 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	organization.ID = uuid.New().String()
 	if h.beforeCreateChain != nil {
+		descriptionVal := ""
+		if organization.Description != nil {
+			descriptionVal = *organization.Description
+		}
 		slotReq := &slots.BeforeCreateRequest{
 			Input: &slots.CreateRequest{
 				Entity: "Organization",
 				Fields: map[string]string{
 					"name":        organization.Name,
-					"description": fmt.Sprintf("%v", organization.Description),
+					"description": descriptionVal,
 				},
 			},
 			Caller: func() *slots.Identity {
@@ -104,7 +107,11 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 func (h *OrganizationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.store.Delete(r.Context(), "Organization", id); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("Organization", id))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

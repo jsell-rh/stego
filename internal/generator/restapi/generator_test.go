@@ -5353,8 +5353,9 @@ func TestGenerate_ErrNotFoundDefinedInRouter(t *testing.T) {
 	}
 }
 
-func TestGenerate_ReadOnlyDeleteOnly_NoErrorsImport(t *testing.T) {
-	// Delete-only handler should NOT import "errors" (not needed without Read).
+func TestGenerate_DeleteOnlyImportsErrors(t *testing.T) {
+	// Delete-only handler should import "errors" because Delete checks
+	// errors.Is(err, ErrNotFound) to distinguish not-found from internal errors.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -5377,9 +5378,12 @@ func TestGenerate_ReadOnlyDeleteOnly_NoErrorsImport(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Delete-only handler should not import errors.
-	if strings.Contains(handler, `"errors"`) {
-		t.Error("delete-only handler should not import \"errors\"")
+	// Delete handler returns ErrNotFound for non-existent entities, requiring errors.Is.
+	if !strings.Contains(handler, `"errors"`) {
+		t.Error("delete-only handler must import \"errors\" for ErrNotFound check")
+	}
+	if !strings.Contains(handler, `errors.Is(err, ErrNotFound)`) {
+		t.Error("delete handler must check errors.Is(err, ErrNotFound)")
 	}
 }
 

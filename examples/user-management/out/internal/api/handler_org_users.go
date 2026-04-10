@@ -5,7 +5,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -63,6 +62,10 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	user.ID = uuid.New().String()
 	user.OrgID = r.PathValue("org_id")
 	if h.beforeCreateGate != nil {
+		metadataVal := ""
+		if user.Metadata != nil {
+			metadataVal = string(*user.Metadata)
+		}
 		slotReq := &slots.BeforeCreateRequest{
 			Input: &slots.CreateRequest{
 				Entity: "User",
@@ -71,7 +74,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 					"display_name": user.DisplayName,
 					"role":         user.Role,
 					"org_id":       user.OrgID,
-					"metadata":     fmt.Sprintf("%v", user.Metadata),
+					"metadata":     metadataVal,
 				},
 			},
 			Caller: func() *slots.Identity {
@@ -151,9 +154,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	user.ID = id
 	user.OrgID = r.PathValue("org_id")
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			handleError(w, r, NotFound("User", id))
-		} else if errors.Is(err, ErrConflict) {
+		if errors.Is(err, ErrConflict) {
 			handleError(w, r, Conflict("resource already exists"))
 		} else {
 			handleError(w, r, InternalError("internal error"))
@@ -176,7 +177,11 @@ func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if err := h.store.Delete(r.Context(), "User", id); err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else {
+			handleError(w, r, InternalError("internal error"))
+		}
 		return
 	}
 	if h.onEntityChangedFanOut != nil {
@@ -341,9 +346,7 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		user.Metadata = patch.Metadata
 	}
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			handleError(w, r, NotFound("User", id))
-		} else if errors.Is(err, ErrConflict) {
+		if errors.Is(err, ErrConflict) {
 			handleError(w, r, Conflict("resource already exists"))
 		} else {
 			handleError(w, r, InternalError("internal error"))

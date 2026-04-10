@@ -495,8 +495,8 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 
 	emitCreateMethod(&buf, entities, apiAlias)
 	emitGetMethod(&buf, entities, apiAlias)
-	emitReplaceMethod(&buf, entities)
-	emitDeleteMethod(&buf, entities)
+	emitReplaceMethod(&buf, entities, apiAlias)
+	emitDeleteMethod(&buf, entities, apiAlias)
 	emitListMethod(&buf, entities, apiAlias, searchAlias)
 	emitUpsertMethod(&buf, entities, apiAlias)
 	emitExistsMethod(&buf, entities)
@@ -595,8 +595,16 @@ func emitGetMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) 
 }
 
 // emitReplaceMethod generates the Replace dispatcher using GORM selective Updates.
-func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
+func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	errNotFound := "ErrNotFound"
+	errConflict := "ErrConflict"
+	if apiAlias != "" {
+		errNotFound = apiAlias + ".ErrNotFound"
+		errConflict = apiAlias + ".ErrConflict"
+	}
 	fmt.Fprintf(buf, "// Replace modifies an existing entity by ID. Computed fields are excluded.\n")
+	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
+	fmt.Fprintf(buf, "// Returns ErrConflict when a unique constraint violation occurs.\n")
 	fmt.Fprintf(buf, "func (s *Store) Replace(ctx context.Context, entity string, id string, value any) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
@@ -631,8 +639,18 @@ func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
 
 		// Use selective column update (not Save) so computed fields are
 		// preserved in the database rather than overwritten with zeros.
-		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Select([]string{%s}).Updates(&v).Error\n",
+		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Model(&%s{}).Where(\"id = ?\", id).Select([]string{%s}).Updates(&v)\n",
 			e.Name, quoteStringSlice(writeCols))
+		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
+		fmt.Fprintf(buf, "\t\t\tif isUniqueConstraintError(result.Error) {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn %s\n", errConflict)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\treturn result.Error\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tif result.RowsAffected == 0 {\n")
+		fmt.Fprintf(buf, "\t\t\treturn %s\n", errNotFound)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")
@@ -642,14 +660,27 @@ func emitReplaceMethod(buf *bytes.Buffer, entities []types.Entity) {
 }
 
 // emitDeleteMethod generates the Delete dispatcher using GORM soft delete.
-func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity) {
+// Returns ErrNotFound when no entity with the given ID exists.
+func emitDeleteMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string) {
+	errNotFound := "ErrNotFound"
+	if apiAlias != "" {
+		errNotFound = apiAlias + ".ErrNotFound"
+	}
 	fmt.Fprintf(buf, "// Delete soft-deletes an entity by ID.\n")
+	fmt.Fprintf(buf, "// Returns ErrNotFound when no entity with the given ID exists.\n")
 	fmt.Fprintf(buf, "func (s *Store) Delete(ctx context.Context, entity string, id string) error {\n")
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
 		fmt.Fprintf(buf, "\tcase %q:\n", e.Name)
-		fmt.Fprintf(buf, "\t\treturn s.db.WithContext(ctx).Where(\"id = ?\", id).Delete(&%s{}).Error\n", e.Name)
+		fmt.Fprintf(buf, "\t\tresult := s.db.WithContext(ctx).Where(\"id = ?\", id).Delete(&%s{})\n", e.Name)
+		fmt.Fprintf(buf, "\t\tif result.Error != nil {\n")
+		fmt.Fprintf(buf, "\t\t\treturn result.Error\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\tif result.RowsAffected == 0 {\n")
+		fmt.Fprintf(buf, "\t\t\treturn %s\n", errNotFound)
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\treturn nil\n")
 	}
 
 	fmt.Fprintf(buf, "\tdefault:\n")

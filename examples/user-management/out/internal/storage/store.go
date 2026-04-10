@@ -193,14 +193,36 @@ func (s *Store) Replace(ctx context.Context, entity string, id string, value any
 }
 
 // Delete soft-deletes an entity by ID.
+// Returns ErrNotFound when no entity with the given ID exists.
 func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 	switch entity {
 	case "Organization":
-		return s.db.WithContext(ctx).Where("id = ?", id).Delete(&Organization{}).Error
+		result := s.db.WithContext(ctx).Where("id = ?", id).Delete(&Organization{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return api.ErrNotFound
+		}
+		return nil
 	case "User":
-		return s.db.WithContext(ctx).Where("id = ?", id).Delete(&User{}).Error
+		result := s.db.WithContext(ctx).Where("id = ?", id).Delete(&User{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return api.ErrNotFound
+		}
+		return nil
 	case "OrgSetting":
-		return s.db.WithContext(ctx).Where("id = ?", id).Delete(&OrgSetting{}).Error
+		result := s.db.WithContext(ctx).Where("id = ?", id).Delete(&OrgSetting{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return api.ErrNotFound
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -367,25 +389,22 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 // When concurrency is "optimistic", the update only proceeds if the incoming
 // generation value is newer than the existing row's generation.
 // Returns true when a new row was created, false when an existing row was updated.
-// The second return value is the actual persisted entity from the database
-// (populated via PostgreSQL's RETURNING clause), reflecting the real ID and
-// field values as stored — not the pre-upsert input.
 // Returns ErrConflict when optimistic concurrency check fails.
-func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, any, error) {
+func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error) {
 	switch entity {
 	case "Organization":
 		data, err := json.Marshal(value)
 		if err != nil {
-			return false, nil, fmt.Errorf("marshaling Organization: %w", err)
+			return false, fmt.Errorf("marshaling Organization: %w", err)
 		}
 		var v Organization
 		if err := json.Unmarshal(data, &v); err != nil {
-			return false, nil, fmt.Errorf("unmarshaling Organization: %w", err)
+			return false, fmt.Errorf("unmarshaling Organization: %w", err)
 		}
 		validCols := map[string]bool{"name": true, "description": true}
 		for _, k := range upsertKey {
 			if !validCols[k] {
-				return false, nil, fmt.Errorf("invalid upsert key field %q for entity Organization", k)
+				return false, fmt.Errorf("invalid upsert key field %q for entity Organization", k)
 			}
 		}
 		conflictCols := make([]clause.Column, len(upsertKey))
@@ -408,7 +427,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 		if len(updateCols) > 0 {
 			onConflict.DoUpdates = clause.AssignmentColumns(updateCols)
 			if concurrency == "optimistic" {
-				return false, nil, fmt.Errorf("optimistic concurrency requires a 'generation' field on entity Organization")
+				return false, fmt.Errorf("optimistic concurrency requires a 'generation' field on entity Organization")
 			}
 		} else {
 			onConflict.DoNothing = true
@@ -427,7 +446,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			if err := tx.Model(&Organization{}).Where(whereClause).Count(&existingCount).Error; err != nil {
 				return err
 			}
-			result := tx.Clauses(onConflict, clause.Returning{}).Create(&v)
+			result := tx.Clauses(onConflict).Create(&v)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -438,22 +457,22 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			return nil
 		}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 		if err != nil {
-			return false, nil, err
+			return false, err
 		}
-		return created, v, nil
+		return created, nil
 	case "User":
 		data, err := json.Marshal(value)
 		if err != nil {
-			return false, nil, fmt.Errorf("marshaling User: %w", err)
+			return false, fmt.Errorf("marshaling User: %w", err)
 		}
 		var v User
 		if err := json.Unmarshal(data, &v); err != nil {
-			return false, nil, fmt.Errorf("unmarshaling User: %w", err)
+			return false, fmt.Errorf("unmarshaling User: %w", err)
 		}
 		validCols := map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
 		for _, k := range upsertKey {
 			if !validCols[k] {
-				return false, nil, fmt.Errorf("invalid upsert key field %q for entity User", k)
+				return false, fmt.Errorf("invalid upsert key field %q for entity User", k)
 			}
 		}
 		conflictCols := make([]clause.Column, len(upsertKey))
@@ -476,7 +495,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 		if len(updateCols) > 0 {
 			onConflict.DoUpdates = clause.AssignmentColumns(updateCols)
 			if concurrency == "optimistic" {
-				return false, nil, fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
+				return false, fmt.Errorf("optimistic concurrency requires a 'generation' field on entity User")
 			}
 		} else {
 			onConflict.DoNothing = true
@@ -495,7 +514,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			if err := tx.Model(&User{}).Where(whereClause).Count(&existingCount).Error; err != nil {
 				return err
 			}
-			result := tx.Clauses(onConflict, clause.Returning{}).Create(&v)
+			result := tx.Clauses(onConflict).Create(&v)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -506,22 +525,22 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			return nil
 		}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 		if err != nil {
-			return false, nil, err
+			return false, err
 		}
-		return created, v, nil
+		return created, nil
 	case "OrgSetting":
 		data, err := json.Marshal(value)
 		if err != nil {
-			return false, nil, fmt.Errorf("marshaling OrgSetting: %w", err)
+			return false, fmt.Errorf("marshaling OrgSetting: %w", err)
 		}
 		var v OrgSetting
 		if err := json.Unmarshal(data, &v); err != nil {
-			return false, nil, fmt.Errorf("unmarshaling OrgSetting: %w", err)
+			return false, fmt.Errorf("unmarshaling OrgSetting: %w", err)
 		}
 		validCols := map[string]bool{"org_id": true, "key": true, "value": true, "generation": true}
 		for _, k := range upsertKey {
 			if !validCols[k] {
-				return false, nil, fmt.Errorf("invalid upsert key field %q for entity OrgSetting", k)
+				return false, fmt.Errorf("invalid upsert key field %q for entity OrgSetting", k)
 			}
 		}
 		conflictCols := make([]clause.Column, len(upsertKey))
@@ -563,7 +582,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			if err := tx.Model(&OrgSetting{}).Where(whereClause).Count(&existingCount).Error; err != nil {
 				return err
 			}
-			result := tx.Clauses(onConflict, clause.Returning{}).Create(&v)
+			result := tx.Clauses(onConflict).Create(&v)
 			if result.Error != nil {
 				return result.Error
 			}
@@ -574,11 +593,11 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			return nil
 		}, &sql.TxOptions{Isolation: sql.LevelSerializable})
 		if err != nil {
-			return false, nil, err
+			return false, err
 		}
-		return created, v, nil
+		return created, nil
 	default:
-		return false, nil, fmt.Errorf("unknown entity: %s", entity)
+		return false, fmt.Errorf("unknown entity: %s", entity)
 	}
 }
 
