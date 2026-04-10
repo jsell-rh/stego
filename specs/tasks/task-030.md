@@ -57,3 +57,4 @@ Update the example service to demonstrate all rest-crud archetype features imple
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+- 9e2fb11 feat(task-030): end-to-end example with all rest-crud spec features
