@@ -39,6 +39,7 @@ func init() {
 		return db.AutoMigrate(
 			&Organization{},
 			&User{},
+			&OrgSetting{},
 		)
 	})
 }

@@ -8,12 +8,21 @@ package search
 // The resolve_field slot allows fills to customize specific field mappings
 // (e.g. JSONB path queries, label queries, or cross-entity JOINs).
 var EntityFieldMaps = map[string]map[string]string{
+	"OrgSetting": {
+		"generation": "generation",
+		"key":        "key",
+		"org_id":     "org_id",
+		"value":      "value",
+	},
 	"Organization": {
-		"name": "name",
+		"description": "description",
+		"name":        "name",
 	},
 	"User": {
-		"email":  "email",
-		"org_id": "org_id",
-		"role":   "role",
+		"display_name": "display_name",
+		"email":        "email",
+		"metadata":     "metadata",
+		"org_id":       "org_id",
+		"role":         "role",
 	},
 }

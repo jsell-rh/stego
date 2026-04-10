@@ -62,6 +62,8 @@ kind: service
 name: my-service
 archetype: rest-crud
 language: go
+base_path: /api/my-svc/v1
+error_type_base: https://api.example.com/errors/
 
 entities:
   - name: Todo
@@ -95,11 +97,24 @@ stego apply         # re-generate with fills wired in
 
 ## Run the example
 
-A complete example with fills is included:
+A complete example with fills is included in `examples/user-management/`.
+It demonstrates all rest-crud archetype features:
+
+- **Collections** with multi-path access (org-scoped users + global user list)
+- **base_path** for route prefixing (`/api/user-mgmt/v1`)
+- **RFC 9457** error responses with `application/problem+json`
+- **Envelope** response format with pagination (`page`, `size`, `total`, `items`)
+- **Patch** operation with pointer-field request struct for partial updates
+- **Upsert** with natural-key conflict resolution and optimistic concurrency
+- **TSL search** integration (`?search=` on all list endpoints)
+- **OpenAPI validation** middleware via kin-openapi
+- **Slot wiring**: gate (RBAC policy), fan-out (notifications + audit), and
+  short-circuit chain (org name validation + provisioning)
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry
 cd examples/user-management
+/path/to/stego validate
 /path/to/stego plan
 /path/to/stego apply
 cd out && go build

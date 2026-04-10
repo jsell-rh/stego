@@ -10,6 +10,8 @@ import (
 
 	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
 	auditlogger "github.com/example/service/fills/audit-logger"
+	orgnamevalidator "github.com/example/service/fills/org-name-validator"
+	orgprovisioner "github.com/example/service/fills/org-provisioner"
 	rbacpolicy "github.com/example/service/fills/rbac-policy"
 	userchangenotifier "github.com/example/service/fills/user-change-notifier"
 	api "github.com/example/service/out/internal/api"
@@ -51,21 +53,34 @@ func main() {
 		auditlogger.New(),
 	)
 
+	// Slot: before_create (chain, short_circuit=true) for organizations
+	beforeCreateOrganizationsChain := slots.NewBeforeCreateChain(true,
+		orgnamevalidator.New(),
+		orgprovisioner.New(),
+	)
+
 	validationMiddleware := api.NewValidationMiddleware()
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
-	organizationsHandler := api.NewOrganizationsHandler(store)
+	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
+	orgSettingsHandler := api.NewOrgSettingsHandler(store)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /organizations", organizationsHandler.Create)
-	mux.HandleFunc("GET /organizations/{id}", organizationsHandler.Read)
-	mux.HandleFunc("POST /organizations/{org_id}/users", orgUsersHandler.Create)
-	mux.HandleFunc("GET /organizations/{org_id}/users/{id}", orgUsersHandler.Read)
-	mux.HandleFunc("PUT /organizations/{org_id}/users/{id}", orgUsersHandler.Update)
-	mux.HandleFunc("GET /organizations/{org_id}/users", orgUsersHandler.List)
-	mux.HandleFunc("GET /users", allUsersHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{id}", organizationsHandler.Read)
+	mux.HandleFunc("DELETE /api/user-mgmt/v1/organizations/{id}", organizationsHandler.Delete)
+	mux.HandleFunc("GET /api/user-mgmt/v1/organizations", organizationsHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/organizations/{org_id}/users", orgUsersHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/users/{id}", orgUsersHandler.Read)
+	mux.HandleFunc("PUT /api/user-mgmt/v1/organizations/{org_id}/users/{id}", orgUsersHandler.Update)
+	mux.HandleFunc("DELETE /api/user-mgmt/v1/organizations/{org_id}/users/{id}", orgUsersHandler.Delete)
+	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/users", orgUsersHandler.List)
+	mux.HandleFunc("PATCH /api/user-mgmt/v1/organizations/{org_id}/users/{id}", orgUsersHandler.Patch)
+	mux.HandleFunc("GET /api/user-mgmt/v1/users", allUsersHandler.List)
+	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.List)
+	mux.HandleFunc("PUT /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.Upsert)
 
 	addr := fmt.Sprintf(":%d", 8080)
 	log.Printf("starting server on %s", addr)

@@ -4,6 +4,7 @@ package storage
 
 import (
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"time"
 )
@@ -27,14 +28,27 @@ func (m *Meta) BeforeCreate(tx *gorm.DB) error {
 // Organization represents the Organization entity.
 type Organization struct {
 	Meta
-	Name string `json:"name" gorm:"column:name;not null;uniqueIndex"`
+	Name        string  `json:"name" gorm:"column:name;not null;uniqueIndex;size:255;check:length(name) >= 1"`
+	Description *string `json:"description,omitempty" gorm:"column:description;size:1000"`
 }
 
 // User represents the User entity.
 type User struct {
 	Meta
-	Email    string        `json:"email" gorm:"column:email;not null;uniqueIndex"`
-	Role     string        `json:"role" gorm:"column:role;not null"`
-	OrgID    string        `json:"org_id" gorm:"column:org_id;not null"`
-	OrgIDRef *Organization `json:"-" gorm:"foreignKey:OrgID"`
+	Email       string         `json:"email" gorm:"column:email;not null;uniqueIndex;size:255"`
+	DisplayName string         `json:"display_name" gorm:"column:display_name;not null;size:100;check:length(display_name) >= 1"`
+	Role        string         `json:"role" gorm:"column:role;not null"`
+	OrgID       string         `json:"org_id" gorm:"column:org_id;not null"`
+	OrgIDRef    *Organization  `json:"-" gorm:"foreignKey:OrgID"`
+	Metadata    datatypes.JSON `json:"metadata,omitempty" gorm:"column:metadata;type:jsonb"`
+}
+
+// OrgSetting represents the OrgSetting entity.
+type OrgSetting struct {
+	Meta
+	OrgID      string         `json:"org_id" gorm:"column:org_id;not null"`
+	OrgIDRef   *Organization  `json:"-" gorm:"foreignKey:OrgID"`
+	Key        string         `json:"key" gorm:"column:key;not null;size:255"`
+	Value      datatypes.JSON `json:"value" gorm:"column:value;type:jsonb;not null"`
+	Generation int64          `json:"generation" gorm:"column:generation;not null"`
 }

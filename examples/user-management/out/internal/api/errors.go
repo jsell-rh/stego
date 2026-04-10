@@ -31,7 +31,7 @@ type ValidationError struct {
 // NotFound returns a 404 ServiceError.
 func NotFound(entityKind, id string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/not-found",
 		Title:  "Not Found",
 		Status: http.StatusNotFound,
 		Detail: entityKind + " with id '" + id + "' not found",
@@ -42,7 +42,7 @@ func NotFound(entityKind, id string) *ServiceError {
 // BadRequest returns a 400 ServiceError.
 func BadRequest(detail string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/bad-request",
 		Title:  "Bad Request",
 		Status: http.StatusBadRequest,
 		Detail: detail,
@@ -53,7 +53,7 @@ func BadRequest(detail string) *ServiceError {
 // Conflict returns a 409 ServiceError.
 func Conflict(detail string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/conflict",
 		Title:  "Conflict",
 		Status: http.StatusConflict,
 		Detail: detail,
@@ -64,7 +64,7 @@ func Conflict(detail string) *ServiceError {
 // Validation returns a 400 ServiceError with per-field validation details.
 func Validation(errors []ValidationError) *ServiceError {
 	return &ServiceError{
-		Type:             "about:blank",
+		Type:             "https://api.example.com/errors/validation-error",
 		Title:            "Validation Error",
 		Status:           http.StatusBadRequest,
 		Detail:           "One or more fields failed validation",
@@ -76,7 +76,7 @@ func Validation(errors []ValidationError) *ServiceError {
 // Unauthorized returns a 401 ServiceError.
 func Unauthorized(detail string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/unauthorized",
 		Title:  "Unauthorized",
 		Status: http.StatusUnauthorized,
 		Detail: detail,
@@ -87,7 +87,7 @@ func Unauthorized(detail string) *ServiceError {
 // Forbidden returns a 403 ServiceError.
 func Forbidden(detail string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/forbidden",
 		Title:  "Forbidden",
 		Status: http.StatusForbidden,
 		Detail: detail,
@@ -98,7 +98,7 @@ func Forbidden(detail string) *ServiceError {
 // InternalError returns a 500 ServiceError.
 func InternalError(detail string) *ServiceError {
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/internal-error",
 		Title:  "Internal Server Error",
 		Status: http.StatusInternalServerError,
 		Detail: detail,
@@ -139,10 +139,27 @@ func errorForStatus(status int, detail string) *ServiceError {
 		category = "CNF"
 	}
 	return &ServiceError{
-		Type:   "about:blank",
+		Type:   "https://api.example.com/errors/" + statusToSlug(status),
 		Title:  http.StatusText(status),
 		Status: status,
 		Detail: detail,
 		Code:   "USER" + "-" + category + "-001",
+	}
+}
+
+func statusToSlug(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad-request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not-found"
+	case http.StatusConflict:
+		return "conflict"
+	default:
+		return "internal-error"
 	}
 }

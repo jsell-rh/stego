@@ -1,0 +1,6 @@
+kind: fill
+name: org-name-validator
+implements: rest-api.before_create
+collection: organizations
+qualified_by: jsell
+qualified_at: 2026-04-10

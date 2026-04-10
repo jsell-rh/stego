@@ -66,9 +66,11 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 			Input: &slots.CreateRequest{
 				Entity: "User",
 				Fields: map[string]string{
-					"email":  user.Email,
-					"role":   user.Role,
-					"org_id": user.OrgID,
+					"email":        user.Email,
+					"display_name": user.DisplayName,
+					"role":         user.Role,
+					"org_id":       user.OrgID,
+					"metadata":     string(user.Metadata),
 				},
 			},
 			Caller: func() *slots.Identity {
@@ -110,7 +112,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+user.ID))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+user.ID))
 }
 
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +130,7 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +156,25 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
+}
+
+func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAncestors(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	if err := h.store.Delete(r.Context(), "User", id); err != nil {
+		handleError(w, r, InternalError(err.Error()))
+		return
+	}
+	if h.onEntityChangedFanOut != nil {
+		if _, slotErr := h.onEntityChangedFanOut.Evaluate(r.Context(), &slots.OnEntityChangedRequest{Entity: "User", Action: "delete"}); slotErr != nil {
+			handleError(w, r, InternalError(slotErr.Error()))
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +194,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	if size > 65500 {
 		size = 65500
 	}
-	validFields := map[string]bool{"email": true, "role": true, "org_id": true}
+	validFields := map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
 	var orderBy []OrderByField
 	if orderByStr := r.URL.Query().Get("orderBy"); orderByStr != "" {
 		for _, entry := range strings.Split(orderByStr, ",") {
@@ -234,7 +254,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/organizations/" + r.PathValue("org_id") + "/users"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/users"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
@@ -262,4 +282,48 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		"items": presentedItems,
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+// OrgUsersPatchRequest contains the fields that can be partially updated.
+type OrgUsersPatchRequest struct {
+	DisplayName *string          `json:"display_name"`
+	Role        *string          `json:"role"`
+	Metadata    *json.RawMessage `json:"metadata"`
+}
+
+func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAncestors(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	existing, err := h.store.Get(r.Context(), "User", id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else {
+			handleError(w, r, InternalError(err.Error()))
+		}
+		return
+	}
+	user := existing.(User)
+	var patch OrgUsersPatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	if patch.DisplayName != nil {
+		user.DisplayName = *patch.DisplayName
+	}
+	if patch.Role != nil {
+		user.Role = *patch.Role
+	}
+	if patch.Metadata != nil {
+		user.Metadata = *patch.Metadata
+	}
+	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
+		handleError(w, r, InternalError(err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }

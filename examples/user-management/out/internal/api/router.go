@@ -12,6 +12,11 @@ import (
 // Storage implementations must return this error (or wrap it) for not-found cases.
 var ErrNotFound = errors.New("entity not found")
 
+// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.
+// Storage implementations must return this error when the upsert is a no-op due to
+// the incoming generation not being newer than the existing row's generation.
+var ErrConflict = errors.New("upsert conflict")
+
 // ErrSearch is returned by Storage.List when the search expression is invalid.
 // Storage implementations must wrap search-related errors with this sentinel.
 var ErrSearch = errors.New("search error")
@@ -45,22 +50,36 @@ type Storage interface {
 	Replace(ctx context.Context, entity string, id string, value any) error
 	Delete(ctx context.Context, entity string, id string) error
 	List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)
-	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) error
+	// Upsert returns true when a new row was created, false when an existing row was updated.
+	// Implementations must return ErrConflict when optimistic concurrency check fails.
+	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)
 	Exists(ctx context.Context, entity string, id string) (bool, error)
 }
 
 // Organization represents the Organization entity.
 type Organization struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name"`
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // User represents the User entity.
 type User struct {
-	ID    string `json:"id,omitempty"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
-	OrgID string `json:"org_id"`
+	ID          string          `json:"id,omitempty"`
+	Email       string          `json:"email"`
+	DisplayName string          `json:"display_name"`
+	Role        string          `json:"role"`
+	OrgID       string          `json:"org_id"`
+	Metadata    json.RawMessage `json:"metadata"`
+}
+
+// OrgSetting represents the OrgSetting entity.
+type OrgSetting struct {
+	ID         string          `json:"id,omitempty"`
+	OrgID      string          `json:"org_id"`
+	Key        string          `json:"key"`
+	Value      json.RawMessage `json:"value"`
+	Generation int64           `json:"generation"`
 }
 
 // presentEntity wraps an entity with id, kind, and href metadata for

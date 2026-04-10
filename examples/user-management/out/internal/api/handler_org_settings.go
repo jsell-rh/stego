@@ -9,19 +9,43 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
-// AllUsersHandler handles HTTP requests for User entities.
-type AllUsersHandler struct {
+// OrgSettingsHandler handles HTTP requests for OrgSetting entities.
+type OrgSettingsHandler struct {
 	store Storage
 }
 
-// NewAllUsersHandler creates a new AllUsersHandler.
-func NewAllUsersHandler(store Storage) *AllUsersHandler {
-	return &AllUsersHandler{store: store}
+// NewOrgSettingsHandler creates a new OrgSettingsHandler.
+func NewOrgSettingsHandler(store Storage) *OrgSettingsHandler {
+	return &OrgSettingsHandler{store: store}
 }
 
-func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
+// checkAncestors verifies that all ancestor entities in the URL hierarchy exist.
+func (h *OrgSettingsHandler) checkAncestors(w http.ResponseWriter, r *http.Request) bool {
+	organizationID := r.PathValue("org_id")
+	if organizationID == "" {
+		handleError(w, r, BadRequest("missing org_id"))
+		return false
+	}
+	organizationIDExists, organizationIDErr := h.store.Exists(r.Context(), "Organization", organizationID)
+	if organizationIDErr != nil {
+		handleError(w, r, InternalError("internal error"))
+		return false
+	}
+	if !organizationIDExists {
+		handleError(w, r, NotFound("Organization", organizationID))
+		return false
+	}
+	return true
+}
+
+func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAncestors(w, r) {
+		return
+	}
 	pageStr := r.URL.Query().Get("page")
 	sizeStr := r.URL.Query().Get("size")
 	page, _ := strconv.Atoi(pageStr)
@@ -35,7 +59,7 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	if size > 65500 {
 		size = 65500
 	}
-	validFields := map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
+	validFields := map[string]bool{"org_id": true, "key": true, "value": true, "generation": true}
 	var orderBy []OrderByField
 	if orderByStr := r.URL.Query().Get("orderBy"); orderByStr != "" {
 		for _, entry := range strings.Split(orderByStr, ",") {
@@ -84,7 +108,8 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	searchExpr := r.URL.Query().Get("search")
 	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}
-	listResult, err := h.store.List(r.Context(), "User", "", "", opts)
+	scopeValue := r.PathValue("org_id")
+	listResult, err := h.store.List(r.Context(), "OrgSetting", "org_id", scopeValue, opts)
 	if err != nil {
 		if errors.Is(err, ErrSearch) {
 			handleError(w, r, BadRequest(err.Error()))
@@ -94,14 +119,14 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/users"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/orgsettings"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
 	for i := 0; i < actualSize; i++ {
 		item := itemsSlice.Index(i).Interface()
 		itemID := reflect.ValueOf(item).FieldByName("ID").String()
-		presentedItems[i] = presentEntity(item, "User", itemID, hrefBase+"/"+itemID)
+		presentedItems[i] = presentEntity(item, "OrgSetting", itemID, hrefBase+"/"+itemID)
 		if len(fields) > 0 {
 			allowed := map[string]bool{"id": true, "kind": true, "href": true}
 			for _, f := range fields {
@@ -115,11 +140,43 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result := map[string]any{
-		"kind":  "UserList",
+		"kind":  "OrgSettingList",
 		"page":  page,
 		"size":  actualSize,
 		"total": listResult.Total,
 		"items": presentedItems,
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAncestors(w, r) {
+		return
+	}
+	var orgsetting OrgSetting
+	if err := json.NewDecoder(r.Body).Decode(&orgsetting); err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	if orgsetting.ID == "" {
+		orgsetting.ID = uuid.New().String()
+	}
+	orgsetting.OrgID = r.PathValue("org_id")
+	upsertKey := []string{"org_id", "key"}
+	created, err := h.store.Upsert(r.Context(), "OrgSetting", orgsetting, upsertKey, "optimistic")
+	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			handleError(w, r, Conflict("optimistic concurrency conflict: incoming generation is not newer"))
+			return
+		}
+		handleError(w, r, InternalError(err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if created {
+		w.WriteHeader(http.StatusCreated)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/orgsettings"+"/"+orgsetting.ID))
 }
