@@ -101,3 +101,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 - 55ca496 feat(task-032): implement rh-sso-auth generator with JWK and RSA validation
 - cfb9a91 chore(task-032): mark task ready-for-review
 - a14e1d5 fix(task-032): wire env var overrides and fix tryRefresh TOCTOU race
+- 0208724 fix(task-032): wire jwk_cert_file config and move AUTH_ENABLED to startup
