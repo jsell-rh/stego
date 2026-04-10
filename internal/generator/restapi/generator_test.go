@@ -6826,3 +6826,113 @@ func TestGenerate_PatchWithEnvelopeCompilesAsPackage(t *testing.T) {
 		t.Fatalf("generated code with patch+envelope does not compile:\n%s\n%s", err, output)
 	}
 }
+
+func TestGenerate_PatchWithTimestampFieldCompilesAsPackage(t *testing.T) {
+	// When a patchable field is a timestamp, the patch request struct contains
+	// *time.Time, so the handler file must import "time". This test verifies
+	// that the time import is correctly included even without create/update/upsert
+	// (which would otherwise trigger the time import for computed field zeroing).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Event", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+				{Name: "scheduled_at", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "events",
+				Entity:     "Event",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"scheduled_at"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with patchable timestamp does not compile:\n%s\n%s", err, output)
+	}
+
+	// Also verify the handler contains *time.Time in the patch request struct.
+	handler := findFileContent(t, files, "internal/api/handler_events.go")
+	if !strings.Contains(handler, "*time.Time") {
+		t.Error("patch request struct missing *time.Time pointer field for timestamp patchable field")
+	}
+}
+
+func TestGenerate_PatchOpenAPIIncludes404Response(t *testing.T) {
+	// The patch handler performs a Get before merging. If the entity does not
+	// exist, it returns 404. The OpenAPI spec must declare this response.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"name", "data"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	openapiContent := findFileContent(t, files, "internal/api/openapi.json")
+
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(openapiContent), &spec); err != nil {
+		t.Fatalf("openapi spec is not valid JSON: %v", err)
+	}
+
+	paths, _ := spec["paths"].(map[string]any)
+	itemPath, ok := paths["/widgets/{id}"].(map[string]any)
+	if !ok {
+		t.Fatal("missing /widgets/{id} path in OpenAPI spec")
+	}
+	patchOp, ok := itemPath["patch"].(map[string]any)
+	if !ok {
+		t.Fatal("missing patch operation on /widgets/{id}")
+	}
+	responses, _ := patchOp["responses"].(map[string]any)
+	if _, ok := responses["404"]; !ok {
+		t.Error("patch OpenAPI spec must include 404 response (handler performs Get before merge)")
+	}
+}

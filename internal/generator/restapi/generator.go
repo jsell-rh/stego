@@ -303,6 +303,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	hasList := false
 	hasCreate := false
 	hasUpsert := false
+	hasPatch := false
 	for _, op := range eb.Operations {
 		if op != types.OpDelete {
 			needJSON = true
@@ -319,6 +320,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		}
 		if op == types.OpUpsert {
 			hasUpsert = true
+		}
+		if op == types.OpPatch {
+			hasPatch = true
 		}
 	}
 	// reflect is needed for list to compute actual item count from ListResult.Items
@@ -337,7 +341,8 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	}
 
 	// Determine whether time package is needed (computed timestamp fields
-	// require time.Time{} zero value in write operations).
+	// require time.Time{} zero value in write operations, and patchable
+	// timestamp fields require *time.Time in the patch request struct).
 	needTime := false
 	hasWriteOp := false
 	for _, op := range eb.Operations {
@@ -349,6 +354,19 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	if hasWriteOp {
 		for _, f := range entity.Fields {
 			if f.Computed && f.Type == types.FieldTypeTimestamp {
+				needTime = true
+				break
+			}
+		}
+	}
+	// Patch operation needs time import when any patchable field is a timestamp.
+	if !needTime && hasPatch {
+		patchableSet := make(map[string]bool, len(eb.Patchable))
+		for _, pf := range eb.Patchable {
+			patchableSet[pf] = true
+		}
+		for _, f := range entity.Fields {
+			if patchableSet[f.Name] && f.Type == types.FieldTypeTimestamp {
 				needTime = true
 				break
 			}
@@ -1655,6 +1673,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					},
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Patched", Content: jsonContent(responseSchema)},
+						"404": {Description: "Not found"},
 					},
 				}
 			}
