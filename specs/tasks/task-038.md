@@ -58,3 +58,5 @@ The rest-crud archetype spec adds a new "Generated Runtime Configuration" sectio
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `11925e1` feat(assembler): read PORT from env var instead of hardcoding
