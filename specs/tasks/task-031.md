@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Entity/Collection Separation" (spec.md:24-31), "Collections & Operations" (rest-crud spec, lines 80-114)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-031.md](../reviews/task-031.md)
 
