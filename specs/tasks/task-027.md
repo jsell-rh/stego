@@ -86,3 +86,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - f70b449 feat(task-027): add tsl-search component generator
+- 1bbe172 fix(task-027): address round 1 — 3 findings resolved
