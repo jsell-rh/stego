@@ -1186,50 +1186,8 @@ func TestFormatPlan_ShowsFieldTypes(t *testing.T) {
 	}
 }
 
-func TestReconcile_PortResolvedFromComponentConfig(t *testing.T) {
+func TestReconcile_PortReadFromEnvVar(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
-
-	// Update the stub-api component to provide http-server with a port config.
-	compDir := filepath.Join(registryDir, "components", "stub-api")
-	compYAML := `kind: component
-name: stub-api
-version: 1.0.0
-output_namespace: internal/api
-config:
-  port: { type: int, default: 8080 }
-requires:
-  - storage-adapter
-provides:
-  - http-server
-slots: []
-`
-	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Service.yaml overrides the port.
-	serviceYAML := `kind: service
-name: test-service
-archetype: test-arch
-language: go
-
-entities:
-  - name: Widget
-    fields:
-      - { name: label, type: string }
-
-collections:
-  widgets:
-    entity: Widget
-    operations: [create, read]
-
-overrides:
-  stub-api:
-    port: 9090
-`
-	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	generators := map[string]gen.Generator{
 		"stub-api": &stubGenerator{
@@ -1256,24 +1214,20 @@ overrides:
 		t.Fatalf("Reconcile failed: %v", err)
 	}
 
-	// Find the main.go in generated files and verify it uses port 9090.
-	// The assembler renders port as: fmt.Sprintf(":%d", 9090)
-	found := false
+	// Find main.go and verify the port is read from the PORT env var.
 	for _, f := range plan.GeneratedFiles {
 		if f.Path == "main.go" {
 			content := string(f.Bytes())
-			if strings.Contains(content, "9090") {
-				found = true
+			if !strings.Contains(content, `os.Getenv("PORT")`) {
+				t.Errorf("expected os.Getenv(\"PORT\") in generated main.go:\n%s", content)
 			}
-			if strings.Contains(content, "8080") {
-				t.Errorf("main.go still contains 8080 despite port override to 9090:\n%s", content)
+			if !strings.Contains(content, `port = "8080"`) {
+				t.Errorf("expected fallback port = \"8080\" in generated main.go:\n%s", content)
 			}
-			break
+			return
 		}
 	}
-	if !found {
-		t.Error("expected main.go to contain port 9090 after port override")
-	}
+	t.Error("main.go not found in generated files")
 }
 
 func TestReconcile_EntityFieldTypeChangeDetectedEndToEnd(t *testing.T) {

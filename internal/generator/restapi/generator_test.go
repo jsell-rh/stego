@@ -4645,7 +4645,6 @@ type ValidateSlot interface {
 		ModuleName:  moduleName,
 		ServiceName: "test-svc",
 		GoVersion:   "1.22",
-		Port:        8080,
 		Wirings: []compiler.ComponentWiring{
 			{Name: "rest-api", Wiring: wiring},
 		},

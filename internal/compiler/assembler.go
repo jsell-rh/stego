@@ -25,9 +25,6 @@ type AssemblerInput struct {
 	// GoVersion is the Go version for go.mod (e.g. "1.22").
 	GoVersion string
 
-	// Port is the HTTP listen port.
-	Port int
-
 	// Wirings from component generators, in dependency order.
 	Wirings []ComponentWiring
 
@@ -62,9 +59,6 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	}
 	if input.GoVersion == "" {
 		return nil, fmt.Errorf("GoVersion must not be empty")
-	}
-	if input.Port <= 0 {
-		input.Port = 8080
 	}
 
 	mainGo, err := generateMainGo(input)
@@ -288,10 +282,6 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	if hasDB && !isGORM {
 		stdlibNeeded["database/sql"] = true
 	}
-	// fmt is only used in writeServerStart which is gated on hasRoutes.
-	if hasRoutes {
-		stdlibNeeded["fmt"] = true
-	}
 	// log is used in writeDBSetup and writeServerStart.
 	if hasDB || hasRoutes {
 		stdlibNeeded["log"] = true
@@ -299,7 +289,8 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	if hasRoutes {
 		stdlibNeeded["net/http"] = true
 	}
-	if hasDB {
+	// os is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
+	if hasDB || hasRoutes {
 		stdlibNeeded["os"] = true
 	}
 	// Add component-requested stdlib imports.
@@ -552,17 +543,20 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes bool) map[string]bool {
 			// stdlib import alias used in writeDBSetup.
 			vars["sql"] = true
 		}
-		vars["os"] = true
 	}
 	if hasRoutes {
 		vars["mux"] = true
 		vars["addr"] = true
+		vars["port"] = true
 		// stdlib import aliases used in writeRouteRegistration and
 		// writeServerStart, which run AFTER constructors. A constructor
 		// variable with the same name (e.g. logger.NewLog() → "log")
 		// would shadow the import, breaking post-constructor references.
-		vars["fmt"] = true
 		vars["http"] = true
+	}
+	// "os" is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
+	if hasDB || hasRoutes {
+		vars["os"] = true
 	}
 	if hasDB || hasRoutes {
 		// "log" is used in writeServerStart (after constructors) when
@@ -1251,8 +1245,11 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		}
 	}
 
-	buf.WriteString("\taddr := fmt.Sprintf(\":%d\", ")
-	fmt.Fprintf(buf, "%d)\n", input.Port)
+	buf.WriteString("\tport := os.Getenv(\"PORT\")\n")
+	buf.WriteString("\tif port == \"\" {\n")
+	buf.WriteString("\t\tport = \"8080\"\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\taddr := \":\" + port\n")
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", addr)\n")
 
 	// Build the handler expression by chaining middlewares.
@@ -1602,11 +1599,12 @@ func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) [
 	if hasDB && !isGORM {
 		names = append(names, "sql")
 	}
-	if hasDB || extraStdlib["os"] {
+	// os is used by writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
+	if hasDB || hasRoutes || extraStdlib["os"] {
 		names = append(names, "os")
 	}
 	if hasRoutes {
-		names = append(names, "fmt", "http")
+		names = append(names, "http")
 	}
 	if hasDB || hasRoutes {
 		names = append(names, "log")

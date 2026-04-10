@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Generated Runtime Configuration" (rest-crud spec, lines 526-544)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** None (all prerequisites complete)
 

@@ -207,32 +207,6 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		slotsPackage = "slots"
 	}
 
-	// Resolve the HTTP port from the component that provides http-server,
-	// using the component's config schema defaults merged with service overrides.
-	httpPort := 8080
-	for _, compName := range componentNames {
-		comp := components[compName]
-		providesHTTP := false
-		for _, p := range comp.Provides {
-			if p.Name == "http-server" {
-				providesHTTP = true
-				break
-			}
-		}
-		if providesHTTP {
-			config := resolveComponentConfig(comp, svcDecl)
-			if portVal, ok := config["port"]; ok {
-				switch v := portVal.(type) {
-				case int:
-					httpPort = v
-				case float64:
-					httpPort = int(v)
-				}
-			}
-			break
-		}
-	}
-
 	// Compute the output directory name relative to the project root.
 	// go.mod is placed at the project root so that both generated packages
 	// (under out/) and fill packages (under fills/) are within the module
@@ -359,10 +333,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 
 	// Assemble shared files (main.go, go.mod).
 	assemblerInput := AssemblerInput{
-		ModuleName:   input.ModuleName,
-		ServiceName:  svcDecl.Name,
-		GoVersion:    input.GoVersion,
-		Port:         httpPort,
+		ModuleName:  input.ModuleName,
+		ServiceName: svcDecl.Name,
+		GoVersion:   input.GoVersion,
 		Wirings:      wirings,
 		SlotBindings: svcDecl.Slots,
 		SlotsPackage: slotsPackage,

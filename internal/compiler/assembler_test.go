@@ -15,7 +15,7 @@ func TestAssemble_MinimalService(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -116,7 +116,7 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -230,7 +230,7 @@ func TestAssemble_ChainWithShortCircuit(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        9090,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -285,9 +285,9 @@ func TestAssemble_ChainWithShortCircuit(t *testing.T) {
 		t.Errorf("missing chain with short_circuit=true in:\n%s", code)
 	}
 
-	// Verify custom port.
-	if !strings.Contains(code, "9090") {
-		t.Errorf("missing custom port 9090 in:\n%s", code)
+	// Verify PORT is read from env var (port is no longer compile-time).
+	if !strings.Contains(code, `os.Getenv("PORT")`) {
+		t.Errorf("expected os.Getenv(\"PORT\") in generated code:\n%s", code)
 	}
 
 	// This slot has no Entity, so the operator can't be injected into a
@@ -302,7 +302,7 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "jwt-auth",
@@ -434,7 +434,7 @@ func TestAssemble_FillsDirectoryNeverTouched(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -481,7 +481,7 @@ func TestAssemble_EmptyGoVersion(t *testing.T) {
 	}
 }
 
-func TestAssemble_DefaultPort(t *testing.T) {
+func TestAssemble_PortFromEnvVar(t *testing.T) {
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -511,8 +511,16 @@ func TestAssemble_DefaultPort(t *testing.T) {
 	}
 
 	code := string(mainGo.Content)
-	if !strings.Contains(code, "8080") {
-		t.Errorf("expected default port 8080 in:\n%s", code)
+	// Generated main.go must read PORT from env var with "8080" fallback.
+	if !strings.Contains(code, `os.Getenv("PORT")`) {
+		t.Errorf("expected os.Getenv(\"PORT\") in generated code:\n%s", code)
+	}
+	if !strings.Contains(code, `port = "8080"`) {
+		t.Errorf("expected fallback port = \"8080\" in generated code:\n%s", code)
+	}
+	// Must not hardcode the port via fmt.Sprintf.
+	if strings.Contains(code, `fmt.Sprintf(":%d"`) {
+		t.Errorf("generated code still hardcodes port via fmt.Sprintf:\n%s", code)
 	}
 }
 
@@ -522,7 +530,7 @@ func TestAssemble_NilWiring(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{Name: "stub-component", Wiring: nil},
 			{
@@ -561,7 +569,7 @@ func TestAssemble_DeduplicatesFillImports(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -606,7 +614,7 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		ModuleName:  "github.com/myorg/user-service",
 		ServiceName: "user-management",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "postgres-adapter",
@@ -823,7 +831,7 @@ func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T)
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -894,7 +902,7 @@ func TestAssemble_ConstructorVarNameCollision_BothConsumed(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -955,7 +963,7 @@ func TestAssemble_FillImportAliasCollision(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1011,7 +1019,7 @@ func TestAssemble_ComponentImportAliasCollision(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -1080,7 +1088,7 @@ func TestAssemble_NeedsDB_StructuredMetadata(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1125,7 +1133,7 @@ func TestAssemble_NoDB_WhenNeedsDBFalse(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1183,7 +1191,7 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1273,7 +1281,7 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1351,7 +1359,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1425,7 +1433,7 @@ func TestAssemble_UnifiedImportAliasNamespace(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1492,7 +1500,7 @@ func TestAssemble_SlotsAliasCollisionWithComponent(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1555,7 +1563,7 @@ func TestAssemble_FillAliasCollisionWithComponent(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -1607,7 +1615,7 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -1830,7 +1838,7 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-				Port:        8080,
+		
 				Wirings:     wirings,
 			}
 
@@ -1949,7 +1957,7 @@ func TestAssemble_VarRenameWordBoundary(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -2029,10 +2037,10 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 			wantVar:     "log2 :=",
 		},
 		{
-			name:        "fmt collision",
-			constructor: "formatter.NewFmt()",
-			rawVarName:  "fmt",
-			wantVar:     "fmt2 :=",
+			name:        "os collision",
+			constructor: "osutil.NewOs()",
+			rawVarName:  "os",
+			wantVar:     "os2 :=",
 		},
 		{
 			name:        "http collision",
@@ -2048,7 +2056,7 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-				Port:        8080,
+		
 				Wirings: []ComponentWiring{
 					{
 						Name: "colliding-component",
@@ -2103,7 +2111,7 @@ func TestAssemble_ImportAliasRenameInRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -2168,7 +2176,7 @@ func TestAssemble_IntraWiringConstructorCollision(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2208,7 +2216,7 @@ func TestAssemble_IntraWiringMiddlewareCollision(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "auth-and-logging",
@@ -2245,7 +2253,7 @@ func TestAssemble_InterWiringMiddlewareRename(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -2310,7 +2318,7 @@ func TestAssemble_DuplicateSlotBinding(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2358,7 +2366,7 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2428,7 +2436,7 @@ func TestAssemble_DuplicateSlotBindingNoEntity(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2485,10 +2493,10 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 			wantAlias: "os2",
 		},
 		{
-			name:      "component base fmt with hasRoutes",
-			importDir: "internal/fmt",
+			name:      "component base os with hasRoutes",
+			importDir: "internal/os",
 			hasRoutes: true,
-			wantAlias: "fmt2",
+			wantAlias: "os2",
 		},
 		{
 			name:      "component base http with hasRoutes",
@@ -2555,7 +2563,7 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-				Port:        8080,
+		
 				Wirings:     wirings,
 			}
 
@@ -2594,7 +2602,7 @@ func TestAssemble_StdlibAliasShadowingByFill(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2645,7 +2653,7 @@ func TestAssemble_SlotVarNameNormalizationCollision(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2693,7 +2701,7 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -2781,7 +2789,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByConstructor(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "cache-component",
@@ -2851,7 +2859,7 @@ func TestAssemble_NonStdlibImportAliasShadowingByFillAlias(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -2912,7 +2920,7 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -2996,7 +3004,7 @@ func TestAssemble_SharedImportPathAcrossWirings(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -3076,7 +3084,7 @@ func TestAssemble_SharedImportPathNoDisambiguation(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -3146,7 +3154,7 @@ func TestAssemble_MultiPassRenameInterference(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -3221,7 +3229,7 @@ func TestAssemble_PreReservedRenameDoesNotCorruptRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "colliding-component",
@@ -3288,7 +3296,7 @@ func TestAssemble_PreReservedRename_StdlibAlias(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "logging-component",
@@ -3353,7 +3361,7 @@ func TestAssemble_NonStdlibAliasRenameAppliedToRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "cache-component",
@@ -3428,7 +3436,7 @@ func TestAssemble_InterConstructorRenameStillAppliedToRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "component-a",
@@ -3492,7 +3500,7 @@ func TestGenerateGoMod_NoReplaceDirectivesWithFills(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		SlotBindings: []types.SlotDeclaration{
 			{
 				Slot:   "before_create",
@@ -3526,7 +3534,7 @@ func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 	}
 
 	goMod := generateGoMod(input)
@@ -3545,7 +3553,7 @@ func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		OutDirName:  "out",
 		Wirings: []ComponentWiring{
 			{
@@ -3622,7 +3630,7 @@ func TestAssemble_GoModAtProjectRoot(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		OutDirName:  "out",
 		SlotBindings: []types.SlotDeclaration{
 			{
@@ -3667,7 +3675,7 @@ func TestAssemble_MiddlewareWithoutWrapExpr(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "auth",
@@ -3705,7 +3713,7 @@ func TestAssemble_StructStyleMiddleware(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "auth",
@@ -3764,7 +3772,7 @@ func TestAssemble_TopologicalSortConstructors(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		OutDirName:  "out",
 		Wirings: []ComponentWiring{
 			{
@@ -3833,7 +3841,7 @@ func TestAssemble_TopologicalSortCircularDependency(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "comp-a",
@@ -3870,7 +3878,7 @@ func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		OutDirName:  "out",
 		Wirings: []ComponentWiring{
 			{
@@ -3954,7 +3962,7 @@ func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "comp-x",
@@ -4013,7 +4021,7 @@ func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4097,7 +4105,7 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4385,7 +4393,7 @@ func TestAssemble_GORMDBSetupClosesConnection(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4436,7 +4444,7 @@ func TestAssemble_PostDBCallsEmitted(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4492,7 +4500,7 @@ func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4563,7 +4571,7 @@ func TestAssemble_AdditionalMiddlewares(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "jwt-auth",
@@ -4626,7 +4634,7 @@ func TestAssemble_AdditionalMiddlewares_NoAuth(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4683,7 +4691,7 @@ func TestAssemble_AdditionalMiddlewares_MissingWrapExpr(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -4720,7 +4728,7 @@ func TestAssemble_RHSSOAuth_BasicWiring(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rh-sso-auth",
@@ -4813,7 +4821,7 @@ func TestAssemble_RHSSOAuth_DeferCallWithDisambiguation(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rh-sso-auth",
@@ -4882,7 +4890,7 @@ func TestAssemble_RHSSOAuth_WithKeysFile(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rh-sso-auth",
@@ -4964,7 +4972,7 @@ func TestAssemble_RHSSOAuth_NoRoutesNoEmission(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-		Port:        8080,
+
 		Wirings: []ComponentWiring{
 			{
 				Name: "rh-sso-auth",
