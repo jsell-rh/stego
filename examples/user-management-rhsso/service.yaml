@@ -1,0 +1,75 @@
+kind: service
+name: user-management
+archetype: rest-crud
+language: go
+base_path: /api/user-mgmt/v1
+error_type_base: https://api.example.com/errors/
+
+entities:
+  - name: Organization
+    fields:
+      - { name: name, type: string, unique: true, min_length: 1, max_length: 255 }
+      - { name: description, type: string, optional: true, max_length: 1000 }
+
+  - name: User
+    fields:
+      - { name: email, type: string, unique: true, max_length: 255 }
+      - { name: display_name, type: string, min_length: 1, max_length: 100 }
+      - { name: role, type: enum, values: [admin, member, viewer] }
+      - { name: org_id, type: ref, to: Organization }
+      - { name: metadata, type: jsonb, optional: true }
+
+  - name: OrgSetting
+    fields:
+      - { name: org_id, type: ref, to: Organization }
+      - { name: key, type: string, max_length: 255 }
+      - { name: value, type: jsonb }
+      - { name: generation, type: int64 }
+
+collections:
+  organizations:
+    entity: Organization
+    operations: [create, read, delete, list]
+
+  org-users:
+    entity: User
+    scope: { org_id: Organization }
+    operations: [create, read, update, delete, list, patch]
+    patchable: [display_name, role, metadata]
+
+  all-users:
+    entity: User
+    operations: [list]
+
+  org-settings:
+    entity: OrgSetting
+    scope: { org_id: Organization }
+    operations: [list, upsert]
+    upsert_key: [org_id, key]
+    concurrency: optimistic
+
+slots:
+  - collection: org-users
+    slot: before_create
+    gate:
+      - rbac-policy
+      - admin-creation-policy
+
+  - collection: org-users
+    slot: on_entity_changed
+    fan-out:
+      - user-change-notifier
+      - audit-logger
+
+  - collection: organizations
+    slot: before_create
+    chain:
+      - org-name-validator
+      - org-provisioner
+    short_circuit: true
+
+mixins:
+  - event-publisher
+
+overrides:
+  auth-provider: rh-sso-auth

@@ -1,0 +1,6 @@
+kind: fill
+name: admin-creation-policy
+implements: rest-api.before_create
+collection: org-users
+qualified_by: jsell
+qualified_at: 2026-04-06

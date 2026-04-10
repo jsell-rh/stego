@@ -2,7 +2,7 @@
 
 **Spec Reference:** [specs/registry/components/rh-sso-auth/spec.md](../registry/components/rh-sso-auth/spec.md) -- "Differences from jwt-auth (MVP)" section
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-033 (assembler integration)
 

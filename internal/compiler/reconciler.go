@@ -417,19 +417,59 @@ func isProjectRootFile(filePath string) bool {
 // collectComponentNames assembles the ordered list of component names from the
 // archetype, default_auth, and any mixin-added components.
 func collectComponentNames(archetype *types.Archetype, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]string, error) {
+	// Build the set of components that are replaced by service port overrides.
+	// When a service overrides a port binding (e.g. auth-provider: rh-sso-auth),
+	// the archetype's default component for that port (e.g. jwt-auth) should be
+	// excluded and replaced by the override component. This prevents both
+	// the old and new component from generating code into the same namespace.
+	servicePortOverrides := make(map[string]string)
+	for key, val := range svcDecl.Overrides {
+		if strVal, ok := val.(string); ok {
+			servicePortOverrides[key] = strVal
+		}
+	}
+	// Map from default component name -> override component name, for ports
+	// where the service declares an override.
+	replaced := make(map[string]string)
+	for port, overrideComp := range servicePortOverrides {
+		if defaultComp, ok := archetype.Bindings[port]; ok && defaultComp != overrideComp {
+			replaced[defaultComp] = overrideComp
+		}
+	}
+
 	seen := make(map[string]bool)
 	var names []string
 
 	for _, name := range archetype.Components {
-		if !seen[name] {
-			seen[name] = true
-			names = append(names, name)
+		actual := name
+		if override, ok := replaced[name]; ok {
+			actual = override
+		}
+		if !seen[actual] {
+			seen[actual] = true
+			names = append(names, actual)
 		}
 	}
 
-	if archetype.DefaultAuth != "" && !seen[archetype.DefaultAuth] {
-		seen[archetype.DefaultAuth] = true
-		names = append(names, archetype.DefaultAuth)
+	if archetype.DefaultAuth != "" {
+		authComp := archetype.DefaultAuth
+		if override, ok := replaced[authComp]; ok {
+			authComp = override
+		}
+		if !seen[authComp] {
+			seen[authComp] = true
+			names = append(names, authComp)
+		}
+	}
+
+	// Include any service port override components that were not replacements
+	// of archetype defaults (e.g. overrides for ports whose default was not in
+	// the archetype's component list or bindings).
+	for _, overrideComp := range servicePortOverrides {
+		if !seen[overrideComp] {
+			seen[overrideComp] = true
+			names = append(names, overrideComp)
+		}
 	}
 
 	// Validate declared mixins against archetype's compatible_mixins constraint.

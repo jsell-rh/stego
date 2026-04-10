@@ -469,6 +469,36 @@ func generateContext(ns, pkg string) (gen.File, error) {
 	buf.WriteString("\tIssuer    string // from \"iss\"\n")
 	buf.WriteString("}\n\n")
 
+	// --- Identity struct (auth-provider port contract) ---
+	buf.WriteString("// Identity represents the caller's identity in the stego.common.Identity\n")
+	buf.WriteString("// format. This is the auth-provider port's API contract used by the\n")
+	buf.WriteString("// rest-api component to populate slot request Caller fields.\n")
+	buf.WriteString("type Identity struct {\n")
+	buf.WriteString("\tUserID     string            `json:\"user_id\"`\n")
+	buf.WriteString("\tRole       string            `json:\"role\"`\n")
+	buf.WriteString("\tAttributes map[string]string `json:\"attributes\"`\n")
+	buf.WriteString("}\n\n")
+
+	// --- IdentityFromContext ---
+	buf.WriteString("// IdentityFromContext retrieves the Identity from the request context.\n")
+	buf.WriteString("// Maps the rh-sso-auth Payload to the stego.common.Identity contract:\n")
+	buf.WriteString("// UserID is the extracted username, Role is empty (SSO tokens use\n")
+	buf.WriteString("// realm/client roles, not a single role claim).\n")
+	buf.WriteString("// Returns a zero Identity if no token is present.\n")
+	buf.WriteString("func IdentityFromContext(ctx context.Context) Identity {\n")
+	buf.WriteString("\tp := GetAuthPayloadFromContext(ctx)\n")
+	buf.WriteString("\treturn Identity{\n")
+	buf.WriteString("\t\tUserID: p.Username,\n")
+	buf.WriteString("\t\tAttributes: map[string]string{\n")
+	buf.WriteString("\t\t\t\"email\":      p.Email,\n")
+	buf.WriteString("\t\t\t\"first_name\": p.FirstName,\n")
+	buf.WriteString("\t\t\t\"last_name\":  p.LastName,\n")
+	buf.WriteString("\t\t\t\"client_id\":  p.ClientID,\n")
+	buf.WriteString("\t\t\t\"issuer\":     p.Issuer,\n")
+	buf.WriteString("\t\t},\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("}\n\n")
+
 	// --- TokenFromContext ---
 	buf.WriteString("// TokenFromContext retrieves the raw parsed JWT token from the request context.\n")
 	buf.WriteString("// Returns nil if no token is present.\n")
