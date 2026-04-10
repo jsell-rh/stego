@@ -7018,3 +7018,286 @@ func TestGenerate_PatchEntityNamedExistingOrPatchCompiles(t *testing.T) {
 		})
 	}
 }
+
+// --- Validation Middleware Tests ---
+
+func TestGenerate_ValidationMiddleware_Generated(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have validation.go in addition to handler, router, errors, openapi.json.
+	var foundValidation bool
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			foundValidation = true
+			content := string(f.Bytes())
+			if !strings.Contains(content, "//go:embed openapi.json") {
+				t.Error("validation.go missing //go:embed openapi.json")
+			}
+			if !strings.Contains(content, "NewValidationMiddleware") {
+				t.Error("validation.go missing NewValidationMiddleware function")
+			}
+			if !strings.Contains(content, "openapi3filter") {
+				t.Error("validation.go missing openapi3filter import")
+			}
+			if !strings.Contains(content, "parseValidationErrors") {
+				t.Error("validation.go missing parseValidationErrors function")
+			}
+			if !strings.Contains(content, "ValidateRequestBody") {
+				t.Error("validation.go missing ValidateRequestBody call")
+			}
+			if !strings.Contains(content, "handleError") {
+				t.Error("validation.go missing handleError call for validation failures")
+			}
+			if !strings.Contains(content, "Validation(valErrors)") {
+				t.Error("validation.go missing Validation() error constructor call")
+			}
+		}
+	}
+	if !foundValidation {
+		t.Fatal("expected validation.go to be generated when RequestValidation is set")
+	}
+
+	if wiring == nil {
+		t.Fatal("expected wiring, got nil")
+	}
+	if len(wiring.Middlewares) != 1 {
+		t.Fatalf("expected 1 middleware in wiring, got %d", len(wiring.Middlewares))
+	}
+	ms := wiring.Middlewares[0]
+	if ms.WrapExpr != "%s(%s)" {
+		t.Errorf("unexpected WrapExpr: %s", ms.WrapExpr)
+	}
+	if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(wiring.Constructors) {
+		t.Fatalf("middleware ConstructorIndex %d out of range [0, %d)", ms.ConstructorIndex, len(wiring.Constructors))
+	}
+	if !strings.Contains(wiring.Constructors[ms.ConstructorIndex], "NewValidationMiddleware") {
+		t.Errorf("middleware constructor does not reference NewValidationMiddleware: %s", wiring.Constructors[ms.ConstructorIndex])
+	}
+
+	if wiring.GoModRequires == nil {
+		t.Fatal("expected GoModRequires, got nil")
+	}
+	if _, ok := wiring.GoModRequires["github.com/getkin/kin-openapi"]; !ok {
+		t.Error("GoModRequires missing kin-openapi dependency")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_NotGeneratedWhenNotSet(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			t.Error("validation.go should not be generated when RequestValidation is empty")
+		}
+	}
+
+	if wiring != nil && len(wiring.Middlewares) > 0 {
+		t.Error("no middlewares should be in wiring when RequestValidation is empty")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_NotGeneratedForReadOnly(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:            "flat",
+			RequestValidation: "openapi-schema",
+		},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "label", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpRead, types.OpList, types.OpDelete},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			t.Error("validation.go should not be generated when no operations accept request bodies")
+		}
+	}
+
+	if wiring != nil && len(wiring.Middlewares) > 0 {
+		t.Error("no middlewares should be in wiring when no operations accept request bodies")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_MethodFilter(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var content string
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			content = string(f.Bytes())
+			break
+		}
+	}
+	if content == "" {
+		t.Fatal("validation.go not found")
+	}
+
+	if !strings.Contains(content, "http.MethodPost") {
+		t.Error("validation.go missing http.MethodPost check")
+	}
+	if !strings.Contains(content, "http.MethodPut") {
+		t.Error("validation.go missing http.MethodPut check")
+	}
+	if !strings.Contains(content, "http.MethodPatch") {
+		t.Error("validation.go missing http.MethodPatch check")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_ErrorFormat(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var validationContent string
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			validationContent = string(f.Bytes())
+			break
+		}
+	}
+	if validationContent == "" {
+		t.Fatal("validation.go not found")
+	}
+
+	if !strings.Contains(validationContent, "openapi3filter.RequestError") {
+		t.Error("parseValidationErrors should unwrap openapi3filter.RequestError")
+	}
+	if !strings.Contains(validationContent, "openapi3.MultiError") {
+		t.Error("parseValidationErrors should handle openapi3.MultiError")
+	}
+	if !strings.Contains(validationContent, "openapi3.SchemaError") {
+		t.Error("addSchemaErrors should extract field info from openapi3.SchemaError")
+	}
+	if !strings.Contains(validationContent, "JSONPointer()") {
+		t.Error("addSchemaErrors should use JSONPointer() for field path")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_BodyRestore(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var content string
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			content = string(f.Bytes())
+			break
+		}
+	}
+	if content == "" {
+		t.Fatal("validation.go not found")
+	}
+
+	if strings.Count(content, "io.NopCloser(bytes.NewReader(bodyBytes))") < 2 {
+		t.Error("validation middleware should restore body at least twice (before validation and after)")
+	}
+	if !strings.Contains(content, "io.ReadAll(r.Body)") {
+		t.Error("validation middleware should buffer the body with io.ReadAll")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_WithEnvelope(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+	ctx.Conventions.ResponseFormat = "envelope"
+	ctx.ModuleName = "github.com/test/svc"
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var foundValidation bool
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			foundValidation = true
+		}
+	}
+	if !foundValidation {
+		t.Fatal("validation.go should be generated with envelope format")
+	}
+
+	if wiring.GoModRequires == nil {
+		t.Fatal("expected GoModRequires")
+	}
+	if _, ok := wiring.GoModRequires["github.com/google/uuid"]; !ok {
+		t.Error("missing uuid in GoModRequires")
+	}
+	if _, ok := wiring.GoModRequires["github.com/getkin/kin-openapi"]; !ok {
+		t.Error("missing kin-openapi in GoModRequires")
+	}
+}
+
+func TestGenerate_ValidationMiddleware_AuthBypass(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.Conventions.RequestValidation = "openapi-schema"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var content string
+	for _, f := range files {
+		if f.Path == "internal/api/validation.go" {
+			content = string(f.Bytes())
+			break
+		}
+	}
+	if content == "" {
+		t.Fatal("validation.go not found")
+	}
+
+	if !strings.Contains(content, "NoopAuthenticationFunc") {
+		t.Error("validation middleware should use NoopAuthenticationFunc to skip auth during validation")
+	}
+}

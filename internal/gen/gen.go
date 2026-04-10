@@ -187,6 +187,26 @@ type Wiring struct {
 	// The assembler wraps each call in error handling:
 	//   if err := <expr>; err != nil { log.Fatal(err) }
 	PostDBCalls []string
+
+	// Middlewares lists additional middleware constructors that wrap the
+	// HTTP handler (mux). Each entry references a constructor index and
+	// provides a wrap expression. These are applied in order: first entry
+	// wraps mux directly (innermost), last entry wraps outermost. The
+	// primary MiddlewareConstructor (auth) is always applied outermost
+	// of all, after these.
+	Middlewares []MiddlewareSpec
+}
+
+// MiddlewareSpec describes a middleware constructor and how it wraps the
+// HTTP handler.
+type MiddlewareSpec struct {
+	// ConstructorIndex is the index into Constructors for this middleware.
+	ConstructorIndex int
+
+	// WrapExpr is a format string with two %s verbs: the first is replaced
+	// with the middleware variable name (after disambiguation), the second
+	// with the handler variable to wrap.
+	WrapExpr string
 }
 
 // ValidateNamespace checks that every file path in files is under the given

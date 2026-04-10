@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Request Validation" (rest-crud spec)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 ## Description
 

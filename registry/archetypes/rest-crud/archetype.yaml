@@ -17,6 +17,7 @@ conventions:
   response_format: envelope
   logging: structured-json
   test_pattern: table-driven
+  request_validation: openapi-schema
 
 compatible_mixins:
   - event-publisher

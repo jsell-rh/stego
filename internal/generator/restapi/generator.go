@@ -243,6 +243,45 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
+	// Generate validation middleware when request_validation: openapi-schema
+	// is set in the archetype conventions.
+	if ctx.Conventions.RequestValidation == "openapi-schema" {
+		// Only generate if there are operations with request bodies.
+		hasBodyOps := false
+		for _, eb := range ctx.Collections {
+			for _, op := range eb.Operations {
+				if op == types.OpCreate || op == types.OpUpdate || op == types.OpUpsert || op == types.OpPatch {
+					hasBodyOps = true
+					break
+				}
+			}
+			if hasBodyOps {
+				break
+			}
+		}
+		if hasBodyOps {
+			validationFile, err := generateValidation(ctx.OutputNamespace)
+			if err != nil {
+				return nil, nil, fmt.Errorf("generating validation middleware: %w", err)
+			}
+			files = append(files, validationFile)
+
+			// Add validation middleware constructor and wiring.
+			validationIdx := len(wiring.Constructors)
+			wiring.Constructors = append(wiring.Constructors,
+				fmt.Sprintf("%s.NewValidationMiddleware()", path.Base(ctx.OutputNamespace)))
+			wiring.Middlewares = append(wiring.Middlewares, gen.MiddlewareSpec{
+				ConstructorIndex: validationIdx,
+				WrapExpr:         "%s(%s)",
+			})
+
+			if wiring.GoModRequires == nil {
+				wiring.GoModRequires = make(map[string]string)
+			}
+			wiring.GoModRequires["github.com/getkin/kin-openapi"] = "v0.128.0"
+		}
+	}
+
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
@@ -1382,6 +1421,160 @@ func emitErrorTypeField(buf *bytes.Buffer, errorTypeBase, slug string) {
 	} else {
 		fmt.Fprintf(buf, "\t\tType:   \"about:blank\",\n")
 	}
+}
+
+// generateValidation produces the validation.go file with OpenAPI request body
+// validation middleware. The generated file embeds the openapi.json spec and
+// uses kin-openapi to validate POST, PUT, and PATCH request bodies at runtime.
+func generateValidation(ns string) (gen.File, error) {
+	var buf bytes.Buffer
+	pkg := path.Base(ns)
+
+	fmt.Fprintf(&buf, "package %s\n\n", pkg)
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"bytes\"\n")
+	fmt.Fprintf(&buf, "\t\"context\"\n")
+	fmt.Fprintf(&buf, "\t_ \"embed\"\n")
+	fmt.Fprintf(&buf, "\t\"errors\"\n")
+	fmt.Fprintf(&buf, "\t\"fmt\"\n")
+	fmt.Fprintf(&buf, "\t\"io\"\n")
+	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, "\n")
+	fmt.Fprintf(&buf, "\t\"github.com/getkin/kin-openapi/openapi3\"\n")
+	fmt.Fprintf(&buf, "\t\"github.com/getkin/kin-openapi/openapi3filter\"\n")
+	fmt.Fprintf(&buf, "\tlegacyrouter \"github.com/getkin/kin-openapi/routers/legacy\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
+
+	// Embedded OpenAPI spec.
+	fmt.Fprintf(&buf, "//go:embed openapi.json\n")
+	fmt.Fprintf(&buf, "var openAPISpec []byte\n\n")
+
+	// NewValidationMiddleware constructor.
+	fmt.Fprintf(&buf, "// NewValidationMiddleware creates HTTP middleware that validates request bodies\n")
+	fmt.Fprintf(&buf, "// against the embedded OpenAPI specification using kin-openapi.\n")
+	fmt.Fprintf(&buf, "func NewValidationMiddleware() func(http.Handler) http.Handler {\n")
+	fmt.Fprintf(&buf, "\tloader := openapi3.NewLoader()\n")
+	fmt.Fprintf(&buf, "\tdoc, err := loader.LoadFromData(openAPISpec)\n")
+	fmt.Fprintf(&buf, "\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\tpanic(fmt.Sprintf(\"openapi validation: failed to load spec: %%v\", err))\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\t// Clear servers to avoid validation errors from missing server URLs.\n")
+	fmt.Fprintf(&buf, "\tdoc.Servers = nil\n")
+	fmt.Fprintf(&buf, "\tif err := doc.Validate(context.Background()); err != nil {\n")
+	fmt.Fprintf(&buf, "\t\tpanic(fmt.Sprintf(\"openapi validation: spec validation failed: %%v\", err))\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+	fmt.Fprintf(&buf, "\trouter, err := legacyrouter.NewRouter(doc)\n")
+	fmt.Fprintf(&buf, "\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\tpanic(fmt.Sprintf(\"openapi validation: failed to create router: %%v\", err))\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+
+	fmt.Fprintf(&buf, "\treturn func(next http.Handler) http.Handler {\n")
+	fmt.Fprintf(&buf, "\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
+	fmt.Fprintf(&buf, "\t\t\t// Only validate methods that carry request bodies.\n")
+	fmt.Fprintf(&buf, "\t\t\tif r.Method != http.MethodPost && r.Method != http.MethodPut && r.Method != http.MethodPatch {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tnext.ServeHTTP(w, r)\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	fmt.Fprintf(&buf, "\t\t\troute, pathParams, err := router.FindRoute(r)\n")
+	fmt.Fprintf(&buf, "\t\t\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\t\t// No matching route in the spec — pass through to handler.\n")
+	fmt.Fprintf(&buf, "\t\t\t\tnext.ServeHTTP(w, r)\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	fmt.Fprintf(&buf, "\t\t\tif route.Operation == nil || route.Operation.RequestBody == nil {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tnext.ServeHTTP(w, r)\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	// Buffer the body so it can be read for validation and restored for the handler.
+	fmt.Fprintf(&buf, "\t\t\t// Buffer the body for validation; restore it for the handler.\n")
+	fmt.Fprintf(&buf, "\t\t\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(&buf, "\t\t\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\t\thandleError(w, r, BadRequest(\"failed to read request body\"))\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n")
+	fmt.Fprintf(&buf, "\t\t\tr.Body.Close()\n")
+	fmt.Fprintf(&buf, "\t\t\tr.Body = io.NopCloser(bytes.NewReader(bodyBytes))\n\n")
+
+	// Validate request body.
+	fmt.Fprintf(&buf, "\t\t\tinput := &openapi3filter.RequestValidationInput{\n")
+	fmt.Fprintf(&buf, "\t\t\t\tRequest:    r,\n")
+	fmt.Fprintf(&buf, "\t\t\t\tPathParams: pathParams,\n")
+	fmt.Fprintf(&buf, "\t\t\t\tRoute:      route,\n")
+	fmt.Fprintf(&buf, "\t\t\t\tOptions: &openapi3filter.Options{\n")
+	fmt.Fprintf(&buf, "\t\t\t\t\tAuthenticationFunc: openapi3filter.NoopAuthenticationFunc,\n")
+	fmt.Fprintf(&buf, "\t\t\t\t},\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	fmt.Fprintf(&buf, "\t\t\tif err := openapi3filter.ValidateRequestBody(context.Background(), input, route.Operation.RequestBody.Value); err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tvalErrors := parseValidationErrors(err)\n")
+	fmt.Fprintf(&buf, "\t\t\t\thandleError(w, r, Validation(valErrors))\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+
+	// Restore body for downstream handlers.
+	fmt.Fprintf(&buf, "\t\t\t// Restore body for downstream handlers.\n")
+	fmt.Fprintf(&buf, "\t\t\tr.Body = io.NopCloser(bytes.NewReader(bodyBytes))\n")
+	fmt.Fprintf(&buf, "\t\t\tnext.ServeHTTP(w, r)\n")
+	fmt.Fprintf(&buf, "\t\t})\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// parseValidationErrors extracts per-field validation details from kin-openapi errors.
+	fmt.Fprintf(&buf, "// parseValidationErrors extracts per-field validation details from a\n")
+	fmt.Fprintf(&buf, "// kin-openapi validation error.\n")
+	fmt.Fprintf(&buf, "func parseValidationErrors(err error) []ValidationError {\n")
+	fmt.Fprintf(&buf, "\tvar result []ValidationError\n\n")
+	fmt.Fprintf(&buf, "\t// Unwrap RequestError to get the schema validation error.\n")
+	fmt.Fprintf(&buf, "\tvar reqErr *openapi3filter.RequestError\n")
+	fmt.Fprintf(&buf, "\tif errors.As(err, &reqErr) && reqErr.Err != nil {\n")
+	fmt.Fprintf(&buf, "\t\terr = reqErr.Err\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+	fmt.Fprintf(&buf, "\t// Check for MultiError (multiple schema failures).\n")
+	fmt.Fprintf(&buf, "\tif multiErr, ok := err.(openapi3.MultiError); ok {\n")
+	fmt.Fprintf(&buf, "\t\tfor _, e := range multiErr {\n")
+	fmt.Fprintf(&buf, "\t\t\taddSchemaErrors(&result, e)\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t} else {\n")
+	fmt.Fprintf(&buf, "\t\taddSchemaErrors(&result, err)\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+	fmt.Fprintf(&buf, "\tif len(result) == 0 {\n")
+	fmt.Fprintf(&buf, "\t\tresult = append(result, ValidationError{Message: err.Error()})\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+	fmt.Fprintf(&buf, "\treturn result\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// addSchemaErrors helper.
+	fmt.Fprintf(&buf, "func addSchemaErrors(result *[]ValidationError, err error) {\n")
+	fmt.Fprintf(&buf, "\tvar schemaErr *openapi3.SchemaError\n")
+	fmt.Fprintf(&buf, "\tif errors.As(err, &schemaErr) {\n")
+	fmt.Fprintf(&buf, "\t\tpointer := schemaErr.JSONPointer()\n")
+	fmt.Fprintf(&buf, "\t\tfield := strings.Join(pointer, \".\")\n")
+	fmt.Fprintf(&buf, "\t\tmsg := schemaErr.Reason\n")
+	fmt.Fprintf(&buf, "\t\tif msg == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\t\tmsg = schemaErr.Error()\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t\t*result = append(*result, ValidationError{\n")
+	fmt.Fprintf(&buf, "\t\t\tField:   field,\n")
+	fmt.Fprintf(&buf, "\t\t\tMessage: msg,\n")
+	fmt.Fprintf(&buf, "\t\t})\n")
+	fmt.Fprintf(&buf, "\t\treturn\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\t*result = append(*result, ValidationError{Message: err.Error()})\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting validation: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "validation.go"),
+		Content: formatted,
+	}, nil
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.

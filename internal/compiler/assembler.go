@@ -157,8 +157,16 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// MiddlewareWrapExpr must also be set so the assembler knows how
 	// to invoke the middleware (per checklist item 113).
 	for _, cw := range input.Wirings {
-		if cw.Wiring != nil && cw.Wiring.MiddlewareConstructor != nil && cw.Wiring.MiddlewareWrapExpr == "" {
+		if cw.Wiring == nil {
+			continue
+		}
+		if cw.Wiring.MiddlewareConstructor != nil && cw.Wiring.MiddlewareWrapExpr == "" {
 			return gen.File{}, fmt.Errorf("component %q declares MiddlewareConstructor but no MiddlewareWrapExpr — generators must specify how the middleware wraps the handler (e.g. \"%%s(%%s)\" for function-type middleware)", cw.Name)
+		}
+		for k, ms := range cw.Wiring.Middlewares {
+			if ms.WrapExpr == "" {
+				return gen.File{}, fmt.Errorf("component %q declares Middlewares[%d] but no WrapExpr — generators must specify how the middleware wraps the handler", cw.Name, k)
+			}
 		}
 	}
 
@@ -660,14 +668,23 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 		}
 	}
 
-	// Step 2: Mark the middleware constructor as consumed (used by writeServerStart).
+	// Step 2: Mark middleware constructors as consumed (used by writeServerStart).
 	for i, cw := range input.Wirings {
-		if cw.Wiring == nil || cw.Wiring.MiddlewareConstructor == nil {
+		if cw.Wiring == nil {
 			continue
 		}
-		idx := *cw.Wiring.MiddlewareConstructor
-		if idx >= 0 && idx < len(cw.Wiring.Constructors) {
-			consumed[constructorKey{WiringIndex: i, ConstructorIndex: idx}] = true
+		// Primary auth middleware.
+		if cw.Wiring.MiddlewareConstructor != nil {
+			idx := *cw.Wiring.MiddlewareConstructor
+			if idx >= 0 && idx < len(cw.Wiring.Constructors) {
+				consumed[constructorKey{WiringIndex: i, ConstructorIndex: idx}] = true
+			}
+		}
+		// Additional middlewares.
+		for _, ms := range cw.Wiring.Middlewares {
+			if ms.ConstructorIndex >= 0 && ms.ConstructorIndex < len(cw.Wiring.Constructors) {
+				consumed[constructorKey{WiringIndex: i, ConstructorIndex: ms.ConstructorIndex}] = true
+			}
 		}
 	}
 
@@ -1179,19 +1196,50 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		}
 	}
 
+	// Collect additional middlewares from all wirings.
+	type resolvedMiddleware struct {
+		varName  string
+		wrapExpr string
+	}
+	var additionalMiddlewares []resolvedMiddleware
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		for _, ms := range cw.Wiring.Middlewares {
+			if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(cw.Wiring.Constructors) {
+				continue
+			}
+			varName := rawConstructorVarName(cw.Wiring.Constructors[ms.ConstructorIndex])
+			// Apply disambiguation renames.
+			for _, r := range wiringRenames[i] {
+				if r.ConstructorIndex == ms.ConstructorIndex {
+					varName = r.FinalVar
+					break
+				}
+			}
+			additionalMiddlewares = append(additionalMiddlewares, resolvedMiddleware{
+				varName:  varName,
+				wrapExpr: ms.WrapExpr,
+			})
+		}
+	}
+
 	buf.WriteString("\taddr := fmt.Sprintf(\":%d\", ")
 	fmt.Fprintf(buf, "%d)\n", input.Port)
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", addr)\n")
 
-	if middlewareVar != "" {
-		// Use the generator-provided wrap expression to invoke the middleware.
-		// The expression is a format string with two %s verbs: middleware var
-		// and handler var (e.g. "%s(%s)" produces "authMiddleware(mux)").
-		wrappedHandler := fmt.Sprintf(wrapExpr, middlewareVar, "mux")
-		fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", wrappedHandler)
-	} else {
-		buf.WriteString("\tlog.Fatal(http.ListenAndServe(addr, mux))\n")
+	// Build the handler expression by chaining middlewares.
+	// Additional middlewares wrap mux first (innermost), then auth wraps
+	// outermost so authentication runs before other middleware.
+	handlerExpr := "mux"
+	for _, m := range additionalMiddlewares {
+		handlerExpr = fmt.Sprintf(m.wrapExpr, m.varName, handlerExpr)
 	}
+	if middlewareVar != "" {
+		handlerExpr = fmt.Sprintf(wrapExpr, middlewareVar, handlerExpr)
+	}
+	fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", handlerExpr)
 }
 
 // hasAnyRoutes returns true if any component wiring has routes.

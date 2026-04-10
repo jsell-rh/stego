@@ -4556,5 +4556,159 @@ func TestAssemble_PostDBCallsImportAliasDisambiguation(t *testing.T) {
 	}
 }
 
+func TestAssemble_AdditionalMiddlewares(t *testing.T) {
+	// Verify that Wiring.Middlewares are chained with the auth middleware.
+	// Auth wraps outermost, additional middlewares wrap inner.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "jwt-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					Middlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: "%s(%s)"},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify both middlewares are in the handler chain.
+	// Auth is outermost: authMiddleware(validationMiddleware(mux))
+	if !strings.Contains(code, "authMiddleware(validationMiddleware(mux))") {
+		t.Errorf("expected auth wrapping validation wrapping mux, got:\n%s", code)
+	}
+}
+
+func TestAssemble_AdditionalMiddlewares_NoAuth(t *testing.T) {
+	// Verify additional middlewares work without auth middleware.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					Middlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: "%s(%s)"},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "cmd/main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Without auth, validation wraps mux directly.
+	if !strings.Contains(code, "validationMiddleware(mux)") {
+		t.Errorf("expected validation wrapping mux, got:\n%s", code)
+	}
+	// Auth should NOT be present.
+	if strings.Contains(code, "authMiddleware") {
+		t.Errorf("auth middleware should not appear without auth wiring:\n%s", code)
+	}
+}
+
+func TestAssemble_AdditionalMiddlewares_MissingWrapExpr(t *testing.T) {
+	// Verify assembler rejects Middlewares entry without WrapExpr.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					Middlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: ""},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for Middlewares entry without WrapExpr")
+	}
+	if !strings.Contains(err.Error(), "WrapExpr") {
+		t.Errorf("error should mention WrapExpr, got: %v", err)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }
