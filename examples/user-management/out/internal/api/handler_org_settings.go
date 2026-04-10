@@ -119,7 +119,7 @@ func (h *OrgSettingsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/org-settings"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/orgsettings"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
@@ -205,5 +205,5 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 	}
-	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-settings"+"/"+orgsetting.ID))
+	json.NewEncoder(w).Encode(presentEntity(orgsetting, "OrgSetting", orgsetting.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/orgsettings"+"/"+orgsetting.ID))
 }

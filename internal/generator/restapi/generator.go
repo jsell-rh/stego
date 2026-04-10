@@ -291,7 +291,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 // collectionBasePath returns the URL path prefix for a collection.
 // If PathPrefix is set, it is used directly. Otherwise, a default is derived
-// from the collection name, prepended with the parent's path if nested.
+// from the entity name (lowercased, pluralized), prepended with the parent's
+// path if nested.
 // Returns an error if a circular parent reference is detected.
 func collectionBasePath(eb types.Collection, collectionMap map[string]types.Collection) (string, error) {
 	return collectionBasePathWithVisited(eb, collectionMap, map[string]bool{eb.Entity: true})
@@ -301,7 +302,7 @@ func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string
 	if eb.PathPrefix != "" {
 		return eb.PathPrefix, nil
 	}
-	base := "/" + eb.Name
+	base := "/" + entityPathSegment(eb.Entity)
 	if eb.ParentEntity() != "" {
 		if visited[eb.ParentEntity()] {
 			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.ParentEntity())
@@ -317,6 +318,31 @@ func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string
 		}
 	}
 	return base, nil
+}
+
+// entityPathSegment converts an entity name (PascalCase) to a URL path
+// segment: lowercased, then pluralized.
+// E.g. "NodePool" → "nodepools", "User" → "users", "AdapterStatus" → "adapterstatuses".
+func entityPathSegment(entityName string) string {
+	return pluralize(strings.ToLower(entityName))
+}
+
+// pluralize applies basic English pluralization rules to a snake_case word.
+func pluralize(s string) string {
+	if s == "" {
+		return s
+	}
+	if strings.HasSuffix(s, "s") || strings.HasSuffix(s, "x") || strings.HasSuffix(s, "z") ||
+		strings.HasSuffix(s, "sh") || strings.HasSuffix(s, "ch") {
+		return s + "es"
+	}
+	if strings.HasSuffix(s, "y") && len(s) >= 2 {
+		preceding := s[len(s)-2]
+		if !strings.ContainsRune("aeiou", rune(preceding)) {
+			return s[:len(s)-1] + "ies"
+		}
+	}
+	return s + "s"
 }
 
 // generateHandler produces a single Go handler file for a collection.

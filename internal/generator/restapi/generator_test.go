@@ -257,12 +257,12 @@ func TestGenerate_NestedRouting(t *testing.T) {
 	}
 	foundNestedRoute := false
 	for _, r := range wiring.Routes {
-		if strings.Contains(r, "cluster_id") && strings.Contains(r, "node-pools") {
+		if strings.Contains(r, "cluster_id") && strings.Contains(r, "nodepools") {
 			foundNestedRoute = true
 		}
 	}
 	if !foundNestedRoute {
-		t.Errorf("expected nested route with cluster_id and node-pools, got routes: %v", wiring.Routes)
+		t.Errorf("expected nested route with cluster_id and nodepools, got routes: %v", wiring.Routes)
 	}
 }
 
@@ -849,10 +849,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 
 	paths := spec["paths"].(map[string]any)
 
-	// Check nested collection path: /clusters/{cluster_id}/node-pools
-	npCollection, ok := paths["/clusters/{cluster_id}/node-pools"]
+	// Check nested collection path: /clusters/{cluster_id}/nodepools
+	npCollection, ok := paths["/clusters/{cluster_id}/nodepools"]
 	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/node-pools path")
+		t.Fatal("missing /clusters/{cluster_id}/nodepools path")
 	}
 	npColOps := npCollection.(map[string]any)
 
@@ -860,14 +860,14 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 	postOp := npColOps["post"].(map[string]any)
 	postParams, _ := postOp["parameters"].([]any)
 	if !hasParam(postParams, "cluster_id") {
-		t.Error("POST /clusters/{cluster_id}/node-pools missing cluster_id parameter")
+		t.Error("POST /clusters/{cluster_id}/nodepools missing cluster_id parameter")
 	}
 
 	// GET (list) must declare cluster_id parameter and pagination params.
 	getOp := npColOps["get"].(map[string]any)
 	getParams, _ := getOp["parameters"].([]any)
 	if !hasParam(getParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/node-pools missing cluster_id parameter")
+		t.Error("GET /clusters/{cluster_id}/nodepools missing cluster_id parameter")
 	}
 	if !hasParam(getParams, "page") {
 		t.Error("GET (list) must declare 'page' query parameter in OpenAPI spec")
@@ -876,10 +876,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 		t.Error("GET (list) must declare 'size' query parameter in OpenAPI spec")
 	}
 
-	// Check nested item path: /clusters/{cluster_id}/node-pools/{id}
-	npItem, ok := paths["/clusters/{cluster_id}/node-pools/{id}"]
+	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}
+	npItem, ok := paths["/clusters/{cluster_id}/nodepools/{id}"]
 	if !ok {
-		t.Fatal("missing /clusters/{cluster_id}/node-pools/{id} path")
+		t.Fatal("missing /clusters/{cluster_id}/nodepools/{id} path")
 	}
 	npItemOps := npItem.(map[string]any)
 
@@ -887,10 +887,10 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 	readOp := npItemOps["get"].(map[string]any)
 	readParams, _ := readOp["parameters"].([]any)
 	if !hasParam(readParams, "cluster_id") {
-		t.Error("GET /clusters/{cluster_id}/node-pools/{id} missing cluster_id parameter")
+		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing cluster_id parameter")
 	}
 	if !hasParam(readParams, "id") {
-		t.Error("GET /clusters/{cluster_id}/node-pools/{id} missing id parameter")
+		t.Error("GET /clusters/{cluster_id}/nodepools/{id} missing id parameter")
 	}
 }
 
@@ -1431,8 +1431,72 @@ func TestCollectionBasePath_Nested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "/clusters/{cluster_id}/cluster-nodepools" {
-		t.Errorf("expected /clusters/{cluster_id}/cluster-nodepools, got %s", got)
+	if got != "/clusters/{cluster_id}/nodepools" {
+		t.Errorf("expected /clusters/{cluster_id}/nodepools, got %s", got)
+	}
+}
+
+func TestCollectionBasePath_MultiLevel(t *testing.T) {
+	collectionMap := map[string]types.Collection{
+		"Cluster":  {Name: "clusters", Entity: "Cluster"},
+		"NodePool": {Name: "cluster-nodepools", Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}},
+	}
+	eb := types.Collection{Name: "adapter-statuses", Entity: "AdapterStatus", Scope: map[string]string{"nodepool_id": "NodePool"}}
+	got, err := collectionBasePath(eb, collectionMap)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses"
+	if got != want {
+		t.Errorf("expected %s, got %s", want, got)
+	}
+}
+
+func TestEntityPathSegment(t *testing.T) {
+	tests := []struct {
+		entity string
+		want   string
+	}{
+		{"User", "users"},
+		{"Cluster", "clusters"},
+		{"NodePool", "nodepools"},
+		{"AdapterStatus", "adapterstatuses"},
+		{"Organization", "organizations"},
+		{"OrgSetting", "orgsettings"},
+		{"Address", "addresses"},
+		{"Entity", "entities"},
+		{"Box", "boxes"},
+		{"Status", "statuses"},
+		{"Index", "indexes"},
+	}
+	for _, tt := range tests {
+		got := entityPathSegment(tt.entity)
+		if got != tt.want {
+			t.Errorf("entityPathSegment(%q) = %q, want %q", tt.entity, got, tt.want)
+		}
+	}
+}
+
+func TestPluralize(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"user", "users"},
+		{"cluster", "clusters"},
+		{"node_pool", "node_pools"},
+		{"status", "statuses"},
+		{"address", "addresses"},
+		{"box", "boxes"},
+		{"entity", "entities"},
+		{"index", "indexes"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := pluralize(tt.input)
+		if got != tt.want {
+			t.Errorf("pluralize(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 

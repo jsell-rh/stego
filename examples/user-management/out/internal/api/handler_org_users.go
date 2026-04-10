@@ -120,7 +120,7 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+user.ID))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", user.ID, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+user.ID))
 }
 
 func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -158,7 +158,7 @@ func (h *OrgUsersHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +214,7 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }
 
 func (h *OrgUsersHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +340,7 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/org-users"
+	hrefBase := "/api/user-mgmt/v1/organizations/" + r.PathValue("org_id") + "/users"
 	itemsSlice := reflect.ValueOf(listResult.Items)
 	actualSize := itemsSlice.Len()
 	presentedItems := make([]map[string]any, actualSize)
@@ -446,5 +446,5 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/org-users"+"/"+id))
+	json.NewEncoder(w).Encode(presentEntity(user, "User", id, "/api/user-mgmt/v1/organizations/"+r.PathValue("org_id")+"/users"+"/"+id))
 }

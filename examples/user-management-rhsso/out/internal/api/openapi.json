@@ -5,7 +5,7 @@
     "version": "1.0.0"
   },
   "paths": {
-    "/api/user-mgmt/v1/all-users": {
+    "/api/user-mgmt/v1/users": {
       "get": {
         "summary": "List User entities via all-users",
         "operationId": "listAllUsers",
@@ -338,7 +338,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/org-settings": {
+    "/api/user-mgmt/v1/organizations/{org_id}/orgsettings": {
       "get": {
         "summary": "List OrgSetting entities via org-settings",
         "operationId": "listOrgSettings",
@@ -540,7 +540,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/org-users": {
+    "/api/user-mgmt/v1/organizations/{org_id}/users": {
       "get": {
         "summary": "List User entities via org-users",
         "operationId": "listOrgUsers",
@@ -711,7 +711,7 @@
         }
       }
     },
-    "/api/user-mgmt/v1/organizations/{org_id}/org-users/{id}": {
+    "/api/user-mgmt/v1/organizations/{org_id}/users/{id}": {
       "delete": {
         "summary": "Delete User via org-users",
         "operationId": "deleteOrgUsers",
