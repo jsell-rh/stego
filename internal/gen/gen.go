@@ -72,6 +72,17 @@ type Context struct {
 	// BasePath is prepended to all collection-derived routes (e.g.
 	// "/api/hyperfleet/v1"). Empty string means paths are served from root.
 	BasePath string
+
+	// ServiceName is the service declaration's name (e.g. "hyperfleet-api").
+	// Generators use this to derive error code prefixes and other
+	// service-scoped identifiers.
+	ServiceName string
+
+	// ErrorTypeBase is an optional URI prefix for RFC 9457 error type URIs
+	// (e.g. "https://api.hyperfleet.io/errors/"). When set, error type URIs
+	// are constructed as ErrorTypeBase + error-slug. When empty, error types
+	// use "about:blank" per RFC 9457.
+	ErrorTypeBase string
 }
 
 // File represents a single generated output file.

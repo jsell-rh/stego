@@ -207,6 +207,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	files = append(files, routerFile)
 
+	// Generate errors file with RFC 9457 Problem Details support.
+	errorsFile, err := generateErrors(ctx.OutputNamespace, ctx.ServiceName, ctx.ErrorTypeBase)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating errors: %w", err)
+	}
+	files = append(files, errorsFile)
+
 	// Generate OpenAPI spec.
 	openapiFile, err := generateOpenAPI(ctx.OutputNamespace, ctx.Entities, ctx.Collections, collectionMap, ctx.BasePath)
 	if err != nil {
@@ -424,16 +431,16 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			idVar := strings.ToLower(anc) + "ID"
 			fmt.Fprintf(&buf, "\t%s := r.PathValue(%q)\n", idVar, idParam)
 			fmt.Fprintf(&buf, "\tif %s == \"\" {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"missing %s\", http.StatusBadRequest)\n", idParam)
+			fmt.Fprintf(&buf, "\t\thandleError(w, r, BadRequest(\"missing %s\"))\n", idParam)
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
 			fmt.Fprintf(&buf, "\t%sExists, %sErr := h.store.Exists(r.Context(), %q, %s)\n", idVar, idVar, anc, idVar)
 			fmt.Fprintf(&buf, "\tif %sErr != nil {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thttp.Error(w, \"internal error\", http.StatusInternalServerError)\n")
+			fmt.Fprintf(&buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
 			fmt.Fprintf(&buf, "\tif !%sExists {\n", idVar)
-			fmt.Fprintf(&buf, "\t\thttp.Error(w, %q, http.StatusNotFound)\n", anc+" not found")
+			fmt.Fprintf(&buf, "\t\thandleError(w, r, NotFound(%q, %s))\n", anc, idVar)
 			fmt.Fprintf(&buf, "\t\treturn false\n")
 			fmt.Fprintf(&buf, "\t}\n")
 		}
@@ -489,7 +496,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
@@ -506,7 +513,7 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Create(r.Context(), %q, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	// After-slots: on_entity_changed fires after create.
@@ -528,7 +535,7 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusNotFound)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
@@ -546,7 +553,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
@@ -562,7 +569,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
@@ -580,7 +587,7 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	_, after := slotsForOp(types.OpDelete, slotParams)
@@ -637,7 +644,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	}
 
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tactualSize := reflect.ValueOf(%s).Len()\n", lower)
@@ -663,7 +670,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusBadRequest)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	emitClearComputedFields(buf, lower, entity)
@@ -695,7 +702,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		concurrency = "none"
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Upsert(r.Context(), %q, %s, upsertKey, %q); err != nil {\n", entity.Name, lower, concurrency)
-	fmt.Fprintf(buf, "\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	for _, sp := range after {
@@ -787,6 +794,167 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 		Path:    path.Join(ns, "router.go"),
 		Content: formatted,
 	}, nil
+}
+
+// deriveErrorPrefix converts a service name to an error code prefix by
+// uppercasing and removing hyphens. E.g., "hyperfleet-api" → "HYPERFLEET".
+func deriveErrorPrefix(serviceName string) string {
+	// Remove hyphens, then uppercase.
+	clean := strings.ReplaceAll(serviceName, "-", "")
+	return strings.ToUpper(clean)
+}
+
+// generateErrors produces the errors.go file with RFC 9457 Problem Details
+// types, error constructors, and a handleError function for serialization.
+func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.File, error) {
+	var buf bytes.Buffer
+
+	prefix := deriveErrorPrefix(serviceName)
+
+	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	fmt.Fprintf(&buf, "\t\"time\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
+
+	// ServiceError struct.
+	fmt.Fprintf(&buf, "// ServiceError represents an RFC 9457 Problem Details error response.\n")
+	fmt.Fprintf(&buf, "type ServiceError struct {\n")
+	fmt.Fprintf(&buf, "\tType             string            `json:\"type\"`\n")
+	fmt.Fprintf(&buf, "\tTitle            string            `json:\"title\"`\n")
+	fmt.Fprintf(&buf, "\tStatus           int               `json:\"status\"`\n")
+	fmt.Fprintf(&buf, "\tDetail           string            `json:\"detail\"`\n")
+	fmt.Fprintf(&buf, "\tCode             string            `json:\"code\"`\n")
+	fmt.Fprintf(&buf, "\tInstance         string            `json:\"instance,omitempty\"`\n")
+	fmt.Fprintf(&buf, "\tTraceID          string            `json:\"trace_id,omitempty\"`\n")
+	fmt.Fprintf(&buf, "\tTimestamp        string            `json:\"timestamp,omitempty\"`\n")
+	fmt.Fprintf(&buf, "\tValidationErrors []ValidationError `json:\"validation_errors,omitempty\"`\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ValidationError struct.
+	fmt.Fprintf(&buf, "// ValidationError represents a single field validation failure.\n")
+	fmt.Fprintf(&buf, "type ValidationError struct {\n")
+	fmt.Fprintf(&buf, "\tField   string `json:\"field\"`\n")
+	fmt.Fprintf(&buf, "\tMessage string `json:\"message\"`\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Error constructors.
+	// NotFound
+	fmt.Fprintf(&buf, "// NotFound returns a 404 ServiceError.\n")
+	fmt.Fprintf(&buf, "func NotFound(entityKind, id string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "not-found")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Not Found\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusNotFound,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: entityKind + \" with id '\" + id + \"' not found\",\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-NTF-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// BadRequest
+	fmt.Fprintf(&buf, "// BadRequest returns a 400 ServiceError.\n")
+	fmt.Fprintf(&buf, "func BadRequest(detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "bad-request")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Bad Request\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusBadRequest,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-VAL-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Conflict
+	fmt.Fprintf(&buf, "// Conflict returns a 409 ServiceError.\n")
+	fmt.Fprintf(&buf, "func Conflict(detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "conflict")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Conflict\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusConflict,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-CNF-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Validation
+	fmt.Fprintf(&buf, "// Validation returns a 400 ServiceError with per-field validation details.\n")
+	fmt.Fprintf(&buf, "func Validation(errors []ValidationError) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "validation-error")
+	fmt.Fprintf(&buf, "\t\tTitle:            \"Validation Error\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus:           http.StatusBadRequest,\n")
+	fmt.Fprintf(&buf, "\t\tDetail:           \"One or more fields failed validation\",\n")
+	fmt.Fprintf(&buf, "\t\tCode:             %q,\n", prefix+"-VAL-000")
+	fmt.Fprintf(&buf, "\t\tValidationErrors: errors,\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Unauthorized
+	fmt.Fprintf(&buf, "// Unauthorized returns a 401 ServiceError.\n")
+	fmt.Fprintf(&buf, "func Unauthorized(detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "unauthorized")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Unauthorized\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusUnauthorized,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-AUT-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Forbidden
+	fmt.Fprintf(&buf, "// Forbidden returns a 403 ServiceError.\n")
+	fmt.Fprintf(&buf, "func Forbidden(detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "forbidden")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Forbidden\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusForbidden,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-AUZ-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// InternalError
+	fmt.Fprintf(&buf, "// InternalError returns a 500 ServiceError.\n")
+	fmt.Fprintf(&buf, "func InternalError(detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	emitErrorTypeField(&buf, errorTypeBase, "internal-error")
+	fmt.Fprintf(&buf, "\t\tTitle:  \"Internal Server Error\",\n")
+	fmt.Fprintf(&buf, "\t\tStatus: http.StatusInternalServerError,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q,\n", prefix+"-INT-001")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// handleError function.
+	fmt.Fprintf(&buf, "// handleError serializes a ServiceError as an RFC 9457 Problem Details\n")
+	fmt.Fprintf(&buf, "// JSON response with Content-Type application/problem+json.\n")
+	fmt.Fprintf(&buf, "func handleError(w http.ResponseWriter, r *http.Request, svcErr *ServiceError) {\n")
+	fmt.Fprintf(&buf, "\tsvcErr.Instance = r.URL.Path\n")
+	fmt.Fprintf(&buf, "\tsvcErr.Timestamp = time.Now().UTC().Format(time.RFC3339)\n")
+	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/problem+json\")\n")
+	fmt.Fprintf(&buf, "\tw.WriteHeader(svcErr.Status)\n")
+	fmt.Fprintf(&buf, "\tjson.NewEncoder(w).Encode(svcErr)\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting errors: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "errors.go"),
+		Content: formatted,
+	}, nil
+}
+
+// emitErrorTypeField writes the Type field for a ServiceError constructor.
+// When errorTypeBase is set, the type is the base + slug. Otherwise, "about:blank".
+func emitErrorTypeField(buf *bytes.Buffer, errorTypeBase, slug string) {
+	if errorTypeBase != "" {
+		fmt.Fprintf(buf, "\t\tType:   %q,\n", errorTypeBase+slug)
+	} else {
+		fmt.Fprintf(buf, "\t\tType:   \"about:blank\",\n")
+	}
 }
 
 // generateOpenAPI produces an OpenAPI 3.0 spec as JSON.
@@ -1246,7 +1414,16 @@ func safeVarName(name string) string {
 // at generated code, giving the user no indication that their entity name is
 // the problem.
 var reservedTypeNames = map[string]bool{
-	"Storage": true, // type Storage interface { ... } in router.go
+	"Storage":         true, // type Storage interface { ... } in router.go
+	"ServiceError":    true, // type ServiceError struct { ... } in errors.go
+	"ValidationError": true, // type ValidationError struct { ... } in errors.go
+	"NotFound":        true, // func NotFound() in errors.go
+	"BadRequest":      true, // func BadRequest() in errors.go
+	"Conflict":        true, // func Conflict() in errors.go
+	"Validation":      true, // func Validation() in errors.go
+	"Unauthorized":    true, // func Unauthorized() in errors.go
+	"Forbidden":       true, // func Forbidden() in errors.go
+	"InternalError":   true, // func InternalError() in errors.go
 }
 
 // checkCollectionNameCollisions verifies that no collection-derived handler type
@@ -1885,7 +2062,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
-	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
 	fmt.Fprintf(buf, "\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n")
@@ -1893,7 +2070,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
 	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotResult.ErrorMessage, sc)\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, &ServiceError{Type: \"about:blank\", Title: http.StatusText(sc), Status: sc, Detail: slotResult.ErrorMessage})\n")
 	fmt.Fprintf(buf, "\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	// Short-circuit halt: chain step returned Ok but wants to stop further
@@ -1917,7 +2094,7 @@ func emitAfterSlot(buf *bytes.Buffer, slotsAlias string, param collectionSlotPar
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tif _, slotErr := h.%s.Evaluate(r.Context(), &%s.%s{Entity: %q, Action: %q}); slotErr != nil {\n",
 		param.FieldName, slotsAlias, param.RequestType, entityName, string(op))
-	fmt.Fprintf(buf, "\t\t\thttp.Error(w, slotErr.Error(), http.StatusInternalServerError)\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
 	fmt.Fprintf(buf, "\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")

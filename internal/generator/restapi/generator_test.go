@@ -69,15 +69,16 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Expect 3 files: handler_user.go, router.go, openapi.json
-	if len(files) != 3 {
-		t.Fatalf("expected 3 files, got %d", len(files))
+	// Expect 4 files: handler_user.go, router.go, errors.go, openapi.json
+	if len(files) != 4 {
+		t.Fatalf("expected 4 files, got %d", len(files))
 	}
 
 	// Verify file paths.
 	expectedPaths := map[string]bool{
 		"internal/api/handler_users.go": true,
 		"internal/api/router.go":        true,
+		"internal/api/errors.go":        true,
 		"internal/api/openapi.json":     true,
 	}
 	for _, f := range files {
@@ -246,7 +247,7 @@ func TestGenerate_NestedRouting(t *testing.T) {
 	if !strings.Contains(npHandler, `h.store.Exists(r.Context(), "Cluster"`) {
 		t.Error("nested handler missing parent Exists check")
 	}
-	if !strings.Contains(npHandler, `"Cluster not found"`) {
+	if !strings.Contains(npHandler, `NotFound("Cluster"`) {
 		t.Error("nested handler missing parent not-found error")
 	}
 
@@ -1149,15 +1150,16 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have handler_organizations.go, handler_users.go, router.go, openapi.json
-	if len(files) != 4 {
-		t.Fatalf("expected 4 files, got %d", len(files))
+	// Should have handler_organizations.go, handler_users.go, router.go, errors.go, openapi.json
+	if len(files) != 5 {
+		t.Fatalf("expected 5 files, got %d", len(files))
 	}
 
 	expectedPaths := map[string]bool{
 		"internal/api/handler_organizations.go": true,
 		"internal/api/handler_users.go":         true,
 		"internal/api/router.go":                true,
+		"internal/api/errors.go":                true,
 		"internal/api/openapi.json":             true,
 	}
 	for _, f := range files {
@@ -4693,6 +4695,333 @@ func TestGenerate_BasePathValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "base_path") {
 		t.Errorf("error should mention base_path, got: %v", err)
+	}
+}
+
+func TestDeriveErrorPrefix(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hyperfleet-api", "HYPERFLEETAPI"},
+		{"user-management", "USERMANAGEMENT"},
+		{"simple", "SIMPLE"},
+		{"a-b-c", "ABC"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := deriveErrorPrefix(tt.input)
+		if got != tt.want {
+			t.Errorf("deriveErrorPrefix(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestGenerate_ErrorsFileGenerated(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "hyperfleet-api"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	// AC1: ServiceError type with RFC 9457 fields.
+	for _, field := range []string{
+		"Type ", "Title ", "Status ", "Detail ", "Code ",
+		"Instance ", "TraceID ", "Timestamp ",
+		"ValidationErrors []ValidationError",
+	} {
+		if !strings.Contains(errorsContent, field) {
+			t.Errorf("errors.go missing ServiceError field containing %q", field)
+		}
+	}
+
+	// AC7: ValidationError type with field+message.
+	if !strings.Contains(errorsContent, "type ValidationError struct") {
+		t.Error("errors.go missing ValidationError struct")
+	}
+	if !strings.Contains(errorsContent, `Field   string`) {
+		t.Error("ValidationError missing Field")
+	}
+	if !strings.Contains(errorsContent, `Message string`) {
+		t.Error("ValidationError missing Message")
+	}
+
+	// AC2: Error constructors for all six categories.
+	// Prefix for "hyperfleet-api" is "HYPERFLEETAPI" (uppercased, hyphens removed).
+	constructors := []struct {
+		name string
+		code string
+	}{
+		{"func NotFound(", "HYPERFLEETAPI-NTF-001"},
+		{"func BadRequest(", "HYPERFLEETAPI-VAL-001"},
+		{"func Conflict(", "HYPERFLEETAPI-CNF-001"},
+		{"func Validation(", "HYPERFLEETAPI-VAL-000"},
+		{"func Unauthorized(", "HYPERFLEETAPI-AUT-001"},
+		{"func Forbidden(", "HYPERFLEETAPI-AUZ-001"},
+		{"func InternalError(", "HYPERFLEETAPI-INT-001"},
+	}
+	for _, c := range constructors {
+		if !strings.Contains(errorsContent, c.name) {
+			t.Errorf("errors.go missing constructor %s", c.name)
+		}
+		if !strings.Contains(errorsContent, c.code) {
+			t.Errorf("errors.go missing error code %s", c.code)
+		}
+	}
+
+	// AC4: handleError writes application/problem+json.
+	if !strings.Contains(errorsContent, `"application/problem+json"`) {
+		t.Error("errors.go missing application/problem+json content type")
+	}
+	if !strings.Contains(errorsContent, "func handleError(") {
+		t.Error("errors.go missing handleError function")
+	}
+}
+
+func TestGenerate_ErrorCodePrefixDerived(t *testing.T) {
+	// AC3: Error code prefix derived from service name.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "user-management"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, "USERMANAGEMENT-NTF-001") {
+		t.Error("error code prefix not derived from service name 'user-management'")
+	}
+	if !strings.Contains(errorsContent, "USERMANAGEMENT-VAL-001") {
+		t.Error("error code prefix not derived from service name 'user-management'")
+	}
+}
+
+func TestGenerate_ErrorTypeBasePopulatesTypeURI(t *testing.T) {
+	// AC5: error_type_base populates the type URI.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "hyperfleet-api"
+	ctx.ErrorTypeBase = "https://api.hyperfleet.io/errors/"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/not-found"`) {
+		t.Error("NotFound should use error_type_base for type URI")
+	}
+	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/bad-request"`) {
+		t.Error("BadRequest should use error_type_base for type URI")
+	}
+	if !strings.Contains(errorsContent, `"https://api.hyperfleet.io/errors/internal-error"`) {
+		t.Error("InternalError should use error_type_base for type URI")
+	}
+}
+
+func TestGenerate_ErrorTypeBaseAbsentUsesAboutBlank(t *testing.T) {
+	// When error_type_base is not set, type uses about:blank per RFC 9457.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+	ctx.ErrorTypeBase = ""
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, `"about:blank"`) {
+		t.Error("errors.go should use about:blank when error_type_base is not set")
+	}
+}
+
+func TestGenerate_HandlersUseHandleError(t *testing.T) {
+	// AC6: All handlers use handleError instead of raw http.Error.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+
+	// Must NOT contain http.Error.
+	if strings.Contains(handler, "http.Error(") {
+		t.Error("handler still contains http.Error() calls; should use handleError()")
+	}
+
+	// Must contain handleError calls for each error case.
+	expectedCalls := []string{
+		"handleError(w, r, BadRequest(",
+		"handleError(w, r, InternalError(",
+		"handleError(w, r, NotFound(",
+	}
+	for _, call := range expectedCalls {
+		if !strings.Contains(handler, call) {
+			t.Errorf("handler missing expected call: %s", call)
+		}
+	}
+}
+
+func TestGenerate_ErrorsFileCompiles(t *testing.T) {
+	// AC8+AC9: Generated errors.go compiles together with handlers.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
+			}},
+		},
+		OutputNamespace: "internal/api",
+		ServiceName:     "test-svc",
+		ErrorTypeBase:   "https://example.com/errors/",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with errors.go does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_HandleErrorPopulatesInstance(t *testing.T) {
+	// handleError should populate instance from request path.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, "svcErr.Instance = r.URL.Path") {
+		t.Error("handleError should populate instance from request path")
+	}
+}
+
+func TestGenerate_HandleErrorPopulatesTimestamp(t *testing.T) {
+	// handleError should populate timestamp.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	if !strings.Contains(errorsContent, "time.Now().UTC().Format(time.RFC3339)") {
+		t.Error("handleError should populate timestamp with UTC RFC3339")
+	}
+}
+
+func TestGenerate_ValidationErrorsArray(t *testing.T) {
+	// AC7: Validation errors include per-field details array.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	// Validation constructor accepts []ValidationError.
+	if !strings.Contains(errorsContent, "func Validation(errors []ValidationError)") {
+		t.Error("Validation constructor should accept []ValidationError")
+	}
+	// ServiceError has validation_errors JSON tag.
+	if !strings.Contains(errorsContent, `json:"validation_errors,omitempty"`) {
+		t.Error("ServiceError should have validation_errors JSON tag")
+	}
+}
+
+func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
+	// Slot error responses should use handleError, not raw http.Error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "testmod",
+		SlotsPackage:    "internal/slots",
+		ServiceName:     "test-svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	if strings.Contains(handler, "http.Error(") {
+		t.Error("handler with slots still uses http.Error; should use handleError")
+	}
+	if !strings.Contains(handler, "handleError(w, r, InternalError(slotErr.Error()))") {
+		t.Error("slot error should use handleError + InternalError")
 	}
 }
 
