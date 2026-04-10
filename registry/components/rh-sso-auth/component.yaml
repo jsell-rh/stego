@@ -1,0 +1,24 @@
+kind: component
+name: rh-sso-auth
+version: 1.0.0
+output_namespace: internal/auth
+
+config:
+  jwk_cert_url:
+    type: string
+    default: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
+  jwk_cert_file:
+    type: string
+    optional: true
+  public_paths:
+    type: list
+    items:
+      type: string
+    default: ["/healthcheck", "/metrics"]
+
+requires: []
+
+provides:
+  - auth-provider
+
+slots: []
