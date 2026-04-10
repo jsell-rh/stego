@@ -67,7 +67,8 @@ Components declare `requires` and `provides` ports. Resolution uses archetype de
 
 1. The archetype declares default bindings (`storage-adapter: postgres-adapter`)
 2. The service declaration can override any binding via `overrides:`
-3. Every resolved component is SHA-pinned in `.stego/state.yaml`
+3. When an override references a component not in the archetype's component list, the resolver must load that component from the registry and include it in the active component set. This enables swapping components (e.g. `jwt-auth` -> `rh-sso-auth`) without modifying the archetype.
+4. Every resolved component is SHA-pinned in `.stego/state.yaml`
 
 ```yaml
 # archetype declares defaults
