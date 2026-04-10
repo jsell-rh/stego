@@ -61,3 +61,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 - 9e2fb11 feat(task-030): end-to-end example with all rest-crud spec features
 - d5490a5 fix(task-030): address all 6 review findings from round 1
+- ee58fa9 fix(task-030): address all 4 review findings from round 2
