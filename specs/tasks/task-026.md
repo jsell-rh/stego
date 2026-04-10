@@ -71,3 +71,5 @@ The rest-crud archetype spec defines `request_validation: openapi-schema` as a c
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 2f6a6cd feat(task-026): add OpenAPI request body validation middleware
