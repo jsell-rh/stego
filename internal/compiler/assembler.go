@@ -916,6 +916,11 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		}
 
 		fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
+
+		// Emit deferred cleanup calls for this constructor if specified.
+		if deferCall, ok := cw.Wiring.ConstructorDeferCalls[entry.ConstructorIndex]; ok && deferCall != "" {
+			fmt.Fprintf(buf, "\tdefer %s.%s\n", varName, deferCall)
+		}
 	}
 	buf.WriteString("\n")
 	return wiringRenames, nil
@@ -1273,19 +1278,26 @@ func findMiddlewareVar(input AssemblerInput) (string, string, int, int) {
 // rawConstructorVarName derives a base Go variable name from a constructor expression.
 // "pkg.NewFooBar(args)" → "fooBar"
 // "pkg.NewStore(db)" → "store"
+// "auth.NewJWTHandler().WithKeysFile(...)" → "jWTHandler"
 func rawConstructorVarName(expr string) string {
-	// Extract the function name after the last dot before '('.
+	// Find the function name portion: the text between the last dot before
+	// the first '(' and the first '(' itself. Using the first '(' (not the
+	// last dot across the whole expression) avoids matching dots inside
+	// string arguments like "/etc/keys/jwk.json".
 	funcName := expr
-	if dotIdx := strings.LastIndex(expr, "."); dotIdx >= 0 {
-		funcName = expr[dotIdx+1:]
+	prefix := expr
+	if parenIdx := strings.Index(expr, "("); parenIdx >= 0 {
+		prefix = expr[:parenIdx]
 	}
-	if parenIdx := strings.Index(funcName, "("); parenIdx >= 0 {
-		funcName = funcName[:parenIdx]
+	if dotIdx := strings.LastIndex(prefix, "."); dotIdx >= 0 {
+		funcName = prefix[dotIdx+1:]
+	} else {
+		funcName = prefix
 	}
 
 	// Strip "New" prefix.
 	if strings.HasPrefix(funcName, "New") {
-		funcName = funcName[3:]
+		funcName = strings.TrimPrefix(funcName, "New")
 	}
 
 	if len(funcName) == 0 {

@@ -62,8 +62,8 @@ func TestGenerateDefaultConfig(t *testing.T) {
 	if len(wiring.Imports) != 1 || wiring.Imports[0] != "internal/auth" {
 		t.Errorf("expected imports [internal/auth], got %v", wiring.Imports)
 	}
-	if len(wiring.Constructors) != 1 || wiring.Constructors[0] != "auth.NewJWTHandler().Build()" {
-		t.Errorf("expected constructor auth.NewJWTHandler().Build(), got %v", wiring.Constructors)
+	if len(wiring.Constructors) != 1 || wiring.Constructors[0] != "auth.NewJWTHandler()" {
+		t.Errorf("expected constructor auth.NewJWTHandler(), got %v", wiring.Constructors)
 	}
 	if wiring.MiddlewareConstructor == nil {
 		t.Fatal("expected non-nil MiddlewareConstructor")
@@ -71,8 +71,15 @@ func TestGenerateDefaultConfig(t *testing.T) {
 	if *wiring.MiddlewareConstructor != 0 {
 		t.Errorf("expected MiddlewareConstructor=0, got %d", *wiring.MiddlewareConstructor)
 	}
-	if wiring.MiddlewareWrapExpr != "%s(%s)" {
-		t.Errorf("expected MiddlewareWrapExpr=%%s(%%s), got %s", wiring.MiddlewareWrapExpr)
+	if wiring.MiddlewareWrapExpr != "%s.Build()(%s)" {
+		t.Errorf("expected MiddlewareWrapExpr=%%s.Build()(%%s), got %s", wiring.MiddlewareWrapExpr)
+	}
+	// Verify defer call for Stop() cleanup.
+	if wiring.ConstructorDeferCalls == nil {
+		t.Fatal("expected non-nil ConstructorDeferCalls")
+	}
+	if wiring.ConstructorDeferCalls[0] != "Stop()" {
+		t.Errorf("expected ConstructorDeferCalls[0]=Stop(), got %s", wiring.ConstructorDeferCalls[0])
 	}
 }
 
@@ -368,8 +375,8 @@ func TestGenerateCustomNamespace(t *testing.T) {
 	if wiring.Imports[0] != "pkg/authn" {
 		t.Errorf("expected import pkg/authn, got %s", wiring.Imports[0])
 	}
-	if wiring.Constructors[0] != "authn.NewJWTHandler().Build()" {
-		t.Errorf("expected constructor authn.NewJWTHandler().Build(), got %s", wiring.Constructors[0])
+	if wiring.Constructors[0] != "authn.NewJWTHandler()" {
+		t.Errorf("expected constructor authn.NewJWTHandler(), got %s", wiring.Constructors[0])
 	}
 
 	// Verify compilation.
@@ -577,9 +584,10 @@ func TestMiddlewareWiringIsFunctionType(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Build() returns func(http.Handler) http.Handler, so wrap expression is %s(%s).
-	if wiring.MiddlewareWrapExpr != "%s(%s)" {
-		t.Errorf("middleware wrap expression should be %%s(%%s) for function-type, got %s", wiring.MiddlewareWrapExpr)
+	// Constructor returns *JWTHandler; Build() is called in the wrap expression
+	// to produce the middleware function, then applied to the handler.
+	if wiring.MiddlewareWrapExpr != "%s.Build()(%s)" {
+		t.Errorf("middleware wrap expression should be %%s.Build()(%%s) for builder-type, got %s", wiring.MiddlewareWrapExpr)
 	}
 }
 

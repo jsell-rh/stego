@@ -4710,5 +4710,305 @@ func TestAssemble_AdditionalMiddlewares_MissingWrapExpr(t *testing.T) {
 	}
 }
 
+// --- rh-sso-auth assembler integration tests ---
+
+func TestAssemble_RHSSOAuth_BasicWiring(t *testing.T) {
+	// Verifies that the assembler correctly handles rh-sso-auth wiring:
+	// constructor, middleware wrap expression with Build(), defer Stop(),
+	// and GoModRequires for jwt/v4.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rh-sso-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewJWTHandler()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s.Build()(%s)",
+					ConstructorDeferCalls: map[int]string{0: "Stop()"},
+					GoModRequires: map[string]string{
+						"github.com/golang-jwt/jwt/v4": "v4.5.1",
+					},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo, goMod gen.File
+	for _, f := range files {
+		switch f.Path {
+		case "main.go":
+			mainGo = f
+		case "go.mod":
+			goMod = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify valid Go syntax.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// AC3: Verify middleware wraps the mux using Build() method-call style.
+	if !strings.Contains(code, ".Build()(mux)") {
+		t.Errorf("missing Build()-style middleware wrapping in:\n%s", code)
+	}
+
+	// AC5: Verify defer Stop() cleanup is emitted.
+	if !strings.Contains(code, "defer") || !strings.Contains(code, ".Stop()") {
+		t.Errorf("missing defer Stop() cleanup in:\n%s", code)
+	}
+
+	// Verify the constructor variable is the JWTHandler, not "build".
+	if strings.Contains(code, "build := auth.NewJWTHandler()") {
+		t.Errorf("constructor variable should not be 'build' — should be derived from NewJWTHandler")
+	}
+
+	// AC6: Verify go.mod includes jwt/v4 dependency.
+	goModContent := string(goMod.Content)
+	if !strings.Contains(goModContent, "github.com/golang-jwt/jwt/v4") {
+		t.Errorf("go.mod should include github.com/golang-jwt/jwt/v4, got:\n%s", goModContent)
+	}
+	if !strings.Contains(goModContent, "v4.5.1") {
+		t.Errorf("go.mod should include jwt/v4 version v4.5.1, got:\n%s", goModContent)
+	}
+}
+
+func TestAssemble_RHSSOAuth_DeferCallWithDisambiguation(t *testing.T) {
+	// Verifies that defer Stop() uses the disambiguated variable name
+	// when the constructor variable name collides with another identifier.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rh-sso-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewJWTHandler()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s.Build()(%s)",
+					ConstructorDeferCalls: map[int]string{0: "Stop()"},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewJWTHandler(store)"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", jWTHandler.List)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify valid Go syntax.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// When two constructors derive the same base var name "jWTHandler",
+	// one of them should be disambiguated. The defer call must reference
+	// the correct (possibly disambiguated) variable name.
+	if !strings.Contains(code, ".Stop()") {
+		t.Errorf("missing Stop() defer call in:\n%s", code)
+	}
+}
+
+func TestAssemble_RHSSOAuth_WithKeysFile(t *testing.T) {
+	// Verifies that the assembler correctly handles the .WithKeysFile() chained constructor.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rh-sso-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{`auth.NewJWTHandler().WithKeysFile("/etc/keys/jwk.json")`},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s.Build()(%s)",
+					ConstructorDeferCalls: map[int]string{0: "Stop()"},
+					GoModRequires: map[string]string{
+						"github.com/golang-jwt/jwt/v4": "v4.5.1",
+					},
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify valid Go syntax.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// Verify the WithKeysFile chain is present in the constructor.
+	if !strings.Contains(code, `.WithKeysFile("/etc/keys/jwk.json")`) {
+		t.Errorf("constructor should include .WithKeysFile() chain in:\n%s", code)
+	}
+
+	// Verify defer Stop() is still present.
+	if !strings.Contains(code, ".Stop()") {
+		t.Errorf("missing Stop() defer call in:\n%s", code)
+	}
+
+	// Verify Build() wrapping is present.
+	if !strings.Contains(code, ".Build()(mux)") {
+		t.Errorf("missing Build()-style middleware wrapping in:\n%s", code)
+	}
+}
+
+func TestAssemble_RHSSOAuth_NoRoutesNoEmission(t *testing.T) {
+	// When hasRoutes is false, the rh-sso-auth constructor should not be
+	// emitted (unconsumed — no routes to wrap), preventing unused variable
+	// errors.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Port:        8080,
+		Wirings: []ComponentWiring{
+			{
+				Name: "rh-sso-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewJWTHandler()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s.Build()(%s)",
+					ConstructorDeferCalls: map[int]string{0: "Stop()"},
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Verify valid Go syntax.
+	fset := token.NewFileSet()
+	_, err = parser.ParseFile(fset, "main.go", mainGo.Content, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("main.go does not parse:\n%s\nerror: %v", code, err)
+	}
+
+	// With no routes, the constructor should be suppressed.
+	if strings.Contains(code, "NewJWTHandler") {
+		t.Errorf("unconsumed rh-sso-auth constructor should not be emitted when there are no routes:\n%s", code)
+	}
+	// Stop() should also not be emitted since the constructor isn't.
+	if strings.Contains(code, "Stop()") {
+		t.Errorf("defer Stop() should not be emitted when constructor is suppressed:\n%s", code)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

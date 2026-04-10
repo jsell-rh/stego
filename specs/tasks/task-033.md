@@ -2,7 +2,7 @@
 
 **Spec Reference:** [specs/registry/components/rh-sso-auth/spec.md](../registry/components/rh-sso-auth/spec.md) -- "Wiring" and "Environment Variables" sections
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-032 (rh-sso-auth generator)
 

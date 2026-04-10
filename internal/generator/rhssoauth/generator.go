@@ -67,19 +67,22 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	files := []gen.File{middlewareFile, contextFile}
 
-	// Build the constructor expression, chaining .WithKeysFile() if configured.
+	// Build the constructor expression. The constructor returns *JWTHandler
+	// (not the middleware function). Build() is called in the MiddlewareWrapExpr
+	// to produce the func(http.Handler) http.Handler, and Stop() is deferred
+	// for cleanup of the background key refresh goroutine.
 	constructorExpr := fmt.Sprintf("%s.NewJWTHandler()", pkg)
 	if jwkCertFile != "" {
 		constructorExpr += fmt.Sprintf(".WithKeysFile(%q)", jwkCertFile)
 	}
-	constructorExpr += ".Build()"
 
 	middlewareIdx := 0
 	wiring := &gen.Wiring{
 		Imports:               []string{ns},
 		Constructors:          []string{constructorExpr},
 		MiddlewareConstructor: &middlewareIdx,
-		MiddlewareWrapExpr:    "%s(%s)",
+		MiddlewareWrapExpr:    "%s.Build()(%s)",
+		ConstructorDeferCalls: map[int]string{0: "Stop()"},
 		GoModRequires: map[string]string{
 			"github.com/golang-jwt/jwt/v4": "v4.5.1",
 		},

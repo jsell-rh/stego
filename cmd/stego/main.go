@@ -17,6 +17,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
+	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
@@ -791,6 +792,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"postgres-adapter": &postgresadapter.Generator{},
 		"tsl-search":       &tslsearch.Generator{},
 		"jwt-auth":         &jwtauth.Generator{},
+		"rh-sso-auth":      &rhssoauth.Generator{},
 		"otel-tracing":     &oteltracing.Generator{},
 		"health-check":     &healthcheck.Generator{},
 	}

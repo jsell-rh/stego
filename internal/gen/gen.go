@@ -195,6 +195,13 @@ type Wiring struct {
 	// primary MiddlewareConstructor (auth) is always applied outermost
 	// of all, after these.
 	Middlewares []MiddlewareSpec
+
+	// ConstructorDeferCalls maps constructor index to a method call
+	// expression that should be deferred after the constructor variable is
+	// declared. For example, {0: "Stop()"} causes the assembler to emit
+	// `defer jwtHandler.Stop()` after `jwtHandler := auth.NewJWTHandler()`.
+	// The assembler prepends the disambiguated variable name and a dot.
+	ConstructorDeferCalls map[int]string
 }
 
 // MiddlewareSpec describes a middleware constructor and how it wraps the
