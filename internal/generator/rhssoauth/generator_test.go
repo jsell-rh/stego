@@ -233,6 +233,16 @@ func TestGenerateMiddlewareContent(t *testing.T) {
 		t.Error("middleware should check AUTH_ENABLED environment variable")
 	}
 
+	// JWK_CERT_URL env override in Build().
+	if !strings.Contains(content, `os.Getenv("JWK_CERT_URL")`) {
+		t.Error("Build() should read JWK_CERT_URL from environment")
+	}
+
+	// JWK_CERT_FILE env override in Build().
+	if !strings.Contains(content, `os.Getenv("JWK_CERT_FILE")`) {
+		t.Error("Build() should read JWK_CERT_FILE from environment")
+	}
+
 	// Refresh intervals.
 	if !strings.Contains(content, "5 * time.Minute") {
 		t.Error("middleware should use 5-minute refresh for file source")
@@ -570,5 +580,119 @@ func TestMiddlewareWiringIsFunctionType(t *testing.T) {
 	// Build() returns func(http.Handler) http.Handler, so wrap expression is %s(%s).
 	if wiring.MiddlewareWrapExpr != "%s(%s)" {
 		t.Errorf("middleware wrap expression should be %%s(%%s) for function-type, got %s", wiring.MiddlewareWrapExpr)
+	}
+}
+
+// --- Runtime env var configuration in Build() ---
+
+func TestBuildReadsEnvVarsAtRuntime(t *testing.T) {
+	ctx := gen.Context{
+		OutputNamespace: "internal/auth",
+		ComponentConfig: map[string]any{},
+		ServiceName:     "test-service",
+	}
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(files[0].Content)
+
+	// Build() must read JWK_CERT_URL before the initial key load.
+	urlIdx := strings.Index(content, `os.Getenv("JWK_CERT_URL")`)
+	if urlIdx < 0 {
+		t.Fatal("Build() must read JWK_CERT_URL from environment")
+	}
+
+	// Build() must read JWK_CERT_FILE before the initial key load.
+	fileIdx := strings.Index(content, `os.Getenv("JWK_CERT_FILE")`)
+	if fileIdx < 0 {
+		t.Fatal("Build() must read JWK_CERT_FILE from environment")
+	}
+
+	// Both env var reads must appear before the initial key load (refreshKeys call).
+	refreshIdx := strings.Index(content, "h.refreshKeys()")
+	if refreshIdx < 0 {
+		t.Fatal("Build() must call refreshKeys()")
+	}
+	if urlIdx > refreshIdx {
+		t.Error("JWK_CERT_URL env read must occur before initial refreshKeys() call")
+	}
+	if fileIdx > refreshIdx {
+		t.Error("JWK_CERT_FILE env read must occur before initial refreshKeys() call")
+	}
+
+	// Verify the env var reads set the handler fields.
+	if !strings.Contains(content, "h.keysURL = url") {
+		t.Error("JWK_CERT_URL env var should set h.keysURL")
+	}
+	if !strings.Contains(content, "h.keysFile = file") {
+		t.Error("JWK_CERT_FILE env var should set h.keysFile")
+	}
+}
+
+// --- TOCTOU race prevention in tryRefresh ---
+
+func TestTryRefreshUpdatesLastRefreshBeforeUnlock(t *testing.T) {
+	ctx := gen.Context{
+		OutputNamespace: "internal/auth",
+		ComponentConfig: map[string]any{},
+		ServiceName:     "test-service",
+	}
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(files[0].Content)
+
+	// Find the tryRefresh method body.
+	tryRefreshIdx := strings.Index(content, "func (h *JWTHandler) tryRefresh()")
+	if tryRefreshIdx < 0 {
+		t.Fatal("middleware must contain tryRefresh method")
+	}
+
+	// Extract tryRefresh method body (up to the next top-level function).
+	tryRefreshBody := content[tryRefreshIdx:]
+	nextFuncIdx := strings.Index(tryRefreshBody[1:], "\nfunc ")
+	if nextFuncIdx > 0 {
+		tryRefreshBody = tryRefreshBody[:nextFuncIdx+1]
+	}
+
+	// The lastRefresh update must occur BEFORE the Unlock that precedes refreshKeys.
+	// Find the order: h.lastRefresh = time.Now() must come before h.mu.Unlock()
+	// (after the cooldown check's early-return Unlock).
+	//
+	// The pattern should be:
+	//   h.mu.Lock()
+	//   if time.Since(h.lastRefresh) < 30*time.Second {
+	//     h.mu.Unlock()
+	//     return
+	//   }
+	//   h.lastRefresh = time.Now()  // <-- before unlock
+	//   h.mu.Unlock()
+	//   h.refreshKeys()
+
+	// Verify lastRefresh is updated in tryRefresh (not just in refreshKeys).
+	if !strings.Contains(tryRefreshBody, "h.lastRefresh = time.Now()") {
+		t.Error("tryRefresh must update lastRefresh while holding the lock")
+	}
+
+	// Verify the order: lastRefresh update appears before the second Unlock.
+	lastRefreshIdx := strings.Index(tryRefreshBody, "h.lastRefresh = time.Now()")
+
+	// Find the second Unlock (first one is in the cooldown early-return).
+	firstUnlockIdx := strings.Index(tryRefreshBody, "h.mu.Unlock()")
+	secondUnlockStr := tryRefreshBody[firstUnlockIdx+len("h.mu.Unlock()"):]
+	secondUnlockOffset := strings.Index(secondUnlockStr, "h.mu.Unlock()")
+	if secondUnlockOffset < 0 {
+		t.Fatal("tryRefresh must have two Unlock calls")
+	}
+	secondUnlockIdx := firstUnlockIdx + len("h.mu.Unlock()") + secondUnlockOffset
+
+	if lastRefreshIdx > secondUnlockIdx {
+		t.Error("lastRefresh update must occur before the second Unlock (TOCTOU prevention)")
 	}
 }
