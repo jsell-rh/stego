@@ -2,7 +2,7 @@
 
 **Spec Reference:** [specs/registry/archetypes/rest-crud/spec.md](../registry/archetypes/rest-crud/spec.md) -- "Path Derivation Rules (must be implemented)"
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-035.md](../reviews/task-035.md)
 
