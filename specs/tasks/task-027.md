@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Components > tsl-search" (rest-crud spec)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-027.md](../reviews/task-027.md)
 

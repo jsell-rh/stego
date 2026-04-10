@@ -404,6 +404,10 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"context\"\n")
 	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	if apiAlias == "" {
+		// Standalone mode needs errors for ErrSearch.
+		fmt.Fprintf(&buf, "\t\"errors\"\n")
+	}
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\n")
 	if apiPkg != "" {
@@ -439,6 +443,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		fmt.Fprintf(&buf, "\tItems any\n")
 		fmt.Fprintf(&buf, "\tTotal int64\n")
 		fmt.Fprintf(&buf, "}\n\n")
+
+		fmt.Fprintf(&buf, "// ErrSearch is returned when a search expression is invalid.\n")
+		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
 	}
 
 	// Store struct and constructor.
@@ -635,11 +642,18 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t}\n")
 
 		// Apply TSL search filter when the search engine is available.
+		// Search parse/validation errors are wrapped with ErrSearch so the
+		// handler can distinguish client-input errors (400) from infrastructure
+		// errors (500).
 		if searchAlias != "" {
+			errSearchRef := "ErrSearch"
+			if apiAlias != "" {
+				errSearchRef = apiAlias + ".ErrSearch"
+			}
 			fmt.Fprintf(buf, "\t\tif opts.Search != \"\" {\n")
 			fmt.Fprintf(buf, "\t\t\tsearchResult, err := %s.NewSearchEngine().ParseSearch(%q, opts.Search)\n", searchAlias, e.Name)
 			fmt.Fprintf(buf, "\t\t\tif err != nil {\n")
-			fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"search error: %%w\", err)\n", listResultType)
+			fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"%%w: %%s\", %s, err)\n", listResultType, errSearchRef)
 			fmt.Fprintf(buf, "\t\t\t}\n")
 			fmt.Fprintf(buf, "\t\t\tif searchResult != nil {\n")
 			fmt.Fprintf(buf, "\t\t\t\tquery = query.Where(searchResult.Where, searchResult.Args...)\n")

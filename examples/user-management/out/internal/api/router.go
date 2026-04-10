@@ -12,6 +12,10 @@ import (
 // Storage implementations must return this error (or wrap it) for not-found cases.
 var ErrNotFound = errors.New("entity not found")
 
+// ErrSearch is returned by Storage.List when the search expression is invalid.
+// Storage implementations must wrap search-related errors with this sentinel.
+var ErrSearch = errors.New("search error")
+
 // OrderByField represents a single ordering criterion.
 type OrderByField struct {
 	Field     string

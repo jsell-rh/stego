@@ -226,7 +226,11 @@ func (h *OrgUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	scopeValue := r.PathValue("org_id")
 	listResult, err := h.store.List(r.Context(), "User", "org_id", scopeValue, opts)
 	if err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrSearch) {
+			handleError(w, r, BadRequest(err.Error()))
+		} else {
+			handleError(w, r, InternalError(err.Error()))
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

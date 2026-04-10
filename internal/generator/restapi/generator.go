@@ -351,7 +351,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			needStrconv = true
 			hasList = true
 		}
-		if op == types.OpRead || op == types.OpPatch {
+		if op == types.OpRead || op == types.OpPatch || op == types.OpList {
 			needErrors = true
 		}
 		if op == types.OpCreate {
@@ -860,7 +860,11 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	}
 
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrSearch) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
@@ -1114,6 +1118,13 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
 	fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
 	fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
+
+	// ErrSearch is returned by Storage.List when the search expression is invalid
+	// (parse failure, unknown field). Handlers use errors.Is to distinguish
+	// client-input search errors (400) from infrastructure errors (500).
+	fmt.Fprintf(&buf, "// ErrSearch is returned by Storage.List when the search expression is invalid.\n")
+	fmt.Fprintf(&buf, "// Storage implementations must wrap search-related errors with this sentinel.\n")
+	fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
 
 	// OrderByField represents a single ordering criterion for list queries.
 	fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
@@ -2179,6 +2190,7 @@ func safeVarName(name string) string {
 var reservedTypeNames = map[string]bool{
 	"Storage":         true, // type Storage interface { ... } in router.go
 	"ErrNotFound":     true, // var ErrNotFound in router.go
+	"ErrSearch":       true, // var ErrSearch in router.go
 	"ServiceError":    true, // type ServiceError struct { ... } in errors.go
 	"ValidationError": true, // type ValidationError struct { ... } in errors.go
 	"NotFound":        true, // func NotFound() in errors.go

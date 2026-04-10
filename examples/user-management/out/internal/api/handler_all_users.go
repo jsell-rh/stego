@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -85,7 +86,11 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}
 	listResult, err := h.store.List(r.Context(), "User", "", "", opts)
 	if err != nil {
-		handleError(w, r, InternalError(err.Error()))
+		if errors.Is(err, ErrSearch) {
+			handleError(w, r, BadRequest(err.Error()))
+		} else {
+			handleError(w, r, InternalError(err.Error()))
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

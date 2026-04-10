@@ -130,7 +130,7 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("Organization", opts.Search)
 			if err != nil {
-				return api.ListResult{}, fmt.Errorf("search error: %w", err)
+				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
 			}
 			if searchResult != nil {
 				query = query.Where(searchResult.Where, searchResult.Args...)
@@ -179,7 +179,7 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("User", opts.Search)
 			if err != nil {
-				return api.ListResult{}, fmt.Errorf("search error: %w", err)
+				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
 			}
 			if searchResult != nil {
 				query = query.Where(searchResult.Where, searchResult.Args...)

@@ -49,8 +49,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// need GoModRequires for the TSL and squirrel dependencies.
 	wiring := &gen.Wiring{
 		GoModRequires: map[string]string{
-			"github.com/yaacov/tree-search-language": "v0.3.2",
-			"github.com/Masterminds/squirrel":        "v1.5.4",
+			"github.com/yaacov/tree-search-language/v5": "v5.2.12",
+			"github.com/Masterminds/squirrel":           "v1.5.4",
 		},
 	}
 
@@ -73,7 +73,6 @@ func generateSearchFile(ns, pkg string, entities []types.Entity) (gen.File, erro
 	fmt.Fprintf(&buf, "\t\"sort\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\n")
-	fmt.Fprintf(&buf, "\tsq \"github.com/Masterminds/squirrel\"\n")
 	fmt.Fprintf(&buf, "\t\"github.com/yaacov/tree-search-language/v5/pkg/tsl\"\n")
 	fmt.Fprintf(&buf, "\twalker \"github.com/yaacov/tree-search-language/v5/pkg/walkers/sql\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
@@ -130,16 +129,18 @@ func generateSearchFile(ns, pkg string, entities []types.Entity) (gen.File, erro
 	fmt.Fprintf(&buf, "\t// Map field names to column names in the AST.\n")
 	fmt.Fprintf(&buf, "\tmappedTree := mapFieldNames(tree, fieldMap)\n\n")
 
-	fmt.Fprintf(&buf, "\t// Convert TSL AST to SQL WHERE clause using the TSL SQL walker.\n")
-	fmt.Fprintf(&buf, "\twhere, err := walker.Walk(mappedTree)\n")
+	fmt.Fprintf(&buf, "\t// Convert TSL AST to a squirrel Sqlizer using the TSL SQL walker.\n")
+	fmt.Fprintf(&buf, "\t// The walker returns a sq.Sqlizer that produces parameterized SQL\n")
+	fmt.Fprintf(&buf, "\t// with ? placeholders and bound args — preventing SQL injection.\n")
+	fmt.Fprintf(&buf, "\tfilter, err := walker.Walk(mappedTree)\n")
 	fmt.Fprintf(&buf, "\tif err != nil {\n")
 	fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"converting search to SQL: %%w\", err)\n")
 	fmt.Fprintf(&buf, "\t}\n\n")
 
-	fmt.Fprintf(&buf, "\t// Use squirrel to parameterize the WHERE clause for SQL injection prevention.\n")
-	fmt.Fprintf(&buf, "\tparamWhere, args, err := sq.Expr(where).ToSql()\n")
+	fmt.Fprintf(&buf, "\t// Extract parameterized WHERE clause and bind arguments from the Sqlizer.\n")
+	fmt.Fprintf(&buf, "\tparamWhere, args, err := filter.ToSql()\n")
 	fmt.Fprintf(&buf, "\tif err != nil {\n")
-	fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"parameterizing search clause: %%w\", err)\n")
+	fmt.Fprintf(&buf, "\t\treturn nil, fmt.Errorf(\"extracting search clause: %%w\", err)\n")
 	fmt.Fprintf(&buf, "\t}\n\n")
 
 	fmt.Fprintf(&buf, "\treturn &SearchResult{Where: paramWhere, Args: args}, nil\n")

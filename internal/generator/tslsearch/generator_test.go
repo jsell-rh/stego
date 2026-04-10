@@ -91,9 +91,11 @@ func TestGenerate_GoModDependencies(t *testing.T) {
 		t.Fatal("GoModRequires must not be nil")
 	}
 
-	tslDep := "github.com/yaacov/tree-search-language"
-	if _, ok := wiring.GoModRequires[tslDep]; !ok {
+	tslDep := "github.com/yaacov/tree-search-language/v5"
+	if v, ok := wiring.GoModRequires[tslDep]; !ok {
 		t.Errorf("GoModRequires missing TSL library dependency %q", tslDep)
+	} else if !strings.HasPrefix(v, "v5.") {
+		t.Errorf("TSL dependency version %q must be v5.x.x to match /v5 import path", v)
 	}
 
 	sqDep := "github.com/Masterminds/squirrel"
@@ -136,9 +138,9 @@ func TestGenerate_SearchFileContainsSearchEngine(t *testing.T) {
 		t.Error("search.go must import TSL library")
 	}
 
-	// Must import squirrel.
-	if !strings.Contains(content, "squirrel") {
-		t.Error("search.go must import squirrel")
+	// Must import TSL SQL walker (which internally uses squirrel for parameterization).
+	if !strings.Contains(content, "walkers/sql") {
+		t.Error("search.go must import TSL SQL walker")
 	}
 
 	// Must contain field validation.

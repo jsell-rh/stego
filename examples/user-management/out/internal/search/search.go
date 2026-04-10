@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 
-	sq "github.com/Masterminds/squirrel"
 	"github.com/yaacov/tree-search-language/v5/pkg/tsl"
 	walker "github.com/yaacov/tree-search-language/v5/pkg/walkers/sql"
 )
@@ -60,16 +59,18 @@ func (s *SearchEngine) ParseSearch(entity string, expr string) (*SearchResult, e
 	// Map field names to column names in the AST.
 	mappedTree := mapFieldNames(tree, fieldMap)
 
-	// Convert TSL AST to SQL WHERE clause using the TSL SQL walker.
-	where, err := walker.Walk(mappedTree)
+	// Convert TSL AST to a squirrel Sqlizer using the TSL SQL walker.
+	// The walker returns a sq.Sqlizer that produces parameterized SQL
+	// with ? placeholders and bound args — preventing SQL injection.
+	filter, err := walker.Walk(mappedTree)
 	if err != nil {
 		return nil, fmt.Errorf("converting search to SQL: %w", err)
 	}
 
-	// Use squirrel to parameterize the WHERE clause for SQL injection prevention.
-	paramWhere, args, err := sq.Expr(where).ToSql()
+	// Extract parameterized WHERE clause and bind arguments from the Sqlizer.
+	paramWhere, args, err := filter.ToSql()
 	if err != nil {
-		return nil, fmt.Errorf("parameterizing search clause: %w", err)
+		return nil, fmt.Errorf("extracting search clause: %w", err)
 	}
 
 	return &SearchResult{Where: paramWhere, Args: args}, nil

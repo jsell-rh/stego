@@ -8,7 +8,7 @@ require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/getkin/kin-openapi v0.128.0
 	github.com/google/uuid v1.6.0
-	github.com/yaacov/tree-search-language v0.3.2
+	github.com/yaacov/tree-search-language/v5 v5.2.12
 	gorm.io/datatypes v1.2.5
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.12
