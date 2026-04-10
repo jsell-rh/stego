@@ -716,7 +716,9 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
 	}
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t} else if errors.Is(err, ErrConflict) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
 	fmt.Fprintf(buf, "\t\t} else {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")
@@ -989,6 +991,9 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	// local entity variable is a phantom — the DB preserved the existing
 	// row's ID. Read the actual record back via List with the upsert key
 	// fields as a scope filter so the response returns the real ID.
+	// The store returns storage-package types, so we convert via JSON
+	// marshal/unmarshal to avoid cross-package type assertion failures
+	// (see Patch handler for the same pattern).
 	fmt.Fprintf(buf, "\tif !created {\n")
 	if eb.ParentEntity() != "" {
 		fmt.Fprintf(buf, "\t\tlistResult, listErr := h.store.List(r.Context(), %q, %q, r.PathValue(%q), ListOptions{Page: 1, Size: 65500})\n",
@@ -998,20 +1003,24 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 			entity.Name)
 	}
 	fmt.Fprintf(buf, "\t\tif listErr == nil {\n")
-	fmt.Fprintf(buf, "\t\t\tif items, ok := listResult.Items.([]%s); ok {\n", entity.Name)
-	fmt.Fprintf(buf, "\t\t\t\tfor _, item := range items {\n")
+	fmt.Fprintf(buf, "\t\t\titemsData, marshalErr := json.Marshal(listResult.Items)\n")
+	fmt.Fprintf(buf, "\t\t\tif marshalErr == nil {\n")
+	fmt.Fprintf(buf, "\t\t\t\tvar items []%s\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\tif json.Unmarshal(itemsData, &items) == nil {\n")
+	fmt.Fprintf(buf, "\t\t\t\t\tfor _, item := range items {\n")
 	// Match the upsert key fields to find the actual record.
 	for i, k := range eb.UpsertKey {
 		goName := toPascalCase(k)
 		if i == 0 {
-			fmt.Fprintf(buf, "\t\t\t\t\tif item.%s == %s.%s", goName, lower, goName)
+			fmt.Fprintf(buf, "\t\t\t\t\t\tif item.%s == %s.%s", goName, lower, goName)
 		} else {
 			fmt.Fprintf(buf, " && item.%s == %s.%s", goName, lower, goName)
 		}
 	}
 	fmt.Fprintf(buf, " {\n")
-	fmt.Fprintf(buf, "\t\t\t\t\t\t%s = item\n", lower)
-	fmt.Fprintf(buf, "\t\t\t\t\t\tbreak\n")
+	fmt.Fprintf(buf, "\t\t\t\t\t\t\t%s = item\n", lower)
+	fmt.Fprintf(buf, "\t\t\t\t\t\t\tbreak\n")
+	fmt.Fprintf(buf, "\t\t\t\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
@@ -1122,7 +1131,9 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 
 	// Step 4: Save via Replace (full entity save after merge).
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
-	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrConflict) {\n")
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t} else if errors.Is(err, ErrConflict) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, Conflict(\"resource already exists\"))\n")
 	fmt.Fprintf(buf, "\t\t} else {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"internal error\"))\n")

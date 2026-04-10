@@ -154,7 +154,9 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 	user.ID = id
 	user.OrgID = r.PathValue("org_id")
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		if errors.Is(err, ErrConflict) {
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else if errors.Is(err, ErrConflict) {
 			handleError(w, r, Conflict("resource already exists"))
 		} else {
 			handleError(w, r, InternalError("internal error"))
@@ -346,7 +348,9 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		user.Metadata = patch.Metadata
 	}
 	if err := h.store.Replace(r.Context(), "User", id, user); err != nil {
-		if errors.Is(err, ErrConflict) {
+		if errors.Is(err, ErrNotFound) {
+			handleError(w, r, NotFound("User", id))
+		} else if errors.Is(err, ErrConflict) {
 			handleError(w, r, Conflict("resource already exists"))
 		} else {
 			handleError(w, r, InternalError("internal error"))

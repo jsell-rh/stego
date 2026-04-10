@@ -175,11 +175,15 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	if !created {
 		listResult, listErr := h.store.List(r.Context(), "OrgSetting", "org_id", r.PathValue("org_id"), ListOptions{Page: 1, Size: 65500})
 		if listErr == nil {
-			if items, ok := listResult.Items.([]OrgSetting); ok {
-				for _, item := range items {
-					if item.OrgID == orgsetting.OrgID && item.Key == orgsetting.Key {
-						orgsetting = item
-						break
+			itemsData, marshalErr := json.Marshal(listResult.Items)
+			if marshalErr == nil {
+				var items []OrgSetting
+				if json.Unmarshal(itemsData, &items) == nil {
+					for _, item := range items {
+						if item.OrgID == orgsetting.OrgID && item.Key == orgsetting.Key {
+							orgsetting = item
+							break
+						}
 					}
 				}
 			}
