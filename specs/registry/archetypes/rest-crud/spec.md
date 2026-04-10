@@ -477,5 +477,16 @@ Entity field constraints (min_length, max_length, pattern, min, max, required) a
 
 ## Open Questions
 
-- Collection path derivation rules need to be specified precisely (how does `scope: { cluster_id: Cluster }` become `/clusters/{cluster_id}/nodepools`?)
 - Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
+
+## Path Derivation Rules (must be implemented)
+
+Collection paths must be derived from the entity name (pluralized, lowercased), not from the collection name. The collection name is an identifier for the service declaration; the URL path comes from the entity.
+
+Rules:
+1. **Unscoped collection:** path = `/{entity_plural}` (e.g. entity `Cluster` -> `/clusters`)
+2. **Scoped collection:** path = `/{parent_plural}/{parent_id_param}/{entity_plural}` (e.g. entity `NodePool` scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools`)
+3. **Multi-level scope:** chains parent paths recursively (e.g. entity `AdapterStatus` scoped to `NodePool` which is scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses`)
+4. **`path_prefix` override:** when set on a collection, replaces the derived path entirely (relative to `base_path`)
+
+Current bug: the generator uses the collection name (`cluster-nodepools`) as the URL segment instead of the entity plural (`nodepools`). This produces `/clusters/{cluster_id}/cluster-nodepools` instead of `/clusters/{cluster_id}/nodepools`.
