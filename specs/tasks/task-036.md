@@ -2,7 +2,7 @@
 
 ## Spec Reference
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **specs/spec.md — Port Resolution, item 3:**
 
