@@ -53,3 +53,4 @@ The spec says "the resolver must load that component from the registry." Current
 ## Commits
 
 - 413a753 feat(task-036): port resolver loads override components from registry
+- c82e92a fix(task-036): handle empty Component in InvalidBinding error formatting
