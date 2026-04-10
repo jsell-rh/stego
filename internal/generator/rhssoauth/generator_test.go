@@ -696,3 +696,133 @@ func TestTryRefreshUpdatesLastRefreshBeforeUnlock(t *testing.T) {
 		t.Error("lastRefresh update must occur before the second Unlock (TOCTOU prevention)")
 	}
 }
+
+// --- jwk_cert_file config field consumption ---
+
+func TestGenerateJWKCertFileFromConfig(t *testing.T) {
+	ctx := gen.Context{
+		OutputNamespace: "internal/auth",
+		ComponentConfig: map[string]any{
+			"jwk_cert_file": "/etc/keys/jwk.json",
+		},
+		ServiceName: "test-service",
+	}
+	g := &Generator{}
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The generated NewJWTHandler() must bake the keysFile default from config.
+	content := string(files[0].Content)
+	if !strings.Contains(content, `"/etc/keys/jwk.json"`) {
+		t.Error("NewJWTHandler() should bake jwk_cert_file config value as keysFile default")
+	}
+
+	// The wiring constructor must chain .WithKeysFile().
+	if len(wiring.Constructors) != 1 {
+		t.Fatalf("expected 1 constructor, got %d", len(wiring.Constructors))
+	}
+	if !strings.Contains(wiring.Constructors[0], ".WithKeysFile(") {
+		t.Errorf("wiring constructor should chain .WithKeysFile() when jwk_cert_file is set, got %s", wiring.Constructors[0])
+	}
+	if !strings.Contains(wiring.Constructors[0], `"/etc/keys/jwk.json"`) {
+		t.Errorf("wiring constructor should contain the config file path, got %s", wiring.Constructors[0])
+	}
+
+	// Verify file still compiles.
+	rendered := files[0].Bytes()
+	if _, err := format.Source(rendered); err != nil {
+		t.Fatalf("middleware.go does not compile: %v", err)
+	}
+}
+
+func TestGenerateJWKCertFileAbsentFromConfig(t *testing.T) {
+	ctx := gen.Context{
+		OutputNamespace: "internal/auth",
+		ComponentConfig: map[string]any{},
+		ServiceName:     "test-service",
+	}
+	g := &Generator{}
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// When jwk_cert_file is not set, the wiring constructor should NOT chain
+	// .WithKeysFile().
+	if strings.Contains(wiring.Constructors[0], ".WithKeysFile(") {
+		t.Errorf("wiring constructor should not chain .WithKeysFile() when jwk_cert_file is absent, got %s", wiring.Constructors[0])
+	}
+}
+
+// --- AUTH_ENABLED startup-time evaluation ---
+
+func TestAuthEnabledCheckedAtBuildNotPerRequest(t *testing.T) {
+	ctx := gen.Context{
+		OutputNamespace: "internal/auth",
+		ComponentConfig: map[string]any{},
+		ServiceName:     "test-service",
+	}
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(files[0].Content)
+
+	// AUTH_ENABLED must be checked in Build(), not in the request handler closure.
+	// Find the Build() method body.
+	buildIdx := strings.Index(content, "func (h *JWTHandler) Build()")
+	if buildIdx < 0 {
+		t.Fatal("middleware must contain Build method")
+	}
+
+	// Extract Build method body (up to the next top-level function).
+	buildBody := content[buildIdx:]
+	nextFuncIdx := strings.Index(buildBody[1:], "\nfunc ")
+	if nextFuncIdx > 0 {
+		buildBody = buildBody[:nextFuncIdx+1]
+	}
+
+	// AUTH_ENABLED env var check must appear in Build body.
+	authEnabledIdx := strings.Index(buildBody, `os.Getenv("AUTH_ENABLED")`)
+	if authEnabledIdx < 0 {
+		t.Fatal("Build() must check AUTH_ENABLED at startup")
+	}
+
+	// The passthrough must appear BEFORE refreshKeys (i.e., no goroutine started).
+	refreshIdx := strings.Index(buildBody, "h.refreshKeys()")
+	if refreshIdx < 0 {
+		t.Fatal("Build() must call refreshKeys()")
+	}
+	if authEnabledIdx > refreshIdx {
+		t.Error("AUTH_ENABLED check must appear before refreshKeys() so passthrough skips goroutine startup")
+	}
+
+	// When AUTH_ENABLED=false, the return must be a simple passthrough (return next).
+	passthroughIdx := strings.Index(buildBody, "return next\n")
+	if passthroughIdx < 0 {
+		t.Error("Build() must return a passthrough (return next) when AUTH_ENABLED=false")
+	}
+
+	// The passthrough must not start any goroutine.
+	goRoutineIdx := strings.Index(buildBody, "go h.refreshLoop()")
+	if goRoutineIdx < 0 {
+		t.Fatal("Build() must start refreshLoop goroutine for enabled auth")
+	}
+	if passthroughIdx > goRoutineIdx {
+		t.Error("passthrough return must appear before goroutine start (disabled path returns early)")
+	}
+
+	// Verify the per-request closure does NOT contain AUTH_ENABLED check.
+	closureStart := strings.Index(buildBody, "return http.HandlerFunc(")
+	if closureStart < 0 {
+		t.Fatal("Build() must return an http.HandlerFunc for enabled auth")
+	}
+	closureBody := buildBody[closureStart:]
+	if strings.Contains(closureBody, `os.Getenv("AUTH_ENABLED")`) {
+		t.Error("per-request closure must NOT check AUTH_ENABLED; it should be decided at Build() time")
+	}
+}

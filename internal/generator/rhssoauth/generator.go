@@ -34,6 +34,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
+	var jwkCertFile string
+	if f, ok := ctx.ComponentConfig["jwk_cert_file"]; ok {
+		if s, ok := f.(string); ok && s != "" {
+			jwkCertFile = s
+		}
+	}
+
 	var publicPaths []string
 	if pp, ok := ctx.ComponentConfig["public_paths"]; ok {
 		if list, ok := pp.([]any); ok {
@@ -48,7 +55,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		publicPaths = []string{"/healthcheck", "/metrics"}
 	}
 
-	middlewareFile, err := generateMiddleware(ns, pkg, jwkCertURL, publicPaths, ctx.ServiceName, ctx.ErrorTypeBase, ctx.BasePath)
+	middlewareFile, err := generateMiddleware(ns, pkg, jwkCertURL, jwkCertFile, publicPaths, ctx.ServiceName, ctx.ErrorTypeBase, ctx.BasePath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,10 +67,17 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	files := []gen.File{middlewareFile, contextFile}
 
+	// Build the constructor expression, chaining .WithKeysFile() if configured.
+	constructorExpr := fmt.Sprintf("%s.NewJWTHandler()", pkg)
+	if jwkCertFile != "" {
+		constructorExpr += fmt.Sprintf(".WithKeysFile(%q)", jwkCertFile)
+	}
+	constructorExpr += ".Build()"
+
 	middlewareIdx := 0
 	wiring := &gen.Wiring{
 		Imports:               []string{ns},
-		Constructors:          []string{fmt.Sprintf("%s.NewJWTHandler().Build()", pkg)},
+		Constructors:          []string{constructorExpr},
 		MiddlewareConstructor: &middlewareIdx,
 		MiddlewareWrapExpr:    "%s(%s)",
 		GoModRequires: map[string]string{
@@ -92,7 +106,7 @@ func deriveErrorPrefix(serviceName string) string {
 // generateMiddleware produces the middleware.go file containing the JWTHandler
 // struct with builder pattern, JWK key management, RSA validation, and public
 // path bypass.
-func generateMiddleware(ns, pkg, jwkCertURL string, publicPaths []string, serviceName, errorTypeBase, basePath string) (gen.File, error) {
+func generateMiddleware(ns, pkg, jwkCertURL, jwkCertFile string, publicPaths []string, serviceName, errorTypeBase, basePath string) (gen.File, error) {
 	var buf bytes.Buffer
 
 	errorPrefix := deriveErrorPrefix(serviceName)
@@ -157,6 +171,9 @@ func generateMiddleware(ns, pkg, jwkCertURL string, publicPaths []string, servic
 	buf.WriteString("func NewJWTHandler() *JWTHandler {\n")
 	buf.WriteString("\treturn &JWTHandler{\n")
 	fmt.Fprintf(&buf, "\t\tkeysURL: %q,\n", jwkCertURL)
+	if jwkCertFile != "" {
+		fmt.Fprintf(&buf, "\t\tkeysFile: %q,\n", jwkCertFile)
+	}
 	buf.WriteString("\t\tpublicPaths: map[string]bool{\n")
 	for _, p := range publicPaths {
 		fullPath := p
@@ -195,6 +212,8 @@ func generateMiddleware(ns, pkg, jwkCertURL string, publicPaths []string, servic
 	// --- Build ---
 	buf.WriteString("// Build initializes the key cache and starts the background refresh\n")
 	buf.WriteString("// goroutine. Returns the middleware function.\n")
+	buf.WriteString("// When AUTH_ENABLED=false, returns a passthrough middleware without starting\n")
+	buf.WriteString("// the refresh goroutine.\n")
 	buf.WriteString("func (h *JWTHandler) Build() func(http.Handler) http.Handler {\n")
 	buf.WriteString("\t// Read runtime configuration from environment variables.\n")
 	buf.WriteString("\t// JWK_CERT_URL overrides the config default.\n")
@@ -204,6 +223,13 @@ func generateMiddleware(ns, pkg, jwkCertURL string, publicPaths []string, servic
 	buf.WriteString("\t// JWK_CERT_FILE overrides URL if set.\n")
 	buf.WriteString("\tif file := os.Getenv(\"JWK_CERT_FILE\"); file != \"\" {\n")
 	buf.WriteString("\t\th.keysFile = file\n")
+	buf.WriteString("\t}\n\n")
+	buf.WriteString("\t// AUTH_ENABLED=false disables auth entirely (development mode).\n")
+	buf.WriteString("\t// Return a passthrough middleware without starting key refresh.\n")
+	buf.WriteString("\tif strings.EqualFold(os.Getenv(\"AUTH_ENABLED\"), \"false\") {\n")
+	buf.WriteString("\t\treturn func(next http.Handler) http.Handler {\n")
+	buf.WriteString("\t\t\treturn next\n")
+	buf.WriteString("\t\t}\n")
 	buf.WriteString("\t}\n\n")
 	buf.WriteString("\t// Initial key load.\n")
 	buf.WriteString("\th.refreshKeys()\n")
@@ -215,11 +241,6 @@ func generateMiddleware(ns, pkg, jwkCertURL string, publicPaths []string, servic
 	buf.WriteString("\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
 	buf.WriteString("\t\t\t// Check if path is public.\n")
 	buf.WriteString("\t\t\tif h.publicPaths[r.URL.Path] {\n")
-	buf.WriteString("\t\t\t\tnext.ServeHTTP(w, r)\n")
-	buf.WriteString("\t\t\t\treturn\n")
-	buf.WriteString("\t\t\t}\n\n")
-	buf.WriteString("\t\t\t// Check AUTH_ENABLED.\n")
-	buf.WriteString("\t\t\tif strings.EqualFold(os.Getenv(\"AUTH_ENABLED\"), \"false\") {\n")
 	buf.WriteString("\t\t\t\tnext.ServeHTTP(w, r)\n")
 	buf.WriteString("\t\t\t\treturn\n")
 	buf.WriteString("\t\t\t}\n\n")
