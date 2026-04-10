@@ -275,6 +275,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	needJSON := false
 	needStrconv := false
 	needReflect := false
+	needErrors := false
 	for _, op := range eb.Operations {
 		if op != types.OpDelete {
 			needJSON = true
@@ -282,6 +283,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		if op == types.OpList {
 			needStrconv = true
 			needReflect = true
+		}
+		if op == types.OpRead {
+			needErrors = true
 		}
 	}
 
@@ -349,6 +353,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	fmt.Fprintf(&buf, "import (\n")
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
+	}
+	if needErrors {
+		fmt.Fprintf(&buf, "\t\"errors\"\n")
 	}
 	if needFmt {
 		fmt.Fprintf(&buf, "\t\"fmt\"\n")
@@ -535,7 +542,11 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
 	fmt.Fprintf(buf, "\tif err != nil {\n")
-	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t} else {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
@@ -748,13 +759,21 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	}
+	fmt.Fprintf(&buf, "\t\"errors\"\n")
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
 	fmt.Fprintf(&buf, ")\n\n")
 
+	// ErrNotFound is returned by Storage.Get when the entity does not exist.
+	// Handlers use errors.Is to distinguish not-found from infrastructure errors.
+	fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
+	fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
+	fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
+
 	// Storage interface used by all handlers.
 	fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
+	fmt.Fprintf(&buf, "// Get must return ErrNotFound when the entity does not exist.\n")
 	fmt.Fprintf(&buf, "type Storage interface {\n")
 	fmt.Fprintf(&buf, "\tCreate(ctx context.Context, entity string, value any) error\n")
 	fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
@@ -945,7 +964,60 @@ func generateErrors(ns string, serviceName string, errorTypeBase string) (gen.Fi
 	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/problem+json\")\n")
 	fmt.Fprintf(&buf, "\tw.WriteHeader(svcErr.Status)\n")
 	fmt.Fprintf(&buf, "\tjson.NewEncoder(w).Encode(svcErr)\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// errorForStatus maps an HTTP status code to a ServiceError with the correct
+	// error code category. Used by slot rejection paths where the status code is
+	// determined at runtime.
+	typeExpr := "\"about:blank\""
+	if errorTypeBase != "" {
+		typeExpr = fmt.Sprintf("%q + statusToSlug(status)", errorTypeBase)
+	}
+	fmt.Fprintf(&buf, "// errorForStatus creates a ServiceError with the correct error code for the\n")
+	fmt.Fprintf(&buf, "// given HTTP status code. Used when the status is determined at runtime.\n")
+	fmt.Fprintf(&buf, "func errorForStatus(status int, detail string) *ServiceError {\n")
+	fmt.Fprintf(&buf, "\tcategory := \"INT\"\n")
+	fmt.Fprintf(&buf, "\tswitch status {\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusBadRequest:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"VAL\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusUnauthorized:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"AUT\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusForbidden:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"AUZ\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusNotFound:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"NTF\"\n")
+	fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
+	fmt.Fprintf(&buf, "\t\tcategory = \"CNF\"\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\treturn &ServiceError{\n")
+	fmt.Fprintf(&buf, "\t\tType:   %s,\n", typeExpr)
+	fmt.Fprintf(&buf, "\t\tTitle:  http.StatusText(status),\n")
+	fmt.Fprintf(&buf, "\t\tStatus: status,\n")
+	fmt.Fprintf(&buf, "\t\tDetail: detail,\n")
+	fmt.Fprintf(&buf, "\t\tCode:   %q + \"-\" + category + \"-001\",\n", prefix)
+	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "}\n")
+
+	// If errorTypeBase is set, we need a statusToSlug helper for errorForStatus.
+	if errorTypeBase != "" {
+		fmt.Fprintf(&buf, "\n")
+		fmt.Fprintf(&buf, "func statusToSlug(status int) string {\n")
+		fmt.Fprintf(&buf, "\tswitch status {\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusBadRequest:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"bad-request\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusUnauthorized:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"unauthorized\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusForbidden:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"forbidden\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusNotFound:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"not-found\"\n")
+		fmt.Fprintf(&buf, "\tcase http.StatusConflict:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"conflict\"\n")
+		fmt.Fprintf(&buf, "\tdefault:\n")
+		fmt.Fprintf(&buf, "\t\treturn \"internal-error\"\n")
+		fmt.Fprintf(&buf, "\t}\n")
+		fmt.Fprintf(&buf, "}\n")
+	}
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -1387,6 +1459,7 @@ var handlerScopeIdentifiers = map[string]bool{
 	"w": true,
 	"r": true,
 	// Import aliases used in handler files.
+	"errors":  true, // errors (conditional for Read not-found check)
 	"json":    true, // encoding/json
 	"http":    true, // net/http
 	"reflect": true, // reflect (conditional for List actual item count)
@@ -1426,6 +1499,7 @@ func safeVarName(name string) string {
 // the problem.
 var reservedTypeNames = map[string]bool{
 	"Storage":         true, // type Storage interface { ... } in router.go
+	"ErrNotFound":     true, // var ErrNotFound in router.go
 	"ServiceError":    true, // type ServiceError struct { ... } in errors.go
 	"ValidationError": true, // type ValidationError struct { ... } in errors.go
 	"NotFound":        true, // func NotFound() in errors.go
@@ -2081,7 +2155,7 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
 	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
-	fmt.Fprintf(buf, "\t\t\thandleError(w, r, &ServiceError{Type: \"about:blank\", Title: http.StatusText(sc), Status: sc, Detail: slotResult.ErrorMessage})\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))\n")
 	fmt.Fprintf(buf, "\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	// Short-circuit halt: chain step returned Ok but wants to stop further

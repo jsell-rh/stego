@@ -5049,6 +5049,250 @@ func TestGenerate_SlotErrorsUseHandleError(t *testing.T) {
 	}
 }
 
+func TestGenerate_SlotRejectionIncludesCode(t *testing.T) {
+	// Round 2 finding: slot rejection errors must include Code field via
+	// errorForStatus, not an inline ServiceError{} without Code.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "testmod",
+		SlotsPackage:    "internal/slots",
+		ServiceName:     "test-svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Slot rejection must use errorForStatus (which sets Code), not inline ServiceError{}.
+	if !strings.Contains(handler, "handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))") {
+		t.Error("slot rejection should use errorForStatus to include Code field")
+	}
+	if strings.Contains(handler, "&ServiceError{Type:") {
+		t.Error("handler should not contain inline ServiceError{} construction — use error constructors")
+	}
+
+	// Verify errors.go contains errorForStatus function.
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+	if !strings.Contains(errorsContent, "func errorForStatus(status int, detail string) *ServiceError") {
+		t.Error("errors.go should contain errorForStatus function")
+	}
+	// Verify errorForStatus maps status codes to categories.
+	for _, cat := range []string{`category = "VAL"`, `category = "AUT"`, `category = "AUZ"`, `category = "NTF"`, `category = "CNF"`} {
+		if !strings.Contains(errorsContent, cat) {
+			t.Errorf("errorForStatus missing category mapping: %s", cat)
+		}
+	}
+}
+
+func TestGenerate_ErrorForStatusCompilesWithHandlers(t *testing.T) {
+	// Verify errorForStatus compiles together with handlers and slots.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_create", Collection: "widgets", Gate: []string{"my-gate"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "testmod",
+		SlotsPackage:    "internal/slots",
+		ServiceName:     "test-svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+
+	goMod := "module testmod\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	// Write stub slots package for slot interface types.
+	slotsDir := filepath.Join(tmpDir, "internal", "slots")
+	os.MkdirAll(slotsDir, 0755)
+	slotsStub := `package slots
+import "context"
+type BeforeCreateSlot interface { Evaluate(ctx context.Context, req *BeforeCreateRequest) (*SlotResult, error) }
+type BeforeCreateRequest struct { Input *CreateRequest; Caller *Identity; Entity string }
+type CreateRequest struct { Entity string; Fields map[string]string }
+type Identity struct { UserID string; Role string; Attributes map[string]string }
+type SlotResult struct { Ok bool; Halt bool; StatusCode int32; ErrorMessage string }
+`
+	if err := os.WriteFile(filepath.Join(slotsDir, "slots.go"), []byte(slotsStub), 0644); err != nil {
+		t.Fatalf("writing slots stub: %v", err)
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Path, ".go") {
+			continue
+		}
+		dst := filepath.Join(tmpDir, f.Path)
+		os.MkdirAll(filepath.Dir(dst), 0755)
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with errorForStatus does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_ReadHandlerDistinguishesNotFoundFromInternalError(t *testing.T) {
+	// Round 2 finding: Read handler must distinguish not-found (404) from
+	// infrastructure errors (500) using errors.Is(err, ErrNotFound).
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_users.go")
+
+	// Handler must import "errors" for errors.Is.
+	if !strings.Contains(handler, `"errors"`) {
+		t.Error("handler with Read operation must import \"errors\"")
+	}
+	// Handler must check errors.Is(err, ErrNotFound).
+	if !strings.Contains(handler, "errors.Is(err, ErrNotFound)") {
+		t.Error("Read handler must use errors.Is(err, ErrNotFound) to distinguish not-found from internal errors")
+	}
+	// Not-found path must use NotFound constructor.
+	if !strings.Contains(handler, "handleError(w, r, NotFound(") {
+		t.Error("Read handler must use NotFound() for not-found errors")
+	}
+	// Other errors must use InternalError constructor.
+	if !strings.Contains(handler, "handleError(w, r, InternalError(err.Error()))") {
+		t.Error("Read handler must use InternalError() for non-not-found errors")
+	}
+}
+
+func TestGenerate_ErrNotFoundDefinedInRouter(t *testing.T) {
+	// ErrNotFound sentinel must be defined in router.go alongside Storage interface.
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.ServiceName = "test-svc"
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	router := findFileContent(t, files, "internal/api/router.go")
+
+	if !strings.Contains(router, `var ErrNotFound = errors.New("entity not found")`) {
+		t.Error("router.go must define ErrNotFound sentinel error")
+	}
+	if !strings.Contains(router, `"errors"`) {
+		t.Error("router.go must import \"errors\" for ErrNotFound")
+	}
+	// Storage interface doc should reference ErrNotFound.
+	if !strings.Contains(router, "Get must return ErrNotFound") {
+		t.Error("Storage interface doc should document that Get must return ErrNotFound")
+	}
+}
+
+func TestGenerate_ReadOnlyDeleteOnly_NoErrorsImport(t *testing.T) {
+	// Delete-only handler should NOT import "errors" (not needed without Read).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpDelete}},
+		},
+		OutputNamespace: "internal/api",
+		ServiceName:     "test-svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Delete-only handler should not import errors.
+	if strings.Contains(handler, `"errors"`) {
+		t.Error("delete-only handler should not import \"errors\"")
+	}
+}
+
+func TestGenerate_ErrorForStatusWithTypeBase(t *testing.T) {
+	// When error_type_base is set, errorForStatus must use statusToSlug
+	// to produce the Type URI.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+		},
+		OutputNamespace: "internal/api",
+		ServiceName:     "test-svc",
+		ErrorTypeBase:   "https://example.com/errors/",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	errorsContent := findFileContent(t, files, "internal/api/errors.go")
+
+	// errorForStatus should reference statusToSlug for Type URI.
+	if !strings.Contains(errorsContent, "statusToSlug(status)") {
+		t.Error("errorForStatus with error_type_base should use statusToSlug for Type URI")
+	}
+	// statusToSlug helper should be present.
+	if !strings.Contains(errorsContent, "func statusToSlug(status int) string") {
+		t.Error("errors.go with error_type_base should contain statusToSlug helper")
+	}
+}
+
 func mapKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
