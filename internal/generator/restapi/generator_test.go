@@ -7520,17 +7520,27 @@ func TestGenerate_ScopedReadVerifiesScope(t *testing.T) {
 	}
 
 	handler := findFileContent(t, files, "internal/api/handler_users.go")
-	// Read handler for scoped collection must verify scope field after Get.
-	if !strings.Contains(handler, `user.OrgID != r.PathValue("org_id")`) {
-		t.Error("scoped Read handler must verify entity scope field matches URL path parameter")
+	// Read handler for scoped collection must verify scope field via
+	// map[string]any lookup so the original storage value (with metadata)
+	// is preserved for the response.
+	if !strings.Contains(handler, `scopeVal, _ := scopeMap["org_id"].(string)`) {
+		t.Error("scoped Read handler must extract scope field from map[string]any")
+	}
+	if !strings.Contains(handler, `scopeVal != r.PathValue("org_id")`) {
+		t.Error("scoped Read handler must verify scope value matches URL path parameter")
 	}
 	// Must return 404 on scope mismatch.
 	if !strings.Contains(handler, `NotFound("User", id)`) {
 		t.Error("scoped Read handler must return NotFound on scope mismatch")
 	}
-	// Must convert via JSON roundtrip to access scope field.
+	// Must convert via JSON roundtrip to map for scope field lookup.
 	if !strings.Contains(handler, "json.Marshal(existing)") {
 		t.Error("scoped Read handler must marshal Get result for scope check")
+	}
+	// Must encode original 'existing' value, not the converted type, to
+	// preserve storage metadata fields (created_time, updated_time).
+	if !strings.Contains(handler, "json.NewEncoder(w).Encode(existing)") {
+		t.Error("scoped Read handler must encode original storage value to preserve metadata")
 	}
 }
 
@@ -7669,7 +7679,7 @@ func TestGenerate_UnscopedReadNoScopeCheck(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_items.go")
 	// Unscoped collections must NOT have scope verification code.
-	if strings.Contains(handler, "scopeData") {
+	if strings.Contains(handler, "scopeData") || strings.Contains(handler, "scopeMap") || strings.Contains(handler, "scopeVal") {
 		t.Error("unscoped collection handler must not contain scope verification code")
 	}
 	// Read in unscoped collection assigns Get result directly to the entity var.

@@ -626,6 +626,33 @@ func emitScopeCheck(buf *bytes.Buffer, entity types.Entity, eb types.Collection,
 	fmt.Fprintf(buf, "\t}\n")
 }
 
+// emitMapScopeCheck emits scope verification code using map[string]any instead
+// of a typed struct. This avoids a lossy JSON roundtrip to the api type, so
+// the original storage value (with metadata fields like created_time,
+// updated_time) can be encoded directly in the response. The variable
+// 'existing' must already be in scope (the store.Get result).
+func emitMapScopeCheck(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string) {
+	if len(eb.Scope) == 0 || eb.ParentEntity() == "" {
+		return
+	}
+	scopeJSONField := eb.ScopeField()
+	fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tvar scopeMap map[string]any\n")
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &scopeMap); err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	fmt.Fprintf(buf, "\tscopeVal, _ := scopeMap[%q].(string)\n", scopeJSONField)
+	fmt.Fprintf(buf, "\tif scopeVal != r.PathValue(%q) {\n", parentParamName)
+	fmt.Fprintf(buf, "\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+}
+
 func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
@@ -686,8 +713,9 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
 	if isScoped {
-		// For scoped collections, fetch as 'existing' then convert via JSON
-		// roundtrip to the api type so we can verify the scope field.
+		// For scoped collections, fetch as 'existing' and verify scope via
+		// map[string]any lookup. The original value is encoded directly in the
+		// response so storage metadata fields are preserved.
 		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
 	} else {
 		fmt.Fprintf(buf, "\t%s, err := h.store.Get(r.Context(), %q, id)\n", lower, entity.Name)
@@ -701,26 +729,25 @@ func generateReadMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 	if isScoped {
-		// Convert storage type to api type via JSON roundtrip.
-		fmt.Fprintf(buf, "\tscopeData, err := json.Marshal(existing)\n")
-		fmt.Fprintf(buf, "\tif err != nil {\n")
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-		fmt.Fprintf(buf, "\tif err := json.Unmarshal(scopeData, &%s); err != nil {\n", lower)
-		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"internal error\"))\n")
-		fmt.Fprintf(buf, "\t\treturn\n")
-		fmt.Fprintf(buf, "\t}\n")
-		emitScopeCheck(buf, entity, eb, parentParamName, lower)
+		// Extract the scope field from the storage result without altering
+		// the response value. Unmarshal into map[string]any for the field
+		// lookup, then encode the original 'existing' value so storage
+		// metadata fields (created_time, updated_time) are preserved.
+		emitMapScopeCheck(buf, entity, eb, parentParamName)
+	}
+	// Choose the response variable: scoped path uses 'existing' (original
+	// storage value preserving metadata), unscoped path uses the entity var.
+	responseVar := lower
+	if isScoped {
+		responseVar = "existing"
 	}
 	fmt.Fprintf(buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
 	if envelope {
 		hrefExpr := resolvedHrefExpr(hrefBase, "id")
 		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(presentEntity(%s, %q, id, %s))\n",
-			lower, entity.Name, hrefExpr)
+			responseVar, entity.Name, hrefExpr)
 	} else {
-		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", lower)
+		fmt.Fprintf(buf, "\tjson.NewEncoder(w).Encode(%s)\n", responseVar)
 	}
 	fmt.Fprintf(buf, "}\n\n")
 	// Read has no before or after slot lifecycle points.
