@@ -57,4 +57,4 @@ Add tests verifying that generated handlers for scoped collections include scope
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
-
+- 92ef2c0 feat(task-031): enforce scoped collection access in rest-api generator
