@@ -37,4 +37,4 @@ Two additions to list query parameter handling:
 
 ## Commits
 
-_(none yet)_
+- f816a61 feat(task-044): add default sort order and `order` direction override parameter
