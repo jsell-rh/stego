@@ -173,8 +173,9 @@ When `response_format: envelope` is set in the archetype conventions, the `rest-
 
 **List query parameters** (following the rh-trex pattern):
 - `page` -- 1-indexed page number (default: 1)
-- `size` -- items per page (default: 100, max: 65500)
-- `orderBy` -- comma-separated, each entry is `field_name` or `field_name asc|desc` (default direction: asc)
+- `pageSize` -- items per page (default: 100, max: 65500)
+- `orderBy` -- comma-separated, each entry is `field_name` or `field_name asc|desc` (default direction: asc). When omitted, the default sort is `created_time desc` (newest first).
+- `order` -- sort direction override: `asc` or `desc` (applied to `orderBy` field)
 - `search` -- TSL filter expression (see Open Questions)
 - `fields` -- sparse fieldset selection, comma-separated field names (`id` is always included even if not listed)
 
@@ -187,10 +188,10 @@ When `response_format: envelope` is set in the archetype conventions, the `rest-
 
 **Pagination mechanics:**
 - Count total matching records first (`SELECT COUNT(*)`)
-- Fetch page via `OFFSET (page-1)*size LIMIT size`
+- Fetch page via `OFFSET (page-1)*pageSize LIMIT pageSize`
 - `orderBy` field names are validated against entity fields; invalid fields are rejected with 400
 - SQL injection prevented by field name validation + hardcoded direction strings (only `asc` or `desc`)
-- `size` capped at 65500 (PostgreSQL parameter limit); values above are silently clamped
+- `pageSize` capped at 65500 (PostgreSQL parameter limit); values above are silently clamped
 
 The `rest-api` component generates:
 - A presenter function per entity that adds `id`, `kind`, `href` to the response
