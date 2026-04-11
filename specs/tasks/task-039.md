@@ -99,3 +99,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - f7cdd4e feat(task-039): server-managed fields and request schemas
+- 0dfaf17 fix(task-039): update handler kind validation and create-only field preservation
