@@ -35,7 +35,7 @@ The query parameter for items-per-page was renamed from `size` to `pageSize`. Th
 
 ## Progress
 
-`ready-for-review`
+`complete`
 
 ## Commits
 
