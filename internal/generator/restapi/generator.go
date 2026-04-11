@@ -282,6 +282,25 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 	}
 
+	// Generate CORS middleware when cors: enabled is set in the archetype
+	// conventions. CORS is wired as the outermost middleware layer so it
+	// runs before auth and before validation on every request.
+	if ctx.Conventions.CORS == "enabled" {
+		corsFile, err := generateCORS(ctx.OutputNamespace)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generating CORS middleware: %w", err)
+		}
+		files = append(files, corsFile)
+
+		corsIdx := len(wiring.Constructors)
+		wiring.Constructors = append(wiring.Constructors,
+			fmt.Sprintf("%s.NewCORSMiddleware()", path.Base(ctx.OutputNamespace)))
+		wiring.OuterMiddlewares = append(wiring.OuterMiddlewares, gen.MiddlewareSpec{
+			ConstructorIndex: corsIdx,
+			WrapExpr:         "%s(%s)",
+		})
+	}
+
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
@@ -1785,6 +1804,66 @@ func emitErrorTypeField(buf *bytes.Buffer, errorTypeBase, slug string) {
 	} else {
 		fmt.Fprintf(buf, "\t\tType:   \"about:blank\",\n")
 	}
+}
+
+// generateCORS produces the cors.go file containing CORS middleware that reads
+// allowed origins, methods, and headers from environment variables with sensible
+// defaults. The middleware sets CORS headers on all responses and handles OPTIONS
+// preflight requests with a 204 No Content response.
+func generateCORS(ns string) (gen.File, error) {
+	var buf bytes.Buffer
+	pkg := path.Base(ns)
+
+	fmt.Fprintf(&buf, "package %s\n\n", pkg)
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	fmt.Fprintf(&buf, "\t\"os\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
+
+	fmt.Fprintf(&buf, "// NewCORSMiddleware returns HTTP middleware that sets CORS headers on all\n")
+	fmt.Fprintf(&buf, "// responses and handles OPTIONS preflight requests with 204 No Content.\n")
+	fmt.Fprintf(&buf, "//\n")
+	fmt.Fprintf(&buf, "// Environment variables:\n")
+	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_ORIGINS: comma-separated list of allowed origins (default: *)\n")
+	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_METHODS: allowed HTTP methods (default: GET,POST,PATCH,PUT,DELETE,OPTIONS)\n")
+	fmt.Fprintf(&buf, "//   - CORS_ALLOWED_HEADERS: allowed request headers (default: Content-Type,Authorization)\n")
+	fmt.Fprintf(&buf, "func NewCORSMiddleware() func(http.Handler) http.Handler {\n")
+	fmt.Fprintf(&buf, "\tallowedOrigins := os.Getenv(\"CORS_ALLOWED_ORIGINS\")\n")
+	fmt.Fprintf(&buf, "\tif allowedOrigins == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tallowedOrigins = \"*\"\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\tallowedMethods := os.Getenv(\"CORS_ALLOWED_METHODS\")\n")
+	fmt.Fprintf(&buf, "\tif allowedMethods == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tallowedMethods = \"GET,POST,PATCH,PUT,DELETE,OPTIONS\"\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "\tallowedHeaders := os.Getenv(\"CORS_ALLOWED_HEADERS\")\n")
+	fmt.Fprintf(&buf, "\tif allowedHeaders == \"\" {\n")
+	fmt.Fprintf(&buf, "\t\tallowedHeaders = \"Content-Type,Authorization\"\n")
+	fmt.Fprintf(&buf, "\t}\n\n")
+
+	fmt.Fprintf(&buf, "\treturn func(next http.Handler) http.Handler {\n")
+	fmt.Fprintf(&buf, "\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
+	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Origin\", allowedOrigins)\n")
+	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Methods\", allowedMethods)\n")
+	fmt.Fprintf(&buf, "\t\t\tw.Header().Set(\"Access-Control-Allow-Headers\", allowedHeaders)\n\n")
+	fmt.Fprintf(&buf, "\t\t\tif r.Method == http.MethodOptions {\n")
+	fmt.Fprintf(&buf, "\t\t\t\tw.WriteHeader(http.StatusNoContent)\n")
+	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
+	fmt.Fprintf(&buf, "\t\t\t}\n\n")
+	fmt.Fprintf(&buf, "\t\t\tnext.ServeHTTP(w, r)\n")
+	fmt.Fprintf(&buf, "\t\t})\n")
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting CORS middleware: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "cors.go"),
+		Content: formatted,
+	}, nil
 }
 
 // generateValidation produces the validation.go file with OpenAPI request body

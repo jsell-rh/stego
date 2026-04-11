@@ -162,6 +162,11 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 				return gen.File{}, fmt.Errorf("component %q declares Middlewares[%d] but no WrapExpr — generators must specify how the middleware wraps the handler", cw.Name, k)
 			}
 		}
+		for k, ms := range cw.Wiring.OuterMiddlewares {
+			if ms.WrapExpr == "" {
+				return gen.File{}, fmt.Errorf("component %q declares OuterMiddlewares[%d] but no WrapExpr — generators must specify how the middleware wraps the handler", cw.Name, k)
+			}
+		}
 	}
 
 	// Compute which constructor entries are consumed (transitively reachable
@@ -701,6 +706,12 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 				consumed[constructorKey{WiringIndex: i, ConstructorIndex: ms.ConstructorIndex}] = true
 			}
 		}
+		// Outer middlewares (e.g. CORS — outermost layer).
+		for _, ms := range cw.Wiring.OuterMiddlewares {
+			if ms.ConstructorIndex >= 0 && ms.ConstructorIndex < len(cw.Wiring.Constructors) {
+				consumed[constructorKey{WiringIndex: i, ConstructorIndex: ms.ConstructorIndex}] = true
+			}
+		}
 	}
 
 	// Step 3: Transitively mark dependencies of consumed constructors.
@@ -1222,6 +1233,7 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		wrapExpr string
 	}
 	var additionalMiddlewares []resolvedMiddleware
+	var outerMiddlewares []resolvedMiddleware
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
@@ -1243,6 +1255,23 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 				wrapExpr: ms.WrapExpr,
 			})
 		}
+		for _, ms := range cw.Wiring.OuterMiddlewares {
+			if ms.ConstructorIndex < 0 || ms.ConstructorIndex >= len(cw.Wiring.Constructors) {
+				continue
+			}
+			varName := rawConstructorVarName(cw.Wiring.Constructors[ms.ConstructorIndex])
+			// Apply disambiguation renames.
+			for _, r := range wiringRenames[i] {
+				if r.ConstructorIndex == ms.ConstructorIndex {
+					varName = r.FinalVar
+					break
+				}
+			}
+			outerMiddlewares = append(outerMiddlewares, resolvedMiddleware{
+				varName:  varName,
+				wrapExpr: ms.WrapExpr,
+			})
+		}
 	}
 
 	buf.WriteString("\tport := os.Getenv(\"PORT\")\n")
@@ -1253,14 +1282,18 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", addr)\n")
 
 	// Build the handler expression by chaining middlewares.
-	// Additional middlewares wrap mux first (innermost), then auth wraps
-	// outermost so authentication runs before other middleware.
+	// Inner middlewares (e.g. validation) wrap mux first, then auth wraps
+	// those, then outer middlewares (e.g. CORS) wrap outermost.
+	// Final order: outer(auth(inner(mux))).
 	handlerExpr := "mux"
 	for _, m := range additionalMiddlewares {
 		handlerExpr = fmt.Sprintf(m.wrapExpr, m.varName, handlerExpr)
 	}
 	if middlewareVar != "" {
 		handlerExpr = fmt.Sprintf(wrapExpr, middlewareVar, handlerExpr)
+	}
+	for _, m := range outerMiddlewares {
+		handlerExpr = fmt.Sprintf(m.wrapExpr, m.varName, handlerExpr)
 	}
 	fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", handlerExpr)
 }

@@ -203,6 +203,14 @@ type Wiring struct {
 	// The assembler prepends the disambiguated variable name and a dot.
 	ConstructorDeferCalls map[int]string
 
+	// OuterMiddlewares lists middleware constructors that wrap the HTTP
+	// handler OUTSIDE the auth middleware layer. These are the outermost
+	// middleware in the chain — they run first on every request, before
+	// auth and before any Middlewares entries. Use this for cross-cutting
+	// concerns like CORS that must process requests before authentication.
+	// The wrapping order is: OuterMiddlewares(auth(Middlewares(mux))).
+	OuterMiddlewares []MiddlewareSpec
+
 	// StdlibImports lists standard library packages that must be imported
 	// in main.go for this component's constructor expressions or wiring to
 	// work. For example, a component whose constructor expression uses

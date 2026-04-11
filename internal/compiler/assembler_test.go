@@ -5025,5 +5025,237 @@ func TestAssemble_RHSSOAuth_NoRoutesNoEmission(t *testing.T) {
 	}
 }
 
+func TestAssemble_OuterMiddlewares_CORSWrapsAuth(t *testing.T) {
+	// Verify that OuterMiddlewares wrap outside auth middleware.
+	// Expected chain: cORSMiddleware(authMiddleware(mux))
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+
+		Wirings: []ComponentWiring{
+			{
+				Name: "jwt-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					OuterMiddlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: "%s(%s)"},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// CORS wraps auth which wraps mux:
+	// cORSMiddleware(authMiddleware(mux))
+	if !strings.Contains(code, "cORSMiddleware(authMiddleware(mux))") {
+		t.Errorf("expected CORS wrapping auth wrapping mux, got:\n%s", code)
+	}
+}
+
+func TestAssemble_OuterMiddlewares_CORSWrapsAuthWrapsValidation(t *testing.T) {
+	// Verify full chain: cors(auth(validation(mux)))
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+
+		Wirings: []ComponentWiring{
+			{
+				Name: "jwt-auth",
+				Wiring: &gen.Wiring{
+					Imports:               []string{"internal/auth"},
+					Constructors:          []string{"auth.NewAuthMiddleware()"},
+					MiddlewareConstructor: intPtr(0),
+					MiddlewareWrapExpr:    "%s(%s)",
+				},
+			},
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports: []string{"internal/api"},
+					Constructors: []string{
+						"api.NewUserHandler(store)",
+						"api.NewValidationMiddleware()",
+						"api.NewCORSMiddleware()",
+					},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					Middlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: "%s(%s)"},
+					},
+					OuterMiddlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 2, WrapExpr: "%s(%s)"},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Full chain: cORSMiddleware(authMiddleware(validationMiddleware(mux)))
+	if !strings.Contains(code, "cORSMiddleware(authMiddleware(validationMiddleware(mux)))") {
+		t.Errorf("expected full middleware chain cors(auth(validation(mux))), got:\n%s", code)
+	}
+}
+
+func TestAssemble_OuterMiddlewares_NoAuth(t *testing.T) {
+	// Verify outer middlewares work without auth middleware.
+	// Expected chain: cORSMiddleware(mux)
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					OuterMiddlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: "%s(%s)"},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+
+	var mainGo gen.File
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainGo = f
+		}
+	}
+
+	code := string(mainGo.Content)
+
+	// Without auth, CORS wraps mux directly.
+	if !strings.Contains(code, "cORSMiddleware(mux)") {
+		t.Errorf("expected CORS wrapping mux directly, got:\n%s", code)
+	}
+	// Auth should NOT be present.
+	if strings.Contains(code, "authMiddleware") {
+		t.Errorf("auth middleware should not appear without auth wiring:\n%s", code)
+	}
+}
+
+func TestAssemble_OuterMiddlewares_MissingWrapExpr(t *testing.T) {
+	// Verify validation rejects OuterMiddlewares without WrapExpr.
+	input := AssemblerInput{
+		ModuleName:  "github.com/myorg/svc",
+		ServiceName: "svc",
+		GoVersion:   "1.22",
+		Wirings: []ComponentWiring{
+			{
+				Name: "rest-api",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					ConstructorCollections: map[int]string{0: "users"},
+					Routes: []string{
+						`mux.HandleFunc("GET /users", userHandler.List)`,
+					},
+					OuterMiddlewares: []gen.MiddlewareSpec{
+						{ConstructorIndex: 1, WrapExpr: ""},
+					},
+				},
+			},
+			{
+				Name: "postgres-adapter",
+				Wiring: &gen.Wiring{
+					Imports:      []string{"internal/storage"},
+					Constructors: []string{"storage.NewStore(db)"},
+					NeedsDB:      true,
+				},
+			},
+		},
+	}
+
+	_, err := Assemble(input)
+	if err == nil {
+		t.Fatal("expected error for OuterMiddlewares without WrapExpr")
+	}
+	if !strings.Contains(err.Error(), "OuterMiddlewares") {
+		t.Errorf("error should mention OuterMiddlewares: %v", err)
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

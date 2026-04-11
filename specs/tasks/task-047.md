@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **CORS** section and **Generated Runtime Configuration**
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-046
 
