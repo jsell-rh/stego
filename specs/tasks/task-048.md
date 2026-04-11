@@ -2,7 +2,9 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **CORS** section (override subsection)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [`specs/reviews/task-048.md`](../reviews/task-048.md)
 
 **Depends on:** task-047
 
