@@ -494,9 +494,16 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		authAlias = path.Base(authImportPath)
 	}
 
-	// Create and update handlers need io for io.ReadAll (body reading for kind
-	// validation).
-	needIO := hasCreate || hasUpsert
+	// Create, update, and upsert handlers need io for io.ReadAll (body reading
+	// for kind validation).
+	hasUpdate := false
+	for _, op := range eb.Operations {
+		if op == types.OpUpdate {
+			hasUpdate = true
+			break
+		}
+	}
+	needIO := hasCreate || hasUpsert || hasUpdate
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -821,14 +828,15 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
+	needsExisting := isScoped || hasPreservableFields(entity)
 	fmt.Fprintf(buf, "func (h *%sHandler) Update(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 	fmt.Fprintf(buf, "\tid := r.PathValue(\"id\")\n")
-	if isScoped {
-		// For scoped collections, verify the target entity belongs to this
-		// scope before accepting the update. Fetch the existing entity and use
-		// map[string]any for the scope field lookup (consistent with the Read
-		// handler approach, avoiding typed-struct roundtrip).
+	if needsExisting {
+		// Fetch the existing entity: needed for scope verification (scoped
+		// collections) and for preserving create-only server-managed fields
+		// (created_by, created_time, generation) that would otherwise be lost
+		// when store.Replace writes all columns.
 		fmt.Fprintf(buf, "\texisting, err := h.store.Get(r.Context(), %q, id)\n", entity.Name)
 		fmt.Fprintf(buf, "\tif err != nil {\n")
 		fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
@@ -838,14 +846,25 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn\n")
 		fmt.Fprintf(buf, "\t}\n")
-		emitMapScopeCheck(buf, entity, eb, parentParamName)
+		if isScoped {
+			emitMapScopeCheck(buf, entity, eb, parentParamName)
+		}
 	}
-	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
+	// Read body bytes to support kind validation before struct decode.
+	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	// Clear all server-managed fields and populate update-specific values.
+	emitKindValidation(buf, entity)
+	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	// Clear all server-managed fields so client-supplied values are discarded,
+	// then populate update-specific values and restore create-only fields from
+	// the existing entity.
 	emitClearServerManagedFields(buf, lower, entity)
 	// The path parameter is the authoritative identity for the entity being
 	// updated — the decoded body may have an empty or mismatched ID field.
@@ -858,6 +877,9 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
 	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
+	if needsExisting {
+		emitPreserveCreateOnlyFields(buf, lower, entity)
+	}
 	before, after := slotsForOp(types.OpUpdate, slotParams)
 	for _, sp := range before {
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
@@ -2409,6 +2431,25 @@ func isServerManaged(f types.Field) bool {
 	return false
 }
 
+// hasPreservableFields returns true when the entity has server-managed fields
+// that must be preserved from the existing entity during an update (i.e.,
+// fields that are NOT repopulated by emitPopulateServerManagedFieldsUpdate).
+func hasPreservableFields(entity types.Entity) bool {
+	for _, f := range entity.Fields {
+		if !isServerManaged(f) {
+			continue
+		}
+		if f.Name == "updated_by" {
+			continue
+		}
+		if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // emitClearServerManagedFields emits code that zeroes all server-managed fields
 // so that client-supplied values for these fields are discarded. This covers
 // computed fields, timestamps, created_by/updated_by, and generation.
@@ -2468,7 +2509,9 @@ func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, en
 
 // emitPopulateServerManagedFieldsUpdate emits code that populates server-managed
 // fields for an update operation: updated_by from auth context,
-// updated_time via time.Now(), generation incremented.
+// updated_time via time.Now(). The generation field and create-only fields
+// (created_by, created_time) are handled by emitPreserveCreateOnlyFields,
+// which restores them from the existing entity.
 func emitPopulateServerManagedFieldsUpdate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
 	for _, f := range entity.Fields {
 		goName := toPascalCase(f.Name)
@@ -2486,10 +2529,63 @@ func emitPopulateServerManagedFieldsUpdate(buf *bytes.Buffer, varName string, en
 			} else {
 				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
 			}
-		case f.Name == "generation":
-			fmt.Fprintf(buf, "\t%s.%s++\n", varName, goName)
 		}
 	}
+}
+
+// emitPreserveCreateOnlyFields emits code that restores create-only
+// server-managed fields from the existing entity. This preserves created_by,
+// created_time (and other non-updated timestamps), computed fields, and
+// increments generation from the existing value. The existing variable (of
+// type any from store.Get) is converted via JSON roundtrip to extract fields.
+func emitPreserveCreateOnlyFields(buf *bytes.Buffer, varName string, entity types.Entity) {
+	// Collect create-only fields that need preserving.
+	var hasPreservable bool
+	for _, f := range entity.Fields {
+		if !isServerManaged(f) {
+			continue
+		}
+		// updated_by and updated_time are handled by emitPopulateServerManagedFieldsUpdate.
+		if f.Name == "updated_by" {
+			continue
+		}
+		if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
+			continue
+		}
+		hasPreservable = true
+		break
+	}
+	if !hasPreservable {
+		return
+	}
+
+	fmt.Fprintf(buf, "\t{\n")
+	fmt.Fprintf(buf, "\t\texistingData, marshalErr := json.Marshal(existing)\n")
+	fmt.Fprintf(buf, "\t\tif marshalErr == nil {\n")
+	fmt.Fprintf(buf, "\t\t\tvar existingTyped %s\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\tif json.Unmarshal(existingData, &existingTyped) == nil {\n")
+	for _, f := range entity.Fields {
+		if !isServerManaged(f) {
+			continue
+		}
+		goName := toPascalCase(f.Name)
+		switch {
+		case f.Name == "updated_by":
+			// Handled by emitPopulateServerManagedFieldsUpdate.
+		case f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp:
+			// Handled by emitPopulateServerManagedFieldsUpdate.
+		case f.Name == "generation":
+			// Increment from existing value, not from zero.
+			fmt.Fprintf(buf, "\t\t\t\t%s.%s = existingTyped.%s + 1\n", varName, goName, goName)
+		default:
+			// Preserve create-only fields (created_by, created_time,
+			// computed fields, other timestamps) from the existing entity.
+			fmt.Fprintf(buf, "\t\t\t\t%s.%s = existingTyped.%s\n", varName, goName, goName)
+		}
+	}
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
 }
 
 // collectAncestors walks the parent chain from the given collection and returns

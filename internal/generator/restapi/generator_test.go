@@ -8126,8 +8126,8 @@ func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 	if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
 		t.Error("update handler must set updated_time to time.Now()")
 	}
-	if !strings.Contains(updateSection, "cluster.Generation++") {
-		t.Error("update handler must increment generation")
+	if !strings.Contains(updateSection, "cluster.Generation = existingTyped.Generation + 1") {
+		t.Error("update handler must increment generation from existing entity value")
 	}
 }
 
@@ -8323,5 +8323,121 @@ func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
 	// Upsert must use io.ReadAll for body reading.
 	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
 		t.Error("upsert handler must use io.ReadAll for body reading")
+	}
+}
+
+func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpUpdate}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Update handler must use io.ReadAll for body reading.
+	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+		t.Error("update handler must use io.ReadAll for body reading")
+	}
+	// Update handler must validate kind field.
+	if !strings.Contains(handler, `rawMap["kind"]`) {
+		t.Error("update handler must check for 'kind' field in request body")
+	}
+	if !strings.Contains(handler, `kind != "Widget"`) {
+		t.Error("update handler must validate kind against entity name 'Widget'")
+	}
+	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+		t.Error("update handler must return BadRequest for wrong kind value")
+	}
+	// Update handler must use json.Unmarshal (not json.NewDecoder).
+	if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
+		t.Error("update handler must use json.Unmarshal for body decoding")
+	}
+}
+
+func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "created_by", Type: types.FieldTypeString},
+				{Name: "updated_by", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
+				types.OpCreate, types.OpUpdate, types.OpRead,
+			}},
+		},
+		OutputNamespace: "internal/api",
+		AuthPackage:     "github.com/example/svc/internal/auth",
+		ModuleName:      "github.com/example/svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+
+	// Update handler must always fetch existing entity for preserving
+	// create-only fields.
+	if !strings.Contains(handler, `h.store.Get(r.Context(), "Cluster", id)`) {
+		t.Error("update handler must fetch existing entity")
+	}
+
+	// Update handler must clear server-managed fields to prevent client
+	// from setting them.
+	if !strings.Contains(handler, "cluster.Generation = 0") {
+		t.Error("update handler must clear generation field")
+	}
+	if !strings.Contains(handler, `cluster.CreatedBy = ""`) {
+		t.Error("update handler must clear created_by field")
+	}
+
+	// Update handler must set updated_by from auth context.
+	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
+		t.Error("update handler must set updated_by from auth context")
+	}
+	// Update handler must set updated_time.
+	if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
+		t.Error("update handler must set updated_time to time.Now()")
+	}
+
+	// Update handler must restore create-only fields from existing entity
+	// via JSON roundtrip, not leave them zeroed.
+	if !strings.Contains(handler, "cluster.CreatedBy = existingTyped.CreatedBy") {
+		t.Error("update handler must restore created_by from existing entity")
+	}
+	if !strings.Contains(handler, "cluster.CreatedTime = existingTyped.CreatedTime") {
+		t.Error("update handler must restore created_time from existing entity")
+	}
+	// Update handler must increment generation from existing value, not from zero.
+	if !strings.Contains(handler, "cluster.Generation = existingTyped.Generation + 1") {
+		t.Error("update handler must increment generation from existing entity value")
+	}
+	// Update handler must NOT contain generation++ (which increments from zero).
+	if strings.Contains(handler, "cluster.Generation++") {
+		t.Error("update handler must not use generation++ (increments from cleared zero value)")
 	}
 }
