@@ -32,8 +32,8 @@ Follows tasks 043 and 044. The example services must be regenerated to reflect:
 
 ## Progress
 
-`not-started`
+`ready-for-review`
 
 ## Commits
 
-_(none yet)_
+_(listed after commit)_

@@ -23,19 +23,24 @@ func NewAllUsersHandler(store Storage) *AllUsersHandler {
 
 func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 	pageStr := r.URL.Query().Get("page")
-	sizeStr := r.URL.Query().Get("size")
+	pageSizeStr := r.URL.Query().Get("pageSize")
 	page, _ := strconv.Atoi(pageStr)
 	if page < 1 {
 		page = 1
 	}
-	size, _ := strconv.Atoi(sizeStr)
-	if size < 1 {
-		size = 100
+	pageSize, _ := strconv.Atoi(pageSizeStr)
+	if pageSize < 1 {
+		pageSize = 100
 	}
-	if size > 65500 {
-		size = 65500
+	if pageSize > 65500 {
+		pageSize = 65500
 	}
 	validFields := map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
+	orderDir := r.URL.Query().Get("order")
+	if orderDir != "" && orderDir != "asc" && orderDir != "desc" {
+		handleError(w, r, BadRequest("invalid order value: "+orderDir+"; must be 'asc' or 'desc'"))
+		return
+	}
 	var orderBy []OrderByField
 	if orderByStr := r.URL.Query().Get("orderBy"); orderByStr != "" {
 		for _, entry := range strings.Split(orderByStr, ",") {
@@ -60,6 +65,13 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 			}
 			orderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})
 		}
+	} else {
+		orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}
+	}
+	if orderDir != "" {
+		for i := range orderBy {
+			orderBy[i].Direction = orderDir
+		}
 	}
 	var fields []string
 	if fieldsStr := r.URL.Query().Get("fields"); fieldsStr != "" {
@@ -83,7 +95,7 @@ func (h *AllUsersHandler) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	searchExpr := r.URL.Query().Get("search")
-	opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}
+	opts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}
 	listResult, err := h.store.List(r.Context(), "User", "", "", opts)
 	if err != nil {
 		if errors.Is(err, ErrSearch) {

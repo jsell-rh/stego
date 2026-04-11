@@ -63,11 +63,11 @@ last_applied:
     files:
         go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
-        internal/api/handler_all_users.go: 280b206c5933533336e9e1287933c85bb75da273dfe77fcca222b868de51c24c
-        internal/api/handler_org_settings.go: c4ea44ef38af65f2482497a0ffae28f3891c585a9ddf99a841f08024cae26046
-        internal/api/handler_org_users.go: 8af1a797294a2f9809575ecdaa5414f1425253f1827af7e65e154ef1c316850e
-        internal/api/handler_organizations.go: ca2c771403cc375382a177a6da620e52306108311e0e32617d6cb6c846669929
-        internal/api/openapi.json: 0af1a797034502867d95a77a884c9028f3ada2a89787a2b4233de9778683917d
+        internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
+        internal/api/handler_org_settings.go: d8bfffbb7c4bcc6761673aec96f9ca1e40418a4747ae6bc7486a986b28093cb2
+        internal/api/handler_org_users.go: d29e571532652604e1e340bbb8260825d806d41fc04b3cb78600ecf4300a68bf
+        internal/api/handler_organizations.go: 32d75a7e18de65e29a0bffc5251f3d45f3f678af4052c6fe9d5ee981f7e5b86c
+        internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
         internal/api/router.go: 86209962eb2b2ac6d8ca67243a2f611f2bf9d905feb59dda2110ba963f4e7fe0
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/middleware.go: 23efa458114888d36b0694ee7e181369777bbbf1bc737363527288659c0dc55a

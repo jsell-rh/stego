@@ -23,7 +23,7 @@
             }
           },
           {
-            "name": "size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "schema": {
@@ -38,6 +38,19 @@
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction override: applied to all orderBy entries",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
             }
           },
           {
@@ -258,7 +271,7 @@
             }
           },
           {
-            "name": "size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "schema": {
@@ -273,6 +286,19 @@
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction override: applied to all orderBy entries",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
             }
           },
           {
@@ -460,7 +486,7 @@
             }
           },
           {
-            "name": "size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "schema": {
@@ -475,6 +501,19 @@
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction override: applied to all orderBy entries",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
             }
           },
           {
@@ -846,7 +885,7 @@
             }
           },
           {
-            "name": "size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "schema": {
@@ -861,6 +900,19 @@
             "description": "Comma-separated list of field_name or field_name asc|desc",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "description": "Sort direction override: applied to all orderBy entries",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
             }
           },
           {
