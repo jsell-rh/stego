@@ -59,6 +59,9 @@ func TestParseArchetype(t *testing.T) {
 	if a.Conventions.TestPattern != "table-driven" {
 		t.Errorf("conventions.test_pattern = %q, want %q", a.Conventions.TestPattern, "table-driven")
 	}
+	if a.Conventions.CORS != "enabled" {
+		t.Errorf("conventions.cors = %q, want %q", a.Conventions.CORS, "enabled")
+	}
 	if len(a.CompatibleMixins) != 2 {
 		t.Errorf("compatible_mixins count = %d, want 2", len(a.CompatibleMixins))
 	}

@@ -16,6 +16,7 @@ conventions:
   error_handling: problem-details-rfc
   logging: structured-json
   test_pattern: table-driven
+  cors: enabled
 
 compatible_mixins:
   - event-publisher
