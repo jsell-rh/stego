@@ -67,3 +67,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- `0be2fa8` feat(task-041): use email attribute for created_by/updated_by fields
