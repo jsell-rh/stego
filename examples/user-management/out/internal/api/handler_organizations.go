@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -30,8 +31,25 @@ func NewOrganizationsHandler(store Storage, beforeCreateChain slots.BeforeCreate
 }
 
 func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	{
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+			if kindRaw, ok := rawMap["kind"]; ok {
+				var kind string
+				if err := json.Unmarshal(kindRaw, &kind); err != nil || kind != "Organization" {
+					handleError(w, r, BadRequest("kind must be Organization"))
+					return
+				}
+			}
+		}
+	}
 	var organization Organization
-	if err := json.NewDecoder(r.Body).Decode(&organization); err != nil {
+	if err := json.Unmarshal(bodyBytes, &organization); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}

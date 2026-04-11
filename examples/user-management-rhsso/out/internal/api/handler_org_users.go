@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -54,8 +55,25 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	{
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+			if kindRaw, ok := rawMap["kind"]; ok {
+				var kind string
+				if err := json.Unmarshal(kindRaw, &kind); err != nil || kind != "User" {
+					handleError(w, r, BadRequest("kind must be User"))
+					return
+				}
+			}
+		}
+	}
 	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+	if err := json.Unmarshal(bodyBytes, &user); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
@@ -190,8 +208,25 @@ func (h *OrgUsersHandler) Update(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	{
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+			if kindRaw, ok := rawMap["kind"]; ok {
+				var kind string
+				if err := json.Unmarshal(kindRaw, &kind); err != nil || kind != "User" {
+					handleError(w, r, BadRequest("kind must be User"))
+					return
+				}
+			}
+		}
+	}
 	var user User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+	if err := json.Unmarshal(bodyBytes, &user); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
@@ -415,8 +450,25 @@ func (h *OrgUsersHandler) Patch(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, NotFound("User", id))
 		return
 	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	{
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+			if kindRaw, ok := rawMap["kind"]; ok {
+				var kind string
+				if err := json.Unmarshal(kindRaw, &kind); err != nil || kind != "User" {
+					handleError(w, r, BadRequest("kind must be User"))
+					return
+				}
+			}
+		}
+	}
 	var patch OrgUsersPatchRequest
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	if err := json.Unmarshal(bodyBytes, &patch); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}

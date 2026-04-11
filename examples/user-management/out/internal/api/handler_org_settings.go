@@ -5,6 +5,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -163,14 +164,32 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 	if !h.checkAncestors(w, r) {
 		return
 	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		handleError(w, r, BadRequest(err.Error()))
+		return
+	}
+	{
+		var rawMap map[string]json.RawMessage
+		if err := json.Unmarshal(bodyBytes, &rawMap); err == nil {
+			if kindRaw, ok := rawMap["kind"]; ok {
+				var kind string
+				if err := json.Unmarshal(kindRaw, &kind); err != nil || kind != "OrgSetting" {
+					handleError(w, r, BadRequest("kind must be OrgSetting"))
+					return
+				}
+			}
+		}
+	}
 	var orgsetting OrgSetting
-	if err := json.NewDecoder(r.Body).Decode(&orgsetting); err != nil {
+	if err := json.Unmarshal(bodyBytes, &orgsetting); err != nil {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
 	if orgsetting.ID == "" {
 		orgsetting.ID = uuid.New().String()
 	}
+	orgsetting.Generation = 0
 	orgsetting.OrgID = r.PathValue("org_id")
 	upsertKey := []string{"org_id", "key"}
 	created, err := h.store.Upsert(r.Context(), "OrgSetting", orgsetting, upsertKey, "optimistic")
