@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, line 367)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Depends on:** task-041 (email attribute for created_by/updated_by)
 
@@ -37,6 +37,8 @@ Regenerate the example services (`examples/user-management/` and `examples/user-
 ## Task Completion
 
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
+
+**Review:** [specs/reviews/task-042.md](../reviews/task-042.md)
 
 ## Verification Notes
 
