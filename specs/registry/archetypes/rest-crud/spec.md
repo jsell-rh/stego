@@ -364,7 +364,7 @@ Generated `ClusterCreateRequest` schema includes only: `name` (required), `spec`
 
 The create handler must populate server-managed fields before persisting:
 - `id` -- generate UUID v7
-- `created_by`, `updated_by` -- extract from JWT identity in request context
+- `created_by`, `updated_by` -- extract from JWT identity in request context using `Attributes["email"]` (falling back to `UserID` if email is empty). This ensures compatibility with OpenAPI specs that type these fields as email format.
 - `created_time`, `updated_time` -- set to `time.Now()`
 - `generation` -- use the declared `default` value (e.g. `1`)
 - `computed` fields -- leave nil/zero; filled asynchronously by their declared fill
