@@ -101,6 +101,9 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 				servicePortOverrides := make(map[string]string)
 				for key, val := range svcDecl.Overrides {
 					if strVal, ok := val.(string); ok {
+						if isConventionOverrideKey(key) {
+							continue
+						}
 						servicePortOverrides[key] = strVal
 					}
 				}
@@ -129,6 +132,9 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 			Message:  fmt.Sprintf("base_path must start with '/', got %q", svcDecl.BasePath),
 		})
 	}
+
+	// Validate convention overrides have recognized values.
+	result.Errors = append(result.Errors, validateConventionOverrides(svcDecl.Overrides)...)
 
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
@@ -1003,5 +1009,33 @@ func validateLanguage(serviceLanguage, archetypeLanguage string) []ValidationErr
 		})
 	}
 
+	return errs
+}
+
+// validCORSOverrideValues is the set of recognized values for the cors
+// convention override.
+var validCORSOverrideValues = map[string]bool{
+	"enabled":  true,
+	"disabled": true,
+}
+
+// validateConventionOverrides checks that convention override keys in the
+// service declaration's overrides map have recognized values.
+func validateConventionOverrides(overrides map[string]any) []ValidationError {
+	var errs []ValidationError
+	if corsVal, ok := overrides["cors"]; ok {
+		strVal, isStr := corsVal.(string)
+		if !isStr {
+			errs = append(errs, ValidationError{
+				Category: "override",
+				Message:  fmt.Sprintf("override 'cors' must be a string value (\"enabled\" or \"disabled\"), got %T", corsVal),
+			})
+		} else if !validCORSOverrideValues[strVal] {
+			errs = append(errs, ValidationError{
+				Category: "override",
+				Message:  fmt.Sprintf("override 'cors' has invalid value %q — valid values: [enabled, disabled]", strVal),
+			})
+		}
+	}
 	return errs
 }

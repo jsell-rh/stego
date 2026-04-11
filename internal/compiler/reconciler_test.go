@@ -23,6 +23,17 @@ func (g *stubGenerator) Generate(_ gen.Context) ([]gen.File, *gen.Wiring, error)
 	return g.files, g.wiring, g.err
 }
 
+// capturingGenerator records the gen.Context it receives for test assertions.
+type capturingGenerator struct {
+	stubGenerator
+	capturedCtx gen.Context
+}
+
+func (g *capturingGenerator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	g.capturedCtx = ctx
+	return g.stubGenerator.Generate(ctx)
+}
+
 // setupTestProject creates a temporary project directory with a service.yaml
 // and a minimal registry, returning the project dir and registry dir.
 func setupTestProject(t *testing.T) (projectDir, registryDir string) {
@@ -2504,5 +2515,521 @@ slots: []
 	}
 	if !strings.Contains(err.Error(), "unsupported") {
 		t.Errorf("error should mention 'unsupported', got: %v", err)
+	}
+}
+
+func TestReconcile_CORSOverrideDisabledSuppressesCORS(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	// Service declares overrides: cors: disabled.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+
+overrides:
+  cors: disabled
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Archetype with cors: enabled.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, comp := range []struct {
+		name, yaml string
+	}{
+		{
+			name: "stub-api",
+			yaml: `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots: []
+`,
+		},
+		{
+			name: "stub-store",
+			yaml: `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/storage
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`,
+		},
+	} {
+		compDir := filepath.Join(registryDir, "components", comp.name)
+		if err := os.MkdirAll(compDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(comp.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	apiGen := &capturingGenerator{
+		stubGenerator: stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+	}
+	storeGen := &stubGenerator{
+		files: []gen.File{
+			{Path: "internal/storage/store.go", Content: []byte("package storage\n")},
+		},
+		wiring: &gen.Wiring{
+			Imports:      []string{"internal/storage"},
+			Constructors: []string{"storage.NewStore(db)"},
+			NeedsDB:      true,
+		},
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   apiGen,
+		"stub-store": storeGen,
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// The generator should have received conventions with CORS set to "" (empty).
+	if apiGen.capturedCtx.Conventions.CORS != "" {
+		t.Errorf("expected CORS convention to be empty when overridden with 'disabled', got %q", apiGen.capturedCtx.Conventions.CORS)
+	}
+
+	// Other conventions should remain intact.
+	if apiGen.capturedCtx.Conventions.Layout != "flat" {
+		t.Errorf("expected Layout convention to be 'flat', got %q", apiGen.capturedCtx.Conventions.Layout)
+	}
+	if apiGen.capturedCtx.Conventions.ErrorHandling != "problem-details-rfc" {
+		t.Errorf("expected ErrorHandling convention to be 'problem-details-rfc', got %q", apiGen.capturedCtx.Conventions.ErrorHandling)
+	}
+	if apiGen.capturedCtx.Conventions.Logging != "structured-json" {
+		t.Errorf("expected Logging convention to be 'structured-json', got %q", apiGen.capturedCtx.Conventions.Logging)
+	}
+}
+
+func TestReconcile_CORSDefaultPreservedWithoutOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	// No CORS override — conventions should pass through from archetype.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, comp := range []struct {
+		name, yaml string
+	}{
+		{
+			name: "stub-api",
+			yaml: `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots: []
+`,
+		},
+		{
+			name: "stub-store",
+			yaml: `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/storage
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`,
+		},
+	} {
+		compDir := filepath.Join(registryDir, "components", comp.name)
+		if err := os.MkdirAll(compDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(comp.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	apiGen := &capturingGenerator{
+		stubGenerator: stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+	}
+	storeGen := &stubGenerator{
+		files: []gen.File{
+			{Path: "internal/storage/store.go", Content: []byte("package storage\n")},
+		},
+		wiring: &gen.Wiring{
+			Imports:      []string{"internal/storage"},
+			Constructors: []string{"storage.NewStore(db)"},
+			NeedsDB:      true,
+		},
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   apiGen,
+		"stub-store": storeGen,
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// CORS should remain "enabled" from the archetype when no override is present.
+	if apiGen.capturedCtx.Conventions.CORS != "enabled" {
+		t.Errorf("expected CORS convention to be 'enabled' without override, got %q", apiGen.capturedCtx.Conventions.CORS)
+	}
+}
+
+func TestReconcile_CORSOverrideDoesNotAffectPortResolution(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	// Service declares overrides with both cors: disabled and a port override.
+	// The cors override should NOT be treated as a port binding.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+
+overrides:
+  cors: disabled
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, comp := range []struct {
+		name, yaml string
+	}{
+		{
+			name: "stub-api",
+			yaml: `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots: []
+`,
+		},
+		{
+			name: "stub-store",
+			yaml: `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/storage
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`,
+		},
+	} {
+		compDir := filepath.Join(registryDir, "components", comp.name)
+		if err := os.MkdirAll(compDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(comp.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewHandler()"},
+				Routes:       []string{`mux.Handle("/widgets", handler)`},
+			},
+		},
+		"stub-store": &stubGenerator{
+			files: []gen.File{
+				{Path: "internal/storage/store.go", Content: []byte("package storage\n")},
+			},
+			wiring: &gen.Wiring{
+				Imports:      []string{"internal/storage"},
+				Constructors: []string{"storage.NewStore(db)"},
+				NeedsDB:      true,
+			},
+		},
+	}
+
+	// This should NOT fail with a port resolution error. If "cors" were treated
+	// as a port binding override, port resolution would try to find a component
+	// named "disabled", which would fail.
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err != nil {
+		t.Fatalf("Reconcile failed (cors override should not affect port resolution): %v", err)
+	}
+}
+
+func TestReconcile_CORSOverrideInvalidValueRejected(t *testing.T) {
+	projectDir := t.TempDir()
+	registryDir := t.TempDir()
+
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+
+overrides:
+  cors: maybe
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, comp := range []struct {
+		name, yaml string
+	}{
+		{
+			name: "stub-api",
+			yaml: `kind: component
+name: stub-api
+version: 1.0.0
+output_namespace: internal/api
+requires:
+  - storage-adapter
+provides:
+  - http-server
+slots: []
+`,
+		},
+		{
+			name: "stub-store",
+			yaml: `kind: component
+name: stub-store
+version: 1.0.0
+output_namespace: internal/storage
+requires: []
+provides:
+  - storage-adapter
+slots: []
+`,
+		},
+	} {
+		compDir := filepath.Join(registryDir, "components", comp.name)
+		if err := os.MkdirAll(compDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(comp.yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	generators := map[string]gen.Generator{
+		"stub-api":   &stubGenerator{wiring: &gen.Wiring{}},
+		"stub-store": &stubGenerator{wiring: &gen.Wiring{}},
+	}
+
+	_, err := Reconcile(ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  generators,
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid CORS override value")
+	}
+	if !strings.Contains(err.Error(), "cors") {
+		t.Errorf("error should mention 'cors', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "maybe") {
+		t.Errorf("error should mention the invalid value 'maybe', got: %v", err)
 	}
 }

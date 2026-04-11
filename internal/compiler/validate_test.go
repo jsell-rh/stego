@@ -3773,3 +3773,210 @@ collections:
 		t.Fatalf("expected no errors with valid patch+patchable, got:\n%s", FormatValidation(result))
 	}
 }
+
+func TestValidate_CORSOverrideDisabledAccepted(t *testing.T) {
+	projectDir, registryDir, input := setupValidateProject(t)
+
+	// Overwrite service.yaml with cors: disabled override.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+
+  - name: Org
+    fields:
+      - { name: name, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+  orgs:
+    entity: Org
+    operations: [create, read]
+
+overrides:
+  cors: disabled
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update archetype to have cors: enabled.
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if result.HasErrors() {
+		t.Fatalf("expected no errors with cors: disabled override, got:\n%s", FormatValidation(result))
+	}
+}
+
+func TestValidate_CORSOverrideInvalidValueRejected(t *testing.T) {
+	projectDir, registryDir, input := setupValidateProject(t)
+
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+
+  - name: Org
+    fields:
+      - { name: name, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+  orgs:
+    entity: Org
+    operations: [create, read]
+
+overrides:
+  cors: maybe
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if !result.HasErrors() {
+		t.Fatal("expected validation errors for invalid cors override value")
+	}
+
+	found := false
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "cors") && strings.Contains(e.Message, "maybe") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error mentioning 'cors' and 'maybe', got:\n%s", FormatValidation(result))
+	}
+}
+
+func TestValidate_CORSOverrideDoesNotAffectPortResolution(t *testing.T) {
+	projectDir, registryDir, input := setupValidateProject(t)
+
+	// cors: disabled should not be treated as a port binding override.
+	serviceYAML := `kind: service
+name: test-service
+archetype: test-arch
+language: go
+
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+
+  - name: Org
+    fields:
+      - { name: name, type: string }
+
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+  orgs:
+    entity: Org
+    operations: [create, read]
+
+overrides:
+  cors: disabled
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "service.yaml"), []byte(serviceYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archDir := filepath.Join(registryDir, "archetypes", "test-arch")
+	archYAML := `kind: archetype
+name: test-arch
+language: go
+version: 1.0.0
+components:
+  - stub-api
+  - stub-store
+conventions:
+  layout: flat
+  error_handling: problem-details-rfc
+  logging: structured-json
+  test_pattern: table-driven
+  cors: enabled
+bindings:
+  storage-adapter: stub-store
+`
+	if err := os.WriteFile(filepath.Join(archDir, "archetype.yaml"), []byte(archYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// Should not have any port resolution errors — cors should not be treated as
+	// a port binding override that tries to find a component named "disabled".
+	for _, e := range result.Errors {
+		if e.Category == "port" {
+			t.Errorf("unexpected port error (cors override should not affect port resolution): %s", e.Message)
+		}
+	}
+}

@@ -134,6 +134,16 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("language validation failed: %s", strings.Join(msgs, "; "))
 	}
 
+	// Validate convention overrides have recognized values. This mirrors the
+	// check in Validate() per item 155.
+	if convErrs := validateConventionOverrides(svcDecl.Overrides); len(convErrs) > 0 {
+		msgs := make([]string, len(convErrs))
+		for i, e := range convErrs {
+			msgs[i] = e.Message
+		}
+		return nil, fmt.Errorf("override validation failed: %s", strings.Join(msgs, "; "))
+	}
+
 	// Collect baseline component names: archetype components + default_auth + mixin components.
 	baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
 	if err != nil {
@@ -150,12 +160,21 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		baselineComponents[name] = comp
 	}
 
+	// Apply convention overrides from the service declaration (e.g.
+	// "cors: disabled" suppresses CORS middleware generation even when the
+	// archetype defaults to "cors: enabled").
+	conventions := applyConventionOverrides(archetype.Conventions, svcDecl.Overrides)
+
 	// Extract port binding overrides from service declaration.
 	// String-valued entries in Overrides represent port→component bindings;
 	// map-valued entries represent component config overrides (handled separately).
+	// Convention override keys (e.g. "cors") are excluded from port resolution.
 	servicePortOverrides := make(map[string]string)
 	for key, val := range svcDecl.Overrides {
 		if strVal, ok := val.(string); ok {
+			if isConventionOverrideKey(key) {
+				continue
+			}
 			servicePortOverrides[key] = strVal
 		}
 	}
@@ -268,7 +287,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		}
 
 		ctx := gen.Context{
-			Conventions:     archetype.Conventions,
+			Conventions:     conventions,
 			Entities:        svcDecl.Entities,
 			Collections:     svcDecl.Collections,
 			SlotBindings:    svcDecl.Slots,
@@ -969,6 +988,38 @@ func validateSlotCollectionsDefined(slots []types.SlotDeclaration, collections [
 		}
 	}
 	return nil
+}
+
+// conventionOverrideKeys lists YAML override keys that correspond to archetype
+// convention fields rather than port binding overrides. These keys must be
+// excluded from port resolution and instead applied to the conventions struct.
+var conventionOverrideKeys = map[string]bool{
+	"cors": true,
+}
+
+// isConventionOverrideKey returns true if the given override key is a convention
+// override rather than a port binding override.
+func isConventionOverrideKey(key string) bool {
+	return conventionOverrideKeys[key]
+}
+
+// applyConventionOverrides returns a copy of the archetype conventions with any
+// service-level convention overrides applied. Currently supports:
+//   - cors: "disabled" → sets CORS to "" (suppresses CORS middleware generation)
+//   - cors: "enabled"  → keeps CORS as "enabled" (explicit opt-in, same as default)
+func applyConventionOverrides(base types.Convention, overrides map[string]any) types.Convention {
+	conv := base
+	if corsVal, ok := overrides["cors"]; ok {
+		if strVal, ok := corsVal.(string); ok {
+			switch strVal {
+			case "disabled":
+				conv.CORS = ""
+			case "enabled":
+				conv.CORS = "enabled"
+			}
+		}
+	}
+	return conv
 }
 
 // validateUniqueFilePaths checks that no two files in the collection share the
