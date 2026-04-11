@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, line 367)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-041 (email attribute for created_by/updated_by)
 
@@ -37,6 +37,12 @@ Regenerate the example services (`examples/user-management/` and `examples/user-
 ## Task Completion
 
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
+
+## Verification Notes
+
+Both examples regenerated via `STEGO_REGISTRY=../../registry stego apply` — both reported "No changes. Infrastructure is up-to-date." This is expected because neither example's entities declare `created_by`/`updated_by` fields, so the task-041 generator change (email attribute extraction) does not affect the generated output. The feature is verified by task-041's unit tests (`TestServerManagedFieldsCreateHandler`, `TestServerManagedFieldsUpdateHandler`).
+
+Generated code compiles: `cd out && go build ./...` succeeds for both examples. `go test ./...` passes from the repo root.
 
 ## Commits
 
