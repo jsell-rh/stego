@@ -5747,6 +5747,158 @@ func TestGenerate_OrderByFieldValidation(t *testing.T) {
 	}
 }
 
+func TestGenerate_DefaultSortOrderWhenOrderByOmitted(t *testing.T) {
+	// AC1: When orderBy is omitted, the generated list handler defaults to
+	// []OrderByField{{Field: "created_time", Direction: "desc"}}
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// The default sort must appear in the else branch of the orderBy check.
+	if !strings.Contains(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`) {
+		t.Error("when orderBy is omitted, list handler must default to created_time desc")
+	}
+}
+
+func TestGenerate_OrderQueryParameterParsedAndValidated(t *testing.T) {
+	// AC2: The order query parameter is parsed and validated (must be "asc" or "desc").
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// order parameter parsed from query string.
+	if !strings.Contains(handler, `orderDir := r.URL.Query().Get("order")`) {
+		t.Error("list handler must parse order query parameter")
+	}
+
+	// Validation: must be "asc" or "desc".
+	if !strings.Contains(handler, `orderDir != "asc" && orderDir != "desc"`) {
+		t.Error("list handler must validate order is 'asc' or 'desc'")
+	}
+
+	// Invalid order value returns BadRequest.
+	if !strings.Contains(handler, `BadRequest("invalid order value: "`) {
+		t.Error("invalid order value must return BadRequest error")
+	}
+}
+
+func TestGenerate_OrderOverridesDirectionOfOrderByEntries(t *testing.T) {
+	// AC3: When order is present, it overrides the direction of every entry in orderBy.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// The override loop must iterate all orderBy entries and replace their direction.
+	if !strings.Contains(handler, `if orderDir != ""`) {
+		t.Error("list handler must check for order direction override")
+	}
+	if !strings.Contains(handler, `for i := range orderBy {`) {
+		t.Error("list handler must iterate over orderBy entries for direction override")
+	}
+	if !strings.Contains(handler, `orderBy[i].Direction = orderDir`) {
+		t.Error("list handler must override each orderBy entry's direction with order value")
+	}
+}
+
+func TestGenerate_OrderOverridesDefaultSortDirection(t *testing.T) {
+	// AC4: When order is present but orderBy is omitted, the default sort
+	// created_time uses the order direction instead of "desc".
+	// This is structurally guaranteed by the code: the default sort produces
+	// orderBy with Direction: "desc", then the orderDir override loop replaces
+	// it. We verify the default sort is set before the override logic runs.
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// The default sort must be set in the else branch (when orderBy is empty).
+	defaultSortIdx := strings.Index(handler, `orderBy = []OrderByField{{Field: "created_time", Direction: "desc"}}`)
+	if defaultSortIdx < 0 {
+		t.Fatal("default sort not found in handler")
+	}
+
+	// The order direction override must come after the default sort.
+	overrideIdx := strings.Index(handler, `if orderDir != "" {`)
+	if overrideIdx < 0 {
+		t.Fatal("order direction override not found in handler")
+	}
+	if overrideIdx < defaultSortIdx {
+		t.Error("order direction override must come after the default sort assignment")
+	}
+}
+
+func TestGenerate_OpenAPIOrderQueryParameter(t *testing.T) {
+	// AC5: OpenAPI spec declares order query parameter on all list operations
+	// with enum [asc, desc].
+	g := &Generator{}
+	ctx := envelopeContext()
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	specContent := findFileContent(t, files, "internal/api/openapi.json")
+
+	// Parse the spec to verify the order parameter is declared.
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Parameters []struct {
+				Name   string `json:"name"`
+				In     string `json:"in"`
+				Schema struct {
+					Type string   `json:"type"`
+					Enum []string `json:"enum"`
+				} `json:"schema"`
+			} `json:"parameters"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(specContent), &spec); err != nil {
+		t.Fatalf("failed to parse OpenAPI spec: %v", err)
+	}
+
+	// Find the list operation (GET on the collection path).
+	found := false
+	for _, methods := range spec.Paths {
+		getOp, ok := methods["get"]
+		if !ok {
+			continue
+		}
+		for _, param := range getOp.Parameters {
+			if param.Name == "order" && param.In == "query" {
+				found = true
+				if param.Schema.Type != "string" {
+					t.Errorf("order parameter schema type should be 'string', got %q", param.Schema.Type)
+				}
+				if len(param.Schema.Enum) != 2 || param.Schema.Enum[0] != "asc" || param.Schema.Enum[1] != "desc" {
+					t.Errorf("order parameter should have enum [asc, desc], got %v", param.Schema.Enum)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("OpenAPI spec must declare 'order' query parameter on list operations")
+	}
+}
+
 func TestGenerate_StorageInterfaceListOptionsAndResult(t *testing.T) {
 	// AC7: Storage interface includes ListOptions and ListResult types.
 	g := &Generator{}

@@ -977,8 +977,17 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	}
 	fmt.Fprintf(buf, "}\n")
 
+	// Parse and validate the order query parameter: direction override for all
+	// orderBy entries. Must be "asc" or "desc"; invalid values return 400.
+	fmt.Fprintf(buf, "\torderDir := r.URL.Query().Get(\"order\")\n")
+	fmt.Fprintf(buf, "\tif orderDir != \"\" && orderDir != \"asc\" && orderDir != \"desc\" {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(\"invalid order value: \"+orderDir+\"; must be 'asc' or 'desc'\"))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+
 	// Parse orderBy query parameter: comma-separated "field_name" or
 	// "field_name asc|desc" (default direction: asc).
+	// When omitted, defaults to created_time desc (newest first).
 	fmt.Fprintf(buf, "\tvar orderBy []OrderByField\n")
 	fmt.Fprintf(buf, "\tif orderByStr := r.URL.Query().Get(\"orderBy\"); orderByStr != \"\" {\n")
 	fmt.Fprintf(buf, "\t\tfor _, entry := range strings.Split(orderByStr, \",\") {\n")
@@ -1002,6 +1011,16 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\t\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t\t}\n")
 	fmt.Fprintf(buf, "\t\t\torderBy = append(orderBy, OrderByField{Field: fieldName, Direction: dir})\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t} else {\n")
+	// Default sort: created_time desc (newest first) when orderBy is omitted.
+	fmt.Fprintf(buf, "\t\torderBy = []OrderByField{{Field: \"created_time\", Direction: \"desc\"}}\n")
+	fmt.Fprintf(buf, "\t}\n")
+
+	// Apply order direction override to all orderBy entries when present.
+	fmt.Fprintf(buf, "\tif orderDir != \"\" {\n")
+	fmt.Fprintf(buf, "\t\tfor i := range orderBy {\n")
+	fmt.Fprintf(buf, "\t\t\torderBy[i].Direction = orderDir\n")
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t}\n")
 
@@ -2050,6 +2069,13 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Schema:      openAPISchema{Type: "string"},
 				})
 				listParams = append(listParams, openAPIParam{
+					Name:        "order",
+					In:          "query",
+					Required:    false,
+					Description: "Sort direction override: applied to all orderBy entries",
+					Schema:      openAPISchema{Type: "string", Enum: []string{"asc", "desc"}},
+				})
+				listParams = append(listParams, openAPIParam{
 					Name:        "fields",
 					In:          "query",
 					Required:    false,
@@ -2725,6 +2751,7 @@ var handlerScopeIdentifiers = map[string]bool{
 	"pageSizeStr": true, // pageSizeStr := r.URL.Query().Get("pageSize")
 	"actualSize":  true, // actualSize := reflect.ValueOf(<items>).Len()
 	"orderBy":    true, // var orderBy []OrderByField
+	"orderDir":   true, // orderDir := r.URL.Query().Get("order")
 	"fields":     true, // var fields []string
 	"opts":       true, // opts := ListOptions{...}
 	"searchExpr": true, // searchExpr := r.URL.Query().Get("search")

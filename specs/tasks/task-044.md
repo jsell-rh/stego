@@ -33,7 +33,7 @@ Two additions to list query parameter handling:
 
 ## Progress
 
-`not-started`
+`ready-for-review`
 
 ## Commits
 
