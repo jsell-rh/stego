@@ -58,3 +58,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - c4fdb76 feat(task-046): add CORS convention field to domain types
+- 4109606 fix(task-046): add cors field to parser testdata and assertion
