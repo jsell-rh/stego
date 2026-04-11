@@ -95,3 +95,5 @@ The `id` field (from `Meta`) is always server-assigned and excluded from all req
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- f7cdd4e feat(task-039): server-managed fields and request schemas
