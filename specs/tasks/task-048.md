@@ -60,3 +60,5 @@ A service declaration can disable CORS via `overrides: cors: disabled` for inter
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `4f28053` feat(task-048): CORS override to disable CORS middleware generation
