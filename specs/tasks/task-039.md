@@ -2,7 +2,9 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, lines 326-372)
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-039.md](../reviews/task-039.md)
 
 **Depends on:** task-037 (error prefix fix — affects generated output), task-038 (PORT env var — affects generated output)
 
