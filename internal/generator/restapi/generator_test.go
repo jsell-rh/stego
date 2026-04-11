@@ -8459,3 +8459,62 @@ func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
 		t.Error("update handler must not use generation++ (increments from cleared zero value)")
 	}
 }
+
+func TestGenerate_PatchHandlerKindValidation(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "color", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"color"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Patch handler must use io.ReadAll for body reading (the PatchRequest
+	// struct does not include "kind", so json.NewDecoder would silently
+	// discard it — checklist item 235).
+	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+		t.Error("patch handler must use io.ReadAll for body reading")
+	}
+	// Patch handler must validate kind field.
+	if !strings.Contains(handler, `rawMap["kind"]`) {
+		t.Error("patch handler must check for 'kind' field in request body")
+	}
+	if !strings.Contains(handler, `kind != "Widget"`) {
+		t.Error("patch handler must validate kind against entity name 'Widget'")
+	}
+	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+		t.Error("patch handler must return BadRequest for wrong kind value")
+	}
+	// Patch handler must use json.Unmarshal from buffered bytes (not json.NewDecoder).
+	if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
+		t.Error("patch handler must use json.Unmarshal for body decoding")
+	}
+	// Kind validation must reject non-string values (checklist item 234).
+	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+		t.Error("patch handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+	}
+	// Patch handler must NOT use json.NewDecoder(r.Body) — the body was already
+	// consumed by io.ReadAll.
+	if strings.Contains(handler, "json.NewDecoder(r.Body)") {
+		t.Error("patch handler must not use json.NewDecoder(r.Body) — body is read via io.ReadAll")
+	}
+}

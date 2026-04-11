@@ -503,7 +503,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			break
 		}
 	}
-	needIO := hasCreate || hasUpsert || hasUpdate
+	needIO := hasCreate || hasUpsert || hasUpdate || hasPatch
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -1315,9 +1315,18 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t}\n")
 	emitScopeCheck(buf, entity, eb, parentParamName, lower)
 
-	// Step 2: Decode patch request.
+	// Step 2: Read body bytes for kind validation, then decode patch request.
+	// The PatchRequest struct only contains patchable fields, so Go's decoder
+	// silently discards unknown keys like "kind". We must read the raw body
+	// first to inspect the kind field before struct decode.
+	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	emitKindValidation(buf, entity)
 	fmt.Fprintf(buf, "\tvar patch %s\n", patchReqType)
-	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&patch); err != nil {\n")
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &patch); err != nil {\n")
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
