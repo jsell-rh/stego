@@ -37,3 +37,5 @@ After CORS middleware generation and override support are implemented, regenerat
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- `610d495` feat(task-049): regenerate example output with CORS middleware
