@@ -2489,7 +2489,8 @@ func emitClearServerManagedFields(buf *bytes.Buffer, varName string, entity type
 }
 
 // emitPopulateServerManagedFieldsCreate emits code that populates server-managed
-// fields for a create operation: created_by/updated_by from auth context,
+// fields for a create operation: created_by/updated_by from auth context
+// (preferring Attributes["email"], falling back to UserID),
 // timestamps via time.Now(), generation from field default.
 func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
 	for _, f := range entity.Fields {
@@ -2498,7 +2499,11 @@ func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, en
 		case f.Name == "created_by" || f.Name == "updated_by":
 			if authAlias != "" {
 				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
-				fmt.Fprintf(buf, "\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t\tif email := authID.Attributes[\"email\"]; email != \"\" {\n")
+				fmt.Fprintf(buf, "\t\t\t%s.%s = email\n", varName, goName)
+				fmt.Fprintf(buf, "\t\t} else {\n")
+				fmt.Fprintf(buf, "\t\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t\t}\n")
 				fmt.Fprintf(buf, "\t}\n")
 			}
 		case f.Type == types.FieldTypeTimestamp && !f.Computed:
@@ -2517,7 +2522,8 @@ func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, en
 }
 
 // emitPopulateServerManagedFieldsUpdate emits code that populates server-managed
-// fields for an update operation: updated_by from auth context,
+// fields for an update operation: updated_by from auth context
+// (preferring Attributes["email"], falling back to UserID),
 // updated_time via time.Now(). The generation field and create-only fields
 // (created_by, created_time) are handled by emitPreserveCreateOnlyFields,
 // which restores them from the existing entity.
@@ -2528,7 +2534,11 @@ func emitPopulateServerManagedFieldsUpdate(buf *bytes.Buffer, varName string, en
 		case f.Name == "updated_by":
 			if authAlias != "" {
 				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
-				fmt.Fprintf(buf, "\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t\tif email := authID.Attributes[\"email\"]; email != \"\" {\n")
+				fmt.Fprintf(buf, "\t\t\t%s.%s = email\n", varName, goName)
+				fmt.Fprintf(buf, "\t\t} else {\n")
+				fmt.Fprintf(buf, "\t\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t\t}\n")
 				fmt.Fprintf(buf, "\t}\n")
 			}
 		case f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp:

@@ -8090,15 +8090,25 @@ func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 		t.Error("create handler must clear computed field status")
 	}
 
-	// Create handler must populate server-managed fields from auth context.
+	// Create handler must populate server-managed fields from auth context,
+	// preferring Attributes["email"] with UserID fallback.
 	if !strings.Contains(handler, "auth.IdentityFromContext(r.Context())") {
 		t.Error("create handler must extract identity from auth context")
 	}
+	if !strings.Contains(handler, `authID.Attributes["email"]`) {
+		t.Error("create handler must check Attributes[\"email\"] for created_by/updated_by")
+	}
+	if !strings.Contains(handler, "cluster.CreatedBy = email") {
+		t.Error("create handler must set created_by from email attribute")
+	}
+	if !strings.Contains(handler, "cluster.UpdatedBy = email") {
+		t.Error("create handler must set updated_by from email attribute")
+	}
 	if !strings.Contains(handler, "cluster.CreatedBy = authID.UserID") {
-		t.Error("create handler must set created_by from auth identity")
+		t.Error("create handler must fall back to UserID for created_by")
 	}
 	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("create handler must set updated_by from auth identity")
+		t.Error("create handler must fall back to UserID for updated_by")
 	}
 
 	// Create handler must populate timestamps.
@@ -8120,8 +8130,14 @@ func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 		t.Fatal("Update method not found")
 	}
 	updateSection := handler[updateStart:]
+	if !strings.Contains(updateSection, `authID.Attributes["email"]`) {
+		t.Error("update handler must check Attributes[\"email\"] for updated_by")
+	}
+	if !strings.Contains(updateSection, "cluster.UpdatedBy = email") {
+		t.Error("update handler must set updated_by from email attribute")
+	}
 	if !strings.Contains(updateSection, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("update handler must set updated_by from auth identity")
+		t.Error("update handler must fall back to UserID for updated_by")
 	}
 	if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
 		t.Error("update handler must set updated_time to time.Now()")
@@ -8433,9 +8449,15 @@ func TestGenerate_UpdateHandlerPreservesCreateOnlyFields(t *testing.T) {
 		t.Error("update handler must clear created_by field")
 	}
 
-	// Update handler must set updated_by from auth context.
+	// Update handler must set updated_by from auth context, preferring email.
+	if !strings.Contains(handler, `authID.Attributes["email"]`) {
+		t.Error("update handler must check Attributes[\"email\"] for updated_by")
+	}
+	if !strings.Contains(handler, "cluster.UpdatedBy = email") {
+		t.Error("update handler must set updated_by from email attribute")
+	}
 	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
-		t.Error("update handler must set updated_by from auth context")
+		t.Error("update handler must fall back to UserID for updated_by")
 	}
 	// Update handler must set updated_time.
 	if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {

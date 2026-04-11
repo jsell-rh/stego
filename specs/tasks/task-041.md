@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, line 367)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-039 (server-managed fields implementation)
 
