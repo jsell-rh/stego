@@ -316,6 +316,7 @@ conventions:
   error_handling: problem-details-rfc
   logging: structured-json
   test_pattern: table-driven
+  cors: enabled
 compatible_mixins:
   - event-publisher
   - async-worker
@@ -338,6 +339,9 @@ bindings:
 	}
 	if a.Conventions.Layout != "flat" {
 		t.Errorf("conventions.layout = %q, want %q", a.Conventions.Layout, "flat")
+	}
+	if a.Conventions.CORS != "enabled" {
+		t.Errorf("conventions.cors = %q, want %q", a.Conventions.CORS, "enabled")
 	}
 	if len(a.Bindings) != 2 {
 		t.Errorf("bindings count = %d, want 2", len(a.Bindings))

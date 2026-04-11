@@ -19,6 +19,7 @@ conventions:
   logging: structured-json
   test_pattern: table-driven
   request_validation: openapi-schema
+  cors: enabled
 
 compatible_mixins:
   - event-publisher

@@ -127,6 +127,7 @@ type Convention struct {
 	Logging           string `yaml:"logging"`
 	TestPattern       string `yaml:"test_pattern"`
 	RequestValidation string `yaml:"request_validation,omitempty"`
+	CORS              string `yaml:"cors,omitempty"`
 }
 
 // Archetype represents a curated component set with conventions.

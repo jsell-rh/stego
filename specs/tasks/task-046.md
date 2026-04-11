@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Archetype Definition** (`cors: enabled` in conventions) and **CORS** section
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** None (all prerequisites complete)
 

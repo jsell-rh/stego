@@ -68,6 +68,9 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 	if a.Conventions.TestPattern != "table-driven" {
 		t.Errorf("Conventions.TestPattern = %q, want %q", a.Conventions.TestPattern, "table-driven")
 	}
+	if a.Conventions.CORS != "enabled" {
+		t.Errorf("Conventions.CORS = %q, want %q", a.Conventions.CORS, "enabled")
+	}
 
 	wantMixins := []string{"event-publisher", "async-worker"}
 	if len(a.CompatibleMixins) != len(wantMixins) {
