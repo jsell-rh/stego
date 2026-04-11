@@ -39,4 +39,4 @@ The query parameter for items-per-page was renamed from `size` to `pageSize`. Th
 
 ## Commits
 
-_(none yet)_
+- `3caed67` feat(task-043): rename `size` query parameter to `pageSize` in list operations
