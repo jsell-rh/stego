@@ -2399,7 +2399,7 @@ func emitKindValidation(buf *bytes.Buffer, entity types.Entity) {
 	fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(bodyBytes, &rawMap); err == nil {\n")
 	fmt.Fprintf(buf, "\t\t\tif kindRaw, ok := rawMap[\"kind\"]; ok {\n")
 	fmt.Fprintf(buf, "\t\t\t\tvar kind string\n")
-	fmt.Fprintf(buf, "\t\t\t\tif err := json.Unmarshal(kindRaw, &kind); err == nil && kind != %q {\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\tif err := json.Unmarshal(kindRaw, &kind); err != nil || kind != %q {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\t\t\t\thandleError(w, r, BadRequest(\"kind must be %s\"))\n", entity.Name)
 	fmt.Fprintf(buf, "\t\t\t\t\treturn\n")
 	fmt.Fprintf(buf, "\t\t\t\t}\n")

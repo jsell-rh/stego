@@ -8163,6 +8163,16 @@ func TestGenerate_KindFieldValidation(t *testing.T) {
 	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
 		t.Error("create handler must return BadRequest for wrong kind value")
 	}
+	// The kind validation must reject non-string values (e.g., kind: 42,
+	// kind: true, kind: [1]) — these are "present and wrong" per the spec.
+	// The generated condition must use err != nil || kind != "Entity" so that
+	// JSON unmarshal failures (non-string types) also produce a 400.
+	if strings.Contains(handler, `err == nil && kind != "Widget"`) {
+		t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string values, not 'err == nil && kind != Entity'")
+	}
+	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+		t.Error("kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+	}
 }
 
 func TestGenerate_ServerManagedFieldsCompilesAsPackage(t *testing.T) {
@@ -8324,6 +8334,10 @@ func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
 	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
 		t.Error("upsert handler must use io.ReadAll for body reading")
 	}
+	// Kind validation must reject non-string values (checklist item 234).
+	if !strings.Contains(handler, `err != nil || kind != "Setting"`) {
+		t.Error("upsert handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
+	}
 }
 
 func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
@@ -8365,6 +8379,10 @@ func TestGenerate_UpdateHandlerKindValidation(t *testing.T) {
 	// Update handler must use json.Unmarshal (not json.NewDecoder).
 	if !strings.Contains(handler, "json.Unmarshal(bodyBytes") {
 		t.Error("update handler must use json.Unmarshal for body decoding")
+	}
+	// Kind validation must reject non-string values (checklist item 234).
+	if !strings.Contains(handler, `err != nil || kind != "Widget"`) {
+		t.Error("update handler kind validation must use 'err != nil || kind != Entity' to reject non-string kind values")
 	}
 }
 
