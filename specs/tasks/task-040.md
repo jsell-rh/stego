@@ -48,3 +48,5 @@ Regenerate the example services (`examples/user-management/` and `examples/user-
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 4da1da0 chore(task-040): regenerate example output with spec amendments from tasks 037-039
