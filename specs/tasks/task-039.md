@@ -100,3 +100,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 - f7cdd4e feat(task-039): server-managed fields and request schemas
 - 0dfaf17 fix(task-039): update handler kind validation and create-only field preservation
+- d8df5c2 fix(task-039): kind validation rejects non-string values
