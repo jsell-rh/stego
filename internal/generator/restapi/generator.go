@@ -409,9 +409,10 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		needStrings = true
 	}
 
-	// Determine whether time package is needed (computed timestamp fields
-	// require time.Time{} zero value in write operations, and patchable
-	// timestamp fields require *time.Time in the patch request struct).
+	// Determine whether time package is needed. Write operations (create,
+	// update, upsert) need time when any field is server-managed with
+	// type timestamp (for clearing or populating). Patch needs time when
+	// any patchable field is a timestamp.
 	needTime := false
 	hasWriteOp := false
 	for _, op := range eb.Operations {
@@ -422,7 +423,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	}
 	if hasWriteOp {
 		for _, f := range entity.Fields {
-			if f.Computed && f.Type == types.FieldTypeTimestamp {
+			if f.Type == types.FieldTypeTimestamp {
 				needTime = true
 				break
 			}
@@ -476,12 +477,26 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			}
 		}
 	}
+	// Server-managed fields created_by/updated_by need the auth package
+	// to extract the authenticated user identity from the request context.
+	if !needAuth && authImportPath != "" && hasWriteOp {
+		for _, f := range entity.Fields {
+			if f.Name == "created_by" || f.Name == "updated_by" {
+				needAuth = true
+				break
+			}
+		}
+	}
 
 	// Derive the auth import alias from the package path.
 	authAlias := ""
 	if needAuth {
 		authAlias = path.Base(authImportPath)
 	}
+
+	// Create and update handlers need io for io.ReadAll (body reading for kind
+	// validation).
+	needIO := hasCreate || hasUpsert
 
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
@@ -493,6 +508,9 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	}
 	if needFmt {
 		fmt.Fprintf(&buf, "\t\"fmt\"\n")
+	}
+	if needIO {
+		fmt.Fprintf(&buf, "\t\"io\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"net/http\"\n")
 	if needReflect {
@@ -688,8 +706,16 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Create(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
+	// Read body bytes to support kind validation before struct decode.
+	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	// Validate kind field if present in request body: must match entity name.
+	emitKindValidation(buf, entity)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -697,7 +723,10 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	if envelope {
 		fmt.Fprintf(buf, "\t%s.ID = uuid.New().String()\n", lower)
 	}
-	emitClearComputedFields(buf, lower, entity)
+	// Clear all server-managed fields so client-supplied values are discarded,
+	// then populate them with server-derived values.
+	emitClearServerManagedFields(buf, lower, entity)
+	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
 	if eb.ParentEntity() != "" {
 		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
@@ -816,7 +845,8 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	emitClearComputedFields(buf, lower, entity)
+	// Clear all server-managed fields and populate update-specific values.
+	emitClearServerManagedFields(buf, lower, entity)
 	// The path parameter is the authoritative identity for the entity being
 	// updated — the decoded body may have an empty or mismatched ID field.
 	fmt.Fprintf(buf, "\t%s.ID = id\n", lower)
@@ -827,6 +857,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		}
 		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
+	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
 	before, after := slotsForOp(types.OpUpdate, slotParams)
 	for _, sp := range before {
 		emitBeforeSlot(buf, slotsAlias, authAlias, sp, lower, entity)
@@ -1079,8 +1110,15 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	lower := safeVarName(strings.ToLower(entity.Name))
 	fmt.Fprintf(buf, "func (h *%sHandler) Upsert(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
+	// Read body bytes to support kind validation before struct decode.
+	fmt.Fprintf(buf, "\tbodyBytes, err := io.ReadAll(r.Body)\n")
+	fmt.Fprintf(buf, "\tif err != nil {\n")
+	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
+	fmt.Fprintf(buf, "\t\treturn\n")
+	fmt.Fprintf(buf, "\t}\n")
+	emitKindValidation(buf, entity)
 	fmt.Fprintf(buf, "\tvar %s %s\n", lower, entity.Name)
-	fmt.Fprintf(buf, "\tif err := json.NewDecoder(r.Body).Decode(&%s); err != nil {\n", lower)
+	fmt.Fprintf(buf, "\tif err := json.Unmarshal(bodyBytes, &%s); err != nil {\n", lower)
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
@@ -1091,7 +1129,10 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t\t%s.ID = uuid.New().String()\n", lower)
 		fmt.Fprintf(buf, "\t}\n")
 	}
-	emitClearComputedFields(buf, lower, entity)
+	// Clear all server-managed fields so client-supplied values are discarded,
+	// then populate them with server-derived values for the create path.
+	emitClearServerManagedFields(buf, lower, entity)
+	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
 	if eb.ParentEntity() != "" {
 		refField, err := parentRefFieldName(entity, eb.ParentEntity())
 		if err != nil {
@@ -1889,6 +1930,8 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		}
 		schemaEmitted[eb.Entity] = true
 		e := entityMap[eb.Entity]
+
+		// Response schema: includes ALL fields (used by GET responses).
 		schema := openAPISchema{
 			Type:       "object",
 			Properties: make(map[string]openAPISchema),
@@ -1907,6 +1950,27 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 			schema.Required = required
 		}
 		spec.Components.Schemas[e.Name] = schema
+
+		// CreateRequest schema: excludes server-managed fields, scope fields,
+		// and id. Used by POST and PUT(upsert) request bodies.
+		createSchema := openAPISchema{
+			Type:       "object",
+			Properties: make(map[string]openAPISchema),
+		}
+		var createRequired []string
+		for _, f := range e.Fields {
+			if isServerManaged(f) || scopeFields[f.Name] {
+				continue
+			}
+			createSchema.Properties[f.Name] = fieldToOpenAPISchema(f)
+			if !f.Optional {
+				createRequired = append(createRequired, f.Name)
+			}
+		}
+		if len(createRequired) > 0 {
+			createSchema.Required = createRequired
+		}
+		spec.Components.Schemas[e.Name+"CreateRequest"] = createSchema
 	}
 
 	// Generate paths from collections.
@@ -1926,6 +1990,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		itemOps := make(map[string]openAPIOperation)
 
 		collPascal := collectionToPascalCase(eb.Name)
+		createRef := "#/components/schemas/" + eb.Entity + "CreateRequest"
 		for _, op := range eb.Operations {
 			tag := eb.Name
 			ref := "#/components/schemas/" + eb.Entity
@@ -2021,7 +2086,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
-						Content:  jsonContent(openAPISchema{Ref: ref}),
+						Content:  jsonContent(openAPISchema{Ref: createRef}),
 					},
 					Responses: map[string]openAPIResponse{
 						"201": {Description: "Created", Content: jsonContent(responseSchema)},
@@ -2068,7 +2133,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					}),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
-						Content:  jsonContent(openAPISchema{Ref: ref}),
+						Content:  jsonContent(openAPISchema{Ref: createRef}),
 					},
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
@@ -2101,7 +2166,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Parameters:  append([]openAPIParam{}, parentParams...),
 					RequestBody: &openAPIRequestBody{
 						Required: true,
-						Content:  jsonContent(openAPISchema{Ref: ref}),
+						Content:  jsonContent(openAPISchema{Ref: createRef}),
 					},
 					Responses: map[string]openAPIResponse{
 						"200": {Description: "Updated", Content: jsonContent(responseSchema)},
@@ -2303,26 +2368,126 @@ func fieldToOpenAPISchema(f types.Field) openAPISchema {
 	return s
 }
 
-// emitClearComputedFields emits code that zeroes computed fields using their
-// zero values. This is simpler: we know the Go types from the field definitions.
-func emitClearComputedFields(buf *bytes.Buffer, varName string, entity types.Entity) {
+// emitKindValidation emits code that checks whether a "kind" field in the raw
+// body bytes matches the entity name. Expects bodyBytes []byte to be in scope.
+// If present and wrong, return 400. If absent, accept the request.
+func emitKindValidation(buf *bytes.Buffer, entity types.Entity) {
+	fmt.Fprintf(buf, "\t{\n")
+	fmt.Fprintf(buf, "\t\tvar rawMap map[string]json.RawMessage\n")
+	fmt.Fprintf(buf, "\t\tif err := json.Unmarshal(bodyBytes, &rawMap); err == nil {\n")
+	fmt.Fprintf(buf, "\t\t\tif kindRaw, ok := rawMap[\"kind\"]; ok {\n")
+	fmt.Fprintf(buf, "\t\t\t\tvar kind string\n")
+	fmt.Fprintf(buf, "\t\t\t\tif err := json.Unmarshal(kindRaw, &kind); err == nil && kind != %q {\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\t\thandleError(w, r, BadRequest(\"kind must be %s\"))\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
+}
+
+// isServerManaged returns true when a field's value is assigned by the server,
+// not the client. Server-managed fields are excluded from request schemas.
+// A field is server-managed if any of:
+//  1. computed: true — filled by a slot, never client-written
+//  2. type: timestamp — server-assigned timestamps
+//  3. named "created_by" or "updated_by" — populated from authenticated identity
+//  4. named "generation" — server-managed version counter
+func isServerManaged(f types.Field) bool {
+	if f.Computed {
+		return true
+	}
+	if f.Type == types.FieldTypeTimestamp {
+		return true
+	}
+	if f.Name == "created_by" || f.Name == "updated_by" {
+		return true
+	}
+	if f.Name == "generation" {
+		return true
+	}
+	return false
+}
+
+// emitClearServerManagedFields emits code that zeroes all server-managed fields
+// so that client-supplied values for these fields are discarded. This covers
+// computed fields, timestamps, created_by/updated_by, and generation.
+func emitClearServerManagedFields(buf *bytes.Buffer, varName string, entity types.Entity) {
 	for _, f := range entity.Fields {
-		if f.Computed {
-			goName := toPascalCase(f.Name)
-			goType := fieldTypeToGo(f.Type)
-			switch goType {
-			case "string":
-				fmt.Fprintf(buf, "\t%s.%s = \"\"\n", varName, goName)
-			case "bool":
-				fmt.Fprintf(buf, "\t%s.%s = false\n", varName, goName)
-			case "int32", "int64", "float32", "float64":
-				fmt.Fprintf(buf, "\t%s.%s = 0\n", varName, goName)
-			case "time.Time":
-				fmt.Fprintf(buf, "\t%s.%s = time.Time{}\n", varName, goName)
-			default:
-				// For reference types ([]byte, json.RawMessage), use nil.
-				fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
+		if !isServerManaged(f) {
+			continue
+		}
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		if f.Optional {
+			fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
+			continue
+		}
+		switch goType {
+		case "string":
+			fmt.Fprintf(buf, "\t%s.%s = \"\"\n", varName, goName)
+		case "bool":
+			fmt.Fprintf(buf, "\t%s.%s = false\n", varName, goName)
+		case "int32", "int64", "float32", "float64":
+			fmt.Fprintf(buf, "\t%s.%s = 0\n", varName, goName)
+		case "time.Time":
+			fmt.Fprintf(buf, "\t%s.%s = time.Time{}\n", varName, goName)
+		default:
+			fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
+		}
+	}
+}
+
+// emitPopulateServerManagedFieldsCreate emits code that populates server-managed
+// fields for a create operation: created_by/updated_by from auth context,
+// timestamps via time.Now(), generation from field default.
+func emitPopulateServerManagedFieldsCreate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
+	for _, f := range entity.Fields {
+		goName := toPascalCase(f.Name)
+		switch {
+		case f.Name == "created_by" || f.Name == "updated_by":
+			if authAlias != "" {
+				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
+				fmt.Fprintf(buf, "\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t}\n")
 			}
+		case f.Type == types.FieldTypeTimestamp && !f.Computed:
+			if f.Optional {
+				fmt.Fprintf(buf, "\t%sNow := time.Now()\n", f.Name)
+				fmt.Fprintf(buf, "\t%s.%s = &%sNow\n", varName, goName, f.Name)
+			} else {
+				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
+			}
+		case f.Name == "generation":
+			if f.Default != nil {
+				fmt.Fprintf(buf, "\t%s.%s = %v\n", varName, goName, f.Default)
+			}
+		}
+	}
+}
+
+// emitPopulateServerManagedFieldsUpdate emits code that populates server-managed
+// fields for an update operation: updated_by from auth context,
+// updated_time via time.Now(), generation incremented.
+func emitPopulateServerManagedFieldsUpdate(buf *bytes.Buffer, varName string, entity types.Entity, authAlias string) {
+	for _, f := range entity.Fields {
+		goName := toPascalCase(f.Name)
+		switch {
+		case f.Name == "updated_by":
+			if authAlias != "" {
+				fmt.Fprintf(buf, "\tif authID := %s.IdentityFromContext(r.Context()); authID.UserID != \"\" {\n", authAlias)
+				fmt.Fprintf(buf, "\t\t%s.%s = authID.UserID\n", varName, goName)
+				fmt.Fprintf(buf, "\t}\n")
+			}
+		case f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp:
+			if f.Optional {
+				fmt.Fprintf(buf, "\t%sNow := time.Now()\n", f.Name)
+				fmt.Fprintf(buf, "\t%s.%s = &%sNow\n", varName, goName, f.Name)
+			} else {
+				fmt.Fprintf(buf, "\t%s.%s = time.Now()\n", varName, goName)
+			}
+		case f.Name == "generation":
+			fmt.Fprintf(buf, "\t%s.%s++\n", varName, goName)
 		}
 	}
 }

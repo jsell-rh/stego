@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, lines 326-372)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-037 (error prefix fix — affects generated output), task-038 (PORT env var — affects generated output)
 

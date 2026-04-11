@@ -7812,3 +7812,516 @@ func TestGenerate_ListStorageAPIConversionChecksErrors(t *testing.T) {
 		t.Error("List handler must return InternalError on json.Marshal/Unmarshal failure")
 	}
 }
+
+// --- Task 039: Server-Managed Fields and Request Schemas ---
+
+func TestIsServerManaged(t *testing.T) {
+	tests := []struct {
+		name   string
+		field  types.Field
+		expect bool
+	}{
+		{
+			name:   "computed field",
+			field:  types.Field{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
+			expect: true,
+		},
+		{
+			name:   "timestamp field",
+			field:  types.Field{Name: "created_time", Type: types.FieldTypeTimestamp},
+			expect: true,
+		},
+		{
+			name:   "created_by field",
+			field:  types.Field{Name: "created_by", Type: types.FieldTypeString},
+			expect: true,
+		},
+		{
+			name:   "updated_by field",
+			field:  types.Field{Name: "updated_by", Type: types.FieldTypeString},
+			expect: true,
+		},
+		{
+			name:   "generation field",
+			field:  types.Field{Name: "generation", Type: types.FieldTypeInt32},
+			expect: true,
+		},
+		{
+			name:   "regular string field",
+			field:  types.Field{Name: "name", Type: types.FieldTypeString},
+			expect: false,
+		},
+		{
+			name:   "regular ref field",
+			field:  types.Field{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			expect: false,
+		},
+		{
+			name:   "optional jsonb field",
+			field:  types.Field{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+			expect: false,
+		},
+		{
+			name:   "enum field",
+			field:  types.Field{Name: "role", Type: types.FieldTypeEnum, Values: []string{"admin", "member"}},
+			expect: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isServerManaged(tt.field)
+			if got != tt.expect {
+				t.Errorf("isServerManaged(%q) = %v, want %v", tt.field.Name, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestGenerate_CreateRequestSchemaExcludesServerManagedFields(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "status-aggregator"},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "created_by", Type: types.FieldTypeString},
+				{Name: "updated_by", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+
+	// ClusterCreateRequest schema should exist.
+	createReqRaw, ok := schemas["ClusterCreateRequest"]
+	if !ok {
+		t.Fatal("ClusterCreateRequest schema not found in OpenAPI components")
+	}
+	createReq := createReqRaw.(map[string]any)
+	props := createReq["properties"].(map[string]any)
+
+	// Client-provided fields should be present.
+	for _, expected := range []string{"name", "spec", "labels"} {
+		if _, ok := props[expected]; !ok {
+			t.Errorf("ClusterCreateRequest schema missing client-provided field %q", expected)
+		}
+	}
+
+	// Server-managed fields should be absent.
+	for _, excluded := range []string{"status", "generation", "created_by", "updated_by", "created_time", "updated_time"} {
+		if _, ok := props[excluded]; ok {
+			t.Errorf("ClusterCreateRequest schema should not include server-managed field %q", excluded)
+		}
+	}
+
+	// Required array should only contain client-provided non-optional fields.
+	reqArr, _ := createReq["required"].([]any)
+	reqSet := make(map[string]bool)
+	for _, r := range reqArr {
+		reqSet[r.(string)] = true
+	}
+	if !reqSet["name"] {
+		t.Error("ClusterCreateRequest should list 'name' as required")
+	}
+	if !reqSet["spec"] {
+		t.Error("ClusterCreateRequest should list 'spec' as required")
+	}
+	if reqSet["labels"] {
+		t.Error("ClusterCreateRequest should not list optional field 'labels' as required")
+	}
+}
+
+func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Name:       "org-users",
+				Entity:     "User",
+				Scope:      map[string]string{"org_id": "Organization"},
+				Operations: []types.Operation{types.OpCreate, types.OpRead},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	createReq := schemas["UserCreateRequest"].(map[string]any)
+	props := createReq["properties"].(map[string]any)
+
+	// Scope field org_id should be excluded from CreateRequest.
+	if _, ok := props["org_id"]; ok {
+		t.Error("UserCreateRequest should not include scope field 'org_id'")
+	}
+	// email should be present.
+	if _, ok := props["email"]; !ok {
+		t.Error("UserCreateRequest should include client-provided field 'email'")
+	}
+}
+
+func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	paths := spec["paths"].(map[string]any)
+	widgetsPath := paths["/widgets"].(map[string]any)
+	postOp := widgetsPath["post"].(map[string]any)
+	reqBody := postOp["requestBody"].(map[string]any)
+	reqContent := reqBody["content"].(map[string]any)
+	jsonSchema := reqContent["application/json"].(map[string]any)
+	schemaRef := jsonSchema["schema"].(map[string]any)["$ref"].(string)
+
+	if schemaRef != "#/components/schemas/WidgetCreateRequest" {
+		t.Errorf("POST request body $ref = %q, want #/components/schemas/WidgetCreateRequest", schemaRef)
+	}
+}
+
+func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "created_by", Type: types.FieldTypeString},
+				{Name: "updated_by", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpCreate, types.OpUpdate}},
+		},
+		OutputNamespace: "internal/api",
+		AuthPackage:     "github.com/example/svc/internal/auth",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+
+	// Create handler must clear server-managed fields.
+	if !strings.Contains(handler, "cluster.CreatedBy = \"\"") {
+		t.Error("create handler must clear created_by")
+	}
+	if !strings.Contains(handler, "cluster.UpdatedBy = \"\"") {
+		t.Error("create handler must clear updated_by")
+	}
+	if !strings.Contains(handler, "cluster.Generation = 0") {
+		t.Error("create handler must clear generation")
+	}
+	if !strings.Contains(handler, "cluster.Status = nil") {
+		t.Error("create handler must clear computed field status")
+	}
+
+	// Create handler must populate server-managed fields from auth context.
+	if !strings.Contains(handler, "auth.IdentityFromContext(r.Context())") {
+		t.Error("create handler must extract identity from auth context")
+	}
+	if !strings.Contains(handler, "cluster.CreatedBy = authID.UserID") {
+		t.Error("create handler must set created_by from auth identity")
+	}
+	if !strings.Contains(handler, "cluster.UpdatedBy = authID.UserID") {
+		t.Error("create handler must set updated_by from auth identity")
+	}
+
+	// Create handler must populate timestamps.
+	if !strings.Contains(handler, "cluster.CreatedTime = time.Now()") {
+		t.Error("create handler must set created_time to time.Now()")
+	}
+	if !strings.Contains(handler, "cluster.UpdatedTime = time.Now()") {
+		t.Error("create handler must set updated_time to time.Now()")
+	}
+
+	// Create handler must set generation from default.
+	if !strings.Contains(handler, "cluster.Generation = 1") {
+		t.Error("create handler must set generation from field default value")
+	}
+
+	// Update handler must set updated_by and updated_time, and increment generation.
+	updateStart := strings.Index(handler, "func (h *ClustersHandler) Update(")
+	if updateStart == -1 {
+		t.Fatal("Update method not found")
+	}
+	updateSection := handler[updateStart:]
+	if !strings.Contains(updateSection, "cluster.UpdatedBy = authID.UserID") {
+		t.Error("update handler must set updated_by from auth identity")
+	}
+	if !strings.Contains(updateSection, "cluster.UpdatedTime = time.Now()") {
+		t.Error("update handler must set updated_time to time.Now()")
+	}
+	if !strings.Contains(updateSection, "cluster.Generation++") {
+		t.Error("update handler must increment generation")
+	}
+}
+
+func TestGenerate_KindFieldValidation(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpCreate}},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// Create handler must validate kind field.
+	if !strings.Contains(handler, `rawMap["kind"]`) {
+		t.Error("create handler must check for 'kind' field in request body")
+	}
+	if !strings.Contains(handler, `kind != "Widget"`) {
+		t.Error("create handler must validate kind against entity name 'Widget'")
+	}
+	if !strings.Contains(handler, `BadRequest("kind must be Widget")`) {
+		t.Error("create handler must return BadRequest for wrong kind value")
+	}
+}
+
+func TestGenerate_ServerManagedFieldsCompilesAsPackage(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "envelope",
+		},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString, Unique: true},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "labels", Type: types.FieldTypeJsonb, Optional: true},
+				{Name: "status", Type: types.FieldTypeJsonb, Computed: true, FilledBy: "agg"},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "created_by", Type: types.FieldTypeString},
+				{Name: "updated_by", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{
+				types.OpCreate, types.OpRead, types.OpUpdate, types.OpDelete, types.OpList,
+			}},
+		},
+		OutputNamespace: "internal/api",
+		AuthPackage:     "github.com/example/svc/internal/auth",
+		ModuleName:      "github.com/example/svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Write all generated files to a temp directory and compile them.
+	tmpDir := t.TempDir()
+	apiDir := filepath.Join(tmpDir, "internal", "api")
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Create a stub auth package.
+	authDir := filepath.Join(tmpDir, "internal", "auth")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatalf("mkdir auth: %v", err)
+	}
+	authStub := `package auth
+
+import "context"
+
+type Identity struct {
+	UserID     string
+	Role       string
+	Attributes map[string]string
+}
+
+type contextKey struct{}
+
+func IdentityFromContext(ctx context.Context) Identity {
+	if id, ok := ctx.Value(contextKey{}).(Identity); ok {
+		return id
+	}
+	return Identity{}
+}
+`
+	if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
+		t.Fatalf("write auth stub: %v", err)
+	}
+
+	for _, f := range files {
+		fp := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		rendered := f.Bytes()
+		if err := os.WriteFile(fp, rendered, 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// go.mod
+	goMod := "module github.com/example/svc\n\ngo 1.23\n\nrequire github.com/google/uuid v1.6.0\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	// go.sum (run go mod tidy)
+	cmd := exec.Command("go", "mod", "tidy")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy: %v\n%s", err, out)
+	}
+
+	// Compile.
+	cmd = exec.Command("go", "build", "./...")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build failed:\n%s", out)
+	}
+}
+
+func TestGenerate_UpsertKindValidationAndServerManagedFields(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat", ResponseFormat: "envelope"},
+		Entities: []types.Entity{
+			{Name: "Setting", Fields: []types.Field{
+				{Name: "key", Type: types.FieldTypeString},
+				{Name: "value", Type: types.FieldTypeString},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "settings",
+				Entity:     "Setting",
+				Operations: []types.Operation{types.OpUpsert, types.OpRead},
+				UpsertKey:  []string{"key"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_settings.go")
+
+	// Upsert must validate kind field.
+	if !strings.Contains(handler, `rawMap["kind"]`) {
+		t.Error("upsert handler must check for 'kind' field in request body")
+	}
+	if !strings.Contains(handler, `kind != "Setting"`) {
+		t.Error("upsert handler must validate kind against entity name")
+	}
+
+	// Upsert must clear server-managed fields.
+	if !strings.Contains(handler, "setting.Generation = 0") {
+		t.Error("upsert handler must clear generation field")
+	}
+
+	// Upsert must populate server-managed fields.
+	if !strings.Contains(handler, "setting.Generation = 1") {
+		t.Error("upsert handler must set generation from field default")
+	}
+	if !strings.Contains(handler, "setting.UpdatedTime = time.Now()") {
+		t.Error("upsert handler must set updated_time")
+	}
+
+	// Upsert must use io.ReadAll for body reading.
+	if !strings.Contains(handler, "io.ReadAll(r.Body)") {
+		t.Error("upsert handler must use io.ReadAll for body reading")
+	}
+}
