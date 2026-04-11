@@ -59,6 +59,7 @@ func main() {
 	)
 
 	validationMiddleware := api.NewValidationMiddleware()
+	cORSMiddleware := api.NewCORSMiddleware()
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
@@ -87,5 +88,5 @@ func main() {
 	}
 	addr := ":" + port
 	log.Printf("starting server on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, authMiddleware(validationMiddleware(mux))))
+	log.Fatal(http.ListenAndServe(addr, cORSMiddleware(authMiddleware(validationMiddleware(mux)))))
 }

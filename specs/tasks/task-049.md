@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **CORS** section
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-047, task-048
 
