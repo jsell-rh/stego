@@ -69,3 +69,5 @@ When `cors: enabled` is set in the archetype conventions, the `rest-api` compone
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- 0209977 feat(task-047): CORS middleware generation and assembler wiring
