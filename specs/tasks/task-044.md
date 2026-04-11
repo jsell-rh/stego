@@ -33,7 +33,11 @@ Two additions to list query parameter handling:
 
 ## Progress
 
-`ready-for-review`
+`complete`
+
+## Review
+
+[specs/reviews/task-044.md](../reviews/task-044.md)
 
 ## Commits
 
