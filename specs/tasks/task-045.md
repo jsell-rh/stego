@@ -36,4 +36,4 @@ Follows tasks 043 and 044. The example services must be regenerated to reflect:
 
 ## Commits
 
-_(listed after commit)_
+- c53e28e chore(task-045): regenerate example output with list parameter changes
