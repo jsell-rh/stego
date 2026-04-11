@@ -396,7 +396,7 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	}
 	// reflect is needed for list to compute actual item count from ListResult.Items
 	// (which is typed as any). Both envelope and bare modes need strconv for
-	// page/size parsing, but only envelope uses reflect for actualSize.
+	// page/pageSize parsing, but only envelope uses reflect for actualSize.
 	if hasList && envelope {
 		needReflect = true
 	}
@@ -951,20 +951,20 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "func (h *%sHandler) List(w http.ResponseWriter, r *http.Request) {\n", collPascal)
 	emitParentCheck(buf, eb)
 
-	// Parse page/size pagination parameters (spec-defined, 1-indexed).
-	// Defaults: page=1, size=100. Max size=65500 (PostgreSQL parameter limit).
+	// Parse page/pageSize pagination parameters (spec-defined, 1-indexed).
+	// Defaults: page=1, pageSize=100. Max pageSize=65500 (PostgreSQL parameter limit).
 	fmt.Fprintf(buf, "\tpageStr := r.URL.Query().Get(\"page\")\n")
-	fmt.Fprintf(buf, "\tsizeStr := r.URL.Query().Get(\"size\")\n")
+	fmt.Fprintf(buf, "\tpageSizeStr := r.URL.Query().Get(\"pageSize\")\n")
 	fmt.Fprintf(buf, "\tpage, _ := strconv.Atoi(pageStr)\n")
 	fmt.Fprintf(buf, "\tif page < 1 {\n")
 	fmt.Fprintf(buf, "\t\tpage = 1\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tsize, _ := strconv.Atoi(sizeStr)\n")
-	fmt.Fprintf(buf, "\tif size < 1 {\n")
-	fmt.Fprintf(buf, "\t\tsize = 100\n")
+	fmt.Fprintf(buf, "\tpageSize, _ := strconv.Atoi(pageSizeStr)\n")
+	fmt.Fprintf(buf, "\tif pageSize < 1 {\n")
+	fmt.Fprintf(buf, "\t\tpageSize = 100\n")
 	fmt.Fprintf(buf, "\t}\n")
-	fmt.Fprintf(buf, "\tif size > 65500 {\n")
-	fmt.Fprintf(buf, "\t\tsize = 65500\n")
+	fmt.Fprintf(buf, "\tif pageSize > 65500 {\n")
+	fmt.Fprintf(buf, "\t\tpageSize = 65500\n")
 	fmt.Fprintf(buf, "\t}\n")
 
 	// Build valid fields set for orderBy and fields validation.
@@ -1035,7 +1035,7 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\tsearchExpr := r.URL.Query().Get(\"search\")\n")
 
 	// Build ListOptions.
-	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
+	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
 
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
@@ -2037,7 +2037,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 					Schema:   openAPISchema{Type: "integer", Default: 1},
 				})
 				listParams = append(listParams, openAPIParam{
-					Name:     "size",
+					Name:     "pageSize",
 					In:       "query",
 					Required: false,
 					Schema:   openAPISchema{Type: "integer", Default: 100},
@@ -2719,11 +2719,11 @@ var handlerScopeIdentifiers = map[string]bool{
 	"created":   true, // created, err := h.store.Upsert(...) in Upsert method
 	"upsertKey": true, // upsertKey := []string{...} in Upsert method
 	// Generator-emitted local variables in List method body.
-	"page":       true, // page, _ := strconv.Atoi(pageStr)
-	"size":       true, // size, _ := strconv.Atoi(sizeStr)
-	"pageStr":    true, // pageStr := r.URL.Query().Get("page")
-	"sizeStr":    true, // sizeStr := r.URL.Query().Get("size")
-	"actualSize": true, // actualSize := reflect.ValueOf(<items>).Len()
+	"page":        true, // page, _ := strconv.Atoi(pageStr)
+	"pageSize":    true, // pageSize, _ := strconv.Atoi(pageSizeStr)
+	"pageStr":     true, // pageStr := r.URL.Query().Get("page")
+	"pageSizeStr": true, // pageSizeStr := r.URL.Query().Get("pageSize")
+	"actualSize":  true, // actualSize := reflect.ValueOf(<items>).Len()
 	"orderBy":    true, // var orderBy []OrderByField
 	"fields":     true, // var fields []string
 	"opts":       true, // opts := ListOptions{...}

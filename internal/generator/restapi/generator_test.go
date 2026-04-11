@@ -348,27 +348,27 @@ func TestGenerate_ScopeFilteringWithParent(t *testing.T) {
 		t.Error("scope filtering must pass the scope field name and opts to store.List")
 	}
 
-	// List handler must parse page/size (spec-defined) query parameters, not
+	// List handler must parse page/pageSize (spec-defined) query parameters, not
 	// raw offset/limit.
 	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
 		t.Error("list handler must parse 'page' query parameter (spec-defined pagination)")
 	}
-	if !strings.Contains(handler, `r.URL.Query().Get("size")`) {
-		t.Error("list handler must parse 'size' query parameter (spec-defined pagination)")
+	if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
+		t.Error("list handler must parse 'pageSize' query parameter (spec-defined pagination)")
 	}
-	// Default page=1, size=100.
+	// Default page=1, pageSize=100.
 	if !strings.Contains(handler, "page = 1") {
 		t.Error("list handler must default page to 1 when missing or invalid")
 	}
-	if !strings.Contains(handler, "size = 100") {
-		t.Error("list handler must default size to 100 when missing or invalid")
+	if !strings.Contains(handler, "pageSize = 100") {
+		t.Error("list handler must default pageSize to 100 when missing or invalid")
 	}
-	// Clamp size to 65500 (PostgreSQL parameter limit).
-	if !strings.Contains(handler, "size > 65500") {
-		t.Error("list handler must clamp size to max 65500")
+	// Clamp pageSize to 65500 (PostgreSQL parameter limit).
+	if !strings.Contains(handler, "pageSize > 65500") {
+		t.Error("list handler must clamp pageSize to max 65500")
 	}
-	// Build ListOptions with Page and Size.
-	if !strings.Contains(handler, "opts := ListOptions{Page: page, Size: size") {
+	// Build ListOptions with Page and Size from pageSize local.
+	if !strings.Contains(handler, "opts := ListOptions{Page: page, Size: pageSize") {
 		t.Error("list handler must construct ListOptions with Page and Size")
 	}
 
@@ -872,8 +872,8 @@ func TestGenerate_OpenAPINestedRoutePathParams(t *testing.T) {
 	if !hasParam(getParams, "page") {
 		t.Error("GET (list) must declare 'page' query parameter in OpenAPI spec")
 	}
-	if !hasParam(getParams, "size") {
-		t.Error("GET (list) must declare 'size' query parameter in OpenAPI spec")
+	if !hasParam(getParams, "pageSize") {
+		t.Error("GET (list) must declare 'pageSize' query parameter in OpenAPI spec")
 	}
 
 	// Check nested item path: /clusters/{cluster_id}/nodepools/{id}
@@ -5661,12 +5661,12 @@ func TestGenerate_ListQueryParametersParsing(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// page and size parsing.
+	// page and pageSize parsing.
 	if !strings.Contains(handler, `r.URL.Query().Get("page")`) {
 		t.Error("list handler must parse page query parameter")
 	}
-	if !strings.Contains(handler, `r.URL.Query().Get("size")`) {
-		t.Error("list handler must parse size query parameter")
+	if !strings.Contains(handler, `r.URL.Query().Get("pageSize")`) {
+		t.Error("list handler must parse pageSize query parameter")
 	}
 
 	// orderBy parsing.
@@ -5688,13 +5688,13 @@ func TestGenerate_ListQueryParametersParsing(t *testing.T) {
 	}
 
 	// ListOptions construction.
-	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: size, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
+	if !strings.Contains(handler, `opts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}`) {
 		t.Error("list handler must construct ListOptions from parsed parameters")
 	}
 }
 
-func TestGenerate_SizeCappedAt65500(t *testing.T) {
-	// AC5: size capped at 65500.
+func TestGenerate_PageSizeCappedAt65500(t *testing.T) {
+	// AC5: pageSize capped at 65500.
 	g := &Generator{}
 	ctx := envelopeContext()
 	files, _, err := g.Generate(ctx)
@@ -5704,11 +5704,11 @@ func TestGenerate_SizeCappedAt65500(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	if !strings.Contains(handler, `size > 65500`) {
-		t.Error("list handler must cap size at 65500")
+	if !strings.Contains(handler, `pageSize > 65500`) {
+		t.Error("list handler must cap pageSize at 65500")
 	}
-	if !strings.Contains(handler, `size = 65500`) {
-		t.Error("list handler must clamp size to 65500 when exceeded")
+	if !strings.Contains(handler, `pageSize = 65500`) {
+		t.Error("list handler must clamp pageSize to 65500 when exceeded")
 	}
 }
 
@@ -6164,8 +6164,8 @@ func TestGenerate_OpenAPIListOrderByAndFieldsParams(t *testing.T) {
 	if !paramNames["page"] {
 		t.Error("OpenAPI list operation must include 'page' query parameter")
 	}
-	if !paramNames["size"] {
-		t.Error("OpenAPI list operation must include 'size' query parameter")
+	if !paramNames["pageSize"] {
+		t.Error("OpenAPI list operation must include 'pageSize' query parameter")
 	}
 }
 
