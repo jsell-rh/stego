@@ -46,3 +46,4 @@ Generated code compiles: `cd out && go build ./...` succeeds for both examples. 
 
 ## Commits
 
+- `3755865` chore(task-042): verify examples unchanged after email attribute change
