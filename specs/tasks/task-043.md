@@ -1,8 +1,8 @@
 # Task 043: Rename `size` Query Parameter to `pageSize`
 
-## Spec Reference
+**Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
 
-`specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
+**Status:** `complete`
 
 ## Spec Excerpt
 
@@ -32,10 +32,6 @@ The query parameter for items-per-page was renamed from `size` to `pageSize`. Th
 
 - `internal/generator/restapi/generator.go`
 - `internal/generator/restapi/generator_test.go`
-
-## Progress
-
-`complete`
 
 ## Commits
 

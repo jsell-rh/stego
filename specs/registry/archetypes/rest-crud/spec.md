@@ -26,6 +26,7 @@ conventions:
   request_validation: openapi-schema
   logging: structured-json
   test_pattern: table-driven
+  cors: enabled
 
 compatible_mixins:
   - event-publisher
@@ -524,6 +525,29 @@ When `request_validation: openapi-schema` is set in the archetype conventions, t
 
 Entity field constraints (min_length, max_length, pattern, min, max, required) are already encoded in the generated OpenAPI spec. The validation middleware enforces them at runtime without hand-coded validation functions per entity.
 
+## CORS
+
+When `cors: enabled` is set in the archetype conventions (the default for `rest-crud`), the `rest-api` component generates CORS middleware that wraps the HTTP handler chain. The middleware:
+
+- Sets `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers` on all responses
+- Handles `OPTIONS` preflight requests with a `204 No Content` response
+- Is inserted as the outermost middleware layer (before auth, before validation)
+
+Runtime configuration via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CORS_ALLOWED_ORIGINS` | `*` | Comma-separated list of allowed origins, or `*` for all |
+| `CORS_ALLOWED_METHODS` | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Allowed HTTP methods |
+| `CORS_ALLOWED_HEADERS` | `Content-Type,Authorization` | Allowed request headers |
+
+A service declaration can disable CORS via an override if the service is internal-only (e.g. behind a gateway that handles CORS):
+
+```yaml
+overrides:
+  cors: disabled
+```
+
 ## Generated Runtime Configuration
 
 The generated `main.go` reads runtime configuration from environment variables. These are not configurable in `service.yaml` -- they are deployment concerns.
@@ -532,6 +556,7 @@ The generated `main.go` reads runtime configuration from environment variables. 
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | Yes | -- | PostgreSQL connection string |
 | `PORT` | No | `8080` | HTTP listen port |
+| `CORS_ALLOWED_ORIGINS` | No | `*` | CORS allowed origins (see CORS section) |
 
 The generated server must read `PORT` from the environment (falling back to `8080`) rather than hardcoding the port. This is required for testability (integration tests need to run the server on a non-default port) and for container orchestration (port assignment by the platform).
 

@@ -44,10 +44,6 @@ The spec says "the resolver must load that component from the registry." Current
 8. All existing tests continue to pass
 9. `stego plan` and `stego validate` work on the `examples/user-management-rhsso` example (auth-provider overridden to rh-sso-auth)
 
-## Progress
-
-`complete`
-
 ## Review
 
 [specs/reviews/task-036.md](../reviews/task-036.md)

@@ -1,8 +1,8 @@
 # Task 045: Regenerate Example Output with List Parameter Changes
 
-## Spec Reference
+**Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
 
-`specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
+**Status:** `complete`
 
 ## Spec Excerpt
 
@@ -29,10 +29,6 @@ Follows tasks 043 and 044. The example services must be regenerated to reflect:
 - `examples/user-management-rhsso/out/internal/api/*.go`
 - `examples/user-management/out/openapi.yaml` (if generated)
 - `examples/user-management-rhsso/out/openapi.yaml` (if generated)
-
-## Progress
-
-`complete`
 
 ## Review
 

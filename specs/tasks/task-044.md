@@ -1,8 +1,8 @@
 # Task 044: Default Sort Order and `order` Direction Override Parameter
 
-## Spec Reference
+**Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
 
-`specs/registry/archetypes/rest-crud/spec.md` — **Response Format > List query parameters**
+**Status:** `complete`
 
 ## Spec Excerpt
 
@@ -30,10 +30,6 @@ Two additions to list query parameter handling:
 
 - `internal/generator/restapi/generator.go`
 - `internal/generator/restapi/generator_test.go`
-
-## Progress
-
-`complete`
 
 ## Review
 
