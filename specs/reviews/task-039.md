@@ -17,4 +17,20 @@ One finding against the spec.
 
 One finding against the spec.
 
-- [-] [process-revision-complete] **Patch handler does not validate `kind` field in request body (AC7 violation).** The rest-crud spec (line 372) states: "The `kind` field in the request body (if present) is validated against the entity name but is not persisted -- it is a client-side type assertion. If absent, the server does not reject the request. If present and wrong, the server returns 400." This is stated without handler restriction — it applies to all request bodies. The `generatePatchMethod` function (generator.go:1254) decodes the body directly via `json.NewDecoder(r.Body).Decode(&patch)` into a typed `PatchRequest` struct that only contains patchable fields. A `kind` field in the JSON body is silently ignored by Go's decoder (unknown fields are discarded by default). If a client sends `{"kind": "WrongEntity", "spec": {...}}` to PATCH, the server accepts the request without returning 400. `emitKindValidation` is called in create (line 723), update (line 859), and upsert (line 1141), but not in patch. AC7 says "kind field in request body validated against entity name; wrong value returns 400; absent is accepted" — no handler restriction. The patch handler must read the body with `io.ReadAll`, call `emitKindValidation`, then decode the patch struct from the buffered bytes, matching the pattern used by create, update, and upsert.
+- [x] [process-revision-complete] **Patch handler does not validate `kind` field in request body (AC7 violation).** The rest-crud spec (line 372) states: "The `kind` field in the request body (if present) is validated against the entity name but is not persisted -- it is a client-side type assertion. If absent, the server does not reject the request. If present and wrong, the server returns 400." This is stated without handler restriction — it applies to all request bodies. The `generatePatchMethod` function (generator.go:1254) decodes the body directly via `json.NewDecoder(r.Body).Decode(&patch)` into a typed `PatchRequest` struct that only contains patchable fields. A `kind` field in the JSON body is silently ignored by Go's decoder (unknown fields are discarded by default). If a client sends `{"kind": "WrongEntity", "spec": {...}}` to PATCH, the server accepts the request without returning 400. `emitKindValidation` is called in create (line 723), update (line 859), and upsert (line 1141), but not in patch. AC7 says "kind field in request body validated against entity name; wrong value returns 400; absent is accepted" — no handler restriction. The patch handler must read the body with `io.ReadAll`, call `emitKindValidation`, then decode the patch struct from the buffered bytes, matching the pattern used by create, update, and upsert.
+
+## Round 4
+
+No findings. All acceptance criteria verified:
+
+1. `isServerManaged()` correctly classifies all four rules (computed, timestamp, created_by/updated_by, generation). Unit tests cover all cases including negative cases.
+2. `{Entity}CreateRequest` OpenAPI schema excludes server-managed fields, scope fields, and `id`. Verified in generated spec.
+3. POST and PUT request body `$ref` correctly points to `{Entity}CreateRequest`.
+4. Create handler populates `created_by`/`updated_by` from auth context via `IdentityFromContext`.
+5. Create handler uses field `default` value for `generation` field.
+6. Create handler clears all server-managed fields (`emitClearServerManagedFields`) before populating with server-derived values, preventing client from setting them.
+7. `kind` field validation applied to all four request-body handlers (create, update, upsert, patch). Non-string values correctly rejected (`err != nil || kind != Entity`). Absent kind accepted.
+8. Update handler sets `updated_by` from auth context and `updated_time` to `time.Now()` via `emitPopulateServerManagedFieldsUpdate`.
+9. Update handler preserves `created_by`, `created_time`, and `generation` (incremented from existing value) via `emitPreserveCreateOnlyFields`.
+10. Comprehensive test suite covers all classifications, handler behaviors, kind validation across handlers, and full compilation test.
+11. `go test ./...` passes. `go build ./cmd/stego` compiles.

@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, lines 326-372)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Review:** [specs/reviews/task-039.md](../reviews/task-039.md)
 
