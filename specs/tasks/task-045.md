@@ -32,7 +32,11 @@ Follows tasks 043 and 044. The example services must be regenerated to reflect:
 
 ## Progress
 
-`ready-for-review`
+`complete`
+
+## Review
+
+[specs/reviews/task-045.md](../reviews/task-045.md)
 
 ## Commits
 
