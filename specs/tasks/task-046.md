@@ -54,3 +54,5 @@ The rest-crud archetype definition now includes `cors: enabled` in its conventio
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+
+- c4fdb76 feat(task-046): add CORS convention field to domain types
