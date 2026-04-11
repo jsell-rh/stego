@@ -2,7 +2,7 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas" (rest-crud spec, line 367)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Depends on:** task-039 (server-managed fields implementation)
 
@@ -64,6 +64,8 @@ The current implementation (from task-039) uses `authID.UserID` directly. It mus
 ## Task Completion
 
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
+
+**Review:** [specs/reviews/task-041.md](../reviews/task-041.md)
 
 ## Commits
 
