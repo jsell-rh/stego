@@ -2,9 +2,11 @@
 
 **Spec Reference:** "Server-Managed Fields and Request Schemas", "Error Handling (RFC 9457)", "Generated Runtime Configuration" (rest-crud spec)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Depends on:** task-037, task-038, task-039
+
+**Review:** [specs/reviews/task-040.md](../reviews/task-040.md)
 
 ## Description
 
