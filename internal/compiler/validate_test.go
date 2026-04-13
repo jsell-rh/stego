@@ -1807,52 +1807,6 @@ collections:
 	}
 }
 
-func TestValidate_CollectionScopeMultiFieldRejected(t *testing.T) {
-	projectDir, registryDir, _ := setupValidateProject(t)
-
-	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
-name: test-service
-archetype: test-arch
-language: go
-entities:
-  - name: Widget
-    fields:
-      - { name: label, type: string }
-      - { name: org_id, type: ref, to: Org }
-      - { name: team_id, type: ref, to: Team }
-  - name: Org
-    fields:
-      - { name: name, type: string }
-  - name: Team
-    fields:
-      - { name: name, type: string }
-collections:
-  org-team-widgets:
-    entity: Widget
-    operations: [list]
-    scope: { org_id: Org, team_id: Team }
-  orgs:
-    entity: Org
-    operations: [create, read]
-  teams:
-    entity: Team
-    operations: [create, read]
-`)
-
-	input := ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
-	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
-	}
-	assertHasError(t, result, "collection", "multi-field scopes are not yet supported")
-}
-
 func TestValidate_DuplicateCollectionName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 

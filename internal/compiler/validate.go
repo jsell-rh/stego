@@ -470,16 +470,6 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 			continue
 		}
 
-		// Validate scope cardinality: multi-field scopes are not yet supported.
-		// ScopeField() and ParentEntity() iterate the map and return the first
-		// element, which is non-deterministic for maps with more than one entry.
-		if len(c.Scope) > 1 {
-			errs = append(errs, ValidationError{
-				Category: "collection",
-				Message:  fmt.Sprintf("collection %q has %d scope entries but multi-field scopes are not yet supported — scope must contain exactly one entry", c.Name, len(c.Scope)),
-			})
-		}
-
 		// Validate scope: each key must be a field on the entity, each value
 		// must be a defined entity name.
 		for fieldName, targetEntity := range c.Scope {

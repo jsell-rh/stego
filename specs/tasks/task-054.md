@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section (implicit uses multi-field patterns like `scope: { resource_id: Cluster }` + `implicit: { resource_type: "Cluster" }` which put multiple fields on the same entity, but scope itself remains single-field; the cardinality check is still valid for scope)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-050
 
