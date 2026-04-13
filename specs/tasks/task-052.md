@@ -47,3 +47,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 0f43120 feat(task-052): inject implicit field values in create and upsert handlers
