@@ -35,3 +35,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- ae0e7f4 feat(task-050): add Implicit field to Collection domain type
