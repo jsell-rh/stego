@@ -2,7 +2,9 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Lifecycle Slots** section (lines 304–351)
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [specs/reviews/task-060.md](../reviews/task-060.md)
 
 **Depends on:** task-058, task-059
 
