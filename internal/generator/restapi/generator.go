@@ -643,13 +643,13 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 		case types.OpUpdate:
 			opErr = generateUpdateMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpDelete:
-			generateDeleteMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias)
+			generateDeleteMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias)
 		case types.OpList:
 			opErr = generateListMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
 		case types.OpUpsert:
 			opErr = generateUpsertMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		case types.OpPatch:
-			opErr = generatePatchMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, envelope, hrefBase)
+			opErr = generatePatchMethod(&buf, entity, eb, parentParamName, slotParams, slotsAlias, authAlias, envelope, hrefBase)
 		}
 		if opErr != nil {
 			return gen.File{}, opErr
@@ -923,7 +923,7 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string) {
+func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string) {
 	collPascal := collectionToPascalCase(eb.Name)
 	isScoped := len(eb.Scope) > 0 && eb.ParentEntity() != ""
 	fmt.Fprintf(buf, "func (h *%sHandler) Delete(w http.ResponseWriter, r *http.Request) {\n", collPascal)
@@ -944,6 +944,10 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		fmt.Fprintf(buf, "\t}\n")
 		emitMapScopeCheck(buf, entity, eb, parentParamName)
 	}
+	before, after := slotsForOp(types.OpDelete, slotParams)
+	for _, sp := range before {
+		emitBeforeDeleteSlot(buf, slotsAlias, authAlias, sp, entity.Name)
+	}
 	fmt.Fprintf(buf, "\tif err := h.store.Delete(r.Context(), %q, id); err != nil {\n", entity.Name)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -952,7 +956,6 @@ func generateDeleteMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\t}\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	_, after := slotsForOp(types.OpDelete, slotParams)
 	for _, sp := range after {
 		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpDelete)
 	}
@@ -1306,7 +1309,7 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	return nil
 }
 
-func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, envelope bool, hrefBase string) error {
+func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collection, parentParamName string, slotParams []collectionSlotParam, slotsAlias string, authAlias string, envelope bool, hrefBase string) error {
 	collPascal := collectionToPascalCase(eb.Name)
 	lower := safeVarName(strings.ToLower(entity.Name))
 
@@ -1401,7 +1404,13 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 		fmt.Fprintf(buf, "\t}\n")
 	}
 
-	// Step 4: Save via Replace (full entity save after merge).
+	// Step 4: Invoke before-slots (e.g., before_patch gate).
+	before, after := slotsForOp(types.OpPatch, slotParams)
+	for _, sp := range before {
+		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields)
+	}
+
+	// Step 5: Save via Replace (full entity save after merge).
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -1413,8 +1422,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 
-	// Step 5: Invoke after-slots (e.g., on_entity_changed fan-out).
-	_, after := slotsForOp(types.OpPatch, slotParams)
+	// Step 6: Invoke after-slots (e.g., on_entity_changed fan-out).
 	for _, sp := range after {
 		emitAfterSlot(buf, slotsAlias, sp, entity.Name, types.OpPatch)
 	}
@@ -3425,8 +3433,11 @@ type slotRequestMeta struct {
 // knownSlotRequestMeta maps slot names to their request type field metadata,
 // derived from the proto definitions in registry/components/rest-api/slots/.
 var knownSlotRequestMeta = map[string]slotRequestMeta{
-	"before_create":    {HasCaller: true},
-	"validate":         {HasEntityStr: true},
+	"before_create":     {HasCaller: true},
+	"before_upsert":     {HasCaller: true},
+	"before_patch":      {HasCaller: true},
+	"before_delete":     {HasCaller: true},
+	"validate":          {HasEntityStr: true},
 	"on_entity_changed": {}, // after-slot: Entity + Action, handled by emitAfterSlot
 }
 
@@ -3512,6 +3523,9 @@ func collectCollectionSlotParams(collectionName string, bindings []types.SlotDec
 // main handler logic (body decode, store call).
 var slotBeforeOps = map[string]map[types.Operation]bool{
 	"before_create": {types.OpCreate: true},
+	"before_upsert": {types.OpUpsert: true},
+	"before_patch":  {types.OpPatch: true},
+	"before_delete": {types.OpDelete: true},
 	"validate":      {types.OpCreate: true, types.OpUpdate: true, types.OpUpsert: true},
 }
 
@@ -3647,6 +3661,139 @@ func emitBeforeSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, para
 	fmt.Fprintf(buf, "\t}\n")
 }
 
+// emitSlotResultCheck emits the common slot result handling code: error check,
+// rejection check (non-Ok), and halt check. Shared by all before-slot emit
+// functions to avoid duplicating the error/reject/halt pattern.
+func emitSlotResultCheck(buf *bytes.Buffer, fieldName string) {
+	fmt.Fprintf(buf, "\t\tslotResult, slotErr := h.%s.Evaluate(r.Context(), slotReq)\n", fieldName)
+	fmt.Fprintf(buf, "\t\tif slotErr != nil {\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(slotErr.Error()))\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t\tif !slotResult.Ok {\n")
+	fmt.Fprintf(buf, "\t\t\tsc := http.StatusForbidden\n")
+	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
+	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\thandleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	// Short-circuit halt: chain step returned Ok but wants to stop further
+	// processing (e.g. discard-stale-generation returning 204 no-op).
+	fmt.Fprintf(buf, "\t\tif slotResult.Halt {\n")
+	fmt.Fprintf(buf, "\t\t\tsc := http.StatusOK\n")
+	fmt.Fprintf(buf, "\t\t\tif slotResult.StatusCode > 0 {\n")
+	fmt.Fprintf(buf, "\t\t\t\tsc = int(slotResult.StatusCode)\n")
+	fmt.Fprintf(buf, "\t\t\t}\n")
+	fmt.Fprintf(buf, "\t\t\tw.WriteHeader(sc)\n")
+	fmt.Fprintf(buf, "\t\t\treturn\n")
+	fmt.Fprintf(buf, "\t\t}\n")
+	fmt.Fprintf(buf, "\t}\n")
+}
+
+// emitBeforeDeleteSlot emits code that calls a before_delete slot operator.
+// The before_delete proto has a different structure from before_create: it has
+// entity (string), entity_id (string), and caller (*Identity) — no Input field.
+// The delete handler has the entity ID from the path but no decoded entity struct.
+func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityName string) {
+	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
+	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
+	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
+	fmt.Fprintf(buf, "\t\t\tEntityId: id,\n")
+	if param.HasCaller {
+		emitCallerField(buf, slotsAlias, authAlias)
+	}
+	fmt.Fprintf(buf, "\t\t}\n")
+	emitSlotResultCheck(buf, param.FieldName)
+}
+
+// emitBeforePatchSlot emits code that calls a before_patch slot operator.
+// The before_patch proto has: entity (string), patch_fields (map<string,string>),
+// existing_entity (map<string,string>), and caller (*Identity). The patch handler
+// has both the decoded patch request (pointer fields indicating which fields are
+// being modified) and the existing entity fetched from the store.
+func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field) {
+	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
+
+	// Build patch_fields map from non-nil patch pointer fields.
+	// Only fields the client actually sent (non-nil pointers) are included.
+	// Patch fields are always pointer-typed in the PatchRequest struct, so we
+	// dereference the pointer before converting to string.
+	fmt.Fprintf(buf, "\t\tpatchFieldsMap := map[string]string{}\n")
+	for _, f := range patchFields {
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		fmt.Fprintf(buf, "\t\tif patch.%s != nil {\n", goName)
+		fmt.Fprintf(buf, "\t\t\tpatchFieldsMap[%q] = %s\n", f.Name, patchFieldToStringExpr(goName, goType))
+		fmt.Fprintf(buf, "\t\t}\n")
+	}
+
+	// Pre-compute string values for optional (pointer) fields on the existing
+	// entity so the map literal uses meaningful values, not Go debug output.
+	for _, f := range entity.Fields {
+		if !f.Optional {
+			continue
+		}
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		localVar := f.Name + "ExVal"
+		switch goType {
+		case "string":
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = *%s.%s\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		case "json.RawMessage", "[]byte":
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = string(*%s.%s)\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		default:
+			fmt.Fprintf(buf, "\t\t%s := \"\"\n", localVar)
+			fmt.Fprintf(buf, "\t\tif %s.%s != nil {\n", entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t\t%s = fmt.Sprintf(\"%%v\", *%s.%s)\n", localVar, entityVarName, goName)
+			fmt.Fprintf(buf, "\t\t}\n")
+		}
+	}
+
+	// Build existing_entity map from the fetched entity variable (all fields).
+	fmt.Fprintf(buf, "\t\texistingEntityMap := map[string]string{\n")
+	for _, f := range entity.Fields {
+		goName := toPascalCase(f.Name)
+		goType := fieldTypeToGo(f.Type)
+		if f.Optional {
+			fmt.Fprintf(buf, "\t\t\t%q: %s,\n", f.Name, f.Name+"ExVal")
+		} else {
+			fmt.Fprintf(buf, "\t\t\t%q: %s,\n", f.Name, fieldToStringExpr(entityVarName, goName, goType))
+		}
+	}
+	fmt.Fprintf(buf, "\t\t}\n")
+
+	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
+	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entity.Name)
+	fmt.Fprintf(buf, "\t\t\tPatchFields: patchFieldsMap,\n")
+	fmt.Fprintf(buf, "\t\t\tExistingEntity: existingEntityMap,\n")
+	if param.HasCaller {
+		emitCallerField(buf, slotsAlias, authAlias)
+	}
+	fmt.Fprintf(buf, "\t\t}\n")
+	emitSlotResultCheck(buf, param.FieldName)
+}
+
+// emitCallerField emits the Caller field of a slot request struct literal.
+// If an auth middleware alias is available, it extracts the identity from
+// the request context; otherwise it provides a non-nil empty Identity.
+func emitCallerField(buf *bytes.Buffer, slotsAlias string, authAlias string) {
+	if authAlias != "" {
+		fmt.Fprintf(buf, "\t\t\tCaller: func() *%s.Identity {\n", slotsAlias)
+		fmt.Fprintf(buf, "\t\t\t\tid := %s.IdentityFromContext(r.Context())\n", authAlias)
+		fmt.Fprintf(buf, "\t\t\t\treturn &%s.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}\n", slotsAlias)
+		fmt.Fprintf(buf, "\t\t\t}(),\n")
+	} else {
+		fmt.Fprintf(buf, "\t\t\tCaller: &%s.Identity{},\n", slotsAlias)
+	}
+}
+
 // emitAfterSlot emits code that calls a slot operator after the main operation,
 // before the HTTP response is written. The request is populated with the entity
 // name and the operation that triggered the slot. A nil guard wraps the invocation
@@ -3672,6 +3819,22 @@ func fieldToStringExpr(varName, goFieldName, goType string) string {
 	default:
 		// For numeric, bool, time.Time, and other types, use fmt.Sprintf.
 		return "fmt.Sprintf(\"%v\", " + varName + "." + goFieldName + ")"
+	}
+}
+
+// patchFieldToStringExpr returns a Go expression that converts a dereferenced
+// patch field pointer to a string value. Patch fields are always pointer-typed
+// in the PatchRequest struct; this function assumes the caller has already
+// checked that the pointer is non-nil.
+func patchFieldToStringExpr(goFieldName, goType string) string {
+	switch goType {
+	case "string":
+		return "*patch." + goFieldName
+	case "[]byte", "json.RawMessage":
+		return "string(*patch." + goFieldName + ")"
+	default:
+		// For numeric, bool, time.Time, and other types, use fmt.Sprintf.
+		return "fmt.Sprintf(\"%v\", *patch." + goFieldName + ")"
 	}
 }
 

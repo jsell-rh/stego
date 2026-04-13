@@ -9474,3 +9474,393 @@ func TestGenerate_ListHandlerImplicitFiltersWithScope(t *testing.T) {
 		t.Error("handler with scope must include scope value extraction")
 	}
 }
+
+func TestGenerate_BeforeUpsertSlot(t *testing.T) {
+	// Verify that a before_upsert slot binding fires on upsert operations
+	// with the same request shape as before_create (Input + Caller).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpUpsert,
+			}, UpsertKey: []string{"name"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_upsert", Collection: "widgets", Gate: []string{"upsert-policy"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_widgets.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_widgets.go not found")
+	}
+
+	// Handler struct must have the before_upsert gate field.
+	if !strings.Contains(handlerContent, "beforeUpsertGate slots.BeforeUpsertSlot") {
+		t.Errorf("handler struct missing beforeUpsertGate field:\n%s", handlerContent)
+	}
+
+	// Upsert method must invoke the before_upsert gate.
+	if !strings.Contains(handlerContent, "h.beforeUpsertGate.Evaluate(r.Context()") {
+		t.Errorf("Upsert method missing before_upsert gate invocation:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.beforeUpsertGate != nil {") {
+		t.Errorf("before_upsert invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must have Input populated with entity data.
+	if !strings.Contains(handlerContent, "BeforeUpsertRequest{") {
+		t.Errorf("Upsert method missing BeforeUpsertRequest struct literal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Input: &slots.CreateRequest{`) {
+		t.Errorf("before_upsert request missing Input field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Entity: "Widget"`) {
+		t.Errorf("before_upsert request missing Entity in CreateRequest:\n%s", handlerContent)
+	}
+	// Caller field must be present (before_upsert has HasCaller=true).
+	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
+		t.Errorf("before_upsert request missing Caller field:\n%s", handlerContent)
+	}
+
+	// Halt semantics must work.
+	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
+		t.Errorf("before_upsert invocation missing halt check:\n%s", handlerContent)
+	}
+
+	// Error rejection must work.
+	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
+		t.Errorf("before_upsert invocation missing rejection check:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_BeforeDeleteSlot(t *testing.T) {
+	// Verify that a before_delete slot binding fires on delete operations.
+	// The before_delete proto has a different structure: entity (string),
+	// entity_id (string), caller (*Identity) — no Input field.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Task", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+				types.OpDelete,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_delete", Collection: "tasks", Gate: []string{"delete-guard"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_tasks.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_tasks.go not found")
+	}
+
+	// Handler struct must have the before_delete gate field.
+	if !strings.Contains(handlerContent, "beforeDeleteGate slots.BeforeDeleteSlot") {
+		t.Errorf("handler struct missing beforeDeleteGate field:\n%s", handlerContent)
+	}
+
+	// Delete method must invoke the before_delete gate.
+	if !strings.Contains(handlerContent, "h.beforeDeleteGate.Evaluate(r.Context()") {
+		t.Errorf("Delete method missing before_delete gate invocation:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.beforeDeleteGate != nil {") {
+		t.Errorf("before_delete invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must have the before_delete-specific structure: Entity and EntityId.
+	if !strings.Contains(handlerContent, "BeforeDeleteRequest{") {
+		t.Errorf("Delete method missing BeforeDeleteRequest struct literal:\n%s", handlerContent)
+	}
+	// go/format aligns struct fields, so check for the field name and value
+	// separately rather than exact spacing.
+	if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Task"`) {
+		t.Errorf("before_delete request missing Entity field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "EntityId:") || !strings.Contains(handlerContent, "id,") {
+		t.Errorf("before_delete request missing EntityId field:\n%s", handlerContent)
+	}
+
+	// Caller field must be present.
+	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
+		t.Errorf("before_delete request missing Caller field:\n%s", handlerContent)
+	}
+
+	// before_delete must NOT have an Input field (different proto from before_create).
+	// The BeforeDeleteRequest has {Entity, EntityId, Caller} — no Input.
+	if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
+		t.Errorf("before_delete request should NOT have Input field:\n%s", handlerContent)
+	}
+
+	// Halt and rejection semantics must work.
+	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
+		t.Errorf("before_delete invocation missing halt check:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
+		t.Errorf("before_delete invocation missing rejection check:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_BeforePatchSlot(t *testing.T) {
+	// Verify that a before_patch slot binding fires on patch operations.
+	// The before_patch proto has: entity (string), patch_fields (map),
+	// existing_entity (map), caller (*Identity).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Profile", Fields: []types.Field{
+				{Name: "display_name", Type: types.FieldTypeString},
+				{Name: "bio", Type: types.FieldTypeString, Optional: true},
+				{Name: "age", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "profiles", Entity: "Profile", Operations: []types.Operation{
+				types.OpRead, types.OpPatch,
+			}, Patchable: []string{"display_name", "bio"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_patch", Collection: "profiles", Gate: []string{"patch-policy"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_profiles.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_profiles.go not found")
+	}
+
+	// Handler struct must have the before_patch gate field.
+	if !strings.Contains(handlerContent, "beforePatchGate slots.BeforePatchSlot") {
+		t.Errorf("handler struct missing beforePatchGate field:\n%s", handlerContent)
+	}
+
+	// Patch method must invoke the before_patch gate.
+	if !strings.Contains(handlerContent, "h.beforePatchGate.Evaluate(r.Context()") {
+		t.Errorf("Patch method missing before_patch gate invocation:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.beforePatchGate != nil {") {
+		t.Errorf("before_patch invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must use BeforePatchRequest struct.
+	if !strings.Contains(handlerContent, "BeforePatchRequest{") {
+		t.Errorf("Patch method missing BeforePatchRequest struct literal:\n%s", handlerContent)
+	}
+	// go/format aligns struct fields, so check name and value separately.
+	if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Profile"`) {
+		t.Errorf("before_patch request missing Entity field:\n%s", handlerContent)
+	}
+
+	// PatchFields map must be populated from non-nil patch pointer fields.
+	if !strings.Contains(handlerContent, "patchFieldsMap") {
+		t.Errorf("before_patch missing patchFieldsMap construction:\n%s", handlerContent)
+	}
+	// display_name is a patchable field — check it is added conditionally.
+	if !strings.Contains(handlerContent, `patchFieldsMap["display_name"]`) {
+		t.Errorf("before_patch missing display_name in patchFieldsMap:\n%s", handlerContent)
+	}
+	// bio is a patchable optional field — also conditionally added.
+	if !strings.Contains(handlerContent, `patchFieldsMap["bio"]`) {
+		t.Errorf("before_patch missing bio in patchFieldsMap:\n%s", handlerContent)
+	}
+
+	// ExistingEntity map must be populated from the fetched entity.
+	if !strings.Contains(handlerContent, "existingEntityMap") {
+		t.Errorf("before_patch missing existingEntityMap construction:\n%s", handlerContent)
+	}
+	// All entity fields should be in the existing entity map.
+	if !strings.Contains(handlerContent, `"display_name":`) {
+		t.Errorf("before_patch existingEntityMap missing display_name:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `"age":`) {
+		t.Errorf("before_patch existingEntityMap missing age:\n%s", handlerContent)
+	}
+
+	// before_patch must NOT have an Input field (different proto from before_create).
+	if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
+		t.Errorf("before_patch request should NOT have Input field:\n%s", handlerContent)
+	}
+
+	// Caller field must be present.
+	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "slots.Identity{}") {
+		t.Errorf("before_patch request missing Caller field:\n%s", handlerContent)
+	}
+
+	// Halt and rejection semantics must work.
+	if !strings.Contains(handlerContent, "if slotResult.Halt {") {
+		t.Errorf("before_patch invocation missing halt check:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
+		t.Errorf("before_patch invocation missing rejection check:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_BeforeDeleteNilGuardPassthrough(t *testing.T) {
+	// Verify that when no before_delete fill is bound, the delete handler
+	// still works — the nil guard skips the slot invocation.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Note", Fields: []types.Field{
+				{Name: "text", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "notes", Entity: "Note", Operations: []types.Operation{
+				types.OpDelete,
+			}},
+		},
+		// No slot bindings — handler should work without before_delete.
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_notes.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_notes.go not found")
+	}
+
+	// No before_delete slot binding — handler should NOT contain before_delete invocation.
+	if strings.Contains(handlerContent, "beforeDeleteGate") {
+		t.Errorf("handler without before_delete binding should not reference beforeDeleteGate:\n%s", handlerContent)
+	}
+	// Delete method should still exist and call store.Delete.
+	if !strings.Contains(handlerContent, "h.store.Delete(r.Context()") {
+		t.Errorf("Delete method missing store.Delete call:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
+	// Verify that all three new before-slots work correctly together
+	// with nil-guard passthrough semantics.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{
+				types.OpDelete, types.OpUpsert, types.OpPatch,
+			}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "before_upsert", Collection: "items", Gate: []string{"upsert-guard"}},
+			{Slot: "before_patch", Collection: "items", Gate: []string{"patch-guard"}},
+			{Slot: "before_delete", Collection: "items", Gate: []string{"delete-guard"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_items.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_items.go not found")
+	}
+
+	// All three before-slot operator fields must be present.
+	for _, field := range []string{
+		"beforeUpsertGate slots.BeforeUpsertSlot",
+		"beforePatchGate slots.BeforePatchSlot",
+		"beforeDeleteGate slots.BeforeDeleteSlot",
+	} {
+		if !strings.Contains(handlerContent, field) {
+			t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+		}
+	}
+
+	// All three nil guards must be present.
+	for _, guard := range []string{
+		"if h.beforeUpsertGate != nil {",
+		"if h.beforePatchGate != nil {",
+		"if h.beforeDeleteGate != nil {",
+	} {
+		if !strings.Contains(handlerContent, guard) {
+			t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+		}
+	}
+}
