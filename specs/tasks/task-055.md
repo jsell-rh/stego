@@ -6,7 +6,7 @@
 
 **Review:** `specs/reviews/task-055.md`
 
-**Depends on:** task-052, task-053, task-054
+**Depends on:** task-052, task-053, task-054, task-056
 
 ## Description
 
