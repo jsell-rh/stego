@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** `specs/reviews/task-055.md`
 
@@ -46,3 +46,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 ## Commits
 
 - 3de9c87 feat(task-055): add implicit field demo and regenerate example output
+- (pending) chore(task-055): mark ready-for-review — finding resolved by task-056
