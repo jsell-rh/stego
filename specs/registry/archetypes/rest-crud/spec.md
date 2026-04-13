@@ -280,13 +280,15 @@ message BeforeCreateRequest {
 ```yaml
 slots:
   - collection: cluster-statuses
-    slot: process_adapter_status
+    slot: before_upsert
     chain:
       - validate-mandatory-conditions    # can halt with 400
       - discard-stale-generation         # can halt with 204 (no-op)
-      - persist-status
-      - aggregate-resource-status
     short_circuit: true                  # enables halt semantics
+  - collection: cluster-statuses
+    slot: after_upsert
+    chain:
+      - aggregate-resource-status
 ```
 ```protobuf
 message SlotResult {
@@ -297,6 +299,57 @@ message SlotResult {
 }
 ```
 
+### Lifecycle Slots
+
+The `rest-api` component defines lifecycle slots for each mutation operation. Each slot fires at a specific point in the request lifecycle. All default to `passthrough` (no-op) -- a service only binds the ones it needs.
+
+**Before slots** run before the database operation. They receive the parsed input and the caller's identity. They can reject the request by returning `ok: false` with an error message and HTTP status code. Use cases: enforce business rules, check quotas, validate cross-field constraints, transform input.
+
+| Slot | Fires | Input | Use cases |
+|------|-------|-------|-----------|
+| `before_create` | Before INSERT | Entity fields + caller | Set defaults, enforce naming rules, check quotas |
+| `before_upsert` | Before INSERT/UPDATE | Entity fields + caller | Reject stale data, validate conditions |
+| `before_patch` | Before partial update | Patch fields + existing entity + caller | Enforce field-level permissions |
+| `before_delete` | Before soft delete | Entity ID + caller | Check dependencies, prevent deletion of active resources |
+
+**After slots** run after the database operation succeeds but before the HTTP response is sent. They receive the persisted entity. They cannot reject the request (the mutation is committed). Use cases: recompute derived fields, trigger side effects, send notifications.
+
+| Slot | Fires | Input | Use cases |
+|------|-------|-------|-----------|
+| `after_create` | After INSERT | Persisted entity + caller | Send notifications, initialize related resources |
+| `after_upsert` | After INSERT/UPDATE | Persisted entity + caller | Aggregate status, recompute computed fields |
+| `after_patch` | After partial update | Updated entity + caller | Increment generation, recompute computed fields |
+| `after_delete` | After soft delete | Deleted entity ID + caller | Cleanup related resources, revoke access |
+
+**General slots** are not tied to a specific operation:
+
+| Slot | Fires | Input | Use cases |
+|------|-------|-------|-----------|
+| `validate` | Before any mutation | Entity fields | Cross-field validation (e.g. start_date < end_date) |
+
+Slots are bound per-collection in the service declaration. The same slot can have different fills on different collections:
+
+```yaml
+slots:
+  # Validate adapter status conditions before persisting
+  - slot: before_upsert
+    collection: cluster-statuses
+    chain: [validate-conditions, reject-stale-generation]
+    short_circuit: true
+
+  # Recompute cluster status after adapter reports
+  - slot: after_upsert
+    collection: cluster-statuses
+    chain: [aggregate-cluster-status]
+
+  # Increment generation on spec change
+  - slot: after_patch
+    collection: clusters
+    chain: [increment-generation]
+```
+
+Each fill is a Go function in the `fills/` directory that implements the generated slot interface. The compiler generates the interface from the slot's proto definition and wires the fill into the handler via constructor injection in `main.go`.
+
 ## Components
 
 ### rest-api
@@ -306,7 +359,7 @@ Generates HTTP handlers (one per collection), route registration, OpenAPI spec, 
 ```yaml
 kind: component
 name: rest-api
-version: 2.1.0
+version: 3.0.0
 output_namespace: internal/api
 
 requires:
@@ -320,6 +373,27 @@ provides:
 slots:
   - name: before_create
     proto: stego.components.rest_api.slots.BeforeCreate
+    default: passthrough
+  - name: before_upsert
+    proto: stego.components.rest_api.slots.BeforeUpsert
+    default: passthrough
+  - name: before_patch
+    proto: stego.components.rest_api.slots.BeforePatch
+    default: passthrough
+  - name: before_delete
+    proto: stego.components.rest_api.slots.BeforeDelete
+    default: passthrough
+  - name: after_create
+    proto: stego.components.rest_api.slots.AfterCreate
+    default: passthrough
+  - name: after_upsert
+    proto: stego.components.rest_api.slots.AfterUpsert
+    default: passthrough
+  - name: after_patch
+    proto: stego.components.rest_api.slots.AfterPatch
+    default: passthrough
+  - name: after_delete
+    proto: stego.components.rest_api.slots.AfterDelete
     default: passthrough
   - name: validate
     proto: stego.components.rest_api.slots.Validate
