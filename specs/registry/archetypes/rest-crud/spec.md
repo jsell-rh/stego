@@ -128,17 +128,31 @@ The generated handler uses implicit fields in two ways:
 
 This supports the polymorphic association pattern -- a shared table (`adapter_statuses`) serving multiple URL paths, with a discriminator column (`resource_type`) that identifies which parent kind owns each row. The client interacts with `/clusters/{id}/adapterstatuses` and the handler transparently manages the discriminator.
 
-```yaml
-# Same entity, different collections, different implicit values
-cluster-statuses:
-  entity: AdapterStatus
-  scope: { resource_id: Cluster }
-  implicit: { resource_type: "Cluster" }
+**Scope with polymorphic fields:** When an entity uses a polymorphic ID pattern (one `resource_id` field that can reference different parent entity types), the scope field is declared as `type: string` rather than `type: ref`. The scope value still names the parent entity (for path derivation and parent existence verification), but the generator must not require the scope field to be a `ref` type. The `implicit` discriminator field (e.g. `resource_type`) tells the handler which parent kind this collection serves.
 
-nodepool-statuses:
-  entity: AdapterStatus
-  scope: { resource_id: NodePool }
-  implicit: { resource_type: "NodePool" }
+```yaml
+entities:
+  - name: AdapterStatus
+    fields:
+      - { name: resource_type, type: string }   # discriminator, NOT a ref
+      - { name: resource_id, type: string }      # polymorphic ID, NOT a ref
+      - { name: adapter, type: string }
+      # ...
+
+collections:
+  cluster-statuses:
+    entity: AdapterStatus
+    scope: { resource_id: Cluster }              # resource_id is string, not ref
+    implicit: { resource_type: "Cluster" }       # handler sets discriminator
+    operations: [list, upsert]
+    upsert_key: [resource_type, resource_id, adapter]
+
+  nodepool-statuses:
+    entity: AdapterStatus
+    scope: { resource_id: NodePool }
+    implicit: { resource_type: "NodePool" }
+    operations: [list, upsert]
+    upsert_key: [resource_type, resource_id, adapter]
 ```
 
 Other uses: multi-tenant tables (`implicit: { tenant: "acme" }`), event sources (`implicit: { source: "api" }`), content type discriminators (`implicit: { attachable_type: "Issue" }`).
