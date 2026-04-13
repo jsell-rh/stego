@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	auth "github.com/example/user-management/out/internal/auth"
-	slots "github.com/example/user-management/out/slots"
+	auth "github.com/example/service/out/internal/auth"
+	slots "github.com/example/service/out/slots"
 	"github.com/google/uuid"
 )
 
@@ -21,14 +21,16 @@ type OrgUsersHandler struct {
 	store                 Storage
 	beforeCreateGate      slots.BeforeCreateSlot
 	onEntityChangedFanOut slots.OnEntityChangedSlot
+	afterCreateFanOut     slots.AfterCreateSlot
 }
 
 // NewOrgUsersHandler creates a new OrgUsersHandler.
-func NewOrgUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot) *OrgUsersHandler {
+func NewOrgUsersHandler(store Storage, beforeCreateGate slots.BeforeCreateSlot, onEntityChangedFanOut slots.OnEntityChangedSlot, afterCreateFanOut slots.AfterCreateSlot) *OrgUsersHandler {
 	return &OrgUsersHandler{
 		store:                 store,
 		beforeCreateGate:      beforeCreateGate,
 		onEntityChangedFanOut: onEntityChangedFanOut,
+		afterCreateFanOut:     afterCreateFanOut,
 	}
 }
 
@@ -132,6 +134,30 @@ func (h *OrgUsersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.onEntityChangedFanOut != nil {
 		if _, slotErr := h.onEntityChangedFanOut.Evaluate(r.Context(), &slots.OnEntityChangedRequest{Entity: "User", Action: "create"}); slotErr != nil {
+			handleError(w, r, InternalError(slotErr.Error()))
+			return
+		}
+	}
+	if h.afterCreateFanOut != nil {
+		metadataAfterVal := ""
+		if user.Metadata != nil {
+			metadataAfterVal = string(*user.Metadata)
+		}
+		afterReq := &slots.AfterCreateRequest{
+			Entity: "User",
+			PersistedFields: map[string]string{
+				"email":        user.Email,
+				"display_name": user.DisplayName,
+				"role":         user.Role,
+				"org_id":       user.OrgID,
+				"metadata":     metadataAfterVal,
+			},
+			Caller: func() *slots.Identity {
+				id := auth.IdentityFromContext(r.Context())
+				return &slots.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}
+			}(),
+		}
+		if _, slotErr := h.afterCreateFanOut.Evaluate(r.Context(), afterReq); slotErr != nil {
 			handleError(w, r, InternalError(slotErr.Error()))
 			return
 		}

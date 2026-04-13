@@ -80,12 +80,22 @@ slots:
       - user-change-notifier
       - audit-logger
 
+  - collection: org-users
+    slot: after_create
+    fan-out:
+      - send-welcome
+
   - collection: organizations
     slot: before_create
     chain:
       - org-name-validator
       - org-provisioner
     short_circuit: true
+
+  - collection: organizations
+    slot: before_delete
+    gate:
+      - check-dependencies
 
 mixins:
   - event-publisher

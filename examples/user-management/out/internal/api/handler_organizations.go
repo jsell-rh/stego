@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	auth "github.com/example/user-management/out/internal/auth"
-	slots "github.com/example/user-management/out/slots"
+	auth "github.com/example/service/out/internal/auth"
+	slots "github.com/example/service/out/slots"
 	"github.com/google/uuid"
 )
 
@@ -20,13 +20,15 @@ import (
 type OrganizationsHandler struct {
 	store             Storage
 	beforeCreateChain slots.BeforeCreateSlot
+	beforeDeleteGate  slots.BeforeDeleteSlot
 }
 
 // NewOrganizationsHandler creates a new OrganizationsHandler.
-func NewOrganizationsHandler(store Storage, beforeCreateChain slots.BeforeCreateSlot) *OrganizationsHandler {
+func NewOrganizationsHandler(store Storage, beforeCreateChain slots.BeforeCreateSlot, beforeDeleteGate slots.BeforeDeleteSlot) *OrganizationsHandler {
 	return &OrganizationsHandler{
 		store:             store,
 		beforeCreateChain: beforeCreateChain,
+		beforeDeleteGate:  beforeDeleteGate,
 	}
 }
 
@@ -134,6 +136,37 @@ func (h *OrganizationsHandler) Read(w http.ResponseWriter, r *http.Request) {
 
 func (h *OrganizationsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if h.beforeDeleteGate != nil {
+		slotReq := &slots.BeforeDeleteRequest{
+			Entity:   "Organization",
+			EntityID: id,
+			Caller: func() *slots.Identity {
+				id := auth.IdentityFromContext(r.Context())
+				return &slots.Identity{UserID: id.UserID, Role: id.Role, Attributes: id.Attributes}
+			}(),
+		}
+		slotResult, slotErr := h.beforeDeleteGate.Evaluate(r.Context(), slotReq)
+		if slotErr != nil {
+			handleError(w, r, InternalError(slotErr.Error()))
+			return
+		}
+		if !slotResult.Ok {
+			sc := http.StatusForbidden
+			if slotResult.StatusCode > 0 {
+				sc = int(slotResult.StatusCode)
+			}
+			handleError(w, r, errorForStatus(sc, slotResult.ErrorMessage))
+			return
+		}
+		if slotResult.Halt {
+			sc := http.StatusOK
+			if slotResult.StatusCode > 0 {
+				sc = int(slotResult.StatusCode)
+			}
+			w.WriteHeader(sc)
+			return
+		}
+	}
 	if err := h.store.Delete(r.Context(), "Organization", id); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			handleError(w, r, NotFound("Organization", id))

@@ -7,16 +7,18 @@ import (
 	"net/http"
 	"os"
 
-	admincreationpolicy "github.com/example/user-management/fills/admin-creation-policy"
-	auditlogger "github.com/example/user-management/fills/audit-logger"
-	orgnamevalidator "github.com/example/user-management/fills/org-name-validator"
-	orgprovisioner "github.com/example/user-management/fills/org-provisioner"
-	rbacpolicy "github.com/example/user-management/fills/rbac-policy"
-	userchangenotifier "github.com/example/user-management/fills/user-change-notifier"
-	api "github.com/example/user-management/out/internal/api"
-	auth "github.com/example/user-management/out/internal/auth"
-	storage "github.com/example/user-management/out/internal/storage"
-	slots "github.com/example/user-management/out/slots"
+	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
+	auditlogger "github.com/example/service/fills/audit-logger"
+	checkdependencies "github.com/example/service/fills/check-dependencies"
+	orgnamevalidator "github.com/example/service/fills/org-name-validator"
+	orgprovisioner "github.com/example/service/fills/org-provisioner"
+	rbacpolicy "github.com/example/service/fills/rbac-policy"
+	sendwelcome "github.com/example/service/fills/send-welcome"
+	userchangenotifier "github.com/example/service/fills/user-change-notifier"
+	api "github.com/example/service/out/internal/api"
+	auth "github.com/example/service/out/internal/auth"
+	storage "github.com/example/service/out/internal/storage"
+	slots "github.com/example/service/out/slots"
 	postgres "gorm.io/driver/postgres"
 	gorm "gorm.io/gorm"
 )
@@ -52,18 +54,28 @@ func main() {
 		auditlogger.New(),
 	)
 
+	// Slot: after_create (fan-out) for org-users
+	afterCreateOrgUsersFanOut := slots.NewAfterCreateFanOut(
+		sendwelcome.New(),
+	)
+
 	// Slot: before_create (chain, short_circuit=true) for organizations
 	beforeCreateOrganizationsChain := slots.NewBeforeCreateChain(true,
 		orgnamevalidator.New(),
 		orgprovisioner.New(),
 	)
 
+	// Slot: before_delete (gate) for organizations
+	beforeDeleteOrganizationsGate := slots.NewBeforeDeleteGate(
+		checkdependencies.New(),
+	)
+
 	validationMiddleware := api.NewValidationMiddleware()
 	cORSMiddleware := api.NewCORSMiddleware()
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
-	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
-	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
+	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
+	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut, afterCreateOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
 	orgSettingsHandler := api.NewOrgSettingsHandler(store)
 	userAuditEventsHandler := api.NewUserAuditEventsHandler(store)

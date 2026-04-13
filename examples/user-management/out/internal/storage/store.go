@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/example/user-management/out/internal/api"
-	search "github.com/example/user-management/out/internal/search"
+	api "github.com/example/service/out/internal/api"
+	search "github.com/example/service/out/internal/search"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

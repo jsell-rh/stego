@@ -1,0 +1,6 @@
+kind: fill
+name: send-welcome
+implements: rest-api.after_create
+collection: org-users
+qualified_by: jsell
+qualified_at: 2026-04-13
