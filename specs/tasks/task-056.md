@@ -44,3 +44,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- d36049b feat(task-056): exclude implicit fields from request schemas
