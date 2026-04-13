@@ -9752,6 +9752,19 @@ func TestGenerate_BeforePatchSlot(t *testing.T) {
 	if !strings.Contains(handlerContent, "if !slotResult.Ok {") {
 		t.Errorf("before_patch invocation missing rejection check:\n%s", handlerContent)
 	}
+
+	// Temporal ordering: the before_patch slot must fire BEFORE patch fields
+	// are applied to the entity variable, so that existing_entity reflects
+	// the pre-patch state from storage (checklist item 242).
+	slotPos := strings.Index(handlerContent, "h.beforePatchGate")
+	// Patch field application uses "if patch.DisplayName != nil {" pattern.
+	patchApplyPos := strings.Index(handlerContent, "if patch.DisplayName != nil {")
+	if slotPos < 0 || patchApplyPos < 0 {
+		t.Fatal("could not find before_patch slot invocation or patch apply positions")
+	}
+	if slotPos >= patchApplyPos {
+		t.Errorf("before_patch slot invocation (pos %d) must appear BEFORE patch field application (pos %d) so existing_entity reflects pre-patch state", slotPos, patchApplyPos)
+	}
 }
 
 func TestGenerate_BeforeDeleteNilGuardPassthrough(t *testing.T) {

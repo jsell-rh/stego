@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Lifecycle Slots / Before slots** table (lines 308–315)
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-058.md](../reviews/task-058.md)
 

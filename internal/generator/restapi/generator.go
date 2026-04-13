@@ -1389,7 +1389,15 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 
-	// Step 3: Apply non-nil fields from patch request to existing entity.
+	// Step 3: Invoke before-slots (e.g., before_patch gate).
+	// This must happen BEFORE applying patch fields to the entity variable,
+	// so that existing_entity reflects the pre-patch state from storage.
+	before, after := slotsForOp(types.OpPatch, slotParams)
+	for _, sp := range before {
+		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields)
+	}
+
+	// Step 4: Apply non-nil fields from patch request to existing entity.
 	for _, f := range patchFields {
 		goName := toPascalCase(f.Name)
 		// All patchable fields are pointers; nil means not provided, dereference if set.
@@ -1402,12 +1410,6 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 			fmt.Fprintf(buf, "\t\t%s.%s = *patch.%s\n", lower, goName, goName)
 		}
 		fmt.Fprintf(buf, "\t}\n")
-	}
-
-	// Step 4: Invoke before-slots (e.g., before_patch gate).
-	before, after := slotsForOp(types.OpPatch, slotParams)
-	for _, sp := range before {
-		emitBeforePatchSlot(buf, slotsAlias, authAlias, sp, lower, entity, patchFields)
 	}
 
 	// Step 5: Save via Replace (full entity save after merge).
@@ -3712,6 +3714,8 @@ func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string
 // existing_entity (map<string,string>), and caller (*Identity). The patch handler
 // has both the decoded patch request (pointer fields indicating which fields are
 // being modified) and the existing entity fetched from the store.
+// IMPORTANT: This must be called BEFORE patch fields are applied to the entity
+// variable, so that existing_entity reflects the pre-patch state from storage.
 func emitBeforePatchSlot(buf *bytes.Buffer, slotsAlias string, authAlias string, param collectionSlotParam, entityVarName string, entity types.Entity, patchFields []types.Field) {
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 
