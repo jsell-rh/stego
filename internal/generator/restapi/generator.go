@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"go/format"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -760,6 +761,9 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		}
 		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
+	// Implicit field assignments: overwrite client-supplied values with
+	// collection-level fixed values before persisting.
+	emitImplicitFieldAssignments(buf, lower, eb.Implicit)
 	// Before-slots: gate and validate fire before create.
 	before, after := slotsForOp(types.OpCreate, slotParams)
 	for _, sp := range before {
@@ -1200,6 +1204,9 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 		}
 		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
 	}
+	// Implicit field assignments: overwrite client-supplied values with
+	// collection-level fixed values before persisting.
+	emitImplicitFieldAssignments(buf, lower, eb.Implicit)
 
 	before, after := slotsForOp(types.OpUpsert, slotParams)
 	for _, sp := range before {
@@ -2590,6 +2597,25 @@ func emitClearServerManagedFields(buf *bytes.Buffer, varName string, entity type
 		default:
 			fmt.Fprintf(buf, "\t%s.%s = nil\n", varName, goName)
 		}
+	}
+}
+
+// emitImplicitFieldAssignments emits code that sets implicit field values on
+// the entity variable. Implicit fields are collection-level overrides that
+// force a field to a fixed string value, overwriting anything the client sent.
+// Keys are sorted for deterministic output.
+func emitImplicitFieldAssignments(buf *bytes.Buffer, varName string, implicit map[string]string) {
+	if len(implicit) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(implicit))
+	for k := range implicit {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		goName := toPascalCase(k)
+		fmt.Fprintf(buf, "\t%s.%s = %q\n", varName, goName, implicit[k])
 	}
 }
 

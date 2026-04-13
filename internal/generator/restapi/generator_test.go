@@ -8862,3 +8862,223 @@ func TestGenerate_CORSMiddleware_CompilesWithHandler(t *testing.T) {
 		t.Fatal("cors.go has empty content")
 	}
 }
+
+func TestGenerate_CreateHandlerSetsImplicitFields(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "resource_id", Type: types.FieldTypeString},
+				{Name: "status", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:   "cluster-statuses",
+				Entity: "AdapterStatus",
+				Implicit: map[string]string{
+					"resource_type": "Cluster",
+				},
+				Operations: []types.Operation{types.OpCreate},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+
+	// Verify implicit field assignment is present.
+	if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
+		t.Error("create handler must set implicit field resource_type to \"Cluster\"")
+	}
+
+	// Verify the assignment is after decode and before store.Create call.
+	decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
+	implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
+	storeIdx := strings.Index(handler, `h.store.Create(r.Context()`)
+	if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
+		t.Fatal("could not find decode, implicit, or store.Create in handler")
+	}
+	if implicitIdx < decodeIdx {
+		t.Error("implicit field assignment must come after body decode")
+	}
+	if implicitIdx > storeIdx {
+		t.Error("implicit field assignment must come before store.Create call")
+	}
+}
+
+func TestGenerate_UpsertHandlerSetsImplicitFields(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "resource_id", Type: types.FieldTypeString},
+				{Name: "status", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:   "cluster-statuses",
+				Entity: "AdapterStatus",
+				Implicit: map[string]string{
+					"resource_type": "Cluster",
+				},
+				Operations: []types.Operation{types.OpUpsert},
+				UpsertKey:  []string{"resource_type", "resource_id"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+
+	// Verify implicit field assignment is present.
+	if !strings.Contains(handler, `adapterstatus.ResourceType = "Cluster"`) {
+		t.Error("upsert handler must set implicit field resource_type to \"Cluster\"")
+	}
+
+	// Verify the assignment is after decode and before store.Upsert call.
+	decodeIdx := strings.Index(handler, "json.Unmarshal(bodyBytes")
+	implicitIdx := strings.Index(handler, `adapterstatus.ResourceType = "Cluster"`)
+	storeIdx := strings.Index(handler, `h.store.Upsert(r.Context()`)
+	if decodeIdx == -1 || implicitIdx == -1 || storeIdx == -1 {
+		t.Fatal("could not find decode, implicit, or store.Upsert in handler")
+	}
+	if implicitIdx < decodeIdx {
+		t.Error("implicit field assignment must come after body decode")
+	}
+	if implicitIdx > storeIdx {
+		t.Error("implicit field assignment must come before store.Upsert call")
+	}
+}
+
+func TestGenerate_ImplicitFieldsMultipleKeysSorted(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "Setting", Fields: []types.Field{
+				{Name: "category", Type: types.FieldTypeString},
+				{Name: "app_name", Type: types.FieldTypeString},
+				{Name: "value", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:   "app-settings",
+				Entity: "Setting",
+				Implicit: map[string]string{
+					"category": "config",
+					"app_name": "myapp",
+				},
+				Operations: []types.Operation{types.OpCreate},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_app_settings.go")
+
+	// Both implicit fields must be set.
+	if !strings.Contains(handler, `setting.AppName = "myapp"`) {
+		t.Error("create handler must set implicit field app_name")
+	}
+	if !strings.Contains(handler, `setting.Category = "config"`) {
+		t.Error("create handler must set implicit field category")
+	}
+
+	// app_name comes before category alphabetically, so its assignment
+	// should appear first in the generated code (deterministic output).
+	appIdx := strings.Index(handler, `setting.AppName = "myapp"`)
+	catIdx := strings.Index(handler, `setting.Category = "config"`)
+	if appIdx > catIdx {
+		t.Error("implicit fields must be emitted in sorted key order (app_name before category)")
+	}
+}
+
+func TestGenerate_NoImplicitFieldsNoExtraCode(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpCreate},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// When no implicit fields are configured, the handler should not
+	// contain any implicit-style field assignments between server-managed
+	// field population and the store call.
+	createStart := strings.Index(handler, "func (h *WidgetsHandler) Create(")
+	if createStart == -1 {
+		t.Fatal("Create method not found")
+	}
+	createSection := handler[createStart:]
+	storeIdx := strings.Index(createSection, "h.store.Create(")
+	if storeIdx == -1 {
+		t.Fatal("store.Create call not found")
+	}
+	// With no implicit, there should be no hardcoded string assignments
+	// like `widget.SomeField = "value"` pattern between server-managed
+	// and store call. The test simply confirms no regression.
+	beforeStore := createSection[:storeIdx]
+	// Confirm we don't see a spurious quoted assignment that would
+	// indicate implicit logic was emitted when it shouldn't be.
+	// Server-managed assignments like `= time.Now()` or `= 0` are fine.
+	// We check there is no `= "` pattern (quoted string assignment) which
+	// is the signature of implicit field injection.
+	lines := strings.Split(beforeStore, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "widget.") && strings.Contains(trimmed, "= \"") {
+			t.Errorf("unexpected implicit-style assignment in handler with no implicit fields: %s", trimmed)
+		}
+	}
+}
