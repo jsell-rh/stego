@@ -43,3 +43,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 3de9c87 feat(task-055): add implicit field demo and regenerate example output
