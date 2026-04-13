@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Lifecycle Slots** section (lines 304–351) and **rest-api component** definition (lines 355–400)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** none (all prior tasks complete)
 

@@ -1,0 +1,13 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+import "stego/common/types.proto";
+
+service AfterPatch {
+  rpc Evaluate(AfterPatchRequest) returns (stego.common.SlotResult);
+}
+
+message AfterPatchRequest {
+  string entity = 1;
+  map<string, string> updated_fields = 2;
+  stego.common.Identity caller = 3;
+}

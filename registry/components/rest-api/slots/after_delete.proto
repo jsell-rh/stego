@@ -1,0 +1,13 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+import "stego/common/types.proto";
+
+service AfterDelete {
+  rpc Evaluate(AfterDeleteRequest) returns (stego.common.SlotResult);
+}
+
+message AfterDeleteRequest {
+  string entity = 1;
+  string deleted_entity_id = 2;
+  stego.common.Identity caller = 3;
+}

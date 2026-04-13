@@ -74,18 +74,18 @@ func TestLoad(t *testing.T) {
 		if c.Kind != "component" {
 			t.Errorf("Kind = %q, want %q", c.Kind, "component")
 		}
-		if c.Version != "2.1.0" {
-			t.Errorf("Version = %q, want %q", c.Version, "2.1.0")
+		if c.Version != "3.0.0" {
+			t.Errorf("Version = %q, want %q", c.Version, "3.0.0")
 		}
-		if len(c.Config) != 2 {
-			t.Errorf("Config count = %d, want 2", len(c.Config))
+		if len(c.Config) != 1 {
+			t.Errorf("Config count = %d, want 1", len(c.Config))
 		}
-		portCfg, ok := c.Config["port"]
+		exposeCfg, ok := c.Config["expose"]
 		if !ok {
-			t.Fatal("Config[port] missing")
+			t.Fatal("Config[expose] missing")
 		}
-		if portCfg.Type != "int" {
-			t.Errorf("Config[port].Type = %q, want %q", portCfg.Type, "int")
+		if exposeCfg.Type != "list" {
+			t.Errorf("Config[expose].Type = %q, want %q", exposeCfg.Type, "list")
 		}
 		if len(c.Requires) != 2 {
 			t.Errorf("Requires count = %d, want 2", len(c.Requires))
@@ -96,8 +96,8 @@ func TestLoad(t *testing.T) {
 		if len(c.Provides) != 2 {
 			t.Errorf("Provides count = %d, want 2", len(c.Provides))
 		}
-		if len(c.Slots) != 2 {
-			t.Errorf("Slots count = %d, want 2", len(c.Slots))
+		if len(c.Slots) != 9 {
+			t.Errorf("Slots count = %d, want 9", len(c.Slots))
 		}
 		if c.Slots[0].Name != "before_create" {
 			t.Errorf("Slots[0].Name = %q, want %q", c.Slots[0].Name, "before_create")

@@ -1,0 +1,13 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+import "stego/common/types.proto";
+
+service AfterUpsert {
+  rpc Evaluate(AfterUpsertRequest) returns (stego.common.SlotResult);
+}
+
+message AfterUpsertRequest {
+  string entity = 1;
+  map<string, string> persisted_fields = 2;
+  stego.common.Identity caller = 3;
+}

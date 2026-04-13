@@ -1,0 +1,12 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+import "stego/common/types.proto";
+
+service BeforeDelete {
+  rpc Evaluate(BeforeDeleteRequest) returns (stego.common.SlotResult);
+}
+
+message BeforeDeleteRequest {
+  string entity_id = 1;
+  stego.common.Identity caller = 2;
+}

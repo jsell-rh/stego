@@ -1,0 +1,12 @@
+syntax = "proto3";
+package stego.components.rest_api.slots;
+import "stego/common/types.proto";
+
+service BeforeUpsert {
+  rpc Evaluate(BeforeUpsertRequest) returns (stego.common.SlotResult);
+}
+
+message BeforeUpsertRequest {
+  stego.common.CreateRequest input = 1;
+  stego.common.Identity caller = 2;
+}
