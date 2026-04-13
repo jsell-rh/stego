@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section: "On list: adds the implicit values as WHERE clause filters, so the collection only returns rows matching its implicit context."
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-050, task-051
 

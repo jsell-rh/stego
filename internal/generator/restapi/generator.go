@@ -1077,7 +1077,26 @@ func generateListMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collect
 	fmt.Fprintf(buf, "\tsearchExpr := r.URL.Query().Get(\"search\")\n")
 
 	// Build ListOptions.
-	fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
+	if len(eb.Implicit) > 0 {
+		// Populate ImplicitFilters from the collection's compile-time
+		// constant implicit field declarations. Keys are sorted for
+		// deterministic generated output.
+		keys := make([]string, 0, len(eb.Implicit))
+		for k := range eb.Implicit {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr, ImplicitFilters: map[string]string{")
+		for i, k := range keys {
+			if i > 0 {
+				fmt.Fprintf(buf, ", ")
+			}
+			fmt.Fprintf(buf, "%q: %q", k, eb.Implicit[k])
+		}
+		fmt.Fprintf(buf, "}}\n")
+	} else {
+		fmt.Fprintf(buf, "\topts := ListOptions{Page: page, Size: pageSize, OrderBy: orderBy, Fields: fields, Search: searchExpr}\n")
+	}
 
 	// Scope filtering: when a parent is set the scope value comes from the
 	// parent's path parameter (already present in the route pattern). Without
@@ -1502,6 +1521,7 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
 	fmt.Fprintf(&buf, "\tFields  []string\n")
 	fmt.Fprintf(&buf, "\tSearch  string // TSL search expression from ?search= query parameter\n")
+	fmt.Fprintf(&buf, "\tImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// ListResult wraps list query results with total count for pagination.

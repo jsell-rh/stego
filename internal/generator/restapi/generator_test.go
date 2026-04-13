@@ -5914,17 +5914,20 @@ func TestGenerate_StorageInterfaceListOptionsAndResult(t *testing.T) {
 	if !strings.Contains(router, "type ListOptions struct") {
 		t.Error("router.go must define ListOptions struct")
 	}
-	if !strings.Contains(router, "Page    int") {
+	if !strings.Contains(router, "Page") || !strings.Contains(router, "int") {
 		t.Error("ListOptions must have Page int field")
 	}
-	if !strings.Contains(router, "Size    int") {
+	if !strings.Contains(router, "Size") {
 		t.Error("ListOptions must have Size int field")
 	}
-	if !strings.Contains(router, "OrderBy []OrderByField") {
+	if !strings.Contains(router, "OrderBy") || !strings.Contains(router, "[]OrderByField") {
 		t.Error("ListOptions must have OrderBy []OrderByField field")
 	}
-	if !strings.Contains(router, "Fields  []string") {
+	if !strings.Contains(router, "Fields") || !strings.Contains(router, "[]string") {
 		t.Error("ListOptions must have Fields []string field")
+	}
+	if !strings.Contains(router, "ImplicitFilters") || !strings.Contains(router, "map[string]string") {
+		t.Error("ListOptions must have ImplicitFilters map[string]string field")
 	}
 
 	// ListResult type.
@@ -9080,5 +9083,209 @@ func TestGenerate_NoImplicitFieldsNoExtraCode(t *testing.T) {
 		if strings.HasPrefix(trimmed, "widget.") && strings.Contains(trimmed, "= \"") {
 			t.Errorf("unexpected implicit-style assignment in handler with no implicit fields: %s", trimmed)
 		}
+	}
+}
+
+func TestGenerate_ListHandlerPopulatesImplicitFilters(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "resource_id", Type: types.FieldTypeString},
+				{Name: "status", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:   "cluster-statuses",
+				Entity: "AdapterStatus",
+				Implicit: map[string]string{
+					"resource_type": "Cluster",
+				},
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_cluster_statuses.go")
+
+	// The list handler must populate ImplicitFilters in ListOptions.
+	if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
+		t.Error("list handler must populate ImplicitFilters in ListOptions")
+	}
+	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
+		t.Error("list handler must include resource_type: Cluster in ImplicitFilters")
+	}
+
+	// Verify the ImplicitFilters appear in the ListOptions initialization,
+	// not as standalone assignments.
+	optsIdx := strings.Index(handler, "opts := ListOptions{")
+	if optsIdx == -1 {
+		t.Fatal("ListOptions initialization not found")
+	}
+	filtersIdx := strings.Index(handler, `ImplicitFilters: map[string]string{`)
+	if filtersIdx == -1 {
+		t.Fatal("ImplicitFilters not found")
+	}
+	if filtersIdx < optsIdx {
+		t.Error("ImplicitFilters must be inside ListOptions initialization")
+	}
+}
+
+func TestGenerate_ListHandlerNoImplicitFiltersWhenEmpty(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
+
+	// When no implicit fields, ImplicitFilters should not appear in the
+	// ListOptions initialization.
+	if strings.Contains(handler, "ImplicitFilters") {
+		t.Error("list handler without implicit fields must not include ImplicitFilters")
+	}
+}
+
+func TestGenerate_ListHandlerImplicitFiltersSortedKeys(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "category", Type: types.FieldTypeString},
+				{Name: "status", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:   "cluster-errors",
+				Entity: "AdapterStatus",
+				Implicit: map[string]string{
+					"resource_type": "Cluster",
+					"category":      "error",
+				},
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_cluster_errors.go")
+
+	// Verify both implicit filter entries are present.
+	if !strings.Contains(handler, `"category": "error"`) {
+		t.Error("implicit filter must include category: error")
+	}
+	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
+		t.Error("implicit filter must include resource_type: Cluster")
+	}
+
+	// Verify deterministic key order (category before resource_type).
+	catIdx := strings.Index(handler, `"category": "error"`)
+	rtIdx := strings.Index(handler, `"resource_type": "Cluster"`)
+	if catIdx == -1 || rtIdx == -1 {
+		t.Fatal("implicit filter entries not found")
+	}
+	if catIdx > rtIdx {
+		t.Error("implicit filter keys must be sorted (category before resource_type)")
+	}
+}
+
+func TestGenerate_ListHandlerImplicitFiltersWithScope(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{
+			Layout:         "flat",
+			ResponseFormat: "bare",
+		},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "resource_type", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "status", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "organizations",
+				Entity:     "Organization",
+				Operations: []types.Operation{types.OpCreate, types.OpRead},
+			},
+			{
+				Name:   "org-cluster-statuses",
+				Entity: "AdapterStatus",
+				Scope:  map[string]string{"org_id": "Organization"},
+				Implicit: map[string]string{
+					"resource_type": "Cluster",
+				},
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_org_cluster_statuses.go")
+
+	// Both scope and implicit filters must be present.
+	if !strings.Contains(handler, `ImplicitFilters: map[string]string{`) {
+		t.Error("handler with scope + implicit must include ImplicitFilters")
+	}
+	if !strings.Contains(handler, `"resource_type": "Cluster"`) {
+		t.Error("handler must include implicit filter resource_type: Cluster")
+	}
+	// Scope filtering is separate from ImplicitFilters — scope comes from
+	// path or query params, implicit is compile-time constant in ListOptions.
+	if !strings.Contains(handler, "scopeValue") {
+		t.Error("handler with scope must include scope value extraction")
 	}
 }

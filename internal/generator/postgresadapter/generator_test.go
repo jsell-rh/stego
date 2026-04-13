@@ -1922,3 +1922,76 @@ func TestNoSearchImportWithoutTslSearchPeer(t *testing.T) {
 		t.Error("List method must NOT call ParseSearch when tsl-search is not a peer")
 	}
 }
+
+func TestListImplicitFiltersApplied(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// The List method must iterate over opts.ImplicitFilters and apply each
+	// as a WHERE clause.
+	if !strings.Contains(storeContent, "opts.ImplicitFilters") {
+		t.Error("List must reference opts.ImplicitFilters")
+	}
+	if !strings.Contains(storeContent, "range opts.ImplicitFilters") {
+		t.Error("List must iterate over opts.ImplicitFilters")
+	}
+	// Each implicit filter must be validated against valid columns.
+	if !strings.Contains(storeContent, "invalid implicit filter field") {
+		t.Error("List must validate implicit filter field names against valid columns")
+	}
+	// Implicit filter error should return empty ListResult alongside the error.
+	if !strings.Contains(storeContent, `return ListResult{}, fmt.Errorf("invalid implicit filter field`) {
+		t.Error("implicit filter validation error should return (ListResult{}, error)")
+	}
+	// Implicit filters are applied as WHERE clauses.
+	if !strings.Contains(storeContent, `query = query.Where(field+" = ?", value)`) {
+		t.Error("implicit filters must be applied as WHERE clauses")
+	}
+}
+
+func TestListImplicitFiltersAfterScope(t *testing.T) {
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	// Implicit filters must come after scope filters (both applied as AND).
+	scopeIdx := strings.Index(storeContent, `query.Where(scopeField+" = ?"`)
+	implicitIdx := strings.Index(storeContent, `range opts.ImplicitFilters`)
+	if scopeIdx == -1 || implicitIdx == -1 {
+		t.Fatal("scope or implicit filter code not found in List method")
+	}
+	if implicitIdx < scopeIdx {
+		t.Error("implicit filters must be applied after scope filters")
+	}
+}
+
+func TestListOptionsIncludesImplicitFilters(t *testing.T) {
+	// When the postgres-adapter generates its own ListOptions (no peer API
+	// package), the struct must include ImplicitFilters.
+	ctx := basicContext()
+	g := &Generator{}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	storeContent := findFileContent(t, files, "internal/storage/store.go")
+
+	if !strings.Contains(storeContent, "ImplicitFilters") {
+		t.Error("ListOptions must include ImplicitFilters field")
+	}
+	if !strings.Contains(storeContent, "map[string]string") {
+		t.Error("ImplicitFilters must be typed as map[string]string")
+	}
+}

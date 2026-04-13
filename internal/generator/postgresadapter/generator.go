@@ -463,6 +463,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
 		fmt.Fprintf(&buf, "\tFields  []string\n")
 		fmt.Fprintf(&buf, "\tSearch  string\n")
+		fmt.Fprintf(&buf, "\tImplicitFilters map[string]string\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
 		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
@@ -730,6 +731,16 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", listResultType, e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t\tquery = query.Where(scopeField+\" = ?\", scopeValue)\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Apply implicit filters from ListOptions. These are compile-time
+		// constant filters set by the handler for collections with implicit
+		// field declarations. Each entry adds a WHERE field = value clause.
+		fmt.Fprintf(buf, "\t\tfor field, value := range opts.ImplicitFilters {\n")
+		fmt.Fprintf(buf, "\t\t\tif !validCols[field] {\n")
+		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid implicit filter field %%q for entity %s\", field)\n", listResultType, e.Name)
+		fmt.Fprintf(buf, "\t\t\t}\n")
+		fmt.Fprintf(buf, "\t\t\tquery = query.Where(field+\" = ?\", value)\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
 		// Apply TSL search filter when the search engine is available.
