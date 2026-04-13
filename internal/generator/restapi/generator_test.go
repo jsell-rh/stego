@@ -5914,19 +5914,19 @@ func TestGenerate_StorageInterfaceListOptionsAndResult(t *testing.T) {
 	if !strings.Contains(router, "type ListOptions struct") {
 		t.Error("router.go must define ListOptions struct")
 	}
-	if !strings.Contains(router, "Page") || !strings.Contains(router, "int") {
+	if !strings.Contains(router, "Page            int") {
 		t.Error("ListOptions must have Page int field")
 	}
-	if !strings.Contains(router, "Size") {
+	if !strings.Contains(router, "Size            int") {
 		t.Error("ListOptions must have Size int field")
 	}
-	if !strings.Contains(router, "OrderBy") || !strings.Contains(router, "[]OrderByField") {
+	if !strings.Contains(router, "OrderBy         []OrderByField") {
 		t.Error("ListOptions must have OrderBy []OrderByField field")
 	}
-	if !strings.Contains(router, "Fields") || !strings.Contains(router, "[]string") {
+	if !strings.Contains(router, "Fields          []string") {
 		t.Error("ListOptions must have Fields []string field")
 	}
-	if !strings.Contains(router, "ImplicitFilters") || !strings.Contains(router, "map[string]string") {
+	if !strings.Contains(router, "ImplicitFilters map[string]string") {
 		t.Error("ListOptions must have ImplicitFilters map[string]string field")
 	}
 
