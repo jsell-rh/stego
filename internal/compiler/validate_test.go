@@ -3980,3 +3980,193 @@ bindings:
 		}
 	}
 }
+
+func TestValidate_ImplicitValid(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: kind, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+    implicit: { kind: "gadget" }
+  orgs:
+    entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	// No implicit-related errors.
+	for _, e := range result.Errors {
+		if strings.Contains(e.Message, "implicit") {
+			t.Errorf("unexpected implicit error: %s", e.Message)
+		}
+	}
+}
+
+func TestValidate_ImplicitKeyNotOnEntity(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+    implicit: { nonexistent_field: "value" }
+  orgs:
+    entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "implicit key \"nonexistent_field\" which is not a field on entity \"Widget\"")
+}
+
+func TestValidate_ImplicitOverlapsComputedField(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: status, type: string, computed: true, filled_by: status-agg }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+    implicit: { status: "active" }
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "implicit key \"status\" is a computed field")
+}
+
+func TestValidate_ImplicitOverlapsScopeKey(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: org_id, type: ref, to: Org }
+  - name: Org
+    fields:
+      - { name: name, type: string }
+collections:
+  org-widgets:
+    entity: Widget
+    operations: [list]
+    scope: { org_id: Org }
+    implicit: { org_id: "fixed-org" }
+  orgs:
+    entity: Org
+    operations: [create, read]
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "implicit key \"org_id\" overlaps with scope key")
+}
+
+func TestValidate_ImplicitEmptyValue(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+      - { name: kind, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+    implicit: { kind: "" }
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	assertHasError(t, result, "collection", "implicit key \"kind\" with empty value")
+}

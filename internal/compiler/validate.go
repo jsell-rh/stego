@@ -497,6 +497,66 @@ func validateCollectionReferences(collections []types.Collection, entities []typ
 			}
 		}
 
+		// Validate implicit field references: each key must be a field on
+		// the entity, each value must be non-empty, keys must not overlap
+		// with computed fields, and keys must not overlap with scope keys.
+		if len(c.Implicit) > 0 {
+			// Build field map for computed checks.
+			entityFieldMap := make(map[string]types.Field)
+			for _, e := range entities {
+				if e.Name == c.Entity {
+					for _, f := range e.Fields {
+						entityFieldMap[f.Name] = f
+					}
+					break
+				}
+			}
+
+			// Iterate implicit keys in sorted order for deterministic errors.
+			implicitKeys := make([]string, 0, len(c.Implicit))
+			for k := range c.Implicit {
+				implicitKeys = append(implicitKeys, k)
+			}
+			sort.Strings(implicitKeys)
+
+			for _, fieldName := range implicitKeys {
+				val := c.Implicit[fieldName]
+
+				// Key must be a field on the entity.
+				if !entityFields[c.Entity][fieldName] {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q has implicit key %q which is not a field on entity %q", c.Name, fieldName, c.Entity),
+					})
+					continue
+				}
+
+				// Value must be non-empty.
+				if val == "" {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q has implicit key %q with empty value — implicit values must be non-empty string literals", c.Name, fieldName),
+					})
+				}
+
+				// Key must not overlap with computed fields.
+				if f, ok := entityFieldMap[fieldName]; ok && f.Computed {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: implicit key %q is a computed field — computed fields are populated by fills and cannot have implicit values", c.Name, fieldName),
+					})
+				}
+
+				// Key must not overlap with scope keys.
+				if _, inScope := c.Scope[fieldName]; inScope {
+					errs = append(errs, ValidationError{
+						Category: "collection",
+						Message:  fmt.Sprintf("collection %q: implicit key %q overlaps with scope key — a field cannot be both scope-derived and implicitly set", c.Name, fieldName),
+					})
+				}
+			}
+		}
+
 		// Validate upsert_key field name references, intra-list uniqueness,
 		// and constraint that upsert_key fields must not be computed.
 		if len(c.UpsertKey) > 0 {
