@@ -65,3 +65,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- ff37e87 feat(rest-api): wire after-operation lifecycle slots into handler generation
