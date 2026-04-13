@@ -59,3 +59,5 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 9919789 feat(rest-api): add all 9 lifecycle slot proto definitions
+- b2ef58f fix(rest-api): add entity name field to before_patch and before_delete protos
