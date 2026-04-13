@@ -38,6 +38,7 @@ func init() {
 	Register("001_initial", func(db *gorm.DB) error {
 		return db.AutoMigrate(
 			&Organization{},
+			&AuditEvent{},
 			&User{},
 			&OrgSetting{},
 		)

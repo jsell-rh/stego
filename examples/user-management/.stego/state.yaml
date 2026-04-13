@@ -1,5 +1,5 @@
 last_applied:
-    service_hash: acdd4f536e39ed36182890901b61956b918c0fe14439eea1925272e756c9dc48
+    service_hash: 18c1cf690aadedcd560e7c6b05ca69fc3d050810d7723c82e9f42cb120bf7a48
     registry_sha: env-override
     components:
         health-check:
@@ -24,6 +24,19 @@ last_applied:
             version: 1.0.0
             sha: env-override
     entities:
+        AuditEvent:
+            - name: source_type
+              type: string
+              hash: 87d11a9f6c30825cac336fda19d0401721c2a94e114362bd5e454034f3378ec9
+            - name: source_id
+              type: string
+              hash: 30a51c461f6113c9e3ee9c1f9a2733290ebd5ff5126b7bf8a0bc2904e1703e19
+            - name: action
+              type: string
+              hash: efc929ab52e3ab4784051c34937c5eddb29fc63ef11a76b6e9dc8ed0726ed4da
+            - name: detail
+              type: jsonb
+              hash: bc656384f3d8281b9f215cb9d0e662479600d3e23092228bbeda8764a0de199d
         OrgSetting:
             - name: org_id
               type: ref
@@ -61,25 +74,27 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
-        go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
+        go.mod: fc789b6dbca5937f826ff220a3fb28f12c3ce8dc96ae3b7a1c572de7706c9b7d
         internal/api/cors.go: 9d2b3589a6f06b05aaac95e711c60e82af3adb0ba31b1c26d2e6ef2f178f92c1
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
+        internal/api/handler_org_audit_events.go: ca85c221bb215a6ce329e7c50f736cdfe1d3ebba69993db128a80fea0dc0ddc8
         internal/api/handler_org_settings.go: d8bfffbb7c4bcc6761673aec96f9ca1e40418a4747ae6bc7486a986b28093cb2
-        internal/api/handler_org_users.go: d29e571532652604e1e340bbb8260825d806d41fc04b3cb78600ecf4300a68bf
-        internal/api/handler_organizations.go: 32d75a7e18de65e29a0bffc5251f3d45f3f678af4052c6fe9d5ee981f7e5b86c
-        internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
-        internal/api/router.go: 86209962eb2b2ac6d8ca67243a2f611f2bf9d905feb59dda2110ba963f4e7fe0
+        internal/api/handler_org_users.go: 869cfef49a6d5c1dab71e2bdd43eacdfa343a01acb457235126d0bfcd09413e5
+        internal/api/handler_organizations.go: d429770afdf90b012ebda89de59def448e3d3e77a5e5b4fe613b357a1bb72b24
+        internal/api/handler_user_audit_events.go: 1f98b4946dab51086bbd727ca1de878264455e7a33c25710f69bb2ac8581712a
+        internal/api/openapi.json: ed39a851871ae39170ff93f39b8c5e49f625e377b360331ef59a3e6057c74872
+        internal/api/router.go: cb9baa28bcef1b2e22232709515b071b7de075814ea12e25d2004edb39c0eac2
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/middleware.go: 23efa458114888d36b0694ee7e181369777bbbf1bc737363527288659c0dc55a
-        internal/search/field_map.go: f84a53753b62db86e9908d6a9eae9f97e6c930f950f16cda2bfa212b8c6bbad6
+        internal/search/field_map.go: a7da113b48165bb58369580c974571ffe2d564a8016f7186ead94598b1fee477
         internal/search/search.go: 8e517214792a8e844ae687ae45d364895588893ca4c9028470599302dec55089
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
-        internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
-        internal/storage/models.go: 070abe4729d630a4b2b6e7e1fe975cb6cc22ebb9a956689bd28c44f6da69dd33
+        internal/storage/migrate.go: 1f684a9b8beebd89752ccd9bd3f7e85681bb434babe63fda5341d17764a22971
+        internal/storage/models.go: 29d97e2bbc95ce3836862d85e4f28adfcadcc9fd6dec91a45f25ef719105cbcf
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
-        internal/storage/store.go: a9d11c007f8ead3595772373fb0193a33da390f6c05251afefbc77ef56592669
-        main.go: e84727b942c60a0880004e15e79c26ab1038f35d77b03589ad125ffa4b434f62
+        internal/storage/store.go: 00387f5612b724de1564ece44787eabcb091af1fb727c39013b5f8aaed041619
+        main.go: 9594065e719d48998d8c1cb99d36f2374f37af96752877b877cdae74032360bb
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64

@@ -26,6 +26,13 @@ entities:
       - { name: value, type: jsonb }
       - { name: generation, type: int64 }
 
+  - name: AuditEvent
+    fields:
+      - { name: source_type, type: string, max_length: 50 }
+      - { name: source_id, type: string, max_length: 255 }
+      - { name: action, type: string, max_length: 100 }
+      - { name: detail, type: jsonb, optional: true }
+
 collections:
   organizations:
     entity: Organization
@@ -47,6 +54,18 @@ collections:
     operations: [list, upsert]
     upsert_key: [org_id, key]
     concurrency: optimistic
+
+  user-audit-events:
+    entity: AuditEvent
+    path_prefix: /user-events
+    implicit: { source_type: "User" }
+    operations: [create, list]
+
+  org-audit-events:
+    entity: AuditEvent
+    path_prefix: /org-events
+    implicit: { source_type: "Organization" }
+    operations: [create, list]
 
 slots:
   - collection: org-users

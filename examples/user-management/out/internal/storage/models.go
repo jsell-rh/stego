@@ -52,3 +52,12 @@ type OrgSetting struct {
 	Value      datatypes.JSON `json:"value" gorm:"column:value;type:jsonb;not null"`
 	Generation int64          `json:"generation" gorm:"column:generation;not null"`
 }
+
+// AuditEvent represents the AuditEvent entity.
+type AuditEvent struct {
+	Meta
+	SourceType string         `json:"source_type" gorm:"column:source_type;not null;size:50"`
+	SourceID   string         `json:"source_id" gorm:"column:source_id;not null;size:255"`
+	Action     string         `json:"action" gorm:"column:action;not null;size:100"`
+	Detail     datatypes.JSON `json:"detail,omitempty" gorm:"column:detail;type:jsonb"`
+}

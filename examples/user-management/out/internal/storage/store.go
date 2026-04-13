@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/example/service/out/internal/api"
-	search "github.com/example/service/out/internal/search"
+	api "github.com/example/user-management/out/internal/api"
+	search "github.com/example/user-management/out/internal/search"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -78,6 +78,22 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 			return err
 		}
 		return nil
+	case "AuditEvent":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshaling AuditEvent: %w", err)
+		}
+		var v AuditEvent
+		if err := json.Unmarshal(data, &v); err != nil {
+			return fmt.Errorf("unmarshaling AuditEvent: %w", err)
+		}
+		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
+			if isUniqueConstraintError(err) {
+				return api.ErrConflict
+			}
+			return err
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -107,6 +123,15 @@ func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) 
 		return v, nil
 	case "OrgSetting":
 		var v OrgSetting
+		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, api.ErrNotFound
+			}
+			return nil, err
+		}
+		return v, nil
+	case "AuditEvent":
+		var v AuditEvent
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, api.ErrNotFound
@@ -187,6 +212,27 @@ func (s *Store) Replace(ctx context.Context, entity string, id string, value any
 			return api.ErrNotFound
 		}
 		return nil
+	case "AuditEvent":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshaling AuditEvent: %w", err)
+		}
+		var v AuditEvent
+		if err := json.Unmarshal(data, &v); err != nil {
+			return fmt.Errorf("unmarshaling AuditEvent: %w", err)
+		}
+		v.ID = id
+		result := s.db.WithContext(ctx).Model(&AuditEvent{}).Where("id = ?", id).Select([]string{"source_type", "source_id", "action", "detail"}).Updates(&v)
+		if result.Error != nil {
+			if isUniqueConstraintError(result.Error) {
+				return api.ErrConflict
+			}
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return api.ErrNotFound
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -223,6 +269,15 @@ func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 			return api.ErrNotFound
 		}
 		return nil
+	case "AuditEvent":
+		result := s.db.WithContext(ctx).Where("id = ?", id).Delete(&AuditEvent{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return api.ErrNotFound
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -241,6 +296,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity Organization", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
+		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity Organization", field)
+			}
+			query = query.Where(field+" = ?", value)
 		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("Organization", opts.Search)
@@ -291,6 +352,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity User", field)
+			}
+			query = query.Where(field+" = ?", value)
+		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("User", opts.Search)
 			if err != nil {
@@ -340,6 +407,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity OrgSetting", field)
+			}
+			query = query.Where(field+" = ?", value)
+		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("OrgSetting", opts.Search)
 			if err != nil {
@@ -376,6 +449,61 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			query = query.Limit(opts.Size)
 		}
 		var result []OrgSetting
+		if err := query.Find(&result).Error; err != nil {
+			return api.ListResult{}, err
+		}
+		return api.ListResult{Items: result, Total: total}, nil
+	case "AuditEvent":
+		validCols := map[string]bool{"source_type": true, "source_id": true, "action": true, "detail": true}
+		query := s.db.WithContext(ctx).Model(&AuditEvent{})
+		if scopeField != "" && scopeValue != "" {
+			if !validCols[scopeField] {
+				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity AuditEvent", scopeField)
+			}
+			query = query.Where(scopeField+" = ?", scopeValue)
+		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity AuditEvent", field)
+			}
+			query = query.Where(field+" = ?", value)
+		}
+		if opts.Search != "" {
+			searchResult, err := search.NewSearchEngine().ParseSearch("AuditEvent", opts.Search)
+			if err != nil {
+				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
+			}
+			if searchResult != nil {
+				query = query.Where(searchResult.Where, searchResult.Args...)
+			}
+		}
+		var total int64
+		if err := query.Count(&total).Error; err != nil {
+			return api.ListResult{}, err
+		}
+		for _, ob := range opts.OrderBy {
+			if validCols[ob.Field] {
+				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if len(opts.Fields) > 0 {
+			// Always include id; add requested fields that exist.
+			selectCols := []string{"id"}
+			for _, f := range opts.Fields {
+				if validCols[f] {
+					selectCols = append(selectCols, f)
+				}
+			}
+			query = query.Select(selectCols)
+		}
+		offset := (opts.Page - 1) * opts.Size
+		if offset > 0 {
+			query = query.Offset(offset)
+		}
+		if opts.Size > 0 {
+			query = query.Limit(opts.Size)
+		}
+		var result []AuditEvent
 		if err := query.Find(&result).Error; err != nil {
 			return api.ListResult{}, err
 		}
@@ -596,6 +724,74 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 			return false, err
 		}
 		return created, nil
+	case "AuditEvent":
+		data, err := json.Marshal(value)
+		if err != nil {
+			return false, fmt.Errorf("marshaling AuditEvent: %w", err)
+		}
+		var v AuditEvent
+		if err := json.Unmarshal(data, &v); err != nil {
+			return false, fmt.Errorf("unmarshaling AuditEvent: %w", err)
+		}
+		validCols := map[string]bool{"source_type": true, "source_id": true, "action": true, "detail": true}
+		for _, k := range upsertKey {
+			if !validCols[k] {
+				return false, fmt.Errorf("invalid upsert key field %q for entity AuditEvent", k)
+			}
+		}
+		conflictCols := make([]clause.Column, len(upsertKey))
+		for i, k := range upsertKey {
+			conflictCols[i] = clause.Column{Name: k}
+		}
+		keySet := make(map[string]bool, len(upsertKey))
+		for _, k := range upsertKey {
+			keySet[k] = true
+		}
+		var updateCols []string
+		for _, col := range []string{"source_type", "source_id", "action", "detail"} {
+			if !keySet[col] {
+				updateCols = append(updateCols, col)
+			}
+		}
+		onConflict := clause.OnConflict{
+			Columns: conflictCols,
+		}
+		if len(updateCols) > 0 {
+			onConflict.DoUpdates = clause.AssignmentColumns(updateCols)
+			if concurrency == "optimistic" {
+				return false, fmt.Errorf("optimistic concurrency requires a 'generation' field on entity AuditEvent")
+			}
+		} else {
+			onConflict.DoNothing = true
+		}
+		var created bool
+		err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var valueMap map[string]any
+			if err := json.Unmarshal(data, &valueMap); err != nil {
+				return fmt.Errorf("unmarshaling AuditEvent to map: %w", err)
+			}
+			whereClause := make(map[string]any, len(upsertKey))
+			for _, k := range upsertKey {
+				whereClause[k] = valueMap[k]
+			}
+			var existingCount int64
+			if err := tx.Model(&AuditEvent{}).Where(whereClause).Count(&existingCount).Error; err != nil {
+				return err
+			}
+			result := tx.Clauses(onConflict).Create(&v)
+			if result.Error != nil {
+				return result.Error
+			}
+			if concurrency == "optimistic" && result.RowsAffected == 0 {
+				return api.ErrConflict
+			}
+			created = existingCount == 0
+			return nil
+		}, &sql.TxOptions{Isolation: sql.LevelSerializable})
+		if err != nil {
+			return false, err
+		}
+		return created, nil
 	default:
 		return false, fmt.Errorf("unknown entity: %s", entity)
 	}
@@ -619,6 +815,12 @@ func (s *Store) Exists(ctx context.Context, entity string, id string) (bool, err
 	case "OrgSetting":
 		var count int64
 		if err := s.db.WithContext(ctx).Model(&OrgSetting{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return false, err
+		}
+		return count > 0, nil
+	case "AuditEvent":
+		var count int64
+		if err := s.db.WithContext(ctx).Model(&AuditEvent{}).Where("id = ?", id).Count(&count).Error; err != nil {
 			return false, err
 		}
 		return count > 0, nil

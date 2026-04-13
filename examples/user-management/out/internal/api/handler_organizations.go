@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	auth "github.com/example/service/out/internal/auth"
-	slots "github.com/example/service/out/slots"
+	auth "github.com/example/user-management/out/internal/auth"
+	slots "github.com/example/user-management/out/slots"
 	"github.com/google/uuid"
 )
 

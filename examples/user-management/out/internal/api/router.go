@@ -29,11 +29,12 @@ type OrderByField struct {
 
 // ListOptions contains pagination, ordering, field selection, and search parameters.
 type ListOptions struct {
-	Page    int
-	Size    int
-	OrderBy []OrderByField
-	Fields  []string
-	Search  string // TSL search expression from ?search= query parameter
+	Page            int
+	Size            int
+	OrderBy         []OrderByField
+	Fields          []string
+	Search          string            // TSL search expression from ?search= query parameter
+	ImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations
 }
 
 // ListResult wraps list query results with total count for pagination.
@@ -80,6 +81,15 @@ type OrgSetting struct {
 	Key        string          `json:"key"`
 	Value      json.RawMessage `json:"value"`
 	Generation int64           `json:"generation"`
+}
+
+// AuditEvent represents the AuditEvent entity.
+type AuditEvent struct {
+	ID         string           `json:"id,omitempty"`
+	SourceType string           `json:"source_type"`
+	SourceID   string           `json:"source_id"`
+	Action     string           `json:"action"`
+	Detail     *json.RawMessage `json:"detail,omitempty"`
 }
 
 // presentEntity wraps an entity with id, kind, and href metadata for

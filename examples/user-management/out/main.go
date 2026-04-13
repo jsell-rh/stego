@@ -7,16 +7,16 @@ import (
 	"net/http"
 	"os"
 
-	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
-	auditlogger "github.com/example/service/fills/audit-logger"
-	orgnamevalidator "github.com/example/service/fills/org-name-validator"
-	orgprovisioner "github.com/example/service/fills/org-provisioner"
-	rbacpolicy "github.com/example/service/fills/rbac-policy"
-	userchangenotifier "github.com/example/service/fills/user-change-notifier"
-	api "github.com/example/service/out/internal/api"
-	auth "github.com/example/service/out/internal/auth"
-	storage "github.com/example/service/out/internal/storage"
-	slots "github.com/example/service/out/slots"
+	admincreationpolicy "github.com/example/user-management/fills/admin-creation-policy"
+	auditlogger "github.com/example/user-management/fills/audit-logger"
+	orgnamevalidator "github.com/example/user-management/fills/org-name-validator"
+	orgprovisioner "github.com/example/user-management/fills/org-provisioner"
+	rbacpolicy "github.com/example/user-management/fills/rbac-policy"
+	userchangenotifier "github.com/example/user-management/fills/user-change-notifier"
+	api "github.com/example/user-management/out/internal/api"
+	auth "github.com/example/user-management/out/internal/auth"
+	storage "github.com/example/user-management/out/internal/storage"
+	slots "github.com/example/user-management/out/slots"
 	postgres "gorm.io/driver/postgres"
 	gorm "gorm.io/gorm"
 )
@@ -66,6 +66,8 @@ func main() {
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
 	orgSettingsHandler := api.NewOrgSettingsHandler(store)
+	userAuditEventsHandler := api.NewUserAuditEventsHandler(store)
+	orgAuditEventsHandler := api.NewOrgAuditEventsHandler(store)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)
@@ -81,6 +83,10 @@ func main() {
 	mux.HandleFunc("GET /api/user-mgmt/v1/users", allUsersHandler.List)
 	mux.HandleFunc("GET /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.List)
 	mux.HandleFunc("PUT /api/user-mgmt/v1/organizations/{org_id}/orgsettings", orgSettingsHandler.Upsert)
+	mux.HandleFunc("POST /api/user-mgmt/v1/user-events", userAuditEventsHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/user-events", userAuditEventsHandler.List)
+	mux.HandleFunc("POST /api/user-mgmt/v1/org-events", orgAuditEventsHandler.Create)
+	mux.HandleFunc("GET /api/user-mgmt/v1/org-events", orgAuditEventsHandler.List)
 
 	port := os.Getenv("PORT")
 	if port == "" {
