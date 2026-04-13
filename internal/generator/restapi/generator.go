@@ -746,11 +746,11 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitClearServerManagedFields(buf, lower, entity)
 	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
 	if eb.ParentEntity() != "" {
-		refField, err := parentRefFieldName(entity, eb.ParentEntity())
+		parentField, err := parentLinkingFieldName(entity, eb)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
 	}
 	// Implicit field assignments: overwrite client-supplied values with
 	// collection-level fixed values before persisting.
@@ -884,11 +884,11 @@ func generateUpdateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	// updated — the decoded body may have an empty or mismatched ID field.
 	fmt.Fprintf(buf, "\t%s.ID = id\n", lower)
 	if eb.ParentEntity() != "" {
-		refField, err := parentRefFieldName(entity, eb.ParentEntity())
+		parentField, err := parentLinkingFieldName(entity, eb)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
 	}
 	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
 	if needsExisting {
@@ -1208,11 +1208,11 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	emitClearServerManagedFields(buf, lower, entity)
 	emitPopulateServerManagedFieldsCreate(buf, lower, entity, authAlias)
 	if eb.ParentEntity() != "" {
-		refField, err := parentRefFieldName(entity, eb.ParentEntity())
+		parentField, err := parentLinkingFieldName(entity, eb)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, refField, parentParamName)
+		fmt.Fprintf(buf, "\t%s.%s = r.PathValue(%q)\n", lower, parentField, parentParamName)
 	}
 	// Implicit field assignments: overwrite client-supplied values with
 	// collection-level fixed values before persisting.
@@ -2790,6 +2790,18 @@ func collectAncestors(eb types.Collection, collectionMap map[string]types.Collec
 	return ancestors, nil
 }
 
+// parentLinkingFieldName returns the PascalCase Go field name that links an
+// entity to its parent. When the collection declares a scope, the scope field
+// IS the linking field (covers both ref and polymorphic string fields). When
+// no scope is declared, falls back to parentRefFieldName which searches for a
+// ref field with to: parent.
+func parentLinkingFieldName(entity types.Entity, eb types.Collection) (string, error) {
+	if len(eb.Scope) > 0 {
+		return toPascalCase(eb.ScopeField()), nil
+	}
+	return parentRefFieldName(entity, eb.ParentEntity())
+}
+
 // parentRefFieldName finds the Go field name for the ref field that points to
 // the parent entity. Returns an error if no matching ref field is found or if
 // multiple ref fields point to the same parent (ambiguous match).
@@ -3278,11 +3290,14 @@ func validateRouteCollisions(collections []types.Collection, collectionMap map[s
 }
 
 // validateScopeParentConsistency checks that when both scope and parent are set
-// on a collection, the scope field is the entity's ref field pointing to the
-// parent. The scope+parent code path extracts the parent's ID from the URL path
-// parameter and uses it as the filter for the scope field. If the scope field is
-// a different field, the generated code passes the wrong value — semantically
-// broken at runtime.
+// on a collection, the scope field exists on the entity and — when a ref field
+// to the parent exists — the scope field matches it.
+//
+// When the entity has a ref field pointing to the parent, the scope field must
+// be that ref field (otherwise the generated list handler filters on the wrong
+// field). When no ref field exists (polymorphic ID pattern — the scope field is
+// type: string), the scope field still serves as the linking field and its
+// existence on the entity is sufficient.
 func validateScopeParentConsistency(collections []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range collections {
@@ -3293,8 +3308,21 @@ func validateScopeParentConsistency(collections []types.Collection, entityMap ma
 		if !ok {
 			continue
 		}
-		// Find the ref field pointing to the parent. validateParentRefFields
-		// has already guaranteed exactly one exists if parent is set.
+		// Verify the scope field exists on the entity.
+		scopeFieldExists := false
+		for _, f := range entity.Fields {
+			if f.Name == eb.ScopeField() {
+				scopeFieldExists = true
+				break
+			}
+		}
+		if !scopeFieldExists {
+			errs = append(errs, fmt.Sprintf(
+				"collection %q sets scope: %q with parent: %q, but entity %q has no field named %q",
+				eb.Name, eb.ScopeField(), eb.ParentEntity(), eb.Entity, eb.ScopeField()))
+			continue
+		}
+		// If a ref field to the parent exists, the scope must match it.
 		refFieldName := ""
 		for _, f := range entity.Fields {
 			if f.Type == types.FieldTypeRef && f.To == eb.ParentEntity() {
@@ -3302,13 +3330,9 @@ func validateScopeParentConsistency(collections []types.Collection, entityMap ma
 				break
 			}
 		}
-		if refFieldName == "" {
-			// Already caught by validateParentRefFields.
-			continue
-		}
-		if eb.ScopeField() != refFieldName {
+		if refFieldName != "" && eb.ScopeField() != refFieldName {
 			errs = append(errs, fmt.Sprintf(
-				"collection %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set, scope must name the entity's ref field to the parent",
+				"collection %q sets scope: %q with parent: %q, but %q is not the ref field to %q (which is %q); when both scope and parent are set and a ref field exists, scope must name the entity's ref field to the parent",
 				eb.Name, eb.ScopeField(), eb.ParentEntity(), eb.ScopeField(), eb.ParentEntity(), refFieldName))
 		}
 	}
@@ -3709,17 +3733,27 @@ func needsFmtForSlotFields(entity types.Entity) bool {
 	return false
 }
 
-// validateParentRefFields checks that every entity with a parent declaration has
-// exactly one ref field pointing to the parent entity. This is a structural
-// invariant of the parent declaration — the declaration implies a data
-// relationship that requires a ref field, regardless of which operations are
-// exposed. Without this upfront check, read-only or delete-only entities with
-// parent silently pass generation but produce semantically hollow nesting (ancestor
-// existence is verified but parent-child ownership is never enforced).
+// validateParentRefFields checks that every collection with a parent
+// declaration has a linking field to the parent entity. When the collection
+// declares a scope, the scope field IS the linking field (validated separately
+// by validateScopeParentConsistency). When no scope is declared, the entity
+// must have exactly one ref field pointing to the parent — the parent-only
+// code path uses parentRefFieldName to discover it.
+//
+// This distinction supports polymorphic ID patterns: a field like resource_id
+// can be type: string (referencing multiple parent entity types) while the
+// collection's scope declaration names which parent entity a given collection
+// targets. The ref-field requirement only applies to the parent-without-scope
+// case where the generator must discover the linking field by type.
 func validateParentRefFields(collections []types.Collection, entityMap map[string]types.Entity) error {
 	var errs []string
 	for _, eb := range collections {
 		if eb.ParentEntity() == "" {
+			continue
+		}
+		// When scope is set, the scope field is the parent-linking field.
+		// validateScopeParentConsistency checks it exists on the entity.
+		if len(eb.Scope) > 0 {
 			continue
 		}
 		entity, ok := entityMap[eb.Entity]

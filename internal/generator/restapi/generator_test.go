@@ -1873,9 +1873,9 @@ func TestGenerate_WiringRoutesUseExportedMethods(t *testing.T) {
 	}
 }
 
-func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
-	// Finding 19: when an entity declares parent but has no ref field to the parent,
-	// the generator must return a clear error instead of producing broken code.
+func TestGenerate_MissingScopeFieldReturnsError(t *testing.T) {
+	// When a collection has scope: {field: Parent} but the entity has no field
+	// matching the scope field name, the generator must return a clear error.
 	g := &Generator{}
 
 	tests := []struct {
@@ -1883,7 +1883,7 @@ func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
 		ops  []types.Operation
 	}{
 		{"create", []types.Operation{types.OpCreate}},
-		{"list (parent-only)", []types.Operation{types.OpList}},
+		{"list", []types.Operation{types.OpList}},
 		{"upsert", []types.Operation{types.OpUpsert}},
 	}
 
@@ -1895,7 +1895,7 @@ func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
 					{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 					{Name: "Widget", Fields: []types.Field{
 						{Name: "name", Type: types.FieldTypeString},
-						// No ref field to Cluster — this is the bug trigger.
+						// No cluster_id field — scope field doesn't exist.
 					}},
 				},
 				Collections: []types.Collection{
@@ -1913,17 +1913,15 @@ func TestGenerate_MissingParentRefFieldReturnsError(t *testing.T) {
 
 			_, _, err := g.Generate(ctx)
 			if err == nil {
-				t.Fatal("expected error when parent ref field is missing")
+				t.Fatal("expected error when scope field is missing from entity")
 			}
-			if !strings.Contains(err.Error(), "Cluster") {
-				t.Errorf("error should mention parent entity name, got: %v", err)
-			}
-			if !strings.Contains(err.Error(), "ref") {
-				t.Errorf("error should mention missing ref field, got: %v", err)
+			if !strings.Contains(err.Error(), "cluster_id") {
+				t.Errorf("error should mention missing scope field name, got: %v", err)
 			}
 		})
 	}
 }
+
 
 func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
 	// Finding 20: OpenAPI entity schemas must include a "required" array listing
@@ -2396,9 +2394,9 @@ func TestGenerate_UpdateWithParentSetsParentID(t *testing.T) {
 	}
 }
 
-func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
-	// Update with parent but no matching ref field must return an error,
-	// consistent with create and upsert behavior.
+func TestGenerate_UpdateWithMissingScopeFieldReturnsError(t *testing.T) {
+	// Update with scope field that doesn't exist on the entity must return an
+	// error, caught by validateFieldReferences.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -2406,7 +2404,7 @@ func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
 			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 			{Name: "Widget", Fields: []types.Field{
 				{Name: "name", Type: types.FieldTypeString},
-				// No ref field to Cluster.
+				// No cluster_id field — scope field doesn't exist.
 			}},
 		},
 		Collections: []types.Collection{
@@ -2423,13 +2421,10 @@ func TestGenerate_UpdateWithParentMissingRefFieldReturnsError(t *testing.T) {
 
 	_, _, err := g.Generate(ctx)
 	if err == nil {
-		t.Fatal("expected error when parent ref field is missing for update")
+		t.Fatal("expected error when scope field is missing for update")
 	}
-	if !strings.Contains(err.Error(), "Cluster") {
-		t.Errorf("error should mention parent entity name, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "ref") {
-		t.Errorf("error should mention missing ref field, got: %v", err)
+	if !strings.Contains(err.Error(), "cluster_id") {
+		t.Errorf("error should mention missing scope field, got: %v", err)
 	}
 }
 
@@ -3669,6 +3664,134 @@ func TestGenerate_ScopeParentConsistentSucceeds(t *testing.T) {
 	}
 }
 
+func TestGenerate_PolymorphicScopeFieldSucceeds(t *testing.T) {
+	// When a scope field is type: string (polymorphic ID pattern — one field
+	// referencing multiple parent entity types), the generator must accept it.
+	// The scope declaration names the parent entity for this collection; the
+	// field itself does not need to be type: ref.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "Team", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AuditEvent", Fields: []types.Field{
+				{Name: "action", Type: types.FieldTypeString},
+				// Polymorphic: resource_id can reference Organization OR Team.
+				{Name: "resource_id", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{Name: "teams", Entity: "Team", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "org-audit-events",
+				Entity:     "AuditEvent",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+				Scope:      map[string]string{"resource_id": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("expected success for polymorphic scope field, got: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_org_audit_events.go")
+
+	// Create handler must assign the scope field from the path parameter.
+	if !strings.Contains(handler, ".ResourceID = r.PathValue(") {
+		t.Error("create handler must assign the polymorphic scope field (resource_id) from the path parameter")
+	}
+
+	// List handler must filter by the scope field.
+	if !strings.Contains(handler, `"resource_id"`) {
+		t.Error("list handler must filter by the scope field name")
+	}
+}
+
+func TestGenerate_PolymorphicScopeFieldScopeCheckWorks(t *testing.T) {
+	// Verify that scoped read with a polymorphic (string-typed) scope field
+	// generates the scope check correctly.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AuditEvent", Fields: []types.Field{
+				{Name: "action", Type: types.FieldTypeString},
+				{Name: "resource_id", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "org-events",
+				Entity:     "AuditEvent",
+				Operations: []types.Operation{types.OpRead},
+				Scope:      map[string]string{"resource_id": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_org_events.go")
+
+	// Read handler must verify the entity's scope field matches the path.
+	if !strings.Contains(handler, "resource_id") {
+		t.Error("read handler must include scope verification for the polymorphic scope field")
+	}
+}
+
+func TestGenerate_ScopeFieldMissingFromEntityReturnsError(t *testing.T) {
+	// When validateScopeParentConsistency runs and the scope field doesn't
+	// exist on the entity at all, it must return a clear error.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "label", Type: types.FieldTypeString},
+				// No "nonexistent" field — scope field doesn't exist.
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "widgets",
+				Entity:     "Widget",
+				Operations: []types.Operation{types.OpList},
+				Scope:      map[string]string{"nonexistent": "Organization"},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err == nil {
+		t.Fatal("expected error when scope field doesn't exist on entity")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention the missing scope field name, got: %v", err)
+	}
+}
+
 // findFileContent finds a file by path in the file list and returns its content as string.
 func findFileContent(t *testing.T, files []gen.File, path string) string {
 	t.Helper()
@@ -3681,10 +3804,10 @@ func findFileContent(t *testing.T, files []gen.File, path string) string {
 	return ""
 }
 
-func TestGenerate_MultipleRefFieldsToSameParentReturnsError(t *testing.T) {
-	// Finding 40: when an entity has multiple ref fields pointing to the same
-	// parent entity, the generator must reject the ambiguity rather than
-	// silently selecting the first match.
+func TestGenerate_MultipleRefFieldsScopeDisambiguates(t *testing.T) {
+	// When an entity has multiple ref fields pointing to the same parent entity,
+	// the scope declaration disambiguates which field is the linking field.
+	// This must succeed — the scope field IS the linking field.
 	g := &Generator{}
 	ctx := gen.Context{
 		Conventions: types.Convention{Layout: "flat"},
@@ -3700,32 +3823,25 @@ func TestGenerate_MultipleRefFieldsToSameParentReturnsError(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{Name: "accounts", Entity: "Account", Operations: []types.Operation{types.OpRead}},
-			{Name: "transfers", Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"account_id": "Account"}},
+			{Name: "transfers", Entity: "Transfer", Operations: []types.Operation{types.OpCreate}, Scope: map[string]string{"from_account_id": "Account"}},
 		},
 		OutputNamespace: "internal/api",
 	}
 
-	_, _, err := g.Generate(ctx)
-	if err == nil {
-		t.Fatal("expected error when entity has multiple ref fields to the same parent")
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("expected success when scope disambiguates multiple ref fields, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "multiple ref fields") {
-		t.Errorf("error should mention multiple ref fields, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "Account") {
-		t.Errorf("error should mention parent entity name, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "from_account_id") {
-		t.Errorf("error should mention the first matching field, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "to_account_id") {
-		t.Errorf("error should mention the second matching field, got: %v", err)
+	// Verify the create handler assigns the scope field from the path.
+	handler := findFileContent(t, files, "internal/api/handler_transfers.go")
+	if !strings.Contains(handler, ".FromAccountID = r.PathValue(") {
+		t.Error("create handler must assign the scope field (from_account_id) from the path parameter")
 	}
 }
 
-func TestGenerate_MultipleRefFieldsTwoNodeCycle(t *testing.T) {
-	// Finding 40: test with list (parent-only) and upsert to confirm ambiguity
-	// is caught for those operation paths too.
+func TestGenerate_MultipleRefFieldsScopeDisambiguatesAllOps(t *testing.T) {
+	// With scope set, multiple ref fields to the same parent are not ambiguous
+	// — the scope field is the linking field. Verify this works for all ops.
 	g := &Generator{}
 
 	tests := []struct {
@@ -3752,28 +3868,22 @@ func TestGenerate_MultipleRefFieldsTwoNodeCycle(t *testing.T) {
 				},
 				Collections: []types.Collection{
 					{Name: "orgs", Entity: "Org", Operations: []types.Operation{types.OpRead}},
-					{Name: "members", Entity: "Member", Operations: tt.ops, Scope: map[string]string{"org_id": "Org"}, UpsertKey: []string{"primary_org_id"}},
+					{Name: "members", Entity: "Member", Operations: tt.ops, Scope: map[string]string{"primary_org_id": "Org"}, UpsertKey: []string{"primary_org_id"}},
 				},
 				OutputNamespace: "internal/api",
 			}
 
 			_, _, err := g.Generate(ctx)
-			if err == nil {
-				t.Fatalf("expected error for ambiguous ref fields with %s operation", tt.name)
-			}
-			if !strings.Contains(err.Error(), "multiple ref fields") {
-				t.Errorf("error should mention multiple ref fields, got: %v", err)
+			if err != nil {
+				t.Fatalf("expected success when scope disambiguates, got: %v", err)
 			}
 		})
 	}
 }
 
-func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
-	// Finding 41: when an entity declares parent but only exposes read and/or
-	// delete operations, the generator must still validate that a ref field to
-	// the parent exists. Previously, the validation was lazy (only in
-	// create/update/upsert/list methods), so read-only and delete-only
-	// entities silently passed.
+func TestGenerate_ScopedReadDeleteOnlyMissingScopeFieldReturnsError(t *testing.T) {
+	// When a scoped collection only exposes read/delete operations and the scope
+	// field doesn't exist on the entity, the generator must still validate upfront.
 	g := &Generator{}
 
 	tests := []struct {
@@ -3793,7 +3903,7 @@ func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
 					{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 					{Name: "Widget", Fields: []types.Field{
 						{Name: "name", Type: types.FieldTypeString},
-						// No ref field to Cluster.
+						// No cluster_id field — scope field doesn't exist.
 					}},
 				},
 				Collections: []types.Collection{
@@ -3805,13 +3915,10 @@ func TestGenerate_ParentWithReadDeleteOnlyNoRefFieldReturnsError(t *testing.T) {
 
 			_, _, err := g.Generate(ctx)
 			if err == nil {
-				t.Fatalf("expected error when parent ref field is missing with %s operations", tt.name)
+				t.Fatalf("expected error when scope field is missing with %s operations", tt.name)
 			}
-			if !strings.Contains(err.Error(), "Cluster") {
-				t.Errorf("error should mention parent entity name, got: %v", err)
-			}
-			if !strings.Contains(err.Error(), "ref") {
-				t.Errorf("error should mention missing ref field, got: %v", err)
+			if !strings.Contains(err.Error(), "cluster_id") {
+				t.Errorf("error should mention missing scope field, got: %v", err)
 			}
 		})
 	}
