@@ -9877,3 +9877,499 @@ func TestGenerate_AllBeforeSlotsNilGuardPassthrough(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerate_AfterCreateSlot(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpCreate,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_widgets.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_widgets.go not found")
+	}
+
+	// Handler struct must have the after_create fan-out field.
+	if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
+		t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
+		t.Errorf("after_create invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must use AfterCreateRequest with PersistedFields.
+	if !strings.Contains(handlerContent, "AfterCreateRequest{") {
+		t.Errorf("Create method missing AfterCreateRequest struct literal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
+		t.Errorf("after_create request missing PersistedFields map:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Entity: "Widget"`) {
+		t.Errorf("after_create request missing Entity field:\n%s", handlerContent)
+	}
+
+	// Caller field must be present (no auth alias, so empty Identity).
+	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
+		t.Errorf("after_create request missing Caller field:\n%s", handlerContent)
+	}
+
+	// Fields must be populated in PersistedFields.
+	if !strings.Contains(handlerContent, `"name":`) {
+		t.Errorf("after_create PersistedFields missing name field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `"count":`) {
+		t.Errorf("after_create PersistedFields missing count field:\n%s", handlerContent)
+	}
+
+	// Error from after-slot must return 500.
+	if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
+		t.Errorf("after_create missing error handling:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterUpsertSlot(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Setting", Fields: []types.Field{
+				{Name: "key", Type: types.FieldTypeString},
+				{Name: "value", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "settings", Entity: "Setting", Operations: []types.Operation{
+				types.OpUpsert,
+			}, UpsertKey: []string{"key"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_upsert", Collection: "settings", FanOut: []string{"upsert-logger"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_settings.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_settings.go not found")
+	}
+
+	// Handler struct must have the after_upsert fan-out field.
+	if !strings.Contains(handlerContent, "afterUpsertFanOut slots.AfterUpsertSlot") {
+		t.Errorf("handler struct missing afterUpsertFanOut field:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.afterUpsertFanOut != nil {") {
+		t.Errorf("after_upsert invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must use AfterUpsertRequest with PersistedFields.
+	if !strings.Contains(handlerContent, "AfterUpsertRequest{") {
+		t.Errorf("Upsert method missing AfterUpsertRequest struct literal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "PersistedFields: map[string]string{") {
+		t.Errorf("after_upsert request missing PersistedFields map:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Entity: "Setting"`) {
+		t.Errorf("after_upsert request missing Entity field:\n%s", handlerContent)
+	}
+
+	// Caller field must be present.
+	if !strings.Contains(handlerContent, "Caller: &slots.Identity{}") {
+		t.Errorf("after_upsert request missing Caller field:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterPatchSlot(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Task", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+				{Name: "priority", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+				types.OpPatch,
+			}, Patchable: []string{"title", "priority"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_patch", Collection: "tasks", FanOut: []string{"patch-notifier"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_tasks.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_tasks.go not found")
+	}
+
+	// Handler struct must have the after_patch fan-out field.
+	if !strings.Contains(handlerContent, "afterPatchFanOut slots.AfterPatchSlot") {
+		t.Errorf("handler struct missing afterPatchFanOut field:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.afterPatchFanOut != nil {") {
+		t.Errorf("after_patch invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must use AfterPatchRequest with UpdatedFields.
+	if !strings.Contains(handlerContent, "AfterPatchRequest{") {
+		t.Errorf("Patch method missing AfterPatchRequest struct literal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "UpdatedFields: updatedFieldsMap") {
+		t.Errorf("after_patch request missing UpdatedFields:\n%s", handlerContent)
+	}
+	// Entity field may have alignment padding from go/format; check for presence.
+	if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
+		t.Errorf("after_patch request missing Entity field:\n%s", handlerContent)
+	}
+
+	// The updatedFieldsMap must be built from non-nil patch fields.
+	if !strings.Contains(handlerContent, "updatedFieldsMap := map[string]string{}") {
+		t.Errorf("after_patch missing updatedFieldsMap construction:\n%s", handlerContent)
+	}
+	// Each patchable field should conditionally add to the map.
+	if !strings.Contains(handlerContent, `if patch.Title != nil {`) {
+		t.Errorf("after_patch missing Title patch field check:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `if patch.Priority != nil {`) {
+		t.Errorf("after_patch missing Priority patch field check:\n%s", handlerContent)
+	}
+
+	// Caller field must be present (may have alignment padding from go/format).
+	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
+		t.Errorf("after_patch request missing Caller field:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterDeleteSlot(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Task", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+				types.OpDelete,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_delete", Collection: "tasks", FanOut: []string{"delete-auditor"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_tasks.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_tasks.go not found")
+	}
+
+	// Handler struct must have the after_delete fan-out field.
+	if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
+		t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
+	}
+
+	// Nil guard must be present.
+	if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
+		t.Errorf("after_delete invocation missing nil guard:\n%s", handlerContent)
+	}
+
+	// Request must use AfterDeleteRequest with DeletedEntityID.
+	if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
+		t.Errorf("Delete method missing AfterDeleteRequest struct literal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "DeletedEntityID:") {
+		t.Errorf("after_delete request missing DeletedEntityID field:\n%s", handlerContent)
+	}
+	// Entity field may have alignment padding from go/format; check for presence.
+	if !strings.Contains(handlerContent, `"Task"`) || !strings.Contains(handlerContent, "Entity:") {
+		t.Errorf("after_delete request missing Entity field:\n%s", handlerContent)
+	}
+
+	// Caller field must be present (may have alignment padding from go/format).
+	if !strings.Contains(handlerContent, "Caller:") || !strings.Contains(handlerContent, "&slots.Identity{}") {
+		t.Errorf("after_delete request missing Caller field:\n%s", handlerContent)
+	}
+
+	// Error from after-slot must return 500.
+	if !strings.Contains(handlerContent, "InternalError(slotErr.Error())") {
+		t.Errorf("after_delete missing error handling:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_OnEntityChangedStillWorksWithLifecycleAfterSlots(t *testing.T) {
+	// Verify that the existing on_entity_changed slot continues to work
+	// unchanged when lifecycle after-slots are also present.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpCreate, types.OpDelete,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "on_entity_changed", Collection: "widgets", FanOut: []string{"event-publisher"}},
+			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-logger"}},
+			{Slot: "after_delete", Collection: "widgets", FanOut: []string{"delete-logger"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_widgets.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_widgets.go not found")
+	}
+
+	// on_entity_changed must still use the simple {Entity, Action} pattern.
+	if !strings.Contains(handlerContent, `Entity: "Widget", Action: "create"`) {
+		t.Errorf("on_entity_changed missing simple create invocation:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `Entity: "Widget", Action: "delete"`) {
+		t.Errorf("on_entity_changed missing simple delete invocation:\n%s", handlerContent)
+	}
+
+	// Both on_entity_changed AND lifecycle after-slots must be present.
+	if !strings.Contains(handlerContent, "onEntityChangedFanOut slots.OnEntityChangedSlot") {
+		t.Errorf("handler struct missing onEntityChangedFanOut field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "afterCreateFanOut slots.AfterCreateSlot") {
+		t.Errorf("handler struct missing afterCreateFanOut field:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "afterDeleteFanOut slots.AfterDeleteSlot") {
+		t.Errorf("handler struct missing afterDeleteFanOut field:\n%s", handlerContent)
+	}
+
+	// Both slot types must have nil guards.
+	if !strings.Contains(handlerContent, "if h.onEntityChangedFanOut != nil {") {
+		t.Errorf("on_entity_changed missing nil guard:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "if h.afterCreateFanOut != nil {") {
+		t.Errorf("after_create missing nil guard:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "if h.afterDeleteFanOut != nil {") {
+		t.Errorf("after_delete missing nil guard:\n%s", handlerContent)
+	}
+
+	// Lifecycle after-slots must use the rich request type, not the simple one.
+	if !strings.Contains(handlerContent, "AfterCreateRequest{") {
+		t.Errorf("after_create missing AfterCreateRequest:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "AfterDeleteRequest{") {
+		t.Errorf("after_delete missing AfterDeleteRequest:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterSlotNilGuardPassthrough(t *testing.T) {
+	// Verify all four lifecycle after-slots have nil-guard passthrough.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{
+				types.OpCreate, types.OpDelete, types.OpUpsert, types.OpPatch,
+			}, Patchable: []string{"name"}, UpsertKey: []string{"name"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "items", FanOut: []string{"a"}},
+			{Slot: "after_upsert", Collection: "items", FanOut: []string{"b"}},
+			{Slot: "after_patch", Collection: "items", FanOut: []string{"c"}},
+			{Slot: "after_delete", Collection: "items", FanOut: []string{"d"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_items.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_items.go not found")
+	}
+
+	// All four nil guards must be present.
+	for _, guard := range []string{
+		"if h.afterCreateFanOut != nil {",
+		"if h.afterUpsertFanOut != nil {",
+		"if h.afterPatchFanOut != nil {",
+		"if h.afterDeleteFanOut != nil {",
+	} {
+		if !strings.Contains(handlerContent, guard) {
+			t.Errorf("missing nil guard %q:\n%s", guard, handlerContent)
+		}
+	}
+
+	// All four handler struct fields must be present.
+	for _, field := range []string{
+		"afterCreateFanOut slots.AfterCreateSlot",
+		"afterUpsertFanOut slots.AfterUpsertSlot",
+		"afterPatchFanOut slots.AfterPatchSlot",
+		"afterDeleteFanOut slots.AfterDeleteSlot",
+	} {
+		if !strings.Contains(handlerContent, field) {
+			t.Errorf("handler struct missing field %q:\n%s", field, handlerContent)
+		}
+	}
+}
+
+func TestGenerate_AfterCreateSlotWithOptionalFields(t *testing.T) {
+	// Verify that after_create correctly handles optional (pointer) fields
+	// in the PersistedFields map without using fmt.Sprintf("%v", pointer).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Doc", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+				{Name: "notes", Type: types.FieldTypeString, Optional: true},
+				{Name: "data", Type: types.FieldTypeJsonb, Optional: true},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "docs", Entity: "Doc", Operations: []types.Operation{
+				types.OpCreate,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "docs", FanOut: []string{"doc-indexer"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_docs.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_docs.go not found")
+	}
+
+	// Optional fields must be pre-computed with proper dereference.
+	if !strings.Contains(handlerContent, "notesAfterVal") {
+		t.Errorf("after_create missing notesAfterVal pre-computation for optional string:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, "dataAfterVal") {
+		t.Errorf("after_create missing dataAfterVal pre-computation for optional jsonb:\n%s", handlerContent)
+	}
+
+	// The PersistedFields map must use the pre-computed values.
+	// go/format may align map values, so check key and value separately.
+	if !strings.Contains(handlerContent, `"notes":`) || !strings.Contains(handlerContent, "notesAfterVal") {
+		t.Errorf("after_create PersistedFields not using pre-computed notesAfterVal:\n%s", handlerContent)
+	}
+	if !strings.Contains(handlerContent, `"data":`) || !strings.Contains(handlerContent, "dataAfterVal") {
+		t.Errorf("after_create PersistedFields not using pre-computed dataAfterVal:\n%s", handlerContent)
+	}
+}
