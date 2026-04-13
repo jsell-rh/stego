@@ -46,3 +46,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 276f606 feat(task-060): add lifecycle slot examples and regenerate output
