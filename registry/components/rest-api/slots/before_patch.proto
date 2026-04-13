@@ -7,7 +7,8 @@ service BeforePatch {
 }
 
 message BeforePatchRequest {
-  map<string, string> patch_fields = 1;
-  map<string, string> existing_entity = 2;
-  stego.common.Identity caller = 3;
+  string entity = 1;
+  map<string, string> patch_fields = 2;
+  map<string, string> existing_entity = 3;
+  stego.common.Identity caller = 4;
 }
