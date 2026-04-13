@@ -8114,6 +8114,128 @@ func TestGenerate_CreateRequestSchemaExcludesScopeFields(t *testing.T) {
 	}
 }
 
+func TestGenerate_CreateRequestSchemaExcludesImplicitFields(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "AuditEvent", Fields: []types.Field{
+				{Name: "message", Type: types.FieldTypeString},
+				{Name: "source_type", Type: types.FieldTypeString},
+				{Name: "severity", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "user-audit-events",
+				Entity:     "AuditEvent",
+				PathPrefix: "/user-events",
+				Implicit:   map[string]string{"source_type": "User"},
+				Operations: []types.Operation{types.OpCreate, types.OpList},
+			},
+			{
+				Name:       "org-audit-events",
+				Entity:     "AuditEvent",
+				PathPrefix: "/org-events",
+				Implicit:   map[string]string{"source_type": "Organization"},
+				Operations: []types.Operation{types.OpCreate, types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	createReq := schemas["AuditEventCreateRequest"].(map[string]any)
+	props := createReq["properties"].(map[string]any)
+
+	// Implicit field source_type should be excluded from CreateRequest.
+	if _, ok := props["source_type"]; ok {
+		t.Error("AuditEventCreateRequest should not include implicit field 'source_type'")
+	}
+	// Non-implicit fields should be present.
+	if _, ok := props["message"]; !ok {
+		t.Error("AuditEventCreateRequest should include client-provided field 'message'")
+	}
+	if _, ok := props["severity"]; !ok {
+		t.Error("AuditEventCreateRequest should include client-provided field 'severity'")
+	}
+
+	// Response schema should still include implicit fields.
+	responseSchema := schemas["AuditEvent"].(map[string]any)
+	responseProps := responseSchema["properties"].(map[string]any)
+	if _, ok := responseProps["source_type"]; !ok {
+		t.Error("AuditEvent response schema should include implicit field 'source_type'")
+	}
+}
+
+func TestGenerate_CreateRequestSchemaExcludesImplicitFieldAcrossCollections(t *testing.T) {
+	// When a field is implicit in ONE collection but not another (both
+	// referencing the same entity), the field is still excluded from the
+	// entity-wide CreateRequest schema (conservative: exclude if implicit anywhere).
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Event", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+				{Name: "category", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "auto-events",
+				Entity:     "Event",
+				PathPrefix: "/auto-events",
+				Implicit:   map[string]string{"category": "auto"},
+				Operations: []types.Operation{types.OpCreate},
+			},
+			{
+				Name:       "all-events",
+				Entity:     "Event",
+				PathPrefix: "/all-events",
+				Operations: []types.Operation{types.OpCreate},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/openapi.json")
+	var spec map[string]any
+	if err := json.Unmarshal([]byte(content), &spec); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	schemas := spec["components"].(map[string]any)["schemas"].(map[string]any)
+	createReq := schemas["EventCreateRequest"].(map[string]any)
+	props := createReq["properties"].(map[string]any)
+
+	// category is implicit in auto-events, so it should be excluded from
+	// the entity-wide CreateRequest schema even though all-events does
+	// not declare it as implicit.
+	if _, ok := props["category"]; ok {
+		t.Error("EventCreateRequest should not include field 'category' (implicit in at least one collection)")
+	}
+	if _, ok := props["title"]; !ok {
+		t.Error("EventCreateRequest should include client-provided field 'title'")
+	}
+}
+
 func TestGenerate_PostRefPointsToCreateRequest(t *testing.T) {
 	g := &Generator{}
 	ctx := gen.Context{

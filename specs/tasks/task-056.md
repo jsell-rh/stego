@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section, **Server-Managed Fields and Request Schemas** section
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-052
 

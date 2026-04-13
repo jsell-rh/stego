@@ -2068,6 +2068,20 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		}
 	}
 
+	// Collect implicit fields per entity — these are server-injected fields
+	// whose values are determined by the collection, not the client.
+	// Exclude from request schemas: if implicit in ANY collection, exclude
+	// from the entity-wide CreateRequest schema (conservative).
+	entityImplicitFields := make(map[string]map[string]bool)
+	for _, eb := range collections {
+		for fieldName := range eb.Implicit {
+			if entityImplicitFields[eb.Entity] == nil {
+				entityImplicitFields[eb.Entity] = make(map[string]bool)
+			}
+			entityImplicitFields[eb.Entity][fieldName] = true
+		}
+	}
+
 	// Generate schemas only for entities that have collections. Deduplicate
 	// across collections: multiple collections may reference the same entity.
 	schemaEmitted := make(map[string]bool)
@@ -2099,14 +2113,15 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 		spec.Components.Schemas[e.Name] = schema
 
 		// CreateRequest schema: excludes server-managed fields, scope fields,
-		// and id. Used by POST and PUT(upsert) request bodies.
+		// implicit fields, and id. Used by POST and PUT(upsert) request bodies.
 		createSchema := openAPISchema{
 			Type:       "object",
 			Properties: make(map[string]openAPISchema),
 		}
+		implicitFields := entityImplicitFields[e.Name]
 		var createRequired []string
 		for _, f := range e.Fields {
-			if isServerManaged(f) || scopeFields[f.Name] {
+			if isServerManaged(f) || scopeFields[f.Name] || implicitFields[f.Name] {
 				continue
 			}
 			createSchema.Properties[f.Name] = fieldToOpenAPISchema(f)

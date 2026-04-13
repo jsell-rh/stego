@@ -1359,14 +1359,9 @@
           "source_id": {
             "type": "string",
             "maxLength": 255
-          },
-          "source_type": {
-            "type": "string",
-            "maxLength": 50
           }
         },
         "required": [
-          "source_type",
           "source_id",
           "action"
         ]
