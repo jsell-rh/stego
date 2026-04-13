@@ -48,3 +48,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 35db042 feat(task-051): validate implicit fields on collections
