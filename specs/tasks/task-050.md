@@ -2,7 +2,9 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [`specs/reviews/task-050.md`](../reviews/task-050.md)
 
 **Depends on:** none (all prior tasks complete)
 
