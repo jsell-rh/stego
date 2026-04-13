@@ -58,3 +58,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- a2e6216 feat(rest-api): wire before_upsert, before_patch, before_delete slots into handler generation
