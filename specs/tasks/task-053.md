@@ -67,3 +67,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 003f6b0 feat(task-053): add implicit field filtering to list handlers and storage layer
