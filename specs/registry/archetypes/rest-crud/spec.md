@@ -72,7 +72,8 @@ If a constraint can't be expressed with these attributes, it becomes a fill -- t
 collections:
   cluster-statuses:
     entity: AdapterStatus
-    scope: { resource_type: Cluster, resource_id: Cluster }
+    scope: { resource_id: Cluster }
+    implicit: { resource_type: "Cluster" }
     operations: [list, upsert]
     upsert_key: [resource_type, resource_id, adapter]
     concurrency: optimistic    # only update if generation is newer
@@ -99,20 +100,48 @@ collections:
 
   cluster-statuses:
     entity: AdapterStatus
-    scope: { resource_type: Cluster, resource_id: Cluster }
+    scope: { resource_id: Cluster }
+    implicit: { resource_type: "Cluster" }
     operations: [list, upsert]
     upsert_key: [resource_type, resource_id, adapter]
     # path derived: /clusters/{cluster_id}/adapterstatuses
 
   nodepool-statuses:
     entity: AdapterStatus
-    scope: { resource_type: NodePool, resource_id: NodePool }
+    scope: { resource_id: NodePool }
+    implicit: { resource_type: "NodePool" }
     operations: [list, upsert]
     upsert_key: [resource_type, resource_id, adapter]
     # path derived: /clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses
 ```
 
 Multiple collections referencing the same entity is the normal case. Each collection generates its own handler, routes, and wiring. The entity struct and storage are shared.
+
+### Implicit Fields
+
+`implicit` declares field values that are determined by the collection, not by the client. The keys must be fields on the entity. The values are string literals.
+
+The generated handler uses implicit fields in two ways:
+
+1. **On create/upsert**: injects the implicit values into the entity before persisting. The client does not send these fields; if present in the request body, they are overwritten.
+2. **On list**: adds the implicit values as WHERE clause filters, so the collection only returns rows matching its implicit context.
+
+This supports the polymorphic association pattern -- a shared table (`adapter_statuses`) serving multiple URL paths, with a discriminator column (`resource_type`) that identifies which parent kind owns each row. The client interacts with `/clusters/{id}/adapterstatuses` and the handler transparently manages the discriminator.
+
+```yaml
+# Same entity, different collections, different implicit values
+cluster-statuses:
+  entity: AdapterStatus
+  scope: { resource_id: Cluster }
+  implicit: { resource_type: "Cluster" }
+
+nodepool-statuses:
+  entity: AdapterStatus
+  scope: { resource_id: NodePool }
+  implicit: { resource_type: "NodePool" }
+```
+
+Other uses: multi-tenant tables (`implicit: { tenant: "acme" }`), event sources (`implicit: { source: "api" }`), content type discriminators (`implicit: { attachable_type: "Issue" }`).
 
 **Patch (partial update)** is distinct from update (full replace). When a collection includes `patch` in its operations, it must also declare `patchable` -- the list of fields that can be partially updated:
 ```yaml
