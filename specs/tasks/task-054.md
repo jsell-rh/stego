@@ -52,3 +52,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- `1f023af` feat(task-054): remove multi-field scope cardinality restriction
