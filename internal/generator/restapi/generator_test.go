@@ -9611,7 +9611,7 @@ func TestGenerate_BeforeDeleteSlot(t *testing.T) {
 		t.Errorf("before_delete invocation missing nil guard:\n%s", handlerContent)
 	}
 
-	// Request must have the before_delete-specific structure: Entity and EntityId.
+	// Request must have the before_delete-specific structure: Entity and EntityID.
 	if !strings.Contains(handlerContent, "BeforeDeleteRequest{") {
 		t.Errorf("Delete method missing BeforeDeleteRequest struct literal:\n%s", handlerContent)
 	}
@@ -9620,8 +9620,8 @@ func TestGenerate_BeforeDeleteSlot(t *testing.T) {
 	if !strings.Contains(handlerContent, "Entity:") || !strings.Contains(handlerContent, `"Task"`) {
 		t.Errorf("before_delete request missing Entity field:\n%s", handlerContent)
 	}
-	if !strings.Contains(handlerContent, "EntityId:") || !strings.Contains(handlerContent, "id,") {
-		t.Errorf("before_delete request missing EntityId field:\n%s", handlerContent)
+	if !strings.Contains(handlerContent, "EntityID:") || !strings.Contains(handlerContent, "id,") {
+		t.Errorf("before_delete request missing EntityID field:\n%s", handlerContent)
 	}
 
 	// Caller field must be present.
@@ -9630,7 +9630,7 @@ func TestGenerate_BeforeDeleteSlot(t *testing.T) {
 	}
 
 	// before_delete must NOT have an Input field (different proto from before_create).
-	// The BeforeDeleteRequest has {Entity, EntityId, Caller} — no Input.
+	// The BeforeDeleteRequest has {Entity, EntityID, Caller} — no Input.
 	if strings.Contains(handlerContent, "Input: &slots.CreateRequest{") {
 		t.Errorf("before_delete request should NOT have Input field:\n%s", handlerContent)
 	}

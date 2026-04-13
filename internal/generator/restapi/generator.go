@@ -3701,7 +3701,7 @@ func emitBeforeDeleteSlot(buf *bytes.Buffer, slotsAlias string, authAlias string
 	fmt.Fprintf(buf, "\tif h.%s != nil {\n", param.FieldName)
 	fmt.Fprintf(buf, "\t\tslotReq := &%s.%s{\n", slotsAlias, param.RequestType)
 	fmt.Fprintf(buf, "\t\t\tEntity: %q,\n", entityName)
-	fmt.Fprintf(buf, "\t\t\tEntityId: id,\n")
+	fmt.Fprintf(buf, "\t\t\tEntityID: id,\n")
 	if param.HasCaller {
 		emitCallerField(buf, slotsAlias, authAlias)
 	}
