@@ -2,7 +2,9 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section: "On create/upsert: injects the implicit values into the entity before persisting. The client does not send these fields; if present in the request body, they are overwritten."
 
-**Status:** `ready-for-review`
+**Status:** `complete`
+
+**Review:** [`specs/reviews/task-052.md`](../reviews/task-052.md)
 
 **Depends on:** task-050, task-051
 
