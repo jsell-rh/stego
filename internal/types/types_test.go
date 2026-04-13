@@ -169,6 +169,86 @@ scope:
 	}
 }
 
+func TestCollectionUnmarshalWithImplicit(t *testing.T) {
+	input := `
+entity: AdapterStatus
+operations: [list, upsert]
+upsert_key: [resource_type, resource_id, adapter]
+scope:
+  resource_id: Cluster
+implicit:
+  resource_type: "Cluster"
+`
+	var c Collection
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if c.Entity != "AdapterStatus" {
+		t.Errorf("entity = %q, want %q", c.Entity, "AdapterStatus")
+	}
+	if len(c.Implicit) != 1 {
+		t.Fatalf("implicit count = %d, want 1", len(c.Implicit))
+	}
+	if c.Implicit["resource_type"] != "Cluster" {
+		t.Errorf("implicit[resource_type] = %q, want %q", c.Implicit["resource_type"], "Cluster")
+	}
+	if c.Scope["resource_id"] != "Cluster" {
+		t.Errorf("scope[resource_id] = %q, want %q", c.Scope["resource_id"], "Cluster")
+	}
+}
+
+func TestCollectionUnmarshalWithoutImplicit(t *testing.T) {
+	input := `
+entity: User
+operations: [create, read]
+`
+	var c Collection
+	if err := yaml.Unmarshal([]byte(input), &c); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if c.Implicit != nil {
+		t.Errorf("implicit = %v, want nil (absent field should be nil)", c.Implicit)
+	}
+}
+
+func TestServiceDeclarationUnmarshalWithImplicit(t *testing.T) {
+	input := `
+kind: service
+name: adapter-service
+archetype: rest-crud
+language: go
+entities:
+  - name: AdapterStatus
+    fields:
+      - { name: resource_type, type: string }
+      - { name: resource_id, type: ref, to: Cluster }
+collections:
+  cluster-statuses:
+    entity: AdapterStatus
+    scope: { resource_id: Cluster }
+    implicit: { resource_type: "Cluster" }
+    operations: [list, upsert]
+    upsert_key: [resource_type, resource_id]
+`
+	var sd ServiceDeclaration
+	if err := yaml.Unmarshal([]byte(input), &sd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(sd.Collections) != 1 {
+		t.Fatalf("collections count = %d, want 1", len(sd.Collections))
+	}
+	coll := sd.Collections[0]
+	if coll.Name != "cluster-statuses" {
+		t.Errorf("collection name = %q, want %q", coll.Name, "cluster-statuses")
+	}
+	if len(coll.Implicit) != 1 {
+		t.Fatalf("implicit count = %d, want 1", len(coll.Implicit))
+	}
+	if coll.Implicit["resource_type"] != "Cluster" {
+		t.Errorf("implicit[resource_type] = %q, want %q", coll.Implicit["resource_type"], "Cluster")
+	}
+}
+
 func TestSlotDeclarationUnmarshal(t *testing.T) {
 	input := `
 slot: before_create

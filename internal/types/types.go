@@ -248,6 +248,7 @@ type Collection struct {
 	Entity      string            `yaml:"entity"`
 	Operations  []Operation       `yaml:"operations"`
 	Scope       map[string]string `yaml:"scope,omitempty"`
+	Implicit    map[string]string `yaml:"implicit,omitempty"`
 	PathPrefix  string            `yaml:"path_prefix,omitempty"`
 	UpsertKey   []string          `yaml:"upsert_key,omitempty"`
 	Concurrency ConcurrencyMode   `yaml:"concurrency,omitempty"`

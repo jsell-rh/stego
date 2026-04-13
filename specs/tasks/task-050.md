@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **Implicit Fields** section
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** none (all prior tasks complete)
 
