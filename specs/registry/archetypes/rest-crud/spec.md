@@ -665,6 +665,41 @@ overrides:
   cors: disabled
 ```
 
+## OpenAPI and Metadata Endpoints
+
+The `rest-api` component generates discovery endpoints alongside the CRUD routes. These are unauthenticated -- they serve documentation and machine-readable metadata.
+
+**OpenAPI spec endpoint:**
+- `GET {base_path}/openapi` -- returns the generated OpenAPI 3.0 JSON spec
+- Content-Type: `application/json`
+- The spec is the same one embedded for request validation, served at runtime so clients and tooling can discover the API contract
+
+**OpenAPI UI endpoint:**
+- `GET {base_path}/openapi.html` -- returns a minimal HTML page that renders the spec using a CDN-hosted Swagger UI or Redoc
+- Content-Type: `text/html`
+- No build-time dependencies -- the HTML references the CDN script and points to the `/openapi` endpoint
+
+**Metadata endpoint:**
+- `GET {base_path}` (e.g. `/api/hyperfleet/v1`) -- returns service metadata
+- Content-Type: `application/json`
+- Response:
+```json
+{
+  "kind": "API",
+  "id": "hyperfleet-api",
+  "href": "/api/hyperfleet/v1",
+  "collections": [
+    { "kind": "ClusterList", "href": "/api/hyperfleet/v1/clusters" },
+    { "kind": "NodePoolList", "href": "/api/hyperfleet/v1/nodepools" }
+  ]
+}
+```
+- `id` is the service name from the declaration
+- `collections` lists all top-level (unscoped) collections with their list kind and href
+- Scoped collections (e.g. cluster-nodepools) are discoverable from the parent resource's `href`, not listed at the top level
+
+All three endpoints are generated automatically. No service.yaml configuration needed.
+
 ## Generated Runtime Configuration
 
 The generated `main.go` reads runtime configuration from environment variables. These are not configurable in `service.yaml` -- they are deployment concerns.
