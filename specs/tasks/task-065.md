@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — Path Derivation Rules (line 735–745), Known Generator Bugs
 
-**Status:** `ready-for-review`
+**Status:** `complete`
 
 **Depends on:** none (independent of task-064)
 
