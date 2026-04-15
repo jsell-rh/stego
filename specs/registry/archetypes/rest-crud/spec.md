@@ -727,6 +727,7 @@ Additional environment variables are defined by individual components (e.g. `JWK
 ## Known Generator Bugs
 
 - **UUID v4 instead of v7**: The generator uses `uuid.New()` (v4). It should use `uuid.NewV7()` per this spec.
+- **Route collision for scoped `path_prefix`**: `collectionBasePathWithVisited` returns `path_prefix` directly, ignoring the parent chain for scoped collections. A scoped collection with `path_prefix: /statuses` produces path `/statuses` instead of `/{parent_chain}/statuses`. This causes `resolveAncestorParams` to error on param-count mismatch and `validateRouteCollisions` to operate on incorrect paths. Per the Path Derivation Rules, `path_prefix` should override the entity-derived segment only, not the entire path including ancestors.
 
 ## Open Questions
 
