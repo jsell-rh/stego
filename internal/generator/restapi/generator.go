@@ -495,29 +495,38 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	}
 
 	// Determine whether fmt package is needed for slot request field conversion.
-	// Before-slots populate a CreateRequest.Fields map[string]string from entity
-	// fields; non-string-typed fields require fmt.Sprintf for conversion.
+	// Both before-slots and after-slots (after_create, after_upsert, after_patch)
+	// serialize entity fields to map[string]string; non-string-typed fields
+	// require fmt.Sprintf for conversion. after_delete and on_entity_changed do
+	// NOT serialize entity fields and therefore do not trigger needFmt.
 	needFmt := false
 	needAuth := false
 	if len(slotParams) > 0 {
-		hasBeforeSlots := false
+		hasFieldSerializingSlots := false
 		for _, op := range eb.Operations {
-			before, _ := slotsForOp(op, slotParams)
+			before, after := slotsForOp(op, slotParams)
 			if len(before) > 0 {
-				hasBeforeSlots = true
-				break
+				hasFieldSerializingSlots = true
+			}
+			for _, a := range after {
+				// after_create, after_upsert, after_patch all serialize entity
+				// fields via fieldToStringExpr. after_delete and on_entity_changed
+				// only pass string values and do not need fmt.
+				if a.SlotName != "after_delete" && a.SlotName != "on_entity_changed" {
+					hasFieldSerializingSlots = true
+				}
 			}
 		}
-		if hasBeforeSlots {
+		if hasFieldSerializingSlots {
 			needFmt = needsFmtForSlotFields(entity)
-			// Check if any before-slot has a Caller field that needs identity
-			// extraction from the request context via auth middleware.
-			if authImportPath != "" {
-				for _, sp := range slotParams {
-					if sp.HasCaller {
-						needAuth = true
-						break
-					}
+		}
+		// Check if any slot (before or after) has a Caller field that needs
+		// identity extraction from the request context via auth middleware.
+		if authImportPath != "" {
+			for _, sp := range slotParams {
+				if sp.HasCaller {
+					needAuth = true
+					break
 				}
 			}
 		}

@@ -10310,6 +10310,288 @@ func TestGenerate_AfterCreateSlotWithOptionalFields(t *testing.T) {
 	}
 }
 
+func TestGenerate_AfterSlotNeedsFmtForNonStringFields(t *testing.T) {
+	// AC#1,2,5: after-slot bindings on entities with non-string fields must
+	// trigger the fmt import. This tests after_create and after_upsert with
+	// an int32 field, verifying the generated handler imports "fmt".
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "count", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{
+				types.OpCreate, types.OpUpsert,
+			}, UpsertKey: []string{"name"}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "widgets", FanOut: []string{"create-notifier"}},
+			{Slot: "after_upsert", Collection: "widgets", FanOut: []string{"upsert-notifier"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_widgets.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_widgets.go not found")
+	}
+
+	// The entity has int32 field "count" which requires fmt.Sprintf.
+	// After-slots must trigger the fmt import.
+	if !strings.Contains(handlerContent, `"fmt"`) {
+		t.Errorf("handler with after-slot and non-string fields must import fmt:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterSlotStringOnlyNoFmt(t *testing.T) {
+	// AC#3: after-slot bindings on entities with ONLY string/bytes/jsonb
+	// fields should NOT add a spurious fmt import.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Label", Fields: []types.Field{
+				{Name: "key", Type: types.FieldTypeString},
+				{Name: "value", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "labels", Entity: "Label", Operations: []types.Operation{
+				types.OpCreate,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "labels", FanOut: []string{"notifier"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_labels.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_labels.go not found")
+	}
+
+	// String-only entities should not import fmt for after-slots.
+	if strings.Contains(handlerContent, `"fmt"`) {
+		t.Errorf("handler with after-slot on string-only entity should NOT import fmt:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterDeleteSlotAloneNoFmt(t *testing.T) {
+	// AC#4: after_delete does not use fieldToStringExpr and should not
+	// trigger the fmt import on its own.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Item", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "quantity", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "items", Entity: "Item", Operations: []types.Operation{
+				types.OpDelete,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_delete", Collection: "items", FanOut: []string{"cleanup"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_items.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_items.go not found")
+	}
+
+	// after_delete should not trigger fmt import (it only passes strings).
+	if strings.Contains(handlerContent, `"fmt"`) {
+		t.Errorf("handler with only after_delete slot should NOT import fmt:\n%s", handlerContent)
+	}
+}
+
+func TestGenerate_AfterCreateOnlyCompiles(t *testing.T) {
+	// AC#6: degenerate-configuration compilation test — collection with ONLY
+	// an after_create slot (no before-slots, no other operations that
+	// independently need fmt) on an entity with an int32 field.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Metric", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "value", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "metrics", Entity: "Metric", Operations: []types.Operation{
+				types.OpCreate,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_create", Collection: "metrics", FanOut: []string{"metric-logger"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "testmod",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	goMod := "module testmod\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	// Write a stub slots package so the handler's import resolves.
+	slotsDir := filepath.Join(tmpDir, "internal", "slots")
+	if err := os.MkdirAll(slotsDir, 0755); err != nil {
+		t.Fatalf("creating slots dir: %v", err)
+	}
+	slotsStub := `package slots
+
+import "context"
+
+type SlotResult struct {
+	Ok           bool
+	ErrorMessage string
+	Halt         bool
+	StatusCode   int32
+}
+
+type Identity struct {
+	UserID string
+	Role   string
+}
+
+type AfterCreateRequest struct {
+	Entity          string
+	PersistedFields map[string]string
+	Caller          *Identity
+}
+
+type AfterCreateSlot interface {
+	Evaluate(ctx context.Context, req *AfterCreateRequest) (*SlotResult, error)
+}
+`
+	if err := os.WriteFile(filepath.Join(slotsDir, "types.go"), []byte(slotsStub), 0644); err != nil {
+		t.Fatalf("writing slots stub: %v", err)
+	}
+
+	// Write generated handler files into their namespace directory.
+	apiDir := filepath.Join(tmpDir, "internal", "api")
+	if err := os.MkdirAll(apiDir, 0755); err != nil {
+		t.Fatalf("creating api dir: %v", err)
+	}
+	for _, f := range files {
+		dst := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			t.Fatalf("creating dir for %s: %v", f.Path, err)
+		}
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with after_create slot and int32 field does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_AfterPatchSlotNeedsFmt(t *testing.T) {
+	// AC#1: after_patch with non-string fields must also trigger fmt import.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Task", Fields: []types.Field{
+				{Name: "title", Type: types.FieldTypeString},
+				{Name: "priority", Type: types.FieldTypeInt32},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "tasks", Entity: "Task", Operations: []types.Operation{
+				types.OpPatch,
+			}},
+		},
+		SlotBindings: []types.SlotDeclaration{
+			{Slot: "after_patch", Collection: "tasks", FanOut: []string{"patch-notifier"}},
+		},
+		OutputNamespace: "internal/api",
+		ModuleName:      "github.com/myorg/svc",
+		SlotsPackage:    "internal/slots",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var handlerContent string
+	for _, f := range files {
+		if strings.Contains(f.Path, "handler_tasks.go") {
+			handlerContent = string(f.Content)
+		}
+	}
+	if handlerContent == "" {
+		t.Fatal("handler_tasks.go not found")
+	}
+
+	// The entity has int32 field "priority" which requires fmt.Sprintf
+	// in the after_patch updatedFieldsMap construction.
+	if !strings.Contains(handlerContent, `"fmt"`) {
+		t.Errorf("handler with after_patch slot and non-string fields must import fmt:\n%s", handlerContent)
+	}
+}
+
 // --- Discovery endpoint tests ---
 
 func TestGenerate_DiscoveryFileGenerated(t *testing.T) {

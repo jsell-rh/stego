@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — Slot/Fill Contract
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-057
 
