@@ -81,3 +81,4 @@ This is a checklist item 119 violation (new operations must inherit conditional-
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+- e42b960 fix(rest-api): include fmt import for after-slot emit paths (task-063)
