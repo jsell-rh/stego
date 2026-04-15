@@ -2,7 +2,9 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — Response Format (`uuid.NewV7()`), Known Generator Bugs
 
-**Status:** `ready-for-review`
+**Status:** `needs-revision`
+
+**Review:** [specs/reviews/task-064.md](../reviews/task-064.md)
 
 **Depends on:** task-062
 
