@@ -685,23 +685,21 @@ The `rest-api` component generates discovery endpoints alongside the CRUD routes
 - No build-time dependencies -- the HTML references the CDN script and points to the `/openapi` endpoint
 
 **Metadata endpoint:**
-- `GET {base_path}` (e.g. `/api/hyperfleet/v1`) -- returns service metadata
+- `GET {base_path_without_version}` (e.g. `/api/hyperfleet` for `base_path: /api/hyperfleet/v1`) -- returns service metadata
+- The metadata endpoint is mounted at the base path with the version segment stripped. If `base_path` is `/api/hyperfleet/v1`, the metadata endpoint is at `/api/hyperfleet`. This allows clients to discover the API without knowing the version.
 - Content-Type: `application/json`
 - Response:
 ```json
 {
   "kind": "API",
   "id": "hyperfleet-api",
-  "href": "/api/hyperfleet/v1",
-  "collections": [
-    { "kind": "ClusterList", "href": "/api/hyperfleet/v1/clusters" },
-    { "kind": "NodePoolList", "href": "/api/hyperfleet/v1/nodepools" }
-  ]
+  "href": "/api/hyperfleet",
+  "version": "v1"
 }
 ```
 - `id` is the service name from the declaration
-- `collections` lists all top-level (unscoped) collections with their list kind and href
-- Scoped collections (e.g. cluster-nodepools) are discoverable from the parent resource's `href`, not listed at the top level
+- `href` is the base path without the version segment
+- `version` is the version segment from `base_path` (e.g. `v1`)
 
 All three endpoints are generated automatically. No service.yaml configuration needed.
 
