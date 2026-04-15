@@ -68,3 +68,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 9673d66 feat(task-061): add discovery endpoint generation (OpenAPI, UI, metadata)
