@@ -1448,6 +1448,89 @@ func TestCollectionBasePath_MultiLevel(t *testing.T) {
 	}
 }
 
+func TestCollectionBasePath_SegmentReplacementScoped(t *testing.T) {
+	// A scoped collection with a segment-only path_prefix (no ancestor params)
+	// should prepend the auto-derived parent chain, replacing only the leaf segment.
+	collectionMap := map[string]types.Collection{
+		"Cluster":  {Name: "clusters", Entity: "Cluster"},
+		"NodePool": {Name: "cluster-nodepools", Entity: "NodePool", Scope: map[string]string{"cluster_id": "Cluster"}},
+	}
+	eb := types.Collection{
+		Name:       "adapter-statuses",
+		Entity:     "AdapterStatus",
+		Scope:      map[string]string{"nodepool_id": "NodePool"},
+		PathPrefix: "/statuses",
+	}
+	got, err := collectionBasePath(eb, collectionMap)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses"
+	if got != want {
+		t.Errorf("expected %s, got %s", want, got)
+	}
+}
+
+func TestCollectionBasePath_SegmentReplacementSingleLevel(t *testing.T) {
+	// Single-level scope with segment-only path_prefix.
+	collectionMap := map[string]types.Collection{
+		"Organization": {Name: "organizations", Entity: "Organization"},
+	}
+	eb := types.Collection{
+		Name:       "org-members",
+		Entity:     "User",
+		Scope:      map[string]string{"org_id": "Organization"},
+		PathPrefix: "/members",
+	}
+	got, err := collectionBasePath(eb, collectionMap)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/organizations/{org_id}/members"
+	if got != want {
+		t.Errorf("expected %s, got %s", want, got)
+	}
+}
+
+func TestCollectionBasePath_FullPathOverrideWithParams(t *testing.T) {
+	// A scoped collection with path_prefix containing ancestor params should
+	// be used as-is (full-path override) — existing behavior preserved.
+	collectionMap := map[string]types.Collection{
+		"Cluster": {Name: "clusters", Entity: "Cluster"},
+	}
+	eb := types.Collection{
+		Name:       "node-pools",
+		Entity:     "NodePool",
+		Scope:      map[string]string{"cluster_id": "Cluster"},
+		PathPrefix: "/clusters/{cid}/pools",
+	}
+	got, err := collectionBasePath(eb, collectionMap)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "/clusters/{cid}/pools"
+	if got != want {
+		t.Errorf("expected %s, got %s", want, got)
+	}
+}
+
+func TestCollectionBasePath_UnscopedPathPrefixUnchanged(t *testing.T) {
+	// An unscoped collection with path_prefix (0 ancestors, 0 params) should
+	// use the prefix as-is — no parent chain to prepend.
+	eb := types.Collection{
+		Name:       "widgets",
+		Entity:     "Widget",
+		PathPrefix: "/custom-widgets",
+	}
+	got, err := collectionBasePath(eb, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/custom-widgets" {
+		t.Errorf("expected /custom-widgets, got %s", got)
+	}
+}
+
 func TestEntityPathSegment(t *testing.T) {
 	tests := []struct {
 		entity string
@@ -3117,6 +3200,132 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated code with multi-level divergent path_prefix does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_PathPrefixSegmentReplacement(t *testing.T) {
+	// When path_prefix is a segment-only prefix (no ancestor params), the
+	// auto-derived parent chain must be prepended. This tests that a scoped
+	// collection with path_prefix: /statuses produces correct routes with the
+	// full parent chain and compiles.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "NodePool", Fields: []types.Field{
+				{Name: "cluster_id", Type: types.FieldTypeRef, To: "Cluster"},
+				{Name: "name", Type: types.FieldTypeString},
+			}},
+			{Name: "AdapterStatus", Fields: []types.Field{
+				{Name: "nodepool_id", Type: types.FieldTypeRef, To: "NodePool"},
+				{Name: "resource_type", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "clusters", Entity: "Cluster", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "node-pools",
+				Entity:     "NodePool",
+				Operations: []types.Operation{types.OpRead, types.OpList},
+				Scope:      map[string]string{"cluster_id": "Cluster"},
+			},
+			{
+				Name:       "adapter-statuses",
+				Entity:     "AdapterStatus",
+				Operations: []types.Operation{types.OpList, types.OpRead},
+				Scope:      map[string]string{"nodepool_id": "NodePool"},
+				PathPrefix: "/statuses",
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	files, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The route must include the full parent chain with /statuses as the leaf.
+	routeStr := strings.Join(wiring.Routes, "\n")
+	expectedPath := "/clusters/{cluster_id}/nodepools/{nodepool_id}/statuses"
+	if !strings.Contains(routeStr, expectedPath) {
+		t.Errorf("expected route containing %q, got:\n%s", expectedPath, routeStr)
+	}
+	// Must NOT have a bare /statuses route without parent chain.
+	for _, r := range wiring.Routes {
+		if strings.Contains(r, `"GET /statuses"`) || strings.Contains(r, `"GET /statuses/"`) {
+			t.Errorf("route must not be bare /statuses — parent chain is required, got: %s", r)
+		}
+	}
+
+	asHandler := findFileContent(t, files, "internal/api/handler_adapter_statuses.go")
+
+	// checkAncestors must use convention-derived params since no custom params in prefix.
+	if !strings.Contains(asHandler, `r.PathValue("cluster_id")`) {
+		t.Error("checkAncestors must use convention-derived 'cluster_id' for Cluster ancestor")
+	}
+	if !strings.Contains(asHandler, `r.PathValue("nodepool_id")`) {
+		t.Error("checkAncestors must use convention-derived 'nodepool_id' for NodePool ancestor")
+	}
+
+	// Verify the generated code compiles.
+	tmpDir := t.TempDir()
+	goMod := "module testpkg\n\ngo 1.22\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	for _, f := range files {
+		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
+		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
+			t.Fatalf("writing %s: %v", f.Path, err)
+		}
+	}
+	cmd := exec.Command("go", "build", ".")
+	cmd.Dir = tmpDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated code with segment-replacement path_prefix does not compile:\n%s\n%s", err, output)
+	}
+}
+
+func TestGenerate_PathPrefixSegmentNoFalseCollision(t *testing.T) {
+	// A segment-only path_prefix on a scoped collection must not falsely collide
+	// with an unscoped collection that has a different path.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "Status", Fields: []types.Field{
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+				{Name: "message", Type: types.FieldTypeString},
+			}},
+			{Name: "GlobalStatus", Fields: []types.Field{
+				{Name: "message", Type: types.FieldTypeString},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpRead}},
+			{
+				Name:       "org-statuses",
+				Entity:     "Status",
+				Operations: []types.Operation{types.OpList},
+				Scope:      map[string]string{"org_id": "Organization"},
+				PathPrefix: "/statuses",
+			},
+			{
+				Name:       "global-statuses",
+				Entity:     "GlobalStatus",
+				Operations: []types.Operation{types.OpList},
+			},
+		},
+		OutputNamespace: "internal/api",
+	}
+
+	_, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("expected no route collision error, got: %v", err)
 	}
 }
 

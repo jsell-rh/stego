@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — Path Derivation Rules (line 735–745), Known Generator Bugs
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** none (independent of task-064)
 
@@ -69,4 +69,4 @@ Rule #4 (line 745) says "replaces the derived path entirely (relative to `base_p
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
-
+- <pending> fix(task-065): segment-replacement path_prefix preserves parent chain for scoped collections

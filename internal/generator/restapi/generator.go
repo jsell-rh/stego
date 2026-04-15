@@ -335,9 +335,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 }
 
 // collectionBasePath returns the URL path prefix for a collection.
-// If PathPrefix is set, it is used directly. Otherwise, a default is derived
-// from the entity name (lowercased, pluralized), prepended with the parent's
-// path if nested.
+// If PathPrefix is set and contains path parameters matching or exceeding the
+// ancestor count, it is used directly (full-path override). If PathPrefix is
+// set but contains fewer parameters than ancestors, it replaces only the
+// entity-derived segment while preserving the auto-derived parent chain
+// (segment replacement). If PathPrefix is not set, a default is derived from
+// the entity name (lowercased, pluralized), prepended with the parent's path
+// if nested.
 // Returns an error if a circular parent reference is detected.
 func collectionBasePath(eb types.Collection, collectionMap map[string]types.Collection) (string, error) {
 	return collectionBasePathWithVisited(eb, collectionMap, map[string]bool{eb.Entity: true})
@@ -345,9 +349,25 @@ func collectionBasePath(eb types.Collection, collectionMap map[string]types.Coll
 
 func collectionBasePathWithVisited(eb types.Collection, collectionMap map[string]types.Collection, visited map[string]bool) (string, error) {
 	if eb.PathPrefix != "" {
-		return eb.PathPrefix, nil
+		// Determine if this is a full-path override or a segment replacement.
+		// If the prefix contains path parameters matching or exceeding the
+		// ancestor count, it is a full-path override (use as-is). Otherwise,
+		// it is a segment replacement: prepend the auto-derived parent chain.
+		ancestors, err := collectAncestors(eb, collectionMap)
+		if err != nil {
+			return "", err
+		}
+		prefixParams := extractPathParams(eb.PathPrefix)
+		if len(prefixParams) >= len(ancestors) {
+			return eb.PathPrefix, nil
+		}
+		// Segment replacement — use PathPrefix as the leaf instead of the
+		// entity-derived segment, and fall through to parent chain logic.
 	}
-	base := "/" + entityPathSegment(eb.Entity)
+	base := eb.PathPrefix
+	if base == "" {
+		base = "/" + entityPathSegment(eb.Entity)
+	}
 	if eb.ParentEntity() != "" {
 		if visited[eb.ParentEntity()] {
 			return "", fmt.Errorf("circular parent reference detected: %s is an ancestor of itself", eb.ParentEntity())

@@ -724,10 +724,6 @@ if port == "" {
 
 Additional environment variables are defined by individual components (e.g. `JWK_CERT_URL` by `rh-sso-auth`, `AUTH_ENABLED` by auth components).
 
-## Known Generator Bugs
-
-- **Route collision for scoped `path_prefix`**: `collectionBasePathWithVisited` returns `path_prefix` directly, ignoring the parent chain for scoped collections. A scoped collection with `path_prefix: /statuses` produces path `/statuses` instead of `/{parent_chain}/statuses`. This causes `resolveAncestorParams` to error on param-count mismatch and `validateRouteCollisions` to operate on incorrect paths. Per the Path Derivation Rules, `path_prefix` should override the entity-derived segment only, not the entire path including ancestors.
-
 ## Open Questions
 
 - Collection naming conventions need enforcement (e.g. `{scope}-{entity-plural}` or `all-{entity-plural}`)
@@ -742,4 +738,4 @@ Rules:
 1. **Unscoped collection:** path = `/{entity_plural}` (e.g. entity `Cluster` -> `/clusters`)
 2. **Scoped collection:** path = `/{parent_plural}/{parent_id_param}/{entity_plural}` (e.g. entity `NodePool` scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools`)
 3. **Multi-level scope:** chains parent paths recursively (e.g. entity `AdapterStatus` scoped to `NodePool` which is scoped to `Cluster` -> `/clusters/{cluster_id}/nodepools/{nodepool_id}/adapterstatuses`)
-4. **`path_prefix` override:** when set on a collection, replaces the derived path entirely (relative to `base_path`)
+4. **`path_prefix` override:** when set on a collection, replaces the entity-derived segment (relative to `base_path`). For scoped collections, the auto-derived parent chain is preserved — only the leaf segment is replaced. If the prefix contains path parameters matching or exceeding the ancestor count, it is treated as a full-path override and used as-is.
