@@ -51,3 +51,4 @@ Tests in `internal/generator/restapi/generator_test.go` (line 5574, 5997) and `i
 When done, update this file's Status to `ready-for-review` and list relevant commits below.
 
 ## Commits
+- b104d67 fix(task-064): use UUID v7 instead of v4 for entity ID generation
