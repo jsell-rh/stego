@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **OpenAPI and Metadata Endpoints** section (lines 669–700)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-009, task-024
 

@@ -211,6 +211,15 @@ type Wiring struct {
 	// The wrapping order is: OuterMiddlewares(auth(Middlewares(mux))).
 	OuterMiddlewares []MiddlewareSpec
 
+	// DiscoveryRoutes lists route registration expressions for main.go
+	// assembly that must be registered OUTSIDE the auth middleware chain.
+	// These are unauthenticated documentation/discovery endpoints (e.g.
+	// OpenAPI spec, metadata). The assembler registers them on the top-level
+	// handler so they bypass auth, validation, and other inner middleware.
+	// Each entry is a code fragment like
+	// "topMux.HandleFunc(\"GET /openapi\", discoveryHandler.ServeOpenAPI)".
+	DiscoveryRoutes []string
+
 	// StdlibImports lists standard library packages that must be imported
 	// in main.go for this component's constructor expressions or wiring to
 	// work. For example, a component whose constructor expression uses

@@ -5257,5 +5257,196 @@ func TestAssemble_OuterMiddlewares_MissingWrapExpr(t *testing.T) {
 	}
 }
 
+func TestAssemble_DiscoveryRoutesOutsideAuthMiddleware(t *testing.T) {
+	// Discovery routes should be registered on topMux (outside auth middleware),
+	// while regular routes go on mux (inside auth middleware chain).
+	input := AssemblerInput{
+		ModuleName: "github.com/example/svc",
+		GoVersion:  "1.22",
+		Wirings: []ComponentWiring{
+			{Name: "rest-api", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewUsersHandler(store)", "api.NewDiscoveryHandler()"},
+				Routes: []string{
+					`mux.HandleFunc("GET /users", usersHandler.List)`,
+				},
+				DiscoveryRoutes: []string{
+					`topMux.HandleFunc("GET /openapi", discoveryHandler.ServeOpenAPI)`,
+					`topMux.HandleFunc("GET /openapi.html", discoveryHandler.ServeOpenAPIUI)`,
+					`topMux.HandleFunc("GET /", discoveryHandler.ServeMetadata)`,
+				},
+				ConstructorDeps: map[int][]string{
+					0: {"store"},
+					1: nil,
+				},
+			}},
+			{Name: "storage", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/storage"},
+				Constructors: []string{"storage.NewStore(db)"},
+				NeedsDB:      true,
+			}},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mainContent := ""
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainContent = string(f.Bytes())
+		}
+	}
+	if mainContent == "" {
+		t.Fatal("main.go not found in output")
+	}
+
+	// Regular routes should be on mux (authenticated).
+	if !strings.Contains(mainContent, `mux.HandleFunc("GET /users"`) {
+		t.Error("main.go missing regular route on mux")
+	}
+
+	// Discovery routes should be on topMux (unauthenticated).
+	if !strings.Contains(mainContent, "topMux := http.NewServeMux()") {
+		t.Error("main.go missing topMux declaration for discovery routes")
+	}
+	if !strings.Contains(mainContent, `topMux.HandleFunc("GET /openapi"`) {
+		t.Error("main.go missing OpenAPI discovery route on topMux")
+	}
+	if !strings.Contains(mainContent, `topMux.HandleFunc("GET /openapi.html"`) {
+		t.Error("main.go missing OpenAPI UI discovery route on topMux")
+	}
+	if !strings.Contains(mainContent, `topMux.HandleFunc("GET /"`) {
+		t.Error("main.go missing metadata discovery route on topMux")
+	}
+
+	// topMux should delegate all other routes to the middleware-wrapped handler.
+	if !strings.Contains(mainContent, `topMux.Handle("/", handler)`) {
+		t.Error("main.go missing topMux fallback delegation to handler")
+	}
+
+	// ListenAndServe should use topMux, not the plain handler expression.
+	if !strings.Contains(mainContent, "http.ListenAndServe(addr, topMux)") {
+		t.Error("main.go should use topMux in ListenAndServe when discovery routes exist")
+	}
+}
+
+func TestAssemble_NoDiscoveryRoutesNoTopMux(t *testing.T) {
+	// When no discovery routes exist, topMux should not be created.
+	input := AssemblerInput{
+		ModuleName: "github.com/example/svc",
+		GoVersion:  "1.22",
+		Wirings: []ComponentWiring{
+			{Name: "rest-api", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewUsersHandler(store)"},
+				Routes: []string{
+					`mux.HandleFunc("GET /users", usersHandler.List)`,
+				},
+				ConstructorDeps: map[int][]string{0: {"store"}},
+			}},
+			{Name: "storage", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/storage"},
+				Constructors: []string{"storage.NewStore(db)"},
+				NeedsDB:      true,
+			}},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mainContent := ""
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainContent = string(f.Bytes())
+		}
+	}
+	if mainContent == "" {
+		t.Fatal("main.go not found in output")
+	}
+
+	// Should NOT have topMux when no discovery routes.
+	if strings.Contains(mainContent, "topMux") {
+		t.Error("main.go should not contain topMux when no discovery routes exist")
+	}
+}
+
+func TestAssemble_DiscoveryWithAuthMiddleware(t *testing.T) {
+	// When both discovery routes and auth middleware exist, discovery routes
+	// bypass auth but regular routes go through it.
+	authIdx := 0
+	input := AssemblerInput{
+		ModuleName: "github.com/example/svc",
+		GoVersion:  "1.22",
+		Wirings: []ComponentWiring{
+			{Name: "auth", Wiring: &gen.Wiring{
+				Imports:               []string{"internal/auth"},
+				Constructors:          []string{"auth.NewAuthMiddleware()"},
+				MiddlewareConstructor: &authIdx,
+				MiddlewareWrapExpr:    "%s(%s)",
+			}},
+			{Name: "rest-api", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/api"},
+				Constructors: []string{"api.NewUsersHandler(store)", "api.NewDiscoveryHandler()"},
+				Routes: []string{
+					`mux.HandleFunc("GET /users", usersHandler.List)`,
+				},
+				DiscoveryRoutes: []string{
+					`topMux.HandleFunc("GET /openapi", discoveryHandler.ServeOpenAPI)`,
+				},
+				ConstructorDeps: map[int][]string{
+					0: {"store"},
+					1: nil,
+				},
+			}},
+			{Name: "storage", Wiring: &gen.Wiring{
+				Imports:      []string{"internal/storage"},
+				Constructors: []string{"storage.NewStore(db)"},
+				NeedsDB:      true,
+			}},
+		},
+	}
+
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mainContent := ""
+	for _, f := range files {
+		if f.Path == "main.go" {
+			mainContent = string(f.Bytes())
+		}
+	}
+	if mainContent == "" {
+		t.Fatal("main.go not found in output")
+	}
+
+	// handler should be the auth-wrapped mux.
+	if !strings.Contains(mainContent, "handler := authMiddleware(mux)") {
+		t.Error("main.go should wrap mux with auth middleware")
+	}
+
+	// topMux delegates to the auth-wrapped handler.
+	if !strings.Contains(mainContent, `topMux.Handle("/", handler)`) {
+		t.Error("main.go topMux should delegate to auth-wrapped handler")
+	}
+
+	// topMux has the discovery route.
+	if !strings.Contains(mainContent, `topMux.HandleFunc("GET /openapi"`) {
+		t.Error("main.go missing discovery route on topMux")
+	}
+
+	// Final handler is topMux.
+	if !strings.Contains(mainContent, "http.ListenAndServe(addr, topMux)") {
+		t.Error("main.go should use topMux in ListenAndServe")
+	}
+}
+
 // intPtr returns a pointer to an int value, for use in test literals.
 func intPtr(v int) *int { return &v }

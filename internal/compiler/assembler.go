@@ -533,7 +533,7 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 // library import aliases that are used after constructor declarations (and
 // would be shadowed by a local variable of the same name). Constructor
 // variable disambiguation must reserve all of these to prevent collisions.
-func assemblerInternalVars(hasDB, isGORM, hasRoutes bool) map[string]bool {
+func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery bool) map[string]bool {
 	vars := make(map[string]bool)
 	if hasDB {
 		vars["dsn"] = true
@@ -558,6 +558,10 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes bool) map[string]bool {
 		// variable with the same name (e.g. logger.NewLog() → "log")
 		// would shadow the import, breaking post-constructor references.
 		vars["http"] = true
+	}
+	if hasDiscovery {
+		vars["topMux"] = true
+		vars["handler"] = true
 	}
 	// "os" is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
 	if hasDB || hasRoutes {
@@ -679,6 +683,18 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 				if containsIdentRef(route, baseVar) {
 					for _, idx := range indices {
 						// Only mark constructors from the same wiring as the route.
+						if entries[idx].key.WiringIndex == i {
+							consumed[entries[idx].key] = true
+						}
+					}
+				}
+			}
+		}
+		// Discovery routes also consume constructors.
+		for _, route := range cw.Wiring.DiscoveryRoutes {
+			for baseVar, indices := range varToEntries {
+				if containsIdentRef(route, baseVar) {
+					for _, idx := range indices {
 						if entries[idx].key.WiringIndex == i {
 							consumed[entries[idx].key] = true
 						}
@@ -852,7 +868,8 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	// err) and standard library import aliases (log, http, os, sql)
 	// that are emitted by writeDBSetup, writeRouteRegistration, and
 	// writeServerStart into the same function scope.
-	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes) {
+	hasDiscovery := hasAnyDiscoveryRoutes(input)
+	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery) {
 		varNames[name]++
 		varUsed[name] = true
 		preReserved[name] = true
@@ -1295,13 +1312,44 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 	for _, m := range outerMiddlewares {
 		handlerExpr = fmt.Sprintf(m.wrapExpr, m.varName, handlerExpr)
 	}
-	fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", handlerExpr)
+
+	// When discovery routes exist, create a topMux that registers
+	// unauthenticated discovery endpoints alongside the middleware-wrapped
+	// handler for all other routes.
+	hasDiscovery := hasAnyDiscoveryRoutes(input)
+	if hasDiscovery {
+		fmt.Fprintf(buf, "\thandler := %s\n", handlerExpr)
+		buf.WriteString("\ttopMux := http.NewServeMux()\n")
+		for i, cw := range input.Wirings {
+			if cw.Wiring == nil {
+				continue
+			}
+			for _, route := range cw.Wiring.DiscoveryRoutes {
+				updatedRoute := applyConstructorRenames(route, wiringRenames[i])
+				fmt.Fprintf(buf, "\t%s\n", updatedRoute)
+			}
+		}
+		buf.WriteString("\ttopMux.Handle(\"/\", handler)\n")
+		buf.WriteString("\tlog.Fatal(http.ListenAndServe(addr, topMux))\n")
+	} else {
+		fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", handlerExpr)
+	}
 }
 
-// hasAnyRoutes returns true if any component wiring has routes.
+// hasAnyRoutes returns true if any component wiring has routes or discovery routes.
 func hasAnyRoutes(input AssemblerInput) bool {
 	for _, cw := range input.Wirings {
-		if cw.Wiring != nil && len(cw.Wiring.Routes) > 0 {
+		if cw.Wiring != nil && (len(cw.Wiring.Routes) > 0 || len(cw.Wiring.DiscoveryRoutes) > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasAnyDiscoveryRoutes returns true if any component wiring has discovery routes.
+func hasAnyDiscoveryRoutes(input AssemblerInput) bool {
+	for _, cw := range input.Wirings {
+		if cw.Wiring != nil && len(cw.Wiring.DiscoveryRoutes) > 0 {
 			return true
 		}
 	}

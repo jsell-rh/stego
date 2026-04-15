@@ -69,9 +69,9 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Expect 4 files: handler_user.go, router.go, errors.go, openapi.json
-	if len(files) != 4 {
-		t.Fatalf("expected 4 files, got %d", len(files))
+	// Expect 5 files: handler_user.go, router.go, errors.go, openapi.json, discovery.go
+	if len(files) != 5 {
+		t.Fatalf("expected 5 files, got %d", len(files))
 	}
 
 	// Verify file paths.
@@ -80,6 +80,7 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 		"internal/api/router.go":        true,
 		"internal/api/errors.go":        true,
 		"internal/api/openapi.json":     true,
+		"internal/api/discovery.go":     true,
 	}
 	for _, f := range files {
 		if !expectedPaths[f.Path] {
@@ -94,8 +95,8 @@ func TestGenerate_BasicCRUD(t *testing.T) {
 	if len(wiring.Imports) != 1 || wiring.Imports[0] != "internal/api" {
 		t.Errorf("unexpected imports: %v", wiring.Imports)
 	}
-	if len(wiring.Constructors) != 1 {
-		t.Fatalf("expected 1 constructor, got %d", len(wiring.Constructors))
+	if len(wiring.Constructors) != 2 {
+		t.Fatalf("expected 2 constructors (1 collection + discovery), got %d", len(wiring.Constructors))
 	}
 	if !strings.Contains(wiring.Constructors[0], "NewUsersHandler") {
 		t.Errorf("constructor should reference NewUsersHandler, got: %s", wiring.Constructors[0])
@@ -1165,9 +1166,6 @@ func TestGenerate_ComputedFieldsCompilesAsPackage(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -1274,9 +1272,9 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have handler_organizations.go, handler_users.go, router.go, errors.go, openapi.json
-	if len(files) != 5 {
-		t.Fatalf("expected 5 files, got %d", len(files))
+	// Should have handler_organizations.go, handler_users.go, router.go, errors.go, openapi.json, discovery.go
+	if len(files) != 6 {
+		t.Fatalf("expected 6 files, got %d", len(files))
 	}
 
 	expectedPaths := map[string]bool{
@@ -1285,6 +1283,7 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 		"internal/api/router.go":                true,
 		"internal/api/errors.go":                true,
 		"internal/api/openapi.json":             true,
+		"internal/api/discovery.go":             true,
 	}
 	for _, f := range files {
 		if !expectedPaths[f.Path] {
@@ -1292,12 +1291,12 @@ func TestGenerate_MultipleEntities(t *testing.T) {
 		}
 	}
 
-	// Verify wiring has constructors for both entities.
+	// Verify wiring has constructors for both collections plus discovery handler.
 	if wiring == nil {
 		t.Fatal("expected wiring")
 	}
-	if len(wiring.Constructors) != 2 {
-		t.Fatalf("expected 2 constructors, got %d", len(wiring.Constructors))
+	if len(wiring.Constructors) != 3 {
+		t.Fatalf("expected 3 constructors (2 collections + discovery), got %d", len(wiring.Constructors))
 	}
 }
 
@@ -1382,9 +1381,6 @@ func TestGenerate_GeneratedCodeCompilesAsPackage(t *testing.T) {
 
 	// Write all generated Go files to the temp directory.
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -1615,9 +1611,6 @@ func TestGenerate_DeleteOnlyEntityCompiles(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -1726,9 +1719,6 @@ func TestGenerate_ComputedTimestampFieldCompiles(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -2016,9 +2006,6 @@ func TestGenerate_GoKeywordEntityName(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -2242,9 +2229,6 @@ func TestGenerate_MultiLevelAncestorVerification(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -2585,9 +2569,6 @@ func TestGenerate_EntityNameMatchingReceiverOrParamCompiles(t *testing.T) {
 				t.Fatalf("writing go.mod: %v", err)
 			}
 			for _, f := range files {
-				if !strings.HasSuffix(f.Path, ".go") {
-					continue
-				}
 				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 					t.Fatalf("writing %s: %v", f.Path, err)
@@ -2645,9 +2626,6 @@ func TestGenerate_EntityNameMatchingImportAliasCompiles(t *testing.T) {
 				t.Fatalf("writing go.mod: %v", err)
 			}
 			for _, f := range files {
-				if !strings.HasSuffix(f.Path, ".go") {
-					continue
-				}
 				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 					t.Fatalf("writing %s: %v", f.Path, err)
@@ -2739,9 +2717,6 @@ func TestGenerate_NonDefaultOutputNamespace(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -2950,9 +2925,6 @@ func TestGenerate_PathPrefixDivergentParamNames(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -3135,9 +3107,6 @@ func TestGenerate_PathPrefixMultiLevelDivergentParams(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -4001,9 +3970,6 @@ func TestGenerate_EntityNameIdCompiles(t *testing.T) {
 				t.Fatalf("writing go.mod: %v", err)
 			}
 			for _, f := range files {
-				if !strings.HasSuffix(f.Path, ".go") {
-					continue
-				}
 				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 					t.Fatalf("writing %s: %v", f.Path, err)
@@ -4137,9 +4103,6 @@ func TestGenerate_EntityNameErrCompiles(t *testing.T) {
 				t.Fatalf("writing go.mod: %v", err)
 			}
 			for _, f := range files {
-				if !strings.HasSuffix(f.Path, ".go") {
-					continue
-				}
 				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 					t.Fatalf("writing %s: %v", f.Path, err)
@@ -4740,9 +4703,6 @@ type ValidateSlot interface {
 
 	// Write rest-api handler/router files.
 	for _, f := range apiFiles {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, f.Path)
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			t.Fatalf("mkdir for %s: %v", f.Path, err)
@@ -5175,9 +5135,6 @@ func TestGenerate_ErrorsFileCompiles(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -5413,9 +5370,6 @@ type SlotResult struct { Ok bool; Halt bool; StatusCode int32; ErrorMessage stri
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, f.Path)
 		os.MkdirAll(filepath.Dir(dst), 0755)
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
@@ -7159,9 +7113,6 @@ func TestGenerate_PatchCompilesAsPackage(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -7209,9 +7160,6 @@ func TestGenerate_PatchOnlyCompilesAsPackage(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -7259,9 +7207,6 @@ func TestGenerate_PatchWithEnvelopeCompilesAsPackage(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -7313,9 +7258,6 @@ func TestGenerate_PatchWithTimestampFieldCompilesAsPackage(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -7426,9 +7368,6 @@ func TestGenerate_PatchEntityNamedExistingOrPatchCompiles(t *testing.T) {
 				t.Fatalf("writing go.mod: %v", err)
 			}
 			for _, f := range files {
-				if !strings.HasSuffix(f.Path, ".go") {
-					continue
-				}
 				dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 				if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 					t.Fatalf("writing %s: %v", f.Path, err)
@@ -7482,9 +7421,6 @@ func TestGenerate_UpsertEntityNamedCreatedCompiles(t *testing.T) {
 		t.Fatalf("writing go.mod: %v", err)
 	}
 	for _, f := range files {
-		if !strings.HasSuffix(f.Path, ".go") {
-			continue
-		}
 		dst := filepath.Join(tmpDir, filepath.Base(f.Path))
 		if err := os.WriteFile(dst, f.Bytes(), 0644); err != nil {
 			t.Fatalf("writing %s: %v", f.Path, err)
@@ -10371,5 +10307,231 @@ func TestGenerate_AfterCreateSlotWithOptionalFields(t *testing.T) {
 	}
 	if !strings.Contains(handlerContent, `"data":`) || !strings.Contains(handlerContent, "dataAfterVal") {
 		t.Errorf("after_create PersistedFields not using pre-computed dataAfterVal:\n%s", handlerContent)
+	}
+}
+
+// --- Discovery endpoint tests ---
+
+func TestGenerate_DiscoveryFileGenerated(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/discovery.go")
+
+	// Verify DiscoveryHandler struct exists.
+	if !strings.Contains(content, "type DiscoveryHandler struct") {
+		t.Error("discovery.go missing DiscoveryHandler struct")
+	}
+
+	// Verify all three handler methods exist.
+	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPI(") {
+		t.Error("discovery.go missing ServeOpenAPI method")
+	}
+	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeOpenAPIUI(") {
+		t.Error("discovery.go missing ServeOpenAPIUI method")
+	}
+	if !strings.Contains(content, "func (h *DiscoveryHandler) ServeMetadata(") {
+		t.Error("discovery.go missing ServeMetadata method")
+	}
+
+	// Verify constructor exists.
+	if !strings.Contains(content, "func NewDiscoveryHandler()") {
+		t.Error("discovery.go missing NewDiscoveryHandler constructor")
+	}
+
+	// Verify OpenAPI spec embed.
+	if !strings.Contains(content, "//go:embed openapi.json") {
+		t.Error("discovery.go missing //go:embed openapi.json")
+	}
+
+	// Verify Swagger UI HTML template.
+	if !strings.Contains(content, "swagger-ui") {
+		t.Error("discovery.go missing Swagger UI HTML template")
+	}
+
+	// Verify Content-Type headers.
+	if !strings.Contains(content, `"application/json"`) {
+		t.Error("discovery.go missing application/json Content-Type")
+	}
+	if !strings.Contains(content, `"text/html"`) {
+		t.Error("discovery.go missing text/html Content-Type")
+	}
+}
+
+func TestGenerate_DiscoveryWiringRoutes(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.BasePath = "/api/v1"
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wiring == nil {
+		t.Fatal("expected wiring, got nil")
+	}
+
+	// Verify discovery routes are in DiscoveryRoutes (not Routes).
+	if len(wiring.DiscoveryRoutes) != 3 {
+		t.Fatalf("expected 3 discovery routes, got %d", len(wiring.DiscoveryRoutes))
+	}
+
+	foundOpenAPI := false
+	foundOpenAPIHTML := false
+	foundMetadata := false
+	for _, r := range wiring.DiscoveryRoutes {
+		if strings.Contains(r, "/api/v1/openapi\"") && strings.Contains(r, "ServeOpenAPI") {
+			foundOpenAPI = true
+		}
+		if strings.Contains(r, "/api/v1/openapi.html\"") && strings.Contains(r, "ServeOpenAPIUI") {
+			foundOpenAPIHTML = true
+		}
+		if strings.Contains(r, "GET /api/v1\"") && strings.Contains(r, "ServeMetadata") {
+			foundMetadata = true
+		}
+	}
+
+	if !foundOpenAPI {
+		t.Errorf("missing OpenAPI spec route, got: %v", wiring.DiscoveryRoutes)
+	}
+	if !foundOpenAPIHTML {
+		t.Errorf("missing OpenAPI UI route, got: %v", wiring.DiscoveryRoutes)
+	}
+	if !foundMetadata {
+		t.Errorf("missing metadata route, got: %v", wiring.DiscoveryRoutes)
+	}
+
+	// Discovery routes must reference topMux (not mux).
+	for _, r := range wiring.DiscoveryRoutes {
+		if !strings.Contains(r, "topMux.") {
+			t.Errorf("discovery route should use topMux, got: %s", r)
+		}
+	}
+}
+
+func TestGenerate_DiscoveryMetadataTopLevelCollectionsOnly(t *testing.T) {
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Organization", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+			{Name: "User", Fields: []types.Field{
+				{Name: "email", Type: types.FieldTypeString},
+				{Name: "org_id", Type: types.FieldTypeRef, To: "Organization"},
+			}},
+		},
+		Collections: []types.Collection{
+			{Name: "organizations", Entity: "Organization", Operations: []types.Operation{types.OpCreate, types.OpRead}},
+			{
+				Name:       "org-users",
+				Entity:     "User",
+				Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList},
+				Scope:      map[string]string{"org_id": "Organization"},
+			},
+			{Name: "all-users", Entity: "User", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+		BasePath:        "/api/v1",
+		ServiceName:     "user-management",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/discovery.go")
+
+	// Metadata should include top-level (unscoped) collections.
+	if !strings.Contains(content, "OrganizationList") {
+		t.Error("metadata missing OrganizationList (top-level collection)")
+	}
+	if !strings.Contains(content, "UserList") {
+		t.Error("metadata missing UserList (top-level all-users collection)")
+	}
+
+	// Metadata should NOT include scoped collections.
+	// org-users is scoped to Organization and should not appear at top level.
+	// Check that the metadata JSON does not include the scoped path.
+	if strings.Contains(content, "/organizations/{org_id}/users") {
+		t.Error("metadata should not include scoped collection path")
+	}
+
+	// Verify service name in metadata.
+	if !strings.Contains(content, `"user-management"`) {
+		t.Error("metadata missing service name")
+	}
+
+	// Verify kind is API.
+	if !strings.Contains(content, `"kind": "API"`) {
+		t.Error("metadata missing kind: API")
+	}
+
+	// Verify href includes base_path.
+	if !strings.Contains(content, `"href": "/api/v1"`) {
+		t.Error("metadata missing href with base_path")
+	}
+}
+
+func TestGenerate_DiscoveryRoutesUseDiscoveryHandlerVar(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify discovery constructor is present.
+	foundDiscovery := false
+	for _, c := range wiring.Constructors {
+		if strings.Contains(c, "NewDiscoveryHandler") {
+			foundDiscovery = true
+		}
+	}
+	if !foundDiscovery {
+		t.Error("wiring missing NewDiscoveryHandler constructor")
+	}
+
+	// Verify discovery routes reference discoveryHandler variable.
+	for _, r := range wiring.DiscoveryRoutes {
+		if !strings.Contains(r, "discoveryHandler.") {
+			t.Errorf("discovery route should reference discoveryHandler, got: %s", r)
+		}
+	}
+}
+
+func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
+	g := &Generator{}
+	ctx := basicContext()
+	ctx.BasePath = ""
+
+	_, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// With empty base_path, routes should be at root.
+	foundOpenAPI := false
+	foundMetadata := false
+	for _, r := range wiring.DiscoveryRoutes {
+		if strings.Contains(r, "GET /openapi\"") {
+			foundOpenAPI = true
+		}
+		if strings.Contains(r, "GET /\"") {
+			foundMetadata = true
+		}
+	}
+	if !foundOpenAPI {
+		t.Errorf("with empty base_path, OpenAPI route should be at /openapi, got: %v", wiring.DiscoveryRoutes)
+	}
+	if !foundMetadata {
+		t.Errorf("with empty base_path, metadata route should be at /, got: %v", wiring.DiscoveryRoutes)
 	}
 }

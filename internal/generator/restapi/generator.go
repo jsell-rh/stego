@@ -293,6 +293,40 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		})
 	}
 
+	// Generate discovery endpoint handler (OpenAPI spec, UI, metadata).
+	// These are always generated — no service.yaml configuration needed.
+	discoveryFile, err := generateDiscovery(ctx.OutputNamespace, ctx.ServiceName, ctx.BasePath, ctx.Collections, collectionMap)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating discovery endpoints: %w", err)
+	}
+	files = append(files, discoveryFile)
+
+	// Add discovery handler constructor and routes.
+	discoveryIdx := len(wiring.Constructors)
+	wiring.Constructors = append(wiring.Constructors,
+		fmt.Sprintf("%s.NewDiscoveryHandler()", path.Base(ctx.OutputNamespace)))
+
+	// Discovery routes are unauthenticated — registered outside the auth
+	// middleware chain via DiscoveryRoutes (not Routes).
+	discoveryVar := "discoveryHandler"
+	openapiPath := ctx.BasePath + "/openapi"
+	openapiHTMLPath := ctx.BasePath + "/openapi.html"
+	metadataPath := ctx.BasePath
+	if metadataPath == "" {
+		metadataPath = "/"
+	}
+	wiring.DiscoveryRoutes = []string{
+		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeOpenAPI)", openapiPath, discoveryVar),
+		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeOpenAPIUI)", openapiHTMLPath, discoveryVar),
+		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeMetadata)", metadataPath, discoveryVar),
+	}
+	// Track the constructor index so the assembler knows which constructor
+	// the discovery routes reference.
+	if wiring.ConstructorDeps == nil {
+		wiring.ConstructorDeps = make(map[int][]string)
+	}
+	wiring.ConstructorDeps[discoveryIdx] = nil // no dependencies
+
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
@@ -4097,4 +4131,143 @@ func validateParentRefFields(collections []types.Collection, entityMap map[strin
 		return fmt.Errorf("parent ref field errors:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// generateDiscovery produces a Go source file with an HTTP handler for
+// discovery endpoints: OpenAPI spec, OpenAPI UI, and service metadata.
+// The handler embeds the generated openapi.json and serves it alongside
+// a Swagger UI HTML page and a metadata JSON endpoint listing top-level
+// (unscoped) collections.
+func generateDiscovery(ns string, serviceName string, basePath string, collections []types.Collection, collectionMap map[string]types.Collection) (gen.File, error) {
+	var buf bytes.Buffer
+	pkg := path.Base(ns)
+
+	// Identify top-level (unscoped) collections for the metadata endpoint.
+	type collectionEntry struct {
+		Name string
+		Href string
+	}
+	var topLevelCollections []collectionEntry
+	for _, eb := range collections {
+		if len(eb.Scope) > 0 {
+			continue // scoped collections are not listed at top level
+		}
+		collPath, err := collectionBasePath(eb, collectionMap)
+		if err != nil {
+			return gen.File{}, fmt.Errorf("resolving path for collection %s: %w", eb.Name, err)
+		}
+		href := basePath + collPath
+		topLevelCollections = append(topLevelCollections, collectionEntry{
+			Name: eb.Entity,
+			Href: href,
+		})
+	}
+
+	fmt.Fprintf(&buf, "package %s\n\n", pkg)
+	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t_ \"embed\"\n")
+	fmt.Fprintf(&buf, "\t\"net/http\"\n")
+	fmt.Fprintf(&buf, ")\n\n")
+
+	// Embed the OpenAPI spec for the discovery endpoint.
+	fmt.Fprintf(&buf, "//go:embed openapi.json\n")
+	fmt.Fprintf(&buf, "var discoveryOpenAPISpec []byte\n\n")
+
+	// Swagger UI HTML template.
+	fmt.Fprintf(&buf, "const swaggerUIHTML = `<!DOCTYPE html>\n")
+	fmt.Fprintf(&buf, "<html>\n")
+	fmt.Fprintf(&buf, "<head>\n")
+	fmt.Fprintf(&buf, "  <title>API Documentation</title>\n")
+	fmt.Fprintf(&buf, "  <meta charset=\"utf-8\"/>\n")
+	fmt.Fprintf(&buf, "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
+	fmt.Fprintf(&buf, "  <link rel=\"stylesheet\" href=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui.css\">\n")
+	fmt.Fprintf(&buf, "</head>\n")
+	fmt.Fprintf(&buf, "<body>\n")
+	fmt.Fprintf(&buf, "  <div id=\"swagger-ui\"></div>\n")
+	fmt.Fprintf(&buf, "  <script src=\"https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js\"></script>\n")
+	fmt.Fprintf(&buf, "  <script>\n")
+	fmt.Fprintf(&buf, "    SwaggerUIBundle({\n")
+	fmt.Fprintf(&buf, "      url: window.location.pathname.replace(/\\/openapi\\.html$/, '/openapi'),\n")
+	fmt.Fprintf(&buf, "      dom_id: '#swagger-ui',\n")
+	fmt.Fprintf(&buf, "    });\n")
+	fmt.Fprintf(&buf, "  </script>\n")
+	fmt.Fprintf(&buf, "</body>\n")
+	fmt.Fprintf(&buf, "</html>`\n\n")
+
+	// DiscoveryHandler struct.
+	fmt.Fprintf(&buf, "// DiscoveryHandler serves unauthenticated discovery endpoints:\n")
+	fmt.Fprintf(&buf, "// OpenAPI spec, Swagger UI, and service metadata.\n")
+	fmt.Fprintf(&buf, "type DiscoveryHandler struct {\n")
+	fmt.Fprintf(&buf, "\tmetadata []byte\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// Build the metadata JSON at generation time and embed it as a byte literal.
+	type metadataCollection struct {
+		Kind string `json:"kind"`
+		Href string `json:"href"`
+	}
+	type metadataResponse struct {
+		Kind        string               `json:"kind"`
+		ID          string               `json:"id"`
+		Href        string               `json:"href"`
+		Collections []metadataCollection `json:"collections"`
+	}
+	meta := metadataResponse{
+		Kind: "API",
+		ID:   serviceName,
+		Href: basePath,
+	}
+	if meta.Href == "" {
+		meta.Href = "/"
+	}
+	for _, tc := range topLevelCollections {
+		meta.Collections = append(meta.Collections, metadataCollection{
+			Kind: tc.Name + "List",
+			Href: tc.Href,
+		})
+	}
+	metaBytes, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return gen.File{}, fmt.Errorf("marshaling metadata: %w", err)
+	}
+
+	// NewDiscoveryHandler constructor.
+	fmt.Fprintf(&buf, "// NewDiscoveryHandler creates a handler for the discovery endpoints.\n")
+	fmt.Fprintf(&buf, "// The metadata is computed at generation time and embedded in the binary.\n")
+	fmt.Fprintf(&buf, "func NewDiscoveryHandler() *DiscoveryHandler {\n")
+	fmt.Fprintf(&buf, "\treturn &DiscoveryHandler{\n")
+	fmt.Fprintf(&buf, "\t\tmetadata: []byte(`%s`),\n", string(metaBytes))
+	fmt.Fprintf(&buf, "\t}\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ServeOpenAPI handler.
+	fmt.Fprintf(&buf, "// ServeOpenAPI serves the generated OpenAPI 3.0 JSON spec.\n")
+	fmt.Fprintf(&buf, "func (h *DiscoveryHandler) ServeOpenAPI(w http.ResponseWriter, r *http.Request) {\n")
+	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
+	fmt.Fprintf(&buf, "\tw.Write(discoveryOpenAPISpec)\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ServeOpenAPIUI handler.
+	fmt.Fprintf(&buf, "// ServeOpenAPIUI serves a Swagger UI HTML page that renders the OpenAPI spec.\n")
+	fmt.Fprintf(&buf, "func (h *DiscoveryHandler) ServeOpenAPIUI(w http.ResponseWriter, r *http.Request) {\n")
+	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"text/html\")\n")
+	fmt.Fprintf(&buf, "\tw.Write([]byte(swaggerUIHTML))\n")
+	fmt.Fprintf(&buf, "}\n\n")
+
+	// ServeMetadata handler.
+	fmt.Fprintf(&buf, "// ServeMetadata serves the service metadata JSON with collection discovery.\n")
+	fmt.Fprintf(&buf, "func (h *DiscoveryHandler) ServeMetadata(w http.ResponseWriter, r *http.Request) {\n")
+	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/json\")\n")
+	fmt.Fprintf(&buf, "\tw.Write(h.metadata)\n")
+	fmt.Fprintf(&buf, "}\n")
+
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		return gen.File{}, fmt.Errorf("formatting discovery: %w", err)
+	}
+
+	return gen.File{
+		Path:    path.Join(ns, "discovery.go"),
+		Content: formatted,
+	}, nil
 }
