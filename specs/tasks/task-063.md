@@ -84,3 +84,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 - e42b960 fix(rest-api): include fmt import for after-slot emit paths (task-063)
+- a2c5120 fix(spec): remove stale known-bug entry for fmt import after task-063 fix
