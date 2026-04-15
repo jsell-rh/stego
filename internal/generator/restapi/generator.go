@@ -313,7 +313,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	openapiHTMLPath := ctx.BasePath + "/openapi.html"
 	metadataPath := ctx.BasePath
 	if metadataPath == "" {
-		metadataPath = "/"
+		metadataPath = "/{$}"
 	}
 	wiring.DiscoveryRoutes = []string{
 		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeOpenAPI)", openapiPath, discoveryVar),
@@ -4213,9 +4213,10 @@ func generateDiscovery(ns string, serviceName string, basePath string, collectio
 		Collections []metadataCollection `json:"collections"`
 	}
 	meta := metadataResponse{
-		Kind: "API",
-		ID:   serviceName,
-		Href: basePath,
+		Kind:        "API",
+		ID:          serviceName,
+		Href:        basePath,
+		Collections: make([]metadataCollection, 0),
 	}
 	if meta.Href == "" {
 		meta.Href = "/"

@@ -15,7 +15,7 @@ last_applied:
             version: 2.0.0
             sha: env-override
         rest-api:
-            version: 2.1.0
+            version: 3.0.0
             sha: env-override
         rh-sso-auth:
             version: 1.0.0
@@ -62,13 +62,15 @@ last_applied:
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
         go.mod: 38db1cbfc42bf6ec931f0aca25d59161b3d6220b1b7e7a5d7111769f917abb98
+        internal/api/cors.go: 9d2b3589a6f06b05aaac95e711c60e82af3adb0ba31b1c26d2e6ef2f178f92c1
+        internal/api/discovery.go: 31cf4a80ece098d319dad61a8c861282481707c57deeaab8af29485c6ded4f85
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
         internal/api/handler_org_settings.go: d8bfffbb7c4bcc6761673aec96f9ca1e40418a4747ae6bc7486a986b28093cb2
         internal/api/handler_org_users.go: d29e571532652604e1e340bbb8260825d806d41fc04b3cb78600ecf4300a68bf
         internal/api/handler_organizations.go: 32d75a7e18de65e29a0bffc5251f3d45f3f678af4052c6fe9d5ee981f7e5b86c
         internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
-        internal/api/router.go: 86209962eb2b2ac6d8ca67243a2f611f2bf9d905feb59dda2110ba963f4e7fe0
+        internal/api/router.go: 9929b7f1f9a3250bf609223e554f424215a359735d74055fbf75d0d30facbdde
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/context.go: 21fa1192bdf97d1f00cb471dcb4af32963873a954a7cb21aa0ef742b568c06f2
         internal/auth/middleware.go: 3dfbd767de93fb1519471cef921b7da5280b9c03411e6c855217067b6f0901ac
@@ -78,8 +80,8 @@ last_applied:
         internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
         internal/storage/models.go: 070abe4729d630a4b2b6e7e1fe975cb6cc22ebb9a956689bd28c44f6da69dd33
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
-        internal/storage/store.go: a9d11c007f8ead3595772373fb0193a33da390f6c05251afefbc77ef56592669
-        main.go: 4dc44d4de45b504324fa85bf9fa2e2bac3b994d93411ced08d2fe54016f04339
+        internal/storage/store.go: 532f3ff1289fedbc8d155bc07d99a82bf7a3c4ab679118b171a0d76d1f980b1c
+        main.go: 1377e18c374f01bd561e2dd9cc1b296eb4ff7a29dec83e23f0c4401bffcdaf0e
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64

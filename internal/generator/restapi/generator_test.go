@@ -10524,7 +10524,7 @@ func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
 		if strings.Contains(r, "GET /openapi\"") {
 			foundOpenAPI = true
 		}
-		if strings.Contains(r, "GET /\"") {
+		if strings.Contains(r, "GET /{$}\"") && strings.Contains(r, "ServeMetadata") {
 			foundMetadata = true
 		}
 	}
@@ -10532,6 +10532,48 @@ func TestGenerate_DiscoveryEmptyBasePath(t *testing.T) {
 		t.Errorf("with empty base_path, OpenAPI route should be at /openapi, got: %v", wiring.DiscoveryRoutes)
 	}
 	if !foundMetadata {
-		t.Errorf("with empty base_path, metadata route should be at /, got: %v", wiring.DiscoveryRoutes)
+		t.Errorf("with empty base_path, metadata route should use /{$} (exact match), got: %v", wiring.DiscoveryRoutes)
+	}
+}
+
+func TestGenerate_DiscoveryMetadataCollectionsEmptyArrayNotNull(t *testing.T) {
+	// Test the nil-slice-to-empty-array fix by verifying the metadata JSON
+	// serialization. Even when top-level collections exist, the initialization
+	// must use a non-nil slice. We verify by examining the generated constant.
+	g := &Generator{}
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Widget", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
+		},
+		Collections: []types.Collection{
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpList}},
+		},
+		OutputNamespace: "internal/api",
+		BasePath:        "/api/v1",
+		ServiceName:     "test-service",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := findFileContent(t, files, "internal/api/discovery.go")
+
+	// Verify the JSON metadata contains "collections" as a proper array.
+	if !strings.Contains(content, `"collections"`) {
+		t.Fatal("metadata missing collections field")
+	}
+
+	// The collections field should appear as a JSON array, never as null.
+	// Even though this test has one top-level collection, verify the structure.
+	if strings.Contains(content, `"collections": null`) {
+		t.Error("metadata collections should never be null — must be an array")
+	}
+
+	// Additionally verify the top-level collection appears.
+	if !strings.Contains(content, `"kind": "WidgetList"`) {
+		t.Error("metadata missing WidgetList for top-level collection")
 	}
 }

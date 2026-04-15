@@ -59,6 +59,8 @@ func main() {
 	)
 
 	validationMiddleware := api.NewValidationMiddleware()
+	cORSMiddleware := api.NewCORSMiddleware()
+	discoveryHandler := api.NewDiscoveryHandler()
 	store := storage.NewStore(db)
 	jWTHandler := auth.NewJWTHandler().WithKeysURL(os.Getenv("JWK_CERT_URL")).WithKeysFile(os.Getenv("JWK_CERT_FILE")).WithAuthEnabled(os.Getenv("AUTH_ENABLED"))
 	defer jWTHandler.Stop()
@@ -88,5 +90,11 @@ func main() {
 	}
 	addr := ":" + port
 	log.Printf("starting server on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, jWTHandler.Build()(validationMiddleware(mux))))
+	handler := cORSMiddleware(jWTHandler.Build()(validationMiddleware(mux)))
+	topMux := http.NewServeMux()
+	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi", discoveryHandler.ServeOpenAPI)
+	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi.html", discoveryHandler.ServeOpenAPIUI)
+	topMux.HandleFunc("GET /api/user-mgmt/v1", discoveryHandler.ServeMetadata)
+	topMux.Handle("/", handler)
+	log.Fatal(http.ListenAndServe(addr, topMux))
 }

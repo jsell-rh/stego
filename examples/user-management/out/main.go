@@ -72,6 +72,7 @@ func main() {
 
 	validationMiddleware := api.NewValidationMiddleware()
 	cORSMiddleware := api.NewCORSMiddleware()
+	discoveryHandler := api.NewDiscoveryHandler()
 	store := storage.NewStore(db)
 	authMiddleware := auth.NewAuthMiddleware()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
@@ -106,5 +107,11 @@ func main() {
 	}
 	addr := ":" + port
 	log.Printf("starting server on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, cORSMiddleware(authMiddleware(validationMiddleware(mux)))))
+	handler := cORSMiddleware(authMiddleware(validationMiddleware(mux)))
+	topMux := http.NewServeMux()
+	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi", discoveryHandler.ServeOpenAPI)
+	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi.html", discoveryHandler.ServeOpenAPIUI)
+	topMux.HandleFunc("GET /api/user-mgmt/v1", discoveryHandler.ServeMetadata)
+	topMux.Handle("/", handler)
+	log.Fatal(http.ListenAndServe(addr, topMux))
 }

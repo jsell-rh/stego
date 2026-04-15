@@ -242,6 +242,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity Organization", field)
+			}
+			query = query.Where(field+" = ?", value)
+		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("Organization", opts.Search)
 			if err != nil {
@@ -291,6 +297,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity User", field)
+			}
+			query = query.Where(field+" = ?", value)
+		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("User", opts.Search)
 			if err != nil {
@@ -339,6 +351,12 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity OrgSetting", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
+		}
+		for field, value := range opts.ImplicitFilters {
+			if !validCols[field] {
+				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity OrgSetting", field)
+			}
+			query = query.Where(field+" = ?", value)
 		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("OrgSetting", opts.Search)

@@ -76,6 +76,7 @@ last_applied:
     files:
         go.mod: 9f3b0367745bff423ca9618f8b1093e9ec98bd4aef21b15a93f8500f9e757d20
         internal/api/cors.go: 9d2b3589a6f06b05aaac95e711c60e82af3adb0ba31b1c26d2e6ef2f178f92c1
+        internal/api/discovery.go: e8cebc8947ec7d3b9b268edf03f07277cde0dd116e2d464d5310b75dc3b3b2a3
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
         internal/api/handler_org_audit_events.go: ca85c221bb215a6ce329e7c50f736cdfe1d3ebba69993db128a80fea0dc0ddc8
@@ -94,7 +95,7 @@ last_applied:
         internal/storage/models.go: 29d97e2bbc95ce3836862d85e4f28adfcadcc9fd6dec91a45f25ef719105cbcf
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 7e8baed1fb39cc7dc8e23e280a1637fa9df77de3deba87d984c11aaa440c576a
-        main.go: 042b51599e6d3e8881ef51be235b11113d80c999b47860e2737d2b1896d0d201
+        main.go: 266db2db2d7421b237f061795963c76c6c9abf1023b49b46033e46461ab87365
         slots/after_create.go: 03242bcad46578176c9ac819f42390080ebebb94f72c480316f09740289ad80f
         slots/after_create_operators.go: c72f22f8bd303c7e04c678806d36c11c7c95f7d0519c9fc34bf80d1d597c5e5b
         slots/before_create.go: 0ed4275239c00344d9e55970778a6ab14baf77d84963089b65abfe8b7d764eb4
