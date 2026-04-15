@@ -5570,9 +5570,14 @@ func TestGenerate_EnvelopeSingleResourceCreate(t *testing.T) {
 
 	handler := findFileContent(t, files, "internal/api/handler_widgets.go")
 
-	// Create handler must generate a UUID for the entity ID.
-	if !strings.Contains(handler, `uuid.New().String()`) {
-		t.Error("Create handler must generate a UUID when envelope is enabled")
+	// Create handler must generate a UUID v7 for the entity ID.
+	if !strings.Contains(handler, `uuid.NewV7()`) {
+		t.Error("Create handler must use uuid.NewV7() when envelope is enabled")
+	}
+
+	// Create handler must propagate uuid.NewV7() errors as HTTP 500.
+	if !strings.Contains(handler, `InternalError("generating entity ID:`) {
+		t.Error("Create handler must propagate uuid.NewV7() error as InternalError")
 	}
 
 	// Create handler must use presentEntity to wrap the response.
@@ -5994,7 +5999,7 @@ func TestGenerate_BareResponseFormatPreservesBehavior(t *testing.T) {
 	}
 
 	// Bare mode: no UUID generation.
-	if strings.Contains(handler, "uuid.New()") {
+	if strings.Contains(handler, "uuid.NewV7()") || strings.Contains(handler, "uuid.New()") {
 		t.Error("bare mode must NOT generate UUIDs")
 	}
 

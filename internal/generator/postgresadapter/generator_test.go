@@ -284,9 +284,14 @@ func TestMetaBeforeCreateHookGeneratesUUID(t *testing.T) {
 		t.Error("models.go should have BeforeCreate hook on Meta")
 	}
 
-	// The hook should assign uuid.New().String() when ID is empty.
-	if !strings.Contains(content, "uuid.New().String()") {
-		t.Error("BeforeCreate hook should use uuid.New().String() for ID generation")
+	// The hook should assign uuid.NewV7() when ID is empty.
+	if !strings.Contains(content, "uuid.NewV7()") {
+		t.Error("BeforeCreate hook should use uuid.NewV7() for ID generation")
+	}
+
+	// The hook should propagate the error from NewV7.
+	if !strings.Contains(content, "generating UUID v7") {
+		t.Error("BeforeCreate hook should propagate uuid.NewV7() error")
 	}
 
 	// The hook should only assign when ID is empty (not overwrite provided IDs).

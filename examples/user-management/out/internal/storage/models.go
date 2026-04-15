@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"fmt"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -17,10 +18,14 @@ type Meta struct {
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// BeforeCreate is a GORM hook that auto-generates a UUID for ID on create.
+// BeforeCreate is a GORM hook that auto-generates a UUID v7 for ID on create.
 func (m *Meta) BeforeCreate(tx *gorm.DB) error {
 	if m.ID == "" {
-		m.ID = uuid.New().String()
+		id, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generating UUID v7: %w", err)
+		}
+		m.ID = id.String()
 	}
 	return nil
 }

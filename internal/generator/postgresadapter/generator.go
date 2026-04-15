@@ -225,6 +225,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 
 	fmt.Fprintf(&buf, "import (\n")
+	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"github.com/google/uuid\"\n")
 	if needDatatypes {
 		fmt.Fprintf(&buf, "\t\"gorm.io/datatypes\"\n")
@@ -242,11 +243,15 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	fmt.Fprintf(&buf, "\tDeletedAt   gorm.DeletedAt `json:\"-\" gorm:\"index\"`\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	// BeforeCreate hook auto-generates a UUID for ID if not already set.
-	fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID for ID on create.\n")
+	// BeforeCreate hook auto-generates a UUID v7 for ID if not already set.
+	fmt.Fprintf(&buf, "// BeforeCreate is a GORM hook that auto-generates a UUID v7 for ID on create.\n")
 	fmt.Fprintf(&buf, "func (m *Meta) BeforeCreate(tx *gorm.DB) error {\n")
 	fmt.Fprintf(&buf, "\tif m.ID == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\tm.ID = uuid.New().String()\n")
+	fmt.Fprintf(&buf, "\t\tid, err := uuid.NewV7()\n")
+	fmt.Fprintf(&buf, "\t\tif err != nil {\n")
+	fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"generating UUID v7: %%w\", err)\n")
+	fmt.Fprintf(&buf, "\t\t}\n")
+	fmt.Fprintf(&buf, "\t\tm.ID = id.String()\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\treturn nil\n")
 	fmt.Fprintf(&buf, "}\n\n")

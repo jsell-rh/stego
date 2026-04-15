@@ -55,7 +55,12 @@ func (h *OrganizationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handleError(w, r, BadRequest(err.Error()))
 		return
 	}
-	organization.ID = uuid.New().String()
+	id, err := uuid.NewV7()
+	if err != nil {
+		handleError(w, r, InternalError("generating entity ID: "+err.Error()))
+		return
+	}
+	organization.ID = id.String()
 	if h.beforeCreateChain != nil {
 		descriptionVal := ""
 		if organization.Description != nil {

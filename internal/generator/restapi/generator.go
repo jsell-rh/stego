@@ -780,9 +780,14 @@ func generateCreateMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	// When envelope format is enabled, generate a UUID for the entity ID.
+	// When envelope format is enabled, generate a UUID v7 for the entity ID.
 	if envelope {
-		fmt.Fprintf(buf, "\t%s.ID = uuid.New().String()\n", lower)
+		fmt.Fprintf(buf, "\tid, err := uuid.NewV7()\n")
+		fmt.Fprintf(buf, "\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\thandleError(w, r, InternalError(\"generating entity ID: \"+err.Error()))\n")
+		fmt.Fprintf(buf, "\t\treturn\n")
+		fmt.Fprintf(buf, "\t}\n")
+		fmt.Fprintf(buf, "\t%s.ID = id.String()\n", lower)
 	}
 	// Clear all server-managed fields so client-supplied values are discarded,
 	// then populate them with server-derived values.
@@ -1242,11 +1247,16 @@ func generateUpsertMethod(buf *bytes.Buffer, entity types.Entity, eb types.Colle
 	fmt.Fprintf(buf, "\t\thandleError(w, r, BadRequest(err.Error()))\n")
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
-	// When envelope format is enabled, generate a UUID for the entity ID
+	// When envelope format is enabled, generate a UUID v7 for the entity ID
 	// if the client didn't provide one (covers the insert path of upsert).
 	if envelope {
 		fmt.Fprintf(buf, "\tif %s.ID == \"\" {\n", lower)
-		fmt.Fprintf(buf, "\t\t%s.ID = uuid.New().String()\n", lower)
+		fmt.Fprintf(buf, "\t\tid, err := uuid.NewV7()\n")
+		fmt.Fprintf(buf, "\t\tif err != nil {\n")
+		fmt.Fprintf(buf, "\t\t\thandleError(w, r, InternalError(\"generating entity ID: \"+err.Error()))\n")
+		fmt.Fprintf(buf, "\t\t\treturn\n")
+		fmt.Fprintf(buf, "\t\t}\n")
+		fmt.Fprintf(buf, "\t\t%s.ID = id.String()\n", lower)
 		fmt.Fprintf(buf, "\t}\n")
 	}
 	// Clear all server-managed fields so client-supplied values are discarded,

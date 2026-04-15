@@ -199,7 +199,12 @@ func (h *OrgSettingsHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if orgsetting.ID == "" {
-		orgsetting.ID = uuid.New().String()
+		id, err := uuid.NewV7()
+		if err != nil {
+			handleError(w, r, InternalError("generating entity ID: "+err.Error()))
+			return
+		}
+		orgsetting.ID = id.String()
 	}
 	orgsetting.Generation = 0
 	orgsetting.OrgID = r.PathValue("org_id")

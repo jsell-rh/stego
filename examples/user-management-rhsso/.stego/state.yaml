@@ -66,9 +66,9 @@ last_applied:
         internal/api/discovery.go: 31cf4a80ece098d319dad61a8c861282481707c57deeaab8af29485c6ded4f85
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
         internal/api/handler_all_users.go: da16f9091a7ef4042d39cf13ec6b145632ecc44b44b8c458e5adae31094957eb
-        internal/api/handler_org_settings.go: d8bfffbb7c4bcc6761673aec96f9ca1e40418a4747ae6bc7486a986b28093cb2
-        internal/api/handler_org_users.go: d29e571532652604e1e340bbb8260825d806d41fc04b3cb78600ecf4300a68bf
-        internal/api/handler_organizations.go: 32d75a7e18de65e29a0bffc5251f3d45f3f678af4052c6fe9d5ee981f7e5b86c
+        internal/api/handler_org_settings.go: d462fb0a9b2e4d521532cee9d96af118ff029aebc5f6fe30708277cc81d6131c
+        internal/api/handler_org_users.go: efb8efd69e953d8a8b2045b46bb8f3c98bd151a44585d2f15c6cff4a463ea22d
+        internal/api/handler_organizations.go: eb2c982d8e50142042770198f0ccddeea8f3458b9a55f10296a2ff5668aead0a
         internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
         internal/api/router.go: 9929b7f1f9a3250bf609223e554f424215a359735d74055fbf75d0d30facbdde
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
@@ -78,7 +78,7 @@ last_applied:
         internal/search/search.go: 8e517214792a8e844ae687ae45d364895588893ca4c9028470599302dec55089
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
         internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
-        internal/storage/models.go: 070abe4729d630a4b2b6e7e1fe975cb6cc22ebb9a956689bd28c44f6da69dd33
+        internal/storage/models.go: 7ac29205534884f00185996b22908f7644d61fe4fcb44248d20861fca858a518
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 532f3ff1289fedbc8d155bc07d99a82bf7a3c4ab679118b171a0d76d1f980b1c
         main.go: 1377e18c374f01bd561e2dd9cc1b296eb4ff7a29dec83e23f0c4401bffcdaf0e
