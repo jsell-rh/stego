@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — **OpenAPI and Metadata Endpoints** section (lines 669–700)
 
-**Status:** `not-started`
+**Status:** `ready-for-review`
 
 **Depends on:** task-061
 
@@ -40,3 +40,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 
+- 7f51ca8 fix(task-061): use {$} for exact root match and initialize collections slice (regenerated example output with discovery endpoints)
