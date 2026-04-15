@@ -200,7 +200,7 @@ When `response_format: envelope` is set in the archetype conventions, the `rest-
 }
 ```
 
-- `id` -- auto-generated UUID, assigned on create
+- `id` -- auto-generated UUID v7 (time-ordered), assigned on create. The generator must use `uuid.NewV7()` (not `uuid.New()` which produces v4).
 - `kind` -- derived from entity name
 - `href` -- `base_path` + collection path + `id`
 
@@ -490,6 +490,11 @@ The create handler must populate server-managed fields before persisting:
 
 The `kind` field in the request body (if present) is validated against the entity name but is not persisted -- it is a client-side type assertion. If absent, the server does not reject the request. If present and wrong, the server returns 400.
 
+The patch handler must update server-managed fields:
+- `updated_by` -- extract from JWT identity (same as create)
+- `updated_time` -- set to `time.Now()`
+- `generation` -- increment by 1. This is a generator-level concern, not a fill. The generation field tracks the version of the customer's intent; every spec mutation must bump it so adapters can detect which version they're processing.
+
 **Generated DAO layer** provides per-entity data access:
 - `Create(ctx, entity)` -- `g2.Create(entity)`
 - `Get(ctx, id)` -- `g2.First(&entity, id)`
@@ -720,6 +725,11 @@ if port == "" {
 ```
 
 Additional environment variables are defined by individual components (e.g. `JWK_CERT_URL` by `rh-sso-auth`, `AUTH_ENABLED` by auth components).
+
+## Known Generator Bugs
+
+- **Missing `fmt` import**: Handlers with `after_upsert` (or other after-slots) emit `fmt.Sprintf` for persisted field conversion but do not add `"fmt"` to the import block. Workaround: manually add the import after `stego apply`.
+- **UUID v4 instead of v7**: The generator uses `uuid.New()` (v4). It should use `uuid.NewV7()` per this spec.
 
 ## Open Questions
 
