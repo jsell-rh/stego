@@ -2,7 +2,7 @@
 
 **Spec Reference:** `specs/registry/archetypes/rest-crud/spec.md` — Response Format (`uuid.NewV7()`), Known Generator Bugs
 
-**Status:** `needs-revision`
+**Status:** `ready-for-review`
 
 **Review:** [specs/reviews/task-064.md](../reviews/task-064.md)
 
@@ -54,3 +54,4 @@ When done, update this file's Status to `ready-for-review` and list relevant com
 
 ## Commits
 - b104d67 fix(task-064): use UUID v7 instead of v4 for entity ID generation
+- <pending> fix(task-064): restore deleted .stego/config.yaml files
