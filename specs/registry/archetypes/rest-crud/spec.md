@@ -728,7 +728,6 @@ Additional environment variables are defined by individual components (e.g. `JWK
 
 ## Known Generator Bugs
 
-- **Missing `fmt` import**: Handlers with `after_upsert` (or other after-slots) emit `fmt.Sprintf` for persisted field conversion but do not add `"fmt"` to the import block. Workaround: manually add the import after `stego apply`.
 - **UUID v4 instead of v7**: The generator uses `uuid.New()` (v4). It should use `uuid.NewV7()` per this spec.
 
 ## Open Questions
