@@ -302,8 +302,20 @@ Gateway creation, retrieval, and lists. A common TLS gRPC runtime calls the same
 domain service as REST. Tests compare complete wire descriptors with the pinned
 reference, read resources across both transports, check atomic failures, deliver
 events, and retain owner access after restart. A separate Record service tests
-the shared gRPC code. Pinned regeneration and remote CI must pass for this
-revision before the Gateway gate is recorded as complete.
+the shared gRPC code. Pinned regeneration and remote CI passed for
+[STEGO d04350c](https://github.com/jsell-rh/stego/actions/runs/34286053277) and
+[the variant 62cdfaa](https://github.com/jsell-rh/hypershell-stego/actions/runs/34286086055).
+The requested Gateway workflow gate is complete. This proves the first
+application workflow, not the full enterprise or Hypershell goal.
+
+The workflow exposed three required abstractions: a public transaction and
+relation-filter contract, typed domain transport factories, and compiler-owned
+protobuf inputs with snapshots. All common code has independent Record tests.
+Hypershell owns placement, owner grants, field mappings, and authorization rules.
+Its gRPC list benchmark averaged 16.79 ms across 100 requests through a separate
+generated process, with TLS and token verification. The data set contained 200
+Gateways, of which 100 were visible; each page contained 20 items. This is a local
+baseline, not a production capacity claim.
 
 Full application models, role projections,
 other placement modes, production Kafka checks, and the other Hypershell
