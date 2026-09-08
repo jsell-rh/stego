@@ -218,3 +218,12 @@ delivery IDs, ordered retries, stale leases, unknown destinations, and shutdown
 acknowledgements. Fixed failure codes and counters avoid storing sink error
 text. Handlers must honor context cancellation. Kafka and service integration
 remain open; this is not yet a complete publishing capability.
+
+The Kafka publisher library now verifies TLS and supports mutual TLS and
+SCRAM-SHA-512. It bounds credentials, broker-controlled SCRAM work, memory, and
+delivery attempts. Protocol tests check acknowledgement policy, invalid trust,
+credentials, broker denial, timeout recovery, and concurrent close. A combined
+generated-code test publishes a committed PostgreSQL outbox message through a
+TLS Kafka protocol fixture. This includes JSONB payload expansion. The fixture
+is not a real Kafka deployment. Compiler registration, service composition,
+production broker tests, and deployment checks remain open.

@@ -81,3 +81,29 @@ and acknowledgement pair took 2,461,049 ns/op, 6,089 B/op, and 137 allocations/o
 This is a small-queue baseline. It does not establish service throughput, large
 backlog behavior, or Kafka performance. Run it with `STEGO_BENCH_OUTBOX=1` and
 `STEGO_TEST_POSTGRES_DSN` through `go test -v ./internal/generator/outbox`.
+
+The Kafka publisher generator now supplies a library for one configured topic.
+It uses verified TLS for every broker connection, including discovered brokers.
+Authentication is mutual TLS or SCRAM-SHA-512 over TLS. Passwords and private keys
+come from bounded files with owner-only access. Trust roots and credentials are
+loaded at startup; a change requires a restart. The implementation currently
+uses Unix file permission checks. Windows secret-file ACL support remains open.
+
+Publication requires all in-sync replica acknowledgements. Stable message IDs
+and message kinds are record headers; the resource key selects the partition.
+Broker policy must also set a suitable replication factor and minimum in-sync
+replica count. Acknowledgement policy alone does not supply replication.
+
+The publisher permits at most 32 concurrent calls, bounds buffered data, and
+limits each attempt to ten seconds or the caller's shorter deadline. If a result
+is uncertain at that deadline, it closes that producer before returning an error.
+Later calls use a new client. The outbox retains the message for retry. This
+preserves the at-least-once contract across uncertain broker results.
+
+SCRAM challenge size and iteration count are checked before password derivation.
+The supported range is 4,096 to 100,000 iterations. Invalid trust, wrong hostnames,
+wrong credentials, plaintext connections, and broker denial have negative tests.
+The protocol tests use the upstream `kfake` broker fixture. A combined test uses
+real PostgreSQL and a TLS Kafka protocol fixture to check commit, publication,
+acknowledgement, and JSONB payload expansion. A real Kafka deployment, broker
+failover, service wiring, and deployment security checks remain required.

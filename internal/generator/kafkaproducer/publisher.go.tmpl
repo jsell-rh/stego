@@ -1,0 +1,305 @@
+package publisher
+
+import (
+    "context"
+    "crypto/tls"
+    "crypto/x509"
+    "encoding/json"
+    "encoding/pem"
+    "errors"
+    "io"
+    "net"
+    "os"
+    "regexp"
+    "strconv"
+    "strings"
+    "sync"
+    "time"
+    "unicode/utf8"
+
+    "github.com/google/uuid"
+    "github.com/twmb/franz-go/pkg/kgo"
+    "github.com/twmb/franz-go/pkg/sasl"
+    "github.com/twmb/franz-go/pkg/sasl/scram"
+)
+
+var ErrClosed = errors.New("Kafka publisher is closed")
+var ErrUnavailable = errors.New("Kafka delivery is unavailable or unconfirmed")
+
+// PostgreSQL JSONB can expand the queue's 64 KiB input during normalization.
+const maxPayloadBytes = 128 << 10
+const maxFileBytes = 64 << 10
+var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+var topicPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]{1,249}$`)
+
+type Config struct {
+    Brokers []string
+    Topic string
+    CAFile string
+    // Authentication is either "mtls" or "scram-sha-512".
+    Authentication string
+    ClientCertificateFile string
+    ClientKeyFile string
+    Username string
+    PasswordFile string
+}
+
+type Record struct {
+    ID uuid.UUID
+    ResourceKey string
+    Kind string
+    Payload json.RawMessage
+}
+
+type clientSession struct {
+    client *kgo.Client
+    once sync.Once
+}
+
+func (s *clientSession) close() { s.once.Do(s.client.Close) }
+
+type Publisher struct {
+    mu sync.Mutex
+    options []kgo.Opt
+    session *clientSession
+    closed bool
+    topic string
+    permits chan struct{}
+    done chan struct{}
+    active sync.WaitGroup
+}
+
+// New validates configuration and checks the broker connection. Credentials
+// are read once. Restart the publisher after credentials or trust roots change.
+func New(ctx context.Context, config Config) (*Publisher, error) {
+    if ctx == nil { return nil, errors.New("Kafka publisher requires a context") }
+    options, err := clientOptions(config)
+    if err != nil { return nil, err }
+    publisher := &Publisher{options: options, topic: config.Topic, permits: make(chan struct{}, 32), done: make(chan struct{})}
+    session, err := publisher.acquire()
+    if err != nil { return nil, err }
+    check, cancel := context.WithTimeout(ctx, 5*time.Second)
+    defer cancel()
+    if err := session.client.Ping(check); err != nil {
+        publisher.Close()
+        if check.Err() != nil { return nil, check.Err() }
+        return nil, ErrUnavailable
+    }
+    return publisher, nil
+}
+
+func (p *Publisher) acquire() (*clientSession, error) {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+    if p.closed { return nil, ErrClosed }
+    if p.session == nil {
+        client, err := kgo.NewClient(p.options...)
+        if err != nil { return nil, errors.New("invalid Kafka client configuration") }
+        p.session = &clientSession{client: client}
+    }
+    return p.session, nil
+}
+
+func (p *Publisher) invalidate(session *clientSession) {
+    p.mu.Lock()
+    if p.session == session { p.session = nil }
+    p.mu.Unlock()
+    session.close()
+}
+
+// Close stops all client connections and in-flight operations. Pending outbox
+// messages must be retained unless Publish already returned success.
+func (p *Publisher) Close() {
+    p.mu.Lock()
+    if !p.closed { close(p.done) }
+    p.closed = true
+    session := p.session
+    p.session = nil
+    p.mu.Unlock()
+    if session != nil { session.close() }
+    p.active.Wait()
+}
+
+// Publish returns success only after Kafka acknowledges the record. An
+// uncertain result closes the client and returns an error for durable retry.
+func (p *Publisher) Publish(ctx context.Context, record Record) error {
+    if ctx == nil { return errors.New("Kafka delivery requires a context") }
+    if err := validateRecord(record); err != nil { return err }
+    p.mu.Lock()
+    if p.closed { p.mu.Unlock(); return ErrClosed }
+    p.active.Add(1)
+    p.mu.Unlock()
+    defer p.active.Done()
+    attempt, cancel := context.WithTimeout(ctx, 10*time.Second)
+    defer cancel()
+    select {
+    case p.permits <- struct{}{}:
+    case <-p.done: return ErrClosed
+    case <-attempt.Done(): return attempt.Err()
+    }
+    defer func() { <-p.permits }()
+    if err := attempt.Err(); err != nil { return err }
+    session, err := p.acquire()
+    if err != nil { return err }
+    result := make(chan error, 1)
+    session.client.TryProduce(attempt, &kgo.Record{
+        Topic: p.topic,
+        Key: []byte(record.ResourceKey),
+        Value: append([]byte(nil), record.Payload...),
+        Headers: []kgo.RecordHeader{
+            {Key: "stego-message-id", Value: []byte(record.ID.String())},
+            {Key: "stego-message-kind", Value: []byte(record.Kind)},
+            {Key: "content-type", Value: []byte("application/json")},
+        },
+    }, func(_ *kgo.Record, err error) { result <- err })
+    select {
+    case err := <-result:
+        if err == nil && attempt.Err() == nil { return nil }
+        if attempt.Err() != nil {
+            p.invalidate(session)
+            return attempt.Err()
+        }
+        return ErrUnavailable
+    case <-attempt.Done():
+        // Idempotent production can outlive record cancellation when a broker
+        // result is uncertain. Close that producer before returning to retry.
+        p.invalidate(session)
+        <-result
+        return attempt.Err()
+    }
+}
+
+func validateRecord(record Record) error {
+    if record.ID == uuid.Nil || !labelPattern.MatchString(record.Kind) || len(record.ResourceKey) == 0 ||
+        len(record.ResourceKey) > 256 || !utf8.ValidString(record.ResourceKey) || strings.ContainsRune(record.ResourceKey, 0) {
+        return errors.New("invalid Kafka record identity")
+    }
+    if len(record.Payload) == 0 || len(record.Payload) > maxPayloadBytes || !utf8.Valid(record.Payload) || !json.Valid(record.Payload) {
+        return errors.New("invalid Kafka record payload")
+    }
+    return nil
+}
+
+func clientOptions(config Config) ([]kgo.Opt, error) {
+    if len(config.Brokers) == 0 || len(config.Brokers) > 16 || !topicPattern.MatchString(config.Topic) ||
+        config.Topic == "." || config.Topic == ".." || strings.HasPrefix(config.Topic, "__") {
+        return nil, errors.New("Kafka requires explicit brokers and a valid application topic")
+    }
+    seen := make(map[string]bool)
+    for _, broker := range config.Brokers {
+        host, port, err := net.SplitHostPort(broker)
+        number, portErr := strconv.Atoi(port)
+        if err != nil || portErr != nil || number < 1 || number > 65535 || host == "" || len(host) > 253 ||
+            strings.ContainsAny(host, "/\\@ \t\r\n\x00") || seen[broker] {
+            return nil, errors.New("invalid or duplicate Kafka broker address")
+        }
+        seen[broker] = true
+    }
+    transport := &tls.Config{MinVersion: tls.VersionTLS12}
+    if config.CAFile != "" {
+        data, err := readConfigFile(config.CAFile, false)
+        if err != nil { return nil, err }
+        roots := x509.NewCertPool()
+        count := 0
+        for len(strings.TrimSpace(string(data))) != 0 {
+            data = []byte(strings.TrimSpace(string(data)))
+            if !strings.HasPrefix(string(data), "-----BEGIN CERTIFICATE-----") { return nil, errors.New("invalid Kafka CA file") }
+            block, rest := pem.Decode(data)
+            if block == nil || block.Type != "CERTIFICATE" || len(block.Headers) != 0 { return nil, errors.New("invalid Kafka CA file") }
+            certificate, err := x509.ParseCertificate(block.Bytes)
+            if err != nil || !certificate.IsCA { return nil, errors.New("Kafka trust file must contain CA certificates") }
+            roots.AddCert(certificate)
+            count++
+            data = rest
+        }
+        if count == 0 { return nil, errors.New("Kafka CA file is empty") }
+        transport.RootCAs = roots
+    }
+    options := []kgo.Opt{
+        kgo.SeedBrokers(append([]string(nil), config.Brokers...)...),
+        kgo.DialTLSConfig(transport), kgo.DialTimeout(2*time.Second),
+        kgo.RequestTimeoutOverhead(time.Second), kgo.ProduceRequestTimeout(2*time.Second),
+        kgo.RequiredAcks(kgo.AllISRAcks()), kgo.RecordRetries(3),
+        kgo.RecordDeliveryTimeout(8*time.Second), kgo.StopProducerOnDataLossDetected(),
+        kgo.MaxBufferedRecords(32), kgo.MaxBufferedBytes(8<<20),
+        kgo.ProducerBatchMaxBytes(256<<10), kgo.BrokerMaxReadBytes(8<<20),
+        kgo.FetchMaxBytes(8<<20),
+        kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)),
+    }
+    switch config.Authentication {
+    case "mtls":
+        if config.ClientCertificateFile == "" || config.ClientKeyFile == "" || config.Username != "" || config.PasswordFile != "" {
+            return nil, errors.New("Kafka mutual TLS requires a certificate and private key only")
+        }
+        certificate, err := readConfigFile(config.ClientCertificateFile, false)
+        if err != nil { return nil, err }
+        key, err := readConfigFile(config.ClientKeyFile, true)
+        if err != nil { return nil, err }
+        pair, err := tls.X509KeyPair(certificate, key)
+        if err != nil { return nil, errors.New("invalid Kafka client certificate or private key") }
+        transport.Certificates = []tls.Certificate{pair}
+    case "scram-sha-512":
+        if config.Username == "" || len(config.Username) > 256 || !utf8.ValidString(config.Username) ||
+            strings.ContainsAny(config.Username, "\x00\r\n") || config.PasswordFile == "" || config.ClientCertificateFile != "" || config.ClientKeyFile != "" {
+            return nil, errors.New("Kafka SCRAM requires a username and password file only")
+        }
+        password, err := readConfigFile(config.PasswordFile, true)
+        if err != nil { return nil, err }
+        secret := string(password)
+        if strings.HasSuffix(secret, "\n") { secret = strings.TrimSuffix(strings.TrimSuffix(secret, "\n"), "\r") }
+        if secret == "" || len(secret) > 4096 || !utf8.ValidString(secret) || strings.ContainsRune(secret, 0) { return nil, errors.New("invalid Kafka password file") }
+        options = append(options, kgo.SASL(boundedSCRAM{scram.Auth{User: config.Username, Pass: secret}.AsSha512Mechanism()}))
+    default:
+        return nil, errors.New("Kafka authentication must be mtls or scram-sha-512")
+    }
+    return options, nil
+}
+
+func readConfigFile(name string, private bool) ([]byte, error) {
+    info, err := os.Stat(name)
+    if err != nil { return nil, errors.New("cannot read Kafka configuration file") }
+    if !info.Mode().IsRegular() || private && info.Mode().Perm() & 0077 != 0 { return nil, errors.New("Kafka secret files must be regular and accessible only to their owner") }
+    file, err := os.Open(name)
+    if err != nil { return nil, errors.New("cannot open Kafka configuration file") }
+    defer file.Close()
+    actual, err := file.Stat()
+    if err != nil || !os.SameFile(info, actual) || !actual.Mode().IsRegular() || private && actual.Mode().Perm() & 0077 != 0 {
+        return nil, errors.New("Kafka configuration file changed while opening")
+    }
+    data, err := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
+    if err != nil || len(data) > maxFileBytes { return nil, errors.New("Kafka configuration file exceeds its read limit or cannot be read") }
+    return data, nil
+}
+
+// Bound server-controlled SCRAM work before calling the library's cryptography.
+type boundedSCRAM struct { sasl.Mechanism }
+
+func (m boundedSCRAM) Authenticate(ctx context.Context, host string) (sasl.Session, []byte, error) {
+    session, initial, err := m.Mechanism.Authenticate(ctx, host)
+    if err != nil { return nil, nil, err }
+    return &boundedSCRAMSession{Session: session, first: true}, initial, nil
+}
+
+type boundedSCRAMSession struct {
+    sasl.Session
+    first bool
+}
+
+func (s *boundedSCRAMSession) Challenge(challenge []byte) (bool, []byte, error) {
+    if len(challenge) > 16<<10 { return false, nil, errors.New("Kafka SCRAM challenge exceeds its size limit") }
+    if s.first {
+        found := false
+        for _, field := range strings.Split(string(challenge), ",") {
+            if strings.HasPrefix(field, "i=") {
+                iterations, err := strconv.Atoi(field[2:])
+                if found || err != nil || iterations < 4096 || iterations > 100000 {
+                    return false, nil, errors.New("Kafka SCRAM iteration count is outside supported limits")
+                }
+                found = true
+            }
+        }
+        if !found { return false, nil, errors.New("Kafka SCRAM challenge has no iteration count") }
+        s.first = false
+    }
+    return s.Session.Challenge(challenge)
+}

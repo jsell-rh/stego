@@ -20,6 +20,11 @@ var workerTests []byte
 var workerFailureTests []byte
 
 func TestGeneratedOutbox(t *testing.T) {
+	postgresDSN := os.Getenv("STEGO_TEST_POSTGRES_DSN")
+	requirePostgres := os.Getenv("STEGO_REQUIRE_POSTGRES")
+	if requirePostgres == "1" && postgresDSN == "" {
+		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
+	}
 	files, wiring, err := new(Generator).Generate(gen.Context{OutputNamespace: "queue"})
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +55,7 @@ func TestGeneratedOutbox(t *testing.T) {
 	for _, args := range commands {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = append(os.Environ(), "GOWORK=off", "STEGO_TEST_POSTGRES_DSN="+postgresDSN, "STEGO_REQUIRE_POSTGRES="+requirePostgres)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("generated outbox, go %v: %v\n%s", args, err, output)
