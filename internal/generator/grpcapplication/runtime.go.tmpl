@@ -1,0 +1,107 @@
+package transport
+
+import (
+ "context"
+ "crypto/tls"
+ "errors"
+ "fmt"
+ "io"
+ "log/slog"
+ "net"
+ "os"
+ "strings"
+ "sync"
+ "time"
+
+ "google.golang.org/grpc"
+ "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/credentials"
+ "google.golang.org/grpc/keepalive"
+ "google.golang.org/grpc/metadata"
+ "google.golang.org/grpc/status"
+)
+
+const RequestTimeout = 10*time.Second
+const MaxRequestBytes = 64<<10
+const MaxResponseBytes = 8<<20
+type Authenticate func(context.Context,string)(context.Context,error)
+type Runtime struct {
+ server *grpc.Server
+ listener net.Listener
+ mu sync.Mutex
+ started,closed bool
+ closeOnce sync.Once
+}
+
+// Addr returns the bound listener address, including an allocated port.
+func(r *Runtime)Addr()net.Addr{return r.listener.Addr()}
+
+// New requires TLS and a verified identity for all application methods.
+func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error)(*Runtime,error){
+ if authenticate==nil||register==nil{return nil,errors.New("gRPC requires authentication and registration")}
+ cert,err:=readTLSFile(os.Getenv("STEGO_GRPC_TLS_CERT"));if err!=nil{return nil,err}
+ key,err:=readTLSFile(os.Getenv("STEGO_GRPC_TLS_KEY"));if err!=nil{return nil,err}
+ pair,err:=tls.X509KeyPair(cert,key);if err!=nil{return nil,errors.New("invalid gRPC TLS key pair")}
+ limits:=make(chan struct{},128)
+ enter:=func(ctx context.Context)(context.Context,func(),error){
+  select{case limits<-struct{}{}:default:return nil,nil,status.Error(codes.ResourceExhausted,"request capacity exceeded")}
+  ctx,cancel:=context.WithTimeout(ctx,RequestTimeout)
+  release:=func(){cancel();<-limits}
+  md,ok:=metadata.FromIncomingContext(ctx);if !ok{release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
+  values:=md.Get("authorization")
+  if len(values)!=1||len(values[0])>16400{release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
+  fields:=strings.Fields(values[0]);if len(fields)!=2||!strings.EqualFold(fields[0],"Bearer"){release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
+  verified,err:=authenticate(ctx,fields[1]);if err!=nil||verified==nil{release();return nil,nil,status.Error(codes.Unauthenticated,"invalid access token")}
+  return verified,release,nil
+ }
+ server:=grpc.NewServer(
+  grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{pair}})),
+  grpc.MaxRecvMsgSize(MaxRequestBytes),grpc.MaxSendMsgSize(MaxResponseBytes),grpc.MaxHeaderListSize(32<<10),grpc.MaxConcurrentStreams(64),grpc.ConnectionTimeout(5*time.Second),
+  grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle:60*time.Second,Time:2*time.Hour,Timeout:20*time.Second}),
+  grpc.ChainUnaryInterceptor(func(ctx context.Context,req any,_ *grpc.UnaryServerInfo,handler grpc.UnaryHandler)(result any,err error){
+   verified,release,err:=enter(ctx);if err!=nil{return nil,err};defer release()
+   defer func(){if recover()!=nil{result=nil;err=status.Error(codes.Internal,"request failed")}}()
+   result,err=handler(verified,req)
+   if verified.Err()!=nil{return nil,status.FromContextError(verified.Err()).Err()}
+   if err!=nil&&status.Code(err)==codes.Unknown{return nil,status.Error(codes.Internal,"request failed")}
+   return result,err
+  }),
+  grpc.ChainStreamInterceptor(func(srv any,stream grpc.ServerStream,_ *grpc.StreamServerInfo,handler grpc.StreamHandler)(err error){
+   verified,release,err:=enter(stream.Context());if err!=nil{return err};defer release()
+   defer func(){if recover()!=nil{err=status.Error(codes.Internal,"request failed")}}()
+   err=handler(srv,&verifiedStream{ServerStream:stream,ctx:verified})
+   if verified.Err()!=nil{return status.FromContextError(verified.Err()).Err()}
+   if err!=nil&&status.Code(err)==codes.Unknown{return status.Error(codes.Internal,"request failed")}
+   return err
+  }),
+ )
+ if err:=register(server);err!=nil{server.Stop();return nil,err}
+ address:=os.Getenv("STEGO_GRPC_ADDR");if address==""{address="127.0.0.1:9090"}
+ listener,err:=net.Listen("tcp",address);if err!=nil{server.Stop();return nil,fmt.Errorf("gRPC listener: %w",err)}
+ return &Runtime{server:server,listener:listener},nil
+}
+
+type verifiedStream struct{grpc.ServerStream;ctx context.Context}
+func(s *verifiedStream)Context()context.Context{return s.ctx}
+
+func readTLSFile(name string)([]byte,error){
+ if name==""{return nil,errors.New("gRPC TLS certificate and key are required")}
+ f,err:=os.Open(name);if err!=nil{return nil,errors.New("cannot read gRPC TLS configuration")};defer f.Close()
+ info,err:=f.Stat();if err!=nil||!info.Mode().IsRegular(){return nil,errors.New("gRPC TLS input must be a regular file")}
+ data,err:=io.ReadAll(io.LimitReader(f,65537));if err!=nil||len(data)>65536{return nil,errors.New("gRPC TLS input exceeds its limit")};return data,nil
+}
+
+func(r *Runtime)Run(ctx context.Context)error{
+ r.mu.Lock();if r.started||r.closed{r.mu.Unlock();return errors.New("gRPC runtime cannot run twice or after close")};r.started=true;r.mu.Unlock()
+ done:=make(chan error,1);go func(){done<-r.server.Serve(r.listener)}()
+ slog.Info("gRPC server started","address",r.listener.Addr().String())
+ select{
+ case err:=<-done:if ctx.Err()!=nil||errors.Is(err,grpc.ErrServerStopped){return nil};return fmt.Errorf("gRPC serve: %w",err)
+ case <-ctx.Done():
+  stopped:=make(chan struct{});go func(){r.server.GracefulStop();close(stopped)}()
+  timer:=time.NewTimer(10*time.Second);defer timer.Stop()
+  select{case <-stopped:case <-timer.C:r.server.Stop();<-stopped}
+  <-done;return nil
+ }
+}
+func(r *Runtime)Close(){r.closeOnce.Do(func(){r.mu.Lock();r.closed=true;r.mu.Unlock();r.server.Stop();_ = r.listener.Close()})}

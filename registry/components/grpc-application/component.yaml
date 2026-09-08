@@ -1,0 +1,20 @@
+kind: component
+name: grpc-application
+version: 1.0.0
+output_namespace: grpcapi
+config:
+  factory_package:
+    type: string
+  proto_files:
+    type: list
+    items:
+      path:
+        type: string
+      import_path:
+        type: string
+requires:
+  - storage-adapter
+  - auth-provider
+provides:
+  - application-grpc
+slots: []

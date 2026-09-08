@@ -14,6 +14,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
@@ -776,6 +777,7 @@ func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
 		"rest-api":         &restapi.Generator{},
 		"http-application": &httpapplication.Generator{},
+		"grpc-application": &grpcapplication.Generator{},
 		"outbox":           &outbox.Generator{},
 		"kafka-producer":   &kafkaproducer.Generator{},
 		"postgres-adapter": &postgresadapter.Generator{},

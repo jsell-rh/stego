@@ -6,4 +6,10 @@ require gopkg.in/yaml.v3 v3.0.1
 
 require golang.org/x/mod v0.41.0
 
-require golang.org/x/sys v0.48.0
+require (
+	github.com/bufbuild/protocompile v0.14.1
+	golang.org/x/sys v0.48.0
+	google.golang.org/protobuf v1.36.11
+)
+
+require golang.org/x/sync v0.8.0 // indirect

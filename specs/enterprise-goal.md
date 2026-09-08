@@ -297,8 +297,15 @@ Responses are checked against the pinned OpenAPI contract. The supported list
 parameters are page and size; the maximum page size is 100. Other REST query
 features remain open. A separate Record service checks the common HTTP code.
 
-gRPC endpoint implementation and acceptance remain the next work.
-The Gateway gate is still open. Full application models, role projections,
+The variant now uses generated protobuf clients and service definitions for
+Gateway creation, retrieval, and lists. A common TLS gRPC runtime calls the same
+domain service as REST. Tests compare complete wire descriptors with the pinned
+reference, read resources across both transports, check atomic failures, deliver
+events, and retain owner access after restart. A separate Record service tests
+the shared gRPC code. Pinned regeneration and remote CI must pass for this
+revision before the Gateway gate is recorded as complete.
+
+Full application models, role projections,
 other placement modes, production Kafka checks, and the other Hypershell
 workflows also remain open. Separate versioned API contracts are the current
 design assumption; the user has been asked whether to use that approach or
