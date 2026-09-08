@@ -65,3 +65,16 @@ func TestAuthenticationHeaderMustBeValid(t *testing.T) {
 		}
 	}
 }
+
+func TestRolesClaimConfiguration(t *testing.T) {
+	for _, value := range []any{42, nil, ".roles", "roles.", "realm..roles", "realm/roles"} {
+		if _, _, err := new(Generator).Generate(gen.Context{ComponentConfig: map[string]any{"roles_claim": value}}); err == nil {
+			t.Fatalf("invalid roles_claim was accepted: %v", value)
+		}
+	}
+	for _, value := range []string{"", "roles", "realm_access.roles"} {
+		if _, _, err := new(Generator).Generate(gen.Context{ComponentConfig: map[string]any{"roles_claim": value}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

@@ -21,6 +21,14 @@ var middlewareTemplate string
 type Generator struct{}
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	rolesClaim := ""
+	if value, present := ctx.ComponentConfig["roles_claim"]; present {
+		var ok bool
+		rolesClaim, ok = value.(string)
+		if !ok || !validRolesClaim(rolesClaim) {
+			return nil, nil, fmt.Errorf("roles_claim must be a dotted claim path or an empty string")
+		}
+	}
 	ns := ctx.OutputNamespace
 	if ns == "" {
 		ns = "internal/auth"
@@ -39,11 +47,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if ctx.ErrorTypeBase != "" {
 		errorType = ctx.ErrorTypeBase + "unauthorized"
 	}
-	data := struct{ Package, Header, Issuer, Audience, KeyFile, ErrorType, ErrorCode string }{
+	data := struct{ Package, Header, Issuer, Audience, KeyFile, ErrorType, ErrorCode, RolesClaim string }{
 		Package: path.Base(ns), Header: header,
 		Issuer: setting(ctx, "issuer", ""), Audience: setting(ctx, "audience", ""),
 		KeyFile: setting(ctx, "public_key_file", ""), ErrorType: errorType,
-		ErrorCode: strings.ToUpper(strings.ReplaceAll(ctx.ServiceName, "-", "")) + "-AUT-001",
+		ErrorCode:  strings.ToUpper(strings.ReplaceAll(ctx.ServiceName, "-", "")) + "-AUT-001",
+		RolesClaim: rolesClaim,
 	}
 	tmpl, err := template.New("middleware").Parse(middlewareTemplate)
 	if err != nil {
@@ -69,6 +78,27 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		GoModRequires: map[string]string{"github.com/golang-jwt/jwt/v5": "v5.3.1"},
 	}
 	return files, wiring, nil
+}
+
+func validRolesClaim(value string) bool {
+	if value == "" {
+		return true
+	}
+	parts := strings.Split(value, ".")
+	if len(value) > 128 || len(parts) > 8 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, ch := range part {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func setting(ctx gen.Context, name, fallback string) string {

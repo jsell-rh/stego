@@ -13,6 +13,8 @@ config:
     type: string
   public_key_file:
     type: string
+  roles_claim:
+    type: string
 
 requires: []
 

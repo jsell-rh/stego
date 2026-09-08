@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -14,6 +15,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -269,5 +272,68 @@ func BenchmarkVerify(b *testing.B) {
 		if _, err := verifier.Verify(raw); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestVerifiedProfileAndConfiguredRoles(t *testing.T) {
+	key := keyForTest(t)
+	config := Config{Issuer: "https://issuer.example", Audience: "example-api", PublicKey: &key.PublicKey, RolesClaim: "realm_access.roles"}
+	verifier, err := NewVerifier(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := validClaims()
+	claims["preferred_username"] = "alice-name"
+	claims["email"] = "alice@example.test"
+	claims["given_name"] = "Alice"
+	claims["family_name"] = "Example"
+	claims["roles"] = []string{"unselected-role"}
+	claims["realm_access"] = map[string]any{"roles": []string{"creator", "viewer"}}
+	raw := signed(t, claims, jwt.SigningMethodRS256, key, nil)
+	ctx, err := verifier.Authenticate(context.Background(), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := IdentityFromContext(ctx)
+	if id.UserID != "alice" || id.Username != "alice-name" || id.Email != "alice@example.test" || id.GivenName != "Alice" || id.FamilyName != "Example" || !slices.Equal(id.Roles, []string{"creator", "viewer"}) {
+		t.Fatalf("verified profile: %+v", id)
+	}
+	httpIdentity := Identity{}
+	handler := verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpIdentity = IdentityFromContext(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest("GET", "/records", nil)
+	request.Header.Set("Authorization", "Bearer "+raw)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !reflect.DeepEqual(id, httpIdentity) {
+		t.Fatal("HTTP and shared authentication returned different identities")
+	}
+	delete(claims, "realm_access")
+	raw = signed(t, claims, jwt.SigningMethodRS256, key, nil)
+	id, err = verifier.Verify(raw)
+	if err != nil || len(id.Roles) != 0 {
+		t.Fatal("an absent configured claim used another role source")
+	}
+	for _, value := range []any{nil, "creator", map[string]any{}, []any{nil}, []any{42}, []string{""}, []string{" creator"}, []string{strings.Repeat("r", 257)}, make([]string, 129)} {
+		claims["realm_access"] = map[string]any{"roles": value}
+		id, err = verifier.Verify(signed(t, claims, jwt.SigningMethodRS256, key, nil))
+		if err == nil || id.UserID != "" || len(id.Roles) != 0 {
+			t.Fatalf("malformed roles escaped: %v", value)
+		}
+	}
+	claims["realm_access"] = "not an object"
+	if _, err := verifier.Verify(signed(t, claims, jwt.SigningMethodRS256, key, nil)); err == nil {
+		t.Fatal("malformed claim parent was accepted")
+	}
+	for _, path := range []string{".roles", "realm_access..roles", "roles.", "roles/other", "realm_access. roles", strings.Repeat("x", 129)} {
+		config.RolesClaim = path
+		if _, err := NewVerifier(config); err == nil {
+			t.Fatalf("invalid claim path: %q", path)
+		}
+	}
+	if _, err := verifier.Authenticate(nil, raw); err == nil {
+		t.Fatal("nil authentication context was accepted")
 	}
 }
