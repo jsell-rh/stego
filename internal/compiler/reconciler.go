@@ -10,7 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/slot"
@@ -101,48 +100,19 @@ type ReconcilerInput struct {
 // archetype, running all component generators, and assembling shared files.
 // The plan can then be inspected (plan) or applied (Apply).
 func Reconcile(input ReconcilerInput) (*Plan, error) {
-	// Load service declaration. Read once and parse from bytes to avoid
-	// TOCTOU race between hashing and parsing.
-	serviceYAMLPath := filepath.Join(input.ProjectDir, "service.yaml")
-	serviceData, err := parser.ReadDocument(serviceYAMLPath)
+	source, err := loadCompilationSource(input)
 	if err != nil {
-		return nil, fmt.Errorf("reading service.yaml: %w", err)
+		return nil, err
 	}
-	svcDecl, err := parser.ParseServiceDeclarationFromBytes(serviceData, serviceYAMLPath)
+	validation, err := validateSource(input, source)
 	if err != nil {
-		return nil, fmt.Errorf("parsing service.yaml: %w", err)
+		return nil, err
 	}
-
-	// Load registry.
-	reg, err := registry.Load(input.RegistryDir)
-	if err != nil {
-		return nil, fmt.Errorf("loading registry: %w", err)
+	if validation.HasErrors() {
+		return nil, fmt.Errorf("service validation failed:\n%s", FormatValidation(validation))
 	}
-
-	// Resolve archetype.
+	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
 	archetype := reg.Archetype(svcDecl.Archetype)
-	if archetype == nil {
-		return nil, fmt.Errorf("archetype %q not found in registry", svcDecl.Archetype)
-	}
-
-	// Validate language: must match archetype and only "go" is supported.
-	if langErrs := validateLanguage(svcDecl.Language, archetype.Language); len(langErrs) > 0 {
-		msgs := make([]string, len(langErrs))
-		for i, e := range langErrs {
-			msgs[i] = e.Message
-		}
-		return nil, fmt.Errorf("language validation failed: %s", strings.Join(msgs, "; "))
-	}
-
-	// Validate convention overrides have recognized values. This mirrors the
-	// check in Validate() per item 155.
-	if convErrs := validateConventionOverrides(svcDecl.Overrides); len(convErrs) > 0 {
-		msgs := make([]string, len(convErrs))
-		for i, e := range convErrs {
-			msgs[i] = e.Message
-		}
-		return nil, fmt.Errorf("override validation failed: %s", strings.Join(msgs, "; "))
-	}
 
 	// Collect baseline component names: archetype components + default_auth + mixin components.
 	baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
@@ -338,23 +308,11 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 
-	// Validate short_circuit is only used with chain operator. The assembler
-	// passes the ShortCircuit flag to chain constructors — on a gate or fan-out
-	// binding the flag is silently ignored, which is a configuration mistake.
-	// This mirrors the check in Validate() per item 155.
-	if scErrs := validateSlotBindingShortCircuit(svcDecl.Slots); len(scErrs) > 0 {
-		msgs := make([]string, len(scErrs))
-		for i, e := range scErrs {
-			msgs[i] = e.Message
-		}
-		return nil, fmt.Errorf("slot validation failed: %s", strings.Join(msgs, "; "))
-	}
-
 	// Assemble shared files (main.go, go.mod).
 	assemblerInput := AssemblerInput{
-		ModuleName:  input.ModuleName,
-		ServiceName: svcDecl.Name,
-		GoVersion:   input.GoVersion,
+		ModuleName:   input.ModuleName,
+		ServiceName:  svcDecl.Name,
+		GoVersion:    input.GoVersion,
 		Wirings:      wirings,
 		SlotBindings: svcDecl.Slots,
 		SlotsPackage: slotsPackage,

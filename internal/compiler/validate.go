@@ -10,7 +10,6 @@ import (
 
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
-	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -36,24 +35,17 @@ func (r *ValidationResult) HasErrors() bool {
 // failures (cannot read files, corrupt YAML) are returned as Go errors;
 // semantic issues are collected in ValidationResult.Errors.
 func Validate(input ReconcilerInput) (*ValidationResult, error) {
+	source, err := loadCompilationSource(input)
+	if err != nil {
+		return nil, err
+	}
+	return validateSource(input, source)
+}
+
+// validateSource is the common semantic gate for validate, plan, and apply.
+func validateSource(input ReconcilerInput, source *compilationSource) (*ValidationResult, error) {
 	result := &ValidationResult{}
-
-	// Parse service.yaml.
-	serviceYAMLPath := filepath.Join(input.ProjectDir, "service.yaml")
-	serviceData, err := parser.ReadDocument(serviceYAMLPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading service.yaml: %w", err)
-	}
-	svcDecl, err := parser.ParseServiceDeclarationFromBytes(serviceData, serviceYAMLPath)
-	if err != nil {
-		return nil, fmt.Errorf("parsing service.yaml: %w", err)
-	}
-
-	// Load registry.
-	reg, err := registry.Load(input.RegistryDir)
-	if err != nil {
-		return nil, fmt.Errorf("loading registry: %w", err)
-	}
+	svcDecl, reg := source.Service, source.Registry
 
 	// Validate archetype exists.
 	archetype := reg.Archetype(svcDecl.Archetype)

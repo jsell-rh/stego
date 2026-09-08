@@ -50,5 +50,7 @@ compatibility. Routine implementation choices do not require approval.
 Completed checks for C1: strict declaration and registry parsing rejects unknown
 fields, duplicate keys, multiple documents, anchors, aliases, and merge keys.
 Document reads are bounded. The root test suite passes. A 10-second parser fuzz
-run completed 108,504 executions without a failure. Semantic validation parity,
-component configuration checks, and capability checks remain open.
+run completed 108,504 executions without a failure. All three CLI commands now
+use the same semantic validation gate and declaration snapshot. Regression tests
+check that invalid constraints cannot invoke generators or change existing
+output and state. Component configuration and capability checks remain open.
