@@ -4,6 +4,10 @@ version: 2.0.0
 output_namespace: internal/auth
 
 config:
+  mode:
+    type: string
+    default: middleware
+    enum: [middleware, verifier]
   header:
     type: string
     default: Authorization

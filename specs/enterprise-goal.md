@@ -288,7 +288,16 @@ resolution, and drift in CI. A local filtered-page benchmark is recorded in its
 `acceptance/README.md`. Both repositories have passed race checks. The initial
 Gateway commit passed remote CI.
 
-REST and gRPC endpoint implementation and acceptance remain the next work.
+The generated process now serves Gateway REST creation, retrieval, and lists.
+The application supplies domain mappings through a common HTTP factory.
+Signed-token tests cover filtered counts, owner and viewer access, removed
+grants, denied requests, malformed input, and grant/event failure rollback.
+The same process delivers the created event and retains access after restart.
+Responses are checked against the pinned OpenAPI contract. The supported list
+parameters are page and size; the maximum page size is 100. Other REST query
+features remain open. A separate Record service checks the common HTTP code.
+
+gRPC endpoint implementation and acceptance remain the next work.
 The Gateway gate is still open. Full application models, role projections,
 other placement modes, production Kafka checks, and the other Hypershell
 workflows also remain open. Separate versioned API contracts are the current

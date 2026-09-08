@@ -21,6 +21,10 @@ var middlewareTemplate string
 type Generator struct{}
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	mode := setting(ctx, "mode", "middleware")
+	if mode != "middleware" && mode != "verifier" {
+		return nil, nil, fmt.Errorf("authentication mode must be middleware or verifier")
+	}
 	rolesClaim := ""
 	if value, present := ctx.ComponentConfig["roles_claim"]; present {
 		var ok bool
@@ -76,6 +80,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		ConstructorReturnsError: map[int]bool{0: true},
 		MiddlewareConstructor:   &middlewareIndex, MiddlewareWrapExpr: "%s(%s)",
 		GoModRequires: map[string]string{"github.com/golang-jwt/jwt/v5": "v5.3.1"},
+	}
+	if mode == "verifier" {
+		wiring.Constructors = []string{data.Package + ".NewVerifierFromEnvironment()"}
+		wiring.MiddlewareConstructor = nil
+		wiring.MiddlewareWrapExpr = ""
 	}
 	return files, wiring, nil
 }

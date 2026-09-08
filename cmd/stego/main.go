@@ -15,6 +15,7 @@ import (
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
+	"github.com/jsell-rh/stego/internal/generator/httpapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
@@ -774,6 +775,7 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
 		"rest-api":         &restapi.Generator{},
+		"http-application": &httpapplication.Generator{},
 		"outbox":           &outbox.Generator{},
 		"kafka-producer":   &kafkaproducer.Generator{},
 		"postgres-adapter": &postgresadapter.Generator{},

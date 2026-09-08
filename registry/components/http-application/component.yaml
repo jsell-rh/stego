@@ -1,0 +1,13 @@
+kind: component
+name: http-application
+version: 1.0.0
+output_namespace: application
+config:
+  factory_package:
+    type: string
+requires:
+  - storage-adapter
+  - auth-provider
+provides:
+  - application-http
+slots: []

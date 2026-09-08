@@ -31,6 +31,7 @@ type ListOptions struct {
 	Search          string
 	ImplicitFilters map[string]string
 	Related         []RelatedFilter
+	CountOnly       bool
 }
 
 // RelatedFilter requires a live related row before counting or pagination.

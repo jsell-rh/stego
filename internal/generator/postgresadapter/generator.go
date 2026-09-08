@@ -28,6 +28,14 @@ type Generator struct{}
 // code, SessionFactory, and GenericDao for all entities in the service declaration.
 // It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	migrations := "startup"
+	if value, present := ctx.ComponentConfig["migrations"]; present {
+		var ok bool
+		migrations, ok = value.(string)
+		if !ok || (migrations != "startup" && migrations != "external") {
+			return nil, nil, fmt.Errorf("migrations must be startup or external")
+		}
+	}
 	if len(ctx.Entities) == 0 {
 		return nil, nil, nil
 	}
@@ -148,6 +156,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}
+	}
+	if migrations == "external" {
+		wiring.PostDBCalls = nil
 	}
 	for _, entity := range ctx.Entities {
 		for _, field := range entity.Fields {
@@ -820,6 +831,9 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
 		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
 		fmt.Fprintf(buf, "\t\t}\n")
+		if apiAlias == "stegostorage" {
+			fmt.Fprintf(buf, "\t\tif opts.CountOnly { return %s{Items: []%s{}, Total: total}, nil }\n", listResultType, e.Name)
+		}
 
 		// Apply ordering from ListOptions. Field names are validated by the
 		// handler; direction strings are hardcoded to "asc" or "desc" only.

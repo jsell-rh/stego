@@ -166,6 +166,12 @@ func TestRelatedFilterCountsAndPagesOnlyVisibleRecords(t *testing.T) {
 			t.Fatalf("filtered page: %+v", result)
 		}
 	}
+	opts.CountOnly = true
+	counted, err := storage.List(ctx, "Record", "", "", opts)
+	if err != nil || counted.Total != 2 || len(counted.Items.([]store.Record)) != 0 {
+		t.Fatalf("count-only relation filter: %+v, %v", counted, err)
+	}
+	opts.CountOnly = false
 	opts.Related[0].Values["subject"] = nil
 	result, err := storage.List(ctx, "Record", "", "", opts)
 	if err != nil || result.Total != 0 {
