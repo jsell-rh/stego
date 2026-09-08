@@ -26,6 +26,8 @@ func TestBoundSearch(t *testing.T){
  for _,test:=range []struct{input,where string;args []interface{}}{
   {"name = 'alice'",`("name" = ?)`,[]interface{}{"alice"}},
   {"name = 'alice' or role = 'admin'",`(("name" = ?) OR ("role" = ?))`,[]interface{}{"alice","admin"}},
+  {"serial + 1 in ()",`FALSE`,nil},
+  {"serial + 1 not in ()",`TRUE`,nil},
   {"id in ('a','b')",`("id" IN (?,?))`,[]interface{}{"a","b"}},
   {"name is null",`("name" IS NULL)`,nil},
   {"name not like 'x%'",`(NOT ("name" LIKE ?))`,[]interface{}{"x%"}},
@@ -37,6 +39,7 @@ func TestBoundSearch(t *testing.T){
   {"created_at = 2026-09-08",`("created_time" = ?)`,nil},
  }{
   got,err:=engine.ParseSearch("User",test.input);if err!=nil{t.Fatalf("%s: %v",test.input,err)}
+  if strings.Count(got.Where,"?")!=len(got.Args){t.Fatalf("parameter count differs: %s %#v",got.Where,got.Args)}
   if got.Where!=test.where{t.Fatalf("%s: SQL=%s want=%s",test.input,got.Where,test.where)}
   if test.args!=nil&&!reflect.DeepEqual(got.Args,test.args){t.Fatalf("%s: args=%#v want=%#v",test.input,got.Args,test.args)}
  }

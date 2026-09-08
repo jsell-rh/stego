@@ -51,6 +51,11 @@ func TestSearchPreservesAccessAndExactNumbers(t *testing.T) {
 	if err != nil || result.Total != 1 || result.Items.([]store.Record)[0].ID != "b" {
 		t.Fatalf("integer precision changed: %+v %v", result, err)
 	}
+	options.Search = "serial + 1 in ()"
+	result, err = storage.List(ctx, "Record", "", "", options)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("empty membership search: %+v %v", result, err)
+	}
 	for _, search := range []string{`"name) OR TRUE --" = 'x'`, "serial like 'x'", "serial = 'not-an-integer'", "created_at = 'not-a-date'", "missing = 'x'", "name = 'x' or missing = 'y'"} {
 		options.Search = search
 		if _, err := storage.List(ctx, "Record", "", "", options); !errors.Is(err, contract.ErrSearch) {

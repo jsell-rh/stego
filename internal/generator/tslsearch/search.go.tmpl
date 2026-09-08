@@ -118,6 +118,7 @@ func(b *sqlBuilder)predicate(n tsl.Node,depth int)(string,error){
   value,err:=b.predicate(left,depth+1);return "(NOT "+value+")",err
  }
  if err:=b.checkOperands(n);err!=nil{return "",err}
+ previousArgs:=len(b.args)
  l,err:=b.value(left,depth+1);if err!=nil{return "",err}
  if n.Func==tsl.IsNilOp{return "("+l+" IS NULL)",nil};if n.Func==tsl.IsNotNilOp{return "("+l+" IS NOT NULL)",nil}
  right,err:=node(n.Right);if err!=nil{return "",err}
@@ -126,7 +127,7 @@ func(b *sqlBuilder)predicate(n tsl.Node,depth int)(string,error){
   parts:=make([]string,0,len(values));for _,value:=range values{part,err:=b.value(value,depth+1);if err!=nil{return "",err};parts=append(parts,part)}
   switch n.Func{
   case tsl.InOp,tsl.NotInOp:
-   if len(parts)==0{if n.Func==tsl.InOp{return "FALSE",nil};return "TRUE",nil}
+   if len(parts)==0{b.args=b.args[:previousArgs];if n.Func==tsl.InOp{return "FALSE",nil};return "TRUE",nil}
    operator:=" IN ";if n.Func==tsl.NotInOp{operator=" NOT IN "};return "("+l+operator+"("+strings.Join(parts,",")+"))",nil
   default:
    if len(parts)!=2{return "",ErrInvalid};operator:=" BETWEEN ";if n.Func==tsl.NotBetweenOp{operator=" NOT BETWEEN "};return "("+l+operator+parts[0]+" AND "+parts[1]+")",nil
