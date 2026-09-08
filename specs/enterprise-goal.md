@@ -1,0 +1,47 @@
+The active goal is to make STEGO a reliable compiler for enterprise services and
+to build a fully STEGO-based Hypershell variant. The user authorized this work on
+2026-09-08. The findings in `repository-assessment.md` are the initial defect
+list. A passing build alone does not satisfy this goal.
+
+The reference application is `/home/jsell/code/hypershell` at commit
+`14256be29bcfe4fff38bcaf4a41511cb394ea8e1`. The test bed is
+`/home/jsell/code/hypershell-stego`, cloned from
+`https://github.com/jsell-rh/hypershell-stego.git`. The remote was empty at the
+start of this work. Keep the reference checkout unchanged.
+
+Hypershell requires REST and gRPC contracts, watch streams, PostgreSQL,
+transactional authorization rules, gateway provisioning, service accounts,
+observability, SDKs, a CLI, a web console, and deployment support. Preserve its
+required behavior. Do not treat a CRUD-only replacement as a complete result.
+Remove the need for rh-trex-ai generation and runtime infrastructure in the
+variant. Keep application-specific decisions separate from reusable generators.
+
+The following milestones define completion:
+
+| ID | Requirement | Acceptance evidence | State |
+| --- | --- | --- | --- |
+| C1 | Strict compiler input and one semantic validation stage | Unknown fields, invalid constraints, duplicate keys, unsupported capabilities, and invalid paths fail before output changes | Active |
+| C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Pending |
+| C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Pending |
+| C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Pending |
+| C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
+| C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Pending |
+| C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Pending |
+| H1 | Hypershell compatibility baseline | Inventory and executable checks for REST, gRPC, RBAC, watch, SDK, CLI, UI, and deployment contracts | Active |
+| H2 | STEGO Hypershell implementation | Clean generation and tests without rh-trex-ai; reviewed domain code remains outside generated output | Pending |
+| H3 | System verification | Service integration and local deployment checks, security tests, race tests, measured performance, and regeneration checks in CI | Pending |
+
+Resolve work in small atomic commits. Each behavior change needs a regression
+check that can fail when the behavior is wrong. Use runtime tests for runtime
+claims. Use explicit compatibility evidence for existing Hypershell behavior.
+Do not weaken tests or drop requirements to obtain a passing result.
+
+Two migration decisions are pending user input: whether the variant must upgrade
+an existing database in place, and whether reviewed domain modules can remain
+human-owned beside STEGO-generated infrastructure. Compiler correctness work can
+proceed while these decisions are pending.
+
+Security and performance claims require evidence. Record the environment,
+commands, outcomes, and limits of each acceptance run. Ask the user when a choice
+changes application behavior, the deployment trust boundary, or migration
+compatibility. Routine implementation choices do not require approval.
