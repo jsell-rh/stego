@@ -1051,7 +1051,8 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	// before any constructor that references it. This is necessary because
 	// the archetype's component order is conceptual — it does not encode
 	// dependency information.
-	sorted, err := topoSortConstructors(entries)
+	provided := map[string]bool{"db": hasDB, "sqlDB": hasDB && isGORM, "ctx": hasRoutes || hasBackgroundTasks(input)}
+	sorted, err := topoSortConstructors(entries, provided)
 	if err != nil {
 		return nil, err
 	}
@@ -1137,7 +1138,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 // topoSortConstructors topologically sorts constructor entries so that
 // each constructor is emitted after all constructors whose variables it
 // depends on. Returns an error if a cycle is detected.
-func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error) {
+func topoSortConstructors(entries []constructorEntry, provided map[string]bool) ([]constructorEntry, error) {
 	if len(entries) == 0 {
 		return entries, nil
 	}
@@ -1160,12 +1161,15 @@ func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error
 
 	for i, e := range entries {
 		for _, dep := range e.Deps {
-			if j, ok := varToIdx[dep]; ok && j != i {
+			if j, ok := varToIdx[dep]; ok {
+				if j == i {
+					return nil, fmt.Errorf("constructor %q depends on itself", e.BaseVar)
+				}
 				edges[i] = append(edges[i], j)
 				inDegree[i]++ // i depends on j, so i has one more incoming edge
+			} else if !provided[dep] {
+				return nil, fmt.Errorf("constructor %q requires missing dependency %q", e.BaseVar, dep)
 			}
-			// If dep is not produced by any constructor (e.g. "db" from
-			// writeDBSetup), it's an external dependency — no ordering needed.
 		}
 	}
 

@@ -1995,7 +1995,6 @@ func TestGenerate_MissingScopeFieldReturnsError(t *testing.T) {
 	}
 }
 
-
 func TestGenerate_OpenAPIRequiredFields(t *testing.T) {
 	// Finding 20: OpenAPI entity schemas must include a "required" array listing
 	// all non-optional, non-computed fields.
@@ -3730,7 +3729,7 @@ func TestGenerate_RouteCollisionAutoVsExplicitPrefix(t *testing.T) {
 			{Name: "Other", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}},
 		},
 		Collections: []types.Collection{
-			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpList}},                        // auto: /widgets
+			{Name: "widgets", Entity: "Widget", Operations: []types.Operation{types.OpList}},                       // auto: /widgets
 			{Name: "others", Entity: "Other", Operations: []types.Operation{types.OpList}, PathPrefix: "/widgets"}, // explicit: /widgets
 		},
 		OutputNamespace: "internal/api",
@@ -4882,6 +4881,7 @@ type ValidateSlot interface {
 		GoVersion:   "1.22",
 		Wirings: []compiler.ComponentWiring{
 			{Name: "rest-api", Wiring: wiring},
+			{Name: "fixture-store", Wiring: &gen.Wiring{Imports: []string{"internal/fixture"}, Constructors: []string{"fixture.NewStore()"}}},
 		},
 		SlotBindings: ctx.SlotBindings,
 		SlotsPackage: slotsPackage,
@@ -4959,12 +4959,13 @@ type ValidateSlot interface {
 		}
 	}
 
-	// Write a stub storage file so the `store` variable resolves in main.go.
-	// The wiring constructor is `api.NewUserHandler(store, ...)` — the assembler
-	// creates `store` from the postgres-adapter wiring. Since we only have the
-	// rest-api wiring here, we need to provide a store variable.
-	storeStub := filepath.Join(tmpDir, "store_stub.go")
-	storeStubContent := "package main\n\nimport api \"" + moduleName + "/internal/api\"\n\nvar store api.Storage\n"
+	// Supply the test store through declared wiring. Generated code must not
+	// depend on a global variable added after assembly.
+	storeStub := filepath.Join(tmpDir, "internal", "fixture", "store.go")
+	if err := os.MkdirAll(filepath.Dir(storeStub), 0755); err != nil {
+		t.Fatal(err)
+	}
+	storeStubContent := "package fixture\n\nimport api \"" + moduleName + "/internal/api\"\n\nfunc NewStore() api.Storage { return nil }\n"
 	if err := os.WriteFile(storeStub, []byte(storeStubContent), 0644); err != nil {
 		t.Fatalf("writing store stub: %v", err)
 	}
@@ -5130,15 +5131,15 @@ func TestDeriveErrorPrefix(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"hyperfleet-api", "HYPERFLEET"},            // spec example: strip -api, uppercase
-		{"order-service", "ORDER"},                  // spec example: strip -service, uppercase
-		{"my-cool-server", "MYCOOL"},                // strip -server suffix
-		{"user-management", "USERMANAGEMENT"},       // no suffix to strip, hyphens removed
-		{"simple", "SIMPLE"},                        // no hyphens, kept as-is
-		{"a-b-c", "ABC"},                            // all segments joined, uppercased
-		{"just-api", "JUST"},                        // strip -api from short name
-		{"api", "API"},                              // no leading hyphen, not stripped
-		{"", ""},                                    // edge case
+		{"hyperfleet-api", "HYPERFLEET"},      // spec example: strip -api, uppercase
+		{"order-service", "ORDER"},            // spec example: strip -service, uppercase
+		{"my-cool-server", "MYCOOL"},          // strip -server suffix
+		{"user-management", "USERMANAGEMENT"}, // no suffix to strip, hyphens removed
+		{"simple", "SIMPLE"},                  // no hyphens, kept as-is
+		{"a-b-c", "ABC"},                      // all segments joined, uppercased
+		{"just-api", "JUST"},                  // strip -api from short name
+		{"api", "API"},                        // no leading hyphen, not stripped
+		{"", ""},                              // edge case
 	}
 	for _, tt := range tests {
 		got := deriveErrorPrefix(tt.input)
@@ -6872,10 +6873,10 @@ func TestGenerate_OpenAPIUpsertEnvelopeSchema(t *testing.T) {
 		},
 		Collections: []types.Collection{
 			{
-				Name:      "resources",
-				Entity:    "Resource",
+				Name:       "resources",
+				Entity:     "Resource",
 				Operations: []types.Operation{types.OpUpsert},
-				UpsertKey: []string{"name", "type"},
+				UpsertKey:  []string{"name", "type"},
 			},
 		},
 		OutputNamespace: "internal/api",
