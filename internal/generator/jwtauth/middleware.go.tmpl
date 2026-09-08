@@ -14,6 +14,7 @@ import (
     "net/url"
     "os"
     "strings"
+    "strconv"
     "time"
     "unicode/utf8"
 
@@ -198,7 +199,7 @@ func (v *Verifier) roles(encoded string) ([]string, error) {
 // checkJSONObject rejects duplicate names and invalid Unicode before JWT
 // decoding. This prevents different consumers from reading different claims.
 func checkJSONObject(data []byte) error {
-    if !utf8.Valid(data) { return errors.New("invalid token Unicode") }
+    if !utf8.Valid(data) || !validUnicodeEscapes(data) { return errors.New("invalid token Unicode") }
     decoder := json.NewDecoder(strings.NewReader(string(data)))
     decoder.UseNumber()
     first, err := decoder.Token()

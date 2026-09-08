@@ -62,7 +62,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return nil, nil, err
 	}
-	source, err := format.Source(buf.Bytes())
+	source, err := format.Source(append(buf.Bytes(), []byte(gen.UnicodeEscapeValidation)...))
 	if err != nil {
 		return nil, nil, fmt.Errorf("formatting authentication code: %w", err)
 	}

@@ -337,3 +337,20 @@ func TestVerifiedProfileAndConfiguredRoles(t *testing.T) {
 		t.Fatal("nil authentication context was accepted")
 	}
 }
+
+func TestVerifierRejectsUnpairedSurrogatesInIdentity(t *testing.T) {
+	key := keyForTest(t)
+	verifier := verifierForTest(t, key)
+	claims := validClaims()
+	claims["preferred_username"] = "placeholder"
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, escaped := range []string{`\ud800`, `\udc00`, `\ud800\ud800`} {
+		raw := signRaw(t, key, []byte(`{"alg":"RS256","typ":"JWT"}`), []byte(strings.Replace(string(payload), "placeholder", escaped, 1)))
+		if id, err := verifier.Verify(raw); err == nil || id.Username != "" {
+			t.Fatalf("invalid identity Unicode was accepted: %s", escaped)
+		}
+	}
+}
