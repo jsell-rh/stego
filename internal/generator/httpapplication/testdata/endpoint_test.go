@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -184,5 +185,53 @@ func TestEndpointCancelsARealSocketBodyRead(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != 503 {
 		t.Fatalf("canceled socket request: %d", response.StatusCode)
+	}
+}
+
+func TestNoContentEndpoint(t *testing.T) {
+	authenticate := func(ctx context.Context, token string) (context.Context, error) {
+		if token != "verified" {
+			return nil, errors.New("denied")
+		}
+		return ctx, nil
+	}
+	decode := func(r *http.Request) (string, error) { return r.URL.Path, nil }
+	writeError := func(w http.ResponseWriter, r *http.Request, err error) { w.WriteHeader(403) }
+	for _, code := range []int{204, 205} {
+		calls := 0
+		endpoint, err := transport.Endpoint(authenticate, decode, func(ctx context.Context, path string) (transport.NoContent, error) {
+			calls++
+			if path == "/denied" {
+				return transport.NoContent{}, errors.New("denied")
+			}
+			return transport.NoContent{}, nil
+		}, code, writeError)
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := httptest.NewServer(endpoint)
+		for _, test := range []struct {
+			path, token string
+			status      int
+		}{{"/record", "verified", code}, {"/denied", "verified", 403}, {"/record", "invalid", 403}} {
+			request, _ := http.NewRequest("DELETE", server.URL+test.path, nil)
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			response, err := server.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(response.Body)
+			response.Body.Close()
+			if err != nil || response.StatusCode != test.status || len(body) != 0 || response.Header.Get("Content-Type") != "" || response.Header.Get("Cache-Control") != "no-store" {
+				t.Fatalf("empty response: %d %q %v %v", response.StatusCode, body, response.Header, err)
+			}
+		}
+		server.Close()
+		if calls != 2 {
+			t.Fatalf("unauthenticated request reached domain: %d", calls)
+		}
+		if _, err := transport.Endpoint(authenticate, decode, func(context.Context, string) (string, error) { return "must not be discarded", nil }, code, writeError); err == nil {
+			t.Fatal("body response accepted for an empty endpoint")
+		}
 	}
 }
