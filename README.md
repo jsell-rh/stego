@@ -100,6 +100,14 @@ Other Go environment settings, including private module and proxy settings,
 remain in effect. Plan and apply do not resolve or download dependencies.
 These checks do not replace application tests or dependency security review.
 
+The generated HTTP server uses a five-second header deadline, 30-second read and
+write deadlines, a 60-second idle deadline, and a 32 KiB header limit setting.
+SIGINT and SIGTERM start shutdown. Active requests have ten seconds to finish.
+After that interval, the server closes remaining connections and reports an
+error. Deferred resource cleanup runs before process exit. These defaults serve
+the current request-response API. Long-lived streams need a separate deadline
+policy. Network deadlines do not stop application code that ignores cancellation.
+
 Before you start the service, set `STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and
 `STEGO_AUTH_PUBLIC_KEY_FILE`. The key file must contain one RSA public key in PEM
 format. The default authentication component verifies RS256 signatures and

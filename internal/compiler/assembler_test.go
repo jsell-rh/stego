@@ -20,8 +20,8 @@ func TestAssemble_MinimalService(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -121,8 +121,8 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -140,14 +140,14 @@ func TestAssemble_WithSlotBindings(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"rbac-policy", "admin-creation-policy"},
+				Gate:       []string{"rbac-policy", "admin-creation-policy"},
 			},
 			{
-				Slot:   "on_entity_changed",
+				Slot:       "on_entity_changed",
 				Collection: "users",
-				FanOut: []string{"user-change-notifier", "audit-logger"},
+				FanOut:     []string{"user-change-notifier", "audit-logger"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -316,8 +316,8 @@ func TestAssemble_WithAuthMiddleware(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -658,14 +658,14 @@ func TestAssemble_MultipleEntitiesFullWiring(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"rbac-policy", "admin-creation-policy"},
+				Gate:       []string{"rbac-policy", "admin-creation-policy"},
 			},
 			{
-				Slot:   "on_entity_changed",
+				Slot:       "on_entity_changed",
 				Collection: "users",
-				FanOut: []string{"user-change-notifier", "audit-logger"},
+				FanOut:     []string{"user-change-notifier", "audit-logger"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -1222,14 +1222,14 @@ func TestAssemble_SameSlotDifferentEntities(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"user-policy"},
+				Gate:       []string{"user-policy"},
 			},
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "organizations",
-				Gate:   []string{"org-policy"},
+				Gate:       []string{"org-policy"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -1286,8 +1286,8 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
@@ -1315,9 +1315,9 @@ func TestAssemble_SlotVarCollidesWithConstructorVar(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"user-policy"},
+				Gate:       []string{"user-policy"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -1366,7 +1366,7 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 				Wiring: &gen.Wiring{
 					Imports: []string{"internal/api"},
 					// Non-standard naming: "Controller" instead of "Handler".
-					Constructors:        []string{"api.NewUserController(store)"},
+					Constructors:           []string{"api.NewUserController(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userController.Create)`,
@@ -1384,9 +1384,9 @@ func TestAssemble_StructuredEntityMatching(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"user-policy"},
+				Gate:       []string{"user-policy"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -1620,8 +1620,8 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 			{
 				Name: "component-a",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/a"},
-					Constructors:        []string{"a.NewUserHandler(store)"},
+					Imports:                []string{"internal/a"},
+					Constructors:           []string{"a.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /a/users", userHandler.Create)`,
@@ -1631,8 +1631,8 @@ func TestAssemble_HandlerConstructorCollisionUpdatesRoutes(t *testing.T) {
 			{
 				Name: "component-b",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/b"},
-					Constructors:        []string{"b.NewUserHandler(store)"},
+					Imports:                []string{"internal/b"},
+					Constructors:           []string{"b.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("POST /b/users", userHandler.Create)`,
@@ -1845,8 +1845,8 @@ func TestAssemble_ConstructorCollidesWithAssemblerInternalVars(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-		
-				Wirings:     wirings,
+
+				Wirings: wirings,
 			}
 
 			files, err := Assemble(input)
@@ -2063,7 +2063,7 @@ func TestAssemble_StdlibImportAliasShadowing(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-		
+
 				Wirings: []ComponentWiring{
 					{
 						Name: "colliding-component",
@@ -2338,14 +2338,14 @@ func TestAssemble_DuplicateSlotBinding(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"policy-a"},
+				Gate:       []string{"policy-a"},
 			},
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"policy-b"},
+				Gate:       []string{"policy-b"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -2378,10 +2378,10 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
-					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
+					Routes:                 []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
 			{
@@ -2395,14 +2395,14 @@ func TestAssemble_DuplicateSlotBindingDifferentOperator(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"policy-a"},
+				Gate:       []string{"policy-a"},
 			},
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				FanOut: []string{"notifier"},
+				FanOut:     []string{"notifier"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -2570,8 +2570,8 @@ func TestAssemble_StdlibImportAliasShadowingByComponent(t *testing.T) {
 				ModuleName:  "github.com/myorg/svc",
 				ServiceName: "svc",
 				GoVersion:   "1.22",
-		
-				Wirings:     wirings,
+
+				Wirings: wirings,
 			}
 
 			files, err := Assemble(input)
@@ -2673,14 +2673,14 @@ func TestAssemble_SlotVarNameNormalizationCollision(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"policy-a"},
+				Gate:       []string{"policy-a"},
 			},
 			{
-				Slot:   "before__create",
+				Slot:       "before__create",
 				Collection: "users",
-				Gate:   []string{"policy-b"},
+				Gate:       []string{"policy-b"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -2739,14 +2739,14 @@ func TestAssemble_SlotVarNameNormalizationCollisionDifferentEntities(t *testing.
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"policy-a"},
+				Gate:       []string{"policy-a"},
 			},
 			{
-				Slot:   "before__create",
+				Slot:       "before__create",
 				Collection: "orgs",
-				Gate:   []string{"policy-b"},
+				Gate:       []string{"policy-b"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -2941,10 +2941,10 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
-					Routes:              []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
+					Routes:                 []string{`mux.HandleFunc("POST /users", userHandler.Create)`},
 				},
 			},
 			{
@@ -2958,9 +2958,9 @@ func TestAssemble_NonStdlibSlotsAliasShadowingByConstructor(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"my-policy"},
+				Gate:       []string{"my-policy"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -3510,14 +3510,14 @@ func TestGenerateGoMod_NoReplaceDirectivesWithFills(t *testing.T) {
 
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"admin-creation-policy"},
+				Gate:       []string{"admin-creation-policy"},
 			},
 			{
-				Slot:   "on_entity_changed",
+				Slot:       "on_entity_changed",
 				Collection: "users",
-				FanOut: []string{"audit-logger", "user-change-notifier"},
+				FanOut:     []string{"audit-logger", "user-change-notifier"},
 			},
 		},
 	}
@@ -3544,7 +3544,6 @@ func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
 		GoVersion:   "1.22",
-
 	}
 
 	goMod, err := generateGoMod(input)
@@ -3567,7 +3566,7 @@ func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
 		ServiceName: "svc",
 		GoVersion:   "1.22",
 
-		OutDirName:  "out",
+		OutDirName: "out",
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
@@ -3588,9 +3587,9 @@ func TestAssemble_OutDirNameInImportPaths(t *testing.T) {
 		},
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"admin-creation-policy"},
+				Gate:       []string{"admin-creation-policy"},
 			},
 		},
 		SlotsPackage: "internal/slots",
@@ -3644,12 +3643,12 @@ func TestAssemble_GoModAtProjectRoot(t *testing.T) {
 		ServiceName: "svc",
 		GoVersion:   "1.22",
 
-		OutDirName:  "out",
+		OutDirName: "out",
 		SlotBindings: []types.SlotDeclaration{
 			{
-				Slot:   "before_create",
+				Slot:       "before_create",
 				Collection: "users",
-				Gate:   []string{"admin-creation-policy"},
+				Gate:       []string{"admin-creation-policy"},
 			},
 		},
 	}
@@ -3786,15 +3785,15 @@ func TestAssemble_TopologicalSortConstructors(t *testing.T) {
 		ServiceName: "svc",
 		GoVersion:   "1.22",
 
-		OutDirName:  "out",
+		OutDirName: "out",
 		Wirings: []ComponentWiring{
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
-					ConstructorDeps:     map[int][]string{0: {"store"}},
+					ConstructorDeps:        map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -3892,7 +3891,7 @@ func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
 		ServiceName: "svc",
 		GoVersion:   "1.22",
 
-		OutDirName:  "out",
+		OutDirName: "out",
 		Wirings: []ComponentWiring{
 			{
 				Name: "comp-a",
@@ -4037,7 +4036,7 @@ func TestAssemble_UnconsumedConstructorsWithMiddleware(t *testing.T) {
 
 		Wirings: []ComponentWiring{
 			{
-				Name: "rest-api",
+				Name:   "rest-api",
 				Wiring: nil, // no collections → no wiring
 			},
 			{
@@ -4123,10 +4122,10 @@ func TestAssemble_ConsumedConstructorsWithRoutes(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:             []string{"internal/api"},
-					Constructors:        []string{"api.NewUserHandler(store)"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)"},
 					ConstructorCollections: map[int]string{0: "users"},
-					ConstructorDeps:     map[int][]string{0: {"store"}},
+					ConstructorDeps:        map[int][]string{0: {"store"}},
 					Routes: []string{
 						`mux.HandleFunc("POST /users", userHandler.Create)`,
 					},
@@ -4197,12 +4196,12 @@ func TestContainsBareIdent(t *testing.T) {
 		{"(store)", "store", true},
 		{"(store, cache)", "store", true},
 		{"(db, store)", "store", true},
-		{"(datastore)", "store", false},  // "store" is a suffix of "datastore"
-		{"(storeDB)", "store", false},    // "store" is a prefix of "storeDB"
-		{"(dataA)", "a", false},          // "a" is a suffix of "dataA"
-		{"(a, b)", "a", true},            // "a" at boundary
+		{"(datastore)", "store", false}, // "store" is a suffix of "datastore"
+		{"(storeDB)", "store", false},   // "store" is a prefix of "storeDB"
+		{"(dataA)", "a", false},         // "a" is a suffix of "dataA"
+		{"(a, b)", "a", true},           // "a" at boundary
 		{"(db)", "db", true},
-		{"(handleDB)", "db", false},      // "db" suffix of "handleDB"
+		{"(handleDB)", "db", false}, // "db" suffix of "handleDB"
 		{"", "store", false},
 		{"(store)", "", false},
 	}
@@ -4598,8 +4597,8 @@ func TestAssemble_AdditionalMiddlewares(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -4652,8 +4651,8 @@ func TestAssemble_AdditionalMiddlewares_NoAuth(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)", "api.NewValidationMiddleware()"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -5052,8 +5051,8 @@ func TestAssemble_OuterMiddlewares_CORSWrapsAuth(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -5176,8 +5175,8 @@ func TestAssemble_OuterMiddlewares_NoAuth(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -5232,8 +5231,8 @@ func TestAssemble_OuterMiddlewares_MissingWrapExpr(t *testing.T) {
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:      []string{"internal/api"},
-					Constructors: []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
+					Imports:                []string{"internal/api"},
+					Constructors:           []string{"api.NewUserHandler(store)", "api.NewCORSMiddleware()"},
 					ConstructorCollections: map[int]string{0: "users"},
 					Routes: []string{
 						`mux.HandleFunc("GET /users", userHandler.List)`,
@@ -5333,9 +5332,9 @@ func TestAssemble_DiscoveryRoutesOutsideAuthMiddleware(t *testing.T) {
 		t.Error("main.go missing topMux fallback delegation to handler")
 	}
 
-	// ListenAndServe should use topMux, not the plain handler expression.
-	if !strings.Contains(mainContent, "http.ListenAndServe(addr, topMux)") {
-		t.Error("main.go should use topMux in ListenAndServe when discovery routes exist")
+	// The server must use the mux with discovery routes.
+	if !strings.Contains(mainContent, "stegoHTTPServer(topMux)") {
+		t.Error("main.go must serve discovery routes through topMux")
 	}
 }
 
@@ -5449,8 +5448,8 @@ func TestAssemble_DiscoveryWithAuthMiddleware(t *testing.T) {
 	}
 
 	// Final handler is topMux.
-	if !strings.Contains(mainContent, "http.ListenAndServe(addr, topMux)") {
-		t.Error("main.go should use topMux in ListenAndServe")
+	if !strings.Contains(mainContent, "stegoHTTPServer(topMux)") {
+		t.Error("main.go must use topMux for the HTTP server")
 	}
 }
 

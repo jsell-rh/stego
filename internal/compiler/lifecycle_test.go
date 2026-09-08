@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	_ "embed"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,46 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
+
+//go:embed testdata/http_lifecycle_test.go
+var httpLifecycleTests []byte
+
+func TestGeneratedHTTPLifecycle(t *testing.T) {
+	files, err := Assemble(AssemblerInput{
+		ModuleName: "example.com/http-lifecycle", GoVersion: "1.26.8",
+		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{
+			Routes: []string{`mux.Handle("/", http.NotFoundHandler())`},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	for _, file := range files {
+		if err := os.WriteFile(filepath.Join(project, file.Path), file.Bytes(), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(project, "main_test.go"), httpLifecycleTests, 0644); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated HTTP lifecycle: %v\n%s", err, output)
+	}
+	if os.Getenv("STEGO_CROSS_COMPILE") == "1" {
+		for _, target := range []struct{ os, arch string }{{"windows", "amd64"}, {"darwin", "arm64"}} {
+			command := exec.Command("go", "test", "-c", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "http-test"))
+			command.Dir = project
+			command.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0", "GOOS="+target.os, "GOARCH="+target.arch)
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("generated HTTP cross compilation for %s/%s: %v\n%s", target.os, target.arch, err, output)
+			}
+		}
+	}
+}
 
 func TestConstructorFailureReturnsAfterCleanup(t *testing.T) {
 	input := AssemblerInput{
@@ -38,16 +79,32 @@ func TestConstructorFailureReturnsAfterCleanup(t *testing.T) {
 import ("errors"; "net/http")
 var ErrStartup = errors.New("startup failed")
 var Closed bool
+var FailStartup = true
 type Handle struct{}
 func NewHandle() (*Handle, error) { return &Handle{}, nil }
 func (h *Handle) Close() { Closed = true }
-func NewBroken(h *Handle) (http.Handler, error) { return nil, ErrStartup }
+func NewBroken(h *Handle) (http.Handler, error) {
+  if FailStartup { return nil, ErrStartup }
+  return http.NotFoundHandler(), nil
+}
 `
 	check := `package main
-import ("errors"; "testing"; "example.com/lifecycle/internal/api")
+import ("errors"; "net"; "strconv"; "testing"; "example.com/lifecycle/internal/api")
 func TestStartupFailure(t *testing.T) {
+  api.FailStartup = true
+  api.Closed = false
   if err := run(); !errors.Is(err, api.ErrStartup) { t.Fatalf("lost error: %v", err) }
   if !api.Closed { t.Fatal("earlier constructor resource was not closed") }
+}
+func TestListenFailure(t *testing.T) {
+  listener, err := net.Listen("tcp", "127.0.0.1:0")
+  if err != nil { t.Fatal(err) }
+  defer listener.Close()
+  t.Setenv("PORT", strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
+  api.FailStartup = false
+  api.Closed = false
+  if err := run(); err == nil { t.Fatal("occupied port returned success") }
+  if !api.Closed { t.Fatal("listener failure skipped constructor cleanup") }
 }
 `
 	for name, source := range map[string]string{"internal/api/api.go": api, "main_test.go": check} {
@@ -55,7 +112,7 @@ func TestStartupFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	command := exec.Command("go", "test", "./...")
+	command := exec.Command("go", "test", "-race", "-mod=readonly", "./...")
 	command.Dir = project
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {

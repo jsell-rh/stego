@@ -219,9 +219,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 
 	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, consumedWirings)
 
-	fallible := hasFallibleConstructor(input, consumed)
+	fallible := hasRoutes || hasDB || hasFallibleConstructor(input, consumed)
 	if fallible {
-		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tlog.Print(\"service startup failed: \", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() error {\n")
+		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tlog.Print(\"service failed: \", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() error {\n")
 	} else {
 		buf.WriteString("func main() {\n")
 	}
@@ -253,10 +253,13 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeServerStart(&buf, input, wiringRenames)
 	}
 
-	if fallible {
+	if fallible && !hasRoutes {
 		buf.WriteString("\treturn nil\n")
 	}
 	buf.WriteString("}\n")
+	if hasRoutes {
+		buf.WriteString(httpLifecycleSource)
+	}
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -314,7 +317,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		stdlibNeeded["log"] = true
 	}
 	if hasRoutes {
-		stdlibNeeded["net/http"] = true
+		for _, pkg := range httpLifecycleImports {
+			stdlibNeeded[pkg] = true
+		}
 	}
 	// os is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
 	if hasDB || hasRoutes {
@@ -463,11 +468,11 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 func writeDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
-	buf.WriteString("\t\tlog.Fatal(\"DATABASE_URL environment variable is required\")\n")
+	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdb, err := sql.Open(\"postgres\", dsn)\n")
 	buf.WriteString("\tif err != nil {\n")
-	buf.WriteString("\t\tlog.Fatal(err)\n")
+	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdefer db.Close()\n\n")
 }
@@ -475,15 +480,15 @@ func writeDBSetup(buf *bytes.Buffer) {
 func writeGORMDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
-	buf.WriteString("\t\tlog.Fatal(\"DATABASE_URL environment variable is required\")\n")
+	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})\n")
 	buf.WriteString("\tif err != nil {\n")
-	buf.WriteString("\t\tlog.Fatal(err)\n")
+	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tsqlDB, err := db.DB()\n")
 	buf.WriteString("\tif err != nil {\n")
-	buf.WriteString("\t\tlog.Fatal(err)\n")
+	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdefer sqlDB.Close()\n\n")
 }
@@ -506,7 +511,7 @@ func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings m
 				}
 			}
 			fmt.Fprintf(buf, "\tif err := %s; err != nil {\n", resolvedCall)
-			buf.WriteString("\t\tlog.Fatal(err)\n")
+			buf.WriteString("\t\treturn err\n")
 			buf.WriteString("\t}\n")
 		}
 	}
@@ -572,6 +577,12 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery bool) map[stri
 		}
 	}
 	if hasRoutes {
+		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoServeHTTP", "stegoHTTPError"} {
+			vars[name] = true
+		}
+		for _, pkg := range httpLifecycleImports {
+			vars[path.Base(pkg)] = true
+		}
 		vars["mux"] = true
 		vars["addr"] = true
 		vars["port"] = true
@@ -1345,7 +1356,6 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 	buf.WriteString("\t\tport = \"8080\"\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\taddr := \":\" + port\n")
-	buf.WriteString("\tlog.Printf(\"starting server on %s\", addr)\n")
 
 	// Build the handler expression by chaining middlewares.
 	// Inner middlewares (e.g. validation) wrap mux first, then auth wraps
@@ -1379,10 +1389,12 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 			}
 		}
 		buf.WriteString("\ttopMux.Handle(\"/\", handler)\n")
-		buf.WriteString("\tlog.Fatal(http.ListenAndServe(addr, topMux))\n")
-	} else {
-		fmt.Fprintf(buf, "\tlog.Fatal(http.ListenAndServe(addr, %s))\n", handlerExpr)
+		handlerExpr = "topMux"
 	}
+	buf.WriteString("\tctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)\n\tdefer stop()\n")
+	buf.WriteString("\tlistener, err := net.Listen(\"tcp\", addr)\n\tif err != nil { return err }\n")
+	buf.WriteString("\tlog.Printf(\"starting server on %s\", listener.Addr())\n")
+	fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second)\n", handlerExpr)
 }
 
 // hasAnyRoutes returns true if any component wiring has routes or discovery routes.
@@ -1734,7 +1746,10 @@ func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) [
 		names = append(names, "os")
 	}
 	if hasRoutes {
-		names = append(names, "http")
+		for _, pkg := range httpLifecycleImports {
+			names = append(names, path.Base(pkg))
+		}
+		names = append(names, "stegoHTTPServer", "stegoServeHTTP", "stegoHTTPError")
 	}
 	if hasDB || hasRoutes {
 		names = append(names, "log")

@@ -25,7 +25,7 @@ The following milestones define completion:
 | C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Active |
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Active |
 | C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
-| C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Pending |
+| C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Active |
 | C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Pending |
 | H1 | Hypershell compatibility baseline | Inventory and executable checks for REST, gRPC, RBAC, watch, SDK, CLI, UI, and deployment contracts | Active |
 | H2 | STEGO Hypershell implementation | Clean generation and tests without rh-trex-ai; reviewed domain code remains outside generated output | Pending |
@@ -183,3 +183,15 @@ build. Missing and nil implementations fail before any generator runs or output
 changes. The full root race suite passes. Registered health and tracing stubs
 still need real implementations; generator presence alone does not prove that a
 capability works.
+
+Generated HTTP services now use network deadlines and a graceful shutdown path.
+SIGINT and SIGTERM stop new requests and allow a ten-second drain interval.
+An expired drain closes remaining connections and returns an error. Startup,
+database setup, and server errors return through deferred cleanup before exit.
+Runtime tests check request draining, forced closure, listener failure, signal
+handling, header size, slow input, write deadlines, and idle connections. The
+full root race suite passes. These defaults cover the current request-response
+API. Stream-specific deadlines, handler execution limits, readiness, telemetry,
+database pool settings, and further runtime checks remain open.
+The generated HTTP tests also compile for Windows amd64 and macOS arm64. Their
+runtime behavior has only been tested on Linux here.
