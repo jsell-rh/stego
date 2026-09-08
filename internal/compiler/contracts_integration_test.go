@@ -13,6 +13,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
+	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -41,11 +42,11 @@ func TestSharedStorageDomainAndHTTP(t *testing.T) {
 	ctx := gen.Context{
 		ModuleName: "example.com/shared", OutDirName: "out", StorageContract: "example.com/shared/out/contracts/storage",
 		Entities: []types.Entity{
-			{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}}},
+			{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "serial", Type: types.FieldTypeInt64}}},
 			{Name: "Membership", Fields: []types.Field{{Name: "record_id", Type: types.FieldTypeRef, To: "Record"}, {Name: "subject", Type: types.FieldTypeString}}},
 		},
 		Collections:    []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}}},
-		PeerNamespaces: map[string]string{"rest-api": "internal/api", "postgres-adapter": "internal/store", "outbox": "internal/queue"},
+		PeerNamespaces: map[string]string{"rest-api": "internal/api", "postgres-adapter": "internal/store", "outbox": "internal/queue", "tsl-search": "internal/search"},
 	}
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
@@ -53,7 +54,7 @@ func TestSharedStorageDomainAndHTTP(t *testing.T) {
 		name      string
 		generator gen.Generator
 	}{
-		{"rest-api", new(restapi.Generator)}, {"postgres-adapter", new(postgresadapter.Generator)}, {"outbox", new(outbox.Generator)},
+		{"rest-api", new(restapi.Generator)}, {"postgres-adapter", new(postgresadapter.Generator)}, {"outbox", new(outbox.Generator)}, {"tsl-search", new(tslsearch.Generator)},
 	} {
 		ctx.OutputNamespace = ctx.PeerNamespaces[component.name]
 		generated, wiring, err := component.generator.Generate(ctx)

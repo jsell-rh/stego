@@ -20,6 +20,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+func TestOrderingRejectsAmbiguousInput(t *testing.T) {
+	fields := map[string]string{"name": "name", "created_at": "created_time", "created_time": "created_time"}
+	order, err := transport.ParseOrderBy("name DESC, created_at", fields)
+	if err != nil || len(order) != 2 || order[0].Direction != "desc" || order[1].Field != "created_time" || order[1].Direction != "asc" {
+		t.Fatalf("ordering: %v %v", order, err)
+	}
+	for _, value := range []string{"unknown", "name desc; SELECT 1", "name desc extra", "name,", "name,name", "created_at,created_time", strings.Repeat("x", 513)} {
+		if _, err := transport.ParseOrderBy(value, fields); err == nil {
+			t.Fatalf("invalid order accepted: %s", value)
+		}
+	}
+}
+
 func handler(t *testing.T) (http.Handler, string) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)

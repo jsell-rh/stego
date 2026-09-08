@@ -486,6 +486,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	}
 	if searchPkg != "" {
 		fmt.Fprintf(&buf, "\t%s %q\n", searchAlias, searchPkg)
+		fmt.Fprintf(&buf, "\t\"github.com/jackc/pgx/v5/pgconn\"\n")
 	}
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
@@ -554,6 +555,14 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	emitGetMethod(&buf, entities, apiAlias)
 	emitReplaceMethod(&buf, entities, apiAlias)
 	emitDeleteMethod(&buf, entities, apiAlias)
+	if searchPkg != "" {
+		buf.WriteString(`func searchInputError(err error) bool {
+ var failure *pgconn.PgError
+ if !errors.As(err,&failure){return false}
+ return strings.HasPrefix(failure.Code,"22") || failure.Code=="42883" || failure.Code=="42804" || failure.Code=="42846"
+}
+`)
+	}
 	emitListMethod(&buf, entities, apiAlias, searchAlias)
 	if ctx.StorageContract != "" {
 		emitRelatedFilter(&buf, entities)
@@ -810,6 +819,10 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		// Search parse/validation errors are wrapped with ErrSearch so the
 		// handler can distinguish client-input errors (400) from infrastructure
 		// errors (500).
+		errSearchRef := "ErrSearch"
+		if apiAlias != "" {
+			errSearchRef = apiAlias + ".ErrSearch"
+		}
 		if searchAlias != "" {
 			errSearchRef := "ErrSearch"
 			if apiAlias != "" {
@@ -824,15 +837,8 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 			fmt.Fprintf(buf, "\t\t\t\tquery = query.Where(searchResult.Where, searchResult.Args...)\n")
 			fmt.Fprintf(buf, "\t\t\t}\n")
 			fmt.Fprintf(buf, "\t\t}\n")
-		}
-
-		// Count total matching records before applying pagination.
-		fmt.Fprintf(buf, "\t\tvar total int64\n")
-		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
-		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
-		fmt.Fprintf(buf, "\t\t}\n")
-		if apiAlias == "stegostorage" {
-			fmt.Fprintf(buf, "\t\tif opts.CountOnly { return %s{Items: []%s{}, Total: total}, nil }\n", listResultType, e.Name)
+		} else {
+			fmt.Fprintf(buf, "\t\tif opts.Search != \"\" { return %s{}, fmt.Errorf(\"%%w: search is not configured\", %s) }\n", listResultType, errSearchRef)
 		}
 
 		// Apply ordering from ListOptions. Field names are validated by the
@@ -843,6 +849,18 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t\t\tquery = query.Order(ob.Field + \" \" + ob.Direction)\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
+
+		// Count total matching records before applying pagination.
+		fmt.Fprintf(buf, "\t\tvar total int64\n")
+		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
+		if searchAlias != "" {
+			fmt.Fprintf(buf, "\t\t\tif opts.Search != \"\" && searchInputError(err) { return %s{}, fmt.Errorf(\"%%w: invalid search value\", %s) }\n", listResultType, errSearchRef)
+		}
+		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
+		fmt.Fprintf(buf, "\t\t}\n")
+		if apiAlias == "stegostorage" {
+			fmt.Fprintf(buf, "\t\tif opts.CountOnly { return %s{Items: []%s{}, Total: total}, nil }\n", listResultType, e.Name)
+		}
 
 		// Apply sparse fieldset selection.
 		fmt.Fprintf(buf, "\t\tif len(opts.Fields) > 0 {\n")
@@ -866,6 +884,9 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\tvar result []%s\n", e.Name)
 		fmt.Fprintf(buf, "\t\tif err := query.Find(&result).Error; err != nil {\n")
+		if searchAlias != "" {
+			fmt.Fprintf(buf, "\t\t\tif opts.Search != \"\" && searchInputError(err) { return %s{}, fmt.Errorf(\"%%w: invalid search value\", %s) }\n", listResultType, errSearchRef)
+		}
 		fmt.Fprintf(buf, "\t\t\treturn %s{}, err\n", listResultType)
 		fmt.Fprintf(buf, "\t\t}\n")
 		fmt.Fprintf(buf, "\t\treturn %s{Items: result, Total: total}, nil\n", listResultType)

@@ -29,6 +29,42 @@ import (
 //go:embed internal/queue/migrations/000001_outbox.sql
 var schema string
 
+func TestSearchPreservesAccessAndExactNumbers(t *testing.T) {
+	storage, _ := testStore(t)
+	ctx := context.Background()
+	for i, name := range []string{"a", "b", "c"} {
+		if err := storage.Create(ctx, "Record", map[string]any{"id": name, "name": name, "serial": int64(9007199254740992) + int64(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.Create(ctx, "Membership", map[string]any{"record_id": "b", "subject": "reader"}); err != nil {
+		t.Fatal(err)
+	}
+	options := contract.ListOptions{Page: 1, Size: 20, Related: []contract.RelatedFilter{{Entity: "Membership", ForeignField: "record_id", Values: map[string][]string{"subject": {"reader"}}}}, Search: "name = 'a' or name = 'b' or name = 'c'"}
+	result, err := storage.List(ctx, "Record", "", "", options)
+	if err != nil || result.Total != 1 || result.Items.([]store.Record)[0].ID != "b" {
+		t.Fatalf("OR search bypassed access: %+v %v", result, err)
+	}
+	options.Search = "serial = 9007199254740993"
+	options.Related = nil
+	result, err = storage.List(ctx, "Record", "", "", options)
+	if err != nil || result.Total != 1 || result.Items.([]store.Record)[0].ID != "b" {
+		t.Fatalf("integer precision changed: %+v %v", result, err)
+	}
+	for _, search := range []string{`"name) OR TRUE --" = 'x'`, "serial like 'x'", "serial = 'not-an-integer'", "created_at = 'not-a-date'", "missing = 'x'", "name = 'x' or missing = 'y'"} {
+		options.Search = search
+		if _, err := storage.List(ctx, "Record", "", "", options); !errors.Is(err, contract.ErrSearch) {
+			t.Fatalf("invalid search %s: %v", search, err)
+		}
+	}
+	options.Search = ""
+	options.CountOnly = true
+	options.OrderBy = []contract.OrderByField{{Field: "name", Direction: "desc; SELECT 1"}}
+	if _, err := storage.List(ctx, "Record", "", "", options); err == nil {
+		t.Fatal("count-only accepted invalid ordering")
+	}
+}
+
 func testStore(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")

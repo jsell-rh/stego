@@ -317,6 +317,16 @@ generated process, with TLS and token verification. The data set contained 200
 Gateways, of which 100 were visible; each page contained 20 items. This is a local
 baseline, not a production capacity claim.
 
+The Gateway list now has REST search and ordering. Application tests check that
+search cannot bypass the access filter, including `OR` expressions and count-only
+requests. The work exposed incomplete AST validation, shared parser cache races,
+and numeric precision loss in the old search code. The replacement binds values,
+checks declared fields and types, preserves numeric source text, and bounds
+parsing. Independent Record tests run against PostgreSQL with the race detector.
+Related-resource search remains open. Field selection also remains open: the
+reference returns an array for a `fields` query while its OpenAPI contract says
+GatewayList. The user has been asked which response behavior to preserve.
+
 Full application models, role projections,
 other placement modes, production Kafka checks, and the other Hypershell
 workflows also remain open. Separate versioned API contracts are the current

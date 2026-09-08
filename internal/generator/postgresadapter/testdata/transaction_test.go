@@ -26,6 +26,13 @@ import (
 //go:embed outbox.sql
 var queueSchema string
 
+func TestSearchWithoutAProviderFails(t *testing.T) {
+	store, _ := database(t, false)
+	if _, err := store.List(context.Background(), "Record", "", "", contract.ListOptions{Search: "name = 'x'"}); !errors.Is(err, contract.ErrSearch) {
+		t.Fatalf("search was silently ignored: %v", err)
+	}
+}
+
 func database(t testing.TB, prepared bool) (*Store, *sql.DB) {
 	t.Helper()
 	dsn := os.Getenv("STEGO_TEST_POSTGRES_DSN")
