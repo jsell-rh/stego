@@ -69,3 +69,9 @@ The compiler now requires Go 1.26.8. It uses the rooted rename and directory
 operations added in [Go 1.25](https://go.dev/doc/go1.25#os), with a patch release
 from the supported 1.26 series. See the
 [Go release history](https://go.dev/doc/devel/release).
+
+Remote registry resolution now validates full commit SHAs before cache access.
+It prepares private checkouts and publishes verified content through a rename.
+Cache reuse requires the exact commit and a clean tree, including ignored and
+untracked files. Modified cache entries are preserved and rejected. Local
+registry content identities and compiler build identities remain C3 work.

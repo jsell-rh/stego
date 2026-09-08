@@ -2,11 +2,13 @@ package registry
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -106,7 +108,12 @@ func isLocalDir(path string) bool {
 
 // resolveGitRegistry clones or fetches a git repo and checks out a specific ref.
 // The cache layout is: <cacheDir>/<url-hash>/<ref>/
-func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
+var commitID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr error) {
+	if !commitID.MatchString(ref) {
+		return "", fmt.Errorf("registry ref %q must be a full lowercase Git commit SHA", ref)
+	}
 	if cacheDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -117,10 +124,20 @@ func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
 
 	urlHash := hashURL(url)
 	checkoutDir := filepath.Join(cacheDir, urlHash, ref)
+	if info, err := os.Lstat(filepath.Dir(checkoutDir)); err == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+		return "", fmt.Errorf("registry cache parent must be a directory without symbolic links")
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("checking registry cache: %w", err)
+	}
 
 	// If cached checkout exists and is valid, reuse it.
 	if isValidCheckout(checkoutDir, ref) {
 		return checkoutDir, nil
+	}
+	if _, err := os.Lstat(checkoutDir); err == nil {
+		return "", fmt.Errorf("registry cache %s is modified or incomplete; restore the pinned checkout before retrying", checkoutDir)
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("checking registry cache: %w", err)
 	}
 
 	// Ensure the git binary is available.
@@ -134,21 +151,37 @@ func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
 		return "", fmt.Errorf("creating cache directory: %w", err)
 	}
 
-	// Remove any partial/failed checkout.
-	os.RemoveAll(checkoutDir)
+	// Prepare a private checkout. Never remove an existing cache entry.
+	temporary, err := os.MkdirTemp(filepath.Dir(checkoutDir), ".checkout-")
+	if err != nil {
+		return "", fmt.Errorf("creating temporary registry checkout: %w", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(temporary); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("removing temporary registry checkout: %w", err))
+		}
+	}()
 
 	// Clone and checkout at the specific ref.
-	cmd := exec.Command(gitPath, "clone", "--no-checkout", url, checkoutDir)
+	cmd := exec.Command(gitPath, "clone", "--no-checkout", "--", url, temporary)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git clone %s at ref %s failed: %w\n%s", url, ref, err, strings.TrimSpace(string(output)))
 	}
 
-	cmd = exec.Command(gitPath, "checkout", ref)
-	cmd.Dir = checkoutDir
+	cmd = exec.Command(gitPath, "checkout", "--detach", ref, "--")
+	cmd.Dir = temporary
 	if output, err := cmd.CombinedOutput(); err != nil {
-		// Clean up failed checkout.
-		os.RemoveAll(checkoutDir)
 		return "", fmt.Errorf("git checkout %s at ref %s failed: %w\n%s", url, ref, err, strings.TrimSpace(string(output)))
+	}
+	if !isValidCheckout(temporary, ref) {
+		return "", fmt.Errorf("registry checkout does not match the pinned commit %s", ref)
+	}
+	if err := os.Rename(temporary, checkoutDir); err != nil {
+		// Another process can publish the same immutable checkout first.
+		if isValidCheckout(checkoutDir, ref) {
+			return checkoutDir, nil
+		}
+		return "", fmt.Errorf("publishing registry checkout: %w", err)
 	}
 
 	return checkoutDir, nil
@@ -157,12 +190,11 @@ func resolveGitRegistry(url, ref, cacheDir string) (string, error) {
 // isValidCheckout returns true if the directory exists and has a .git directory
 // (indicating a successful previous checkout).
 func isValidCheckout(dir, ref string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".git"))
-	if err != nil {
-		return false
-	}
-	if !info.IsDir() {
-		return false
+	for _, path := range []string{dir, filepath.Join(dir, ".git")} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
 	}
 
 	// Verify the HEAD matches the expected ref.
@@ -174,13 +206,17 @@ func isValidCheckout(dir, ref string) bool {
 	}
 
 	head := strings.TrimSpace(string(output))
-	// For full SHA refs, require exact match. For short refs or branch names,
-	// check prefix match.
-	return strings.HasPrefix(head, ref) || head == ref
+	if head != ref {
+		return false
+	}
+	cmd = exec.Command("git", "status", "--porcelain", "--untracked-files=all", "--ignored")
+	cmd.Dir = dir
+	output, err = cmd.Output()
+	return err == nil && strings.TrimSpace(string(output)) == ""
 }
 
 // hashURL returns a deterministic, filesystem-safe hash of a URL.
 func hashURL(url string) string {
 	h := sha256.Sum256([]byte(url))
-	return fmt.Sprintf("%x", h[:8]) // 16 hex chars — enough to avoid collisions
+	return fmt.Sprintf("%x", h)
 }

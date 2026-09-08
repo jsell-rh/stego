@@ -261,7 +261,7 @@ func TestResolveRegistryGitBadURL(t *testing.T) {
 
 	writeConfig(t, projectDir, types.RegistryConfig{
 		Registry: []types.RegistrySource{
-			{URL: "file:///nonexistent/no-such-repo.git", Ref: "abc123"},
+			{URL: "file:///nonexistent/no-such-repo.git", Ref: strings.Repeat("a", 40)},
 		},
 	})
 

@@ -304,6 +304,12 @@ No LLM integration. STEGO is purely the deterministic side.
 
 The registry is a git repo. No database, no server. Versions are git tags for discovery, but all resolution pins to SHAs for auditability.
 
+Remote registry references must be full lowercase Git commit SHAs. STEGO rejects
+branches, tags, abbreviated SHAs, and path syntax before it accesses the cache.
+It prepares a checkout in a temporary directory and publishes it only after
+verification. A modified cache entry causes an error; STEGO does not delete or
+silently reuse that entry.
+
 ```yaml
 # .stego/config.yaml
 registry:
