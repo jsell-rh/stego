@@ -51,6 +51,9 @@ func New(db *sql.DB) (*Queue, error) {
     return &Queue{db: db}, nil
 }
 
+// ValidateMessage checks one message without database access.
+func ValidateMessage(message Message) error { return validateMessage(message) }
+
 // Enqueue records notifications in the application's transaction. Call it once
 // per transaction with the full batch. Commit only if this method succeeds.
 // A rollback removes both the application write and its notifications.

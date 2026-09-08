@@ -99,9 +99,9 @@ func TestBasicGeneration(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should produce exactly 5 files.
-	if len(files) != 5 {
-		t.Fatalf("expected 5 files, got %d: %v", len(files), fileNames(files))
+	// Should produce exactly 6 files.
+	if len(files) != 6 {
+		t.Fatalf("expected 6 files, got %d: %v", len(files), fileNames(files))
 	}
 
 	// Verify file paths.

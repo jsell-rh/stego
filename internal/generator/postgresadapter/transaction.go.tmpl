@@ -1,0 +1,106 @@
+package {{.Package}}
+
+import (
+ "context"
+ "database/sql"
+ "errors"
+ "sync"
+ "time"
+
+ "gorm.io/gorm"
+ {{if .OutboxImport}}stegooutbox {{printf "%q" .OutboxImport}}{{end}}
+)
+
+var ErrTransactionRequired = errors.New("operation requires a store transaction")
+var ErrTransactionNested = errors.New("nested store transactions are not supported")
+var ErrTransactionClosed = errors.New("store transaction is closed")
+{{if .OutboxImport}}var ErrNotificationLimit = errors.New("transaction notification limit exceeded"){{end}}
+
+const transactionTimeout = 10 * time.Second
+
+type transactionState struct {
+ mu sync.Mutex
+ closed bool
+ failure error
+ {{if .OutboxImport}}messages []stegooutbox.Message{{end}}
+}
+
+// WithTransaction commits only if the callback and all queued notifications
+// succeed. The callback must use its supplied store and return operation errors.
+// It must not retain that store or start work that continues after return.
+// SQL work has a ten-second deadline. Callback code must honor cancellation.
+// The callback runs once. Serialization errors are returned without replay.
+func (s *Store) WithTransaction(ctx context.Context, fn func(context.Context, *Store) error) error {
+ if s == nil || s.db == nil || s.db.Statement == nil { return errors.New("store requires a database") }
+ if s.db.Error != nil { return s.db.Error }
+ if fn == nil { return errors.New("store transaction requires a callback") }
+ if s.transaction != nil { return ErrTransactionNested }
+ if _, nested := s.db.Statement.ConnPool.(gorm.TxCommitter); nested { return ErrTransactionNested }
+ ctx, cancel := context.WithTimeout(ctx, transactionTimeout)
+ defer cancel()
+ if err := ctx.Err(); err != nil { return err }
+ db := s.db.WithContext(ctx).Begin(&sql.TxOptions{Isolation: sql.LevelSerializable})
+ if db.Error != nil { return db.Error }
+ // Rollback also runs if the callback panics. A successful commit makes this
+ // rollback harmless. Panic recovery remains the caller's responsibility.
+ defer db.Rollback()
+ raw, err := sqlTransaction(db)
+ if err != nil { return err }
+ state := &transactionState{}
+ defer func() { state.mu.Lock(); state.closed = true; state.mu.Unlock() }()
+ scope := &Store{db: db, transaction: state}
+ callbackErr := fn(ctx, scope)
+ state.mu.Lock()
+ state.closed = true
+ failure := state.failure
+ {{if .OutboxImport}}messages := state.messages
+ state.messages = nil{{end}}
+ state.mu.Unlock()
+ if err := errors.Join(callbackErr, failure, ctx.Err()); err != nil { return err }
+ {{if .OutboxImport}}if len(messages) > 0 {
+  if err := stegooutbox.Enqueue(ctx, raw, messages...); err != nil { return err }
+ }{{end}}
+ return raw.Commit()
+}
+
+// sqlTransaction accepts the direct and prepared-statement GORM transaction
+// forms. Other connection wrappers fail before application code runs.
+func sqlTransaction(db *gorm.DB) (*sql.Tx, error) {
+ switch pool := db.Statement.ConnPool.(type) {
+ case *sql.Tx:
+  if pool != nil { return pool, nil }
+ case *gorm.PreparedStmtTX:
+  if pool != nil {
+   if raw, ok := pool.Tx.(*sql.Tx); ok && raw != nil { return raw, nil }
+  }
+ }
+ return nil, errors.New("unsupported store transaction connection")
+}
+
+{{if .OutboxImport}}
+// Notify stages messages for the current transaction. It does not publish them.
+// All calls form one batch of at most 32 messages. Payload data is copied.
+// Validation or enqueue failure rolls back the resource changes. A limit error
+// also prevents commit when the callback ignores that error.
+func (s *Store) Notify(messages ...stegooutbox.Message) error {
+ if s == nil || s.transaction == nil { return ErrTransactionRequired }
+ state := s.transaction
+ state.mu.Lock()
+ defer state.mu.Unlock()
+ if state.closed { return ErrTransactionClosed }
+ if state.failure != nil { return state.failure }
+ if len(messages) == 0 || len(messages) > stegooutbox.MaxBatchSize-len(state.messages) {
+  state.failure = ErrNotificationLimit
+  return state.failure
+ }
+ for _, message := range messages {
+  if err := stegooutbox.ValidateMessage(message); err != nil {
+   state.failure = err
+   return state.failure
+  }
+  message.Payload = append([]byte(nil), message.Payload...)
+  state.messages = append(state.messages, message)
+ }
+ return nil
+}
+{{end}}

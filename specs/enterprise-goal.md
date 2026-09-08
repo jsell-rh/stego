@@ -237,3 +237,13 @@ name collisions, HTTP draining, and process signals. The contract and its limits
 are recorded in `runtime-lifecycle.md`. The full root race suite passes with
 PostgreSQL required. Generated task tests also compile for Windows amd64 and
 macOS arm64. Outbox and Kafka service composition remain open.
+
+The PostgreSQL generator now supplies a serializable transaction scope. Its
+store operations and staged outbox messages can commit together. Invalid
+notifications, callback errors, cancellation, database failures, and panics
+roll back the scope. PostgreSQL tests cover prepared statements, copied payloads,
+retained and nested scopes, SQL deadlines, mutation rollback, and serialization
+failure without callback replay. A local create-plus-notification benchmark is
+recorded in `store-transactions.md`. The full root race suite passes with
+PostgreSQL required. Shared public contracts, domain rule
+injection, handler use, and Kafka service composition remain open.

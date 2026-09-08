@@ -127,7 +127,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating generic_dao: %w", err)
 	}
 
-	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile}
+	transactionFile, err := generateTransaction(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating transaction: %w", err)
+	}
+	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile, transactionFile}
 
 	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
@@ -162,13 +166,22 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
 	// Generator-internal identifiers.
-	"Store":       true,
-	"NewStore":    true,
-	"Meta":        true,
-	"GenericDao":  true,
-	"NewGenericDao": true,
-	"SessionFactory": true,
-	"Migrate":     true,
+	"Store":                  true,
+	"ErrTransactionRequired": true,
+	"ErrTransactionNested":   true,
+	"ErrTransactionClosed":   true,
+	"ErrNotificationLimit":   true,
+	"transactionState":       true,
+	"transactionTimeout":     true,
+	"sqlTransaction":         true,
+	"stegooutbox":            true,
+	"sync":                   true,
+	"NewStore":               true,
+	"Meta":                   true,
+	"GenericDao":             true,
+	"NewGenericDao":          true,
+	"SessionFactory":         true,
+	"Migrate":                true,
 	// Go keywords.
 	"break": true, "case": true, "chan": true, "const": true,
 	"continue": true, "default": true, "defer": true, "else": true,
@@ -191,14 +204,14 @@ var reservedTypeNames = map[string]bool{
 	"new": true, "panic": true, "print": true, "println": true,
 	"real": true, "recover": true,
 	// Import aliases used in generated files.
-	"gorm":       true,
-	"clause":     true,
-	"datatypes":  true,
-	"json":       true,
-	"fmt":        true,
-	"sql":        true,
-	"time":       true,
-	"uuid":       true,
+	"gorm":      true,
+	"clause":    true,
+	"datatypes": true,
+	"json":      true,
+	"fmt":       true,
+	"sql":       true,
+	"time":      true,
+	"uuid":      true,
 }
 
 // --- Models ---
@@ -224,7 +237,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		}
 	}
 
-	_ = needTime       // always true
+	_ = needTime          // always true
 	_ = needGormDeletedAt // always true
 	_ = hasRef
 
@@ -497,7 +510,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	// Store struct and constructor.
 	fmt.Fprintf(&buf, "// Store provides GORM-backed storage for all entities.\n")
 	fmt.Fprintf(&buf, "type Store struct {\n")
-	fmt.Fprintf(&buf, "\tdb *gorm.DB\n")
+	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	fmt.Fprintf(&buf, "// NewStore creates a new Store with the given GORM connection.\n")
