@@ -64,7 +64,7 @@ func captureProjectInputs(projectDir string, serviceData []byte) (*State, map[st
 	defer root.Close()
 	snapshots := make(map[string]fileSnapshot)
 	state := &State{}
-	for _, name := range []string{"service.yaml", "go.mod", ".stego/state.yaml", ".stego/config.yaml"} {
+	for _, name := range []string{"service.yaml", "go.mod", "go.sum", ".stego/state.yaml", ".stego/config.yaml"} {
 		data, snapshot, err := readSnapshot(root, name, parser.MaxDocumentBytes, name == ".stego/state.yaml")
 		if err != nil {
 			return nil, nil, err

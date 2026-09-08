@@ -58,9 +58,10 @@ type Plan struct {
 	// StateChanged includes input and ownership changes with unchanged output.
 	StateChanged bool
 
-	snapshots  map[string]fileSnapshot
-	projectDir string
-	outDir     string
+	requirements map[string]string
+	snapshots    map[string]fileSnapshot
+	projectDir   string
+	outDir       string
 }
 
 // HasChanges returns true if the plan includes any generate, update, delete,
@@ -357,6 +358,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err := bindPlanInputs(plan, input.ProjectDir, inputSnapshots); err != nil {
 		return nil, err
 	}
+	plan.requirements, err = moduleRequirements(wirings)
+	if err != nil {
+		return nil, err
+	}
 	return plan, nil
 }
 
@@ -440,11 +445,9 @@ func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) err
 }
 
 // isProjectRootFile returns true for files that should be placed at the project
-// root rather than in the output directory. Currently only go.mod, because it
-// must be at the module root to make both generated packages (under out/) and
-// fill packages (under fills/) resolvable as intra-module imports.
+// root. The application owns its module and checksum files.
 func isProjectRootFile(filePath string) bool {
-	return filePath == "go.mod"
+	return filePath == "go.mod" || filePath == "go.sum"
 }
 
 // collectComponentNames assembles the ordered list of component names from the
@@ -726,7 +729,7 @@ func computePlan(
 		}
 		hash := HashBytes(content)
 		// The application owns go.mod. Go tools can update it after apply.
-		if f.Path != "go.mod" {
+		if !isProjectRootFile(f.Path) {
 			newFileHashes[f.Path] = hash
 		}
 
@@ -747,7 +750,7 @@ func computePlan(
 
 	// Detect orphaned files: tracked in previous state but no longer generated.
 	for path := range existingHashes {
-		if path == "go.mod" {
+		if isProjectRootFile(path) {
 			continue // Transfer ownership from older state without deletion.
 		}
 		if _, stillGenerated := newFileHashes[path]; !stillGenerated {

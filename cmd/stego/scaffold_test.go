@@ -103,7 +103,10 @@ func TestScaffoldDeniesUnimplementedPolicy(t *testing.T) {
 	if err := os.WriteFile("fills/policy/fill_test.go", []byte(contractTest), 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-mod=readonly", "./..."}, {"build", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "service"), "./out"}} {
+	if err := runDependencies(nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"test", "-mod=readonly", "./..."}, {"build", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "service"), "./out"}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -124,6 +127,9 @@ func TestScaffoldDeniesUnimplementedPolicy(t *testing.T) {
 	afterApply, err := os.ReadFile("go.mod")
 	if err != nil || !bytes.Equal(resolvedModule, afterApply) {
 		t.Fatalf("repeated apply changed the resolved module: %v", err)
+	}
+	if err := runDependencies(nil); err != nil {
+		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"test", "-mod=readonly", "./..."}, {"mod", "tidy"}} {
 		cmd := exec.Command("go", args...)

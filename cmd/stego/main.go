@@ -56,6 +56,8 @@ func main() {
 		err = runApply(os.Args[2:])
 	case "recover":
 		err = runRecover(os.Args[2:])
+	case "deps":
+		err = runDependencies(os.Args[2:])
 	case "validate":
 		err = runValidate(os.Args[2:])
 	case "drift":
@@ -92,6 +94,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  plan            Diff desired vs current, show changeset")
 	fmt.Fprintln(os.Stderr, "  apply           Generate/update code")
 	fmt.Fprintln(os.Stderr, "  recover         Complete an interrupted apply")
+	fmt.Fprintln(os.Stderr, "  deps            Resolve and check project dependencies")
 	fmt.Fprintln(os.Stderr, "  drift           Detect hand-edits to generated files")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Validation:")

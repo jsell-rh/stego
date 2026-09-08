@@ -85,7 +85,7 @@ versions only when a component requires a higher minimum. It does not lower an
 application's selected version. Existing module settings supply the CLI defaults.
 Invalid requirements and conflicting module names fail before writes. Module
 edits no longer count as generated output drift. The full root suite passes.
-Dependency resolution as a compiler step remains open.
+The separate dependency command is described below.
 
 New fills use canonical generated slot types and include a constructor. An
 unfinished method returns an error. Fill creation rejects unsafe names, existing
@@ -160,10 +160,20 @@ The full root suite passes with the race detector. Windows and macOS test
 binaries compile; runtime and power-loss checks on those systems remain open.
 Unix directory metadata is synced along with file contents. Apply is recoverable;
 it does not give external readers one atomic view of all files. Complete compiler
-and registry identities, dependency resolution, and broader state migration
+and registry identities and broader state migration
 support remain C3 work.
 
 The repeated-apply workflow now checks both `go.mod` and `go.sum` after a second
 dependency resolution. This exposed an unused database JSON dependency. The
 PostgreSQL generator now adds that dependency only for JSON fields. The CLI and
 PostgreSQL generator tests pass with the race detector.
+
+`stego deps` now resolves dependencies in temporary module files. It verifies
+modules, checks package dependencies without module edits, and checks that
+resolution is stable. Component minimum versions must remain satisfied. It holds
+the project write lock, checks source and local replacement module snapshots,
+and saves both module files through the recovery transaction. Command failures,
+cancellation, source additions and deletions, external replacement edits, and
+interrupted commits have regression tests. The fresh service workflow uses this
+command and builds with `-mod=readonly`. The full root race suite passes. This
+does not complete dependency security review or prove a hermetic build.

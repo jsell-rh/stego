@@ -85,7 +85,7 @@ func validateTransactionPath(outputDir, name string) error {
 	if err := gen.ValidatePath(name); err != nil {
 		return err
 	}
-	if name == "go.mod" || name == ".stego/state.yaml" {
+	if isProjectRootFile(name) || name == ".stego/state.yaml" {
 		return nil
 	}
 	if !strings.HasPrefix(name, outputDir+"/") {
@@ -113,7 +113,7 @@ func prepareTransaction(plan *Plan, relative string) (*transaction, error) {
 			return nil, fmt.Errorf("duplicate generated file %s", file.Path)
 		}
 		data := file.Bytes()
-		if file.Path != "go.mod" && plan.NewState.LastApplied.Files[file.Path] != HashBytes(data) {
+		if !isProjectRootFile(file.Path) && plan.NewState.LastApplied.Files[file.Path] != HashBytes(data) {
 			return nil, fmt.Errorf("plan content does not match state for %s", file.Path)
 		}
 		files[file.Path] = data
@@ -224,7 +224,7 @@ func validateTransaction(tx *transaction, projectDir string) (map[string][]byte,
 		if op.Path == ".stego/state.yaml" && (index != len(tx.Operations)-1 || !op.After.Exists) {
 			return nil, fmt.Errorf("transaction must save state last")
 		}
-		if op.Path == "go.mod" && !op.After.Exists {
+		if isProjectRootFile(op.Path) && !op.After.Exists {
 			return nil, fmt.Errorf("transaction cannot delete the application module")
 		}
 		if op.After.Exists {

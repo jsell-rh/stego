@@ -68,7 +68,7 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 	// Collect and sort file paths for deterministic output.
 	var paths []string
 	for path := range state.LastApplied.Files {
-		if path == "go.mod" {
+		if isProjectRootFile(path) {
 			continue // Application-owned, including state from older releases.
 		}
 		paths = append(paths, path)

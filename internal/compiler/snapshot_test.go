@@ -63,7 +63,7 @@ func TestPlanReportsModifiedOutputWhenStateStillMatches(t *testing.T) {
 }
 
 func TestApplyRejectsChangesAfterPlanBeforeWriting(t *testing.T) {
-	for _, name := range []string{"service.yaml", "go.mod", ".stego/state.yaml", ".stego/config.yaml", "out/internal/api/handler.go"} {
+	for _, name := range []string{"service.yaml", "go.mod", "go.sum", ".stego/state.yaml", ".stego/config.yaml", "out/internal/api/handler.go"} {
 		t.Run(name, func(t *testing.T) {
 			input := snapshotTestInput(t)
 			applyInitialSnapshot(t, input)

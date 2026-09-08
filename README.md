@@ -83,9 +83,22 @@ Generate and build:
 stego validate      # check service.yaml against registry
 stego plan          # see what will be generated
 stego apply         # generate code into out/
-go mod tidy         # resolve and record project dependencies
+stego deps          # resolve and check project dependencies
 cd out && go build  # it's just Go
 ```
+
+Run `stego deps` after apply and after changes to application imports. It runs Go
+module resolution, module verification, and package dependency checks. It uses
+temporary module files, then saves `go.mod` and `go.sum` with transaction recovery.
+Commit both files. A command failure or an input change stops the update.
+The command has a five-minute limit. It checks up to 10,000 Go source and module
+files, with a total size limit of 256 MiB. Local replacement directories must
+exist. Their Go source and module files are checked for changes too.
+
+Dependency resolution uses `GOWORK=off` and clears `GOFLAGS` for its Go commands.
+Other Go environment settings, including private module and proxy settings,
+remain in effect. Plan and apply do not resolve or download dependencies.
+These checks do not replace application tests or dependency security review.
 
 Before you start the service, set `STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and
 `STEGO_AUTH_PUBLIC_KEY_FILE`. The key file must contain one RSA public key in PEM
@@ -101,7 +114,7 @@ stego fill create admin-policy -slot before_create -collection todos
 # add the binding shown below to service.yaml
 stego apply         # generate the shared slot contracts
 # implement fills/admin-policy/fill.go and add its tests
-go mod tidy         # include dependencies used by the fill
+stego deps          # include dependencies used by the fill
 stego test          # run fill tests
 ```
 
