@@ -1,0 +1,248 @@
+package {{.Package}}
+
+import (
+    "context"
+    "crypto/rsa"
+    "encoding/base64"
+    "encoding/json"
+    "encoding/pem"
+    "errors"
+    "fmt"
+    "io"
+    "math/big"
+    "net/http"
+    "net/url"
+    "os"
+    "strings"
+    "time"
+    "unicode/utf8"
+
+    "github.com/golang-jwt/jwt/v5"
+)
+
+const maxTokenBytes = 16384
+const maxKeyFileBytes = 65536
+
+// Identity contains claims from a verified token. Authorization remains a
+// separate decision. A role claim alone does not grant access to a resource.
+type Identity struct {
+    UserID string `json:"user_id"`
+    Role string `json:"role"`
+    Attributes map[string]string `json:"attributes"`
+}
+
+type contextKey struct{}
+var identityKey contextKey
+
+func IdentityFromContext(ctx context.Context) Identity {
+    id, _ := ctx.Value(identityKey).(Identity)
+    return id
+}
+
+// Config fixes the trust rules for one token issuer and one API audience.
+type Config struct {
+    Issuer string
+    Audience string
+    PublicKey *rsa.PublicKey
+}
+
+// Verifier can be shared by HTTP and application transport adapters.
+type Verifier struct {
+    parser *jwt.Parser
+    key *rsa.PublicKey
+}
+
+type jwtClaims struct {
+    jwt.RegisteredClaims
+    Role string `json:"role"`
+    Attributes map[string]string `json:"attributes"`
+}
+
+func (claims jwtClaims) Validate() error {
+    if strings.TrimSpace(claims.Subject) == "" {
+        return errors.New("token subject is required")
+    }
+    if claims.IssuedAt == nil || claims.ExpiresAt == nil || !claims.IssuedAt.Before(claims.ExpiresAt.Time) {
+        return errors.New("token requires a valid issue time and expiry")
+    }
+    return nil
+}
+
+// NewVerifier validates configuration before any requests can be accepted.
+func NewVerifier(config Config) (*Verifier, error) {
+    issuer, err := url.Parse(config.Issuer)
+    if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" {
+        return nil, errors.New("authentication issuer must be an HTTPS URL")
+    }
+    if config.Audience == "" || strings.TrimSpace(config.Audience) != config.Audience {
+        return nil, errors.New("authentication audience is required")
+    }
+    key := config.PublicKey
+    if key == nil || key.N == nil || key.N.Sign() <= 0 || key.N.BitLen() < 2048 || key.N.BitLen() > 8192 || key.N.Bit(0) == 0 || key.E != 65537 {
+        return nil, errors.New("authentication requires a 2048 to 8192 bit RSA public key with exponent 65537")
+    }
+    return &Verifier{
+        parser: jwt.NewParser(
+            jwt.WithValidMethods([]string{"RS256"}),
+            jwt.WithIssuer(config.Issuer),
+            jwt.WithAudience(config.Audience),
+            jwt.WithExpirationRequired(),
+            jwt.WithIssuedAt(),
+            jwt.WithStrictDecoding(),
+        ),
+        key: &rsa.PublicKey{N: new(big.Int).Set(key.N), E: key.E},
+    }, nil
+}
+
+// Verify checks a token before it exposes any identity claims.
+func (v *Verifier) Verify(raw string) (Identity, error) {
+    if v == nil || v.parser == nil || v.key == nil {
+        return Identity{}, errors.New("authentication verifier is not initialized")
+    }
+    if len(raw) == 0 || len(raw) > maxTokenBytes {
+        return Identity{}, errors.New("invalid token size")
+    }
+    parts := strings.Split(raw, ".")
+    if len(parts) != 3 {
+        return Identity{}, errors.New("invalid token format")
+    }
+    for _, segment := range parts[:2] {
+        data, err := base64.RawURLEncoding.Strict().DecodeString(segment)
+        if err != nil { return Identity{}, errors.New("invalid token encoding") }
+        if err := checkJSONObject(data); err != nil { return Identity{}, err }
+    }
+    claims := new(jwtClaims)
+    token, err := v.parser.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
+        if token.Method != jwt.SigningMethodRS256 {
+            return nil, errors.New("unsupported signing algorithm")
+        }
+        if kind, ok := token.Header["typ"].(string); !ok || kind != "JWT" {
+            return nil, errors.New("unsupported token type")
+        }
+        for _, name := range []string{"crit", "jku", "jwk", "x5u"} {
+            if _, present := token.Header[name]; present {
+                return nil, errors.New("unsupported token header")
+            }
+        }
+        return v.key, nil
+    })
+    if err != nil || token == nil || !token.Valid {
+        return Identity{}, errors.New("invalid authentication token")
+    }
+    return Identity{UserID: claims.Subject, Role: claims.Role, Attributes: claims.Attributes}, nil
+}
+
+// checkJSONObject rejects duplicate names and invalid Unicode before JWT
+// decoding. This prevents different consumers from reading different claims.
+func checkJSONObject(data []byte) error {
+    if !utf8.Valid(data) { return errors.New("invalid token Unicode") }
+    decoder := json.NewDecoder(strings.NewReader(string(data)))
+    decoder.UseNumber()
+    first, err := decoder.Token()
+    if err != nil || first != json.Delim('{') { return errors.New("token must contain JSON objects") }
+    var readValue func(json.Token, int) error
+    readValue = func(start json.Token, depth int) error {
+        if depth > 32 { return errors.New("token nesting limit exceeded") }
+        switch start {
+        case json.Delim('{'):
+            names := make(map[string]bool)
+            for decoder.More() {
+                name, err := decoder.Token()
+                if err != nil { return err }
+                key, ok := name.(string)
+                if !ok || names[key] { return errors.New("duplicate token member") }
+                names[key] = true
+                value, err := decoder.Token()
+                if err != nil { return err }
+                if err := readValue(value, depth+1); err != nil { return err }
+            }
+            end, err := decoder.Token()
+            if err != nil || end != json.Delim('}') { return errors.New("invalid token object") }
+        case json.Delim('['):
+            for decoder.More() {
+                value, err := decoder.Token()
+                if err != nil { return err }
+                if err := readValue(value, depth+1); err != nil { return err }
+            }
+            end, err := decoder.Token()
+            if err != nil || end != json.Delim(']') { return errors.New("invalid token array") }
+        }
+        return nil
+    }
+    if err := readValue(first, 0); err != nil { return err }
+    if _, err := decoder.Token(); err != io.EOF { return errors.New("extra token JSON data") }
+    return nil
+}
+
+func extractToken(r *http.Request) string {
+    values := r.Header.Values({{printf "%q" .Header}})
+    if len(values) != 1 || len(values[0]) > maxTokenBytes+7 { return "" }
+    parts := strings.Fields(values[0])
+    if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") { return parts[1] }
+    {{if ne .Header "Authorization"}}if len(parts) == 1 { return parts[0] }{{end}}
+    return ""
+}
+
+func (v *Verifier) Middleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        raw := extractToken(r)
+        if raw == "" {
+            writeAuthError(w, r, "missing authentication token")
+            return
+        }
+        id, err := v.Verify(raw)
+        if err != nil {
+            writeAuthError(w, r, "invalid authentication token")
+            return
+        }
+        ctx := context.WithValue(r.Context(), identityKey, id)
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
+}
+
+func envOrDefault(name, fallback string) string {
+    if value := os.Getenv(name); value != "" { return value }
+    return fallback
+}
+
+// NewAuthMiddleware loads a public key once. Restart after a key change.
+func NewAuthMiddleware() (func(http.Handler) http.Handler, error) {
+    keyFile := envOrDefault("STEGO_AUTH_PUBLIC_KEY_FILE", {{printf "%q" .KeyFile}})
+    if keyFile == "" { return nil, errors.New("STEGO_AUTH_PUBLIC_KEY_FILE is required") }
+    pathInfo, err := os.Stat(keyFile)
+    if err != nil || !pathInfo.Mode().IsRegular() { return nil, errors.New("authentication key must be a regular file") }
+    file, err := os.Open(keyFile)
+    if err != nil { return nil, fmt.Errorf("opening authentication public key: %w", err) }
+    defer file.Close()
+    info, err := file.Stat()
+    if err != nil || !info.Mode().IsRegular() { return nil, errors.New("authentication key must be a regular file") }
+    data, err := io.ReadAll(io.LimitReader(file, maxKeyFileBytes+1))
+    if err != nil || len(data) > maxKeyFileBytes { return nil, errors.New("cannot read authentication public key within size limit") }
+    block, rest := pem.Decode(data)
+    if block == nil || len(block.Headers) != 0 || !strings.HasPrefix(strings.TrimSpace(string(data)), "-----BEGIN ") || len(strings.TrimSpace(string(rest))) != 0 || (block.Type != "PUBLIC KEY" && block.Type != "RSA PUBLIC KEY") {
+        return nil, errors.New("authentication key must contain one RSA public key PEM block")
+    }
+    key, err := jwt.ParseRSAPublicKeyFromPEM(data)
+    if err != nil { return nil, fmt.Errorf("invalid authentication public key: %w", err) }
+    verifier, err := NewVerifier(Config{
+        Issuer: envOrDefault("STEGO_AUTH_ISSUER", {{printf "%q" .Issuer}}),
+        Audience: envOrDefault("STEGO_AUTH_AUDIENCE", {{printf "%q" .Audience}}),
+        PublicKey: key,
+    })
+    if err != nil { return nil, err }
+    return verifier.Middleware, nil
+}
+
+func writeAuthError(w http.ResponseWriter, r *http.Request, detail string) {
+    response := map[string]any{
+        "type": {{printf "%q" .ErrorType}}, "title": "Unauthorized", "status": http.StatusUnauthorized,
+        "detail": detail, "code": {{printf "%q" .ErrorCode}}, "instance": r.URL.Path,
+        "timestamp": time.Now().UTC().Format(time.RFC3339),
+    }
+    w.Header().Set("Content-Type", "application/problem+json")
+    w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+    w.Header().Set("Cache-Control", "no-store")
+    w.WriteHeader(http.StatusUnauthorized)
+    // Once headers are sent, a client write error cannot change this response.
+    _ = json.NewEncoder(w).Encode(response)
+}

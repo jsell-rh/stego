@@ -23,7 +23,7 @@ The following milestones define completion:
 | C1 | Strict compiler input and one semantic validation stage | Unknown fields, invalid constraints, duplicate keys, unsupported capabilities, and invalid paths fail before output changes | Active |
 | C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Active |
 | C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Pending |
-| C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Pending |
+| C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Active |
 | C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
 | C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Pending |
 | C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Pending |
@@ -105,3 +105,21 @@ The first startup test exposed an omitted constructor when a route used a
 handler as a direct argument. Wiring reference checks now parse Go expressions.
 They detect direct arguments and leave string values unchanged. The generated
 startup test and the full root suite pass after this correction.
+
+The default JWT component now verifies RS256 signatures with golang-jwt v5.3.1.
+It requires an HTTPS issuer, an API audience, a subject, an issue time, and an
+expiry. It checks the `JWT` token type and rejects duplicate JSON members and
+unsupported key headers. Token and key-file reads have size limits. A missing or
+invalid public key stops startup. The generated runtime tests use the race
+detector and cover forged signatures, algorithm changes, claim failures,
+ambiguous input, invalid headers, and concurrent verification. The rules follow
+the [JWT library validation options](https://golang-jwt.github.io/jwt/usage/parse/)
+and [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725.html).
+
+The first authentication benchmark used Go 1.26.8 on Linux amd64 with an Intel
+Core Ultra 9 185H. The command was
+`STEGO_BENCH_AUTH=1 go test -v ./internal/generator/jwtauth -run '^TestGeneratedAuthenticationRuntime$' -count=1`.
+For a 2048-bit RSA key, one run measured 37,315 ns/op, 9,344 B/op, and 212
+allocations/op. This is a local verification baseline, not service throughput.
+Key rotation currently requires a restart. Automatic key discovery, rotation,
+authorization, and the separate RH SSO component remain open C4 work.

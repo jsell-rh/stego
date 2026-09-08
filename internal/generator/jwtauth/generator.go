@@ -1,205 +1,79 @@
-// Package jwtauth implements the jwt-auth component Generator. It produces
-// JWT authentication middleware that validates tokens, extracts identity
-// information from claims, and populates a context-scoped Identity struct.
+// Package jwtauth generates verified JWT authentication.
 package jwtauth
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"go/format"
+	"net/textproto"
 	"path"
 	"strings"
+	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
-// Generator produces the jwt-auth component's generated code.
+//go:embed middleware.go.tmpl
+var middlewareTemplate string
+
+// Generator produces the jwt-auth component.
 type Generator struct{}
 
-// Generate produces a Go middleware file that validates JWT tokens from a
-// configurable HTTP header and populates an Identity struct from the token's
-// claims. Returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	ns := ctx.OutputNamespace
 	if ns == "" {
 		ns = "internal/auth"
 	}
-	pkg := path.Base(ns)
-
-	header := "Authorization"
-	if h, ok := ctx.ComponentConfig["header"]; ok {
-		if s, ok := h.(string); ok && s != "" {
-			header = s
+	header := setting(ctx, "header", "Authorization")
+	if textproto.CanonicalMIMEHeaderKey(header) == "" || strings.ContainsAny(header, " \t\r\n:") {
+		return nil, nil, fmt.Errorf("invalid authentication header %q", header)
+	}
+	for _, ch := range header {
+		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", ch)) {
+			return nil, nil, fmt.Errorf("invalid authentication header %q", header)
 		}
 	}
-
-	f, err := generateMiddleware(ns, pkg, header, ctx.ServiceName, ctx.ErrorTypeBase)
+	header = textproto.CanonicalMIMEHeaderKey(header)
+	errorType := "about:blank"
+	if ctx.ErrorTypeBase != "" {
+		errorType = ctx.ErrorTypeBase + "unauthorized"
+	}
+	data := struct{ Package, Header, Issuer, Audience, KeyFile, ErrorType, ErrorCode string }{
+		Package: path.Base(ns), Header: header,
+		Issuer: setting(ctx, "issuer", ""), Audience: setting(ctx, "audience", ""),
+		KeyFile: setting(ctx, "public_key_file", ""), ErrorType: errorType,
+		ErrorCode: strings.ToUpper(strings.ReplaceAll(ctx.ServiceName, "-", "")) + "-AUT-001",
+	}
+	tmpl, err := template.New("middleware").Parse(middlewareTemplate)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	files := []gen.File{f}
-
-	middlewareIdx := 0
-	wiring := &gen.Wiring{
-		Imports:               []string{ns},
-		Constructors:          []string{fmt.Sprintf("%s.NewAuthMiddleware()", pkg)},
-		MiddlewareConstructor: &middlewareIdx,
-		MiddlewareWrapExpr:    "%s(%s)",
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, nil, err
 	}
-
+	source, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, nil, fmt.Errorf("formatting authentication code: %w", err)
+	}
+	files := []gen.File{{Path: path.Join(ns, "middleware.go"), Content: source}}
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
-
+	middlewareIndex := 0
+	wiring := &gen.Wiring{
+		Imports: []string{ns}, Constructors: []string{data.Package + ".NewAuthMiddleware()"},
+		ConstructorReturnsError: map[int]bool{0: true},
+		MiddlewareConstructor:   &middlewareIndex, MiddlewareWrapExpr: "%s(%s)",
+		GoModRequires: map[string]string{"github.com/golang-jwt/jwt/v5": "v5.3.1"},
+	}
 	return files, wiring, nil
 }
 
-// deriveErrorPrefix converts a service name to an error code prefix by
-// removing hyphens and uppercasing.
-func deriveErrorPrefix(serviceName string) string {
-	return strings.ToUpper(strings.ReplaceAll(serviceName, "-", ""))
-}
-
-// generateMiddleware produces the middleware.go file containing the Identity
-// struct, JWT validation logic, context helpers, and the middleware constructor.
-func generateMiddleware(ns, pkg, header, serviceName, errorTypeBase string) (gen.File, error) {
-	var buf bytes.Buffer
-
-	errorPrefix := deriveErrorPrefix(serviceName)
-	errorTypeURI := "about:blank"
-	if errorTypeBase != "" {
-		errorTypeURI = errorTypeBase + "unauthorized"
+func setting(ctx gen.Context, name, fallback string) string {
+	if value, ok := ctx.ComponentConfig[name].(string); ok && value != "" {
+		return value
 	}
-
-	fmt.Fprintf(&buf, "package %s\n\n", pkg)
-	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"context\"\n")
-	fmt.Fprintf(&buf, "\t\"encoding/base64\"\n")
-	fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
-	fmt.Fprintf(&buf, "\t\"fmt\"\n")
-	fmt.Fprintf(&buf, "\t\"net/http\"\n")
-	fmt.Fprintf(&buf, "\t\"strings\"\n")
-	fmt.Fprintf(&buf, "\t\"time\"\n")
-	fmt.Fprintf(&buf, ")\n\n")
-
-	// Identity struct matching stego.common.Identity proto.
-	fmt.Fprintf(&buf, "// Identity represents the caller's identity extracted from a JWT token.\n")
-	fmt.Fprintf(&buf, "// Matches the stego.common.Identity proto definition.\n")
-	fmt.Fprintf(&buf, "type Identity struct {\n")
-	fmt.Fprintf(&buf, "\tUserID     string            `json:\"user_id\"`\n")
-	fmt.Fprintf(&buf, "\tRole       string            `json:\"role\"`\n")
-	fmt.Fprintf(&buf, "\tAttributes map[string]string `json:\"attributes\"`\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// Context key type to avoid collisions.
-	fmt.Fprintf(&buf, "type contextKey string\n\n")
-	fmt.Fprintf(&buf, "const identityKey contextKey = \"stego.identity\"\n\n")
-
-	// IdentityFromContext helper.
-	fmt.Fprintf(&buf, "// IdentityFromContext retrieves the Identity from the request context.\n")
-	fmt.Fprintf(&buf, "// Returns a zero Identity if none is present.\n")
-	fmt.Fprintf(&buf, "func IdentityFromContext(ctx context.Context) Identity {\n")
-	fmt.Fprintf(&buf, "\tif id, ok := ctx.Value(identityKey).(Identity); ok {\n")
-	fmt.Fprintf(&buf, "\t\treturn id\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\treturn Identity{}\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// jwtClaims struct for decoding the JWT payload.
-	fmt.Fprintf(&buf, "// jwtClaims represents the JWT payload claims used for identity extraction.\n")
-	fmt.Fprintf(&buf, "type jwtClaims struct {\n")
-	fmt.Fprintf(&buf, "\tSub        string            `json:\"sub\"`\n")
-	fmt.Fprintf(&buf, "\tRole       string            `json:\"role\"`\n")
-	fmt.Fprintf(&buf, "\tAttributes map[string]string `json:\"attributes\"`\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// parseJWT decodes claims without cryptographic verification.
-	fmt.Fprintf(&buf, "// parseJWT decodes the payload section of a JWT token and extracts claims.\n")
-	fmt.Fprintf(&buf, "// Cryptographic signature verification is deferred to the deployment layer\n")
-	fmt.Fprintf(&buf, "// (e.g. an API gateway or sidecar proxy).\n")
-	fmt.Fprintf(&buf, "func parseJWT(token string) (jwtClaims, error) {\n")
-	fmt.Fprintf(&buf, "\tparts := strings.Split(token, \".\")\n")
-	fmt.Fprintf(&buf, "\tif len(parts) != 3 {\n")
-	fmt.Fprintf(&buf, "\t\treturn jwtClaims{}, fmt.Errorf(\"invalid JWT format: expected 3 parts, got %%d\", len(parts))\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\tpayload, err := base64.RawURLEncoding.DecodeString(parts[1])\n")
-	fmt.Fprintf(&buf, "\tif err != nil {\n")
-	fmt.Fprintf(&buf, "\t\treturn jwtClaims{}, fmt.Errorf(\"invalid JWT payload encoding: %%w\", err)\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\tvar claims jwtClaims\n")
-	fmt.Fprintf(&buf, "\tif err := json.Unmarshal(payload, &claims); err != nil {\n")
-	fmt.Fprintf(&buf, "\t\treturn jwtClaims{}, fmt.Errorf(\"invalid JWT payload JSON: %%w\", err)\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\treturn claims, nil\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// extractToken retrieves the token from the configured header.
-	fmt.Fprintf(&buf, "// extractToken retrieves the JWT token from the %s header.\n", header)
-	fmt.Fprintf(&buf, "// For tokens prefixed with \"Bearer \", the prefix is stripped.\n")
-	fmt.Fprintf(&buf, "func extractToken(r *http.Request) string {\n")
-	fmt.Fprintf(&buf, "\tv := r.Header.Get(%q)\n", header)
-	fmt.Fprintf(&buf, "\tif v == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\treturn \"\"\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\tif strings.HasPrefix(v, \"Bearer \") {\n")
-	fmt.Fprintf(&buf, "\t\treturn strings.TrimPrefix(v, \"Bearer \")\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\treturn v\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// NewAuthMiddleware constructor.
-	fmt.Fprintf(&buf, "// NewAuthMiddleware returns HTTP middleware that validates JWT tokens from\n")
-	fmt.Fprintf(&buf, "// the %s header and populates the request context with the caller's Identity.\n", header)
-	fmt.Fprintf(&buf, "func NewAuthMiddleware() func(http.Handler) http.Handler {\n")
-	fmt.Fprintf(&buf, "\treturn func(next http.Handler) http.Handler {\n")
-	fmt.Fprintf(&buf, "\t\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n")
-	fmt.Fprintf(&buf, "\t\t\ttoken := extractToken(r)\n")
-	fmt.Fprintf(&buf, "\t\t\tif token == \"\" {\n")
-	fmt.Fprintf(&buf, "\t\t\t\twriteAuthError(w, r, \"missing authentication token\")\n")
-	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
-	fmt.Fprintf(&buf, "\t\t\t}\n")
-	fmt.Fprintf(&buf, "\t\t\tclaims, err := parseJWT(token)\n")
-	fmt.Fprintf(&buf, "\t\t\tif err != nil {\n")
-	fmt.Fprintf(&buf, "\t\t\t\twriteAuthError(w, r, \"invalid authentication token\")\n")
-	fmt.Fprintf(&buf, "\t\t\t\treturn\n")
-	fmt.Fprintf(&buf, "\t\t\t}\n")
-	fmt.Fprintf(&buf, "\t\t\tid := Identity{\n")
-	fmt.Fprintf(&buf, "\t\t\t\tUserID:     claims.Sub,\n")
-	fmt.Fprintf(&buf, "\t\t\t\tRole:       claims.Role,\n")
-	fmt.Fprintf(&buf, "\t\t\t\tAttributes: claims.Attributes,\n")
-	fmt.Fprintf(&buf, "\t\t\t}\n")
-	fmt.Fprintf(&buf, "\t\t\tctx := context.WithValue(r.Context(), identityKey, id)\n")
-	fmt.Fprintf(&buf, "\t\t\tnext.ServeHTTP(w, r.WithContext(ctx))\n")
-	fmt.Fprintf(&buf, "\t\t})\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "}\n\n")
-
-	// writeAuthError helper — produces RFC 9457 Problem Details JSON.
-	fmt.Fprintf(&buf, "// writeAuthError writes an RFC 9457 Problem Details error response\n")
-	fmt.Fprintf(&buf, "// with Content-Type application/problem+json for authentication failures.\n")
-	fmt.Fprintf(&buf, "func writeAuthError(w http.ResponseWriter, r *http.Request, detail string) {\n")
-	fmt.Fprintf(&buf, "\tresp := map[string]any{\n")
-	fmt.Fprintf(&buf, "\t\t\"type\":      %q,\n", errorTypeURI)
-	fmt.Fprintf(&buf, "\t\t\"title\":     \"Unauthorized\",\n")
-	fmt.Fprintf(&buf, "\t\t\"status\":    http.StatusUnauthorized,\n")
-	fmt.Fprintf(&buf, "\t\t\"detail\":    detail,\n")
-	fmt.Fprintf(&buf, "\t\t\"code\":      %q,\n", errorPrefix+"-AUT-001")
-	fmt.Fprintf(&buf, "\t\t\"instance\":  r.URL.Path,\n")
-	fmt.Fprintf(&buf, "\t\t\"timestamp\": time.Now().UTC().Format(time.RFC3339),\n")
-	fmt.Fprintf(&buf, "\t}\n")
-	fmt.Fprintf(&buf, "\tw.Header().Set(\"Content-Type\", \"application/problem+json\")\n")
-	fmt.Fprintf(&buf, "\tw.WriteHeader(http.StatusUnauthorized)\n")
-	fmt.Fprintf(&buf, "\tjson.NewEncoder(w).Encode(resp)\n")
-	fmt.Fprintf(&buf, "}\n")
-
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		return gen.File{}, fmt.Errorf("formatting middleware: %w", err)
-	}
-
-	return gen.File{
-		Path:    path.Join(ns, "middleware.go"),
-		Content: formatted,
-	}, nil
+	return fallback
 }

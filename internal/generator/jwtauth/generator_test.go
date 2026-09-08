@@ -36,16 +36,16 @@ func TestGenerateDefaultHeader(t *testing.T) {
 		t.Errorf("expected path internal/auth/middleware.go, got %s", f.Path)
 	}
 
-	// Verify the generated code compiles.
+	// Check generated Go syntax.
 	rendered := f.Bytes()
 	if _, err := format.Source(rendered); err != nil {
-		t.Fatalf("generated code does not compile: %v\n%s", err, rendered)
+		t.Fatalf("generated code has invalid syntax: %v\n%s", err, rendered)
 	}
 
 	content := string(f.Content)
 
 	// Verify generated code has the header set.
-	if !strings.Contains(content, `r.Header.Get("Authorization")`) {
+	if !strings.Contains(content, `r.Header.Values("Authorization")`) {
 		t.Error("generated code should reference Authorization header")
 	}
 
@@ -74,12 +74,12 @@ func TestGenerateDefaultHeader(t *testing.T) {
 	}
 
 	// Verify token parsing.
-	if !strings.Contains(content, "func parseJWT") {
+	if !strings.Contains(content, "func (v *Verifier) Verify") {
 		t.Error("generated code should contain parseJWT function")
 	}
 
 	// Verify Bearer prefix stripping.
-	if !strings.Contains(content, `Bearer `) {
+	if !strings.Contains(content, `"Bearer"`) {
 		t.Error("generated code should handle Bearer prefix")
 	}
 
@@ -122,19 +122,19 @@ func TestGenerateCustomHeader(t *testing.T) {
 	content := string(files[0].Content)
 
 	// Verify the custom header is used.
-	if !strings.Contains(content, `r.Header.Get("X-Internal-Token")`) {
+	if !strings.Contains(content, `r.Header.Values("X-Internal-Token")`) {
 		t.Error("generated code should reference X-Internal-Token header")
 	}
 
 	// Verify it does NOT reference the default Authorization header.
-	if strings.Contains(content, `r.Header.Get("Authorization")`) {
+	if strings.Contains(content, `r.Header.Values("Authorization")`) {
 		t.Error("generated code should not reference Authorization header when custom header is set")
 	}
 
-	// Verify the generated code compiles.
+	// Check generated Go syntax.
 	rendered := files[0].Bytes()
 	if _, err := format.Source(rendered); err != nil {
-		t.Fatalf("generated code does not compile: %v\n%s", err, rendered)
+		t.Fatalf("generated code has invalid syntax: %v\n%s", err, rendered)
 	}
 }
 
@@ -172,10 +172,10 @@ func TestGenerateCustomNamespace(t *testing.T) {
 		t.Errorf("expected constructor authn.NewAuthMiddleware(), got %s", wiring.Constructors[0])
 	}
 
-	// Verify the generated code compiles.
+	// Check generated Go syntax.
 	rendered := files[0].Bytes()
 	if _, err := format.Source(rendered); err != nil {
-		t.Fatalf("generated code does not compile: %v\n%s", err, rendered)
+		t.Fatalf("generated code has invalid syntax: %v\n%s", err, rendered)
 	}
 }
 
@@ -193,7 +193,7 @@ func TestGenerateNilComponentConfig(t *testing.T) {
 	}
 
 	content := string(files[0].Content)
-	if !strings.Contains(content, `r.Header.Get("Authorization")`) {
+	if !strings.Contains(content, `r.Header.Values("Authorization")`) {
 		t.Error("should default to Authorization header when config is nil")
 	}
 }

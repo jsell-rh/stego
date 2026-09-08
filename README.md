@@ -87,6 +87,13 @@ go mod tidy         # resolve and record project dependencies
 cd out && go build  # it's just Go
 ```
 
+Before you start the service, set `STEGO_AUTH_ISSUER`, `STEGO_AUTH_AUDIENCE`, and
+`STEGO_AUTH_PUBLIC_KEY_FILE`. The key file must contain one RSA public key in PEM
+format. The default authentication component verifies RS256 signatures and
+requires the configured issuer and audience, a subject, an issue time, and an
+expiry. It accepts the `JWT` token type. Incomplete settings stop startup. Restart
+the service after a public key change. Automatic key rotation is not yet supplied.
+
 Add business logic via fills:
 
 ```bash
