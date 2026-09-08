@@ -1,0 +1,30 @@
+// Package events defines a live stream of committed resource identifiers.
+package events
+
+import (
+ "context"
+ "errors"
+ "github.com/google/uuid"
+)
+
+var ErrUnavailable = errors.New("event source is unavailable")
+var ErrCapacity = errors.New("event subscription capacity exceeded")
+var ErrSlowConsumer = errors.New("event consumer must reconnect and list again")
+
+// Event omits resource data and notification payloads. The application must
+// authorize access and load the current resource before it sends data onward.
+type Event struct {
+ ID uuid.UUID `json:"id"`
+ Destination string `json:"destination"`
+ ResourceKey string `json:"resource_key"`
+ Kind string `json:"kind"`
+}
+
+// Source establishes a live subscription before returning. The caller can then
+// list current state. This contract supplies no historical replay or cursor.
+// Any stream error requires a new subscription and a new list.
+type Source interface { Subscribe(context.Context)(Subscription,error) }
+type Subscription interface {
+ Next(context.Context)(Event,error)
+ Close()
+}

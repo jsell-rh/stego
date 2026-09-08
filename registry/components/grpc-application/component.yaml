@@ -3,6 +3,8 @@ name: grpc-application
 version: 1.0.0
 output_namespace: grpcapi
 config:
+  watch_events:
+    type: bool
   factory_package:
     type: string
   proto_files:

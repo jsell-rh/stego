@@ -98,6 +98,8 @@ type Context struct {
 	// contract. A generator that uses it must request StorageV1 in its wiring.
 	// Empty selects standalone definitions without shared contract assembly.
 	StorageContract string
+	// EventsContract is the compiler-owned live-event contract import path.
+	EventsContract string
 
 	// PeerNamespaces maps component names to their output namespace paths.
 	// Generators use this to construct import paths when they need to

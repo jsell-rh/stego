@@ -1,0 +1,172 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "context"
+ "database/sql"
+ "encoding/json"
+ "errors"
+ "io"
+ "strconv"
+ "sync"
+ "time"
+ "unicode/utf8"
+
+ "github.com/google/uuid"
+ "github.com/jackc/pgx/v5"
+ {{if .EventsImport}}events {{printf "%q" .EventsImport}}{{end}}
+)
+
+const eventChannel="stego_resource_events_v1"
+const MaxSubscriptions=64
+const SubscriptionBuffer=64
+const MaxNoticeBytes=2048
+
+{{if .EventsImport}}
+type Event=events.Event
+type Subscription=events.Subscription
+var ErrEventSourceUnavailable=events.ErrUnavailable
+var ErrEventCapacity=events.ErrCapacity
+var ErrSlowConsumer=events.ErrSlowConsumer
+{{else}}
+type Event struct {
+ ID uuid.UUID `json:"id"`
+ Destination string `json:"destination"`
+ ResourceKey string `json:"resource_key"`
+ Kind string `json:"kind"`
+}
+type Subscription interface{Next(context.Context)(Event,error);Close()}
+var ErrEventSourceUnavailable=errors.New("event source is unavailable")
+var ErrEventCapacity=errors.New("event subscription capacity exceeded")
+var ErrSlowConsumer=errors.New("event consumer must reconnect and list again")
+{{end}}
+
+// Source owns one PostgreSQL LISTEN session. Run and Close own its lifetime.
+// A lost session closes all subscriptions. There is no silent reconnect.
+type Source struct {
+ conn *pgx.Conn
+ mu sync.Mutex
+ subscriptions map[*subscription]struct{}
+ closed,started bool
+ cancel context.CancelFunc
+ done chan struct{}
+ closeOnce sync.Once
+}
+type subscription struct {
+ source *Source
+ queue chan Event
+ done chan struct{}
+ failure error
+ stop func()bool
+}
+
+// NewSource copies the existing PostgreSQL connection settings and opens a
+// dedicated session. LISTEN completes before any subscription can be created.
+func NewSource(ctx context.Context,db *sql.DB)(*Source,error){
+ if ctx==nil||db==nil{return nil,errors.New("event source requires context and database")}
+ check,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
+ pooled,err:=db.Conn(check);if err!=nil{return nil,ErrEventSourceUnavailable}
+ var config *pgx.ConnConfig
+ err=pooled.Raw(func(value any)error{
+  driver,ok:=value.(interface{Conn()*pgx.Conn});if !ok{return errors.New("event source requires the pgx driver")}
+  config=driver.Conn().Config().Copy();return nil
+ })
+ closeErr:=pooled.Close();if err!=nil{return nil,err};if closeErr!=nil{return nil,ErrEventSourceUnavailable}
+ // The source owns notification handling. It does not inherit a pool hook.
+ config.OnNotification=nil
+ conn,err:=pgx.ConnectConfig(check,config);if err!=nil{return nil,ErrEventSourceUnavailable}
+ if _,err:=conn.Exec(check,"LISTEN "+eventChannel);err!=nil{_ = conn.Close(check);return nil,ErrEventSourceUnavailable}
+ return &Source{conn:conn,subscriptions:map[*subscription]struct{}{}},nil
+}
+
+func(s *Source)Subscribe(ctx context.Context)(Subscription,error){
+ if ctx==nil{return nil,ErrEventSourceUnavailable};if err:=ctx.Err();err!=nil{return nil,err}
+ s.mu.Lock();defer s.mu.Unlock()
+ if s.closed{return nil,ErrEventSourceUnavailable}
+ if len(s.subscriptions)>=MaxSubscriptions{return nil,ErrEventCapacity}
+ sub:=&subscription{source:s,queue:make(chan Event,SubscriptionBuffer),done:make(chan struct{})}
+ s.subscriptions[sub]=struct{}{}
+ sub.stop=context.AfterFunc(ctx,func(){s.remove(sub,ctx.Err())})
+ return sub,nil
+}
+func(s *Source)remove(sub *subscription,err error){s.mu.Lock();defer s.mu.Unlock();s.removeLocked(sub,err)}
+func(s *Source)removeLocked(sub *subscription,err error){
+ if sub.failure!=nil{return}
+ if err==nil{err=context.Canceled};sub.failure=err
+ delete(s.subscriptions,sub);close(sub.done)
+ if sub.stop!=nil{sub.stop()}
+}
+func(sub *subscription)Close(){sub.source.remove(sub,context.Canceled)}
+func(sub *subscription)Next(ctx context.Context)(Event,error){
+ if ctx==nil{return Event{},ErrEventSourceUnavailable}
+ sub.source.mu.Lock();err:=sub.failure;sub.source.mu.Unlock();if err!=nil{return Event{},err}
+ select{
+ case <-ctx.Done():return Event{},ctx.Err()
+ case <-sub.done:sub.source.mu.Lock();err:=sub.failure;sub.source.mu.Unlock();return Event{},err
+ case event:=<-sub.queue:
+  sub.source.mu.Lock();err:=sub.failure;sub.source.mu.Unlock();if err!=nil{return Event{},err}
+  if err:=ctx.Err();err!=nil{return Event{},err};return event,nil
+ }
+}
+func(s *Source)dispatch(event Event){
+ s.mu.Lock();defer s.mu.Unlock()
+ for sub:=range s.subscriptions{
+  select{case sub.queue<-event:default:s.removeLocked(sub,ErrSlowConsumer)}
+ }
+}
+func(s *Source)fail(){
+ s.mu.Lock();defer s.mu.Unlock();s.closed=true
+ for sub:=range s.subscriptions{s.removeLocked(sub,ErrEventSourceUnavailable)}
+}
+func(s *Source)Run(ctx context.Context)error{
+ if ctx==nil{return ErrEventSourceUnavailable}
+ s.mu.Lock()
+ if s.closed||s.started{s.mu.Unlock();return ErrEventSourceUnavailable}
+ s.started=true
+ ctx,s.cancel=context.WithCancel(ctx);s.done=make(chan struct{});done:=s.done
+ s.mu.Unlock()
+ defer close(done);defer s.fail();defer s.cancel()
+ defer func(){closeCtx,cancel:=context.WithTimeout(context.Background(),time.Second);defer cancel();_ = s.conn.Close(closeCtx)}()
+ for{
+  notification,err:=s.conn.WaitForNotification(ctx)
+  if err!=nil{if ctx.Err()!=nil{return nil};return ErrEventSourceUnavailable}
+  if notification.Channel!=eventChannel{continue}
+  event,err:=decodeEvent([]byte(notification.Payload));if err!=nil{return ErrEventSourceUnavailable}
+  s.dispatch(event)
+ }
+}
+func(s *Source)Close(){
+ s.closeOnce.Do(func(){
+  s.mu.Lock();s.closed=true
+  if s.cancel!=nil{s.cancel()};done:=s.done
+  for sub:=range s.subscriptions{s.removeLocked(sub,ErrEventSourceUnavailable)}
+  s.mu.Unlock()
+  if done!=nil{<-done;return}
+  ctx,cancel:=context.WithTimeout(context.Background(),time.Second);defer cancel();_ = s.conn.Close(ctx)
+ })
+}
+
+func encodeEvent(event Event)(string,error){
+ data,err:=json.Marshal(event);if err!=nil{return "",err}
+ if len(data)>MaxNoticeBytes{return "",errors.New("event identifier exceeds its size limit")}
+ return string(data),nil
+}
+func decodeEvent(data []byte)(Event,error){
+ var event Event
+ if len(data)>MaxNoticeBytes||!utf8.Valid(data)||!validUnicodeEscapes(data){return event,ErrEventSourceUnavailable}
+ decoder:=json.NewDecoder(bytes.NewReader(data))
+ token,err:=decoder.Token();if err!=nil||token!=json.Delim('{'){return event,ErrEventSourceUnavailable}
+ values:=map[string]string{}
+ for decoder.More(){
+  key,err:=decoder.Token();if err!=nil{return event,ErrEventSourceUnavailable};name,ok:=key.(string);if !ok{return event,ErrEventSourceUnavailable}
+  if _,exists:=values[name];exists{return event,ErrEventSourceUnavailable}
+  switch name{case "id","destination","resource_key","kind":default:return event,ErrEventSourceUnavailable}
+  var value string;if err:=decoder.Decode(&value);err!=nil{return event,ErrEventSourceUnavailable};values[name]=value
+ }
+ if _,err:=decoder.Token();err!=nil||len(values)!=4{return event,ErrEventSourceUnavailable}
+ if _,err:=decoder.Token();err!=io.EOF{return event,ErrEventSourceUnavailable}
+ id,err:=uuid.Parse(values["id"]);if err!=nil||id==uuid.Nil||id.String()!=values["id"]{return event,ErrEventSourceUnavailable}
+ event=Event{ID:id,Destination:values["destination"],ResourceKey:values["resource_key"],Kind:values["kind"]}
+ if err:=validateMessage(Message{ID:event.ID,Destination:event.Destination,ResourceKey:event.ResourceKey,Kind:event.Kind,Payload:[]byte(`{}`)});err!=nil{return Event{},ErrEventSourceUnavailable}
+ return event,nil
+}

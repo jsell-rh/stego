@@ -278,6 +278,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
 			PeerNamespaces:  peerNamespaces,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
+			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 		}
 		if provider, ok := generator.(gen.InputProvider); ok {
 			names, err := provider.InputFiles(ctx.ComponentConfig)

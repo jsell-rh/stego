@@ -3,9 +3,12 @@ package sample
 import (
 	"context"
 	"errors"
+	events "example.com/grpc-test/out/contracts/events"
 	storage "example.com/grpc-test/out/contracts/storage"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
 	"google.golang.org/grpc"
+	"strings"
+	"sync/atomic"
 )
 
 type Repository interface {
@@ -16,7 +19,7 @@ type Repository interface {
 type identityKey struct{}
 type records struct{ pb.UnimplementedRecordsServer }
 
-func Register(registrar grpc.ServiceRegistrar, _ Repository) error {
+func Register(registrar grpc.ServiceRegistrar, _ Repository, _ ...events.Source) error {
 	pb.RegisterRecordsServer(registrar, records{})
 	return nil
 }
@@ -35,9 +38,32 @@ func (records) Echo(ctx context.Context, request *pb.Request) (*pb.Response, err
 	}
 	return &pb.Response{Text: request.Text}, nil
 }
-func (records) Watch(_ *pb.Request, stream grpc.ServerStreamingServer[pb.Response]) error {
+
+var activeStreams atomic.Int32
+
+func (records) Watch(request *pb.Request, stream grpc.ServerStreamingServer[pb.Response]) error {
+	activeStreams.Add(1)
+	defer activeStreams.Add(-1)
 	if stream.Context().Value(identityKey{}) != "alice" {
 		return errors.New("identity was lost")
+	}
+	if request.Text == "hold" {
+		if err := stream.SendHeader(nil); err != nil {
+			return err
+		}
+		<-stream.Context().Done()
+		return stream.Context().Err()
+	}
+	if request.Text == "flood" {
+		if err := stream.SendHeader(nil); err != nil {
+			return err
+		}
+		response := &pb.Response{Text: strings.Repeat("x", 1<<20)}
+		for {
+			if err := stream.Send(response); err != nil {
+				return err
+			}
+		}
 	}
 	return stream.Send(&pb.Response{Text: "event"})
 }

@@ -798,6 +798,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 
 		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
 		if apiAlias == "stegostorage" {
+			fmt.Fprintf(buf, "\t\tif opts.IncludeDeleted { query = query.Unscoped() }\n")
 			fmt.Fprintf(buf, "\t\tquery, err := s.applyRelated(ctx, query, %q, opts.Related)\n", e.Name)
 			fmt.Fprintf(buf, "\t\tif err != nil { return %s{}, err }\n", listResultType)
 		}

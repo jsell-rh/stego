@@ -2,11 +2,13 @@
 package outbox
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"go/format"
 	"path"
 	"strings"
+	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -16,6 +18,9 @@ var queueSource string
 
 //go:embed worker.go.tmpl
 var workerSource string
+
+//go:embed source.go.tmpl
+var eventSource string
 
 //go:embed migrations/000001_outbox.sql
 var migration []byte
@@ -32,6 +37,19 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	files := []gen.File{
 		{Path: path.Join(ns, "migrations/000001_outbox.sql"), Content: migration},
 	}
+	tmpl, err := template.New("source").Parse(eventSource + gen.UnicodeEscapeValidation)
+	if err != nil {
+		return nil, nil, err
+	}
+	var sourceBuf bytes.Buffer
+	if err := tmpl.Execute(&sourceBuf, struct{ Package, EventsImport string }{path.Base(ns), ctx.EventsContract}); err != nil {
+		return nil, nil, err
+	}
+	sourceCode, err := format.Source(sourceBuf.Bytes())
+	if err != nil {
+		return nil, nil, fmt.Errorf("formatting event source: %w", err)
+	}
+	files = append(files, gen.File{Path: path.Join(ns, "source.go"), Content: sourceCode})
 	for _, template := range []struct{ name, source string }{{"queue.go", queueSource}, {"worker.go", workerSource}} {
 		sourceText := strings.Replace(template.source, "package outbox", "package "+path.Base(ns), 1)
 		if ctx.StorageContract != "" && template.name == "queue.go" {
@@ -56,9 +74,12 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
-	wiring := &gen.Wiring{GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0"}}
+	wiring := &gen.Wiring{GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0", "github.com/jackc/pgx/v5": "v5.11.0"}}
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}
+	}
+	if ctx.EventsContract != "" {
+		wiring.Contracts = append(wiring.Contracts, gen.EventsV1)
 	}
 	return files, wiring, nil
 }

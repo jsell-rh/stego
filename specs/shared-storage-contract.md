@@ -67,3 +67,9 @@ Applications can accept a smaller interface. The generated PostgreSQL store
 checks its full repository contract at compile time. Both independent transport
 samples require the locking capability and compile through the generated
 bridges. Typed entity contracts remain open work.
+
+`ListOptions.IncludeDeleted` allows trusted recovery and event handlers to read
+a deleted root resource. It does not include deleted related grants. Normal
+queries still exclude deleted resources. A Record and Membership test checks
+both boundaries, including revocation after the root is deleted. Do not expose
+this storage option as an unchecked public query parameter.

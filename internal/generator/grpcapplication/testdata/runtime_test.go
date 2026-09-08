@@ -9,12 +9,14 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,6 +29,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+type subjectKey struct{}
 
 func TestRuntime(t *testing.T) {
 	optional := &pb.Request{Label: proto.String("")}
@@ -61,13 +65,27 @@ func TestRuntime(t *testing.T) {
 	t.Setenv("STEGO_GRPC_ADDR", "127.0.0.1:0")
 	t.Setenv("STEGO_GRPC_TLS_CERT", filepath.Join(dir, "cert.pem"))
 	t.Setenv("STEGO_GRPC_TLS_KEY", filepath.Join(dir, "key.pem"))
+	for name, values := range map[string][]string{"STEGO_GRPC_STREAM_TIMEOUT": {"0s", "-1s", "31m", "invalid"}, "STEGO_GRPC_STREAM_IO_TIMEOUT": {"0s", "11s", "invalid"}} {
+		for _, value := range values {
+			t.Setenv(name, value)
+			if _, err := transport.New(func(ctx context.Context, _ string) (context.Context, error) { return ctx, nil }, func(grpc.ServiceRegistrar) error { return nil }); err == nil {
+				t.Fatalf("accepted %s=%s", name, value)
+			}
+		}
+		t.Setenv(name, "")
+	}
 	authenticate := func(ctx context.Context, token string) (context.Context, error) {
-		if token != "good" {
+		if token != "good" && !strings.HasPrefix(token, "user-") {
 			return nil, errors.New("private authentication error")
 		}
-		return context.WithValue(ctx, identityKey{}, "alice"), nil
+		return context.WithValue(context.WithValue(ctx, subjectKey{}, token), identityKey{}, "alice"), nil
 	}
-	runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r, nil) })
+	t.Setenv("STEGO_GRPC_STREAM_IO_TIMEOUT", "1s")
+	var expiry atomic.Int64
+	expiry.Store(time.Now().Add(time.Hour).UnixNano())
+	runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r, nil) }, transport.Options{IdentityInfo: func(ctx context.Context) (string, time.Time) {
+		return ctx.Value(subjectKey{}).(string), time.Unix(0, expiry.Load())
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +102,7 @@ func TestRuntime(t *testing.T) {
 	}
 	defer connection.Close()
 	client := pb.NewRecordsClient(connection)
-	calls, stop := context.WithTimeout(context.Background(), 5*time.Second)
+	calls, stop := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stop()
 	authorized := metadata.NewOutgoingContext(calls, metadata.Pairs("authorization", "Bearer good"))
 	for _, item := range []struct {
@@ -127,6 +145,94 @@ func TestRuntime(t *testing.T) {
 	defer deadlineCancel()
 	if _, err := client.Echo(deadline, &pb.Request{Text: "wait"}); status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("deadline: %v", err)
+	}
+	// Long streams have a separate capacity pool from unary calls.
+	var cancels []context.CancelFunc
+	for range 4 {
+		streamCtx, streamCancel := context.WithCancel(authorized)
+		cancels = append(cancels, streamCancel)
+		held, err := client.Watch(streamCtx, &pb.Request{Text: "hold"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := held.Header(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	excess, err := client.Watch(authorized, &pb.Request{Text: "hold"})
+	if err == nil {
+		_, err = excess.Recv()
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("identity stream limit: %v", err)
+	}
+	if _, err := client.Echo(authorized, &pb.Request{Text: "still available"}); err != nil {
+		t.Fatal("streams exhausted unary capacity", err)
+	}
+	for _, cancel := range cancels {
+		cancel()
+	}
+	awaitStreams := func() {
+		deadline := time.Now().Add(2 * time.Second)
+		for activeStreams.Load() != 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("stream handlers did not exit")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	awaitStreams()
+	// Distinct identities share the process limit, while unary calls still work.
+	cancels = nil
+	for i := range 32 {
+		streamCtx, streamCancel := context.WithCancel(metadata.NewOutgoingContext(calls, metadata.Pairs("authorization", fmt.Sprintf("Bearer user-%d", i))))
+		cancels = append(cancels, streamCancel)
+		held, err := client.Watch(streamCtx, &pb.Request{Text: "hold"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := held.Header(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	excess, err = client.Watch(authorized, &pb.Request{Text: "hold"})
+	if err == nil {
+		_, err = excess.Recv()
+	}
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("process stream limit: %v", err)
+	}
+	if _, err := client.Echo(authorized, &pb.Request{Text: "global capacity"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, cancel := range cancels {
+		cancel()
+	}
+	awaitStreams()
+	expiry.Store(time.Now().Add(200 * time.Millisecond).UnixNano())
+	expiring, err := client.Watch(authorized, &pb.Request{Text: "hold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expiring.Header(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expiring.Recv(); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("token expiry did not stop stream: %v", err)
+	}
+	awaitStreams()
+	expiry.Store(time.Now().Add(time.Hour).UnixNano())
+	// A peer that reads headers but no messages must not retain a send forever.
+	flooded, err := client.Watch(authorized, &pb.Request{Text: "flood"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := flooded.Header(); err != nil {
+		t.Fatal(err)
+	}
+	awaitStreams()
+	if _, err := client.Echo(authorized, &pb.Request{Text: "after slow peer"}, grpc.WaitForReady(true)); err != nil {
+		t.Fatal(err)
 	}
 	var wait sync.WaitGroup
 	for i := 0; i < 16; i++ {

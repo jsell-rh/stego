@@ -295,6 +295,9 @@ func TestVerifiedProfileAndConfiguredRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := IdentityFromContext(ctx)
+	if id.ExpiresAt.Unix() != claims["exp"].(int64) {
+		t.Fatal("verified expiry was lost")
+	}
 	if id.UserID != "alice" || id.Username != "alice-name" || id.Email != "alice@example.test" || id.GivenName != "Alice" || id.FamilyName != "Example" || !slices.Equal(id.Roles, []string{"creator", "viewer"}) {
 		t.Fatalf("verified profile: %+v", id)
 	}

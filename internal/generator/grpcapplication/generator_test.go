@@ -1,6 +1,7 @@
 package grpcapplication_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
+	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -20,7 +22,12 @@ message Response{string text=1;}
 service Records{rpc Echo(Request)returns(Response);rpc Watch(Request)returns(stream Response);}`
 
 func TestGeneratedGRPCApplication(t *testing.T) {
-	ctx := gen.Context{ModuleName: "example.com/grpc-test", OutDirName: "out", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
+	for _, watch := range []bool{false, true} {
+		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
+	}
+}
+func testGeneratedGRPCApplication(t *testing.T, watch bool) {
+	ctx := gen.Context{ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
 	project := t.TempDir()
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
@@ -30,8 +37,9 @@ func TestGeneratedGRPCApplication(t *testing.T) {
 		config    map[string]any
 	}{
 		{"postgres-adapter", new(postgresadapter.Generator), map[string]any{"migrations": "external"}},
+		{"outbox", new(outbox.Generator), nil},
 		{"jwt-auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
-		{"grpc-application", new(grpcapplication.Generator), map[string]any{"factory_package": "sample", "proto_files": []any{map[string]any{"path": "api/records.proto", "import_path": "sample/v1/records.proto"}}}},
+		{"grpc-application", new(grpcapplication.Generator), map[string]any{"watch_events": watch, "factory_package": "sample", "proto_files": []any{map[string]any{"path": "api/records.proto", "import_path": "sample/v1/records.proto"}}}},
 	} {
 		ctx.OutputNamespace = ctx.PeerNamespaces[item.name]
 		ctx.ComponentConfig = item.config

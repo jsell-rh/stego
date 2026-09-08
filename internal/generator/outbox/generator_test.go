@@ -19,6 +19,9 @@ var workerTests []byte
 //go:embed testdata/worker_failure_test.go
 var workerFailureTests []byte
 
+//go:embed testdata/source_test.go
+var sourceTests []byte
+
 func TestGeneratedOutbox(t *testing.T) {
 	postgresDSN := os.Getenv("STEGO_TEST_POSTGRES_DSN")
 	requirePostgres := os.Getenv("STEGO_REQUIRE_POSTGRES")
@@ -43,7 +46,7 @@ func TestGeneratedOutbox(t *testing.T) {
 		}
 	}
 	module := "module example.com/outbox-test\n\ngo 1.26.8\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n)\n"
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests, "queue/source_test.go": sourceTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

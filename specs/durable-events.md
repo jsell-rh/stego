@@ -107,3 +107,28 @@ The protocol tests use the upstream `kfake` broker fixture. A combined test uses
 real PostgreSQL and a TLS Kafka protocol fixture to check commit, publication,
 acknowledgement, and JSONB payload expansion. A real Kafka deployment, broker
 failover, service wiring, and deployment security checks remain required.
+
+The outbox now emits a live notice in the same transaction as each queue insert.
+The notice contains only message ID, destination, resource key, and kind. It has
+no resource payload. PostgreSQL delivers notices after commit, in commit order.
+A rollback emits no notice. See [PostgreSQL NOTIFY](https://www.postgresql.org/docs/18/sql-notify.html).
+
+The public `events/v1` contract supplies subscriptions. The generated source
+opens one dedicated PostgreSQL session with the existing pgx connection settings.
+It completes LISTEN before it accepts subscriptions. It requires a direct
+connection or session pooling; transaction pooling is not supported. Subscribe
+before the client lists current state. See [PostgreSQL LISTEN](https://www.postgresql.org/docs/18/sql-listen.html).
+
+The source permits 64 subscriptions, with 64 queued notices per subscription.
+A full subscription closes with a slow-consumer error. A lost source session or
+invalid notice stops all subscriptions and fails the supervised task. There is
+no silent reconnect. A new client subscription must list state again. This live
+channel has no replay guarantee. Kafka delivery still uses the durable queue.
+A PostgreSQL notice queue failure also prevents the application write from
+committing; production monitoring must include that queue.
+
+Notices are visible to database users. Use opaque resource keys without secrets.
+A notice is not proof of access or resource state. Application handlers must
+check live grants and load the stored resource before they return data. Tests
+use separate PostgreSQL sessions to verify commit, rollback, order, subscription
+limits, slow consumers, backend loss, and strict notice validation.

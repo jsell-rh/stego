@@ -35,6 +35,9 @@ type ListOptions struct {
 	ImplicitFilters map[string]string
 	Related         []RelatedFilter
 	CountOnly       bool
+	// IncludeDeleted is for trusted recovery and event handlers. It changes only
+	// the root resource query. Related access grants must still be live.
+	IncludeDeleted  bool
 }
 
 // RelatedFilter requires a live related row before counting or pagination.

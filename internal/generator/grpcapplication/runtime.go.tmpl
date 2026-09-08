@@ -19,70 +19,138 @@ import (
  "google.golang.org/grpc/keepalive"
  "google.golang.org/grpc/metadata"
  "google.golang.org/grpc/status"
+ "google.golang.org/grpc/stats"
 )
 
 const RequestTimeout = 10*time.Second
 const MaxRequestBytes = 64<<10
 const MaxResponseBytes = 8<<20
 type Authenticate func(context.Context,string)(context.Context,error)
+// IdentityInfo reads only claims that Authenticate has verified.
+type Options struct { IdentityInfo func(context.Context)(string,time.Time) }
 type Runtime struct {
  server *grpc.Server
  listener net.Listener
  mu sync.Mutex
  started,closed bool
  closeOnce sync.Once
+ cancelStreams context.CancelFunc
 }
 
 // Addr returns the bound listener address, including an allocated port.
 func(r *Runtime)Addr()net.Addr{return r.listener.Addr()}
 
 // New requires TLS and a verified identity for all application methods.
-func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error)(*Runtime,error){
- if authenticate==nil||register==nil{return nil,errors.New("gRPC requires authentication and registration")}
+func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error,options ...Options)(*Runtime,error){
+ if authenticate==nil||register==nil||len(options)>1{return nil,errors.New("gRPC requires authentication and registration")}
+ var info func(context.Context)(string,time.Time);if len(options)==1{info=options[0].IdentityInfo}
+ streamTimeout,err:=durationSetting("STEGO_GRPC_STREAM_TIMEOUT",5*time.Minute,30*time.Minute);if err!=nil{return nil,err}
+ sendTimeout,err:=durationSetting("STEGO_GRPC_STREAM_IO_TIMEOUT",RequestTimeout,RequestTimeout);if err!=nil{return nil,err}
  cert,err:=readTLSFile(os.Getenv("STEGO_GRPC_TLS_CERT"));if err!=nil{return nil,err}
  key,err:=readTLSFile(os.Getenv("STEGO_GRPC_TLS_KEY"));if err!=nil{return nil,err}
  pair,err:=tls.X509KeyPair(cert,key);if err!=nil{return nil,errors.New("invalid gRPC TLS key pair")}
- limits:=make(chan struct{},128)
- enter:=func(ctx context.Context)(context.Context,func(),error){
-  select{case limits<-struct{}{}:default:return nil,nil,status.Error(codes.ResourceExhausted,"request capacity exceeded")}
-  ctx,cancel:=context.WithTimeout(ctx,RequestTimeout)
-  release:=func(){cancel();<-limits}
-  md,ok:=metadata.FromIncomingContext(ctx);if !ok{release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
+ lifetime,cancelStreams:=context.WithCancel(context.Background())
+ tracker:=&trackingListener{connections:map[string]*trackedConnection{}}
+ unaryPermits:=make(chan struct{},128)
+ streamPermits:=make(chan struct{},32)
+ var streamMu sync.Mutex
+ identities:=map[string]int{}
+ verify:=func(ctx context.Context)(context.Context,error){
+  md,ok:=metadata.FromIncomingContext(ctx);if !ok{return nil,status.Error(codes.Unauthenticated,"authentication is required")}
   values:=md.Get("authorization")
-  if len(values)!=1||len(values[0])>16400{release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
-  fields:=strings.Fields(values[0]);if len(fields)!=2||!strings.EqualFold(fields[0],"Bearer"){release();return nil,nil,status.Error(codes.Unauthenticated,"authentication is required")}
-  verified,err:=authenticate(ctx,fields[1]);if err!=nil||verified==nil{release();return nil,nil,status.Error(codes.Unauthenticated,"invalid access token")}
-  return verified,release,nil
+  if len(values)!=1||len(values[0])>16400{return nil,status.Error(codes.Unauthenticated,"authentication is required")}
+  fields:=strings.Fields(values[0]);if len(fields)!=2||!strings.EqualFold(fields[0],"Bearer"){return nil,status.Error(codes.Unauthenticated,"authentication is required")}
+  verified,err:=authenticate(ctx,fields[1]);if err!=nil||verified==nil{return nil,status.Error(codes.Unauthenticated,"invalid access token")}
+  return verified,nil
  }
  server:=grpc.NewServer(
+  grpc.StatsHandler(tracker),
   grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{pair}})),
   grpc.MaxRecvMsgSize(MaxRequestBytes),grpc.MaxSendMsgSize(MaxResponseBytes),grpc.MaxHeaderListSize(32<<10),grpc.MaxConcurrentStreams(64),grpc.ConnectionTimeout(5*time.Second),
   grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle:60*time.Second,Time:2*time.Hour,Timeout:20*time.Second}),
   grpc.ChainUnaryInterceptor(func(ctx context.Context,req any,_ *grpc.UnaryServerInfo,handler grpc.UnaryHandler)(result any,err error){
-   verified,release,err:=enter(ctx);if err!=nil{return nil,err};defer release()
+   select{case unaryPermits<-struct{}{}:default:return nil,status.Error(codes.ResourceExhausted,"request capacity exceeded")}
+   ctx,cancel:=context.WithTimeout(ctx,RequestTimeout);defer cancel();defer func(){<-unaryPermits}()
    defer func(){if recover()!=nil{result=nil;err=status.Error(codes.Internal,"request failed")}}()
+   verified,err:=verify(ctx);if err!=nil{return nil,err}
    result,err=handler(verified,req)
    if verified.Err()!=nil{return nil,status.FromContextError(verified.Err()).Err()}
    if err!=nil&&status.Code(err)==codes.Unknown{return nil,status.Error(codes.Internal,"request failed")}
    return result,err
   }),
   grpc.ChainStreamInterceptor(func(srv any,stream grpc.ServerStream,_ *grpc.StreamServerInfo,handler grpc.StreamHandler)(err error){
-   verified,release,err:=enter(stream.Context());if err!=nil{return err};defer release()
-   defer func(){if recover()!=nil{err=status.Error(codes.Internal,"request failed")}}()
-   err=handler(srv,&verifiedStream{ServerStream:stream,ctx:verified})
-   if verified.Err()!=nil{return status.FromContextError(verified.Err()).Err()}
-   if err!=nil&&status.Code(err)==codes.Unknown{return status.Error(codes.Internal,"request failed")}
-   return err
+   select{case streamPermits<-struct{}{}:default:return status.Error(codes.ResourceExhausted,"stream capacity exceeded")}
+   transferred:=false
+   defer func(){if !transferred{<-streamPermits};if recover()!=nil{err=status.Error(codes.Internal,"request failed")}}()
+   bounded,stop:=context.WithTimeout(stream.Context(),streamTimeout);defer stop()
+   stopShutdown:=context.AfterFunc(lifetime,stop);defer stopShutdown()
+   verified,err:=verify(bounded);if err!=nil{stop();return err}
+   if info==nil{stop();return status.Error(codes.Unauthenticated,"stream identity expiry is required")}
+   identity,expiry:=info(verified)
+   if identity==""||len(identity)>4096||!time.Now().Before(expiry){stop();return status.Error(codes.Unauthenticated,"stream identity is expired or invalid")}
+   verified,expire:=context.WithDeadline(verified,expiry);defer expire()
+   verified,cancel:=context.WithCancelCause(verified);defer cancel(context.Canceled)
+   streamMu.Lock()
+   if identities[identity]>=4{streamMu.Unlock();cancel(context.Canceled);expire();stop();return status.Error(codes.ResourceExhausted,"identity stream capacity exceeded")}
+   identities[identity]++;streamMu.Unlock()
+   release:=func(){streamMu.Lock();identities[identity]--;if identities[identity]==0{delete(identities,identity)};streamMu.Unlock();<-streamPermits}
+   result:=make(chan error,1)
+   transferred=true
+   // The interceptor bounds the stream lifetime. I/O deadlines also close
+   // stalled connections. Capacity remains reserved until application code exits.
+   go func(){
+    defer release()
+    var resultErr error
+    defer func(){if recover()!=nil{resultErr=status.Error(codes.Internal,"request failed")};result<-resultErr}()
+    tracked,_:=stream.Context().Value(connectionKey{}).(*trackedConnection)
+    resultErr=handler(srv,&verifiedStream{ServerStream:stream,ctx:verified,cancel:cancel,ioTimeout:sendTimeout,connection:tracked})
+   }()
+   select{
+   case err=<-result:
+    if verified.Err()==nil{if err!=nil&&status.Code(err)==codes.Unknown{return status.Error(codes.Internal,"request failed")};return err}
+   case <-verified.Done():
+   }
+   if !time.Now().Before(expiry){return status.Error(codes.Unauthenticated,"access token expired")}
+   return status.FromContextError(context.Cause(verified)).Err()
   }),
  )
- if err:=register(server);err!=nil{server.Stop();return nil,err}
+ if err:=register(server);err!=nil{cancelStreams();server.Stop();return nil,err}
  address:=os.Getenv("STEGO_GRPC_ADDR");if address==""{address="127.0.0.1:9090"}
- listener,err:=net.Listen("tcp",address);if err!=nil{server.Stop();return nil,fmt.Errorf("gRPC listener: %w",err)}
- return &Runtime{server:server,listener:listener},nil
+ listener,err:=net.Listen("tcp",address);if err!=nil{cancelStreams();server.Stop();return nil,fmt.Errorf("gRPC listener: %w",err)}
+ tracker.Listener=listener
+ return &Runtime{server:server,listener:tracker,cancelStreams:cancelStreams},nil
 }
 
-type verifiedStream struct{grpc.ServerStream;ctx context.Context}
+func durationSetting(name string,fallback,maximum time.Duration)(time.Duration,error){
+ raw:=os.Getenv(name);if raw==""{return fallback,nil}
+ value,err:=time.ParseDuration(raw);if err!=nil||value<time.Second||value>maximum{return 0,fmt.Errorf("invalid %s",name)};return value,nil
+}
+type verifiedStream struct{
+ grpc.ServerStream
+ ctx context.Context
+ cancel context.CancelCauseFunc
+ ioTimeout time.Duration
+ connection *trackedConnection
+}
 func(s *verifiedStream)Context()context.Context{return s.ctx}
+func(s *verifiedStream)operation(call func()error)error{
+ if s.ctx.Err()!=nil{return status.FromContextError(context.Cause(s.ctx)).Err()}
+ result:=make(chan error,1);go func(){
+ var err error
+ defer func(){if recover()!=nil{err=status.Error(codes.Internal,"stream I/O failed")};result<-err}()
+ err=call()
+ }()
+ timer:=time.NewTimer(s.ioTimeout);defer timer.Stop()
+ select{
+ case err:=<-result:return err
+ case <-s.ctx.Done():if s.ServerStream.Context().Err()==nil{s.abort()};return status.FromContextError(context.Cause(s.ctx)).Err()
+ case <-timer.C:s.cancel(context.DeadlineExceeded);s.abort();return status.Error(codes.DeadlineExceeded,"stream I/O deadline exceeded")
+ }
+}
+func(s *verifiedStream)abort(){if s.connection!=nil{_ = s.connection.Close()}}
+func(s *verifiedStream)SendMsg(value any)error{return s.operation(func()error{return s.ServerStream.SendMsg(value)})}
+func(s *verifiedStream)RecvMsg(value any)error{return s.operation(func()error{return s.ServerStream.RecvMsg(value)})}
+func(s *verifiedStream)SendHeader(header metadata.MD)error{return s.operation(func()error{return s.ServerStream.SendHeader(header)})}
 
 func readTLSFile(name string)([]byte,error){
  if name==""{return nil,errors.New("gRPC TLS certificate and key are required")}
@@ -98,10 +166,50 @@ func(r *Runtime)Run(ctx context.Context)error{
  select{
  case err:=<-done:if ctx.Err()!=nil||errors.Is(err,grpc.ErrServerStopped){return nil};return fmt.Errorf("gRPC serve: %w",err)
  case <-ctx.Done():
+  r.cancelStreams()
   stopped:=make(chan struct{});go func(){r.server.GracefulStop();close(stopped)}()
   timer:=time.NewTimer(10*time.Second);defer timer.Stop()
   select{case <-stopped:case <-timer.C:r.server.Stop();<-stopped}
   <-done;return nil
  }
 }
-func(r *Runtime)Close(){r.closeOnce.Do(func(){r.mu.Lock();r.closed=true;r.mu.Unlock();r.server.Stop();_ = r.listener.Close()})}
+func(r *Runtime)Close(){r.closeOnce.Do(func(){r.mu.Lock();r.closed=true;r.mu.Unlock();r.cancelStreams();r.server.Stop();_ = r.listener.Close()})}
+
+// A stream I/O deadline closes its connection. This also releases queued HTTP/2
+// data when the peer stops reading. Other calls on that connection must retry.
+const MaxConnections=128
+type connectionKey struct{}
+type trackingListener struct{
+ net.Listener
+ mu sync.Mutex
+ connections map[string]*trackedConnection
+}
+type trackedConnection struct{
+ net.Conn
+ owner *trackingListener
+ key string
+ once sync.Once
+}
+func(t *trackingListener)Accept()(net.Conn,error){
+ for{
+  conn,err:=t.Listener.Accept();if err!=nil{return nil,err}
+  key:=conn.RemoteAddr().String()+"/"+conn.LocalAddr().String()
+  t.mu.Lock()
+  if len(t.connections)>=MaxConnections{t.mu.Unlock();_ = conn.Close();continue}
+  tracked:=&trackedConnection{Conn:conn,owner:t,key:key};t.connections[key]=tracked;t.mu.Unlock()
+  return tracked,nil
+ }
+}
+func(c *trackedConnection)Close()error{
+ var err error
+ c.once.Do(func(){err=c.Conn.Close();c.owner.mu.Lock();if c.owner.connections[c.key]==c{delete(c.owner.connections,c.key)};c.owner.mu.Unlock()})
+ return err
+}
+func(t *trackingListener)TagConn(ctx context.Context,info *stats.ConnTagInfo)context.Context{
+ key:=info.RemoteAddr.String()+"/"+info.LocalAddr.String()
+ t.mu.Lock();conn:=t.connections[key];t.mu.Unlock()
+ return context.WithValue(ctx,connectionKey{},conn)
+}
+func(t *trackingListener)HandleConn(context.Context,stats.ConnStats){}
+func(t *trackingListener)TagRPC(ctx context.Context,_ *stats.RPCTagInfo)context.Context{return ctx}
+func(t *trackingListener)HandleRPC(context.Context,stats.RPCStats){}

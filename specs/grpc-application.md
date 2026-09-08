@@ -28,15 +28,30 @@ The runtime requires `STEGO_GRPC_TLS_CERT` and `STEGO_GRPC_TLS_KEY`. TLS 1.3 is
 the minimum. `STEGO_GRPC_ADDR` defaults to `127.0.0.1:9090`. All registered unary
 and stream methods use the JWT verifier. Duplicate bearer values fail. Limits
 include 64 KiB request messages, 8 MiB response messages, 32 KiB header lists,
-64 streams per connection, and 128 active application calls. Each call has a
-ten-second context deadline. Handlers must honor cancellation. Stream lifetimes
-also have this bound; long-lived watch support remains required work.
+64 streams per connection, 128 connections, and 128 active unary calls. Unary
+calls have a ten-second context deadline. Streams have separate capacity: 32
+per process and four per verified subject. Handlers must honor cancellation.
+
+A stream stops at verified token expiry or its maximum lifetime. The default
+lifetime is five minutes. `STEGO_GRPC_STREAM_TIMEOUT` accepts one second through
+30 minutes. `STEGO_GRPC_STREAM_IO_TIMEOUT` bounds each stream I/O operation to
+one through ten seconds, with a ten-second default. A blocked I/O operation
+closes its TCP connection. Other calls on that connection must reconnect.
+Application capacity remains reserved until its handler exits.
+
+Set `watch_events: true` to supply the public `events.Source` as the third
+argument to `Register`. This requires the outbox component. The generated
+supervisor owns the event source. The application subscribes before it sends
+response headers, checks current access for each event, and maps resource data
+to its wire contract. Clients wait for the headers, list current state, then
+apply events. They must repeat this sequence after any stream failure. The
+source does not retain history. See [live events](durable-events.md).
 
 The service supervisor runs gRPC with HTTP and event tasks. Cancellation allows
 ten seconds for gRPC calls to drain before forced stop. Unknown application
 errors and panics become fixed internal errors. Domain handlers must return
 only safe public text in explicit gRPC status errors. Reflection is not enabled.
-Total connections, production capacity, certificate rotation, health, and
+Production capacity, certificate rotation, health, and
 telemetry remain separate runtime work.
 
 A separate Record service tests generated client and server code, optional

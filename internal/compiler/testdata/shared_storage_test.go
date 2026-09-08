@@ -224,12 +224,36 @@ func TestRelatedFilterCountsAndPagesOnlyVisibleRecords(t *testing.T) {
 		t.Fatalf("filter value became SQL: %+v, %v", result, err)
 	}
 	opts.Related[0].Values["subject"] = []string{"reader"}
+	// Recovery can include a deleted root, but must retain live-grant filters.
+	if err := storage.Delete(ctx, "Record", "b"); err != nil {
+		t.Fatal(err)
+	}
+	archived := opts
+	archived.IncludeDeleted = true
+	archived.Page = 1
+	archived.Size = 20
+	recovered, err := storage.List(ctx, "Record", "", "", archived)
+	if err != nil || recovered.Total != 2 {
+		t.Fatalf("deleted root recovery: %+v %v", recovered, err)
+	}
+	rows := recovered.Items.([]store.Record)
+	if len(rows) != 2 || rows[0].ID != "b" || !rows[0].DeletedAt.Valid {
+		t.Fatalf("deleted root missing: %+v", rows)
+	}
+	live, err := storage.List(ctx, "Record", "", "", opts)
+	if err != nil || live.Total != 1 {
+		t.Fatalf("normal list included deleted root: %+v %v", live, err)
+	}
 	if _, err := db.Exec("UPDATE memberships SET deleted_at=now()"); err != nil {
 		t.Fatal(err)
 	}
 	result, err = storage.List(ctx, "Record", "", "", opts)
 	if err != nil || result.Total != 0 {
 		t.Fatalf("deleted grant allowed access: %+v, %v", result, err)
+	}
+	recovered, err = storage.List(ctx, "Record", "", "", archived)
+	if err != nil || recovered.Total != 0 {
+		t.Fatalf("recovery included deleted grant: %+v %v", recovered, err)
 	}
 	for _, filter := range []contract.RelatedFilter{
 		{Entity: "Record", ForeignField: "name"},
