@@ -378,3 +378,40 @@ includes row locking and event storage, but is not a production capacity claim.
 Watch streams, service-account cleanup, the control-plane reconciliation port,
 and the other enterprise and application requirements remain open. Relative
 count requests still have no deduplication key in the reference contract.
+
+Gateway watch now completes another application path. Tests subscribe before
+listing state, create through REST, update through both transports, adjust the
+sandbox count, and delete through both transports. Two owner streams receive
+the same events. Viewer, admin, control-plane, revoked-grant, hidden-resource,
+and forged-delete-notice checks pass. Independent database writes reach the
+runtime. Failed outbox writes produce no committed change or event.
+
+The common changes are the public event-source contract, transactional live
+notices, bounded subscriptions, separate gRPC stream capacity, verified token
+expiry, I/O deadlines, and deleted-root recovery with live related grants.
+STEGO contains no Gateway event names or access rules. Separate Record and
+Membership tests check the storage boundary. Common source tests use independent
+PostgreSQL listener sessions and check rollback, order, overflow, and source loss.
+Transport tests check subject and process capacity, unary availability, token
+expiry, slow clients, and shutdown.
+
+The generated Hypershell supervisor stops both listeners after its PostgreSQL
+source session fails. A new process, subscription, and list recover the changed
+state. Normal restart, offline changes, later events, and durable Kafka delivery
+also pass. The full local race suite passed with PostgreSQL required. The variant
+regenerated from the pinned compiler with no changes or drift. STEGO CI passed
+for compiler commit `451f6dac1d1301a8f2feb7d03ab5671cb3bffc3e`.
+
+A local benchmark measured 4.773 ms from gRPC update start through watch-event
+receipt across 100 sequential updates to one Gateway. It used Go 1.26.8,
+PostgreSQL 18.6, TLS, and a separate generated process. It is not a production
+capacity or latency-percentile claim. The default watch lifetime is five minutes,
+bounded by token expiry, with a configurable maximum of 30 minutes. This remains
+the stated design assumption pending the user's stream-lifetime preference.
+
+The live source requires a dedicated PostgreSQL session. Transaction pooling
+is not supported. Watch clients must subscribe, list, and apply events again
+after failure; the pinned protocol has no history cursor. Kafka remains the
+durable delivery path. Full control-plane reconciliation, service accounts,
+other resource workflows, production migrations, key rotation, telemetry,
+client ports, and deployment checks remain open. The broad goal is active.
