@@ -127,6 +127,9 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate convention overrides have recognized values.
 	result.Errors = append(result.Errors, validateConventionOverrides(svcDecl.Overrides)...)
+	if components != nil {
+		result.Errors = append(result.Errors, validateComponentConfig(svcDecl, components)...)
+	}
 
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
