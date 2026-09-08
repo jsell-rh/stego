@@ -16,6 +16,7 @@ func testContext() gen.Context {
 				Fields: []types.Field{
 					{Name: "email", Type: "string"},
 					{Name: "name", Type: "string"},
+					{Name: "serial", Type: "int64"},
 					{Name: "role", Type: "enum", Values: []string{"admin", "member"}},
 					{Name: "org_id", Type: "ref", To: "Organization"},
 				},
@@ -98,10 +99,6 @@ func TestGenerate_GoModDependencies(t *testing.T) {
 		t.Errorf("TSL dependency version %q must be v5.x.x to match /v5 import path", v)
 	}
 
-	sqDep := "github.com/Masterminds/squirrel"
-	if _, ok := wiring.GoModRequires[sqDep]; !ok {
-		t.Errorf("GoModRequires missing squirrel dependency %q", sqDep)
-	}
 }
 
 func TestGenerate_SearchFileContainsSearchEngine(t *testing.T) {
@@ -138,19 +135,8 @@ func TestGenerate_SearchFileContainsSearchEngine(t *testing.T) {
 		t.Error("search.go must import TSL library")
 	}
 
-	// Must import TSL SQL walker (which internally uses squirrel for parameterization).
-	if !strings.Contains(content, "walkers/sql") {
-		t.Error("search.go must import TSL SQL walker")
-	}
-
-	// Must contain field validation.
-	if !strings.Contains(content, "validateSearchFields") {
-		t.Error("search.go must contain validateSearchFields function")
-	}
-
-	// Must contain field name mapping.
-	if !strings.Contains(content, "mapFieldNames") {
-		t.Error("search.go must contain mapFieldNames function")
+	if strings.Contains(content, "walkers/sql") {
+		t.Fatal("unrestricted SQL walker remains enabled")
 	}
 
 	// Must contain ValidFields method.
@@ -256,7 +242,7 @@ func TestGenerate_SearchResultFields(t *testing.T) {
 	if !strings.Contains(content, "Where string") {
 		t.Error("SearchResult must have Where field")
 	}
-	if !strings.Contains(content, "Args []interface{}") {
+	if !strings.Contains(content, "Args  []interface{}") {
 		t.Error("SearchResult must have Args field")
 	}
 }

@@ -1,0 +1,186 @@
+package search
+
+import (
+ "errors"
+ "fmt"
+ "math/big"
+ "sort"
+ "sync"
+ "strings"
+ "time"
+ "unicode/utf8"
+
+ "github.com/antlr/antlr4/runtime/Go/antlr"
+ "github.com/yaacov/tree-search-language/v5/pkg/parser"
+ "github.com/yaacov/tree-search-language/v5/pkg/tsl"
+)
+
+const MaxSearchBytes=4096
+const MaxSearchTokens=512
+const MaxSearchDepth=32
+var parserGate sync.Mutex
+var ErrInvalid=errors.New("invalid search expression")
+type SearchResult struct{Where string;Args []interface{}}
+type SearchEngine struct{}
+func NewSearchEngine()*SearchEngine{return &SearchEngine{}}
+func(s *SearchEngine)ValidFields(entity string)[]string{
+ fields:=make([]string,0,len(EntityFieldMaps[entity]));for name:=range EntityFieldMaps[entity]{fields=append(fields,name)};sort.Strings(fields);return fields
+}
+
+func(s *SearchEngine)ParseSearch(entity,expr string)(result *SearchResult,err error){
+ // A parser failure cannot escape into an application handler.
+ defer func(){if recover()!=nil{result=nil;err=ErrInvalid}}()
+ if len(expr)>MaxSearchBytes{return nil,ErrInvalid}
+ expr=strings.TrimSpace(expr);if expr==""{return nil,nil}
+ fields,ok:=EntityFieldMaps[entity];if !ok{return nil,ErrInvalid}
+ if len(expr)>MaxSearchBytes||!utf8.ValidString(expr)||strings.ContainsRune(expr,0){return nil,ErrInvalid}
+ errors:=tsl.NewErrorListener()
+ lexer:=newLexer(expr);lexer.RemoveErrorListeners();lexer.AddErrorListener(errors)
+ stream:=antlr.NewCommonTokenStream(lexer,antlr.TokenDefaultChannel);stream.Fill()
+ if errors.Err!=nil{return nil,ErrInvalid}
+ depth,count:=0,0
+ for _,token:=range stream.GetAllTokens(){
+ if token.GetTokenType()==antlr.TokenEOF{continue}
+  count++;if count>MaxSearchTokens{return nil,ErrInvalid}
+  if token.GetTokenType()>=parser.TSLLexerK_LIKE{continue}
+  switch token.GetText(){case "(":depth++;if depth>MaxSearchDepth{return nil,ErrInvalid};case ")":depth--;if depth<0{return nil,ErrInvalid}}
+ }
+ if depth!=0{return nil,ErrInvalid}
+ stream.Seek(0)
+ parserInstance:=parser.NewTSLParser(stream);atn:=parserInstance.GetATN();parserInstance.Interpreter=antlr.NewParserATNSimulator(parserInstance,atn,localDecisions(atn),antlr.NewPredictionContextCache());parserInstance.RemoveErrorListeners();parserInstance.AddErrorListener(errors)
+ listener:=&exactListener{Listener:&tsl.Listener{}}
+ treeRoot:=parseTree(parserInstance)
+ antlr.ParseTreeWalkerDefault.Walk(listener,treeRoot)
+ tree,err:=listener.GetTree();if err!=nil||errors.Err!=nil{return nil,ErrInvalid}
+ builder:=sqlBuilder{fields:fields,types:entityFieldTypes[entity]}
+ where,err:=builder.predicate(tree,0);if err!=nil{return nil,ErrInvalid}
+ return &SearchResult{Where:where,Args:builder.args},nil
+}
+
+// Keep numeric source text. The parser's float64 value can lose integer precision.
+func exactNumber(text string)(string,error){
+ if len(text)>128{return "",ErrInvalid}
+ for _,unit:=range []struct{suffix string;base int64;power int}{{"Ki",1024,1},{"Mi",1024,2},{"Gi",1024,3},{"Ti",1024,4},{"Pi",1024,5},{"K",1024,1},{"M",1024,2},{"G",1024,3},{"T",1024,4},{"P",1024,5}}{
+  if strings.HasSuffix(text,unit.suffix){
+   n,ok:=new(big.Int).SetString(strings.TrimSuffix(text,unit.suffix),10);if !ok{return "",ErrInvalid}
+   factor:=new(big.Int).Exp(big.NewInt(unit.base),big.NewInt(int64(unit.power)),nil)
+   return n.Mul(n,factor).String(),nil
+  }
+ }
+ return text,nil
+}
+type exactListener struct{*tsl.Listener}
+func(l *exactListener)ExitNumberLiteral(c *parser.NumberLiteralContext){
+ value,err:=exactNumber(c.SignedNumber().GetText());if err!=nil{l.Errs=append(l.Errs,err);return}
+ l.Stack=append(l.Stack,tsl.Node{Func:tsl.NumberOp,Left:value})
+}
+func(l *exactListener)ExitIn(c *parser.InContext){
+ count:=len(c.AllLiteralValue());start:=len(l.Stack)-count
+ if start<1{l.Errs=append(l.Errs,ErrInvalid);return}
+ values:=append([]tsl.Node{},l.Stack[start:]...);left:=l.Stack[start-1]
+ l.Stack=l.Stack[:start-1];operator:=tsl.InOp;if c.KeyNot()!=nil{operator=tsl.NotInOp}
+ l.Stack=append(l.Stack,tsl.Node{Func:operator,Left:left,Right:tsl.Node{Func:tsl.ArrayOp,Right:values}})
+}
+type sqlBuilder struct{fields map[string]string;types map[string]string;args []interface{}}
+func(b *sqlBuilder)bind(value any)string{b.args=append(b.args,value);return "?"}
+func node(value any)(tsl.Node,error){n,ok:=value.(tsl.Node);if !ok{return tsl.Node{},ErrInvalid};return n,nil}
+
+func(b *sqlBuilder)value(n tsl.Node,depth int)(string,error){
+ if depth>MaxSearchDepth{return "",ErrInvalid}
+ switch n.Func{
+ case tsl.IdentOp:
+  name,ok:=n.Left.(string);if !ok{return "",ErrInvalid};column,ok:=b.fields[name];if !ok{return "",ErrInvalid}
+  return `"`+strings.ReplaceAll(column,`"`,`""`)+`"`,nil
+ case tsl.StringOp:
+  value,ok:=n.Left.(string);if !ok{return "",ErrInvalid};return b.bind(value),nil
+ case tsl.NumberOp:
+  value,ok:=n.Left.(string);if !ok{return "",ErrInvalid};return b.bind(value),nil
+ case tsl.BooleanOp:
+  value,ok:=n.Left.(bool);if !ok{return "",ErrInvalid};return b.bind(value),nil
+ case tsl.DateOp:
+  value,ok:=n.Left.(time.Time);if !ok{return "",ErrInvalid};return b.bind(value),nil
+ case tsl.AddOp,tsl.SubtractOp,tsl.MultiplyOp,tsl.DivideOp,tsl.ModuloOp:
+  operator:=map[string]string{tsl.AddOp:"+",tsl.SubtractOp:"-",tsl.MultiplyOp:"*",tsl.DivideOp:"/",tsl.ModuloOp:"%"}[n.Func]
+  left,err:=node(n.Left);if err!=nil{return "",err};right,err:=node(n.Right);if err!=nil{return "",err}
+  l,err:=b.value(left,depth+1);if err!=nil{return "",err};r,err:=b.value(right,depth+1);if err!=nil{return "",err}
+  return "("+l+" "+operator+" "+r+")",nil
+ default:return "",ErrInvalid
+ }
+}
+func(b *sqlBuilder)predicate(n tsl.Node,depth int)(string,error){
+ if depth>MaxSearchDepth{return "",ErrInvalid}
+ left,err:=node(n.Left);if err!=nil{return "",err}
+ switch n.Func{
+ case tsl.AndOp,tsl.OrOp:
+  right,err:=node(n.Right);if err!=nil{return "",err};l,err:=b.predicate(left,depth+1);if err!=nil{return "",err};r,err:=b.predicate(right,depth+1);if err!=nil{return "",err}
+  operator:=" AND ";if n.Func==tsl.OrOp{operator=" OR "};return "("+l+operator+r+")",nil
+ case tsl.NotOp:
+  value,err:=b.predicate(left,depth+1);return "(NOT "+value+")",err
+ }
+ if err:=b.checkOperands(n);err!=nil{return "",err}
+ l,err:=b.value(left,depth+1);if err!=nil{return "",err}
+ if n.Func==tsl.IsNilOp{return "("+l+" IS NULL)",nil};if n.Func==tsl.IsNotNilOp{return "("+l+" IS NOT NULL)",nil}
+ right,err:=node(n.Right);if err!=nil{return "",err}
+ if n.Func==tsl.InOp||n.Func==tsl.NotInOp||n.Func==tsl.BetweenOp||n.Func==tsl.NotBetweenOp{
+  values,ok:=right.Right.([]tsl.Node);if !ok||right.Func!=tsl.ArrayOp||len(values)>128{return "",ErrInvalid}
+  parts:=make([]string,0,len(values));for _,value:=range values{part,err:=b.value(value,depth+1);if err!=nil{return "",err};parts=append(parts,part)}
+  switch n.Func{
+  case tsl.InOp,tsl.NotInOp:
+   if len(parts)==0{if n.Func==tsl.InOp{return "FALSE",nil};return "TRUE",nil}
+   operator:=" IN ";if n.Func==tsl.NotInOp{operator=" NOT IN "};return "("+l+operator+"("+strings.Join(parts,",")+"))",nil
+  default:
+   if len(parts)!=2{return "",ErrInvalid};operator:=" BETWEEN ";if n.Func==tsl.NotBetweenOp{operator=" NOT BETWEEN "};return "("+l+operator+parts[0]+" AND "+parts[1]+")",nil
+  }
+ }
+ operator,ok:=map[string]string{tsl.EqOp:"=",tsl.NotEqOp:"<>",tsl.LtOp:"<",tsl.LteOp:"<=",tsl.GtOp:">",tsl.GteOp:">=",tsl.LikeOp:"LIKE",tsl.ILikeOp:"ILIKE"}[n.Func]
+ if !ok{return "",fmt.Errorf("%w: unsupported operator",ErrInvalid)}
+ r,err:=b.value(right,depth+1);if err!=nil{return "",err};return "("+l+" "+operator+" "+r+")",nil
+}
+
+// The pinned ANTLR grammar shares mutable DFA caches by default.
+// Each request gets private caches before the first token is read.
+func localDecisions(atn *antlr.ATN)[]*antlr.DFA{
+ states:=make([]*antlr.DFA,len(atn.DecisionToState));for i,state:=range atn.DecisionToState{states[i]=antlr.NewDFA(state,i)};return states
+}
+func newLexer(text string)*parser.TSLLexer{
+ lexer:=parser.NewTSLLexer(antlr.NewInputStream(text));atn:=lexer.GetATN()
+ lexer.Interpreter=antlr.NewLexerATNSimulator(lexer,atn,localDecisions(atn),antlr.NewPredictionContextCache());return lexer
+}
+
+func(b *sqlBuilder)valueType(n tsl.Node)(string,error){
+ switch n.Func{
+ case tsl.IdentOp:
+  name,ok:=n.Left.(string);if !ok{return "",ErrInvalid}
+  switch b.types[name]{case "string","enum","ref":return "string",nil;case "int32","int64","float","double":return "number",nil;case "bool":return "bool",nil;case "timestamp":return "timestamp",nil;case "jsonb":return "jsonb",nil;default:return "",ErrInvalid}
+ case tsl.StringOp:return "string",nil
+ case tsl.NumberOp:return "number",nil
+ case tsl.BooleanOp:return "bool",nil
+ case tsl.DateOp:return "timestamp",nil
+ case tsl.AddOp,tsl.SubtractOp,tsl.MultiplyOp,tsl.DivideOp,tsl.ModuloOp:
+  left,err:=node(n.Left);if err!=nil{return "",err};right,err:=node(n.Right);if err!=nil{return "",err}
+  l,err:=b.valueType(left);if err!=nil{return "",err};r,err:=b.valueType(right);if err!=nil||l!="number"||r!="number"{return "",ErrInvalid};return "number",nil
+ default:return "",ErrInvalid
+ }
+}
+func(b *sqlBuilder)checkOperands(n tsl.Node)error{
+ left,err:=node(n.Left);if err!=nil{return err};kind,err:=b.valueType(left);if err!=nil{return err}
+ if n.Func==tsl.IsNilOp||n.Func==tsl.IsNotNilOp{return nil}
+ if (n.Func==tsl.LikeOp||n.Func==tsl.ILikeOp)&&kind!="string"{return ErrInvalid}
+ right,err:=node(n.Right);if err!=nil{return err};values:=[]tsl.Node{right}
+ if right.Func==tsl.ArrayOp{var ok bool;values,ok=right.Right.([]tsl.Node);if !ok{return ErrInvalid}}
+ for _,value:=range values{
+  other,err:=b.valueType(value);if err!=nil{return err}
+  if other==kind{continue}
+  // PostgreSQL validates textual timestamp and JSON values. Other type
+  // changes must be explicit in the contract, not inferred from SQL errors.
+  if value.Func==tsl.StringOp&&(kind=="timestamp"||kind=="jsonb"){continue}
+  return ErrInvalid
+ }
+ return nil
+}
+
+// The old grammar also stores lookahead sets on shared ATN states. Only its
+// parser stage needs this lock. Tree validation and SQL conversion stay local.
+func parseTree(p *parser.TSLParser)parser.IStartContext{
+ parserGate.Lock();defer parserGate.Unlock();return p.Start()
+}
