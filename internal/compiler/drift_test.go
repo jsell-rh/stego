@@ -227,7 +227,7 @@ func TestDetectDrift_MultipleChanges(t *testing.T) {
 	}
 }
 
-func TestDetectDrift_ProjectRootFile(t *testing.T) {
+func TestDetectDrift_ApplicationModuleIsNotGenerated(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
 	outDir := filepath.Join(projectDir, "out")
 
@@ -269,17 +269,8 @@ func TestDetectDrift_ProjectRootFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DetectDrift returned error: %v", err)
 	}
-	if !result.HasDrift() {
-		t.Fatal("expected drift to be detected for go.mod")
-	}
-	found := false
-	for _, f := range result.Modified {
-		if f.Path == "go.mod" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected go.mod in modified list, got:\n%s", FormatDrift(result))
+	if result.HasDrift() {
+		t.Fatalf("application module edits are not output drift: %s", FormatDrift(result))
 	}
 }
 

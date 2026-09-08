@@ -315,6 +315,14 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assembling shared files: %w", err)
 	}
+	for i, file := range sharedFiles {
+		if file.Path == "go.mod" {
+			sharedFiles[i], err = mergeProjectModule(input.ProjectDir, file)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	allFiles = append(allFiles, sharedFiles...)
 
 	// Validate no duplicate file paths across all sources (generators, slots,
@@ -703,7 +711,10 @@ func computePlan(
 	for _, f := range generatedFiles {
 		content := f.Bytes()
 		hash := HashBytes(content)
-		newFileHashes[f.Path] = hash
+		// The application owns go.mod. Go tools can update it after apply.
+		if f.Path != "go.mod" {
+			newFileHashes[f.Path] = hash
+		}
 
 		baseDir := fileBaseDir(f.Path, outDir, projectDir)
 		existingHash, exists := existingHashes[f.Path]
@@ -737,6 +748,9 @@ func computePlan(
 
 	// Detect orphaned files: tracked in previous state but no longer generated.
 	for path := range existingHashes {
+		if path == "go.mod" {
+			continue // Transfer ownership from older state without deletion.
+		}
 		if _, stillGenerated := newFileHashes[path]; !stillGenerated {
 			planned = append(planned, PlannedFile{Path: path, Action: ActionDelete})
 		}

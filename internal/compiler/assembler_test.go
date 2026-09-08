@@ -106,8 +106,8 @@ func TestAssemble_MinimalService(t *testing.T) {
 	if !strings.Contains(modRendered, "go 1.22") {
 		t.Errorf("go.mod missing go version")
 	}
-	if !strings.Contains(modRendered, gen.Header) {
-		t.Errorf("go.mod missing generated header comment")
+	if strings.Contains(modRendered, gen.Header) {
+		t.Errorf("application module must not have a generated-file header")
 	}
 }
 
@@ -3522,7 +3522,10 @@ func TestGenerateGoMod_NoReplaceDirectivesWithFills(t *testing.T) {
 		},
 	}
 
-	goMod := generateGoMod(input)
+	goMod, err := generateGoMod(input)
+	if err != nil {
+		t.Fatal(err)
+	}
 	content := string(goMod.Content)
 
 	if strings.Contains(content, "replace") {
@@ -3544,7 +3547,10 @@ func TestGenerateGoMod_NoReplacesWithoutSlots(t *testing.T) {
 
 	}
 
-	goMod := generateGoMod(input)
+	goMod, err := generateGoMod(input)
+	if err != nil {
+		t.Fatal(err)
+	}
 	content := string(goMod.Content)
 
 	if strings.Contains(content, "replace") {

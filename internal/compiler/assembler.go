@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
+
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -60,13 +63,22 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	if input.GoVersion == "" {
 		return nil, fmt.Errorf("GoVersion must not be empty")
 	}
+	if err := module.CheckImportPath(input.ModuleName); err != nil {
+		return nil, fmt.Errorf("invalid module name: %w", err)
+	}
+	if err := new(modfile.File).AddGoStmt(input.GoVersion); err != nil {
+		return nil, fmt.Errorf("invalid Go version: %w", err)
+	}
 
 	mainGo, err := generateMainGo(input)
 	if err != nil {
 		return nil, fmt.Errorf("generating main.go: %w", err)
 	}
 
-	goMod := generateGoMod(input)
+	goMod, err := generateGoMod(input)
+	if err != nil {
+		return nil, err
+	}
 
 	files := []gen.File{mainGo, goMod}
 
@@ -80,7 +92,7 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	return files, nil
 }
 
-func generateGoMod(input AssemblerInput) gen.File {
+func generateGoMod(input AssemblerInput) (gen.File, error) {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "module %s\n\n", input.ModuleName)
 	fmt.Fprintf(&buf, "go %s\n", input.GoVersion)
@@ -91,14 +103,9 @@ func generateGoMod(input AssemblerInput) gen.File {
 	// intra-module packages without requiring replace directives.
 
 	// Collect module dependencies from all component wirings.
-	requires := make(map[string]string)
-	for _, cw := range input.Wirings {
-		if cw.Wiring == nil {
-			continue
-		}
-		for mod, ver := range cw.Wiring.GoModRequires {
-			requires[mod] = ver
-		}
+	requires, err := moduleRequirements(input.Wirings)
+	if err != nil {
+		return gen.File{}, err
 	}
 
 	if len(requires) > 0 {
@@ -119,7 +126,7 @@ func generateGoMod(input AssemblerInput) gen.File {
 	return gen.File{
 		Path:    "go.mod",
 		Content: buf.Bytes(),
-	}
+	}, nil
 }
 
 func generateMainGo(input AssemblerInput) (gen.File, error) {
@@ -990,7 +997,7 @@ func topoSortConstructors(entries []constructorEntry) ([]constructorEntry, error
 	// Build adjacency list: edges[i] = list of indices that entry i depends on
 	// (i.e., must be emitted before entry i).
 	n := len(entries)
-	edges := make([][]int, n)    // edges[i] = dependencies of i
+	edges := make([][]int, n) // edges[i] = dependencies of i
 	inDegree := make([]int, n)
 
 	for i, e := range entries {

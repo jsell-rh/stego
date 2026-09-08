@@ -36,6 +36,9 @@ check that can fail when the behavior is wrong. Use runtime tests for runtime
 claims. Use explicit compatibility evidence for existing Hypershell behavior.
 Do not weaken tests or drop requirements to obtain a passing result.
 
+The user authorized direct pushes to both remote repositories. Push completed
+commits after their checks pass. Do not wait for pull request merges.
+
 The user confirmed that STEGO must provide common infrastructure. Keep unique
 domain behavior in application modules or fills. Do not add Hypershell-specific
 rules to STEGO. Test new common capabilities with a separate small service as
@@ -75,3 +78,11 @@ It prepares private checkouts and publishes verified content through a rename.
 Cache reuse requires the exact commit and a clean tree, including ignored and
 untracked files. Modified cache entries are preserved and rejected. Local
 registry content identities and compiler build identities remain C3 work.
+
+The application now owns its root Go module. STEGO preserves application
+dependencies and settings. It adds missing component requirements and raises
+versions only when a component requires a higher minimum. It does not lower an
+application's selected version. Existing module settings supply the CLI defaults.
+Invalid requirements and conflicting module names fail before writes. Module
+edits no longer count as generated output drift. The full root suite passes.
+Dependency resolution, checksum verification, and stale-plan checks remain open.

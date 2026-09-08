@@ -103,14 +103,13 @@ type File struct {
 }
 
 // Bytes returns the complete file content ready to be written to disk.
-// For Go source files and go.mod, it prepends the required generated-file
+// For Go source files, it prepends the required generated-file
 // header using Go comment syntax. For non-Go files (JSON, YAML, etc.), the
 // content is returned as-is because Go-comment syntax would make them
 // unparseable by their format's standard tooling.
 func (f File) Bytes() []byte {
 	ext := filepath.Ext(f.Path)
-	base := filepath.Base(f.Path)
-	if ext == ".go" || base == "go.mod" {
+	if ext == ".go" {
 		return []byte(Header + "\n\n" + string(f.Content))
 	}
 	return f.Content

@@ -83,6 +83,7 @@ Generate and build:
 stego validate      # check service.yaml against registry
 stego plan          # see what will be generated
 stego apply         # generate code into out/
+go mod tidy         # resolve and record project dependencies
 cd out && go build  # it's just Go
 ```
 

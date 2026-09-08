@@ -17,9 +17,9 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
-	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
+	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
@@ -150,10 +150,10 @@ func runInit(args []string) error {
 	projectName := filepath.Base(projectDir)
 
 	svc := types.ServiceDeclaration{
-		Kind:      "service",
-		Name:      projectName,
-		Archetype: *archetype,
-		Language:  arch.Language,
+		Kind:        "service",
+		Name:        projectName,
+		Archetype:   *archetype,
+		Language:    arch.Language,
 		Entities:    []types.Entity{},
 		Collections: []types.Collection{},
 	}
@@ -763,14 +763,9 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 		return compiler.ReconcilerInput{}, err
 	}
 
-	moduleName := os.Getenv("STEGO_MODULE")
-	if moduleName == "" {
-		moduleName = "github.com/example/service"
-	}
-
-	goVersion := os.Getenv("STEGO_GO_VERSION")
-	if goVersion == "" {
-		goVersion = "1.22"
+	moduleName, goVersion, err := compiler.ProjectModuleSettings(projectDir, os.Getenv("STEGO_MODULE"), os.Getenv("STEGO_GO_VERSION"))
+	if err != nil {
+		return compiler.ReconcilerInput{}, err
 	}
 
 	outDir := filepath.Join(projectDir, "out")

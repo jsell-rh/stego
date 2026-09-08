@@ -162,7 +162,14 @@ An auditor reads `main.go` and sees every fill and every connection. Tests swap 
 
 Each component declares an `output_namespace` (e.g. `internal/api`) and can only write files under it -- the compiler rejects any file outside the namespace. The archetype validates at authoring time that no two component namespaces overlap (static YAML check).
 
-Shared files (`cmd/main.go`, `go.mod`, `Dockerfile`, `openapi.yaml`) are owned by the compiler, not by any component. Each component's generator returns a `Wiring` struct (imports, constructors, routes) alongside its files, and the compiler assembles the shared files from all wiring declarations.
+The compiler assembles shared generated files from component wiring declarations.
+The application owns the root `go.mod` and `go.sum`. STEGO creates `go.mod` when
+it is absent. It preserves existing application requirements and settings. It
+adds missing component requirements and raises versions to meet component
+minimums. It never lowers a selected version. These module files are outside
+generated output drift tracking. Dependency resolution remains a separate step.
+This follows the minimum version order in the
+[Go module reference](https://go.dev/ref/mod#minimal-version-selection).
 
 The archetype's conventions (e.g. `layout: flat` vs `layout: hexagonal`) are passed to generators via `gen.Context`, influencing how generators organize files within their namespace.
 
