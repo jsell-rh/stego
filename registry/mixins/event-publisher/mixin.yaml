@@ -1,8 +1,9 @@
 kind: mixin
 name: event-publisher
-version: 1.0.0
+version: 2.0.0
 
 adds_components:
+  - outbox
   - kafka-producer
 
 adds_slots:

@@ -134,6 +134,10 @@ type Wiring struct {
 	// Each entry is a code fragment like "api.NewUserHandler(userService, ...)".
 	Constructors []string
 
+	// ConstructorResources appends compiler-owned arguments to a constructor.
+	// Resources use explicit types instead of local variable name conventions.
+	ConstructorResources map[int][]Resource
+
 	// ConstructorReturnsError marks constructors that return (value, error).
 	// Startup stops on an error. Cleanup for earlier constructors still runs.
 	ConstructorReturnsError map[int]bool
@@ -319,3 +323,9 @@ func (e *NamespaceError) Error() string {
 	return fmt.Sprintf("files outside namespace %q: %s",
 		e.Namespace, strings.Join(e.Violations, ", "))
 }
+
+// Resource identifies a value supplied by the service runtime.
+type Resource string
+
+const ServiceContext Resource = "service-context"
+const SQLDatabase Resource = "sql-database"

@@ -181,6 +181,16 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		if cw.Wiring == nil {
 			continue
 		}
+		for index, resources := range cw.Wiring.ConstructorResources {
+			if index < 0 || index >= len(cw.Wiring.Constructors) {
+				return gen.File{}, fmt.Errorf("component %q has invalid resource constructor index %d", cw.Name, index)
+			}
+			for _, resource := range resources {
+				if resource != gen.ServiceContext && resource != gen.SQLDatabase {
+					return gen.File{}, fmt.Errorf("component %q requests unsupported resource %q", cw.Name, resource)
+				}
+			}
+		}
 		seenTasks := make(map[int]bool)
 		for _, index := range cw.Wiring.BackgroundTasks {
 			if index < 0 || index >= len(cw.Wiring.Constructors) || seenTasks[index] {
@@ -386,6 +396,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// All non-stdlib imports share a SINGLE disambiguation namespace so that
 	// component, fill, and slots aliases cannot collide with each other.
 	var compImports []string
+	if hasDB && !isGORM {
+		compImports = append(compImports, "\t_ \"github.com/jackc/pgx/v5/stdlib\"")
+	}
 	seen := make(map[string]bool)      // full import path → already added
 	aliases := make(map[string]int)    // base alias → count (for disambiguation)
 	aliasUsed := make(map[string]bool) // tracks the exact alias string used
@@ -522,7 +535,7 @@ func writeDBSetup(buf *bytes.Buffer) {
 	buf.WriteString("\tif dsn == \"\" {\n")
 	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
-	buf.WriteString("\tdb, err := sql.Open(\"postgres\", dsn)\n")
+	buf.WriteString("\tdb, err := sql.Open(\"pgx\", dsn)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
@@ -744,7 +757,7 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 				baseVar: baseVar,
 				deps:    deps,
 				expr:    constructor,
-				needsDB: cw.Wiring.NeedsDB || cw.Wiring.DBBackend != "",
+				needsDB: cw.Wiring.NeedsDB || cw.Wiring.DBBackend != "" || constructorUsesResource(cw.Wiring, j, gen.SQLDatabase),
 			})
 			varToEntries[baseVar] = append(varToEntries[baseVar], idx)
 		}
@@ -1087,9 +1100,21 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		// structured metadata rather than naming convention matching.
 		expr := resolvedExpr
 		cw := input.Wirings[entry.WiringIndex]
+		for _, resource := range cw.Wiring.ConstructorResources[entry.ConstructorIndex] {
+			switch resource {
+			case gen.ServiceContext:
+				expr = injectConstructorArgs(expr, []string{"ctx"})
+			case gen.SQLDatabase:
+				name := "db"
+				if isGORM {
+					name = "sqlDB"
+				}
+				expr = injectConstructorArgs(expr, []string{name})
+			}
+		}
 		if collection, ok := cw.Wiring.ConstructorCollections[entry.ConstructorIndex]; ok && collection != "" {
 			if slotVars, ok := slotVarsByCollection[collection]; ok && len(slotVars) > 0 {
-				expr = injectConstructorArgs(resolvedExpr, slotVars)
+				expr = injectConstructorArgs(expr, slotVars)
 			}
 		}
 

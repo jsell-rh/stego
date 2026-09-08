@@ -51,6 +51,26 @@ func New(db *sql.DB) (*Queue, error) {
     return &Queue{db: db}, nil
 }
 
+// Check verifies that the required queue columns and delivery permissions
+// are available. It does not apply migrations or change queue rows.
+func (q *Queue) Check(ctx context.Context) error {
+    if ctx == nil || q == nil || q.db == nil { return errors.New("outbox check requires a context and database") }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    rows, err := q.db.QueryContext(ctx, `SELECT id, sequence, destination, resource_key, kind, payload,
+        created_at, available_at, attempts, lease_token, lease_until, failure_code
+        FROM stego_outbox.messages WHERE false`)
+    if err != nil { return errors.New("outbox schema is unavailable") }
+    if err := rows.Close(); err != nil { return errors.New("outbox schema check failed") }
+    var permitted bool
+    err = q.db.QueryRowContext(ctx, `SELECT
+        has_table_privilege('stego_outbox.messages', 'SELECT') AND
+        has_table_privilege('stego_outbox.messages', 'UPDATE') AND
+        has_table_privilege('stego_outbox.messages', 'DELETE')`).Scan(&permitted)
+    if err != nil || !permitted { return errors.New("outbox delivery permissions are unavailable") }
+    return nil
+}
+
 // ValidateMessage checks one message without database access.
 func ValidateMessage(message Message) error { return validateMessage(message) }
 

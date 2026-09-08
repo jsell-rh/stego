@@ -32,6 +32,22 @@ An HTTP test checks request draining after a worker failure. These tests run
 with the race detector on Linux. Generated test programs also compile for
 Windows amd64 and macOS arm64; runtime tests on those systems remain open.
 
-This task contract is common service infrastructure. It contains no Hypershell
-rules. Outbox and Kafka service composition still require storage integration,
-configuration, migrations, and complete runtime checks.
+Generators can request constructor arguments through `ConstructorResources`.
+The supported values are the service context and a `database/sql` connection.
+The compiler supplies the raw connection for SQL services and the underlying
+connection for GORM services. Invalid indexes and unknown resources fail
+assembly. PostgreSQL tests execute both forms. Raw SQL services use the pgx
+driver and include its module requirement.
+
+The Kafka component now uses these resources to construct one outbox worker.
+Startup checks queue columns and read, update, and delete permissions before it
+connects to Kafka. It does not apply the queue migration. The generated runtime
+owns the publisher, cancellation, and worker cleanup. It can run once. Close
+cancels delivery and waits for cleanup.
+
+Deployment settings use the `STEGO_KAFKA_` prefix: `BROKERS`, `TOPIC`,
+`AUTHENTICATION`, `CA_FILE`, `CLIENT_CERTIFICATE_FILE`, `CLIENT_KEY_FILE`,
+`USERNAME`, and `PASSWORD_FILE`. The publisher validates these settings. Secrets
+remain in files. Each worker delivers the fixed `kafka` outbox destination to
+the configured topic. Runtime tests check delivery after restart and rejection
+of a missing queue schema. Real broker deployment checks remain open.

@@ -1,0 +1,10 @@
+kind: component
+name: outbox
+version: 1.0.0
+output_namespace: internal/outbox
+
+config: {}
+requires: []
+provides:
+  - durable-outbox
+slots: []

@@ -46,6 +46,16 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 			}
 		}
 	}
+	consumed, hasDB := computeConsumedConstructors(AssemblerInput{Wirings: wirings}, hasAnyRoutes(AssemblerInput{Wirings: wirings}))
+	gormDB := false
+	for key := range consumed {
+		if wirings[key.WiringIndex].Wiring.DBBackend == "gorm" {
+			gormDB = true
+		}
+	}
+	if hasDB && !gormDB && semver.Compare("v5.11.0", requires["github.com/jackc/pgx/v5"]) > 0 {
+		requires["github.com/jackc/pgx/v5"] = "v5.11.0"
+	}
 	return requires, nil
 }
 

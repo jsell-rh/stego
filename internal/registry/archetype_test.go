@@ -82,8 +82,11 @@ func TestRestCrudArchetypeParsesFromLiveRegistry(t *testing.T) {
 		}
 	}
 
-	if len(a.Bindings) != 2 {
-		t.Fatalf("Bindings count = %d, want 2", len(a.Bindings))
+	if len(a.Bindings) != 3 {
+		t.Fatalf("Bindings count = %d, want 3", len(a.Bindings))
+	}
+	if a.Bindings["durable-outbox"] != "outbox" {
+		t.Errorf("Bindings[durable-outbox] = %q, want outbox", a.Bindings["durable-outbox"])
 	}
 	if a.Bindings["storage-adapter"] != "postgres-adapter" {
 		t.Errorf("Bindings[storage-adapter] = %q, want %q", a.Bindings["storage-adapter"], "postgres-adapter")

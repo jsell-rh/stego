@@ -1,0 +1,93 @@
+package {{.Package}}
+
+import (
+ "context"
+ "database/sql"
+ "errors"
+ "os"
+ "strings"
+ "sync"
+
+ stegooutbox {{printf "%q" .OutboxImport}}
+)
+
+// Runtime owns the Kafka publisher and the outbox delivery worker.
+// Run can be called once. Close cancels Run and waits for worker cleanup.
+type Runtime struct {
+ publisher *Publisher
+ worker *stegooutbox.Worker
+ mu sync.Mutex
+ cancel context.CancelFunc
+ done chan struct{}
+ started bool
+ closed bool
+}
+
+// NewRuntime reads deployment settings. Secret values come from files.
+func NewRuntime(ctx context.Context, db *sql.DB) (*Runtime, error) {
+ config, err := ConfigFromEnvironment()
+ if err != nil { return nil, err }
+ return NewRuntimeWithConfig(ctx, db, config)
+}
+
+func ConfigFromEnvironment() (Config, error) {
+ read := func(name string) (string, error) {
+  value := os.Getenv("STEGO_KAFKA_"+name)
+  if len(value) > 4096 { return "", errors.New("Kafka environment setting exceeds its size limit") }
+  return value, nil
+ }
+ fields := []string{"BROKERS", "TOPIC", "AUTHENTICATION", "CA_FILE", "CLIENT_CERTIFICATE_FILE", "CLIENT_KEY_FILE", "USERNAME", "PASSWORD_FILE"}
+ values := make([]string, len(fields))
+ for i, field := range fields {
+  value, err := read(field)
+  if err != nil { return Config{}, err }
+  values[i] = value
+ }
+ return Config{
+  Brokers: strings.Split(values[0], ","), Topic: values[1], Authentication: values[2], CAFile: values[3],
+  ClientCertificateFile: values[4], ClientKeyFile: values[5], Username: values[6], PasswordFile: values[7],
+ }, nil
+}
+
+func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+ if ctx == nil { return nil, errors.New("Kafka runtime requires a context") }
+ queue, err := stegooutbox.New(db)
+ if err != nil { return nil, err }
+ if err := queue.Check(ctx); err != nil { return nil, err }
+ publisher, err := New(ctx, config)
+ if err != nil { return nil, err }
+ worker, err := stegooutbox.NewWorker(queue, map[string]stegooutbox.Handler{
+  "kafka": func(ctx context.Context, message stegooutbox.Message) error {
+   return publisher.Publish(ctx, Record{ID: message.ID, ResourceKey: message.ResourceKey, Kind: message.Kind, Payload: message.Payload})
+  },
+ }, stegooutbox.DefaultWorkerConfig())
+ if err != nil { publisher.Close(); return nil, err }
+ return &Runtime{publisher: publisher, worker: worker}, nil
+}
+
+func (r *Runtime) Run(ctx context.Context) error {
+ if ctx == nil { return errors.New("Kafka runtime requires a context") }
+ r.mu.Lock()
+ if r.closed { r.mu.Unlock(); return ErrClosed }
+ if r.started { r.mu.Unlock(); return errors.New("Kafka runtime cannot be started more than once") }
+ r.started = true
+ ctx, r.cancel = context.WithCancel(ctx)
+ r.done = make(chan struct{})
+ done := r.done
+ r.mu.Unlock()
+ defer close(done)
+ defer r.cancel()
+ return r.worker.Run(ctx)
+}
+
+func (r *Runtime) Close() {
+ r.mu.Lock()
+ r.closed = true
+ if r.cancel != nil { r.cancel() }
+ done := r.done
+ r.mu.Unlock()
+ if done != nil { <-done }
+ r.publisher.Close()
+}
+
+func (r *Runtime) Stats() stegooutbox.WorkerStats { return r.worker.Stats() }

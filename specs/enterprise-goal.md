@@ -259,3 +259,15 @@ test checks shared dependency identity. The full root race suite passes with
 PostgreSQL required. The constructor fix also passed its own isolated compiler
 and CLI checks. See `shared-storage-contract.md` for
 contract limits and remaining service integration work.
+
+The next acceptance gate is the Hypershell Gateway workflow. It must prove
+creation and retrieval with the required IDs and API shapes, atomic owner
+grants, access filters and denied requests, and event delivery through the
+generated runtime. REST, gRPC, restart, and regeneration checks must pass before
+this gate is complete. Infrastructure work must support this workflow.
+
+Outbox and Kafka are now registered components. The event mixin composes both.
+The generated worker reads deployment settings, checks the queue, and owns
+publisher startup and cleanup. Explicit constructor resources work with SQL
+and GORM. PostgreSQL and TLS protocol fixture tests cover runtime delivery and
+restart. This does not complete the Gateway acceptance gate.

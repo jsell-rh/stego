@@ -26,5 +26,6 @@ compatible_mixins:
   - async-worker
 
 bindings:
+  durable-outbox: outbox
   storage-adapter: postgres-adapter
   auth-provider: jwt-auth

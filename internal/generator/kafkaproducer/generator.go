@@ -2,11 +2,13 @@
 package kafkaproducer
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"go/format"
 	"path"
 	"strings"
+	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -14,10 +16,12 @@ import (
 //go:embed publisher.go.tmpl
 var publisherSource string
 
+//go:embed runtime.go.tmpl
+var runtimeSource string
+
 type Generator struct{}
 
-// Generate emits the publisher library. Worker and storage composition is a
-// separate compiler stage. This generator does not start a background worker.
+// Generate emits the publisher. With an outbox peer, it also wires a worker.
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	ns := ctx.OutputNamespace
 	if err := gen.ValidatePath(ns); err != nil {
@@ -28,10 +32,41 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("formatting Kafka publisher: %w", err)
 	}
 	files := []gen.File{{Path: path.Join(ns, "publisher.go"), Content: source}}
+	wiring := &gen.Wiring{GoModRequires: map[string]string{
+		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
+	}}
+	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
+		if err := gen.ValidatePath(outbox); err != nil {
+			return nil, nil, err
+		}
+		if ctx.ModuleName == "" {
+			return nil, nil, fmt.Errorf("Kafka runtime requires a module name")
+		}
+		data := struct{ Package, OutboxImport string }{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox)}
+		tmpl, err := template.New("runtime").Parse(runtimeSource)
+		if err != nil {
+			return nil, nil, err
+		}
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return nil, nil, err
+		}
+		source, err := format.Source(buf.Bytes())
+		if err != nil {
+			return nil, nil, fmt.Errorf("formatting Kafka runtime: %w", err)
+		}
+		files = append(files, gen.File{Path: path.Join(ns, "runtime.go"), Content: source})
+		wiring.Imports = []string{ns}
+		wiring.Constructors = []string{path.Base(ns) + ".NewRuntime()"}
+		wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}
+		wiring.ConstructorReturnsError = map[int]bool{0: true}
+		wiring.ConstructorDeferCalls = map[int]string{0: "Close()"}
+		wiring.BackgroundTasks = []int{0}
+	} else if ctx.StorageContract != "" {
+		return nil, nil, fmt.Errorf("Kafka service runtime requires the outbox component")
+	}
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: map[string]string{
-		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
-	}}, nil
+	return files, wiring, nil
 }

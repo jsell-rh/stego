@@ -23,7 +23,7 @@ func TestGeneratedKafkaPublisher(t *testing.T) {
 	if requirePostgres == "1" && postgresDSN == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
-	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "publisher"})
+	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "publisher", ModuleName: "example.com/kafka-test", PeerNamespaces: map[string]string{"outbox": "queue"}})
 	if err != nil {
 		t.Fatal(err)
 	}
