@@ -129,6 +129,12 @@ type Wiring struct {
 	// Startup stops on an error. Cleanup for earlier constructors still runs.
 	ConstructorReturnsError map[int]bool
 
+	// BackgroundTasks lists constructor indexes that run until cancellation.
+	// Each value must have a Run(context.Context) error method. Run must stop
+	// when its context is canceled. The service waits for all tasks before
+	// resource cleanup. A task that stops before cancellation fails the service.
+	BackgroundTasks []int
+
 	// ConstructorCollections maps constructor index to the collection name
 	// it handles. The assembler uses this to inject slot operators into the
 	// correct handler constructors, replacing convention-based name matching
@@ -189,7 +195,7 @@ type Wiring struct {
 	// setup and before constructor declarations in the generated main.go.
 	// Each expression must return an error (e.g. "storage.Migrate(db)").
 	// The assembler wraps each call in error handling:
-	//   if err := <expr>; err != nil { log.Fatal(err) }
+	//   if err := <expr>; err != nil { return err }
 	PostDBCalls []string
 
 	// Middlewares lists additional middleware constructors that wrap the

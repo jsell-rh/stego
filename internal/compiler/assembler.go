@@ -137,6 +137,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	buf.WriteString("package main\n\n")
 
 	hasRoutes := hasAnyRoutes(input)
+	hasTasks := hasBackgroundTasks(input)
 	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
 
 	// Validate no duplicate (slot, collection, operator) triples before processing.
@@ -163,6 +164,13 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		if cw.Wiring == nil {
 			continue
 		}
+		seenTasks := make(map[int]bool)
+		for _, index := range cw.Wiring.BackgroundTasks {
+			if index < 0 || index >= len(cw.Wiring.Constructors) || seenTasks[index] {
+				return gen.File{}, fmt.Errorf("component %q has an invalid or duplicate background task index %d", cw.Name, index)
+			}
+			seenTasks[index] = true
+		}
 		for index := range cw.Wiring.ConstructorReturnsError {
 			if index < 0 || index >= len(cw.Wiring.Constructors) {
 				return gen.File{}, fmt.Errorf("component %q has an invalid error-returning constructor index %d", cw.Name, index)
@@ -184,7 +192,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	// Compute which constructor entries are consumed (transitively reachable
-	// from route references or middleware wrapping). Constructors without any
+	// from routes, middleware, or background tasks). Constructors without any
 	// downstream consumer would produce "declared and not used" compile errors.
 	// Effective hasDB is true only if at least one consumed constructor needs DB.
 	consumed, effectiveHasDB := computeConsumedConstructors(input, hasRoutes)
@@ -219,11 +227,15 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 
 	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, consumedWirings)
 
-	fallible := hasRoutes || hasDB || hasFallibleConstructor(input, consumed)
+	fallible := hasRoutes || hasTasks || hasDB || hasFallibleConstructor(input, consumed)
 	if fallible {
 		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tlog.Print(\"service failed: \", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() error {\n")
 	} else {
 		buf.WriteString("func main() {\n")
+	}
+
+	if hasRoutes || hasTasks {
+		writeSignalContext(&buf)
 	}
 
 	if hasDB {
@@ -251,14 +263,20 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	if hasRoutes {
 		writeRouteRegistration(&buf, input, wiringRenames)
 		writeServerStart(&buf, input, wiringRenames)
+	} else if hasTasks {
+		writeBackgroundStart(&buf, input, wiringRenames, "")
 	}
 
-	if fallible && !hasRoutes {
+	if fallible && !hasRoutes && !hasTasks {
 		buf.WriteString("\treturn nil\n")
 	}
 	buf.WriteString("}\n")
 	if hasRoutes {
 		buf.WriteString(httpLifecycleSource)
+	}
+
+	if hasTasks {
+		buf.WriteString(taskLifecycleSource)
 	}
 
 	formatted, err := format.Source(buf.Bytes())
@@ -294,6 +312,7 @@ type importResult struct {
 // alias is disambiguated. The alias set allows constructor variable
 // disambiguation to avoid shadowing import aliases.
 func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, isGORM bool, consumedWirings map[int]bool) importResult {
+	hasTasks := hasBackgroundTasks(input)
 	buf.WriteString("import (\n")
 
 	// Collect additional stdlib imports requested by consumed component wirings.
@@ -313,7 +332,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		stdlibNeeded["database/sql"] = true
 	}
 	// log is used in writeDBSetup and writeServerStart.
-	if hasDB || hasRoutes {
+	if hasDB || hasRoutes || hasTasks {
 		stdlibNeeded["log"] = true
 	}
 	if hasRoutes {
@@ -321,8 +340,13 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 			stdlibNeeded[pkg] = true
 		}
 	}
+	if hasTasks {
+		for _, pkg := range taskLifecycleImports {
+			stdlibNeeded[pkg] = true
+		}
+	}
 	// os is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
-	if hasDB || hasRoutes {
+	if hasDB || hasRoutes || hasTasks {
 		stdlibNeeded["os"] = true
 	}
 	// Add component-requested stdlib imports.
@@ -350,7 +374,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// non-stdlib imports cannot shadow them. A component import like
 	// "internal/sql" would otherwise get alias "sql", shadowing the
 	// stdlib "database/sql" import.
-	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM, extraStdlib) {
+	for _, name := range stdlibAliases(hasRoutes, hasBackgroundTasks(input), hasDB, isGORM, extraStdlib) {
 		aliases[name]++
 		aliasUsed[name] = true
 	}
@@ -560,7 +584,7 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 // library import aliases that are used after constructor declarations (and
 // would be shadowed by a local variable of the same name). Constructor
 // variable disambiguation must reserve all of these to prevent collisions.
-func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery bool) map[string]bool {
+func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool) map[string]bool {
 	vars := make(map[string]bool)
 	if hasDB {
 		vars["dsn"] = true
@@ -592,15 +616,23 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery bool) map[stri
 		// would shadow the import, breaking post-constructor references.
 		vars["http"] = true
 	}
+	if hasTasks {
+		for _, name := range []string{"ctx", "stop", "err", "stegoTask", "stegoRunTasks"} {
+			vars[name] = true
+		}
+		for _, pkg := range taskLifecycleImports {
+			vars[path.Base(pkg)] = true
+		}
+	}
 	if hasDiscovery {
 		vars["topMux"] = true
 		vars["handler"] = true
 	}
 	// "os" is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
-	if hasDB || hasRoutes {
+	if hasDB || hasRoutes || hasTasks {
 		vars["os"] = true
 	}
-	if hasDB || hasRoutes {
+	if hasDB || hasRoutes || hasTasks {
 		// "log" is used in writeServerStart (after constructors) when
 		// hasRoutes, and in writeDBSetup (before constructors) when hasDB.
 		// Reserve whenever it is imported.
@@ -641,12 +673,13 @@ type constructorKey struct {
 }
 
 // computeConsumedConstructors determines which constructors are transitively
-// reachable from downstream consumers (route expressions, middleware wrapping).
+// reachable from routes, middleware, or background tasks.
 // A constructor is consumed if:
 //  1. Its raw variable name appears in a route expression (routes reference
 //     constructor variables like "userHandler.Create"), OR
 //  2. It is the middleware constructor (used by writeServerStart), OR
-//  3. It is a dependency of another consumed constructor (via ConstructorDeps
+//  3. It is a declared background task, OR
+//  4. It is a dependency of another consumed constructor (via ConstructorDeps
 //     or by referencing another constructor's variable in its expression).
 //
 // Constructors not in the returned set have no consumer in the generated code
@@ -691,10 +724,13 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 
 	consumed := make(map[constructorKey]bool)
 
-	if !hasRoutes {
-		// No routes means no route registration and no server start.
-		// No constructor variables are referenced by any generated code.
-		return consumed, false
+	for i, cw := range input.Wirings {
+		if cw.Wiring == nil {
+			continue
+		}
+		for _, index := range cw.Wiring.BackgroundTasks {
+			consumed[constructorKey{WiringIndex: i, ConstructorIndex: index}] = true
+		}
 	}
 
 	// Step 1: Mark constructors directly consumed by routes.
@@ -739,7 +775,7 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 
 	// Step 2: Mark middleware constructors as consumed (used by writeServerStart).
 	for i, cw := range input.Wirings {
-		if cw.Wiring == nil {
+		if cw.Wiring == nil || !hasRoutes {
 			continue
 		}
 		// Primary auth middleware.
@@ -931,7 +967,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	// that are emitted by writeDBSetup, writeRouteRegistration, and
 	// writeServerStart into the same function scope.
 	hasDiscovery := hasAnyDiscoveryRoutes(input)
-	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery) {
+	for name := range assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasBackgroundTasks(input)) {
 		varNames[name]++
 		varUsed[name] = true
 		preReserved[name] = true
@@ -1391,10 +1427,14 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		buf.WriteString("\ttopMux.Handle(\"/\", handler)\n")
 		handlerExpr = "topMux"
 	}
-	buf.WriteString("\tctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)\n\tdefer stop()\n")
 	buf.WriteString("\tlistener, err := net.Listen(\"tcp\", addr)\n\tif err != nil { return err }\n")
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", listener.Addr())\n")
-	fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second)\n", handlerExpr)
+	if hasBackgroundTasks(input) {
+		buf.WriteString("\tdefer listener.Close()\n")
+		writeBackgroundStart(buf, input, wiringRenames, handlerExpr)
+	} else {
+		fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second)\n", handlerExpr)
+	}
 }
 
 // hasAnyRoutes returns true if any component wiring has routes or discovery routes.
@@ -1567,7 +1607,7 @@ func buildFillAliasMap(input AssemblerInput, hasDB, isGORM bool, consumedWirings
 
 	// Seed stdlib aliases (must match writeMainImports exactly).
 	hasRoutes := hasAnyRoutes(input)
-	for _, name := range stdlibAliases(hasRoutes, hasDB, isGORM, extraStdlib) {
+	for _, name := range stdlibAliases(hasRoutes, hasBackgroundTasks(input), hasDB, isGORM, extraStdlib) {
 		aliases[name]++
 		aliasUsed[name] = true
 	}
@@ -1736,13 +1776,13 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 // import alias disambiguation maps to prevent non-stdlib imports from shadowing
 // them (e.g. component "internal/sql" getting alias "sql" and shadowing
 // "database/sql").
-func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) []string {
+func stdlibAliases(hasRoutes, hasTasks, hasDB, isGORM bool, extraStdlib map[string]bool) []string {
 	var names []string
 	if hasDB && !isGORM {
 		names = append(names, "sql")
 	}
 	// os is used by writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
-	if hasDB || hasRoutes || extraStdlib["os"] {
+	if hasDB || hasRoutes || hasTasks || extraStdlib["os"] {
 		names = append(names, "os")
 	}
 	if hasRoutes {
@@ -1751,8 +1791,14 @@ func stdlibAliases(hasRoutes, hasDB, isGORM bool, extraStdlib map[string]bool) [
 		}
 		names = append(names, "stegoHTTPServer", "stegoServeHTTP", "stegoHTTPError")
 	}
-	if hasDB || hasRoutes {
+	if hasDB || hasRoutes || hasTasks {
 		names = append(names, "log")
+	}
+	if hasTasks {
+		for _, pkg := range taskLifecycleImports {
+			names = append(names, path.Base(pkg))
+		}
+		names = append(names, "stegoTask", "stegoRunTasks")
 	}
 	if extraStdlib["strings"] {
 		names = append(names, "strings")

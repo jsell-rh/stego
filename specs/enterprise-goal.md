@@ -227,3 +227,13 @@ generated-code test publishes a committed PostgreSQL outbox message through a
 TLS Kafka protocol fixture. This includes JSONB payload expansion. The fixture
 is not a real Kafka deployment. Compiler registration, service composition,
 production broker tests, and deployment checks remain open.
+
+The compiler now accepts explicit background task constructor indexes. Tasks
+must implement `Run(context.Context) error`. Services can run tasks with or
+without HTTP routes. A task failure cancels the other tasks and starts HTTP
+request draining. The service waits for all tasks before resource cleanup.
+Generated tests cover cancellation, failure, cleanup order, shared dependencies,
+name collisions, HTTP draining, and process signals. The contract and its limits
+are recorded in `runtime-lifecycle.md`. The full root race suite passes with
+PostgreSQL required. Generated task tests also compile for Windows amd64 and
+macOS arm64. Outbox and Kafka service composition remain open.
