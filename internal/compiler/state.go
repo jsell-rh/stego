@@ -63,6 +63,10 @@ func LoadState(path string) (*State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
+	return decodeState(data, path)
+}
+
+func decodeState(data []byte, path string) (*State, error) {
 	var s State
 	if err := parser.DecodeStrict(data, path, &s); err != nil {
 		return nil, fmt.Errorf("invalid state; restore or migrate the state file: %w", err)

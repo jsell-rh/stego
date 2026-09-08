@@ -22,7 +22,7 @@ The following milestones define completion:
 | --- | --- | --- | --- |
 | C1 | Strict compiler input and one semantic validation stage | Unknown fields, invalid constraints, duplicate keys, unsupported capabilities, and invalid paths fail before output changes | Active |
 | C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Active |
-| C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Pending |
+| C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Active |
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Active |
 | C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
 | C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Pending |
@@ -132,4 +132,14 @@ evidence only; no Hypershell implementation is claimed.
 
 Both repositories now have CI workflows with pinned action commits, read-only
 repository permissions, module verification, and race tests. The equivalent
-local checks passed in both repositories. Hosted CI results must still be checked.
+local checks passed in both repositories. The first hosted CI runs also passed:
+[STEGO](https://github.com/jsell-rh/stego/actions/runs/34275863387) and
+[Hypershell contracts](https://github.com/jsell-rh/hypershell-stego/actions/runs/34275851933).
+
+Plans now compare actual output contents with desired contents. Apply checks
+snapshots of output files, orphaned files, the service declaration, module,
+registry configuration, and saved state before its first write. Changed files
+require a new plan. Plans are bound to their project and output directory.
+Input-only changes can update saved state without changing generated code.
+Tracked files have a 64 MiB size limit. Process locking, complete input identities,
+and transaction recovery remain open.

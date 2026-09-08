@@ -54,11 +54,21 @@ type Plan struct {
 
 	// NewState is the state that will be written after a successful apply.
 	NewState *State
+
+	// StateChanged includes input and ownership changes with unchanged output.
+	StateChanged bool
+
+	snapshots  map[string]fileSnapshot
+	projectDir string
+	outDir     string
 }
 
 // HasChanges returns true if the plan includes any generate, update, delete,
 // or entity changes.
 func (p *Plan) HasChanges() bool {
+	if p.StateChanged {
+		return true
+	}
 	if len(p.EntityChanges) > 0 {
 		return true
 	}
@@ -112,6 +122,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("service validation failed:\n%s", FormatValidation(validation))
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
+	existingState, inputSnapshots, err := captureProjectInputs(input.ProjectDir, serviceData)
+	if err != nil {
+		return nil, err
+	}
 	archetype := reg.Archetype(svcDecl.Archetype)
 
 	// Collect baseline component names: archetype components + default_auth + mixin components.
@@ -332,16 +346,14 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 
-	// Load existing state.
-	statePath := filepath.Join(input.ProjectDir, ".stego", "state.yaml")
-	existingState, err := LoadState(statePath)
-	if err != nil {
-		return nil, fmt.Errorf("loading state: %w", err)
-	}
-
 	// Compute plan by comparing generated files against existing state.
-	plan := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA)
-
+	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA)
+	if err != nil {
+		return nil, err
+	}
+	if err := bindPlanInputs(plan, input.ProjectDir, inputSnapshots); err != nil {
+		return nil, err
+	}
 	return plan, nil
 }
 
@@ -395,6 +407,12 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 		if err := checkFileTarget(project, projectFilePath(relative, file.Path)); err != nil {
 			return err
 		}
+	}
+	if err := verifyPlanLocation(plan, projectDir, outDir); err != nil {
+		return err
+	}
+	if err := verifySnapshots(project, plan.snapshots); err != nil {
+		return err
 	}
 	stateData, err := yaml.Marshal(plan.NewState)
 	if err != nil {
@@ -697,7 +715,17 @@ func computePlan(
 	outDir string,
 	projectDir string,
 	registrySHA string,
-) *Plan {
+) (*Plan, error) {
+	root, err := os.OpenRoot(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	relative, err := outputRelative(projectDir, outDir)
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make(map[string]fileSnapshot)
 	serviceHash := HashBytes(serviceData)
 
 	existingHashes := make(map[string]string)
@@ -710,40 +738,28 @@ func computePlan(
 
 	for _, f := range generatedFiles {
 		content := f.Bytes()
+		if len(content) > maxTrackedFileBytes {
+			return nil, fmt.Errorf("generated file %s exceeds the %d-byte tracking limit", f.Path, maxTrackedFileBytes)
+		}
 		hash := HashBytes(content)
 		// The application owns go.mod. Go tools can update it after apply.
 		if f.Path != "go.mod" {
 			newFileHashes[f.Path] = hash
 		}
 
-		baseDir := fileBaseDir(f.Path, outDir, projectDir)
-		existingHash, exists := existingHashes[f.Path]
-		switch {
-		case !exists:
-			diskPath := filepath.Join(baseDir, f.Path)
-			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
-				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
-			} else {
-				diskData, err := os.ReadFile(diskPath)
-				if err == nil && HashBytes(diskData) == hash {
-					planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUnchanged})
-				} else {
-					planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUpdate})
-				}
-			}
-		case existingHash == hash:
-			// State hash matches generated hash, but verify the file still
-			// exists on disk. A manually deleted file should be regenerated,
-			// not silently omitted from the plan.
-			diskPath := filepath.Join(baseDir, f.Path)
-			if _, err := os.Stat(diskPath); os.IsNotExist(err) {
-				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionGenerate})
-			} else {
-				planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUnchanged})
-			}
-		default:
-			planned = append(planned, PlannedFile{Path: f.Path, Action: ActionUpdate})
+		name := projectFilePath(relative, f.Path)
+		_, snapshot, err := readSnapshot(root, name, maxTrackedFileBytes, false)
+		if err != nil {
+			return nil, err
 		}
+		snapshots[name] = snapshot
+		action := ActionUpdate
+		if !snapshot.Exists {
+			action = ActionGenerate
+		} else if snapshot.Hash == hash {
+			action = ActionUnchanged
+		}
+		planned = append(planned, PlannedFile{Path: f.Path, Action: action})
 	}
 
 	// Detect orphaned files: tracked in previous state but no longer generated.
@@ -752,6 +768,12 @@ func computePlan(
 			continue // Transfer ownership from older state without deletion.
 		}
 		if _, stillGenerated := newFileHashes[path]; !stillGenerated {
+			name := projectFilePath(relative, path)
+			_, snapshot, err := readSnapshot(root, name, maxTrackedFileBytes, false)
+			if err != nil {
+				return nil, err
+			}
+			snapshots[name] = snapshot
 			planned = append(planned, PlannedFile{Path: path, Action: ActionDelete})
 		}
 	}
@@ -796,12 +818,30 @@ func computePlan(
 		},
 	}
 
+	oldStateData, err := yaml.Marshal(existingState)
+	if err != nil {
+		return nil, err
+	}
+	newStateData, err := yaml.Marshal(newState)
+	if err != nil {
+		return nil, err
+	}
+	projectPath, err := filepath.Abs(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	outputPath, err := filepath.Abs(outDir)
+	if err != nil {
+		return nil, err
+	}
 	return &Plan{
+		StateChanged: string(oldStateData) != string(newStateData),
+		snapshots:    snapshots, projectDir: projectPath, outDir: outputPath,
 		Files:          planned,
 		EntityChanges:  entityChanges,
 		GeneratedFiles: generatedFiles,
 		NewState:       newState,
-	}
+	}, nil
 }
 
 // fieldDescriptor formats a field name and type for plan display.
@@ -965,6 +1005,9 @@ func FormatPlan(plan *Plan) string {
 
 	result.WriteString("Plan:\n")
 	result.WriteString(sb.String())
+	if plan.StateChanged {
+		result.WriteString("  update:   compiler state\n")
+	}
 	if unchangedCount > 0 {
 		fmt.Fprintf(&result, "  unchanged: %d files\n", unchangedCount)
 	}

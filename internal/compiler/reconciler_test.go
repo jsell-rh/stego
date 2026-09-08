@@ -983,7 +983,7 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 	// The generated file has the same content as on disk.
 	genFile := gen.File{Path: "test.go", Content: fileContent}
 
-	plan := computePlan(
+	plan, err := computePlan(
 		[]gen.File{genFile},
 		&State{},
 		[]byte("service: test"),
@@ -993,6 +993,8 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		tmpDir,
 		"",
 	)
+
+	if err != nil { t.Fatal(err) }
 
 	// Since the file exists on disk at customOutDir with the same hash,
 	// it should be unchanged (not generate).
