@@ -1810,21 +1810,7 @@ collections:
 func TestValidate_DuplicateCollectionName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
-	// YAML maps with duplicate keys: the YAML spec says last wins, but our
-	// custom UnmarshalYAML appends both, so we get two collections named
-	// "widgets". We construct the YAML manually to test duplicate detection.
-	// Since YAML maps disallow duplicate keys at the parser level, we build
-	// the ServiceDeclaration programmatically instead.
-	//
-	// Actually the validate.go duplicate check is on Collection.Name. Since
-	// the YAML parser deduplicates map keys, we test this by writing a
-	// service.yaml that the custom unmarshaler will produce duplicates from.
-	// The simplest approach: use a valid YAML but inject duplicates via the
-	// Go test by calling Validate after manually constructing the decl.
-	//
-	// However, since validate_test relies on file-based testing, we need a
-	// different approach. YAML mapping nodes with duplicate keys ARE parsed
-	// by go-yaml and our custom UnmarshalYAML appends both. Let's test that.
+	// Duplicate collection keys must fail before custom YAML decoding.
 	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
 name: test-service
 archetype: test-arch
@@ -1855,16 +1841,12 @@ collections:
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
-	result, err := Validate(input)
-	if err != nil {
-		t.Fatalf("Validate returned error: %v", err)
+	_, err := Validate(input)
+	if err == nil || !strings.Contains(err.Error(), `duplicate key "widgets"`) {
+		t.Fatalf("got %v, want a duplicate collection key error", err)
 	}
-	assertHasError(t, result, "collection", "duplicate collection name \"widgets\"")
-	// Org should NOT have a duplicate error.
-	for _, e := range result.Errors {
-		if strings.Contains(e.Message, "duplicate collection name") && strings.Contains(e.Message, "orgs") {
-			t.Errorf("unexpected duplicate collection name error for orgs: %s", e.Message)
-		}
+	if !strings.Contains(err.Error(), "service.yaml:16:") {
+		t.Fatalf("error must identify the duplicate declaration: %v", err)
 	}
 }
 

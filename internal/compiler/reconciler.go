@@ -104,7 +104,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	// Load service declaration. Read once and parse from bytes to avoid
 	// TOCTOU race between hashing and parsing.
 	serviceYAMLPath := filepath.Join(input.ProjectDir, "service.yaml")
-	serviceData, err := os.ReadFile(serviceYAMLPath)
+	serviceData, err := parser.ReadDocument(serviceYAMLPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading service.yaml: %w", err)
 	}

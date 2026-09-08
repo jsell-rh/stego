@@ -36,12 +36,19 @@ check that can fail when the behavior is wrong. Use runtime tests for runtime
 claims. Use explicit compatibility evidence for existing Hypershell behavior.
 Do not weaken tests or drop requirements to obtain a passing result.
 
-Two migration decisions are pending user input: whether the variant must upgrade
-an existing database in place, and whether reviewed domain modules can remain
-human-owned beside STEGO-generated infrastructure. Compiler correctness work can
-proceed while these decisions are pending.
+The user confirmed that STEGO must provide common infrastructure. Keep unique
+domain behavior in application modules or fills. Do not add Hypershell-specific
+rules to STEGO. Test new common capabilities with a separate small service as
+well as Hypershell. Whether the variant must upgrade an existing database in
+place remains pending user input. Compiler correctness work can proceed.
 
 Security and performance claims require evidence. Record the environment,
 commands, outcomes, and limits of each acceptance run. Ask the user when a choice
 changes application behavior, the deployment trust boundary, or migration
 compatibility. Routine implementation choices do not require approval.
+
+Completed checks for C1: strict declaration and registry parsing rejects unknown
+fields, duplicate keys, multiple documents, anchors, aliases, and merge keys.
+Document reads are bounded. The root test suite passes. A 10-second parser fuzz
+run completed 108,504 executions without a failure. Semantic validation parity,
+component configuration checks, and capability checks remain open.

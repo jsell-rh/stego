@@ -39,6 +39,12 @@ Common stable types (Identity, SlotResult) live in a shared `stego.common` proto
 
 ## File Types
 
+Each declaration and registry configuration file must contain one YAML document.
+STEGO rejects unknown fields, duplicate keys, non-string mapping keys, anchors,
+aliases, and merge keys. Write each value explicitly. Files must not exceed
+4 MiB or 128 nesting levels. These limits apply before typed decoding. Dynamic
+configuration keys remain subject to the selected component's schema.
+
 ### Platform team creates:
 
 **Archetype** -- a curated component set with conventions. See [specs/registry/archetypes/rest-crud/spec.md](registry/archetypes/rest-crud/spec.md) for the `rest-crud` archetype specification.
@@ -408,4 +414,3 @@ Single archetype (`rest-crud`), end-to-end with fills and slots working. Full CL
 ## Open Questions
 
 - The first ~10 services will be blocked waiting for components that don't exist yet. Mitigation: seed the registry from existing real services; allow early services to be fill-heavy with TODOs to extract reusable components later
-

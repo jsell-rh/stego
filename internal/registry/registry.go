@@ -9,7 +9,6 @@ import (
 
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
-	"gopkg.in/yaml.v3"
 )
 
 // Registry holds indexed archetypes, components, and mixins loaded from a
@@ -176,12 +175,12 @@ func readDirIfExists(dir string) ([]os.DirEntry, error) {
 
 // LoadConfig reads and parses a .stego/config.yaml file.
 func LoadConfig(path string) (*types.RegistryConfig, error) {
-	data, err := os.ReadFile(path)
+	data, err := parser.ReadDocument(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading registry config: %w", err)
 	}
 	var cfg types.RegistryConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := parser.DecodeStrict(data, path, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing registry config %s: %w", path, err)
 	}
 	if err := validateConfig(&cfg); err != nil {

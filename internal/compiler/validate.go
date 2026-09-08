@@ -40,7 +40,7 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 
 	// Parse service.yaml.
 	serviceYAMLPath := filepath.Join(input.ProjectDir, "service.yaml")
-	serviceData, err := os.ReadFile(serviceYAMLPath)
+	serviceData, err := parser.ReadDocument(serviceYAMLPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading service.yaml: %w", err)
 	}

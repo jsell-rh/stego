@@ -6,7 +6,6 @@ package parser
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/jsell-rh/stego/internal/types"
@@ -97,13 +96,17 @@ type kindHeader struct {
 //   - *types.ServiceDeclaration
 //   - *types.Fill
 func Parse(path string) (any, error) {
-	data, err := os.ReadFile(path)
+	data, err := ReadDocument(path)
 	if err != nil {
-		return nil, &ParseError{Path: path, Err: err}
+		return nil, err
 	}
 
+	root, err := readNode(data, path)
+	if err != nil {
+		return nil, err
+	}
 	var header kindHeader
-	if err := yaml.Unmarshal(data, &header); err != nil {
+	if err := root.Decode(&header); err != nil {
 		return nil, parseErrorWithLineInfo(data, path, fmt.Errorf("invalid YAML: %w", err))
 	}
 
@@ -128,12 +131,7 @@ func Parse(path string) (any, error) {
 // parseAs unmarshals data into a value of type T, validates the kind field,
 // and returns a pointer to the result.
 func parseAs[T any](data []byte, path, expectedKind string) (*T, error) {
-	var v T
-	if err := yaml.Unmarshal(data, &v); err != nil {
-		pe := parseErrorWithLineInfo(data, path, fmt.Errorf("unmarshal %s: %w", expectedKind, err))
-		return nil, pe
-	}
-	return &v, nil
+	return parseBytes[T](data, path, expectedKind)
 }
 
 // ParseArchetype reads and parses an archetype YAML file.
@@ -182,9 +180,9 @@ func kindOf(v any) string {
 
 // parseFile reads a YAML file, unmarshals it into T, and validates the kind.
 func parseFile[T any](path, expectedKind string) (*T, error) {
-	data, err := os.ReadFile(path)
+	data, err := ReadDocument(path)
 	if err != nil {
-		return nil, &ParseError{Path: path, Err: err}
+		return nil, err
 	}
 	return parseBytes[T](data, path, expectedKind)
 }
@@ -193,9 +191,8 @@ func parseFile[T any](path, expectedKind string) (*T, error) {
 // pointer to the result. The path is used only for error messages.
 func parseBytes[T any](data []byte, path, expectedKind string) (*T, error) {
 	var v T
-	if err := yaml.Unmarshal(data, &v); err != nil {
-		pe := parseErrorWithLineInfo(data, path, fmt.Errorf("unmarshal %s: %w", expectedKind, err))
-		return nil, pe
+	if err := DecodeStrict(data, path, &v); err != nil {
+		return nil, err
 	}
 
 	// Validate the kind field.
