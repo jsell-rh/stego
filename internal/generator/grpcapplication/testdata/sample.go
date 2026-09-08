@@ -11,6 +11,7 @@ import (
 type Repository interface {
 	storage.Storage
 	storage.Transactor
+	storage.ResourceLocker
 }
 type identityKey struct{}
 type records struct{ pb.UnimplementedRecordsServer }

@@ -11,6 +11,7 @@ import (
  "gorm.io/gorm"
  "gorm.io/gorm/clause"
  {{if .StorageImport}}stegostorage {{printf "%q" .StorageImport}}{{end}}
+ {{if .LookupImport}}stegolookup {{printf "%q" .LookupImport}}{{end}}
  {{if .OutboxImport}}stegooutbox {{printf "%q" .OutboxImport}}{{end}}
 )
 
@@ -70,7 +71,7 @@ func(s *Store)lockResource(ctx context.Context,entity,field,value string)(any,er
  {{range .Entities}}case {{printf "%q" .Name}}:
   var row {{.Name}}
   err:=s.db.WithContext(ctx).Clauses(clause.Locking{Strength:"UPDATE"}).Where(clause.Eq{Column:clause.Column{Name:field},Value:value}).Take(&row).Error
-  if errors.Is(err,gorm.ErrRecordNotFound){return nil,{{if $.StorageImport}}stegostorage.{{end}}ErrNotFound}
+  if errors.Is(err,gorm.ErrRecordNotFound){return nil,{{if $.StorageImport}}stegostorage.{{else if $.LookupImport}}stegolookup.{{end}}ErrNotFound}
   if err!=nil{return nil,err};return row,nil
  {{end}}default:return nil,fmt.Errorf("unknown resource entity: %s",entity)
  }

@@ -191,6 +191,7 @@ var reservedTypeNames = map[string]bool{
 	"sqlTransaction":              true,
 	"stegooutbox":                 true,
 	"stegostorage":                true,
+	"stegolookup":                 true,
 	"ErrNotificationsUnavailable": true,
 	"sync":                        true,
 	"NewStore":                    true,
@@ -538,6 +539,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		}
 		fmt.Fprintln(&buf, "var _ stegostorage.Storage = (*Store)(nil)")
 		fmt.Fprintln(&buf, "var _ stegostorage.Transactor = (*Store)(nil)")
+		fmt.Fprintln(&buf, "var _ stegostorage.Repository = (*Store)(nil)")
 		fmt.Fprintln(&buf, "var _ stegostorage.Transaction = (*Store)(nil)")
 	}
 

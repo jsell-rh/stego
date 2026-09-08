@@ -100,3 +100,11 @@ type Transactor interface {
 type ResourceLocker interface {
 	WithLockedResource(context.Context, string, string, string, func(context.Context, Transaction, any) error) error
 }
+
+// Repository supplies the common storage capabilities to application factories.
+// Application code can accept a smaller interface when it needs fewer methods.
+type Repository interface {
+	Storage
+	Transactor
+	ResourceLocker
+}

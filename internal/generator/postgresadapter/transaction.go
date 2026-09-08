@@ -21,9 +21,12 @@ func generateTransaction(ctx gen.Context) (gen.File, error) {
 		Fields []string
 	}
 	data := struct {
-		Package, OutboxImport, StorageImport string
-		Entities                             []lookup
+		Package, OutboxImport, StorageImport, LookupImport string
+		Entities                                           []lookup
 	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	if ctx.StorageContract == "" && ctx.ModuleName != "" && ctx.PeerNamespaces["rest-api"] != "" {
+		data.LookupImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["rest-api"])
+	}
 	for _, entity := range ctx.Entities {
 		item := lookup{Name: entity.Name, Fields: []string{"id"}}
 		for _, field := range entity.Fields {

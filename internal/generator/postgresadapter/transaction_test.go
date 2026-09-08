@@ -42,6 +42,14 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 		t.Fatal(err)
 	}
 	files = append(files, plain...)
+	// Compile the older REST peer path without a public storage contract.
+	ctx.OutputNamespace, ctx.StorageContract, ctx.PeerNamespaces = "legacystore", "", map[string]string{"rest-api": "legacyapi"}
+	legacy, _, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, legacy...)
+	files = append(files, gen.File{Path: "legacyapi/storage.go", Content: contract.Files[0].Content})
 	project := t.TempDir()
 	for _, file := range files {
 		name := filepath.Join(project, file.Path)

@@ -42,7 +42,7 @@ import (
  transport {{printf "%q" .Transport}}
  "google.golang.org/grpc"
 )
-type Repository interface { storage.Storage; storage.Transactor }
+type Repository = storage.Repository
 func NewGRPCRuntime(repository Repository, verifier *auth.Verifier)(*transport.Runtime,error){
  return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository)})
 }

@@ -16,6 +16,7 @@ import (
 type Repository interface {
 	storage.Storage
 	storage.Transactor
+	storage.ResourceLocker
 }
 type Details struct {
 	Label string `json:"label"`
