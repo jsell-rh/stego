@@ -100,3 +100,8 @@ constructor stops startup and runs cleanup for earlier constructors. A generated
 program test checks both the returned error and resource cleanup. This supports
 authentication configuration checks at startup. Other lifecycle paths still need
 review, including database setup, server errors, and shutdown.
+
+The first startup test exposed an omitted constructor when a route used a
+handler as a direct argument. Wiring reference checks now parse Go expressions.
+They detect direct arguments and leave string values unchanged. The generated
+startup test and the full root suite pass after this correction.

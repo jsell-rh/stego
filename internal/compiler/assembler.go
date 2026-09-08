@@ -5,7 +5,9 @@ package compiler
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
 	"go/format"
+	"go/parser"
 	"path"
 	"sort"
 	"strings"
@@ -820,24 +822,48 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 	return consumed, effectiveHasDB
 }
 
-// containsIdentRef checks whether s contains a reference to the identifier
-// name followed by a dot, at a word boundary. This matches patterns like
-// "userHandler.Create" for identifier "userHandler".
+// containsIdentRef finds variable references in a Go expression. String values
+// and selector member names are not variable references.
 func containsIdentRef(s, name string) bool {
-	target := name + "."
-	i := 0
-	for i < len(s) {
-		idx := strings.Index(s[i:], target)
-		if idx < 0 {
-			return false
-		}
-		absIdx := i + idx
-		if absIdx == 0 || !isIdentChar(s[absIdx-1]) {
-			return true
-		}
-		i = absIdx + len(target)
+	expr, _, err := parseWiringExpression(s)
+	if err != nil {
+		return false
 	}
-	return false
+	found := false
+	visitVariableReferences(expr, func(value *ast.Ident) {
+		if value.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+// Wiring can contain an expression or a comma-separated expression list.
+func parseWiringExpression(source string) (ast.Expr, int, error) {
+	expr, err := parser.ParseExpr(source)
+	if err == nil {
+		return expr, 1, nil
+	}
+	expr, err = parser.ParseExpr("f(" + source + ")")
+	if err != nil {
+		return nil, 0, err
+	}
+	return &ast.CompositeLit{Elts: expr.(*ast.CallExpr).Args}, 3, nil
+}
+
+func visitVariableReferences(expr ast.Expr, use func(*ast.Ident)) {
+	var visit func(ast.Node) bool
+	visit = func(node ast.Node) bool {
+		switch value := node.(type) {
+		case *ast.SelectorExpr:
+			ast.Inspect(value.X, visit)
+			return false
+		case *ast.Ident:
+			use(value)
+		}
+		return true
+	}
+	ast.Inspect(expr, visit)
 }
 
 // non-stdlib import aliases from writeMainImports; constructor expressions are
@@ -1199,36 +1225,29 @@ func applyConstructorRenames(route string, renames []constructorRename) string {
 	return route
 }
 
-// replaceIdentRef replaces occurrences of oldName followed by a dot with
-// newName followed by a dot, but only at identifier word boundaries. This
-// prevents "store." from matching within "datastore.".
+// replaceIdentRef replaces variable references without changing string values
+// or selector member names. Source positions preserve the original formatting.
 func replaceIdentRef(s, oldName, newName string) string {
 	if oldName == newName {
 		return s
 	}
-	target := oldName + "."
-	var result strings.Builder
-	i := 0
-	for i < len(s) {
-		idx := strings.Index(s[i:], target)
-		if idx < 0 {
-			result.WriteString(s[i:])
-			break
-		}
-		absIdx := i + idx
-		// Check word boundary: character before match must not be an identifier char.
-		if absIdx > 0 && isIdentChar(s[absIdx-1]) {
-			// Not at a word boundary — copy through this non-match and continue.
-			result.WriteString(s[i : absIdx+len(target)])
-			i = absIdx + len(target)
-			continue
-		}
-		// Word boundary match — replace.
-		result.WriteString(s[i:absIdx])
-		result.WriteString(newName + ".")
-		i = absIdx + len(target)
+	expr, base, err := parseWiringExpression(s)
+	if err != nil {
+		return s
 	}
-	return result.String()
+	var offsets []int
+	visitVariableReferences(expr, func(value *ast.Ident) {
+		if value.Name == oldName {
+			if int(value.Pos()) >= base {
+				offsets = append(offsets, int(value.Pos())-base)
+			}
+		}
+	})
+	sort.Sort(sort.Reverse(sort.IntSlice(offsets)))
+	for _, offset := range offsets {
+		s = s[:offset] + newName + s[offset+len(oldName):]
+	}
+	return s
 }
 
 // isIdentChar returns true if b is a valid Go identifier character.

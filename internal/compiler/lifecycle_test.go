@@ -76,3 +76,24 @@ func TestConstructorErrorIndexMustExist(t *testing.T) {
 		}
 	}
 }
+
+func TestWiringReferencesUseGoSyntax(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+		found  bool
+	}{
+		{`mux.Handle("/", handler)`, `mux.Handle("/", handler2)`, true},
+		{`mux.HandleFunc("/handler.Get", handler.Get)`, `mux.HandleFunc("/handler.Get", handler2.Get)`, true},
+		{`mux.Handle("/handler.Get", other)`, `mux.Handle("/handler.Get", other)`, false},
+		{`pkg.handler(other)`, `pkg.handler(other)`, false},
+		{`wrap(handler), wrap(handler.Get)`, `wrap(handler2), wrap(handler2.Get)`, true},
+	} {
+		if got := containsIdentRef(test.source, "handler"); got != test.found {
+			t.Errorf("reference detection for %s = %v", test.source, got)
+		}
+		if got := replaceIdentRef(test.source, "handler", "handler2"); got != test.want {
+			t.Errorf("rename = %s, want %s", got, test.want)
+		}
+	}
+}
