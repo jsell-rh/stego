@@ -3944,9 +3944,9 @@ func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
 
 	// Verify ordering constraints.
 	dIdx := strings.Index(code, "d.NewD()")
-	bIdx := strings.Index(code, "b.NewB(d)")
-	cIdx := strings.Index(code, "c.NewC(d)")
-	aIdx := strings.Index(code, "a.NewA(b, c)")
+	bIdx := strings.Index(code, "b.NewB(d2)")
+	cIdx := strings.Index(code, "c.NewC(d2)")
+	aIdx := strings.Index(code, "a.NewA(b2, c2)")
 
 	if dIdx < 0 || bIdx < 0 || cIdx < 0 || aIdx < 0 {
 		t.Fatalf("missing constructors in:\n%s", code)
@@ -3964,6 +3964,7 @@ func TestAssemble_TopologicalSortDiamondDependency(t *testing.T) {
 	if cIdx > aIdx {
 		t.Errorf("C (pos %d) must appear before A (pos %d)", cIdx, aIdx)
 	}
+	verifyDiamondConstructors(t, files)
 }
 
 func TestAssemble_NoDepsPreservesInputOrder(t *testing.T) {

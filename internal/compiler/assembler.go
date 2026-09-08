@@ -304,6 +304,9 @@ type importResult struct {
 	// the slots alias when present). Constructor variable disambiguation must
 	// reserve all of these to prevent shadowing.
 	NonStdlibAliases map[string]bool
+
+	// PackageAliases includes standard library and generated package aliases.
+	PackageAliases map[string]bool
 }
 
 // writeMainImports writes the import block and returns per-wiring import alias
@@ -483,7 +486,15 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 
 	buf.WriteString(")\n\n")
 
+	packageAliases := make(map[string]bool)
+	for pkg := range stdlibNeeded {
+		packageAliases[path.Base(pkg)] = true
+	}
+	for name := range nonStdlibAliases {
+		packageAliases[name] = true
+	}
 	return importResult{
+		PackageAliases:   packageAliases,
 		Renames:          importRenames,
 		NonStdlibAliases: nonStdlibAliases,
 	}
@@ -1015,6 +1026,14 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		return nil, err
 	}
 
+	canonical := make(map[string]constructorKey)
+	for _, entry := range entries {
+		if _, exists := canonical[entry.BaseVar]; !exists {
+			canonical[entry.BaseVar] = constructorKey{entry.WiringIndex, entry.ConstructorIndex}
+		}
+	}
+	constructorValues := make(map[string]string)
+
 	for _, entry := range sorted {
 		// Skip constructors that have no downstream consumer (no route
 		// references them, they are not the middleware, and no consumed
@@ -1028,14 +1047,15 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		// Apply import alias renames to the constructor expression so
 		// that package-qualified references match the disambiguated
 		// import aliases (e.g. "models.NewBar()" → "models2.NewBar()").
-		resolvedExpr := entry.RawExpr
-		if renames, ok := imports.Renames[entry.WiringIndex]; ok {
-			for oldBase, newAlias := range renames {
-				resolvedExpr = replaceIdentRef(resolvedExpr, oldBase, newAlias)
-			}
+		resolvedExpr, err := renameConstructorReferences(entry.RawExpr, constructorValues, imports.Renames[entry.WiringIndex], imports.PackageAliases, entry.Deps)
+		if err != nil {
+			return nil, fmt.Errorf("component %q: %w", input.Wirings[entry.WiringIndex].Name, err)
 		}
 
 		varName := disambiguateAlias(entry.BaseVar, varNames, varUsed)
+		if canonical[entry.BaseVar] == key && varName != entry.BaseVar {
+			constructorValues[entry.BaseVar] = varName
+		}
 
 		if varName != entry.BaseVar {
 			wiringRenames[entry.WiringIndex] = append(wiringRenames[entry.WiringIndex], constructorRename{
