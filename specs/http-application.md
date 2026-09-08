@@ -15,6 +15,10 @@ operations. It authenticates before decoding, passes the verified request
 context to domain code, and limits the operation to ten seconds. Cancellation
 closes a blocked request body. Domain errors go to the application's error
 mapper. Responses disable caching. Encoded responses above 8 MiB are rejected.
+HTTP 204 and 205 endpoints require the `transport.NoContent` response type. They
+return no body or content type. A mismatched response type fails endpoint
+construction. Independent Record tests check both status codes over a real
+HTTP connection, including denied and unauthenticated requests.
 
 `transport.JSONBody` accepts one JSON object of at most 64 KiB. It rejects
 unknown or duplicate members, case aliases, trailing values, invalid UTF-8,

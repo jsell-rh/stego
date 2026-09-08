@@ -13,8 +13,8 @@ err := store.WithTransaction(ctx, func(ctx context.Context, tx storage.Transacti
 `Notify` stages messages when the component context includes the `outbox` peer.
 Without that peer, it returns an error and prevents commit.
 The example uses application-supplied record and message values. No resource
-payload is copied to an event by default. The queue is not yet registered in
-the CLI. Generated HTTP handlers do not yet use this scope.
+payload is copied to an event by default. Registered event components and
+domain HTTP/gRPC factories use this scope in the Hypershell Gateway workflow.
 
 The scope owns one serializable PostgreSQL transaction. Create, read, replace,
 upsert, delete, and list use the supplied transaction store. Domain code can
@@ -41,6 +41,9 @@ panics. Nested store scopes and stores built from an existing GORM transaction
 are rejected. Direct SQL transactions and GORM prepared-statement transactions
 are supported. Other connection wrappers fail before the callback runs.
 
+PostgreSQL serialization failures and deadlocks wrap the public
+`storage.ErrSerialization` error. The original SQL error remains available to
+`errors.As` for internal diagnosis. The caller can start a new transaction.
 The callback is not replayed after a serialization failure. Application code
 can have effects that cannot be repeated safely. Request retry and idempotency
 policy still require service-level contracts. A failed commit can have an
@@ -63,6 +66,7 @@ service throughput or performance under contention. Run it with
 `go test -v ./internal/generator/postgresadapter -run '^TestGeneratedStoreTransactions$'`.
 
 Public storage contracts are described in `shared-storage-contract.md`.
-Domain rule injection, HTTP and gRPC transaction use,
-explicit migration management, and complete Kafka service composition remain
-open work. These are required before this scope is a complete service feature.
+Domain factories and generated HTTP, gRPC, outbox, and Kafka components now use
+this contract together. The Gateway acceptance tests cover creation, patches,
+and deletion. Explicit production migrations, service-account cleanup, and
+production Kafka deployment checks remain open.

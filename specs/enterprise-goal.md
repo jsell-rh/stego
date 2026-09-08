@@ -332,3 +332,26 @@ other placement modes, production Kafka checks, and the other Hypershell
 workflows also remain open. Separate versioned API contracts are the current
 design assumption; the user has been asked whether to use that approach or
 derive API contracts from storage entities.
+
+Gateway patches and deletion now use the same domain service through REST and
+gRPC. Each access check, mutation, and event write shares one serializable
+transaction. Tests prove rollback on event failure and rejection of a stale
+patch after a concurrent sandbox-count change. Owner, viewer, revoked-grant,
+admin, protected-field, and control-plane checks pass. The generated runtime
+delivers update and delete events in order after restart. Both transports then
+exclude the deleted resource.
+
+This workflow required two common changes: typed HTTP responses without content,
+and a public error for serialization conflicts and deadlocks. The storage
+callback is not replayed. Independent STEGO tests cover both changes. Hypershell
+maps transaction conflicts to HTTP 409 and gRPC Aborted. The domain retains its
+own patch fields, placement rules, and access policy.
+
+The control-plane identity assumption is an explicit list of token subjects
+under the configured verified issuer. No subjects are permitted by default.
+The user has been asked to choose this policy or a dedicated token role.
+Service-account cleanup must be connected before deletion can cover Gateways
+with external service accounts. Watch streams, sandbox-count operations, and
+the remaining application workflows are still open. The local gRPC patch
+benchmark averaged 3.297 ms for 100 sequential requests to one Gateway. It
+includes the transaction and outbox insert, but does not establish capacity.
