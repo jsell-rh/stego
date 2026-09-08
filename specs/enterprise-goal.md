@@ -415,3 +415,42 @@ after failure; the pinned protocol has no history cursor. Kafka remains the
 durable delivery path. Full control-plane reconciliation, service accounts,
 other resource workflows, production migrations, key rotation, telemetry,
 client ports, and deployment checks remain open. The broad goal is active.
+
+Service-account create, list, get, revoke, and delete now run through the generated
+Hypershell REST process and a TLS provisioner boundary. Non-secret reservations,
+ready state, pending terminal actions, and audit records use generated storage.
+The secret stays in memory and appears only in the creation response. Access is
+checked again after provisioning. Failed or canceled creation attempts cleanup
+by stable resource IDs. Abandoned reservations remain recoverable after restart.
+
+The workflow added three common capabilities to STEGO: a bounded unary RPC
+client, supervised application tasks with cleanup, and typed HTTP responses
+with dynamic successful status codes. Independent sample services check these
+contracts. Tests cover TLS identity, token-file replacement and permissions,
+message and concurrency limits, deadlines, no replay of an executed failed call,
+application shutdown, and valid 202 and empty 204 responses. The full STEGO race
+suite and CI passed for commit `77290f7697c75f73b200253700aea754437c3c34`.
+
+The variant's full local race suite passed with PostgreSQL required. Additional
+checks passed for automatic grant revocation, expiration, unsafe connection
+metadata, and the 100-account Gateway quota. The generated-process test checks
+the pinned response schemas and protobuf descriptors. It stops after a pending
+revocation, then verifies that the generated recovery task disables the account
+after restart. Creator-role downgrades persist a degraded state on failure and
+recover without raising privilege. Restored grants cannot reactivate accounts.
+
+A Gateway row lock now serializes deletion with account reservations. Gateway
+deletion refuses live service-account metadata. Automatic provider cleanup within
+that deletion operation remains open. The variant regenerated from its pinned
+compiler with no changes or drift. A local 100-cycle benchmark averaged
+20.503 ms for create, get, revoke, and delete through the generated process and
+TLS provisioner fixture. Process startup was excluded; the first cycle included
+connection setup. This is not a production capacity claim.
+
+The actual Keycloak adapter, token-issuance verification, full provider drift
+checks, orphan discovery, recovery indexes and telemetry, production revocation
+capacity, complete service-account list filters, configurable expiration policy,
+Gateway cleanup composition, and client ports remain required work. The proposed
+internal transport policy is TLS plus a verified service token and an explicit
+caller-subject allowlist. The user has been asked to confirm it or select mutual
+TLS. No plaintext provisioner channel is generated. The broad goal remains active.
