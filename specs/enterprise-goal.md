@@ -195,3 +195,11 @@ API. Stream-specific deadlines, handler execution limits, readiness, telemetry,
 database pool settings, and further runtime checks remain open.
 The generated HTTP tests also compile for Windows amd64 and macOS arm64. Their
 runtime behavior has only been tested on Linux here.
+
+Both checked-in user-management examples fail current validation because their
+`event-publisher` mixin requires the missing `kafka-producer` generator. Their
+generated files have not been refreshed. Preserve the publishing requirement.
+Implement durable event delivery before regeneration, then check both examples
+with apply, dependency resolution, tests, build, and repeated apply. The RH SSO
+example also requires the outstanding authentication review. Do not treat the
+old example output as evidence that those features work.
