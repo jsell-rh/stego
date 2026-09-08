@@ -36,6 +36,23 @@ check that can fail when the behavior is wrong. Use runtime tests for runtime
 claims. Use explicit compatibility evidence for existing Hypershell behavior.
 Do not weaken tests or drop requirements to obtain a passing result.
 
+Use complete application workflows to select and assess infrastructure work.
+The first required gate is Gateway creation and retrieval, an atomic owner
+grant, access filtering and denial, generated event delivery, and REST, gRPC,
+restart, and regeneration checks. The variant records the named tests in
+`acceptance/gateway-workflow.md`. Its `scripts/check-gateway.sh` command runs
+the gate locally and in CI. It requires PostgreSQL and enables race detection
+in both the tests and their generated application processes. Select further
+common capabilities from demonstrated application requirements. Keep each
+capability general and verify it with a separate small service.
+
+The complete gate passed again on 2026-09-08 with compiler revision
+`77290f7697c75f73b200253700aea754437c3c34`, Go 1.26.8, and PostgreSQL 18.6.
+Regeneration had no changes or drift. The full variant suite passed with race
+detection extended to its generated application processes. No compiler code
+change was required for this gate review. Production Kafka, database upgrades,
+cluster provisioning, and capacity remain outside this acceptance result.
+
 The user authorized direct pushes to both remote repositories. Push completed
 commits after their checks pass. Do not wait for pull request merges.
 
