@@ -16,6 +16,9 @@ import (
 //go:embed runtime.go.tmpl
 var runtimeSource string
 
+//go:embed client.go.tmpl
+var clientSource string
+
 type Generator struct{}
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -64,7 +67,7 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
  return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
 }
 `
-	for _, item := range []struct{ Name, Source string }{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}} {
+	for _, item := range []struct{ Name, Source string }{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}} {
 		tmpl, err := template.New(item.Name).Parse(item.Source)
 		if err != nil {
 			return nil, nil, err

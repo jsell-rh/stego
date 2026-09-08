@@ -46,10 +46,18 @@ type NoContent struct{}
 // Endpoint binds one typed domain operation. It verifies identity before
 // decoding input and uses the same bounded context for the complete operation.
 func Endpoint[Request,Response any](authenticate Authenticate, decode func(*http.Request)(Request,error), call func(context.Context,Request)(Response,error), success int, writeError ErrorHandler) (http.Handler,error) {
- empty := success == http.StatusNoContent || success == http.StatusResetContent
- if authenticate==nil||decode==nil||call==nil||writeError==nil||success<200||success>299||empty && reflect.TypeFor[Response]() != reflect.TypeFor[NoContent]() {
-  return nil, errors.New("invalid HTTP endpoint configuration")
- }
+ empty:=success==http.StatusNoContent||success==http.StatusResetContent
+ if call==nil||success<200||success>299||empty&&reflect.TypeFor[Response]() != reflect.TypeFor[NoContent](){return nil,errors.New("invalid HTTP endpoint configuration")}
+ return ReplyEndpoint(authenticate,decode,func(ctx context.Context,input Request)(Reply[Response],error){
+  result,err:=call(ctx,input);if empty{return Reply[Response]{Status:success},err};return Reply[Response]{Status:success,Value:&result},err
+ },writeError)
+}
+
+// Reply permits a typed response with a dynamic successful status. Empty
+// responses require a nil Value; all other successful responses require a Value.
+type Reply[T any] struct{Status int;Value *T}
+func ReplyEndpoint[Request,Response any](authenticate Authenticate,decode func(*http.Request)(Request,error),call func(context.Context,Request)(Reply[Response],error),writeError ErrorHandler)(http.Handler,error){
+ if authenticate==nil||decode==nil||call==nil||writeError==nil{return nil,errors.New("invalid HTTP endpoint configuration")}
  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   w.Header().Set("Cache-Control","no-store")
   w.Header().Set("X-Content-Type-Options","nosniff")
@@ -75,6 +83,9 @@ func Endpoint[Request,Response any](authenticate Authenticate, decode func(*http
   if err!=nil{if ctx.Err()!=nil{err=ctx.Err()};writeError(w,request,err);return}
   result,err:=call(ctx,input)
   if err!=nil{writeError(w,request,err);return}
+  success:=result.Status
+  empty:=success==http.StatusNoContent||success==http.StatusResetContent
+  if success<200||success>299||empty&&result.Value!=nil||!empty&&result.Value==nil{writeError(w,request,errors.New("invalid HTTP reply"));return}
   if empty {
    if err:=ctx.Err();err!=nil{writeError(w,request,err);return}
    w.Header().Del("Content-Type")
@@ -82,7 +93,7 @@ func Endpoint[Request,Response any](authenticate Authenticate, decode func(*http
    w.WriteHeader(success)
    return
   }
-  data,err:=json.Marshal(result)
+  data,err:=json.Marshal(result.Value)
   if err!=nil||len(data)>MaxResponseBytes{writeError(w,request,errors.New("response encoding failed"));return}
   if err:=ctx.Err();err!=nil{writeError(w,request,err);return}
   w.Header().Set("Content-Type","application/json")

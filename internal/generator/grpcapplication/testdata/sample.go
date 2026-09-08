@@ -7,6 +7,8 @@ import (
 	storage "example.com/grpc-test/out/contracts/storage"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"sync/atomic"
 )
@@ -16,6 +18,10 @@ type Repository interface {
 	storage.Transactor
 	storage.ResourceLocker
 }
+
+var activeWaits atomic.Int32
+var unavailableCalls atomic.Int32
+
 type identityKey struct{}
 type records struct{ pb.UnimplementedRecordsServer }
 
@@ -32,7 +38,12 @@ func (records) Echo(ctx context.Context, request *pb.Request) (*pb.Response, err
 		return nil, errors.New("private-database-error")
 	case "panic":
 		panic("private-panic")
+	case "unavailable":
+		unavailableCalls.Add(1)
+		return nil, status.Error(codes.Unavailable, "test failure")
 	case "wait":
+		activeWaits.Add(1)
+		defer activeWaits.Add(-1)
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}

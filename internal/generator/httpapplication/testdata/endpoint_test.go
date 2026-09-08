@@ -235,3 +235,36 @@ func TestNoContentEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestDynamicReplyPreservesStatusAndBodyRules(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		body   bool
+		want   int
+	}{{202, true, 202}, {200, true, 200}, {204, false, 204}, {205, false, 205}, {204, true, 500}, {200, false, 500}, {400, true, 500}} {
+		handler, err := transport.ReplyEndpoint(func(ctx context.Context, _ string) (context.Context, error) { return ctx, nil }, func(*http.Request) (struct{}, error) { return struct{}{}, nil }, func(context.Context, struct{}) (transport.Reply[Response], error) {
+			reply := transport.Reply[Response]{Status: test.status}
+			if test.body {
+				reply.Value = &Response{Title: "pending"}
+			}
+			return reply, nil
+		}, func(w http.ResponseWriter, _ *http.Request, _ error) { w.WriteHeader(500) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest("POST", "/records", nil)
+		request.Header.Set("Authorization", "Bearer verified")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != test.want {
+			t.Fatalf("dynamic status %d: got %d", test.status, recorder.Code)
+		}
+		if test.want == 204 || test.want == 205 {
+			if recorder.Body.Len() != 0 || recorder.Header().Get("Content-Type") != "" {
+				t.Fatal("empty reply has a body")
+			}
+		} else if test.want == 202 && !strings.Contains(recorder.Body.String(), "pending") {
+			t.Fatal("pending reply lost its body")
+		}
+	}
+}

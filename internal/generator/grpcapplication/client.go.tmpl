@@ -1,0 +1,71 @@
+// Package client supplies bounded, authenticated unary RPC calls.
+package client
+
+import (
+ "context"
+ "crypto/tls"
+ "crypto/x509"
+ "errors"
+ "io"
+ "net"
+ "os"
+ "strconv"
+ "strings"
+ "syscall"
+ "time"
+
+ "google.golang.org/grpc"
+ "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/credentials"
+ "google.golang.org/grpc/status"
+)
+const CallTimeout=5*time.Second
+const MaxRequestBytes=64<<10
+const MaxResponseBytes=64<<10
+const MaxConcurrentCalls=32
+// Options come from trusted application configuration. Address is host:port.
+// TokenFile is read for each call so the operator can replace an expiring token.
+type Options struct{Address,CAFile,TokenFile string}
+type Client struct{connection *grpc.ClientConn;permits chan struct{}}
+func New(options Options)(*Client,error){
+ host,port,err:=net.SplitHostPort(options.Address)
+ number,portErr:=strconv.Atoi(port)
+ if err!=nil||host==""||portErr!=nil||number<1||number>65535||strings.ContainsAny(host,"/\\@?#% \t\r\n"){return nil,errors.New("RPC address must be host:port")}
+ ca,err:=readFile(options.CAFile,65536,false);if err!=nil{return nil,err}
+ roots:=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return nil,errors.New("invalid RPC trust roots")}
+ token:=fileToken{path:options.TokenFile};if _,err:=token.read();err!=nil{return nil,err}
+ connection,err:=grpc.NewClient("passthrough:///"+options.Address,
+  grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots})),
+  grpc.WithPerRPCCredentials(token),grpc.WithDisableRetry(),grpc.WithDisableServiceConfig(),grpc.WithMaxHeaderListSize(32<<10),
+  grpc.WithContextDialer(func(ctx context.Context,address string)(net.Conn,error){return (&net.Dialer{Timeout:CallTimeout}).DialContext(ctx,"tcp",address)}),
+ )
+ if err!=nil{return nil,errors.New("RPC client configuration failed")}
+ return &Client{connection:connection,permits:make(chan struct{},MaxConcurrentCalls)},nil
+}
+func(c *Client)Close(){_ = c.connection.Close()}
+func(c *Client)Invoke(ctx context.Context,method string,request,response any,options ...grpc.CallOption)error{
+ select{case c.permits<-struct{}{}:default:return status.Error(codes.ResourceExhausted,"RPC client capacity exceeded")};defer func(){<-c.permits}()
+ ctx,cancel:=context.WithTimeout(ctx,CallTimeout);defer cancel()
+ // These limits override caller options. Retry buffering is disabled.
+ options=append(options,grpc.MaxCallSendMsgSize(MaxRequestBytes),grpc.MaxCallRecvMsgSize(MaxResponseBytes),grpc.MaxRetryRPCBufferSize(0),grpc.WaitForReady(false))
+ return c.connection.Invoke(ctx,method,request,response,options...)
+}
+func(c *Client)NewStream(context.Context,*grpc.StreamDesc,string,...grpc.CallOption)(grpc.ClientStream,error){return nil,status.Error(codes.Unimplemented,"this RPC client supports unary calls only")}
+type fileToken struct{path string}
+func(t fileToken)RequireTransportSecurity()bool{return true}
+func(t fileToken)GetRequestMetadata(ctx context.Context,_ ...string)(map[string]string,error){
+ if err:=ctx.Err();err!=nil{return nil,err};value,err:=t.read();if err!=nil{return nil,err};return map[string]string{"authorization":"Bearer "+value},nil
+}
+func(t fileToken)read()(string,error){
+ data,err:=readFile(t.path,16384,true);if err!=nil{return "",err}
+ value:=strings.TrimSpace(string(data));if value==""{return "",errors.New("RPC token is empty")}
+ for _,r:=range value{if r<33||r>126{return "",errors.New("RPC token contains invalid characters")}}
+ return value,nil
+}
+func readFile(path string,maximum int64,private bool)([]byte,error){
+ if path==""{return nil,errors.New("RPC credential file is required")}
+ file,err:=os.OpenFile(path,os.O_RDONLY|syscall.O_NONBLOCK,0);if err!=nil{return nil,errors.New("cannot read RPC credential file")};defer file.Close()
+ info,err:=file.Stat();if err!=nil||!info.Mode().IsRegular()||private&&info.Mode().Perm()&0077!=0{return nil,errors.New("RPC credential file has invalid type or permissions")}
+ data,err:=io.ReadAll(io.LimitReader(file,maximum+1));if err!=nil||int64(len(data))>maximum{return nil,errors.New("RPC credential file exceeds its limit")};return data,nil
+}
+var _ grpc.ClientConnInterface=(*Client)(nil)

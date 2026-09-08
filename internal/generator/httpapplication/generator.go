@@ -37,6 +37,9 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	bridge := `package {{.Package}}
 import (
  "database/sql"
+ "context"
+ "sync"
+ "errors"
  "net/http"
  application {{printf "%q" .Factory}}
  storage {{printf "%q" .Storage}}
@@ -44,10 +47,22 @@ import (
 )
 // Repository supplies operations and one atomic commit boundary.
 type Repository = storage.Repository
+// ManagedHandler adds application tasks and cleanup to the generated supervisor.
+type ManagedHandler interface {http.Handler;Run(context.Context)error;Close()}
+type Runtime struct {http.Handler;managed ManagedHandler;closeOnce sync.Once}
+func(r *Runtime)Run(ctx context.Context)error{if r.managed!=nil{return r.managed.Run(ctx)};<-ctx.Done();return nil}
+func(r *Runtime)Close(){r.closeOnce.Do(func(){if r.managed!=nil{r.managed.Close()}})}
 // NewHandler connects application code to compiler-owned resources.
-func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB) (http.Handler,error) {
- return application.New(repository, verifier, database)
+func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB) (*Runtime,error) {
+ handler,err:=application.New(repository,verifier,database)
+ if err!=nil{return nil,err};if handler==nil{return nil,errors.New("application returned no handler")}
+ managed,_:=any(handler).(ManagedHandler)
+ _,hasRun:=any(handler).(interface{Run(context.Context)error})
+ closer,hasClose:=any(handler).(interface{Close()})
+ if hasRun!=hasClose{if hasClose{closer.Close()};return nil,errors.New("application lifecycle requires both Run and Close")}
+ return &Runtime{Handler:handler,managed:managed},nil
 }
+
 `
 	var files []gen.File
 	for _, item := range []struct{ name, source string }{{"bridge.go", bridge}, {"transport/endpoint.go", endpointSource + gen.UnicodeEscapeValidation}} {
@@ -70,7 +85,7 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.name), Content: code})
 	}
 	ns := path.Base(ctx.OutputNamespace)
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, Routes: []string{`mux.Handle("/", handler)`}}
+	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{`mux.Handle("/", handler)`}}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}

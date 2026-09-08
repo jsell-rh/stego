@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	rpcclient "example.com/grpc-test/out/grpcapi/client"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
 	transport "example.com/grpc-test/out/grpcapi/transport"
 	"google.golang.org/grpc"
@@ -250,6 +251,96 @@ func TestRuntime(t *testing.T) {
 	defer untrusted.Close()
 	if _, err := pb.NewRecordsClient(untrusted).Echo(authorized, &pb.Request{}); status.Code(err) != codes.Unavailable {
 		t.Fatalf("untrusted TLS: %v", err)
+	}
+	// Generated outbound clients require trusted TLS and a private token file.
+	tokenFile := filepath.Join(dir, "rpc-token")
+	if err := os.WriteFile(tokenFile, []byte("good\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	opts := rpcclient.Options{Address: runtime.Addr().String(), CAFile: filepath.Join(dir, "cert.pem"), TokenFile: tokenFile}
+	outbound, err := rpcclient.New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outbound.Close()
+	outboundClient := pb.NewRecordsClient(outbound)
+	if _, err := outboundClient.Echo(calls, &pb.Request{Text: "generated client"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenFile, []byte("bad"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{Text: "token rotation"}); status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("rotated token ignored: %v", err)
+	}
+	if err := os.WriteFile(tokenFile, []byte("good"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{Text: strings.Repeat("x", rpcclient.MaxRequestBytes+1)}, grpc.MaxCallSendMsgSize(1<<20)); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("client request limit: %v", err)
+	}
+	if _, err := outboundClient.Watch(calls, &pb.Request{}); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("client stream bypassed limits: %v", err)
+	}
+	if err := os.Chmod(tokenFile, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpcclient.New(opts); err == nil {
+		t.Fatal("client accepted public token file")
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{}); err == nil {
+		t.Fatal("client ignored changed token permissions")
+	}
+	if err := os.Chmod(tokenFile, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range []string{"", "dns:///localhost:443", "localhost:0", "localhost:65536", "user@localhost:443"} {
+		bad := opts
+		bad.Address = address
+		if _, err := rpcclient.New(bad); err == nil {
+			t.Fatalf("unsafe client target: %s", address)
+		}
+	}
+	_, port, _ := net.SplitHostPort(opts.Address)
+	wrongHost := opts
+	wrongHost.Address = "localhost:" + port
+	wrong, err := rpcclient.New(wrongHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wrong.Close()
+	if _, err := pb.NewRecordsClient(wrong).Echo(calls, &pb.Request{}); status.Code(err) != codes.Unavailable {
+		t.Fatalf("client skipped server identity: %v", err)
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{Text: "unavailable"}); status.Code(err) != codes.Unavailable || unavailableCalls.Load() != 1 {
+		t.Fatalf("client replayed an executed call: %v %d", err, unavailableCalls.Load())
+	}
+	hold, cancelHeld := context.WithCancel(calls)
+	var heldCalls sync.WaitGroup
+	for range rpcclient.MaxConcurrentCalls {
+		heldCalls.Go(func() { _, _ = outboundClient.Echo(hold, &pb.Request{Text: "wait"}) })
+	}
+	limitDeadline := time.Now().Add(2 * time.Second)
+	for activeWaits.Load() != rpcclient.MaxConcurrentCalls {
+		if time.Now().After(limitDeadline) {
+			cancelHeld()
+			heldCalls.Wait()
+			t.Fatal("client calls did not reach server")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("outbound capacity: %v", err)
+	}
+	cancelHeld()
+	heldCalls.Wait()
+	start := time.Now()
+	if _, err := outboundClient.Echo(context.Background(), &pb.Request{Text: "wait"}); status.Code(err) != codes.DeadlineExceeded || time.Since(start) > 6*time.Second {
+		t.Fatalf("client deadline: %v %v", err, time.Since(start))
+	}
+	outbound.Close()
+	if _, err := outboundClient.Echo(calls, &pb.Request{}); err == nil {
+		t.Fatal("closed client made a call")
 	}
 	cancel()
 	select {

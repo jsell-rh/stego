@@ -31,9 +31,17 @@ type Response struct {
 }
 
 var Calls atomic.Int64
+var Managed atomic.Bool
+var Runs atomic.Int64
+var Closes atomic.Int64
+
+type managedHandler struct{ http.Handler }
+
+func (h *managedHandler) Run(ctx context.Context) error { Runs.Add(1); <-ctx.Done(); return nil }
+func (h *managedHandler) Close()                        { Closes.Add(1) }
 
 func New(repository Repository, verifier *auth.Verifier, db *sql.DB) (http.Handler, error) {
-	return transport.Endpoint(verifier.Authenticate, transport.JSONBody[Request], func(ctx context.Context, request Request) (Response, error) {
+	handler, err := transport.Endpoint(verifier.Authenticate, transport.JSONBody[Request], func(ctx context.Context, request Request) (Response, error) {
 		Calls.Add(1)
 		if request.Title == "failure" {
 			return Response{}, errors.New("private database error")
@@ -54,4 +62,12 @@ func New(repository Repository, verifier *auth.Verifier, db *sql.DB) (http.Handl
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(map[string]int{"status": code})
 	})
+	if err != nil {
+		return nil, err
+	}
+	if Managed.Load() {
+		return &managedHandler{Handler: handler}, nil
+	}
+	return handler, nil
+
 }

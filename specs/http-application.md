@@ -43,3 +43,16 @@ The public `ListOptions.CountOnly` option returns the filtered total and an
 empty typed result. It does not fetch resource rows. This supports APIs where
 an explicit zero page size requests a count. It leaves the existing zero-value
 storage options unchanged.
+
+An application handler can implement `Run(context.Context) error` and `Close()`.
+The generated runtime then supervises its task and closes its resources during
+shutdown or later startup failure. Both methods are required together. A plain
+HTTP handler remains valid and has no application task beyond waiting for
+shutdown. The wrapper calls application cleanup at most once.
+
+`ReplyEndpoint` supports operations that return different successful statuses.
+Its typed `Reply[T]` requires a non-nil value for a response body. HTTP 204 and
+205 require a nil value. Invalid status and body combinations fail before a
+success response is written. Authentication, decoding, deadlines, and response
+limits are the same as `Endpoint`. This supports a durable operation that returns
+202 while work is pending and 200 or 204 when the work is complete.
