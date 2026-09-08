@@ -85,6 +85,11 @@ type Context struct {
 	// use "about:blank" per RFC 9457.
 	ErrorTypeBase string
 
+	// StorageContract is the full import path of the compiler-owned storage
+	// contract. A generator that uses it must request StorageV1 in its wiring.
+	// Empty selects standalone definitions without shared contract assembly.
+	StorageContract string
+
 	// PeerNamespaces maps component names to their output namespace paths.
 	// Generators use this to construct import paths when they need to
 	// reference types defined by other components (e.g. the storage adapter
@@ -118,6 +123,10 @@ func (f File) Bytes() []byte {
 // Wiring captures what a component needs wired into shared generated files
 // (e.g. cmd/main.go, go.mod).
 type Wiring struct {
+	// Contracts lists the shared interface versions that this component uses.
+	// The compiler emits each version once and adds its module requirements.
+	Contracts []Contract
+
 	// Imports lists Go import paths the component needs in main.go.
 	Imports []string
 

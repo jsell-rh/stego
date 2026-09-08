@@ -1,7 +1,7 @@
 The PostgreSQL store now supplies an explicit transaction scope:
 
 ```go
-err := store.WithTransaction(ctx, func(ctx context.Context, tx *storage.Store) error {
+err := store.WithTransaction(ctx, func(ctx context.Context, tx storage.Transaction) error {
     if err := tx.Create(ctx, "Record", record); err != nil {
         return err
     }
@@ -9,7 +9,9 @@ err := store.WithTransaction(ctx, func(ctx context.Context, tx *storage.Store) e
 })
 ```
 
-`Notify` is generated when the component context includes the `outbox` peer.
+`storage` in this example is the public `out/contracts/storage` package.
+`Notify` stages messages when the component context includes the `outbox` peer.
+Without that peer, it returns an error and prevents commit.
 The example uses application-supplied record and message values. No resource
 payload is copied to an event by default. The queue is not yet registered in
 the CLI. Generated HTTP handlers do not yet use this scope.
@@ -60,6 +62,7 @@ service throughput or performance under contention. Run it with
 `STEGO_BENCH_STORE=1` and `STEGO_TEST_POSTGRES_DSN` through
 `go test -v ./internal/generator/postgresadapter -run '^TestGeneratedStoreTransactions$'`.
 
-Shared public storage contracts, domain rule injection, HTTP and gRPC use,
+Public storage contracts are described in `shared-storage-contract.md`.
+Domain rule injection, HTTP and gRPC transaction use,
 explicit migration management, and complete Kafka service composition remain
 open work. These are required before this scope is a complete service feature.

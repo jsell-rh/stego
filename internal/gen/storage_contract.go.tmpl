@@ -1,0 +1,77 @@
+// Package storage defines the common storage and transaction contracts.
+package storage
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/google/uuid"
+)
+
+var ErrNotFound = errors.New("entity not found")
+var ErrConflict = errors.New("storage conflict")
+var ErrSearch = errors.New("search error")
+var ErrTransactionRequired = errors.New("operation requires a store transaction")
+var ErrTransactionNested = errors.New("nested store transactions are not supported")
+var ErrTransactionClosed = errors.New("store transaction is closed")
+var ErrNotificationLimit = errors.New("transaction notification limit exceeded")
+var ErrNotificationsUnavailable = errors.New("durable notifications are not configured")
+
+type OrderByField struct {
+	Field     string
+	Direction string
+}
+
+type ListOptions struct {
+	Page            int
+	Size            int
+	OrderBy         []OrderByField
+	Fields          []string
+	Search          string
+	ImplicitFilters map[string]string
+}
+
+type ListResult struct {
+	Items any
+	Total int64
+}
+
+// Storage supplies resource operations. Missing resources return ErrNotFound.
+// Constraint and version conflicts return ErrConflict. Invalid search returns
+// ErrSearch. Implementations can wrap these errors.
+type Storage interface {
+	Create(context.Context, string, any) error
+	Get(context.Context, string, string) (any, error)
+	Replace(context.Context, string, string, any) error
+	Delete(context.Context, string, string) error
+	List(context.Context, string, string, string, ListOptions) (ListResult, error)
+	Upsert(context.Context, string, any, []string, string) (bool, error)
+	Exists(context.Context, string, string) (bool, error)
+}
+
+// Notification contains one explicit delivery target. ID remains stable across
+// delivery attempts. Payload must not include secrets unless the application
+// explicitly requires them and controls access to the destination.
+type Notification struct {
+	ID          uuid.UUID
+	Destination string
+	ResourceKey string
+	Kind        string
+	Payload     json.RawMessage
+}
+
+// Transaction supplies operations within one commit boundary. Notify stages
+// durable messages. If notifications are not configured, it fails and prevents
+// commit. The callback must return operation errors and must not retain this
+// interface or start work that continues after its return.
+type Transaction interface {
+	Storage
+	Notify(...Notification) error
+}
+
+// Transactor owns commit and rollback. The callback receives a bounded context.
+// A failed callback is not replayed automatically.
+type Transactor interface {
+	WithTransaction(context.Context, func(context.Context, Transaction) error) error
+}

@@ -15,7 +15,7 @@ import (
 var transactionSource string
 
 func generateTransaction(ctx gen.Context) (gen.File, error) {
-	data := struct{ Package, OutboxImport string }{Package: path.Base(ctx.OutputNamespace)}
+	data := struct{ Package, OutboxImport, StorageImport string }{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
 	if ns := ctx.PeerNamespaces["outbox"]; ns != "" {
 		if err := gen.ValidatePath(ns); err != nil {
 			return gen.File{}, err

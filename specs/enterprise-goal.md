@@ -26,7 +26,7 @@ The following milestones define completion:
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Active |
 | C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Active |
 | C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Active |
-| C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Pending |
+| C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Active |
 | H1 | Hypershell compatibility baseline | Inventory and executable checks for REST, gRPC, RBAC, watch, SDK, CLI, UI, and deployment contracts | Active |
 | H2 | STEGO Hypershell implementation | Clean generation and tests without rh-trex-ai; reviewed domain code remains outside generated output | Pending |
 | H3 | System verification | Service integration and local deployment checks, security tests, race tests, measured performance, and regeneration checks in CI | Pending |
@@ -247,3 +247,15 @@ failure without callback replay. A local create-plus-notification benchmark is
 recorded in `store-transactions.md`. The full root race suite passes with
 PostgreSQL required. Shared public contracts, domain rule
 injection, handler use, and Kafka service composition remain open.
+
+The compiler now emits a versioned public storage contract once per service.
+HTTP and PostgreSQL use the same types and errors. Storage no longer imports
+HTTP. A domain package outside generated output can use the public transaction
+interface to commit a resource and an outbox message. PostgreSQL tests cover
+that rule, HTTP reads, rollback, and notification rejection when no queue is
+configured. The integration test also exposed a constructor argument rename
+error. Assembly now distinguishes package and value references, and a runtime
+test checks shared dependency identity. The full root race suite passes with
+PostgreSQL required. The constructor fix also passed its own isolated compiler
+and CLI checks. See `shared-storage-contract.md` for
+contract limits and remaining service integration work.

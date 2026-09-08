@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	contract "example.com/transaction-test/contracts/storage"
+	"example.com/transaction-test/plainstore"
 	"example.com/transaction-test/queue"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -93,7 +95,8 @@ func TestAtomicWriteAndNotifications(t *testing.T) {
 				store, db := database(t, prepared)
 				item := record("one")
 				veto := errors.New("domain rule failed")
-				err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+				err := store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+					tx := scope.(*Store)
 					deadline, ok := ctx.Deadline()
 					if !ok || time.Until(deadline) > 10*time.Second {
 						t.Fatal("transaction deadline missing")
@@ -152,7 +155,8 @@ func TestNotificationFailureRollsBack(t *testing.T) {
 				}
 			}
 			item := record("one")
-			err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+			err := store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+				tx := scope.(*Store)
 				if err := tx.Create(ctx, "Record", item); err != nil {
 					return err
 				}
@@ -194,9 +198,10 @@ func TestTransactionScopeAndPayloadCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 	var retained *Store
-	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+		tx := scope.(*Store)
 		retained = tx
-		if err := tx.WithTransaction(ctx, func(context.Context, *Store) error { t.Fatal("nested callback ran"); return nil }); !errors.Is(err, ErrTransactionNested) {
+		if err := tx.WithTransaction(ctx, func(context.Context, contract.Transaction) error { t.Fatal("nested callback ran"); return nil }); !errors.Is(err, ErrTransactionNested) {
 			t.Fatal(err)
 		}
 		if err := tx.Notify(event); err != nil {
@@ -226,7 +231,7 @@ func TestCanceledAndPanickedTransaction(t *testing.T) {
 	store, db := database(t, false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := store.WithTransaction(ctx, func(context.Context, *Store) error { t.Fatal("canceled callback ran"); return nil }); !errors.Is(err, context.Canceled) {
+	if err := store.WithTransaction(ctx, func(context.Context, contract.Transaction) error { t.Fatal("canceled callback ran"); return nil }); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	func() {
@@ -235,7 +240,8 @@ func TestCanceledAndPanickedTransaction(t *testing.T) {
 				t.Error("callback panic was not preserved")
 			}
 		}()
-		_ = store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+		_ = store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+			tx := scope.(*Store)
 			if err := tx.Create(ctx, "Record", record("panic")); err != nil {
 				t.Fatal(err)
 			}
@@ -246,7 +252,8 @@ func TestCanceledAndPanickedTransaction(t *testing.T) {
 		})
 	}()
 	ctx, cancel = context.WithCancel(context.Background())
-	err := store.WithTransaction(ctx, func(ctx context.Context, tx *Store) error {
+	err := store.WithTransaction(ctx, func(ctx context.Context, scope contract.Transaction) error {
+		tx := scope.(*Store)
 		if err := tx.Create(ctx, "Record", record("canceled")); err != nil {
 			return err
 		}
@@ -272,7 +279,8 @@ func TestSerializationFailureDoesNotReplay(t *testing.T) {
 	result := make(chan error, 1)
 	var calls atomic.Int32
 	go func() {
-		result <- store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+		result <- store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+			tx := scope.(*Store)
 			calls.Add(1)
 			if _, err := tx.Get(ctx, "Record", item.ID); err != nil {
 				return err
@@ -313,7 +321,8 @@ func TestDatabaseDeadlineRollsBack(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err := store.WithTransaction(ctx, func(ctx context.Context, tx *Store) error {
+	err := store.WithTransaction(ctx, func(ctx context.Context, scope contract.Transaction) error {
+		tx := scope.(*Store)
 		if err := tx.Create(ctx, "Record", record("deadline")); err != nil {
 			return err
 		}
@@ -337,7 +346,8 @@ func TestMutationMethodsShareTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	veto := errors.New("rule failed")
-	err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *Store) error {
+	err := store.WithTransaction(context.Background(), func(ctx context.Context, scope contract.Transaction) error {
+		tx := scope.(*Store)
 		item.Value = 2
 		if err := tx.Replace(ctx, "Record", item.ID, item); err != nil {
 			return err
@@ -381,7 +391,10 @@ func TestMutationMethodsShareTransaction(t *testing.T) {
 }
 
 func TestInvalidTransactionInputs(t *testing.T) {
-	callback := func(context.Context, *Store) error { t.Fatal("invalid transaction ran callback"); return nil }
+	callback := func(context.Context, contract.Transaction) error {
+		t.Fatal("invalid transaction ran callback")
+		return nil
+	}
 	if err := (*Store)(nil).WithTransaction(context.Background(), callback); err == nil {
 		t.Fatal("nil store accepted")
 	}
@@ -414,7 +427,8 @@ func BenchmarkTransactionalCreateNotify(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		item := record(fmt.Sprintf("record-%d", i))
-		if err := store.WithTransaction(ctx, func(ctx context.Context, tx *Store) error {
+		if err := store.WithTransaction(ctx, func(ctx context.Context, scope contract.Transaction) error {
+			tx := scope.(*Store)
 			if err := tx.Create(ctx, "Record", item); err != nil {
 				return err
 			}
@@ -422,5 +436,23 @@ func BenchmarkTransactionalCreateNotify(b *testing.B) {
 		}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestUnavailableNotificationsPreventCommit(t *testing.T) {
+	store, db := database(t, false)
+	plain := plainstore.NewStore(store.db)
+	err := plain.WithTransaction(context.Background(), func(ctx context.Context, tx contract.Transaction) error {
+		if err := tx.Create(ctx, "Record", record("unavailable")); err != nil {
+			return err
+		}
+		_ = tx.Notify(message("unavailable"))
+		return nil
+	})
+	if !errors.Is(err, contract.ErrNotificationsUnavailable) {
+		t.Fatalf("notification rejection lost: %v", err)
+	}
+	if count(t, db, "records") != 0 {
+		t.Fatal("ignored unavailable notification allowed commit")
 	}
 }

@@ -33,7 +33,21 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		{Path: path.Join(ns, "migrations/000001_outbox.sql"), Content: migration},
 	}
 	for _, template := range []struct{ name, source string }{{"queue.go", queueSource}, {"worker.go", workerSource}} {
-		source, err := format.Source([]byte(strings.Replace(template.source, "package outbox", "package "+path.Base(ns), 1)))
+		sourceText := strings.Replace(template.source, "package outbox", "package "+path.Base(ns), 1)
+		if ctx.StorageContract != "" && template.name == "queue.go" {
+			start := strings.Index(sourceText, "type Message struct {")
+			if start < 0 {
+				return nil, nil, fmt.Errorf("outbox template has no message declaration")
+			}
+			relativeEnd := strings.Index(sourceText[start:], "\n}")
+			if relativeEnd < 0 {
+				return nil, nil, fmt.Errorf("outbox template has an incomplete message declaration")
+			}
+			end := relativeEnd + start + 2
+			sourceText = sourceText[:start] + "type Message = stegostorage.Notification" + sourceText[end:]
+			sourceText = strings.Replace(sourceText, "import (", fmt.Sprintf("import (\n stegostorage %q", ctx.StorageContract), 1)
+		}
+		source, err := format.Source([]byte(sourceText))
 		if err != nil {
 			return nil, nil, fmt.Errorf("formatting outbox %s: %w", template.name, err)
 		}
@@ -42,5 +56,9 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0"}}, nil
+	wiring := &gen.Wiring{GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0"}}
+	if ctx.StorageContract != "" {
+		wiring.Contracts = []gen.Contract{gen.StorageV1}
+	}
+	return files, wiring, nil
 }

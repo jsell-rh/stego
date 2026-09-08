@@ -8,13 +8,23 @@ import (
  "time"
 
  "gorm.io/gorm"
+ {{if .StorageImport}}stegostorage {{printf "%q" .StorageImport}}{{end}}
  {{if .OutboxImport}}stegooutbox {{printf "%q" .OutboxImport}}{{end}}
 )
 
+{{if .StorageImport}}
+var ErrTransactionRequired = stegostorage.ErrTransactionRequired
+var ErrTransactionNested = stegostorage.ErrTransactionNested
+var ErrTransactionClosed = stegostorage.ErrTransactionClosed
+var ErrNotificationLimit = stegostorage.ErrNotificationLimit
+var ErrNotificationsUnavailable = stegostorage.ErrNotificationsUnavailable
+{{else}}
 var ErrTransactionRequired = errors.New("operation requires a store transaction")
 var ErrTransactionNested = errors.New("nested store transactions are not supported")
 var ErrTransactionClosed = errors.New("store transaction is closed")
 {{if .OutboxImport}}var ErrNotificationLimit = errors.New("transaction notification limit exceeded"){{end}}
+
+{{end}}
 
 const transactionTimeout = 10 * time.Second
 
@@ -22,7 +32,7 @@ type transactionState struct {
  mu sync.Mutex
  closed bool
  failure error
- {{if .OutboxImport}}messages []stegooutbox.Message{{end}}
+ {{if .OutboxImport}}messages []{{if .StorageImport}}stegostorage.Notification{{else}}stegooutbox.Message{{end}}{{end}}
 }
 
 // WithTransaction commits only if the callback and all queued notifications
@@ -30,7 +40,7 @@ type transactionState struct {
 // It must not retain that store or start work that continues after return.
 // SQL work has a ten-second deadline. Callback code must honor cancellation.
 // The callback runs once. Serialization errors are returned without replay.
-func (s *Store) WithTransaction(ctx context.Context, fn func(context.Context, *Store) error) error {
+func (s *Store) WithTransaction(ctx context.Context, fn func(context.Context, {{if .StorageImport}}stegostorage.Transaction{{else}}*Store{{end}}) error) error {
  if s == nil || s.db == nil || s.db.Statement == nil { return errors.New("store requires a database") }
  if s.db.Error != nil { return s.db.Error }
  if fn == nil { return errors.New("store transaction requires a callback") }
@@ -82,7 +92,7 @@ func sqlTransaction(db *gorm.DB) (*sql.Tx, error) {
 // All calls form one batch of at most 32 messages. Payload data is copied.
 // Validation or enqueue failure rolls back the resource changes. A limit error
 // also prevents commit when the callback ignores that error.
-func (s *Store) Notify(messages ...stegooutbox.Message) error {
+func (s *Store) Notify(messages ...{{if .StorageImport}}stegostorage.Notification{{else}}stegooutbox.Message{{end}}) error {
  if s == nil || s.transaction == nil { return ErrTransactionRequired }
  state := s.transaction
  state.mu.Lock()
@@ -102,5 +112,19 @@ func (s *Store) Notify(messages ...stegooutbox.Message) error {
   state.messages = append(state.messages, message)
  }
  return nil
+}
+{{end}}
+
+{{if and .StorageImport (not .OutboxImport)}}
+// Notify rejects notification requests when no durable queue is configured.
+// The rejection also prevents commit if the callback ignores the error.
+func (s *Store) Notify(_ ...stegostorage.Notification) error {
+ if s == nil || s.transaction == nil { return ErrTransactionRequired }
+ state := s.transaction
+ state.mu.Lock()
+ defer state.mu.Unlock()
+ if state.closed { return ErrTransactionClosed }
+ state.failure = ErrNotificationsUnavailable
+ return state.failure
 }
 {{end}}

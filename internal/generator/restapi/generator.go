@@ -197,7 +197,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 
 	// Generate router file.
-	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat)
+	routerFile, err := generateRouter(ctx.OutputNamespace, ctx.Entities, ctx.Collections, ctx.Conventions.ResponseFormat, ctx.StorageContract)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating router: %w", err)
 	}
@@ -217,6 +217,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	files = append(files, openapiFile)
 
+	if ctx.StorageContract != "" {
+		wiring.Contracts = []gen.Contract{gen.StorageV1}
+	}
 	wiring.Imports = []string{ctx.OutputNamespace}
 
 	// When envelope format is enabled and any collection has create or upsert,
@@ -1517,7 +1520,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 // generateRouter produces the router.go file with entity type definitions,
 // the Storage interface, Go 1.22 method+pattern route registration, and
 // helper functions.
-func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat string) (_ gen.File, retErr error) {
+func generateRouter(ns string, entities []types.Entity, collections []types.Collection, responseFormat, storageContract string) (_ gen.File, retErr error) {
 	var buf bytes.Buffer
 
 	envelope := responseFormat == "envelope"
@@ -1550,76 +1553,91 @@ func generateRouter(ns string, entities []types.Entity, collections []types.Coll
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	// Always need context for the Storage interface.
 	fmt.Fprintf(&buf, "import (\n")
-	fmt.Fprintf(&buf, "\t\"context\"\n")
+	if storageContract == "" {
+		fmt.Fprintf(&buf, "\t\"context\"\n")
+	} else {
+		fmt.Fprintf(&buf, "\tstegostorage %q\n", storageContract)
+	}
 	if needJSON {
 		fmt.Fprintf(&buf, "\t\"encoding/json\"\n")
 	}
-	fmt.Fprintf(&buf, "\t\"errors\"\n")
+	if storageContract == "" {
+		fmt.Fprintf(&buf, "\t\"errors\"\n")
+	}
 	if needTime {
 		fmt.Fprintf(&buf, "\t\"time\"\n")
 	}
 	fmt.Fprintf(&buf, ")\n\n")
 
-	// ErrNotFound is returned by Storage.Get when the entity does not exist.
-	// Handlers use errors.Is to distinguish not-found from infrastructure errors.
-	fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
-	fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
-	fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
+	if storageContract != "" {
+		for _, name := range []string{"Storage", "OrderByField", "ListOptions", "ListResult"} {
+			fmt.Fprintf(&buf, "type %s = stegostorage.%s\n", name, name)
+		}
+		for _, name := range []string{"ErrNotFound", "ErrConflict", "ErrSearch"} {
+			fmt.Fprintf(&buf, "var %s = stegostorage.%s\n", name, name)
+		}
+	} else {
+		// ErrNotFound is returned by Storage.Get when the entity does not exist.
+		// Handlers use errors.Is to distinguish not-found from infrastructure errors.
+		fmt.Fprintf(&buf, "// ErrNotFound is returned by Storage.Get when the requested entity does not exist.\n")
+		fmt.Fprintf(&buf, "// Storage implementations must return this error (or wrap it) for not-found cases.\n")
+		fmt.Fprintf(&buf, "var ErrNotFound = errors.New(\"entity not found\")\n\n")
 
-	// ErrConflict is returned by Storage.Upsert when optimistic concurrency
-	// check fails (incoming generation is not newer than existing).
-	fmt.Fprintf(&buf, "// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.\n")
-	fmt.Fprintf(&buf, "// Storage implementations must return this error when the upsert is a no-op due to\n")
-	fmt.Fprintf(&buf, "// the incoming generation not being newer than the existing row's generation.\n")
-	fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
+		// ErrConflict is returned by Storage.Upsert when optimistic concurrency
+		// check fails (incoming generation is not newer than existing).
+		fmt.Fprintf(&buf, "// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.\n")
+		fmt.Fprintf(&buf, "// Storage implementations must return this error when the upsert is a no-op due to\n")
+		fmt.Fprintf(&buf, "// the incoming generation not being newer than the existing row's generation.\n")
+		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"upsert conflict\")\n\n")
 
-	// ErrSearch is returned by Storage.List when the search expression is invalid
-	// (parse failure, unknown field). Handlers use errors.Is to distinguish
-	// client-input search errors (400) from infrastructure errors (500).
-	fmt.Fprintf(&buf, "// ErrSearch is returned by Storage.List when the search expression is invalid.\n")
-	fmt.Fprintf(&buf, "// Storage implementations must wrap search-related errors with this sentinel.\n")
-	fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
+		// ErrSearch is returned by Storage.List when the search expression is invalid
+		// (parse failure, unknown field). Handlers use errors.Is to distinguish
+		// client-input search errors (400) from infrastructure errors (500).
+		fmt.Fprintf(&buf, "// ErrSearch is returned by Storage.List when the search expression is invalid.\n")
+		fmt.Fprintf(&buf, "// Storage implementations must wrap search-related errors with this sentinel.\n")
+		fmt.Fprintf(&buf, "var ErrSearch = errors.New(\"search error\")\n\n")
 
-	// OrderByField represents a single ordering criterion for list queries.
-	fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
-	fmt.Fprintf(&buf, "type OrderByField struct {\n")
-	fmt.Fprintf(&buf, "\tField     string\n")
-	fmt.Fprintf(&buf, "\tDirection string // \"asc\" or \"desc\"\n")
-	fmt.Fprintf(&buf, "}\n\n")
+		// OrderByField represents a single ordering criterion for list queries.
+		fmt.Fprintf(&buf, "// OrderByField represents a single ordering criterion.\n")
+		fmt.Fprintf(&buf, "type OrderByField struct {\n")
+		fmt.Fprintf(&buf, "\tField     string\n")
+		fmt.Fprintf(&buf, "\tDirection string // \"asc\" or \"desc\"\n")
+		fmt.Fprintf(&buf, "}\n\n")
 
-	// ListOptions for pagination and ordering.
-	fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
-	fmt.Fprintf(&buf, "type ListOptions struct {\n")
-	fmt.Fprintf(&buf, "\tPage    int\n")
-	fmt.Fprintf(&buf, "\tSize    int\n")
-	fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
-	fmt.Fprintf(&buf, "\tFields  []string\n")
-	fmt.Fprintf(&buf, "\tSearch  string // TSL search expression from ?search= query parameter\n")
-	fmt.Fprintf(&buf, "\tImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations\n")
-	fmt.Fprintf(&buf, "}\n\n")
+		// ListOptions for pagination and ordering.
+		fmt.Fprintf(&buf, "// ListOptions contains pagination, ordering, field selection, and search parameters.\n")
+		fmt.Fprintf(&buf, "type ListOptions struct {\n")
+		fmt.Fprintf(&buf, "\tPage    int\n")
+		fmt.Fprintf(&buf, "\tSize    int\n")
+		fmt.Fprintf(&buf, "\tOrderBy []OrderByField\n")
+		fmt.Fprintf(&buf, "\tFields  []string\n")
+		fmt.Fprintf(&buf, "\tSearch  string // TSL search expression from ?search= query parameter\n")
+		fmt.Fprintf(&buf, "\tImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations\n")
+		fmt.Fprintf(&buf, "}\n\n")
 
-	// ListResult wraps list query results with total count for pagination.
-	fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
-	fmt.Fprintf(&buf, "type ListResult struct {\n")
-	fmt.Fprintf(&buf, "\tItems any\n")
-	fmt.Fprintf(&buf, "\tTotal int64\n")
-	fmt.Fprintf(&buf, "}\n\n")
+		// ListResult wraps list query results with total count for pagination.
+		fmt.Fprintf(&buf, "// ListResult wraps list query results with total count for pagination.\n")
+		fmt.Fprintf(&buf, "type ListResult struct {\n")
+		fmt.Fprintf(&buf, "\tItems any\n")
+		fmt.Fprintf(&buf, "\tTotal int64\n")
+		fmt.Fprintf(&buf, "}\n\n")
 
-	// Storage interface used by all handlers.
-	fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
-	fmt.Fprintf(&buf, "// Get must return ErrNotFound when the entity does not exist.\n")
-	fmt.Fprintf(&buf, "type Storage interface {\n")
-	fmt.Fprintf(&buf, "\tCreate(ctx context.Context, entity string, value any) error\n")
-	fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
-	fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
-	fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
-	fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)\n")
-	fmt.Fprintf(&buf, "\t// Upsert returns true when a new row was created, false when an existing row was updated.\n")
-	fmt.Fprintf(&buf, "\t// Implementations must return ErrConflict when optimistic concurrency check fails.\n")
-	fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)\n")
-	fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
-	fmt.Fprintf(&buf, "}\n\n")
+		// Storage interface used by all handlers.
+		fmt.Fprintf(&buf, "// Storage is the interface that handlers use to interact with the data store.\n")
+		fmt.Fprintf(&buf, "// Get must return ErrNotFound when the entity does not exist.\n")
+		fmt.Fprintf(&buf, "type Storage interface {\n")
+		fmt.Fprintf(&buf, "\tCreate(ctx context.Context, entity string, value any) error\n")
+		fmt.Fprintf(&buf, "\tGet(ctx context.Context, entity string, id string) (any, error)\n")
+		fmt.Fprintf(&buf, "\tReplace(ctx context.Context, entity string, id string, value any) error\n")
+		fmt.Fprintf(&buf, "\tDelete(ctx context.Context, entity string, id string) error\n")
+		fmt.Fprintf(&buf, "\tList(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)\n")
+		fmt.Fprintf(&buf, "\t// Upsert returns true when a new row was created, false when an existing row was updated.\n")
+		fmt.Fprintf(&buf, "\t// Implementations must return ErrConflict when optimistic concurrency check fails.\n")
+		fmt.Fprintf(&buf, "\tUpsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)\n")
+		fmt.Fprintf(&buf, "\tExists(ctx context.Context, entity string, id string) (bool, error)\n")
+		fmt.Fprintf(&buf, "}\n\n")
 
+	}
 	// Entity types with fields from the entity definitions.
 	// Deduplicate across collections: multiple collections may reference
 	// the same entity, but the struct is emitted only once.
@@ -2356,7 +2374,7 @@ func generateOpenAPI(ns string, entities []types.Entity, collections []types.Col
 				itemOps["get"] = openAPIOperation{
 					Summary:     "Read " + eb.Entity + " via " + eb.Name,
 					OperationID: "read" + collPascal,
-					Tags: []string{tag},
+					Tags:        []string{tag},
 					Parameters: append(append([]openAPIParam{}, parentParams...), openAPIParam{
 						Name:     "id",
 						In:       "path",
@@ -2967,22 +2985,22 @@ var handlerScopeIdentifiers = map[string]bool{
 	"scopeData":    true, // scopeData, err := json.Marshal(existing) in scoped Read/Delete
 	"scopeValue":   true, // scopeValue := r.PathValue(...) in scoped List method
 	"patch":        true, // var patch <PatchReqType> in Patch method
-	"strings":   true, // strings (conditional for List orderBy/fields parsing)
-	"created":   true, // created, err := h.store.Upsert(...) in Upsert method
-	"upsertKey": true, // upsertKey := []string{...} in Upsert method
+	"strings":      true, // strings (conditional for List orderBy/fields parsing)
+	"created":      true, // created, err := h.store.Upsert(...) in Upsert method
+	"upsertKey":    true, // upsertKey := []string{...} in Upsert method
 	// Generator-emitted local variables in List method body.
 	"page":        true, // page, _ := strconv.Atoi(pageStr)
 	"pageSize":    true, // pageSize, _ := strconv.Atoi(pageSizeStr)
 	"pageStr":     true, // pageStr := r.URL.Query().Get("page")
 	"pageSizeStr": true, // pageSizeStr := r.URL.Query().Get("pageSize")
 	"actualSize":  true, // actualSize := reflect.ValueOf(<items>).Len()
-	"orderBy":    true, // var orderBy []OrderByField
-	"orderDir":   true, // orderDir := r.URL.Query().Get("order")
-	"fields":     true, // var fields []string
-	"opts":       true, // opts := ListOptions{...}
-	"searchExpr": true, // searchExpr := r.URL.Query().Get("search")
-	"listResult": true, // listResult, err := h.store.List(...)
-	"uuid":       true, // github.com/google/uuid import alias
+	"orderBy":     true, // var orderBy []OrderByField
+	"orderDir":    true, // orderDir := r.URL.Query().Get("order")
+	"fields":      true, // var fields []string
+	"opts":        true, // opts := ListOptions{...}
+	"searchExpr":  true, // searchExpr := r.URL.Query().Get("search")
+	"listResult":  true, // listResult, err := h.store.List(...)
+	"uuid":        true, // github.com/google/uuid import alias
 }
 
 // safeVarName returns the given name with a trailing underscore appended if it
@@ -3003,6 +3021,7 @@ func safeVarName(name string) string {
 // at generated code, giving the user no indication that their entity name is
 // the problem.
 var reservedTypeNames = map[string]bool{
+	"stegostorage":    true,
 	"Storage":         true, // type Storage interface { ... } in router.go
 	"ErrNotFound":     true, // var ErrNotFound in router.go
 	"ErrConflict":     true, // var ErrConflict in router.go

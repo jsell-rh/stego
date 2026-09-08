@@ -22,6 +22,17 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 		if component.Wiring == nil {
 			continue
 		}
+		for _, id := range component.Wiring.Contracts {
+			definition, err := gen.ResolveContract(id)
+			if err != nil {
+				return nil, err
+			}
+			for path, v := range definition.GoModRequires {
+				if semver.Compare(v, requires[path]) > 0 {
+					requires[path] = v
+				}
+			}
+		}
 		for _, path := range sortedKeys(component.Wiring.GoModRequires) {
 			v := component.Wiring.GoModRequires[path]
 			if err := module.Check(path, v); err != nil {

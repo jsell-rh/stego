@@ -1,0 +1,33 @@
+package gen
+
+import (
+	_ "embed"
+	"fmt"
+)
+
+// Contract identifies a compiler-owned interface version.
+type Contract string
+
+const StorageV1 Contract = "storage/v1"
+const StorageContractNamespace = "contracts/storage"
+
+// ContractDefinition contains files and dependencies owned by the compiler.
+type ContractDefinition struct {
+	Files         []File
+	GoModRequires map[string]string
+}
+
+//go:embed storage_contract.go.tmpl
+var storageContractSource string
+
+func ResolveContract(id Contract) (ContractDefinition, error) {
+	switch id {
+	case StorageV1:
+		return ContractDefinition{
+			Files:         []File{{Path: StorageContractNamespace + "/storage.go", Content: []byte(storageContractSource)}},
+			GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0"},
+		}, nil
+	default:
+		return ContractDefinition{}, fmt.Errorf("unsupported shared contract %q", id)
+	}
+}

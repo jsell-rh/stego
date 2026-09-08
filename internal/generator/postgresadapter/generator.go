@@ -146,6 +146,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
+	if ctx.StorageContract != "" {
+		wiring.Contracts = []gen.Contract{gen.StorageV1}
+	}
 	for _, entity := range ctx.Entities {
 		for _, field := range entity.Fields {
 			if field.Type == types.FieldTypeJsonb {
@@ -166,22 +169,24 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
 	// Generator-internal identifiers.
-	"Store":                  true,
-	"ErrTransactionRequired": true,
-	"ErrTransactionNested":   true,
-	"ErrTransactionClosed":   true,
-	"ErrNotificationLimit":   true,
-	"transactionState":       true,
-	"transactionTimeout":     true,
-	"sqlTransaction":         true,
-	"stegooutbox":            true,
-	"sync":                   true,
-	"NewStore":               true,
-	"Meta":                   true,
-	"GenericDao":             true,
-	"NewGenericDao":          true,
-	"SessionFactory":         true,
-	"Migrate":                true,
+	"Store":                       true,
+	"ErrTransactionRequired":      true,
+	"ErrTransactionNested":        true,
+	"ErrTransactionClosed":        true,
+	"ErrNotificationLimit":        true,
+	"transactionState":            true,
+	"transactionTimeout":          true,
+	"sqlTransaction":              true,
+	"stegooutbox":                 true,
+	"stegostorage":                true,
+	"ErrNotificationsUnavailable": true,
+	"sync":                        true,
+	"NewStore":                    true,
+	"Meta":                        true,
+	"GenericDao":                  true,
+	"NewGenericDao":               true,
+	"SessionFactory":              true,
+	"Migrate":                     true,
 	// Go keywords.
 	"break": true, "case": true, "chan": true, "const": true,
 	"continue": true, "default": true, "defer": true, "else": true,
@@ -436,6 +441,10 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		apiAlias = path.Base(apiNS)
 	}
 
+	if ctx.StorageContract != "" {
+		apiPkg, apiAlias = ctx.StorageContract, "stegostorage"
+	}
+
 	// Determine the search package import path for TSL search integration.
 	searchNS := ""
 	if ctx.PeerNamespaces != nil {
@@ -505,6 +514,18 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		fmt.Fprintf(&buf, "// ErrConflict is returned when a unique constraint is violated or\n")
 		fmt.Fprintf(&buf, "// optimistic concurrency check fails.\n")
 		fmt.Fprintf(&buf, "var ErrConflict = errors.New(\"conflict\")\n\n")
+	}
+
+	if ctx.StorageContract != "" {
+		for _, name := range []string{"OrderByField", "ListOptions", "ListResult"} {
+			fmt.Fprintf(&buf, "type %s = stegostorage.%s\n", name, name)
+		}
+		for _, name := range []string{"ErrNotFound", "ErrConflict", "ErrSearch"} {
+			fmt.Fprintf(&buf, "var %s = stegostorage.%s\n", name, name)
+		}
+		fmt.Fprintln(&buf, "var _ stegostorage.Storage = (*Store)(nil)")
+		fmt.Fprintln(&buf, "var _ stegostorage.Transactor = (*Store)(nil)")
+		fmt.Fprintln(&buf, "var _ stegostorage.Transaction = (*Store)(nil)")
 	}
 
 	// Store struct and constructor.

@@ -20,16 +20,21 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
-	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
+	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	queueFiles, _, err := new(queuegen.Generator).Generate(gen.Context{OutputNamespace: "queue"})
+	queueFiles, _, err := new(queuegen.Generator).Generate(gen.Context{OutputNamespace: "queue", StorageContract: ctx.StorageContract})
 	if err != nil {
 		t.Fatal(err)
 	}
 	files = append(files, queueFiles...)
+	contract, err := gen.ResolveContract(gen.StorageV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, contract.Files...)
 	// Compile the transaction scope without the optional queue as well.
 	ctx.OutputNamespace, ctx.PeerNamespaces = "plainstore", nil
 	plain, _, err := new(Generator).Generate(ctx)

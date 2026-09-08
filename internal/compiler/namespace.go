@@ -21,6 +21,11 @@ func validateComponentNamespaces(components map[string]*types.Component) []Valid
 			errors = append(errors, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q: %v", name, err)})
 			continue
 		}
+		lower := strings.ToLower(namespace)
+		if lower == "contracts" || strings.HasPrefix(lower, "contracts/") {
+			errors = append(errors, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q uses compiler-owned namespace %q", name, namespace)})
+			continue
+		}
 		for _, other := range names[:i] {
 			previous := components[other].OutputNamespace
 			a, b := strings.ToLower(previous), strings.ToLower(namespace)

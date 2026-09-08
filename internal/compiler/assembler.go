@@ -83,6 +83,23 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	}
 
 	files := []gen.File{mainGo, goMod}
+	seenContracts := make(map[gen.Contract]bool)
+	for _, component := range input.Wirings {
+		if component.Wiring == nil {
+			continue
+		}
+		for _, id := range component.Wiring.Contracts {
+			if seenContracts[id] {
+				continue
+			}
+			definition, err := gen.ResolveContract(id)
+			if err != nil {
+				return nil, err
+			}
+			seenContracts[id] = true
+			files = append(files, definition.Files...)
+		}
+	}
 
 	// Invariant: never generate under fills/.
 	for _, f := range files {
