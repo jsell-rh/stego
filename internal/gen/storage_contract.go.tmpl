@@ -11,6 +11,9 @@ import (
 
 var ErrNotFound = errors.New("entity not found")
 var ErrConflict = errors.New("storage conflict")
+// ErrSerialization reports a transaction that did not commit because of a
+// concurrent change or deadlock. The caller can start a new transaction.
+var ErrSerialization = errors.New("transaction serialization conflict")
 var ErrSearch = errors.New("search error")
 var ErrTransactionRequired = errors.New("operation requires a store transaction")
 var ErrTransactionNested = errors.New("nested store transactions are not supported")

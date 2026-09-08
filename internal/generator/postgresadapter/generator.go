@@ -184,6 +184,7 @@ var reservedTypeNames = map[string]bool{
 	"ErrTransactionRequired":      true,
 	"ErrTransactionNested":        true,
 	"ErrTransactionClosed":        true,
+	"ErrSerialization":            true,
 	"ErrNotificationLimit":        true,
 	"transactionState":            true,
 	"transactionTimeout":          true,

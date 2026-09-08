@@ -312,7 +312,7 @@ func TestSerializationFailureDoesNotReplay(t *testing.T) {
 	close(release)
 	err := <-result
 	var state interface{ SQLState() string }
-	if !errors.As(err, &state) || state.SQLState() != "40001" {
+	if !errors.Is(err, contract.ErrSerialization) || !errors.As(err, &state) || state.SQLState() != "40001" {
 		t.Fatalf("expected serialization failure, got %v", err)
 	}
 	if calls.Load() != 1 {
