@@ -94,3 +94,9 @@ test creates a real service, binds a new fill, resolves dependencies, builds the
 service, and executes the fill through its generated interface. A second apply
 has no changes or drift. This is a build and contract check, not a production
 runtime or security acceptance result. Full protobuf validation remains open.
+
+Component wiring can now declare constructors that return errors. A failed
+constructor stops startup and runs cleanup for earlier constructors. A generated
+program test checks both the returned error and resource cleanup. This supports
+authentication configuration checks at startup. Other lifecycle paths still need
+review, including database setup, server errors, and shutdown.

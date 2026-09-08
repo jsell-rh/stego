@@ -125,6 +125,10 @@ type Wiring struct {
 	// Each entry is a code fragment like "api.NewUserHandler(userService, ...)".
 	Constructors []string
 
+	// ConstructorReturnsError marks constructors that return (value, error).
+	// Startup stops on an error. Cleanup for earlier constructors still runs.
+	ConstructorReturnsError map[int]bool
+
 	// ConstructorCollections maps constructor index to the collection name
 	// it handles. The assembler uses this to inject slot operators into the
 	// correct handler constructors, replacing convention-based name matching

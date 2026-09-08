@@ -1,0 +1,78 @@
+package compiler
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/jsell-rh/stego/internal/gen"
+)
+
+func TestConstructorFailureReturnsAfterCleanup(t *testing.T) {
+	input := AssemblerInput{
+		ModuleName: "example.com/lifecycle", GoVersion: "1.26.8",
+		Wirings: []ComponentWiring{{Name: "api", Wiring: &gen.Wiring{
+			Imports:                 []string{"internal/api"},
+			Constructors:            []string{"api.NewHandle()", "api.NewBroken(handle)"},
+			ConstructorDeps:         map[int][]string{1: {"handle"}},
+			ConstructorReturnsError: map[int]bool{0: true, 1: true},
+			ConstructorDeferCalls:   map[int]string{0: "Close()"},
+			Routes:                  []string{`mux.Handle("/", broken)`},
+		}}},
+	}
+	files, err := Assemble(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := t.TempDir()
+	for _, file := range files {
+		if err := os.WriteFile(filepath.Join(project, file.Path), file.Bytes(), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(project, "internal/api"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	api := `package api
+import ("errors"; "net/http")
+var ErrStartup = errors.New("startup failed")
+var Closed bool
+type Handle struct{}
+func NewHandle() (*Handle, error) { return &Handle{}, nil }
+func (h *Handle) Close() { Closed = true }
+func NewBroken(h *Handle) (http.Handler, error) { return nil, ErrStartup }
+`
+	check := `package main
+import ("errors"; "testing"; "example.com/lifecycle/internal/api")
+func TestStartupFailure(t *testing.T) {
+  if err := run(); !errors.Is(err, api.ErrStartup) { t.Fatalf("lost error: %v", err) }
+  if !api.Closed { t.Fatal("earlier constructor resource was not closed") }
+}
+`
+	for name, source := range map[string]string{"internal/api/api.go": api, "main_test.go": check} {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(source), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("generated startup test: %v\n%s", err, output)
+	}
+}
+
+func TestConstructorErrorIndexMustExist(t *testing.T) {
+	for _, index := range []int{-1, 1} {
+		_, err := Assemble(AssemblerInput{
+			ModuleName: "example.com/service", GoVersion: "1.26.8",
+			Wirings: []ComponentWiring{{Name: "invalid", Wiring: &gen.Wiring{
+				Constructors: []string{"api.New()"}, ConstructorReturnsError: map[int]bool{index: true},
+			}}},
+		})
+		if err == nil {
+			t.Errorf("accepted invalid constructor index %d", index)
+		}
+	}
+}

@@ -161,6 +161,11 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		if cw.Wiring == nil {
 			continue
 		}
+		for index := range cw.Wiring.ConstructorReturnsError {
+			if index < 0 || index >= len(cw.Wiring.Constructors) {
+				return gen.File{}, fmt.Errorf("component %q has an invalid error-returning constructor index %d", cw.Name, index)
+			}
+		}
 		if cw.Wiring.MiddlewareConstructor != nil && cw.Wiring.MiddlewareWrapExpr == "" {
 			return gen.File{}, fmt.Errorf("component %q declares MiddlewareConstructor but no MiddlewareWrapExpr — generators must specify how the middleware wraps the handler (e.g. \"%%s(%%s)\" for function-type middleware)", cw.Name)
 		}
@@ -212,7 +217,12 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 
 	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, consumedWirings)
 
-	buf.WriteString("func main() {\n")
+	fallible := hasFallibleConstructor(input, consumed)
+	if fallible {
+		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tlog.Print(\"service startup failed: \", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() error {\n")
+	} else {
+		buf.WriteString("func main() {\n")
+	}
 
 	if hasDB {
 		if isGORM {
@@ -241,6 +251,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		writeServerStart(&buf, input, wiringRenames)
 	}
 
+	if fallible {
+		buf.WriteString("\treturn nil\n")
+	}
 	buf.WriteString("}\n")
 
 	formatted, err := format.Source(buf.Bytes())
@@ -863,6 +876,11 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	//   be applied to update the route.
 	// - Slot operator vars: these never appear in route expressions.
 	preReserved := make(map[string]bool)
+	if hasFallibleConstructor(input, consumed) {
+		varNames["err"]++
+		varUsed["err"] = true
+		preReserved["err"] = true
+	}
 
 	// Seed with slot operator variable names so constructor vars are
 	// disambiguated against them (they share the same function scope).
@@ -965,7 +983,12 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 			}
 		}
 
-		fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
+		if cw.Wiring.ConstructorReturnsError[entry.ConstructorIndex] {
+			fmt.Fprintf(buf, "\t%s, err := %s\n", varName, expr)
+			buf.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
+		} else {
+			fmt.Fprintf(buf, "\t%s := %s\n", varName, expr)
+		}
 
 		// Emit deferred cleanup calls for this constructor if specified.
 		if deferCall, ok := cw.Wiring.ConstructorDeferCalls[entry.ConstructorIndex]; ok && deferCall != "" {
