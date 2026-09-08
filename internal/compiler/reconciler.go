@@ -414,6 +414,15 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
 		return err
 	}
+	lock, err := lockProject(project)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	// Another apply can finish between the first snapshot check and the lock.
+	if err := verifySnapshots(project, plan.snapshots); err != nil {
+		return err
+	}
 	stateData, err := yaml.Marshal(plan.NewState)
 	if err != nil {
 		return fmt.Errorf("encoding state: %w", err)

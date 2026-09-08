@@ -143,3 +143,11 @@ require a new plan. Plans are bound to their project and output directory.
 Input-only changes can update saved state without changing generated code.
 Tracked files have a 64 MiB size limit. Process locking, complete input identities,
 and transaction recovery remain open.
+
+Apply now holds an operating-system file lock and checks snapshots again after
+it acquires the lock. Concurrent apply tests allow one writer. A subprocess test
+confirms that a terminated process releases its lock. The compiler tests pass
+with the race detector. Windows amd64 and macOS arm64 test binaries also compile;
+their lock implementations have not been tested at runtime here. The lock file
+stays at `.stego/apply.lock` and must not be removed while STEGO processes run.
+Multi-file transaction recovery remains open.
