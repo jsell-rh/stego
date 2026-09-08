@@ -47,6 +47,18 @@ receiving an unsafe rename.
 This does not complete the replacement of string-based wiring with typed
 component references.
 
-Generated handlers do not yet inject domain transaction rules. Complete event
-configuration, outbox registration, Kafka worker composition, typed entity
-contracts, and REST/gRPC application behavior remain required work.
+`ListOptions.Related` now permits filters through declared entity references.
+Each filter requires a live related row. The store applies it before count and
+pagination through a SQL subquery. Duplicate grants do not duplicate resources.
+An empty value list matches no rows. Multiple filters use AND. Unknown entities,
+invalid references, unknown fields, and excessive filter sizes fail. Values are
+SQL parameters. Field names come from the generated schema. Ordering also checks
+the direction at the storage boundary.
+
+PostgreSQL tests use Record and Membership entities to check filtered pages,
+totals, duplicate grants, removed grants, empty filters, and hostile input. The
+same contract supplies Gateway access filters in the Hypershell test bed. No
+entity name or access policy from Hypershell occurs in the filter generator.
+
+Generated handlers do not yet inject domain transaction rules. Typed entity
+contracts and REST/gRPC application behavior remain required work.

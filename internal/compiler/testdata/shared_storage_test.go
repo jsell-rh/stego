@@ -137,3 +137,61 @@ func TestDomainNotificationFailureRollsBack(t *testing.T) {
 		t.Fatalf("domain rule left partial state: %v", err)
 	}
 }
+
+func TestRelatedFilterCountsAndPagesOnlyVisibleRecords(t *testing.T) {
+	storage, db := testStore(t)
+	ctx := context.Background()
+	for _, name := range []string{"a", "b", "c", "d"} {
+		if err := storage.Create(ctx, "Record", map[string]any{"id": name, "name": name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"b", "d"} {
+		// Duplicate grants must not duplicate resources or change the count.
+		for range 2 {
+			if err := storage.Create(ctx, "Membership", map[string]any{"record_id": id, "subject": "reader"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	opts := contract.ListOptions{Page: 1, Size: 1, OrderBy: []contract.OrderByField{{Field: "name", Direction: "asc"}}, Related: []contract.RelatedFilter{{Entity: "Membership", ForeignField: "record_id", Values: map[string][]string{"subject": {"reader"}}}}}
+	for page, want := range []string{"b", "d"} {
+		opts.Page = page + 1
+		result, err := storage.List(ctx, "Record", "", "", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Items.([]store.Record)
+		if result.Total != 2 || len(rows) != 1 || rows[0].ID != want {
+			t.Fatalf("filtered page: %+v", result)
+		}
+	}
+	opts.Related[0].Values["subject"] = nil
+	result, err := storage.List(ctx, "Record", "", "", opts)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("empty filter must deny all rows: %+v, %v", result, err)
+	}
+	opts.Related[0].Values["subject"] = []string{"' OR true --"}
+	result, err = storage.List(ctx, "Record", "", "", opts)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("filter value became SQL: %+v, %v", result, err)
+	}
+	opts.Related[0].Values["subject"] = []string{"reader"}
+	if _, err := db.Exec("UPDATE memberships SET deleted_at=now()"); err != nil {
+		t.Fatal(err)
+	}
+	result, err = storage.List(ctx, "Record", "", "", opts)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("deleted grant allowed access: %+v, %v", result, err)
+	}
+	for _, filter := range []contract.RelatedFilter{
+		{Entity: "Record", ForeignField: "name"},
+		{Entity: "Membership", ForeignField: "record_id; SELECT 1"},
+		{Entity: "Membership", ForeignField: "record_id", Values: map[string][]string{"subject OR true --": {"reader"}}},
+	} {
+		opts.Related = []contract.RelatedFilter{filter}
+		if _, err := storage.List(ctx, "Record", "", "", opts); err == nil {
+			t.Fatal("invalid related filter was accepted")
+		}
+	}
+}

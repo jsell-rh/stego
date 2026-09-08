@@ -30,6 +30,17 @@ type ListOptions struct {
 	Fields          []string
 	Search          string
 	ImplicitFilters map[string]string
+	Related         []RelatedFilter
+}
+
+// RelatedFilter requires a live related row before counting or pagination.
+// ForeignField must be a declared reference to the queried entity. Each map
+// entry requires one of its values. An empty value list matches no rows.
+// Multiple related filters are combined with AND. Values never contain SQL.
+type RelatedFilter struct {
+	Entity       string
+	ForeignField string
+	Values       map[string][]string
 }
 
 type ListResult struct {

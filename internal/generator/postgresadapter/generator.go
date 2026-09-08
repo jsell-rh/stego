@@ -544,6 +544,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	emitReplaceMethod(&buf, entities, apiAlias)
 	emitDeleteMethod(&buf, entities, apiAlias)
 	emitListMethod(&buf, entities, apiAlias, searchAlias)
+	if ctx.StorageContract != "" {
+		emitRelatedFilter(&buf, entities)
+	}
 	emitUpsertMethod(&buf, entities, apiAlias)
 	emitExistsMethod(&buf, entities)
 	emitHelpers(&buf)
@@ -771,6 +774,10 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "}\n")
 
 		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
+		if apiAlias == "stegostorage" {
+			fmt.Fprintf(buf, "\t\tquery, err := s.applyRelated(ctx, query, %q, opts.Related)\n", e.Name)
+			fmt.Fprintf(buf, "\t\tif err != nil { return %s{}, err }\n", listResultType)
+		}
 		fmt.Fprintf(buf, "\t\tif scopeField != \"\" && scopeValue != \"\" {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[scopeField] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid scope field %%q for entity %s\", scopeField)\n", listResultType, e.Name)
@@ -817,6 +824,7 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		// Apply ordering from ListOptions. Field names are validated by the
 		// handler; direction strings are hardcoded to "asc" or "desc" only.
 		fmt.Fprintf(buf, "\t\tfor _, ob := range opts.OrderBy {\n")
+		fmt.Fprintf(buf, "\t\t\tif !validCols[ob.Field] || (ob.Direction != \"asc\" && ob.Direction != \"desc\") { return %s{}, fmt.Errorf(\"invalid ordering\") }\n", listResultType)
 		fmt.Fprintf(buf, "\t\t\tif validCols[ob.Field] {\n")
 		fmt.Fprintf(buf, "\t\t\t\tquery = query.Order(ob.Field + \" \" + ob.Direction)\n")
 		fmt.Fprintf(buf, "\t\t\t}\n")
@@ -1204,9 +1212,9 @@ func writeColumns(e types.Entity) []string {
 
 // allColumns returns all field names for an entity, including computed.
 func allColumns(e types.Entity) []string {
-	cols := make([]string, len(e.Fields))
-	for i, f := range e.Fields {
-		cols[i] = f.Name
+	cols := []string{"id", "created_time", "updated_time"}
+	for _, f := range e.Fields {
+		cols = append(cols, f.Name)
 	}
 	return cols
 }
