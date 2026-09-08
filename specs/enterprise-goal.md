@@ -123,3 +123,13 @@ For a 2048-bit RSA key, one run measured 37,315 ns/op, 9,344 B/op, and 212
 allocations/op. This is a local verification baseline, not service throughput.
 Key rotation currently requires a restart. Automatic key discovery, rotation,
 authorization, and the separate RH SSO component remain open C4 work.
+
+The Hypershell test bed now validates the pinned reference inputs with complete
+OpenAPI and protobuf parsers. Its checks cover 37 REST operations, 41 gRPC
+methods, and six watch streams. Field ownership and service-account secret
+response checks pass. Reference loading cannot fetch remote schemas. This is H1
+evidence only; no Hypershell implementation is claimed.
+
+Both repositories now have CI workflows with pinned action commits, read-only
+repository permissions, module verification, and race tests. The equivalent
+local checks passed in both repositories. Hosted CI results must still be checked.
