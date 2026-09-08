@@ -33,7 +33,7 @@ the fills is essential complexity.
 
 ## Prerequisites
 
-- Go 1.24+ ([install](https://go.dev/dl/))
+- Go 1.26.8+ ([install](https://go.dev/dl/))
 
 ## Build from source
 

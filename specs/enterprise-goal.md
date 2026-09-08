@@ -57,5 +57,15 @@ output and state. Supplied component settings and defaults now have type and
 schema checks. Output namespaces must be canonical and non-overlapping. Invalid
 output and saved-state paths fail before writes or deletion. Corrupt state no
 longer resets silently. The root suite passes after these changes. Capability
-checks, complete schema semantics, symbolic-link handling, and recoverable apply
-remain open.
+checks, complete schema semantics, and recoverable apply remain open.
+
+Apply now checks symbolic links and special files before writes. Rooted file
+operations restrict output writes to their directory. Each file is written to a
+temporary file and renamed after a successful sync and close. This prevents
+partial file content, but does not yet provide a multi-file transaction or
+process locking. Those remain C3 requirements.
+
+The compiler now requires Go 1.26.8. It uses the rooted rename and directory
+operations added in [Go 1.25](https://go.dev/doc/go1.25#os), with a patch release
+from the supported 1.26 series. See the
+[Go release history](https://go.dev/doc/devel/release).

@@ -204,16 +204,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if outDir == "" {
 		outDir = filepath.Join(input.ProjectDir, "out")
 	}
-	outDirName, err := filepath.Rel(input.ProjectDir, outDir)
+	outDirName, err := outputRelative(input.ProjectDir, outDir)
 	if err != nil {
-		outDirName = filepath.Base(outDir)
-	}
-	// Validate that outDirName is a proper subdirectory name. When OutDir
-	// equals ProjectDir, filepath.Rel returns "." which produces invalid Go
-	// import paths (e.g. "module/./internal/api"). Similarly, ".." would
-	// escape the project root.
-	if outDirName == "." || outDirName == ".." || strings.HasPrefix(outDirName, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("OutDir must be a subdirectory of ProjectDir: filepath.Rel(%q, %q) produced %q which is invalid in Go import paths", input.ProjectDir, outDir, outDirName)
+		return nil, err
 	}
 
 	// Resolve the auth package import path for generators that need to
@@ -354,9 +347,9 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 	if outDir == "" {
 		outDir = filepath.Join(projectDir, "out")
 	}
-	relative, err := filepath.Rel(projectDir, outDir)
-	if err != nil || gen.ValidatePath(filepath.ToSlash(relative)) != nil {
-		return fmt.Errorf("output directory must be a subdirectory of the project")
+	relative, err := outputRelative(projectDir, outDir)
+	if err != nil {
+		return err
 	}
 	if err := validateStatePaths(plan.NewState); err != nil {
 		return err
@@ -373,32 +366,59 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 			return err
 		}
 	}
-	// Write generated files.
-	for _, f := range plan.GeneratedFiles {
-		baseDir := fileBaseDir(f.Path, outDir, projectDir)
-		fullPath := filepath.Join(baseDir, f.Path)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-			return fmt.Errorf("creating directory for %s: %w", f.Path, err)
-		}
-		content := f.Bytes()
-		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
-			return fmt.Errorf("writing %s: %w", f.Path, err)
+	project, err := os.OpenRoot(projectDir)
+	if err != nil {
+		return fmt.Errorf("opening project root: %w", err)
+	}
+	defer project.Close()
+	if err := checkFilePath(project, relative); err != nil {
+		return err
+	}
+	statePath := filepath.Join(".stego", "state.yaml")
+	if err := checkFileTarget(project, statePath); err != nil {
+		return err
+	}
+	for _, file := range plan.GeneratedFiles {
+		if err := checkFileTarget(project, projectFilePath(relative, file.Path)); err != nil {
+			return err
 		}
 	}
-
-	// Remove orphaned files (tracked in previous state but no longer generated).
-	for _, pf := range plan.Files {
-		if pf.Action == ActionDelete {
-			baseDir := fileBaseDir(pf.Path, outDir, projectDir)
-			fullPath := filepath.Join(baseDir, pf.Path)
-			if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("removing orphaned file %s: %w", pf.Path, err)
+	for _, file := range plan.Files {
+		if err := checkFileTarget(project, projectFilePath(relative, file.Path)); err != nil {
+			return err
+		}
+	}
+	stateData, err := yaml.Marshal(plan.NewState)
+	if err != nil {
+		return fmt.Errorf("encoding state: %w", err)
+	}
+	if err := project.MkdirAll(relative, 0755); err != nil {
+		return err
+	}
+	output, err := project.OpenRoot(relative)
+	if err != nil {
+		return err
+	}
+	defer output.Close()
+	fileRoot := func(path string) *os.Root {
+		if isProjectRootFile(path) {
+			return project
+		}
+		return output
+	}
+	for _, file := range plan.GeneratedFiles {
+		if err := writeRootFile(fileRoot(file.Path), file.Path, file.Bytes()); err != nil {
+			return fmt.Errorf("writing %s: %w", file.Path, err)
+		}
+	}
+	for _, file := range plan.Files {
+		if file.Action == ActionDelete {
+			if err := fileRoot(file.Path).Remove(file.Path); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("removing orphaned file %s: %w", file.Path, err)
 			}
 		}
 	}
-
-	statePath := filepath.Join(projectDir, ".stego", "state.yaml")
-	return SaveState(statePath, plan.NewState)
+	return writeRootFile(project, statePath, stateData)
 }
 
 // fileBaseDir returns the base directory for a file path. Project-root files
