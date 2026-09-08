@@ -90,3 +90,13 @@ type Transaction interface {
 type Transactor interface {
 	WithTransaction(context.Context, func(context.Context, Transaction) error) error
 }
+
+// ResourceLocker runs a read-committed transaction after locking one live row.
+// Lookup must use id or one declared unique string field. A missing row returns
+// ErrNotFound without calling the callback. The callback receives the current
+// row and the transaction store. Only the selected row is locked; rules that
+// depend on other rows must use Transactor or acquire their own required locks.
+// The lock lasts through commit or rollback. The callback is never replayed.
+type ResourceLocker interface {
+	WithLockedResource(context.Context, string, string, string, func(context.Context, Transaction, any) error) error
+}

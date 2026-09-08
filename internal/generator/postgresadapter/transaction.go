@@ -9,13 +9,30 @@ import (
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 //go:embed transaction.go.tmpl
 var transactionSource string
 
 func generateTransaction(ctx gen.Context) (gen.File, error) {
-	data := struct{ Package, OutboxImport, StorageImport string }{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	type lookup struct {
+		Name   string
+		Fields []string
+	}
+	data := struct {
+		Package, OutboxImport, StorageImport string
+		Entities                             []lookup
+	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	for _, entity := range ctx.Entities {
+		item := lookup{Name: entity.Name, Fields: []string{"id"}}
+		for _, field := range entity.Fields {
+			if field.Unique && (field.Type == types.FieldTypeString || field.Type == types.FieldTypeRef || field.Type == types.FieldTypeEnum) {
+				item.Fields = append(item.Fields, field.Name)
+			}
+		}
+		data.Entities = append(data.Entities, item)
+	}
 	if ns := ctx.PeerNamespaces["outbox"]; ns != "" {
 		if err := gen.ValidatePath(ns); err != nil {
 			return gen.File{}, err

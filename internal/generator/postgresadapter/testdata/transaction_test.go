@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -461,5 +462,171 @@ func TestUnavailableNotificationsPreventCommit(t *testing.T) {
 	}
 	if count(t, db, "records") != 0 {
 		t.Fatal("ignored unavailable notification allowed commit")
+	}
+}
+
+func TestLockedResourceSerializesConcurrentChanges(t *testing.T) {
+	for _, prepared := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prepared=%v", prepared), func(t *testing.T) {
+			store, db := database(t, prepared)
+			ctx := context.Background()
+			item := record("shared-lock")
+			if err := store.Create(ctx, "Record", item); err != nil {
+				t.Fatal(err)
+			}
+			var locker contract.ResourceLocker = store
+			const workers = 20
+			start := make(chan struct{})
+			results := make(chan error, workers)
+			var calls atomic.Int32
+			var wait sync.WaitGroup
+			for range workers {
+				wait.Go(func() {
+					<-start
+					results <- locker.WithLockedResource(ctx, "Record", "name", item.Name, func(ctx context.Context, tx contract.Transaction, value any) error {
+						calls.Add(1)
+						row, ok := value.(Record)
+						if !ok {
+							return errors.New("unexpected locked row")
+						}
+						row.Value++
+						if err := tx.Replace(ctx, "Record", row.ID, row); err != nil {
+							return err
+						}
+						return tx.Notify(message(row.ID))
+					})
+				})
+			}
+			close(start)
+			wait.Wait()
+			close(results)
+			for err := range results {
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, err := store.Get(ctx, "Record", item.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.(Record).Value != 1+workers || calls.Load() != workers || count(t, db, "stego_outbox.messages") != workers {
+				t.Fatal("concurrent changes were lost or replayed")
+			}
+		})
+	}
+}
+
+func TestLockedResourceBoundaries(t *testing.T) {
+	store, db := database(t, false)
+	ctx := context.Background()
+	item := record("quoted' OR true --")
+	if err := store.Create(ctx, "Record", item); err != nil {
+		t.Fatal(err)
+	}
+	var called bool
+	if err := store.WithLockedResource(ctx, "Record", "name", item.Name, func(ctx context.Context, tx contract.Transaction, value any) error { called = true; return nil }); err != nil || !called {
+		t.Fatalf("bound lookup value: %v", err)
+	}
+	for _, key := range []string{"value", "name; SELECT 1", "unknown", "deleted_at"} {
+		if err := store.WithLockedResource(ctx, "Record", key, "x", func(context.Context, contract.Transaction, any) error {
+			t.Fatal("invalid lookup called application")
+			return nil
+		}); err == nil {
+			t.Fatal("invalid lookup accepted")
+		}
+	}
+	if err := store.WithLockedResource(ctx, "Unknown", "id", item.ID, func(context.Context, contract.Transaction, any) error { return nil }); err == nil {
+		t.Fatal("unknown entity accepted")
+	}
+	if err := store.WithLockedResource(ctx, "Record", "id", item.ID, nil); err == nil {
+		t.Fatal("nil callback accepted")
+	}
+	veto := errors.New("domain veto")
+	err := store.WithLockedResource(ctx, "Record", "id", item.ID, func(ctx context.Context, tx contract.Transaction, value any) error {
+		row := value.(Record)
+		row.Value = 99
+		if err := tx.Replace(ctx, "Record", row.ID, row); err != nil {
+			return err
+		}
+		if err := tx.Notify(message(row.ID)); err != nil {
+			return err
+		}
+		return veto
+	})
+	if !errors.Is(err, veto) {
+		t.Fatal(err)
+	}
+	current, err := store.Get(ctx, "Record", item.ID)
+	if err != nil || current.(Record).Value != 1 || count(t, db, "stego_outbox.messages") != 0 {
+		t.Fatal("failed callback committed")
+	}
+	if _, err := db.Exec(`ALTER TABLE stego_outbox.messages ADD CONSTRAINT reject_locked_event CHECK(false)`); err != nil {
+		t.Fatal(err)
+	}
+	err = store.WithLockedResource(ctx, "Record", "id", item.ID, func(ctx context.Context, tx contract.Transaction, value any) error {
+		row := value.(Record)
+		row.Value = 98
+		if err := tx.Replace(ctx, "Record", row.ID, row); err != nil {
+			return err
+		}
+		return tx.Notify(message(row.ID))
+	})
+	if err == nil {
+		t.Fatal("failed event committed")
+	}
+	current, err = store.Get(ctx, "Record", item.ID)
+	if err != nil || current.(Record).Value != 1 {
+		t.Fatal("event failure changed resource")
+	}
+	if err := store.Delete(ctx, "Record", item.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{item.ID, "missing"} {
+		err := store.WithLockedResource(ctx, "Record", "id", id, func(context.Context, contract.Transaction, any) error {
+			t.Fatal("missing or deleted resource called application")
+			return nil
+		})
+		if !errors.Is(err, contract.ErrNotFound) {
+			t.Fatalf("missing row: %v", err)
+		}
+	}
+}
+
+func TestLockedResourceWaitHonorsDeadline(t *testing.T) {
+	store, db := database(t, false)
+	ctx := context.Background()
+	item := record("wait")
+	if err := store.Create(ctx, "Record", item); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Rollback()
+	if _, err := holder.Exec(`SELECT id FROM records WHERE id=$1 FOR UPDATE`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	call, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = store.WithLockedResource(call, "Record", "id", item.ID, func(context.Context, contract.Transaction, any) error {
+		t.Fatal("canceled lock called application")
+		return nil
+	})
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("lock did not honor deadline: %v", err)
+	}
+	if err := holder.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithLockedResource(ctx, "Record", "id", item.ID, func(ctx context.Context, tx contract.Transaction, value any) error {
+		nested := tx.(*Store).WithLockedResource(ctx, "Record", "id", item.ID, func(context.Context, contract.Transaction, any) error { return nil })
+		if !errors.Is(nested, ErrTransactionNested) {
+			return errors.New("nested scope accepted")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
