@@ -79,7 +79,7 @@ func TestRootWriteReplacesCompleteFile(t *testing.T) {
 }
 
 func TestApplyRejectsReservedOutputRoots(t *testing.T) {
-	for _, name := range []string{"fills", "fills/generated", ".stego", ".git/objects"} {
+	for _, name := range []string{"fills", "fills/generated", ".stego", ".git/objects", "Go.Mod", "go.sum", "service.yaml", "Fills"} {
 		t.Run(name, func(t *testing.T) {
 			project := t.TempDir()
 			plan := &Plan{GeneratedFiles: []gen.File{{Path: "main.go"}}, NewState: &State{}}

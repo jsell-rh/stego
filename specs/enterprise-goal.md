@@ -60,13 +60,13 @@ output and state. Supplied component settings and defaults now have type and
 schema checks. Output namespaces must be canonical and non-overlapping. Invalid
 output and saved-state paths fail before writes or deletion. Corrupt state no
 longer resets silently. The root suite passes after these changes. Capability
-checks, complete schema semantics, and recoverable apply remain open.
+checks and complete schema semantics remain open.
 
 Apply now checks symbolic links and special files before writes. Rooted file
 operations restrict output writes to their directory. Each file is written to a
 temporary file and renamed after a successful sync and close. This prevents
-partial file content, but does not yet provide a multi-file transaction or
-process locking. Those remain C3 requirements.
+partial file content. Transaction recovery and process locking are described
+below.
 
 The compiler now requires Go 1.26.8. It uses the rooted rename and directory
 operations added in [Go 1.25](https://go.dev/doc/go1.25#os), with a patch release
@@ -85,7 +85,7 @@ versions only when a component requires a higher minimum. It does not lower an
 application's selected version. Existing module settings supply the CLI defaults.
 Invalid requirements and conflicting module names fail before writes. Module
 edits no longer count as generated output drift. The full root suite passes.
-Dependency resolution, checksum verification, and stale-plan checks remain open.
+Dependency resolution as a compiler step remains open.
 
 New fills use canonical generated slot types and include a constructor. An
 unfinished method returns an error. Fill creation rejects unsafe names, existing
@@ -141,8 +141,7 @@ snapshots of output files, orphaned files, the service declaration, module,
 registry configuration, and saved state before its first write. Changed files
 require a new plan. Plans are bound to their project and output directory.
 Input-only changes can update saved state without changing generated code.
-Tracked files have a 64 MiB size limit. Process locking, complete input identities,
-and transaction recovery remain open.
+Tracked files have a 64 MiB size limit. Complete input identities remain open.
 
 Apply now holds an operating-system file lock and checks snapshots again after
 it acquires the lock. Concurrent apply tests allow one writer. A subprocess test
@@ -150,4 +149,16 @@ confirms that a terminated process releases its lock. The compiler tests pass
 with the race detector. Windows amd64 and macOS arm64 test binaries also compile;
 their lock implementations have not been tested at runtime here. The lock file
 stays at `.stego/apply.lock` and must not be removed while STEGO processes run.
-Multi-file transaction recovery remains open.
+
+Apply now saves a versioned transaction record before output changes. The record
+contains the required contents, hashes, and prior file snapshots. Recovery checks
+the complete record and all affected files before it writes. It completes the
+saved output and writes state last. Plan and drift reject a pending transaction.
+Tests cover each failure stage, abrupt subprocess exits, corrupt records,
+conflicting files, source edits after interruption, and final output verification.
+The full root suite passes with the race detector. Windows and macOS test
+binaries compile; runtime and power-loss checks on those systems remain open.
+Unix directory metadata is synced along with file contents. Apply is recoverable;
+it does not give external readers one atomic view of all files. Complete compiler
+and registry identities, dependency resolution, and broader state migration
+support remain C3 work.

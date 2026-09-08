@@ -16,9 +16,9 @@ import (
 const maxTrackedFileBytes = 64 << 20
 
 type fileSnapshot struct {
-	Exists bool
-	Hash   string
-	Mode   fs.FileMode
+	Exists bool        `yaml:"exists"`
+	Hash   string      `yaml:"hash"`
+	Mode   fs.FileMode `yaml:"mode"`
 }
 
 func readSnapshot(root *os.Root, name string, limit int64, keepData bool) ([]byte, fileSnapshot, error) {

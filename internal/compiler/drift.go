@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jsell-rh/stego/internal/parser"
 )
 
 // DriftedFile represents a generated file that has been modified or deleted
@@ -28,8 +30,29 @@ func (r *DriftResult) HasDrift() bool {
 // DetectDrift compares generated files on disk against the hashes recorded in
 // .stego/state.yaml to detect hand-edits to generated files.
 func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
-	statePath := filepath.Join(projectDir, ".stego", "state.yaml")
-	state, err := LoadState(statePath)
+	if err := checkPendingProject(projectDir); err != nil {
+		return nil, err
+	}
+	if outDir == "" {
+		outDir = filepath.Join(projectDir, "out")
+	}
+	relative, err := outputRelative(projectDir, outDir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	data, snapshot, err := readSnapshot(root, ".stego/state.yaml", parser.MaxDocumentBytes, true)
+	if err != nil {
+		return nil, err
+	}
+	if !snapshot.Exists {
+		return nil, fmt.Errorf("no state file found; run 'stego apply' first")
+	}
+	state, err := decodeState(data, ".stego/state.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("loading state: %w", err)
 	}
@@ -54,20 +77,15 @@ func DetectDrift(projectDir, outDir string) (*DriftResult, error) {
 
 	for _, path := range paths {
 		expectedHash := state.LastApplied.Files[path]
-		baseDir := fileBaseDir(path, outDir, projectDir)
-		fullPath := filepath.Join(baseDir, path)
-
-		data, err := os.ReadFile(fullPath)
-		if os.IsNotExist(err) {
+		_, snapshot, err := readSnapshot(root, projectFilePath(relative, path), maxTrackedFileBytes, false)
+		if err != nil {
+			return nil, err
+		}
+		if !snapshot.Exists {
 			result.Deleted = append(result.Deleted, DriftedFile{Path: path})
 			continue
 		}
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", fullPath, err)
-		}
-
-		actualHash := HashBytes(data)
-		if actualHash != expectedHash {
+		if snapshot.Hash != expectedHash {
 			result.Modified = append(result.Modified, DriftedFile{Path: path})
 		}
 	}

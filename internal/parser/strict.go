@@ -37,11 +37,20 @@ func ReadDocument(path string) ([]byte, error) {
 // methods run, because yaml.Decoder.KnownFields does not check Node.Decode.
 // Dynamic maps retain their keys; their values follow the declared value type.
 func DecodeStrict(data []byte, path string, target any) error {
+	return DecodeStrictWithLimit(data, path, target, MaxDocumentBytes)
+}
+
+// DecodeStrictWithLimit permits a separate bound for compiler-owned artifacts.
+// Service and registry declarations always use DecodeStrict's smaller limit.
+func DecodeStrictWithLimit(data []byte, path string, target any, limit int) error {
+	if limit <= 0 {
+		return errorf(path, "document limit must be positive")
+	}
 	typ := reflect.TypeOf(target)
 	if typ == nil || typ.Kind() != reflect.Pointer || reflect.ValueOf(target).IsNil() {
 		return errorf(path, "decode target must be a non-nil pointer")
 	}
-	root, err := readNode(data, path)
+	root, err := readNodeWithLimit(data, path, limit)
 	if err != nil {
 		return err
 	}
@@ -55,8 +64,12 @@ func DecodeStrict(data []byte, path string, target any) error {
 }
 
 func readNode(data []byte, path string) (*yaml.Node, error) {
-	if len(data) > MaxDocumentBytes {
-		return nil, errorf(path, "document exceeds the %d byte limit", MaxDocumentBytes)
+	return readNodeWithLimit(data, path, MaxDocumentBytes)
+}
+
+func readNodeWithLimit(data []byte, path string, limit int) (*yaml.Node, error) {
+	if len(data) > limit {
+		return nil, errorf(path, "document exceeds the %d byte limit", limit)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var document yaml.Node

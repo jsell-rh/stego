@@ -54,6 +54,8 @@ func main() {
 		err = runPlan(os.Args[2:])
 	case "apply":
 		err = runApply(os.Args[2:])
+	case "recover":
+		err = runRecover(os.Args[2:])
 	case "validate":
 		err = runValidate(os.Args[2:])
 	case "drift":
@@ -84,11 +86,12 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Project lifecycle:")
 	fmt.Fprintln(os.Stderr, "  init            Create project from archetype")
-	fmt.Fprintln(os.Stderr, "  fill create     Scaffold a new fill with generated interface")
+	fmt.Fprintln(os.Stderr, "  fill create     Create a fill with shared slot contracts")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Reconciliation:")
 	fmt.Fprintln(os.Stderr, "  plan            Diff desired vs current, show changeset")
 	fmt.Fprintln(os.Stderr, "  apply           Generate/update code")
+	fmt.Fprintln(os.Stderr, "  recover         Complete an interrupted apply")
 	fmt.Fprintln(os.Stderr, "  drift           Detect hand-edits to generated files")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Validation:")

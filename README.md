@@ -116,6 +116,18 @@ New fill methods return an error until you implement them. They use the generate
 slot types and include a constructor and an interface check. STEGO does not
 replace existing fill files.
 
+Apply saves a transaction record before it changes output. If apply stops before
+completion, run `stego recover`. Recovery verifies the record and all affected
+files before it completes the saved changes. A conflicting file stops recovery.
+Plan and drift refuse to report complete output while a transaction is pending.
+Source edits made after an interruption are preserved for the next plan.
+
+Do not remove `.stego/apply.lock` while a STEGO process runs. The file remains
+after normal use; the operating system releases its lock when the process stops.
+One apply can change up to 64 MiB of file contents. Its saved transaction record
+has a 128 MiB limit. Recovery tests cover process interruption on Linux. Other
+programs can still observe separate file replacements during apply.
+
 ## Run the example
 
 A complete example with fills is included in `examples/user-management/`.

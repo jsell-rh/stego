@@ -110,6 +110,9 @@ type ReconcilerInput struct {
 // archetype, running all component generators, and assembling shared files.
 // The plan can then be inspected (plan) or applied (Apply).
 func Reconcile(input ReconcilerInput) (*Plan, error) {
+	if err := checkPendingProject(input.ProjectDir); err != nil {
+		return nil, err
+	}
 	source, err := loadCompilationSource(input)
 	if err != nil {
 		return nil, err
@@ -361,6 +364,10 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 // project-root files like go.mod), removes orphaned files, and saves the
 // new state.
 func Apply(plan *Plan, projectDir, outDir string) error {
+	return applyWithFault(plan, projectDir, outDir, nil)
+}
+
+func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) error {
 	if plan == nil || plan.NewState == nil {
 		return fmt.Errorf("apply requires a complete plan")
 	}
@@ -391,6 +398,9 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 		return fmt.Errorf("opening project root: %w", err)
 	}
 	defer project.Close()
+	if err := pendingTransaction(project); err != nil {
+		return err
+	}
 	if err := checkFilePath(project, relative); err != nil {
 		return err
 	}
@@ -419,50 +429,14 @@ func Apply(plan *Plan, projectDir, outDir string) error {
 		return err
 	}
 	defer lock.Close()
+	if err := pendingTransaction(project); err != nil {
+		return err
+	}
 	// Another apply can finish between the first snapshot check and the lock.
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
 		return err
 	}
-	stateData, err := yaml.Marshal(plan.NewState)
-	if err != nil {
-		return fmt.Errorf("encoding state: %w", err)
-	}
-	if err := project.MkdirAll(relative, 0755); err != nil {
-		return err
-	}
-	output, err := project.OpenRoot(relative)
-	if err != nil {
-		return err
-	}
-	defer output.Close()
-	fileRoot := func(path string) *os.Root {
-		if isProjectRootFile(path) {
-			return project
-		}
-		return output
-	}
-	for _, file := range plan.GeneratedFiles {
-		if err := writeRootFile(fileRoot(file.Path), file.Path, file.Bytes()); err != nil {
-			return fmt.Errorf("writing %s: %w", file.Path, err)
-		}
-	}
-	for _, file := range plan.Files {
-		if file.Action == ActionDelete {
-			if err := fileRoot(file.Path).Remove(file.Path); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("removing orphaned file %s: %w", file.Path, err)
-			}
-		}
-	}
-	return writeRootFile(project, statePath, stateData)
-}
-
-// fileBaseDir returns the base directory for a file path. Project-root files
-// (go.mod) are placed at projectDir; all other generated files go to outDir.
-func fileBaseDir(filePath, outDir, projectDir string) string {
-	if isProjectRootFile(filePath) {
-		return projectDir
-	}
-	return outDir
+	return commitTransaction(project, projectDir, plan, relative, fault)
 }
 
 // isProjectRootFile returns true for files that should be placed at the project
@@ -790,6 +764,9 @@ func computePlan(
 	sort.Slice(planned, func(i, j int) bool {
 		return planned[i].Path < planned[j].Path
 	})
+	if err := validateFileLayout(sortedKeys(snapshots)); err != nil {
+		return nil, err
+	}
 
 	// Compute entity field changes.
 	entityChanges := computeEntityChanges(entities, existingState)
@@ -1097,6 +1074,7 @@ func applyConventionOverrides(base types.Convention, overrides map[string]any) t
 func validateUniqueFilePaths(files []gen.File) error {
 	seen := make(map[string]bool, len(files))
 	var duplicates []string
+	var layout []string
 	for _, f := range files {
 		if err := gen.ValidatePath(f.Path); err != nil {
 			return err
@@ -1105,10 +1083,15 @@ func validateUniqueFilePaths(files []gen.File) error {
 			duplicates = append(duplicates, f.Path)
 		}
 		seen[f.Path] = true
+		name := "out/" + f.Path
+		if isProjectRootFile(f.Path) {
+			name = f.Path
+		}
+		layout = append(layout, name)
 	}
 	if len(duplicates) > 0 {
 		sort.Strings(duplicates)
 		return fmt.Errorf("duplicate generated file paths: %s", strings.Join(duplicates, ", "))
 	}
-	return nil
+	return validateFileLayout(layout)
 }

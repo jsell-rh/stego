@@ -122,3 +122,24 @@ overrides:
 		t.Fatal("dynamic configuration changed")
 	}
 }
+
+func TestStrictArtifactLimitRetainsValidation(t *testing.T) {
+	var value struct {
+		Name string `yaml:"name"`
+	}
+	data := []byte("name: example\n")
+	if err := DecodeStrictWithLimit(data, "artifact", &value, len(data)-1); err == nil {
+		t.Fatal("artifact limit was ignored")
+	}
+	if err := DecodeStrictWithLimit(data, "artifact", &value, len(data)); err != nil {
+		t.Fatal(err)
+	}
+	if err := DecodeStrictWithLimit(data, "artifact", &value, 0); err == nil {
+		t.Fatal("zero limit was accepted")
+	}
+	for _, invalid := range []string{"name: first\nname: second\n", "unknown: value\n"} {
+		if err := DecodeStrictWithLimit([]byte(invalid), "artifact", &value, 1024); err == nil {
+			t.Fatalf("artifact decoding bypassed validation: %s", invalid)
+		}
+	}
+}

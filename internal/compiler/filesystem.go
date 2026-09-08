@@ -18,7 +18,8 @@ func outputRelative(projectDir, outDir string) (string, error) {
 		return "", fmt.Errorf("OutDir must be a subdirectory of ProjectDir")
 	}
 	first := strings.Split(filepath.ToSlash(relative), "/")[0]
-	if first == "fills" || first == ".stego" || first == ".git" {
+	switch strings.ToLower(first) {
+	case "fills", ".stego", ".git", "go.mod", "go.sum", "service.yaml":
 		return "", fmt.Errorf("OutDir must not use reserved directory %q", first)
 	}
 	return relative, nil
@@ -81,6 +82,10 @@ func checkFilePath(root *os.Root, name string) error {
 // Readers cannot observe a truncated file. A failed write retains the old file.
 // This does not make a multi-file apply atomic.
 func writeRootFile(root *os.Root, name string, data []byte) (err error) {
+	return writeRootFileMode(root, name, data, 0644)
+}
+
+func writeRootFileMode(root *os.Root, name string, data []byte, mode os.FileMode) (err error) {
 	if err := checkFilePath(root, name); err != nil {
 		return err
 	}
@@ -93,7 +98,7 @@ func writeRootFile(root *os.Root, name string, data []byte) (err error) {
 		return fmt.Errorf("creating temporary file name: %w", err)
 	}
 	temporary := filepath.Join(directory, ".stego-write-"+hex.EncodeToString(nonce[:]))
-	file, err := root.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	file, err := root.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -103,6 +108,9 @@ func writeRootFile(root *os.Root, name string, data []byte) (err error) {
 		}
 	}()
 	_, writeErr := file.Write(data)
+	if writeErr == nil {
+		writeErr = file.Chmod(mode.Perm())
+	}
 	if writeErr == nil {
 		writeErr = file.Sync()
 	}
