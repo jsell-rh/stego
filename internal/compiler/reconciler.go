@@ -279,6 +279,16 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 			PeerNamespaces:  peerNamespaces,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
 		}
+		if provider, ok := generator.(gen.InputProvider); ok {
+			names, err := provider.InputFiles(ctx.ComponentConfig)
+			if err != nil {
+				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
+			}
+			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName, names, inputSnapshots)
+			if err != nil {
+				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
+			}
+		}
 
 		files, wiring, err := generator.Generate(ctx)
 		if err != nil {

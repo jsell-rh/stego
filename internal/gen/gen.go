@@ -22,8 +22,17 @@ type Generator interface {
 	Generate(ctx Context) ([]File, *Wiring, error)
 }
 
+// InputProvider declares source files before generation. The compiler reads
+// each file once and checks its snapshot again before it applies output.
+type InputProvider interface {
+	InputFiles(config map[string]any) ([]string, error)
+}
+
 // Context carries resolved information that generators need to produce code.
 type Context struct {
+	// Inputs contains compiler-read, project-relative source files.
+	Inputs map[string][]byte
+
 	// Conventions from the archetype (layout, error handling, logging, etc.).
 	Conventions types.Convention
 

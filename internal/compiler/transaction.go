@@ -101,7 +101,9 @@ func prepareTransaction(plan *Plan, relative string) (*transaction, error) {
 	tx := &transaction{Version: 1, OutputDir: filepath.ToSlash(relative), Expected: make(map[string]fileSnapshot)}
 	for name, snapshot := range plan.snapshots {
 		name = filepath.ToSlash(name)
-		if name == "service.yaml" || name == ".stego/config.yaml" {
+		// Source inputs are checked before the transaction starts. Recovery
+		// completes saved output and preserves later source edits.
+		if !isProjectRootFile(name) && name != ".stego/state.yaml" && !strings.HasPrefix(name, tx.OutputDir+"/") {
 			continue
 		}
 		tx.Expected[name] = snapshot
