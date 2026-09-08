@@ -125,7 +125,7 @@ message SlotResult {
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -179,7 +179,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -215,7 +215,7 @@ bindings:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -246,7 +246,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -277,7 +277,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -308,7 +308,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -339,7 +339,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -370,7 +370,7 @@ slots: []
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -406,7 +406,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -453,7 +453,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -505,7 +505,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -536,7 +536,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -575,7 +575,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -606,7 +606,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -653,7 +653,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -702,7 +702,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -734,7 +734,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -809,7 +809,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -865,7 +865,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -898,7 +898,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -929,7 +929,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -961,7 +961,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1009,7 +1009,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1088,7 +1088,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1166,7 +1166,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1199,7 +1199,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1231,7 +1231,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1275,7 +1275,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1314,7 +1314,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1352,7 +1352,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1392,7 +1392,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1430,7 +1430,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1470,7 +1470,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1502,7 +1502,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1535,7 +1535,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1568,7 +1568,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1605,7 +1605,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1637,7 +1637,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1672,7 +1672,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1711,7 +1711,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1751,7 +1751,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1791,7 +1791,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1837,7 +1837,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1870,7 +1870,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1929,7 +1929,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -1982,7 +1982,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2040,7 +2040,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2098,7 +2098,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2157,7 +2157,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2193,7 +2193,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2224,7 +2224,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2261,7 +2261,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2299,7 +2299,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2338,7 +2338,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2375,7 +2375,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2408,7 +2408,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2453,7 +2453,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2505,7 +2505,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2564,7 +2564,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2617,7 +2617,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2670,7 +2670,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2725,7 +2725,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2789,7 +2789,7 @@ mixins:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2842,7 +2842,7 @@ mixins:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2902,7 +2902,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -2958,7 +2958,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3014,7 +3014,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3072,7 +3072,7 @@ qualified_at: 2026-04-01
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3103,7 +3103,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3134,7 +3134,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3166,7 +3166,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3202,7 +3202,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3240,7 +3240,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3275,7 +3275,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3307,7 +3307,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3423,7 +3423,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3462,7 +3462,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3495,7 +3495,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3527,7 +3527,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3559,7 +3559,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3592,7 +3592,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3631,7 +3631,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3664,7 +3664,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3697,7 +3697,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3946,7 +3946,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -3990,7 +3990,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -4023,7 +4023,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -4063,7 +4063,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -4096,7 +4096,7 @@ collections:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{},
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}

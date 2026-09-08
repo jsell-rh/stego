@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/ports"
 	"github.com/jsell-rh/stego/internal/types"
@@ -130,6 +132,14 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	if components != nil {
 		result.Errors = append(result.Errors, validateComponentConfig(svcDecl, components)...)
 		result.Errors = append(result.Errors, validateComponentNamespaces(components)...)
+		for _, name := range sortedKeys(components) {
+			if !generatorAvailable(input.Generators[name]) {
+				result.Errors = append(result.Errors, ValidationError{
+					Category: "generator",
+					Message:  fmt.Sprintf("component %q has no generator in this compiler build", name),
+				})
+			}
+		}
 	}
 
 	// Validate entity field types.
@@ -183,6 +193,20 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	result.Errors = append(result.Errors, fillErrs...)
 
 	return result, nil
+}
+
+// Reject typed nil implementations as well as missing map entries.
+func generatorAvailable(generator gen.Generator) bool {
+	if generator == nil {
+		return false
+	}
+	value := reflect.ValueOf(generator)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return !value.IsNil()
+	default:
+		return true
+	}
 }
 
 // FormatValidation produces a human-readable summary of validation results.

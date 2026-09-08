@@ -177,3 +177,9 @@ cancellation, source additions and deletions, external replacement edits, and
 interrupted commits have regression tests. The fresh service workflow uses this
 command and builds with `-mod=readonly`. The full root race suite passes. This
 does not complete dependency security review or prove a hermetic build.
+
+Validation now rejects active components without a generator in the compiler
+build. Missing and nil implementations fail before any generator runs or output
+changes. The full root race suite passes. Registered health and tracing stubs
+still need real implementations; generator presence alone does not prove that a
+capability works.

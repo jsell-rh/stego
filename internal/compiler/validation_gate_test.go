@@ -55,3 +55,33 @@ func TestSemanticValidationGatesGeneration(t *testing.T) {
 		})
 	}
 }
+
+func TestMissingGeneratorStopsAllGeneration(t *testing.T) {
+	for _, state := range []string{"missing", "nil", "typed nil"} {
+		t.Run(state, func(t *testing.T) {
+			input := snapshotTestInput(t)
+			input.Generators["stub-api"] = rejectedInputGenerator{t}
+			switch state {
+			case "missing":
+				delete(input.Generators, "stub-store")
+			case "nil":
+				input.Generators["stub-store"] = nil
+			case "typed nil":
+				input.Generators["stub-store"] = (*stubGenerator)(nil)
+			}
+			validation, err := Validate(input)
+			if err != nil || !validation.HasErrors() || !strings.Contains(FormatValidation(validation), `component "stub-store" has no generator`) {
+				t.Fatalf("missing backend passed validation: %+v, %v", validation, err)
+			}
+			plan, err := Reconcile(input)
+			if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(validation)) {
+				t.Fatalf("missing backend did not stop compilation: %+v, %v", plan, err)
+			}
+			for _, name := range []string{"out", "go.mod", ".stego"} {
+				if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
+					t.Fatalf("missing generator changed %s: %v", name, err)
+				}
+			}
+		})
+	}
+}

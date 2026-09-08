@@ -260,12 +260,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 
 	for _, compName := range componentNames {
 		comp := components[compName]
-		generator, ok := input.Generators[compName]
-		if !ok {
-			// No generator registered — skip with nil wiring.
-			wirings = append(wirings, ComponentWiring{Name: compName, Wiring: nil})
-			continue
-		}
+		generator := input.Generators[compName]
 
 		ctx := gen.Context{
 			Conventions:     conventions,
