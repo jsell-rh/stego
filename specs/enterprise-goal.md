@@ -162,3 +162,8 @@ Unix directory metadata is synced along with file contents. Apply is recoverable
 it does not give external readers one atomic view of all files. Complete compiler
 and registry identities, dependency resolution, and broader state migration
 support remain C3 work.
+
+The repeated-apply workflow now checks both `go.mod` and `go.sum` after a second
+dependency resolution. This exposed an unused database JSON dependency. The
+PostgreSQL generator now adds that dependency only for JSON fields. The CLI and
+PostgreSQL generator tests pass with the race detector.

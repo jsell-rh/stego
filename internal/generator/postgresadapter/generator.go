@@ -140,8 +140,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"github.com/google/uuid":  "v1.6.0",
 			"gorm.io/gorm":            "v1.25.12",
 			"gorm.io/driver/postgres": "v1.5.11",
-			"gorm.io/datatypes":       "v1.2.5",
 		},
+	}
+	for _, entity := range ctx.Entities {
+		for _, field := range entity.Fields {
+			if field.Type == types.FieldTypeJsonb {
+				wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
+			}
+		}
 	}
 
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {

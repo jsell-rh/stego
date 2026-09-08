@@ -110,8 +110,35 @@ func TestScaffoldDeniesUnimplementedPolicy(t *testing.T) {
 			t.Fatalf("go %v: %v\n%s", args, err, output)
 		}
 	}
+	resolvedModule, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedSums, err := os.ReadFile("go.sum")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := runApply(nil); err != nil {
 		t.Fatal(err)
+	}
+	afterApply, err := os.ReadFile("go.mod")
+	if err != nil || !bytes.Equal(resolvedModule, afterApply) {
+		t.Fatalf("repeated apply changed the resolved module: %v", err)
+	}
+	for _, args := range [][]string{{"test", "-mod=readonly", "./..."}, {"mod", "tidy"}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = project
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("after repeated apply, go %v: %v\n%s", args, err, output)
+		}
+	}
+	afterTidy, err := os.ReadFile("go.mod")
+	if err != nil || !bytes.Equal(resolvedModule, afterTidy) {
+		t.Fatalf("dependency resolution changed the module after repeated apply: %v\nbefore:\n%s\nafter:\n%s", err, resolvedModule, afterTidy)
+	}
+	afterSums, err := os.ReadFile("go.sum")
+	if err != nil || !bytes.Equal(resolvedSums, afterSums) {
+		t.Fatalf("dependency resolution changed checksums after repeated apply: %v", err)
 	}
 	input, err := buildReconcilerInput()
 	if err != nil {

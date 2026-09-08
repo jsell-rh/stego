@@ -130,10 +130,13 @@ func TestBasicGeneration(t *testing.T) {
 	if wiring.GoModRequires == nil {
 		t.Fatal("expected non-nil GoModRequires")
 	}
-	for _, mod := range []string{"gorm.io/gorm", "gorm.io/driver/postgres", "gorm.io/datatypes"} {
+	for _, mod := range []string{"gorm.io/gorm", "gorm.io/driver/postgres"} {
 		if _, ok := wiring.GoModRequires[mod]; !ok {
 			t.Errorf("GoModRequires missing %q", mod)
 		}
+	}
+	if _, exists := wiring.GoModRequires["gorm.io/datatypes"]; exists {
+		t.Error("service without JSON fields requires gorm.io/datatypes")
 	}
 
 	// Verify PostDBCalls includes migration call.
@@ -499,9 +502,13 @@ func TestModelJsonbFieldUsesDatatypesJSON(t *testing.T) {
 	}
 
 	g := &Generator{}
-	files, _, err := g.Generate(ctx)
+	files, wiring, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wiring.GoModRequires["gorm.io/datatypes"] != "v1.2.5" {
+		t.Fatal("JSON fields must require gorm.io/datatypes")
 	}
 
 	content := findFileContent(t, files, "internal/storage/models.go")
