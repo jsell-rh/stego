@@ -355,3 +355,26 @@ with external service accounts. Watch streams, sandbox-count operations, and
 the remaining application workflows are still open. The local gRPC patch
 benchmark averaged 3.297 ms for 100 sequential requests to one Gateway. It
 includes the transaction and outbox insert, but does not establish capacity.
+
+The Gateway sandbox-count RPCs now run through the generated application.
+The count and event commit together. Tests cover control-plane-only access,
+zero flooring, unchanged values, overflow rejection, absent namespaces,
+rollback, REST and gRPC reads, and recovery after restart. A concurrent test
+retains all 32 increments while a regular Gateway patch competes for the row.
+The local variant race suite passed with PostgreSQL required.
+
+This workflow added the common `ResourceLocker` contract. It locks one existing
+resource in a bounded read-committed transaction. Ordinary domain transactions
+remain serializable. Independent Record tests prove complete concurrent updates,
+events, rollback, lookup validation, and lock deadlines. The application build
+also exposed a missing capability in the generated factory interfaces. HTTP
+and gRPC now share the public `Repository` interface. A standalone generation
+path needed a separate missing-resource error reference; its generated package
+now has a compile check. The full STEGO race suite passed.
+
+A local count benchmark averaged 2.035 ms per sequential gRPC request. Concurrent
+requests to one Gateway measured 2.226 ms per operation as throughput. This
+includes row locking and event storage, but is not a production capacity claim.
+Watch streams, service-account cleanup, the control-plane reconciliation port,
+and the other enterprise and application requirements remain open. Relative
+count requests still have no deduplication key in the reference contract.

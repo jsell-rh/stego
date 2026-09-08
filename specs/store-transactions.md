@@ -70,3 +70,31 @@ Domain factories and generated HTTP, gRPC, outbox, and Kafka components now use
 this contract together. The Gateway acceptance tests cover creation, patches,
 and deletion. Explicit production migrations, service-account cleanup, and
 production Kafka deployment checks remain open.
+
+`ResourceLocker.WithLockedResource` supplies a separate scope for operations
+that depend on one existing resource. The caller supplies an entity name, a
+lookup field, a value, and a callback. The lookup field must be `id` or one
+declared unique string, enum, or reference field. Names are checked against the
+generated schema. Lookup values are SQL parameters. Missing and deleted rows
+return `ErrNotFound` without calling application code.
+
+This scope uses read-committed isolation and `SELECT FOR UPDATE`. It waits for
+earlier writers and gives the callback the current locked row. The row remains
+locked through commit or rollback. PostgreSQL documents this behavior in
+[transaction isolation](https://www.postgresql.org/docs/18/transaction-iso.html#XACT-READ-COMMITTED)
+and [row locks](https://www.postgresql.org/docs/18/explicit-locking.html#LOCKING-ROWS).
+The ordinary `WithTransaction` scope still uses serializable isolation.
+
+Both scopes share the deadline, cancellation, notification, rollback, nesting,
+and callback rules. The locking scope does not protect other rows or absent
+rows. Rules that depend on other rows must use the serializable scope or acquire
+the required locks. Hypershell uses the locking scope for its control-plane
+sandbox count, whose access check uses verified identity and whose state change
+depends only on the selected Gateway. Owner-grant operations retain the
+serializable scope.
+
+Independent Record tests run concurrent changes with ordinary and prepared
+statements. They check complete increments and event counts, rollback on callback
+or event failure, invalid lookup fields, bound lookup values, deleted rows,
+lock deadlines, and nested-scope rejection. Generated tests also compile the
+older standalone REST peer path.

@@ -60,5 +60,10 @@ totals, duplicate grants, removed grants, empty filters, and hostile input. The
 same contract supplies Gateway access filters in the Hypershell test bed. No
 entity name or access policy from Hypershell occurs in the filter generator.
 
-Generated handlers do not yet inject domain transaction rules. Typed entity
-contracts and REST/gRPC application behavior remain required work.
+The public `Repository` interface composes `Storage`, `Transactor`, and
+`ResourceLocker`. HTTP and gRPC factory bridges use this same interface, so a
+bridge does not discard a storage capability required by the application.
+Applications can accept a smaller interface. The generated PostgreSQL store
+checks its full repository contract at compile time. Both independent transport
+samples require the locking capability and compile through the generated
+bridges. Typed entity contracts remain open work.
