@@ -14,6 +14,9 @@ import (
 //go:embed queue.go.tmpl
 var queueSource string
 
+//go:embed worker.go.tmpl
+var workerSource string
+
 //go:embed migrations/000001_outbox.sql
 var migration []byte
 
@@ -26,13 +29,15 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidatePath(ns); err != nil {
 		return nil, nil, err
 	}
-	source, err := format.Source([]byte(strings.Replace(queueSource, "package outbox", "package "+path.Base(ns), 1)))
-	if err != nil {
-		return nil, nil, fmt.Errorf("formatting outbox: %w", err)
-	}
 	files := []gen.File{
-		{Path: path.Join(ns, "queue.go"), Content: source},
 		{Path: path.Join(ns, "migrations/000001_outbox.sql"), Content: migration},
+	}
+	for _, template := range []struct{ name, source string }{{"queue.go", queueSource}, {"worker.go", workerSource}} {
+		source, err := format.Source([]byte(strings.Replace(template.source, "package outbox", "package "+path.Base(ns), 1)))
+		if err != nil {
+			return nil, nil, fmt.Errorf("formatting outbox %s: %w", template.name, err)
+		}
+		files = append(files, gen.File{Path: path.Join(ns, template.name), Content: source})
 	}
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err

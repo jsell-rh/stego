@@ -211,3 +211,10 @@ concurrent leases, stale acknowledgements, and abrupt process exits. A small-que
 benchmark is recorded in `durable-events.md`. The queue is not yet a registered
 service capability. Storage integration, Kafka delivery, callback semantics,
 migration management, and production operations remain required C5 work.
+
+The queue generator now includes a worker with bounded concurrency, attempt
+deadlines, retry delays, and shutdown handling. PostgreSQL tests check stable
+delivery IDs, ordered retries, stale leases, unknown destinations, and shutdown
+acknowledgements. Fixed failure codes and counters avoid storing sink error
+text. Handlers must honor context cancellation. Kafka and service integration
+remain open; this is not yet a complete publishing capability.

@@ -35,13 +35,39 @@ The queue has these rules:
   the acknowledgement. Consumers must use the stable ID to prevent duplicate
   effects. The queue does not claim exactly-once delivery to an external service.
 - SQL operations have a five-second deadline. Lease duration is between one
-  second and five minutes. The eventual worker must bound each delivery attempt
-  to less than its lease duration.
+  second and five minutes. The worker bounds each delivery attempt to less than
+  its lease duration.
+
+The generated worker runs a fixed number of delivery tasks. Each task claims one
+message when it is ready to deliver. Defaults are four tasks, a 250 ms idle poll
+interval, a ten-second attempt deadline, and a 30-second lease. Configuration
+checks require enough lease time for both database operations and delivery.
+Retries use exponential delay with jitter and a configured upper bound. Unknown
+destinations remain queued with a fixed failure code.
+Repeated database failures also increase the retry delay. With the default
+configuration, that delay is capped at five seconds and includes jitter.
+
+Cancellation stops new claims and cancels active delivery contexts. The worker
+waits for the handlers to return. A completed delivery can still be acknowledged
+during shutdown. This database operation has a five-second limit. Handlers must
+honor cancellation; the worker does not start detached goroutines to conceal a
+handler that fails to stop. A result returned after an attempt deadline is not
+acknowledged as success.
+
+Worker counters report delivery, retry, database failure, unknown destination,
+and lease-loss totals. They do not contain payloads or raw error messages. The
+queue stores short failure codes. These counters are not yet connected to the
+service telemetry or readiness endpoints.
+
+Claims preserve order for each resource key. External sinks can observe repeat
+deliveries after lease loss or an uncertain acknowledgement. Use the stable ID
+to prevent duplicate effects. Sinks that enforce resource versions must also
+reject an older version after a newer one.
 
 The SQL migration creates a dedicated schema and table. The queue constructor
 does not change the database. Production deployment still needs explicit
 migration versions, separate database permissions, queue monitoring, retention
-rules, worker shutdown, and tested Kafka security settings.
+rules and tested Kafka security settings.
 
 The generated runtime tests use private databases on PostgreSQL 18.6. They check
 transaction commit and rollback, duplicate IDs, ordered retries, concurrent

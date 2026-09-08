@@ -1,0 +1,178 @@
+package outbox
+
+import (
+    "context"
+    "errors"
+    "maps"
+    "math/rand/v2"
+    "sync"
+    "sync/atomic"
+    "time"
+)
+
+// Handler must return only after delivery succeeds or fails. It must honor the
+// context deadline. Use Message.ID to prevent duplicate external effects.
+type Handler func(context.Context, Message) error
+
+type WorkerConfig struct {
+    Concurrency int
+    PollInterval time.Duration
+    AttemptTimeout time.Duration
+    LeaseDuration time.Duration
+    RetryMin time.Duration
+    RetryMax time.Duration
+}
+
+func DefaultWorkerConfig() WorkerConfig {
+    return WorkerConfig{
+        Concurrency: 4, PollInterval: 250*time.Millisecond,
+        AttemptTimeout: 10*time.Second, LeaseDuration: 30*time.Second,
+        RetryMin: time.Second, RetryMax: 5*time.Minute,
+    }
+}
+
+type WorkerStats struct {
+    Delivered uint64
+    Retried uint64
+    DeliveryFailures uint64
+    DatabaseFailures uint64
+    LostLeases uint64
+    UnknownDestinations uint64
+}
+
+type Worker struct {
+    queue *Queue
+    handlers map[string]Handler
+    config WorkerConfig
+    running atomic.Bool
+    delivered atomic.Uint64
+    retried atomic.Uint64
+    deliveryFailures atomic.Uint64
+    databaseFailures atomic.Uint64
+    lostLeases atomic.Uint64
+    unknownDestinations atomic.Uint64
+}
+
+func NewWorker(queue *Queue, handlers map[string]Handler, config WorkerConfig) (*Worker, error) {
+    if queue == nil || queue.db == nil || len(handlers) == 0 { return nil, errors.New("outbox worker requires a queue and handlers") }
+    if config.Concurrency < 1 || config.Concurrency > MaxBatchSize ||
+        config.PollInterval < 10*time.Millisecond || config.PollInterval > time.Minute ||
+        config.AttemptTimeout < 10*time.Millisecond || config.AttemptTimeout > time.Minute ||
+        config.LeaseDuration < config.AttemptTimeout + 2*operationTimeout + time.Second || config.LeaseDuration > 5*time.Minute ||
+        config.RetryMin < 10*time.Millisecond || config.RetryMax < config.RetryMin || config.RetryMax > 24*time.Hour {
+        return nil, errors.New("invalid outbox worker limits")
+    }
+    for destination, handler := range handlers {
+        if !labelPattern.MatchString(destination) || handler == nil { return nil, errors.New("invalid outbox destination handler") }
+    }
+    return &Worker{queue: queue, handlers: maps.Clone(handlers), config: config}, nil
+}
+
+// Stats returns cumulative counters. It includes no payload or error text.
+func (w *Worker) Stats() WorkerStats {
+    return WorkerStats{
+        Delivered: w.delivered.Load(), Retried: w.retried.Load(),
+        DeliveryFailures: w.deliveryFailures.Load(), DatabaseFailures: w.databaseFailures.Load(),
+        LostLeases: w.lostLeases.Load(), UnknownDestinations: w.unknownDestinations.Load(),
+    }
+}
+
+// Run stops new claims on cancellation and waits for active handlers. Database
+// acknowledgements and retries can use up to five more seconds during shutdown.
+// A handler that ignores cancellation can prevent shutdown; no goroutine is
+// detached to hide that failure.
+func (w *Worker) Run(ctx context.Context) error {
+    if ctx == nil { return errors.New("outbox worker requires a context") }
+    if !w.running.CompareAndSwap(false, true) { return errors.New("outbox worker is already running") }
+    defer w.running.Store(false)
+    var workers sync.WaitGroup
+    for i := 0; i < w.config.Concurrency; i++ {
+        workers.Add(1)
+        go func() { defer workers.Done(); w.runOne(ctx) }()
+    }
+    workers.Wait()
+    return nil
+}
+
+func (w *Worker) runOne(ctx context.Context) {
+    var databaseAttempts int64
+    for ctx.Err() == nil {
+        // Claim only when this worker can deliver. A waiting batch must not
+        // consume its lease before a delivery attempt starts.
+        deliveries, err := w.queue.Claim(ctx, 1, w.config.LeaseDuration)
+        if err != nil {
+            if ctx.Err() != nil { return }
+            w.databaseFailures.Add(1)
+            if databaseAttempts < 63 { databaseAttempts++ }
+            delay := jitterBackoff(w.config.PollInterval, max(5*time.Second, w.config.PollInterval), databaseAttempts)
+            if !waitWorker(ctx, delay) { return }
+            continue
+        }
+        databaseAttempts = 0
+        if len(deliveries) == 0 {
+            if !waitWorker(ctx, w.config.PollInterval) { return }
+            continue
+        }
+        w.deliver(ctx, deliveries[0])
+    }
+}
+
+func (w *Worker) deliver(ctx context.Context, delivery Delivery) {
+    handler := w.handlers[delivery.Destination]
+    failureCode := ""
+    if ctx.Err() != nil {
+        failureCode = "worker-stopping"
+    } else if handler == nil {
+        w.unknownDestinations.Add(1)
+        failureCode = "destination-unknown"
+    } else {
+        attempt, cancel := context.WithTimeout(ctx, w.config.AttemptTimeout)
+        err := handler(attempt, delivery.Message)
+        expired := errors.Is(attempt.Err(), context.DeadlineExceeded)
+        cancel()
+        if err != nil || expired {
+            w.deliveryFailures.Add(1)
+            failureCode = "delivery-failed"
+            if expired { failureCode = "delivery-timeout" }
+        }
+    }
+    // Preserve a successful delivery acknowledgement during graceful shutdown.
+    // If the database result is unknown, keep the lease for later recovery.
+    finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), operationTimeout)
+    defer cancel()
+    var changed bool
+    var err error
+    if failureCode == "" {
+        changed, err = w.queue.Acknowledge(finish, delivery.Receipt)
+    } else {
+        changed, err = w.queue.Retry(finish, delivery.Receipt, w.retryDelay(delivery.Attempts), failureCode)
+    }
+    if err != nil { w.databaseFailures.Add(1); return }
+    if !changed { w.lostLeases.Add(1); return }
+    if failureCode == "" { w.delivered.Add(1) } else { w.retried.Add(1) }
+}
+
+func (w *Worker) retryDelay(attempts int64) time.Duration {
+    return jitterBackoff(w.config.RetryMin, w.config.RetryMax, attempts)
+}
+
+func jitterBackoff(minimum, maximum time.Duration, attempts int64) time.Duration {
+    delay := minimum
+    for i := int64(1); i < attempts && delay < maximum; i++ {
+        if delay > maximum/2 { delay = maximum; break }
+        delay *= 2
+    }
+    if delay > maximum { delay = maximum }
+    // Jitter limits simultaneous retries after a shared outage.
+    half := delay/2
+    return half + time.Duration(rand.Int64N(int64(delay-half)+1))
+}
+
+func waitWorker(ctx context.Context, delay time.Duration) bool {
+    timer := time.NewTimer(delay)
+    defer timer.Stop()
+    select {
+    case <-ctx.Done(): return false
+    case <-timer.C: return true
+    }
+}

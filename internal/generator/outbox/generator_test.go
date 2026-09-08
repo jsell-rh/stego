@@ -13,6 +13,12 @@ import (
 //go:embed testdata/queue_test.go
 var queueTests []byte
 
+//go:embed testdata/worker_test.go
+var workerTests []byte
+
+//go:embed testdata/worker_failure_test.go
+var workerFailureTests []byte
+
 func TestGeneratedOutbox(t *testing.T) {
 	files, wiring, err := new(Generator).Generate(gen.Context{OutputNamespace: "queue"})
 	if err != nil {
@@ -32,7 +38,7 @@ func TestGeneratedOutbox(t *testing.T) {
 		}
 	}
 	module := "module example.com/outbox-test\n\ngo 1.26.8\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n)\n"
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
