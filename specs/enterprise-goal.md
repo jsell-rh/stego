@@ -28,8 +28,8 @@ The following milestones define completion:
 | C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Active |
 | C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Active |
 | H1 | Hypershell compatibility baseline | Inventory and executable checks for REST, gRPC, RBAC, watch, SDK, CLI, UI, and deployment contracts | Active |
-| H2 | STEGO Hypershell implementation | Clean generation and tests without rh-trex-ai; reviewed domain code remains outside generated output | Pending |
-| H3 | System verification | Service integration and local deployment checks, security tests, race tests, measured performance, and regeneration checks in CI | Pending |
+| H2 | STEGO Hypershell implementation | Clean generation and tests without rh-trex-ai; reviewed domain code remains outside generated output | Active |
+| H3 | System verification | Service integration and local deployment checks, security tests, race tests, measured performance, and regeneration checks in CI | Active |
 
 Resolve work in small atomic commits. Each behavior change needs a regression
 check that can fail when the behavior is wrong. Use runtime tests for runtime
@@ -271,3 +271,26 @@ The generated worker reads deployment settings, checks the queue, and owns
 publisher startup and cleanup. Explicit constructor resources work with SQL
 and GORM. PostgreSQL and TLS protocol fixture tests cover runtime delivery and
 restart. This does not complete the Gateway acceptance gate.
+
+The variant now contains a Gateway domain service and generated common storage,
+authentication, and event code. PostgreSQL tests prove Gateway, owner grant, and
+event atomicity, including rollback when the grant or event fails. Access tests
+cover owners, viewers, removed grants, admin reads without creation rights,
+opaque denied reads, and filtering before count and pagination. The shared
+relation filter also has Record/Membership tests in STEGO.
+
+A test builds and starts the generated event process. It delivers a Gateway
+event through a mutual-TLS Kafka protocol fixture, stops, and delivers another
+event after restart. A new database connection retains the resource and owner
+grant. Signed-token tests use the generated verifier and configured role claim.
+The variant pins the compiler revision and checks repeated generation, module
+resolution, and drift in CI. A local filtered-page benchmark is recorded in its
+`acceptance/README.md`. Both repositories have passed race checks. The initial
+Gateway commit passed remote CI.
+
+REST and gRPC endpoint implementation and acceptance remain the next work.
+The Gateway gate is still open. Full application models, role projections,
+other placement modes, production Kafka checks, and the other Hypershell
+workflows also remain open. Separate versioned API contracts are the current
+design assumption; the user has been asked whether to use that approach or
+derive API contracts from storage entities.
