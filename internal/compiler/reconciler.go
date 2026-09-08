@@ -348,6 +348,31 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 // project-root files like go.mod), removes orphaned files, and saves the
 // new state.
 func Apply(plan *Plan, projectDir, outDir string) error {
+	if plan == nil || plan.NewState == nil {
+		return fmt.Errorf("apply requires a complete plan")
+	}
+	if outDir == "" {
+		outDir = filepath.Join(projectDir, "out")
+	}
+	relative, err := filepath.Rel(projectDir, outDir)
+	if err != nil || gen.ValidatePath(filepath.ToSlash(relative)) != nil {
+		return fmt.Errorf("output directory must be a subdirectory of the project")
+	}
+	if err := validateStatePaths(plan.NewState); err != nil {
+		return err
+	}
+	// Check every path before the first write or deletion, including old state
+	// entries that no longer occur in the generated file list.
+	for _, file := range plan.GeneratedFiles {
+		if err := gen.ValidatePath(file.Path); err != nil {
+			return err
+		}
+	}
+	for _, file := range plan.Files {
+		if err := gen.ValidatePath(file.Path); err != nil {
+			return err
+		}
+	}
 	// Write generated files.
 	for _, f := range plan.GeneratedFiles {
 		baseDir := fileBaseDir(f.Path, outDir, projectDir)
@@ -987,6 +1012,9 @@ func validateUniqueFilePaths(files []gen.File) error {
 	seen := make(map[string]bool, len(files))
 	var duplicates []string
 	for _, f := range files {
+		if err := gen.ValidatePath(f.Path); err != nil {
+			return err
+		}
 		if seen[f.Path] {
 			duplicates = append(duplicates, f.Path)
 		}

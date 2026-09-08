@@ -2,10 +2,13 @@ package compiler
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/parser"
 	"gopkg.in/yaml.v3"
 )
 
@@ -53,18 +56,19 @@ type ComponentState struct {
 // LoadState reads and parses a .stego/state.yaml file.
 // Returns a zero State (no LastApplied) if the file does not exist.
 func LoadState(path string) (*State, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	data, err := parser.ReadDocument(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return &State{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
 	var s State
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		// State format may have changed (e.g. Entities type evolved);
-		// treat as fresh state so the next apply regenerates it.
-		return &State{}, nil
+	if err := parser.DecodeStrict(data, path, &s); err != nil {
+		return nil, fmt.Errorf("invalid state; restore or migrate the state file: %w", err)
+	}
+	if err := validateStatePaths(&s); err != nil {
+		return nil, fmt.Errorf("invalid state in %s: %w", path, err)
 	}
 	return &s, nil
 }
@@ -72,6 +76,9 @@ func LoadState(path string) (*State, error) {
 // SaveState writes a State to the given path, creating parent directories
 // as needed.
 func SaveState(path string, state *State) error {
+	if err := validateStatePaths(state); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating state directory: %w", err)
 	}
@@ -81,6 +88,21 @@ func SaveState(path string, state *State) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing state file: %w", err)
+	}
+	return nil
+}
+
+func validateStatePaths(state *State) error {
+	if state == nil {
+		return fmt.Errorf("state must not be nil")
+	}
+	if state.LastApplied == nil {
+		return nil
+	}
+	for _, path := range sortedKeys(state.LastApplied.Files) {
+		if err := gen.ValidatePath(path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

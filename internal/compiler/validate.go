@@ -129,6 +129,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	result.Errors = append(result.Errors, validateConventionOverrides(svcDecl.Overrides)...)
 	if components != nil {
 		result.Errors = append(result.Errors, validateComponentConfig(svcDecl, components)...)
+		result.Errors = append(result.Errors, validateComponentNamespaces(components)...)
 	}
 
 	// Validate entity field types.

@@ -53,4 +53,9 @@ Document reads are bounded. The root test suite passes. A 10-second parser fuzz
 run completed 108,504 executions without a failure. All three CLI commands now
 use the same semantic validation gate and declaration snapshot. Regression tests
 check that invalid constraints cannot invoke generators or change existing
-output and state. Component configuration and capability checks remain open.
+output and state. Supplied component settings and defaults now have type and
+schema checks. Output namespaces must be canonical and non-overlapping. Invalid
+output and saved-state paths fail before writes or deletion. Corrupt state no
+longer resets silently. The root suite passes after these changes. Capability
+checks, complete schema semantics, symbolic-link handling, and recoverable apply
+remain open.

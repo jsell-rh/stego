@@ -132,3 +132,16 @@ func TestNamespaceErrorMessage(t *testing.T) {
 		t.Errorf("got: %s\nwant: %s", msg, want)
 	}
 }
+
+func TestUnsafeNamespacesAndFilePaths(t *testing.T) {
+	for _, name := range []string{"", ".", "..", "../fills", "/tmp/output", "internal/../fills", "internal//api", "internal/api/", `C:\output`, `internal\api`, "internal/\x00api", "internal/\napi", "internal/NUL.go", "internal/COM1.go", "internal/api.", "internal/api "} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateNamespace(name, nil); err == nil {
+				t.Fatalf("unsafe namespace %q was accepted", name)
+			}
+			if err := ValidateNamespace("internal", []File{{Path: name}}); err == nil {
+				t.Fatalf("unsafe file path %q was accepted", name)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ package gen
 
 import (
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -244,19 +245,17 @@ type MiddlewareSpec struct {
 // namespace prefix. Namespace is a slash-separated relative path
 // (e.g. "internal/api"). Returns an error listing all violations.
 func ValidateNamespace(namespace string, files []File) error {
-	ns := filepath.ToSlash(filepath.Clean(namespace))
-	if ns == "." || ns == "" {
-		return fmt.Errorf("namespace must be a non-empty relative path, got %q", namespace)
+	if err := ValidatePath(namespace); err != nil {
+		return fmt.Errorf("invalid output namespace: %w", err)
 	}
 
-	prefix := ns + "/"
+	prefix := namespace + "/"
 
 	var violations []string
 	for _, f := range files {
-		clean := filepath.ToSlash(filepath.Clean(f.Path))
 		// The path must either equal the namespace (a file named exactly the
 		// namespace, unlikely but valid) or start with namespace + "/".
-		if clean != ns && !strings.HasPrefix(clean, prefix) {
+		if ValidatePath(f.Path) != nil || (f.Path != namespace && !strings.HasPrefix(f.Path, prefix)) {
 			violations = append(violations, f.Path)
 		}
 	}
@@ -266,6 +265,27 @@ func ValidateNamespace(namespace string, files []File) error {
 			Namespace:  namespace,
 			Violations: violations,
 		}
+	}
+	return nil
+}
+
+// ValidatePath requires one canonical path below an output root. Do not clean
+// paths before this check: cleaning can hide an attempted traversal.
+func ValidatePath(name string) error {
+	invalid := name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, "\\:<>\"|?*") || !filepath.IsLocal(name)
+	for _, r := range name {
+		invalid = invalid || r < 32 || r == 127
+	}
+	for _, part := range strings.Split(name, "/") {
+		invalid = invalid || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ")
+		base := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		invalid = invalid || base == "CON" || base == "PRN" || base == "AUX" || base == "NUL"
+		if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
+			invalid = invalid || (base[3] >= '1' && base[3] <= '9')
+		}
+	}
+	if invalid {
+		return fmt.Errorf("path %q must be a canonical relative path without traversal", name)
 	}
 	return nil
 }

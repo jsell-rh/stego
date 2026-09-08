@@ -177,10 +177,10 @@ func TestReconcile_PlanShowsGenerateForNewProject(t *testing.T) {
 
 	// Verify expected files are in the plan.
 	expectedPaths := map[string]bool{
-		"internal/api/handler.go":      false,
-		"internal/storage/store.go":    false,
-		"main.go":                  false,
-		"go.mod":                       false,
+		"internal/api/handler.go":   false,
+		"internal/storage/store.go": false,
+		"main.go":                   false,
+		"go.mod":                    false,
 	}
 	for _, f := range plan.Files {
 		if _, ok := expectedPaths[f.Path]; ok {
@@ -1567,9 +1567,9 @@ overrides:
 	// jwt-auth should NOT be called (excluded as the replaced default).
 	calledGenerators := make(map[string]bool)
 	trackingGenerators := map[string]gen.Generator{
-		"stub-api":   &trackingStubGenerator{name: "stub-api", called: calledGenerators},
-		"stub-store": &trackingStubGenerator{name: "stub-store", called: calledGenerators},
-		"jwt-auth":   &trackingStubGenerator{name: "jwt-auth", called: calledGenerators},
+		"stub-api":    &trackingStubGenerator{name: "stub-api", called: calledGenerators},
+		"stub-store":  &trackingStubGenerator{name: "stub-store", called: calledGenerators},
+		"jwt-auth":    &trackingStubGenerator{name: "jwt-auth", called: calledGenerators},
 		"rh-sso-auth": &trackingStubGenerator{name: "rh-sso-auth", called: calledGenerators},
 	}
 
@@ -1681,57 +1681,21 @@ bindings:
 
 func TestReconcile_DuplicateFilePathsDetected(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
-
-	// Two generators both produce a file at the same path.
+	// A generator must not emit the same path twice. Cross-component
+	// namespace overlaps are rejected before generators run.
 	generators := map[string]gen.Generator{
-		"stub-api": &stubGenerator{
-			files: []gen.File{
-				{Path: "internal/api/handler.go", Content: []byte("package api\n// from stub-api\n")},
-			},
-			wiring: &gen.Wiring{
-				Imports:      []string{"internal/api"},
-				Constructors: []string{"api.NewHandler()"},
-				Routes:       []string{`mux.Handle("/widgets", handler)`},
-			},
-		},
-		"stub-store": &stubGenerator{
-			files: []gen.File{
-				// Collision: same path as stub-api produces.
-				{Path: "internal/api/handler.go", Content: []byte("package api\n// from stub-store\n")},
-			},
-		},
+		"stub-api": &stubGenerator{files: []gen.File{
+			{Path: "internal/api/handler.go", Content: []byte("package api\n")},
+			{Path: "internal/api/handler.go", Content: []byte("package api\n// duplicate\n")},
+		}},
+		"stub-store": &stubGenerator{},
 	}
-
-	// Override stub-store to have a namespace matching the colliding path.
-	compDir := filepath.Join(registryDir, "components", "stub-store")
-	compYAML := `kind: component
-name: stub-store
-version: 1.0.0
-output_namespace: internal/api
-requires: []
-provides:
-  - storage-adapter
-slots: []
-`
-	if err := os.WriteFile(filepath.Join(compDir, "component.yaml"), []byte(compYAML), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	_, err := Reconcile(ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: registryDir,
-		Generators:  generators,
-		GoVersion:   "1.22",
-		ModuleName:  "github.com/test/svc",
+		ProjectDir: projectDir, RegistryDir: registryDir,
+		Generators: generators, GoVersion: "1.22", ModuleName: "github.com/test/svc",
 	})
-	if err == nil {
-		t.Fatal("expected error when two generators produce files at the same path")
-	}
-	if !strings.Contains(err.Error(), "duplicate") {
-		t.Errorf("expected error to mention 'duplicate', got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "internal/api/handler.go") {
-		t.Errorf("expected error to mention the colliding path, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "duplicate") || !strings.Contains(err.Error(), "internal/api/handler.go") {
+		t.Fatalf("expected a duplicate path diagnostic, got: %v", err)
 	}
 }
 
