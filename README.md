@@ -91,10 +91,23 @@ Add business logic via fills:
 
 ```bash
 stego fill create admin-policy -slot before_create -collection todos
-# implement fills/admin-policy/policy.go
+# add the binding shown below to service.yaml
+stego apply         # generate the shared slot contracts
+# implement fills/admin-policy/fill.go and add its tests
+go mod tidy         # include dependencies used by the fill
 stego test          # run fill tests
-stego apply         # re-generate with fills wired in
 ```
+
+```yaml
+slots:
+  - collection: todos
+    slot: before_create
+    gate: [admin-policy]
+```
+
+New fill methods return an error until you implement them. They use the generated
+slot types and include a constructor and an interface check. STEGO does not
+replace existing fill files.
 
 ## Run the example
 

@@ -21,7 +21,7 @@ The following milestones define completion:
 | ID | Requirement | Acceptance evidence | State |
 | --- | --- | --- | --- |
 | C1 | Strict compiler input and one semantic validation stage | Unknown fields, invalid constraints, duplicate keys, unsupported capabilities, and invalid paths fail before output changes | Active |
-| C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Pending |
+| C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Active |
 | C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Pending |
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Pending |
 | C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
@@ -86,3 +86,11 @@ application's selected version. Existing module settings supply the CLI defaults
 Invalid requirements and conflicting module names fail before writes. Module
 edits no longer count as generated output drift. The full root suite passes.
 Dependency resolution, checksum verification, and stale-plan checks remain open.
+
+New fills use canonical generated slot types and include a constructor. An
+unfinished method returns an error. Fill creation rejects unsafe names, existing
+directories, and symbolic links at the fills directory. The workflow regression
+test creates a real service, binds a new fill, resolves dependencies, builds the
+service, and executes the fill through its generated interface. A second apply
+has no changes or drift. This is a build and contract check, not a production
+runtime or security acceptance result. Full protobuf validation remains open.

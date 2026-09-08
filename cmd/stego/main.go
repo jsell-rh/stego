@@ -272,11 +272,15 @@ func runFillCreate(args []string) error {
 	// Append any remaining args from flag parsing.
 	positional = append(positional, fs.Args()...)
 
-	if len(positional) < 1 {
+	if len(positional) != 1 {
 		fs.Usage()
 		return fmt.Errorf("fill name is required")
 	}
 	fillName := positional[0]
+	packageName, err := fillPackageName(fillName)
+	if err != nil {
+		return err
+	}
 	if *slotName == "" {
 		fs.Usage()
 		return fmt.Errorf("--slot is required")
@@ -341,68 +345,46 @@ func runFillCreate(args []string) error {
 		}
 	}
 
-	// Create fill directory.
-	fillDir := filepath.Join(projectDir, "fills", fillName)
-	if _, err := os.Stat(fillDir); err == nil {
-		return fmt.Errorf("fill directory already exists: %s", fillDir)
+	// Build the scaffold before creating application files.
+	for _, name := range []string{ownerComp.Name, *slotName} {
+		if err := gen.ValidatePath(name); err != nil || strings.Contains(name, "/") {
+			return fmt.Errorf("invalid component or slot path %q", name)
+		}
 	}
-	if err := os.MkdirAll(fillDir, 0755); err != nil {
-		return fmt.Errorf("creating fill directory: %w", err)
+	protoPath := filepath.Join(result.Dir, "components", ownerComp.Name, "slots", *slotName+".proto")
+	protoFile, err := os.Open(protoPath)
+	if err != nil {
+		return fmt.Errorf("opening slot contract: %w", err)
 	}
-
-	// Write fill.yaml.
+	proto, parseErr := slot.ParseProto(protoFile)
+	closeErr := protoFile.Close()
+	if err := errors.Join(parseErr, closeErr); err != nil {
+		return fmt.Errorf("reading slot contract: %w", err)
+	}
+	moduleName, _, err := compiler.ProjectModuleSettings(projectDir, os.Getenv("STEGO_MODULE"), os.Getenv("STEGO_GO_VERSION"))
+	if err != nil {
+		return err
+	}
+	source, err := slot.GenerateFill(packageName, moduleName+"/out/slots", proto)
+	if err != nil {
+		return err
+	}
 	fill := types.Fill{
-		Kind:       "fill",
-		Name:       fillName,
+		Kind: "fill", Name: fillName,
 		Implements: ownerComp.Name + "." + *slotName,
 		Collection: *collectionName,
 	}
 	fillData, err := yaml.Marshal(fill)
 	if err != nil {
-		return fmt.Errorf("marshaling fill.yaml: %w", err)
+		return fmt.Errorf("encoding fill.yaml: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(fillDir, "fill.yaml"), fillData, 0644); err != nil {
-		return fmt.Errorf("writing fill.yaml: %w", err)
+	if err := writeFillScaffold(projectDir, fillName, fillData, source); err != nil {
+		return err
 	}
-
-	// Try to generate interface stub from proto.
-	protoPath := filepath.Join(result.Dir, "components", ownerComp.Name, "slots", *slotName+".proto")
-
-	if _, err := os.Stat(protoPath); err == nil {
-		protoFile, err := os.Open(protoPath)
-		if err != nil {
-			return fmt.Errorf("opening proto file: %w", err)
-		}
-		defer protoFile.Close()
-
-		proto, err := slot.ParseProto(protoFile)
-		if err != nil {
-			return fmt.Errorf("parsing proto: %w", err)
-		}
-
-		// Sanitize fill name to a valid Go package name (replace hyphens with underscores).
-		pkgName := strings.ReplaceAll(fillName, "-", "_")
-
-		iface, err := slot.GenerateInterface(
-			filepath.Join(fillDir, "interface.go"),
-			pkgName,
-			proto,
-			nil,
-		)
-		if err != nil {
-			return fmt.Errorf("generating interface: %w", err)
-		}
-
-		if err := os.WriteFile(filepath.Join(fillDir, "interface.go"), iface.Bytes(), 0644); err != nil {
-			return fmt.Errorf("writing interface.go: %w", err)
-		}
-	}
-
-	fmt.Printf("Created fill %q implementing slot %q\n", fillName, *slotName)
-	fmt.Printf("  fills/%s/fill.yaml\n", fillName)
-	if _, err := os.Stat(filepath.Join(fillDir, "interface.go")); err == nil {
-		fmt.Printf("  fills/%s/interface.go\n", fillName)
-	}
+	fmt.Printf("Created fill %q for slot %q\n", fillName, *slotName)
+	fmt.Printf("  fills/%s/fill.yaml\n  fills/%s/fill.go\n", fillName, fillName)
+	fmt.Println("Bind the fill in service.yaml, then run stego apply to create its slot contracts.")
+	fmt.Println("Implement the fill methods before use. Unfinished methods return an error.")
 	return nil
 }
 

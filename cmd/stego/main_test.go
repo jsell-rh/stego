@@ -106,7 +106,7 @@ func TestRunInitAlreadyExists(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for existing service.yaml")
 	}
-	if !strings.Contains(err.Error(), "already exists") {
+	if !strings.Contains(err.Error(), "already exist") {
 		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
 }
@@ -189,17 +189,17 @@ func TestRunFillCreate(t *testing.T) {
 		t.Errorf("expected implements=rest-api.before_create, got %q", fill.Implements)
 	}
 
-	// Verify interface.go was created.
-	ifacePath := filepath.Join(projDir, "fills", "my-policy", "interface.go")
+	// Verify fill.go was created.
+	ifacePath := filepath.Join(projDir, "fills", "my-policy", "fill.go")
 	ifaceData, err := os.ReadFile(ifacePath)
 	if err != nil {
-		t.Fatalf("interface.go not created: %v", err)
+		t.Fatalf("fill.go not created: %v", err)
 	}
 	if !strings.Contains(string(ifaceData), "BeforeCreateSlot") {
-		t.Error("interface.go should contain BeforeCreateSlot interface")
+		t.Error("fill.go should contain BeforeCreateSlot interface")
 	}
 	if !strings.Contains(string(ifaceData), "package my_policy") {
-		t.Error("interface.go should have sanitized package name my_policy")
+		t.Error("fill.go should have sanitized package name my_policy")
 	}
 }
 
@@ -224,7 +224,7 @@ func TestRunFillCreateAlreadyExists(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for existing fill directory")
 	}
-	if !strings.Contains(err.Error(), "already exists") {
+	if !strings.Contains(err.Error(), "already exist") {
 		t.Errorf("expected 'already exists' error, got: %v", err)
 	}
 }
