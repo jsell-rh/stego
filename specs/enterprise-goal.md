@@ -24,7 +24,7 @@ The following milestones define completion:
 | C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | Active |
 | C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Active |
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, key rotation, scope isolation, and denied request tests | Active |
-| C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Pending |
+| C5 | Correct storage and event behavior | PostgreSQL integration, explicit migrations, concurrency, transactional writes, durable event delivery, and failure tests | Active |
 | C6 | Production runtime support | Health, readiness, tracing, metrics, bounded requests, deadlines, shutdown, and resource limit tests | Active |
 | C7 | Explicit generator contracts | Typed wiring, supported capability checks, typed business extension contracts, and compatibility tests | Pending |
 | H1 | Hypershell compatibility baseline | Inventory and executable checks for REST, gRPC, RBAC, watch, SDK, CLI, UI, and deployment contracts | Active |
@@ -203,3 +203,11 @@ Implement durable event delivery before regeneration, then check both examples
 with apply, dependency resolution, tests, build, and repeated apply. The RH SSO
 example also requires the outstanding authentication review. Do not treat the
 old example output as evidence that those features work.
+
+The first durable queue generator now emits PostgreSQL queue code and an explicit
+migration. Generated runtime tests use PostgreSQL 18.6 and the race detector.
+They check atomic write/notification commit, rollback, retries, delivery order,
+concurrent leases, stale acknowledgements, and abrupt process exits. A small-queue
+benchmark is recorded in `durable-events.md`. The queue is not yet a registered
+service capability. Storage integration, Kafka delivery, callback semantics,
+migration management, and production operations remain required C5 work.

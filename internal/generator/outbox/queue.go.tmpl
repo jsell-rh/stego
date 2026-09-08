@@ -1,0 +1,201 @@
+package outbox
+
+import (
+    "bytes"
+    "context"
+    "crypto/sha256"
+    "database/sql"
+    "encoding/binary"
+    "encoding/json"
+    "errors"
+    "io"
+    "regexp"
+    "sort"
+    "strings"
+    "time"
+    "unicode/utf8"
+
+    "github.com/google/uuid"
+)
+
+const MaxPayloadBytes = 64 << 10
+const MaxBatchSize = 32
+const operationTimeout = 5 * time.Second
+
+var labelPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+
+type Message struct {
+    ID uuid.UUID
+    Destination string
+    ResourceKey string
+    Kind string
+    Payload json.RawMessage
+}
+
+type Receipt struct {
+    ID uuid.UUID
+    Token uuid.UUID
+}
+
+type Delivery struct {
+    Message
+    Receipt Receipt
+    Attempts int64
+    LeaseUntil time.Time
+}
+
+type Queue struct { db *sql.DB }
+
+func New(db *sql.DB) (*Queue, error) {
+    if db == nil { return nil, errors.New("outbox requires a database") }
+    return &Queue{db: db}, nil
+}
+
+// Enqueue records notifications in the application's transaction. Call it once
+// per transaction with the full batch. Commit only if this method succeeds.
+// A rollback removes both the application write and its notifications.
+func Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) error {
+    if tx == nil { return errors.New("outbox requires an application transaction") }
+    if len(messages) == 0 || len(messages) > MaxBatchSize { return errors.New("invalid outbox batch size") }
+    keys := make(map[int64]bool)
+    seen := make(map[uuid.UUID]bool)
+    for _, message := range messages {
+        if err := validateMessage(message); err != nil { return err }
+        if seen[message.ID] { return errors.New("duplicate outbox message ID") }
+        seen[message.ID] = true
+        key := message.Destination + "\x00" + message.ResourceKey
+        hash := sha256.Sum256([]byte("stego-outbox\x00" + key))
+        keys[int64(binary.BigEndian.Uint64(hash[:8]))] = true
+    }
+    // Locks precede sequence allocation and remain held until commit. This
+    // preserves order across concurrent transactions for the same resource.
+    ordered := make([]int64, 0, len(keys))
+    for key := range keys { ordered = append(ordered, key) }
+    sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    for _, key := range ordered {
+        if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil { return err }
+    }
+    for _, message := range messages {
+        if _, err := tx.ExecContext(ctx, `INSERT INTO stego_outbox.messages
+            (id, destination, resource_key, kind, payload) VALUES ($1, $2, $3, $4, $5::jsonb)`,
+            message.ID, message.Destination, message.ResourceKey, message.Kind, string(message.Payload)); err != nil { return err }
+    }
+    return nil
+}
+
+// Claim leases one visible message per resource key. An earlier message blocks
+// that key during delivery and retry. Other keys can progress independently.
+func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
+    if limit < 1 || limit > MaxBatchSize || lease < time.Second || lease > 5*time.Minute {
+        return nil, errors.New("invalid outbox claim limits")
+    }
+    token, err := uuid.NewRandom()
+    if err != nil { return nil, err }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    rows, err := q.db.QueryContext(ctx, `WITH ready AS (
+        SELECT m.id FROM stego_outbox.messages AS m
+        WHERE m.available_at <= clock_timestamp()
+          AND (m.lease_until IS NULL OR m.lease_until <= clock_timestamp())
+          AND NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
+              WHERE earlier.destination = m.destination AND earlier.resource_key = m.resource_key
+                AND earlier.sequence < m.sequence)
+        ORDER BY m.sequence LIMIT $1 FOR UPDATE OF m SKIP LOCKED
+    ) UPDATE stego_outbox.messages AS m
+      SET lease_token = $2, lease_until = clock_timestamp() + $3 * interval '1 millisecond',
+          attempts = m.attempts + 1
+      FROM ready WHERE m.id = ready.id
+      RETURNING m.id, m.destination, m.resource_key, m.kind, m.payload,
+                m.attempts, m.lease_until`, limit, token, lease.Milliseconds())
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var deliveries []Delivery
+    for rows.Next() {
+        var delivery Delivery
+        if err := rows.Scan(&delivery.ID, &delivery.Destination, &delivery.ResourceKey,
+            &delivery.Kind, &delivery.Payload, &delivery.Attempts, &delivery.LeaseUntil); err != nil { return nil, err }
+        delivery.Receipt = Receipt{ID: delivery.ID, Token: token}
+        deliveries = append(deliveries, delivery)
+    }
+    return deliveries, rows.Err()
+}
+
+// Acknowledge removes a delivered message only while this lease is valid.
+// False means ownership was lost. Delivery can then repeat with the same ID.
+func (q *Queue) Acknowledge(ctx context.Context, receipt Receipt) (bool, error) {
+    if receipt.ID == uuid.Nil || receipt.Token == uuid.Nil { return false, errors.New("invalid outbox receipt") }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    result, err := q.db.ExecContext(ctx, `DELETE FROM stego_outbox.messages
+        WHERE id = $1 AND lease_token = $2 AND lease_until > clock_timestamp()`, receipt.ID, receipt.Token)
+    return changed(result, err)
+}
+
+// Retry retains a failed message. Use a short failure code, not an error that
+// can contain credentials or payload data. This method never discards a message.
+func (q *Queue) Retry(ctx context.Context, receipt Receipt, delay time.Duration, failureCode string) (bool, error) {
+    if receipt.ID == uuid.Nil || receipt.Token == uuid.Nil || delay < 0 || delay > 24*time.Hour || !labelPattern.MatchString(failureCode) {
+        return false, errors.New("invalid outbox retry")
+    }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    result, err := q.db.ExecContext(ctx, `UPDATE stego_outbox.messages
+        SET lease_token = NULL, lease_until = NULL,
+            available_at = clock_timestamp() + $3 * interval '1 millisecond', failure_code = $4
+        WHERE id = $1 AND lease_token = $2 AND lease_until > clock_timestamp()`,
+        receipt.ID, receipt.Token, delay.Milliseconds(), failureCode)
+    return changed(result, err)
+}
+
+func changed(result sql.Result, err error) (bool, error) {
+    if err != nil { return false, err }
+    count, err := result.RowsAffected()
+    return count == 1, err
+}
+
+func validateMessage(message Message) error {
+    if message.ID == uuid.Nil || !labelPattern.MatchString(message.Destination) || !labelPattern.MatchString(message.Kind) {
+        return errors.New("invalid outbox message identity or label")
+    }
+    if len(message.ResourceKey) == 0 || len(message.ResourceKey) > 256 || !utf8.ValidString(message.ResourceKey) || strings.ContainsRune(message.ResourceKey, 0) {
+        return errors.New("invalid outbox resource key")
+    }
+    if len(message.Payload) == 0 || len(message.Payload) > MaxPayloadBytes || !utf8.Valid(message.Payload) {
+        return errors.New("invalid outbox payload size or encoding")
+    }
+    decoder := json.NewDecoder(bytes.NewReader(message.Payload))
+    decoder.UseNumber()
+    token, err := decoder.Token()
+    if err != nil || token != json.Delim('{') { return errors.New("outbox payload must be a JSON object") }
+    if err := validateJSONContainer(decoder, '{', 1); err != nil { return err }
+    if _, err := decoder.Token(); err != io.EOF { return errors.New("outbox payload has trailing data") }
+    return nil
+}
+
+func validateJSONContainer(decoder *json.Decoder, opener json.Delim, depth int) error {
+    if depth > 32 { return errors.New("outbox payload nesting exceeds 32 levels") }
+    keys := make(map[string]bool)
+    for decoder.More() {
+        if opener == '{' {
+            token, err := decoder.Token()
+            if err != nil { return err }
+            key, ok := token.(string)
+            if !ok || keys[key] { return errors.New("outbox payload has a duplicate or invalid JSON member") }
+            keys[key] = true
+        }
+        token, err := decoder.Token()
+        if err != nil { return err }
+        if delimiter, ok := token.(json.Delim); ok {
+            if delimiter != '{' && delimiter != '[' { return errors.New("invalid outbox JSON delimiter") }
+            if err := validateJSONContainer(decoder, delimiter, depth+1); err != nil { return err }
+        }
+    }
+    closing, err := decoder.Token()
+    if err != nil { return err }
+    if opener == '{' && closing != json.Delim('}') || opener == '[' && closing != json.Delim(']') {
+        return errors.New("invalid outbox JSON closing delimiter")
+    }
+    return nil
+}
