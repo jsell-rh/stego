@@ -13,6 +13,7 @@ import (
 
 {{if .StorageImport}}var ErrVersionConflict = versioncontract.ErrVersionConflict
 var _ versioncontract.VersionedWriter = (*Store)(nil)
+var _ versioncontract.ObservationWriter = (*Store)(nil)
 {{else}}var ErrVersionConflict = errors.New("resource version changed or resource is absent"){{end}}
 
 // ResourceVersionMigration is an explicit migration for existing tables.
@@ -36,8 +37,8 @@ func verifyResourceVersions(db *gorm.DB) error {
  if parent == nil { parent = context.Background() }
  ctx, cancel := context.WithTimeout(parent, 5*time.Second)
  defer cancel()
- for _, definition := range []struct{ Table, Function string }{
- {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}} },{{end}}
+ for _, definition := range []struct{ Table, Function, Body string; Generation bool }{
+ {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}} },{{end}}
  } {
   var count int64
   err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_trigger t
@@ -49,9 +50,14 @@ func verifyResourceVersions(db *gorm.DB) error {
  AND NOT t.tgisinternal AND t.tgattr=''::pg_catalog.int2vector
  AND p.proname=? AND p.prosrc=? AND NOT p.prosecdef AND l.lanname='plpgsql'
  AND p.proconfig=ARRAY['search_path=pg_catalog']::text[]
- AND a.atttypid='pg_catalog.int8'::pg_catalog.regtype AND a.attnotnull AND NOT a.attisdropped`, definition.Table, definition.Function, {{printf "%q" .Body}}).Scan(&count).Error
+ AND a.atttypid='pg_catalog.int8'::pg_catalog.regtype AND a.attnotnull AND NOT a.attisdropped`, definition.Table, definition.Function, definition.Body).Scan(&count).Error
   if err != nil { return fmt.Errorf("verify resource revision schema: %w", err) }
   if count != 1 { return fmt.Errorf("resource revision migration is required for %s", definition.Table) }
+  if definition.Generation {
+   err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attnotnull AND NOT attisdropped AND ((attname='stego_generation' AND atttypid='pg_catalog.int8'::pg_catalog.regtype) OR (attname='stego_observations' AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype))`,definition.Table).Scan(&count).Error
+   if err != nil { return fmt.Errorf("verify generation schema: %w",err) }
+   if count != 2 { return fmt.Errorf("resource generation migration is required for %s",definition.Table) }
+  }
  }
  return nil
 }
@@ -84,3 +90,66 @@ func (s *Store) ReplaceIfVersion(ctx context.Context, entity, id string, version
  {{end}}default: return errors.New("conditional write requires a versioned entity")
  }
 }
+
+// ObserveIfVersion writes a complete observation group and records its current
+// desired generation. It does not grant access to that group. Authorize the
+// caller and insert events in the same transaction. Repeat external work after
+// a conflict; never give an old observation a newer revision.
+func (s *Store) ObserveIfVersion(ctx context.Context, entity, id string, version int64, group string, values map[string]any) error {
+ if ctx==nil || s==nil || s.db==nil || id=="" || version<1 { return errors.New("observation requires a context, store, identity, and positive revision") }
+ {{if .HasObservations}}
+ var statement string
+ var fields []string
+ var decode func([]byte)([]any,error)
+ switch entity {
+ {{range .Entities}}{{$entity:=.}}{{if .Observations}}case {{printf "%q" .Name}}:
+ switch group {
+ {{range .Observations}}case {{printf "%q" .Name}}:
+ statement={{printf "%q" .SQL}}
+ fields=[]string{ {{.Fields}} }
+ decode=func(data []byte)([]any,error){var row {{$entity.Name}}; if err:=json.Unmarshal(data,&row);err!=nil{return nil,err}; return []any{ {{.Args}} },nil }
+ {{end}}default: return errors.New("unknown observation group")
+ }
+ {{end}}{{end}}default: return errors.New("entity has no observation groups")
+ }
+ if len(values)!=len(fields) { return errors.New("observation must contain exactly its declared fields") }
+ for _,field := range fields { if _,ok:=values[field];!ok { return errors.New("observation must contain exactly its declared fields") } }
+ data,err:=json.Marshal(values)
+ if err!=nil {return err}
+ if len(data)>1<<20 {return errors.New("observation exceeds its byte limit")}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout)
+ defer cancel()
+ args,err:=decode(data)
+ if err!=nil{return err}
+ args=append(args,group,id,id,version)
+ result:=s.db.WithContext(operation).Exec(statement,args...)
+ if result.Error!=nil { {{if .StorageImport}}if isUniqueConstraintError(result.Error) {return versioncontract.ErrConflict};{{end}} return result.Error}
+ if result.RowsAffected!=1 {return ErrVersionConflict}
+ return nil
+ {{else}}return errors.New("entity has no observation groups"){{end}}
+}
+
+{{range .Entities}}{{if .Observations}}
+// ObservedGeneration returns zero for an absent, invalid, or unknown group.
+func (row {{.Name}}) ObservedGeneration(group string) int64 {
+ switch group {
+ {{range .Observations}}case {{printf "%q" .Name}}:
+ {{end}}default: return 0
+ }
+ var observed map[string]json.RawMessage
+ if json.Unmarshal(row.ObservedGenerations,&observed)!=nil {return 0}
+ var value int64
+ if json.Unmarshal(observed[group],&value)!=nil {return 0}
+ if value<1 || value>row.ResourceGeneration {return 0}
+ return value
+}
+
+// CurrentObservations replaces unconfirmed group fields with their declared
+// unobserved value or nil. Stored observations remain available for diagnosis.
+func (row {{.Name}}) CurrentObservations() {{.Name}} {
+ {{range .Observations}}if row.ResourceGeneration<1 || row.ObservedGeneration({{printf "%q" .Name}})!=row.ResourceGeneration {
+ {{range .Projections}}{{if .HasUnobserved}}{ value:={{printf "%q" .Unobserved}}; row.{{.Name}}=&value }{{else}}row.{{.Name}}=nil{{end}}
+ {{end}}}
+ {{end}}return row
+}
+{{end}}{{end}}

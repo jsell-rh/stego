@@ -148,7 +148,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
-	for _, err := range types.ValidateVersioned(svcDecl.Entities) {
+	for _, err := range types.ValidateVersioned(svcDecl.Entities, svcDecl.Collections) {
 		result.Errors = append(result.Errors, ValidationError{Category: "field-type", Message: err.Error()})
 	}
 	for _, entity := range svcDecl.Entities {

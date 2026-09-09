@@ -22,6 +22,13 @@ type Generator struct{}
 // Generate produces HTTP handler files (one per collection), a router file,
 // and an OpenAPI spec. It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	for _, collection := range ctx.Collections {
+		for _, entity := range ctx.Entities {
+			if collection.Entity == entity.Name && len(entity.Observations) > 0 {
+				return nil, nil, fmt.Errorf("collection %s: rest-api does not yet enforce observation ownership and current-generation presentation; use an application policy", collection.Name)
+			}
+		}
+	}
 	if len(ctx.Collections) == 0 {
 		return nil, nil, nil
 	}

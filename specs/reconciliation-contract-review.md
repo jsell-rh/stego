@@ -115,3 +115,9 @@ This closes the tested stale Gateway status write. It does not complete desired
 or observed generations, field ownership, database status writes, durable cleanup,
 cross-process fencing, or production capacity evidence. Continue the work order
 above from those remaining requirements.
+
+The optional [generation and observation contract](resource-generations.md) now
+tracks declared inputs and each observation group. Gateway phase and status use
+a workload group. The application rejects owner writes and presents an older
+observation as pending after an input change. This does not yet cover database
+status, referenced-resource changes, automatic CRUD APIs, or durable finalization.

@@ -23,7 +23,8 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
-	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
+	pending := "Pending \\ ' ?"
+	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, GenerationFields: []string{"name", "desired_config"}, Observations: map[string][]string{"health": {"health"}, "identity": {"identity"}, "evidence": {"certificate", "checked_at"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}, {Name: "health", Type: types.FieldTypeString, Optional: true, Unobserved: &pending}, {Name: "identity", Type: types.FieldTypeString, Optional: true}, {Name: "certificate", Type: types.FieldTypeBytes, Optional: true}, {Name: "checked_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "desired_config", Type: types.FieldTypeJsonb, Optional: true}}}}}
 	low, high, zero, hundred, ratioLow, ratioHigh, singleLow, singleHigh := -5.0, 9.0, 0.0, 100.0, 0.1, 0.9, -1.5, 1.5
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Measurement", Fields: []types.Field{
 		{Name: "score", Type: types.FieldTypeInt32, Min: &zero, Max: &hundred},
@@ -86,6 +87,7 @@ go 1.26.8
 require (
  github.com/google/uuid v1.6.0
  github.com/jackc/pgx/v5 v5.11.0
+ gorm.io/datatypes v1.2.5
  gorm.io/gorm v1.25.12
  gorm.io/driver/postgres v1.5.11
 )

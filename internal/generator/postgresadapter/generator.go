@@ -31,7 +31,7 @@ type Generator struct{}
 // code, SessionFactory, and GenericDao for all entities in the service declaration.
 // It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	if errs := types.ValidateVersioned(ctx.Entities); len(errs) > 0 {
+	if errs := types.ValidateVersioned(ctx.Entities, ctx.Collections); len(errs) > 0 {
 		return nil, nil, errs[0]
 	}
 	if errs := types.ValidateLiveUnique(ctx.Entities, ctx.Collections); len(errs) > 0 {
@@ -199,6 +199,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.PostDBCalls = nil
 	}
 	for _, entity := range ctx.Entities {
+		if len(entity.GenerationFields) > 0 {
+			wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
+		}
 		for _, field := range entity.Fields {
 			if field.Type == types.FieldTypeJsonb {
 				wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
@@ -289,6 +292,9 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	hasRef := false
 
 	for _, e := range entities {
+		if len(e.GenerationFields) > 0 {
+			needDatatypes = true
+		}
 		for _, f := range e.Fields {
 			if f.Type == types.FieldTypeJsonb {
 				needDatatypes = true
@@ -357,10 +363,17 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		if e.Versioned {
 			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
 		}
+		if len(e.GenerationFields) > 0 {
+			fmt.Fprintln(&buf, "ResourceGeneration int64 `json:\"-\" gorm:\"column:stego_generation;type:bigint;not null;default:1;->\"`")
+			fmt.Fprintln(&buf, "ObservedGenerations datatypes.JSON `json:\"-\" gorm:\"column:stego_observations;type:jsonb;not null;default:'{}';->\"`")
+		}
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f)
 			gormTag := buildGormTag(e.Name, f)
+			if e.IsObservationField(f.Name) {
+				gormTag += ";->"
+			}
 			// Append upsert key composite unique indexes.
 			if idxNames, ok := upsertIdxByField[f.Name]; ok {
 				for _, idx := range idxNames {
@@ -900,6 +913,9 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "}\n")
 
 		fmt.Fprintf(buf, "\t\tquery := s.db.WithContext(ctx).Model(&%s{})\n", e.Name)
+		if view := currentObservationTable(e); view != "" {
+			fmt.Fprintf(buf, "query = query.Table(%q)\n", view)
+		}
 		if apiAlias == "stegostorage" {
 			fmt.Fprintf(buf, "\t\tif opts.IncludeDeleted || opts.OnlyDeleted { query = query.Unscoped() }\n")
 			fmt.Fprintf(buf, "\t\tif opts.OnlyDeleted { query = query.Where(\"deleted_at IS NOT NULL\") }\n")
@@ -976,6 +992,12 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\tif len(opts.Fields) > 0 {\n")
 		fmt.Fprintf(buf, "\t\t\t// Always include id; add requested fields that exist.\n")
 		fmt.Fprintf(buf, "\t\t\tselectCols := []string{\"id\"}\n")
+		if e.Versioned {
+			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_revision")`)
+		}
+		if len(e.GenerationFields) > 0 {
+			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_generation", "stego_observations")`)
+		}
 		fmt.Fprintf(buf, "\t\t\tfor _, f := range opts.Fields {\n")
 		fmt.Fprintf(buf, "\t\t\t\tif validCols[f] {\n")
 		fmt.Fprintf(buf, "\t\t\t\t\tselectCols = append(selectCols, f)\n")
@@ -1227,12 +1249,19 @@ func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
 
 	fmt.Fprintf(&buf, "// Migrate runs all registered migrations in order.\n")
 	fmt.Fprintf(&buf, "func Migrate(db *gorm.DB) error {\n")
+	if hasVersioned(entities) {
+		fmt.Fprintln(&buf, `if db==nil || db.Config==nil || db.Statement==nil {return fmt.Errorf("migration requires an initialized database")}`)
+		fmt.Fprintln(&buf, `return db.Transaction(func(db *gorm.DB) error {`)
+	}
 	fmt.Fprintf(&buf, "\tfor _, m := range migrations {\n")
 	fmt.Fprintf(&buf, "\t\tif err := m.Func(db); err != nil {\n")
 	fmt.Fprintf(&buf, "\t\t\treturn fmt.Errorf(\"migration %%s: %%w\", m.Name, err)\n")
 	fmt.Fprintf(&buf, "\t\t}\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\treturn nil\n")
+	if hasVersioned(entities) {
+		fmt.Fprintln(&buf, "})")
+	}
 	fmt.Fprintf(&buf, "}\n\n")
 
 	// Initial migration registration.
@@ -1356,7 +1385,7 @@ func entityHasField(e types.Entity, name string) bool {
 func writeColumns(e types.Entity) []string {
 	var cols []string
 	for _, f := range e.Fields {
-		if !f.Computed {
+		if !f.Computed && !e.IsObservationField(f.Name) {
 			cols = append(cols, f.Name)
 		}
 	}

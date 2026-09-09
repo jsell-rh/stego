@@ -67,8 +67,8 @@ concurrent writers, rollback, prepared statements, migration repeatability,
 immutable identity, retained deletion, startup refusal, and overflow. Generated
 gRPC tests cover strict metadata parsing and preservation of the parent context.
 
-A revision identifies all writes. It does not distinguish desired-state changes
-from observations. Desired generation, observed generation, compiler-enforced
-field ownership, durable finalizers, and cross-process fencing remain separate
-requirements. A revision cannot undo external work that completed after its
+A revision identifies all writes. Optional [desired generations and observation
+groups](resource-generations.md) distinguish declared inputs from observations.
+They require an explicit application policy. Durable finalizers, cross-process
+fencing, and automatic CRUD observation support remain open. A revision cannot undo external work that completed after its
 observation became stale. Periodic repair remains necessary.

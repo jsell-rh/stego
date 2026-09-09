@@ -20,6 +20,13 @@ var ErrVersionConflict = errors.New("resource version changed or resource is abs
 type VersionedWriter interface {
 	ReplaceIfVersion(context.Context, string, string, int64, any) error
 }
+
+// ObservationWriter replaces a complete declared observation group at the
+// observed revision. The caller must authorize that group in the transaction.
+// It cannot write desired fields or another group's fields.
+type ObservationWriter interface {
+	ObserveIfVersion(context.Context, string, string, int64, string, map[string]any) error
+}
 // ErrSerialization reports a transaction that did not commit because of a
 // concurrent change or deadlock. The caller can start a new transaction.
 var ErrSerialization = errors.New("transaction serialization conflict")

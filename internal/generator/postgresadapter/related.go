@@ -74,6 +74,9 @@ func (s *Store) relatedExpression(ctx context.Context, target string, filter ste
  switch filter.Entity {`)
 	for _, entity := range entities {
 		fmt.Fprintf(buf, "case %q: related = s.db.WithContext(ctx).Model(&%s{}).Select(filter.ForeignField)\n", entity.Name, entity.Name)
+		if view := currentObservationTable(entity); view != "" {
+			fmt.Fprintf(buf, "related = related.Table(%q)\n", view)
+		}
 	}
 	fmt.Fprintln(buf, `default: return nil, fmt.Errorf("unknown related entity")
  }

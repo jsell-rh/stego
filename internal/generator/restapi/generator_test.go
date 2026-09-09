@@ -11074,3 +11074,13 @@ func TestGenerate_DiscoveryMetadataCollectionsEmptyArrayNotNull(t *testing.T) {
 		t.Error("metadata missing WidgetList for top-level collection")
 	}
 }
+
+func TestAutomaticRESTRejectsUnsupportedObservationPolicy(t *testing.T) {
+	ctx := basicContext()
+	ctx.Entities[0].Versioned = true
+	ctx.Entities[0].GenerationFields = []string{"name"}
+	ctx.Entities[0].Observations = map[string][]string{"health": {"status"}}
+	if _, _, err := new(Generator).Generate(ctx); err == nil || !strings.Contains(err.Error(), "observation ownership") {
+		t.Fatal("automatic API ignored observation policy", err)
+	}
+}

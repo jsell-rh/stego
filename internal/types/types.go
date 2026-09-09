@@ -82,13 +82,16 @@ type Field struct {
 	Computed        bool      `yaml:"computed,omitempty"`
 	FilledBy        string    `yaml:"filled_by,omitempty"`
 	To              string    `yaml:"to,omitempty"` // for ref type
+	Unobserved      *string   `yaml:"unobserved,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.
 type Entity struct {
-	Name      string  `yaml:"name"`
-	Fields    []Field `yaml:"fields"`
-	Versioned bool    `yaml:"versioned,omitempty"`
+	Name             string              `yaml:"name"`
+	Fields           []Field             `yaml:"fields"`
+	Versioned        bool                `yaml:"versioned,omitempty"`
+	GenerationFields []string            `yaml:"generation_fields,omitempty"`
+	Observations     map[string][]string `yaml:"observations,omitempty"`
 }
 
 // Port represents a named capability that a component requires or provides.
