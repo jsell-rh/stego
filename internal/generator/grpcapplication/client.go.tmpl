@@ -1,4 +1,4 @@
-// Package client supplies bounded, authenticated unary RPC calls.
+// Package client supplies bounded, authenticated RPC calls.
 package client
 
 import (
@@ -11,22 +11,26 @@ import (
  "os"
  "strconv"
  "strings"
+ "sync"
  "syscall"
  "time"
 
  "google.golang.org/grpc"
  "google.golang.org/grpc/codes"
  "google.golang.org/grpc/credentials"
+ "google.golang.org/grpc/metadata"
  "google.golang.org/grpc/status"
 )
 const CallTimeout=5*time.Second
 const MaxRequestBytes=64<<10
 const MaxResponseBytes=64<<10
 const MaxConcurrentCalls=32
+const MaxConcurrentStreams=4
+const StreamTimeout=5*time.Minute
 // Options come from trusted application configuration. Address is host:port.
 // TokenFile is read for each call so the operator can replace an expiring token.
 type Options struct{Address,CAFile,TokenFile string}
-type Client struct{connection *grpc.ClientConn;permits chan struct{}}
+type Client struct{connection *grpc.ClientConn;permits,streams chan struct{}}
 func New(options Options)(*Client,error){
  host,port,err:=net.SplitHostPort(options.Address)
  number,portErr:=strconv.Atoi(port)
@@ -40,7 +44,7 @@ func New(options Options)(*Client,error){
   grpc.WithContextDialer(func(ctx context.Context,address string)(net.Conn,error){return (&net.Dialer{Timeout:CallTimeout}).DialContext(ctx,"tcp",address)}),
  )
  if err!=nil{return nil,errors.New("RPC client configuration failed")}
- return &Client{connection:connection,permits:make(chan struct{},MaxConcurrentCalls)},nil
+ return &Client{connection:connection,permits:make(chan struct{},MaxConcurrentCalls),streams:make(chan struct{},MaxConcurrentStreams)},nil
 }
 func(c *Client)Close(){_ = c.connection.Close()}
 func(c *Client)Invoke(ctx context.Context,method string,request,response any,options ...grpc.CallOption)error{
@@ -50,7 +54,43 @@ func(c *Client)Invoke(ctx context.Context,method string,request,response any,opt
  options=append(options,grpc.MaxCallSendMsgSize(MaxRequestBytes),grpc.MaxCallRecvMsgSize(MaxResponseBytes),grpc.MaxRetryRPCBufferSize(0),grpc.WaitForReady(false))
  return c.connection.Invoke(ctx,method,request,response,options...)
 }
-func(c *Client)NewStream(context.Context,*grpc.StreamDesc,string,...grpc.CallOption)(grpc.ClientStream,error){return nil,status.Error(codes.Unimplemented,"this RPC client supports unary calls only")}
+// NewStream supports one request and a stream of responses. The caller must
+// call Header or RecvMsg to complete the handshake within CallTimeout.
+// The application must reconnect and read current state after a watch ends.
+func(c *Client)NewStream(parent context.Context,desc *grpc.StreamDesc,method string,options ...grpc.CallOption)(grpc.ClientStream,error){
+ if desc==nil||desc.ClientStreams||!desc.ServerStreams{return nil,status.Error(codes.Unimplemented,"RPC client requires a server response stream")}
+ select{case c.streams<-struct{}{}:default:return nil,status.Error(codes.ResourceExhausted,"RPC stream capacity exceeded")}
+ lifetime,stopLifetime:=context.WithTimeout(parent,StreamTimeout)
+ ctx,cancel:=context.WithCancelCause(lifetime)
+ handshake:=time.AfterFunc(CallTimeout,func(){cancel(context.DeadlineExceeded)})
+ var once sync.Once
+ release:=func(){once.Do(func(){handshake.Stop();cancel(context.Canceled);stopLifetime();<-c.streams})}
+ stopRelease:=context.AfterFunc(ctx,release)
+ options=append(options,grpc.MaxCallSendMsgSize(MaxRequestBytes),grpc.MaxCallRecvMsgSize(MaxResponseBytes),grpc.MaxRetryRPCBufferSize(0),grpc.WaitForReady(false),grpc.OnFinish(func(error){release();stopRelease()}))
+ stream,err:=c.connection.NewStream(ctx,desc,method,options...)
+ if err!=nil{release();stopRelease();return nil,err}
+ return &boundedStream{ClientStream:stream,ctx:ctx,handshake:handshake},nil
+}
+type boundedStream struct{
+ grpc.ClientStream
+ ctx context.Context
+ handshake *time.Timer
+ headerOnce sync.Once
+ header metadata.MD
+ headerErr error
+}
+func(s *boundedStream)Context()context.Context{return s.ctx}
+func(s *boundedStream)Header()(metadata.MD,error){
+ s.headerOnce.Do(func(){s.header,s.headerErr=s.ClientStream.Header();s.handshake.Stop()})
+ if context.Cause(s.ctx)==context.DeadlineExceeded{return nil,status.Error(codes.DeadlineExceeded,"RPC stream deadline exceeded")}
+ return s.header.Copy(),s.headerErr
+}
+func(s *boundedStream)RecvMsg(message any)error{
+ if _,err:=s.Header();err!=nil{return err}
+ err:=s.ClientStream.RecvMsg(message)
+ if context.Cause(s.ctx)==context.DeadlineExceeded{return status.Error(codes.DeadlineExceeded,"RPC stream deadline exceeded")}
+ return err
+}
 type fileToken struct{path string}
 func(t fileToken)RequireTransportSecurity()bool{return true}
 func(t fileToken)GetRequestMetadata(ctx context.Context,_ ...string)(map[string]string,error){

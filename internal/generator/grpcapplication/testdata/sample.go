@@ -58,6 +58,10 @@ func (records) Watch(request *pb.Request, stream grpc.ServerStreamingServer[pb.R
 	if stream.Context().Value(identityKey{}) != "alice" {
 		return errors.New("identity was lost")
 	}
+	if request.Text == "silent" {
+		<-stream.Context().Done()
+		return stream.Context().Err()
+	}
 	if request.Text == "hold" {
 		if err := stream.SendHeader(nil); err != nil {
 			return err

@@ -62,14 +62,20 @@ execute REST and gRPC against one generated process and one database, including
 event delivery and restart. These checks do not establish full Hypershell scope
 or production readiness.
 
-The generated `grpcapi/client` package supplies unary outbound RPCs. Application
+The generated `grpcapi/client` package supplies unary and server-streaming RPCs. Application
 configuration supplies a host and port, trusted CA file, and private bearer-token
 file. The client requires TLS 1.3 and checks the server identity. It reads the
 token for each call to support replacement of expiring credentials. Token files
 must be regular files with no group or other permissions. File sizes are bounded.
 
 Each client permits 32 calls, with a five-second deadline and 64 KiB request and
-response limits. Call options cannot raise these limits. Streaming calls fail.
+response limits. Call options cannot raise these limits. Each client also permits
+four server streams, independent of unary calls. Each stream has a five-minute
+lifetime and the same message limits. The caller must call `Header` or `RecvMsg`
+within five seconds to complete the handshake. An idle stream can then remain
+open until its lifetime ends. Cancellation, completion, and client closure release
+stream capacity. Client-streaming and bidirectional calls fail.
+The application must reconnect and list current state after a watch ends.
 The application owns `Close`; a managed HTTP application can connect it to the
 service supervisor. Application-level retries and resolver service configuration
 are disabled. Go gRPC can still retry calls that the server application has not

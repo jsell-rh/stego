@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -279,8 +280,89 @@ func TestRuntime(t *testing.T) {
 	if _, err := outboundClient.Echo(calls, &pb.Request{Text: strings.Repeat("x", rpcclient.MaxRequestBytes+1)}, grpc.MaxCallSendMsgSize(1<<20)); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("client request limit: %v", err)
 	}
-	if _, err := outboundClient.Watch(calls, &pb.Request{}); status.Code(err) != codes.Unimplemented {
-		t.Fatalf("client stream bypassed limits: %v", err)
+	generatedStream, err := outboundClient.Watch(calls, &pb.Request{})
+	if err != nil {
+		t.Fatalf("generated watch client: %v", err)
+	}
+	if event, err := generatedStream.Recv(); err != nil || event.GetText() != "event" {
+		t.Fatalf("generated watch response: %v", err)
+	}
+	if _, err := generatedStream.Recv(); err != io.EOF {
+		t.Fatalf("generated watch completion: %v", err)
+	}
+	streamContext, cancelStreams := context.WithCancel(context.Background())
+	defer cancelStreams()
+	var clientStreams []grpc.ServerStreamingClient[pb.Response]
+	for range rpcclient.MaxConcurrentStreams {
+		stream, err := outboundClient.Watch(streamContext, &pb.Request{Text: "hold"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := stream.Header(); err != nil {
+			t.Fatal(err)
+		}
+		deadline, ok := stream.Context().Deadline()
+		if !ok || time.Until(deadline) > rpcclient.StreamTimeout {
+			t.Fatal("stream has no bounded lifetime")
+		}
+		clientStreams = append(clientStreams, stream)
+	}
+	if _, err := outboundClient.Watch(streamContext, &pb.Request{}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("client stream capacity: %v", err)
+	}
+	if _, err := outboundClient.Echo(calls, &pb.Request{}); err != nil {
+		t.Fatalf("stream capacity blocked unary call: %v", err)
+	}
+	cancelStreams()
+	for _, stream := range clientStreams {
+		if _, err := stream.Recv(); status.Code(err) != codes.Canceled {
+			t.Fatalf("cancel stream: %v", err)
+		}
+	}
+	for _, request := range []string{strings.Repeat("x", rpcclient.MaxRequestBytes+1), "flood"} {
+		stream, err := outboundClient.Watch(calls, &pb.Request{Text: request}, grpc.MaxCallSendMsgSize(2<<20), grpc.MaxCallRecvMsgSize(2<<20))
+		if err == nil {
+			_, err = stream.Recv()
+		}
+		if status.Code(err) != codes.ResourceExhausted {
+			t.Fatalf("stream message limit: %v", err)
+		}
+	}
+	if err := os.WriteFile(tokenFile, []byte("bad"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	denied, err = outboundClient.Watch(calls, &pb.Request{})
+	if err == nil {
+		_, err = denied.Recv()
+	}
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("stream token rotation: %v", err)
+	}
+	if err := os.WriteFile(tokenFile, []byte("good"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	idleContext, cancelIdle := context.WithCancel(context.Background())
+	defer cancelIdle()
+	idle, err := outboundClient.Watch(idleContext, &pb.Request{Text: "hold"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idle.Header(); err != nil {
+		t.Fatal(err)
+	}
+	silent, err := outboundClient.Watch(context.Background(), &pb.Request{Text: "silent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := silent.Recv(); status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("stream handshake deadline: %v", err)
+	}
+	if idle.Context().Err() != nil {
+		t.Fatal("handshake timer stopped an idle watch")
+	}
+	cancelIdle()
+	if _, err := idle.Recv(); status.Code(err) != codes.Canceled {
+		t.Fatalf("idle watch cancellation: %v", err)
 	}
 	if err := os.Chmod(tokenFile, 0644); err != nil {
 		t.Fatal(err)
