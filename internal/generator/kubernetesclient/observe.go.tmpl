@@ -1,0 +1,224 @@
+package {{.Package}}
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+const MaxObservedObjects = 10000
+const MaxObservedBytes = 64 << 20
+const MaxObservedPages = 1000
+
+var ErrWatchAccess = errors.New("Kubernetes watch access was denied")
+var errWatchExpired = errors.New("Kubernetes watch history expired")
+
+type Collection struct{ Path, LabelSelector string }
+
+// Change supplies a complete replacement or one ordered watch event. RESET
+// invalidates previous state. Only REPLACE establishes a complete baseline.
+// The caller owns the objects and must not retain an incomplete replacement.
+type Change struct {
+	Type    string
+	Objects []Object
+	Object  Object
+}
+
+type observerCallbackError struct{ error }
+
+func (e observerCallbackError) Unwrap() error { return e.error }
+
+// Observe lists a consistent, bounded snapshot, then watches its resource
+// version. Reconnects retain that cursor. Expired history requires a new list.
+// The callback is serial and must return promptly. It must not call Observe.
+func (c *Client) Observe(ctx context.Context, collection Collection, consume func(Change) error) error {
+	u, err := url.Parse(collection.Path)
+	if c == nil || ctx == nil || consume == nil || err != nil || len(collection.Path) > 1024 || !(strings.HasPrefix(collection.Path, "/api/") || strings.HasPrefix(collection.Path, "/apis/")) || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(collection.Path, "%\\?#\x00\r\n") || strings.Contains(collection.Path, "//") || len(collection.LabelSelector) > 4096 {
+		return errors.New("invalid Kubernetes collection")
+	}
+	for _, part := range strings.Split(collection.Path, "/") {
+		if part == "." || part == ".." {
+			return errors.New("invalid Kubernetes collection")
+		}
+	}
+	// Do validates the canonical path and origin before each request.
+	rv := ""
+	delay := time.Second
+	for ctx.Err() == nil {
+		before := rv
+		started := time.Now()
+		err := c.observe(ctx, collection, &rv, consume)
+		if errors.Is(err, ErrWatchAccess) {
+			return err
+		}
+		var callback observerCallbackError
+		if errors.As(err, &callback) {
+			return callback.error
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, errWatchExpired) {
+			rv = ""
+		}
+		if before != rv || time.Since(started) > time.Second {
+			delay = time.Second
+		}
+		wait := delay
+		var apiError *APIError
+		if errors.As(err, &apiError) && apiError.RetryAfter > wait {
+			wait = apiError.RetryAfter
+		}
+		wait += time.Duration(rand.Int64N(int64(wait/5) + 1))
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < 16*time.Second {
+			delay *= 2
+		}
+	}
+	return ctx.Err()
+}
+func (c *Client) observe(ctx context.Context, collection Collection, rv *string, consume func(Change) error) error {
+	emit := func(change Change) error {
+		if err := consume(change); err != nil {
+			return observerCallbackError{err}
+		}
+		return nil
+	}
+	query := url.Values{"labelSelector": {collection.LabelSelector}}
+	if *rv == "" {
+		if err := emit(Change{Type: "RESET"}); err != nil {
+			return err
+		}
+		query.Set("limit", "100")
+		objects := []Object{}
+		seen := map[string]bool{}
+		cursors := map[string]bool{}
+		version := ""
+		bytes := 0
+		for pages := 1; ; pages++ {
+			if pages > MaxObservedPages {
+				return errors.New("Kubernetes snapshot exceeds its page limit")
+			}
+			page, code, err := c.Request(ctx, http.MethodGet, collection.Path+"?"+query.Encode(), nil)
+			if code == 401 || code == 403 {
+				return ErrWatchAccess
+			}
+			if code == 410 {
+				return errWatchExpired
+			}
+			if err != nil {
+				return err
+			}
+			items, ok := Nested(page, "items").([]any)
+			current := String(page, "metadata", "resourceVersion")
+			if code != 200 || !ok || len(items) > 100 || current == "" || (version != "" && version != current) {
+				return errors.New("invalid Kubernetes list snapshot")
+			}
+			version = current
+			for _, value := range items {
+				object, ok := value.(map[string]any)
+				uid := String(object, "metadata", "uid")
+				if !ok || uid == "" || String(object, "metadata", "resourceVersion") == "" || seen[uid] {
+					return errors.New("invalid Kubernetes list identity")
+				}
+				encoded, err := json.Marshal(object)
+				if err != nil {
+					return err
+				}
+				bytes += len(encoded)
+				if len(objects) >= MaxObservedObjects || bytes > MaxObservedBytes {
+					return errors.New("Kubernetes snapshot exceeds its limit")
+				}
+				seen[uid] = true
+				objects = append(objects, Object(object))
+			}
+			cursor := String(page, "metadata", "continue")
+			if cursor == "" {
+				break
+			}
+			if len(cursor) > 8192 || cursors[cursor] {
+				return errors.New("Kubernetes list cursor did not advance")
+			}
+			cursors[cursor] = true
+			query.Set("continue", cursor)
+		}
+		if err := emit(Change{Type: "REPLACE", Objects: objects}); err != nil {
+			return err
+		}
+		*rv = version
+	}
+	query.Del("limit")
+	query.Del("continue")
+	query.Set("watch", "true")
+	query.Set("resourceVersion", *rv)
+	query.Set("allowWatchBookmarks", "true")
+	query.Set("timeoutSeconds", "240")
+	token, err := readToken(c.tokenFile)
+	if err != nil {
+		return err
+	}
+	headers := http.Header{"Authorization": {"Bearer " + token}, "Accept": {"application/json"}}
+	response, err := c.client.Stream(ctx, collection.Path+"?"+query.Encode(), headers, func(_ context.Context, frame []byte) error {
+		event, err := decodeObject(frame)
+		if err != nil {
+			return errors.New("invalid Kubernetes watch event")
+		}
+		object, ok := Nested(event, "object").(map[string]any)
+		if !ok {
+			return errors.New("missing Kubernetes watch object")
+		}
+		kind := String(event, "type")
+		if kind == "ERROR" {
+			code, _ := object["code"].(json.Number)
+			switch code.String() {
+			case "410":
+				return errWatchExpired
+			case "401", "403":
+				return ErrWatchAccess
+			}
+			return errors.New("Kubernetes watch returned an error")
+		}
+		version := String(object, "metadata", "resourceVersion")
+		if version == "" {
+			return errors.New("Kubernetes watch has no version")
+		}
+		switch kind {
+		case "BOOKMARK":
+		case "ADDED", "MODIFIED", "DELETED":
+			if String(object, "metadata", "uid") == "" {
+				return errors.New("Kubernetes watch has no identity")
+			}
+			if err := emit(Change{Type: kind, Object: object}); err != nil {
+				return err
+			}
+		default:
+			return errors.New("unsupported Kubernetes watch event")
+		}
+		*rv = version
+		return nil
+	})
+	if response.StatusCode == 401 || response.StatusCode == 403 {
+		return ErrWatchAccess
+	}
+	if response.StatusCode == 410 {
+		return errWatchExpired
+	}
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != 200 {
+		return &APIError{Method: http.MethodGet, StatusCode: response.StatusCode, RetryAfter: retryAfter(response.Header.Get("Retry-After"))}
+	}
+	return nil
+}

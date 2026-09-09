@@ -158,3 +158,72 @@ func TestHTTPSCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPSStreamFramesLimitsAndCancellation(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/frames":
+			w.Write([]byte("first\n"))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		case "/large":
+			w.Write([]byte(strings.Repeat("x", client.MaxResponseBytes+1) + "\n"))
+		case "/crlf-total":
+			frame := []byte(strings.Repeat("x", 1022) + "\r\n")
+			for n := 0; n < client.MaxStreamBytes/1024+1; n++ {
+				if _, err := w.Write(frame); err != nil {
+					return
+				}
+			}
+		case "/total":
+			frame := []byte(strings.Repeat("x", 1<<20) + "\n")
+			for n := 0; n < 65; n++ {
+				if _, err := w.Write(frame); err != nil {
+					return
+				}
+			}
+		case "/redirect":
+			http.Redirect(w, r, "https://untrusted.example/secret", 307)
+		}
+	}))
+	defer server.Close()
+	c := secureClient(t, server)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	seen := false
+	_, err := c.Stream(ctx, "/frames", nil, func(ctx context.Context, frame []byte) error { seen = string(frame) == "first"; cancel(); return nil })
+	if err == nil || !seen {
+		t.Fatal("stream buffered its live frame", seen, err)
+	}
+	for _, path := range []string{"/large", "/total", "/crlf-total", "/redirect", "//untrusted.example/secret", "/../secret"} {
+		if _, err := c.Stream(context.Background(), path, nil, func(context.Context, []byte) error { return nil }); err == nil {
+			t.Fatal("unbounded or redirected stream", path)
+		}
+	}
+	if _, err := c.Stream(context.Background(), "/frames", nil, nil); err == nil {
+		t.Fatal("missing callback accepted")
+	}
+}
+
+func TestHTTPSCloseStopsActiveStream(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("open\n"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	c := secureClient(t, server)
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.Stream(context.Background(), "/stream", nil, func(context.Context, []byte) error { c.Close(); return nil })
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("close did not cancel stream")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close left a live stream")
+	}
+}

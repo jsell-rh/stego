@@ -2,6 +2,7 @@ package {{.Package}}
 
 import (
  "bytes"
+ "bufio"
  "context"
  "crypto/tls"
  "crypto/x509"
@@ -21,6 +22,8 @@ const MaxRequestBytes = 1 << 20
 const MaxResponseBytes = 4 << 20
 const RequestTimeout = 5 * time.Second
 const MaxConcurrentRequests = 16
+const StreamTimeout = 5 * time.Minute
+const MaxStreamBytes = 64 << 20
 
 type Options struct { BaseURL, CAFile string }
 // Client sends bounded requests to one configured HTTPS origin and path prefix.
@@ -31,6 +34,8 @@ type Client struct {
  transport *http.Transport
  permits chan struct{}
  closed atomic.Bool
+ lifetime context.Context
+ stop context.CancelFunc
 }
 
 func New(options Options)(*Client,error){
@@ -46,7 +51,8 @@ func New(options Options)(*Client,error){
    MaxIdleConns:MaxConcurrentRequests,MaxIdleConnsPerHost:MaxConcurrentRequests,
    IdleConnTimeout:30*time.Second,DisableCompression:true,
  }
- return &Client{base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),http:&http.Client{Transport:transport,Timeout:RequestTimeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
+ lifetime,stop:=context.WithCancel(context.Background())
+ return &Client{lifetime:lifetime,stop:stop,base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),http:&http.Client{Transport:transport,Timeout:RequestTimeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
 }
 func safePath(encoded string)bool{
  for _,segment:=range strings.Split(encoded,"/"){
@@ -55,11 +61,21 @@ func safePath(encoded string)bool{
  }
  return true
 }
-func(c *Client)Close(){if c!=nil{c.closed.Store(true);c.transport.CloseIdleConnections()}}
+func(c *Client)Close(){if c!=nil{c.closed.Store(true);if c.stop!=nil{c.stop()};c.transport.CloseIdleConnections()}}
 // Response contains a complete, bounded response. The transport closes the body.
 type Response struct {StatusCode int;Header http.Header;Body []byte}
 // Do accepts a path relative to the configured base URL and an in-memory body.
 func(c *Client)Do(ctx context.Context,method,relative string,headers http.Header,body []byte)(Response,error){
+ return c.exchange(ctx,method,relative,headers,body,nil)
+}
+// Stream reads newline-delimited frames with the same origin and TLS controls
+// as Do. The callback must honor its context. Frames are delivered in order.
+// A failure can follow delivered frames; the protocol must retain its cursor.
+func(c *Client)Stream(ctx context.Context,relative string,headers http.Header,consume func(context.Context,[]byte)error)(Response,error){
+ if consume==nil{return Response{},errors.New("HTTP stream callback is required")}
+ return c.exchange(ctx,http.MethodGet,relative,headers,nil,consume)
+}
+func(c *Client)exchange(ctx context.Context,method,relative string,headers http.Header,body []byte,consume func(context.Context,[]byte)error)(Response,error){
  failure:=Response{}
  if c==nil || c.closed.Load() || ctx==nil{return failure,errors.New("HTTP client is unavailable")}
  u,err:=url.Parse(relative)
@@ -69,18 +85,36 @@ func(c *Client)Do(ctx context.Context,method,relative string,headers http.Header
  headerBytes:=0
  for name,values:=range headers{headerBytes+=len(name);switch strings.ToLower(name){case "host","connection","transfer-encoding","content-length","trailer","upgrade","proxy-authorization","idempotency-key","x-idempotency-key":return failure,errors.New("unsupported HTTP request header")};for _,value:=range values{headerBytes+=len(value);if headerBytes>32768 || len(value)>16384{return failure,errors.New("HTTP request header exceeds limit")}}}
  select{case c.permits<-struct{}{}:defer func(){<-c.permits}();default:return failure,errors.New("HTTP client capacity exceeded")}
- ctx,cancel:=context.WithTimeout(ctx,RequestTimeout);defer cancel()
+ timeout:=RequestTimeout;if consume!=nil{timeout=StreamTimeout}
+ ctx,cancel:=context.WithTimeout(ctx,timeout);defer cancel()
+ stopClose:=context.AfterFunc(c.lifetime,cancel);defer stopClose()
  address:=strings.TrimRight(c.base.String(),"/")+relative
  request,err:=http.NewRequestWithContext(ctx,method,address,bytes.NewReader(body));if err!=nil{return failure,errors.New("invalid HTTP request")}
  request.Header=headers.Clone();request.GetBody=nil
- response,err:=c.http.Do(request)
+ client:=*c.http;client.Timeout=timeout
+ response,err:=client.Do(request)
  if err!=nil{return failure,errors.New("HTTP service request failed")}
  defer response.Body.Close()
+ if response.StatusCode>=300 && response.StatusCode<400{return failure,errors.New("HTTP service redirect is forbidden")}
+ if consume!=nil && response.StatusCode==http.StatusOK{
+   limited:=&io.LimitedReader{R:response.Body,N:MaxStreamBytes+1}
+   scanner:=bufio.NewScanner(limited);scanner.Buffer(make([]byte,4096),MaxResponseBytes+2)
+   for scanner.Scan(){
+     frame:=scanner.Bytes()
+     if len(frame)>MaxResponseBytes || limited.N==0{return failure,errors.New("HTTP stream exceeds its limit")}
+     if err:=ctx.Err();err!=nil{return failure,err}
+     if len(bytes.TrimSpace(frame))==0{continue}
+     if err:=consume(ctx,frame);err!=nil{return failure,err}
+   }
+   if limited.N==0{return failure,errors.New("HTTP stream exceeds its limit")}
+   if scanner.Err()!=nil{return failure,errors.New("invalid HTTP stream frame")}
+   if err:=ctx.Err();err!=nil{return failure,err}
+   return Response{StatusCode:response.StatusCode,Header:response.Header.Clone()},nil
+ }
  data,err:=io.ReadAll(io.LimitReader(response.Body,MaxResponseBytes+1))
  if err!=nil || len(data)>MaxResponseBytes{return failure,errors.New("invalid HTTP response body")}
  if ctx.Err()!=nil{return failure,errors.New("HTTP service request canceled")}
  if deadline,ok:=ctx.Deadline();ok && !time.Now().Before(deadline){return failure,errors.New("HTTP service request expired")}
- if response.StatusCode>=300 && response.StatusCode<400{return failure,errors.New("HTTP service redirect is forbidden")}
  return Response{StatusCode:response.StatusCode,Header:response.Header.Clone(),Body:data},nil
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +14,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 )
 
 func fixture(t *testing.T, handler http.HandlerFunc) (*Client, string) {
@@ -242,5 +245,225 @@ func TestIntegerPrecisionAndResponseValidation(t *testing.T) {
 		if _, _, err := client.Request(context.Background(), "GET", path, nil); err == nil {
 			t.Fatalf("accepted invalid object at %s", path)
 		}
+	}
+}
+
+func TestWidgetObserveSnapshotReconnectAndExpiredHistory(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	var mu sync.Mutex
+	lists, watches := 0, 0
+	object := func(id, version string) Object {
+		return Object{"metadata": Object{"uid": id, "resourceVersion": version}}
+	}
+	c, token := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		q := r.URL.Query()
+		if q.Get("labelSelector") != "example.com/widget" {
+			t.Error("lost selector")
+		}
+		if q.Get("watch") != "true" {
+			lists++
+			if q.Get("limit") != "100" {
+				t.Error("unbounded list")
+			}
+			switch lists {
+			case 1:
+				json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "100", "continue": "page2"}, "items": []Object{object("one", "90")}})
+			case 2:
+				if q.Get("continue") != "page2" {
+					t.Error("lost list cursor")
+				}
+				json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "100"}, "items": []Object{object("two", "95")}})
+			case 3:
+				json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "200"}, "items": []Object{object("two", "180")}})
+			default:
+				t.Error("unexpected list")
+			}
+			return
+		}
+		watches++
+		if q.Get("limit") != "" || q.Get("continue") != "" {
+			t.Error("watch inherited list paging")
+		}
+		switch watches {
+		case 1:
+			if q.Get("resourceVersion") != "100" {
+				t.Error("watch lost snapshot version")
+			}
+			json.NewEncoder(w).Encode(Object{"type": "MODIFIED", "object": object("one", "101")})
+			json.NewEncoder(w).Encode(Object{"type": "BOOKMARK", "object": Object{"metadata": Object{"resourceVersion": "102"}}})
+		case 2:
+			if q.Get("resourceVersion") != "102" || r.Header.Get("Authorization") != "Bearer two" {
+				t.Error("watch lost cursor or token rotation")
+			}
+			json.NewEncoder(w).Encode(Object{"type": "ERROR", "object": Object{"code": 410}})
+		case 3:
+			if q.Get("resourceVersion") != "200" {
+				t.Error("expired history did not relist")
+			}
+			json.NewEncoder(w).Encode(Object{"type": "DELETED", "object": object("two", "201")})
+		default:
+			t.Error("unexpected watch")
+		}
+	})
+	kinds := []string{}
+	cache := map[string]bool{}
+	err := c.Observe(ctx, Collection{Path: "/apis/example.com/v1/widgets", LabelSelector: "example.com/widget"}, func(change Change) error {
+		kinds = append(kinds, change.Type)
+		switch change.Type {
+		case "RESET":
+			cache = map[string]bool{}
+		case "REPLACE":
+			for _, o := range change.Objects {
+				cache[String(o, "metadata", "uid")] = true
+			}
+		case "MODIFIED":
+			if err := os.WriteFile(token, []byte("two"), 0600); err != nil {
+				return err
+			}
+		case "DELETED":
+			delete(cache, String(change.Object, "metadata", "uid"))
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) || len(cache) != 0 || !reflect.DeepEqual(kinds, []string{"RESET", "REPLACE", "MODIFIED", "RESET", "REPLACE", "DELETED"}) {
+		t.Fatal(err, kinds, cache)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if lists != 3 || watches != 3 {
+		t.Fatal(lists, watches)
+	}
+}
+
+func TestWidgetObserveRejectsPartialAndDeniedSnapshots(t *testing.T) {
+	for _, mode := range []string{"version", "duplicate", "cursor", "denied", "watch-denied"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			replaced := false
+			c, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if mode == "denied" || (mode == "watch-denied" && r.URL.Query().Get("watch") == "true") {
+					w.WriteHeader(403)
+					return
+				}
+				version, uid, cursor := "10", "one", "next"
+				if calls > 1 {
+					uid = "two"
+					cursor = ""
+					if mode == "version" {
+						version = "11"
+					}
+					if mode == "duplicate" {
+						uid = "one"
+					}
+					if mode == "cursor" {
+						cursor = "next"
+					}
+				}
+				if mode == "watch-denied" {
+					cursor = ""
+				}
+				json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": version, "continue": cursor}, "items": []Object{{"metadata": Object{"uid": uid, "resourceVersion": "1"}}}})
+			})
+			rv := ""
+			err := c.observe(context.Background(), Collection{Path: "/api/v1/widgets"}, &rv, func(ch Change) error {
+				if ch.Type == "REPLACE" {
+					replaced = true
+				}
+				return nil
+			})
+			if err == nil || (mode != "watch-denied" && replaced) {
+				t.Fatal("accepted incomplete or denied snapshot", err, replaced)
+			}
+			if (mode == "denied" || mode == "watch-denied") && !errors.Is(err, ErrWatchAccess) {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+func TestWidgetObserveCallbackFailureAndInvalidPaths(t *testing.T) {
+	c, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { t.Error("invalid collection reached server") })
+	for _, path := range []string{"https://other.test/api/v1/widgets", "/api/../widgets", "/api/%2e%2e/widgets", "/api/v1/widgets?watch=true", "/api//widgets"} {
+		if err := c.Observe(context.Background(), Collection{Path: path}, func(Change) error { return nil }); err == nil {
+			t.Fatal(path)
+		}
+	}
+	stopped := errors.New("application stopped")
+	if err := c.Observe(context.Background(), Collection{Path: "/api/v1/widgets"}, func(Change) error { return stopped }); !errors.Is(err, stopped) {
+		t.Fatal(err)
+	}
+}
+
+func TestRateLimitMetadataAndRetryDelay(t *testing.T) {
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(429)
+		_, _ = w.Write([]byte("private error"))
+	})
+	_, code, err := client.Request(context.Background(), "GET", "/api/v1/pods", nil)
+	var api *APIError
+	if code != 429 || !errors.As(err, &api) || api.RetryAfter != 2*time.Minute || api.StatusCode != 429 || api.Error() != "Kubernetes GET failed with status 429" {
+		t.Fatal(code, err)
+	}
+	for _, test := range []struct {
+		input string
+		want  time.Duration
+	}{{"-1", 0}, {"invalid", 0}, {"999999", time.Hour}, {"1", time.Second}} {
+		if got := retryAfter(test.input); got != test.want {
+			t.Fatal(test.input, got)
+		}
+	}
+	if got := retryAfter(time.Now().Add(30 * time.Second).UTC().Format(http.TimeFormat)); got < 28*time.Second || got > 30*time.Second {
+		t.Fatal(got)
+	}
+}
+
+func TestWidgetObserveEmptyPagesAndSnapshotLimits(t *testing.T) {
+	for _, mode := range []string{"empty-page", "page-limit", "object-limit"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			c, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				items := []Object{}
+				cursor := fmt.Sprint(calls)
+				if mode == "empty-page" && calls == 2 {
+					cursor = ""
+					items = append(items, Object{"metadata": Object{"uid": "one", "resourceVersion": "1"}})
+				}
+				if mode == "object-limit" {
+					for n := 0; n < 100; n++ {
+						items = append(items, Object{"metadata": Object{"uid": fmt.Sprintf("%d-%d", calls, n), "resourceVersion": "1"}})
+					}
+				}
+				_ = json.NewEncoder(w).Encode(Object{"metadata": Object{"resourceVersion": "10", "continue": cursor}, "items": items})
+			})
+			rv := ""
+			replaced := false
+			stop := errors.New("stop after snapshot")
+			err := c.observe(context.Background(), Collection{Path: "/api/v1/widgets"}, &rv, func(ch Change) error {
+				if ch.Type == "REPLACE" {
+					replaced = true
+					if len(ch.Objects) != 1 {
+						t.Error("lost object after empty page")
+					}
+					return stop
+				}
+				return nil
+			})
+			if mode == "empty-page" {
+				if !errors.Is(err, stop) || !replaced || calls != 2 {
+					t.Fatal(err, replaced, calls)
+				}
+			} else if err == nil || replaced || rv != "" {
+				t.Fatal("partial or oversized snapshot was accepted", err, replaced, rv)
+			}
+			if calls > MaxObservedPages {
+				t.Fatal("page bound was exceeded", calls)
+			}
+		})
 	}
 }

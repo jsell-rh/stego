@@ -9,6 +9,8 @@ import (
  "io"
  "net/http"
  "strings"
+ "strconv"
+ "time"
  transport {{printf "%q" .Transport}}
 )
 type Object map[string]any
@@ -55,7 +57,7 @@ func (k *Client) Request(ctx context.Context, method, path string, input Object)
 		return nil, 404, nil
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, response.StatusCode, fmt.Errorf("Kubernetes %s failed with status %d", method, response.StatusCode)
+		return nil, response.StatusCode, &APIError{Method:method,StatusCode:response.StatusCode,RetryAfter:retryAfter(response.Header.Get("Retry-After"))}
 	}
 	result, err := decodeObject(response.Body)
 	if err != nil {
@@ -161,4 +163,13 @@ func(c *Client)DeleteOwned(ctx context.Context,path string,owner Owner)(bool,err
  if String(old,"metadata","deletionTimestamp")!=""{return false,nil}
  _,code,err=c.Request(ctx,http.MethodDelete,path,Object{"apiVersion":"v1","kind":"DeleteOptions","preconditions":Object{"uid":String(old,"metadata","uid"),"resourceVersion":String(old,"metadata","resourceVersion")},"propagationPolicy":"Foreground"})
  return code==404,err
+}
+
+// APIError contains status metadata, never response data or credentials.
+type APIError struct { Method string; StatusCode int; RetryAfter time.Duration }
+func(e *APIError)Error()string{return fmt.Sprintf("Kubernetes %s failed with status %d",e.Method,e.StatusCode)}
+func retryAfter(value string)time.Duration{
+    var delay time.Duration
+    if seconds,err:=strconv.ParseInt(value,10,32);err==nil && seconds>0 {if seconds>3600{seconds=3600};delay=time.Duration(seconds)*time.Second} else if deadline,err:=http.ParseTime(value);err==nil {delay=time.Until(deadline)}
+    if delay<0{return 0};if delay>time.Hour{return time.Hour};return delay
 }

@@ -1545,3 +1545,22 @@ Variant commit `7db4475537b40d8ea8350a3ce844eecf4a8ac1bc` is on remote main.
 Hosted run `34357695481` has started. Check all four jobs, including the new
 sandbox gate. All local test clusters and the task PostgreSQL container were
 removed. The full enterprise goal remains active.
+
+Hosted variant run `34357695481` passed all four jobs. Its real sandbox workflow
+passed in 282.00 seconds. Compiler journal run `34357729264` also passed.
+
+The next application check exposed a missing count controller. A test of variant
+`7db4475` created a real sandbox and executed a command, but REST still had no
+active sandbox count. That negative test completed the other sandbox checks
+before it failed on the missing count. The application failure now drives a
+common list and watch client in STEGO and a domain count controller in Hypershell.
+
+The generated HTTP client now supports bounded, ordered streams and cancellation
+on close. The generated Kubernetes client builds a complete list baseline,
+resumes watches from the last resource version, and relists after expired
+history. It reads rotated tokens on reconnect, rejects access loss, and bounds
+frames, total bytes, list pages, and object count. Retry delays include random
+variation and honor bounded server delay metadata. The independent Widget tests
+cover this protocol without Hypershell types. Full compiler race tests passed.
+Additional stream and snapshot bound tests also passed after the final changes.
+The full enterprise goal remains active.

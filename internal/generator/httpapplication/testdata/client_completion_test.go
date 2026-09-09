@@ -29,8 +29,9 @@ func TestResponseCompletionRejectsCanceledContext(t *testing.T) {
 	defer cancel()
 	body := &cancellationBody{cancel: cancel}
 	c := &Client{
-		base:    &url.URL{Scheme: "https", Host: "provider.example"},
-		permits: make(chan struct{}, MaxConcurrentRequests),
+		lifetime: context.Background(),
+		base:     &url.URL{Scheme: "https", Host: "provider.example"},
+		permits:  make(chan struct{}, MaxConcurrentRequests),
 		http: &http.Client{Transport: completionTransport(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: body}, nil
 		})},
