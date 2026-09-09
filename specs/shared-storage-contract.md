@@ -73,3 +73,27 @@ a deleted root resource. It does not include deleted related grants. Normal
 queries still exclude deleted resources. A Record and Membership test checks
 both boundaries, including revocation after the root is deleted. Do not expose
 this storage option as an unchecked public query parameter.
+
+`ListOptions.Filter` supplies a bounded `RowFilter` tree. A node has one
+condition: field values, a related-row requirement, an AND group, or an OR group.
+An empty value list matches no rows. An empty node or group is invalid. A nil
+filter adds no condition. The store applies this filter together with scopes,
+search, and deletion rules before it counts or pages rows.
+
+A related filter can set `LocalField`; its default is `id`. Both join fields
+must identify the same declared entity. An ID identifies its own entity. A
+reference identifies its declared target. This supports parent checks and rows
+that refer to the same parent. Arbitrary joins remain invalid. Related rows
+must be live, including when the root query includes deleted rows.
+
+The filter permits at most eight levels, 64 nodes, 100 values per field, 4,096
+bytes per value, and 65,536 value bytes per tree. Related nodes permit at most
+16 fields. Invalid conditions return an error. SQL identifiers come from the
+schema; data values remain parameters. Applications must construct access
+filters from verified identity and current policy. Do not accept access filters
+from public request data.
+
+The generated Record and Membership test checks a visibility union, reverse
+references, references to a shared parent, filtered counts and pages, outer
+scopes, OR search, deletion, literal SQL-like values, malformed conditions, and
+cyclic or excessive trees. This common filter contains no Hypershell policy.

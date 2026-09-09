@@ -389,3 +389,105 @@ func TestLiveUniqueKeysPreserveHistory(t *testing.T) {
 		t.Fatal("concurrent uniqueness failed", successes, conflicts)
 	}
 }
+
+func TestRowFilterUnionAndDeclaredReferencePaths(t *testing.T) {
+	storage, _ := testStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"a", "b", "c"} {
+		if err := storage.Create(ctx, "Record", map[string]any{"id": id, "name": id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range []map[string]any{
+		{"id": "a-owner", "record_id": "a", "subject": "owner"},
+		{"id": "a-other", "record_id": "a", "subject": "other"},
+		{"id": "b-viewer", "record_id": "b", "subject": "viewer"},
+		{"id": "c-hidden", "record_id": "c", "subject": "other"},
+	} {
+		if err := storage.Create(ctx, "Membership", row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	filter := &contract.RowFilter{All: []contract.RowFilter{
+		{Related: &contract.RelatedFilter{Entity: "Record", LocalField: "record_id", ForeignField: "id"}},
+		{Any: []contract.RowFilter{
+			{Field: "subject", Values: []string{"viewer"}},
+			{Related: &contract.RelatedFilter{Entity: "Membership", LocalField: "record_id", ForeignField: "record_id", Values: map[string][]string{"subject": {"owner"}}}},
+		}},
+	}}
+	opts := contract.ListOptions{Page: 1, Size: 1, Filter: filter, OrderBy: []contract.OrderByField{{Field: "id", Direction: "asc"}}}
+	for page, want := range []string{"a-other", "a-owner", "b-viewer"} {
+		opts.Page = page + 1
+		result, err := storage.List(ctx, "Membership", "", "", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Items.([]store.Membership)
+		if result.Total != 3 || len(rows) != 1 || rows[0].ID != want {
+			t.Fatalf("union page: %+v", result)
+		}
+	}
+	opts.Page, opts.Size = 1, 20
+	// An outer scope and an OR search cannot widen the access filter.
+	opts.Search = "subject = 'viewer' or subject = 'other'"
+	result, err := storage.List(ctx, "Membership", "record_id", "c", opts)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("scope bypass: %+v %v", result, err)
+	}
+	result, err = storage.List(ctx, "Membership", "", "", opts)
+	if err != nil || result.Total != 2 {
+		t.Fatalf("search bypass: %+v %v", result, err)
+	}
+	opts.Search = ""
+	opts.CountOnly = true
+	result, err = storage.List(ctx, "Membership", "", "", opts)
+	if err != nil || result.Total != 3 || len(result.Items.([]store.Membership)) != 0 {
+		t.Fatalf("count: %+v %v", result, err)
+	}
+	opts.CountOnly = false
+	if err := storage.Delete(ctx, "Membership", "a-owner"); err != nil {
+		t.Fatal(err)
+	}
+	opts.IncludeDeleted = true
+	result, err = storage.List(ctx, "Membership", "", "", opts)
+	if err != nil || result.Total != 1 {
+		t.Fatalf("deleted related row allowed access: %+v %v", result, err)
+	}
+	if err := storage.Delete(ctx, "Record", "b"); err != nil {
+		t.Fatal(err)
+	}
+	result, err = storage.List(ctx, "Membership", "", "", opts)
+	if err != nil || result.Total != 0 {
+		t.Fatalf("deleted parent allowed access: %+v %v", result, err)
+	}
+	// Values remain parameters, including SQL-like input. Empty IN matches none.
+	for _, values := range [][]string{nil, {"viewer' OR true --"}} {
+		opts.Filter = &contract.RowFilter{Field: "subject", Values: values}
+		result, err = storage.List(ctx, "Membership", "", "", opts)
+		if err != nil || result.Total != 0 {
+			t.Fatalf("literal filter: %+v %v", result, err)
+		}
+	}
+	cyclic := contract.RowFilter{Any: make([]contract.RowFilter, 1)}
+	cyclic.Any[0] = cyclic
+	wide := contract.RowFilter{Any: make([]contract.RowFilter, 65)}
+	for i := range wide.Any {
+		wide.Any[i] = contract.RowFilter{Field: "subject", Values: []string{"viewer"}}
+	}
+	invalid := []contract.RowFilter{
+		{}, {All: []contract.RowFilter{}}, {Any: []contract.RowFilter{}},
+		{Field: "subject", Any: []contract.RowFilter{{Field: "id"}}},
+		{Field: "id OR true --", Values: []string{"x"}},
+		{Values: []string{"unused"}, Related: &contract.RelatedFilter{Entity: "Record", LocalField: "record_id", ForeignField: "id"}},
+		{Related: &contract.RelatedFilter{Entity: "Record", LocalField: "subject", ForeignField: "id"}},
+		{Related: &contract.RelatedFilter{Entity: "Lease", LocalField: "record_id", ForeignField: "id"}},
+		{Related: &contract.RelatedFilter{Entity: "Record", LocalField: "record_id", ForeignField: "name"}},
+		{Field: "subject", Values: make([]string, 101)}, cyclic, wide,
+	}
+	for _, filter := range invalid {
+		opts.Filter = &filter
+		if _, err := storage.List(ctx, "Membership", "", "", opts); err == nil {
+			t.Fatal("invalid row filter accepted")
+		}
+	}
+}

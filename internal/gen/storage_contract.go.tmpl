@@ -34,6 +34,7 @@ type ListOptions struct {
 	Search          string
 	ImplicitFilters map[string]string
 	Related         []RelatedFilter
+	Filter          *RowFilter
 	CountOnly       bool
 	// IncludeDeleted is for trusted recovery and event handlers. It changes only
 	// the root resource query. Related access grants must still be live.
@@ -41,13 +42,28 @@ type ListOptions struct {
 }
 
 // RelatedFilter requires a live related row before counting or pagination.
-// ForeignField must be a declared reference to the queried entity. Each map
+// LocalField defaults to id. Both fields must identify the same declared entity:
+// an id identifies its entity, and a reference identifies its target. Each map
 // entry requires one of its values. An empty value list matches no rows.
 // Multiple related filters are combined with AND. Values never contain SQL.
 type RelatedFilter struct {
 	Entity       string
+	LocalField   string
 	ForeignField string
 	Values       map[string][]string
+}
+
+// RowFilter supplies one condition: Field with Values, Related, All, or Any.
+// All and Any must contain at least one condition. Empty Values match no rows.
+// A nil ListOptions.Filter adds no condition; an empty RowFilter is invalid.
+// Filters apply before counting and paging, in addition to search and scopes.
+// The adapter limits depth to 8 and nodes to 64. Values never contain SQL.
+type RowFilter struct {
+	Field   string
+	Values  []string
+	Related *RelatedFilter
+	All     []RowFilter
+	Any     []RowFilter
 }
 
 type ListResult struct {
