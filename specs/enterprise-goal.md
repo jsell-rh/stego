@@ -1646,3 +1646,12 @@ remain subject to expiry and workload removal. These limits and the production
 runtime and identity decisions remain open. The previous count turn made
 progress. This deletion workflow adds application evidence. The full enterprise
 goal remains active.
+
+Hosted variant run `34364219258` passed all four jobs at commit
+`296600efab46fbbbb5e64677169501427468116a`. This documentation commit replaced
+run `34363972330`, which CI cancelled. The actual Gateway test passed in
+190.28 seconds. The sandbox workflow passed in 292.36 seconds. Both logs confirm
+that Gateway deletion removed all three automation clients before workload
+teardown. The full acceptance package passed in 505.083 seconds, including
+regeneration. Compiler journal run `34364188267` also passed. Both repositories
+match remote main. The full enterprise goal remains active.
