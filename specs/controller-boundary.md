@@ -15,7 +15,7 @@ API paths, resource schemas, or provider rules.
 | Dirty-key scheduling, delayed retries, and duplicate suppression | STEGO | Generated keyed runtime; Pod count migration passed the local sandbox workload gate |
 | Observation baseline, reset, cache bounds, and shutdown | STEGO | Kubernetes transport emits reset and replacement events; part of cache management remains in the application |
 | Which Pods count as active and which Gateway owns them | Hypershell | Domain label, namespace, and phase rules |
-| Bounded worker pools and fair recovery scans | STEGO | Service-account recovery still contains a local timer, cursor map, and worker pool |
+| Bounded worker pools and fair recovery scans | STEGO | Generated sweep; service-account migration passed regression and real Keycloak workflows |
 | When accounts expire and which actions can recover them | Hypershell | Domain state transitions, creator access, and credential rules |
 | Leases, fencing, and coordination between controller processes | STEGO | Open; current controllers require one active process for each ownership scope |
 | Placement, identity mapping, workload definitions, and cleanup order | Hypershell | Existing domain actions and provider tests |
@@ -32,8 +32,8 @@ Its source contract requires retained recovery data and cancellation. Its action
 contract requires safe repeated execution and authoritative access checks. These
 limits must remain explicit until the relevant mechanism and failure tests exist.
 
-The next controller acceptance work should move dirty-key scheduling or bounded
-recovery scans into STEGO, then run the existing sandbox-count or account-recovery
-workflow. Test missed events, restart, denied access, incomplete scans, queue
-pressure, cancellation, and regeneration. Measure throughput and memory before
-selecting production queue sizes or worker counts.
+Further controller work must address shared storage adapters, durable claims,
+and distributed fencing. Keep the existing sandbox-count and account-recovery
+workflows as acceptance gates. Test missed events, restart, denied access,
+incomplete scans, queue pressure, cancellation, and regeneration. Measure
+throughput and memory before selecting production queue sizes or worker counts.

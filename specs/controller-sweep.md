@@ -7,8 +7,8 @@ The application regression test uses 17 deleted records. The first eight provide
 calls remain slow until their contexts end. The former implementation reset a
 short page even when it had not dispatched the remaining records. The test failed
 after 20.41 seconds because later records never received a turn. With the generated
-sweep, the same test passed in 13.32 seconds. Later checks run the final stream
-rotation behavior through the application and real identity provider.
+sweep, the same test passed in 13.32 seconds. The final stream-rotation checks also passed through the application and real
+identity provider.
 
 The runtime validates a complete page before actions begin. It uses a fixed
 worker pool, records which actions started, joins all workers, and advances only

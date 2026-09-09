@@ -2135,3 +2135,23 @@ A dispatch benchmark measured 40.2–47.8 microseconds and about 4 KB per 100 em
 actions with eight workers. `specs/controller-sweep.md` records the limits; this
 is not an application throughput claim. Cursor progress is not an acknowledgment,
 and distributed claims and fencing remain open. The full goal remains active.
+
+All four jobs in variant run `34391200715` passed at
+`b7108c397bb3294d8d748388972e1d4a3be21779`. The previous controller diagnostics
+and keyed scheduler therefore have complete remote workflow evidence.
+
+The final sweep workflow suite passed in 157.916 seconds. It covers late
+Keycloak creation and restart (37.38 seconds), revocation after database loss
+(32.78 seconds), the real Keycloak account lifecycle (37.57 seconds), multi-page
+cleanup (18.68 seconds), the partial-page regression (13.31 seconds), generated
+REST and gRPC transports (6.64 seconds), and role limits and expiry (10.46 seconds).
+The suite uses the final stream rotation behavior. These timings include fixture
+setup and are not production capacity evidence.
+
+Compiler `025aa22555b84d4e14ff8055f62eb7db9ee6107d` passed CI run
+`34392328767`. Variant `9254dec8910a6b6705c190ccb238b8b33f85b3b7` pins that
+compiler and is on remote main. Pinned generation produced the same controller
+bytes used by the workflow suite. Application static checks and regeneration
+after the commit passed. Variant run `34392649734` is running all four remote
+gates on the migration. The task PostgreSQL container was removed after tests
+stopped. This turn made progress. The full enterprise goal remains active.
