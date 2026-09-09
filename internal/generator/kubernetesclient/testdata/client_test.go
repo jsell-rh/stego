@@ -467,3 +467,17 @@ func TestWidgetObserveEmptyPagesAndSnapshotLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestFailureSummaryOmitsPrivateDetails(t *testing.T) {
+	for _, err := range []error{errors.New("private-token"), &APIError{Method: "private-token", StatusCode: 403}, &APIError{Method: "DELETE", StatusCode: 999}} {
+		if got := FailureSummary(err); got != "Kubernetes operation failed" {
+			t.Fatal("unsafe failure summary", got)
+		}
+	}
+	if got := FailureSummary(fmt.Errorf("private-token: %w", &APIError{Method: "DELETE", StatusCode: 403})); got != "Kubernetes DELETE failed with status 403" {
+		t.Fatal("safe failure fields were lost", got)
+	}
+	if FailureSummary(nil) != "" {
+		t.Fatal("nil error reported as failure")
+	}
+}

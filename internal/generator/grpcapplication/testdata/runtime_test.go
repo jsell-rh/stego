@@ -634,3 +634,18 @@ func testResourceCleanup(t *testing.T) {
 		t.Fatal("unmanaged registrar accepted ownership")
 	}
 }
+
+func TestClientFailureSummaryOmitsPrivateDetails(t *testing.T) {
+	for _, err := range []error{status.Error(codes.Internal, "private-token"), errors.New("private-token"), status.Error(codes.Code(999), "private-token")} {
+		summary := rpcclient.FailureSummary(err)
+		if strings.Contains(summary, "private") || len(summary) > 64 {
+			t.Fatal("unsafe failure summary", summary)
+		}
+	}
+	if rpcclient.FailureSummary(status.Error(codes.Internal, "private-token")) != "RPC code = Internal" {
+		t.Fatal("protocol code was lost")
+	}
+	if rpcclient.FailureSummary(nil) != "" {
+		t.Fatal("nil error reported as failure")
+	}
+}

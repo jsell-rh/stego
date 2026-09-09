@@ -173,3 +173,16 @@ func retryAfter(value string)time.Duration{
     if seconds,err:=strconv.ParseInt(value,10,32);err==nil && seconds>0 {if seconds>3600{seconds=3600};delay=time.Duration(seconds)*time.Second} else if deadline,err:=http.ParseTime(value);err==nil {delay=time.Until(deadline)}
     if delay<0{return 0};if delay>time.Hour{return time.Hour};return delay
 }
+
+// FailureSummary exposes only a known method and status. It never includes a
+// response body, request URL, resource, credential, or wrapped error message.
+func FailureSummary(err error) string {
+ if err==nil{return ""}
+ var failure *APIError
+ if errors.As(err,&failure)&&failure!=nil&&failure.StatusCode>=100&&failure.StatusCode<=599{
+  switch failure.Method{case http.MethodGet,http.MethodPost,http.MethodPut,http.MethodPatch,http.MethodDelete,http.MethodHead,http.MethodOptions:
+   return fmt.Sprintf("Kubernetes %s failed with status %d",failure.Method,failure.StatusCode)
+  }
+ }
+ return "Kubernetes operation failed"
+}
