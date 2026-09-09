@@ -233,6 +233,16 @@ func TestRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitStreams()
+	// Server handler completion does not mean that the client has observed the
+	// closed connection. Read the terminal result before testing reconnection.
+	for messages := 0; ; messages++ {
+		if messages == 32 {
+			t.Fatal("slow stream did not reach its terminal result")
+		}
+		if _, err := flooded.Recv(); err != nil {
+			break
+		}
+	}
 	if _, err := client.Echo(authorized, &pb.Request{Text: "after slow peer"}, grpc.WaitForReady(true)); err != nil {
 		t.Fatal(err)
 	}
