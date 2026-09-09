@@ -193,3 +193,18 @@ or revoke grants across running processes. Provider credentials remain a
 separate boundary, and other controller reads and writes still need distinct
 permissions. The tested cleanup observation gap is closed. The complete controller
 permission model remains open.
+
+The Gateway workload controller now uses generated keyed scheduling with four
+workers. A new application test first failed with FIFO scheduling: a blocked
+provider call prevented a second deleted Gateway from completing cleanup after
+API restart. With the shared keyed watch runtime, the second Gateway records
+its observation and delivers its event while the first call remains blocked.
+Releasing the first call then permits its completion. The check crosses REST,
+TLS gRPC, retained storage, and the generated event runtime.
+
+The generated scheduler combines duplicate keys and preserves changes during an
+action. It permits one active action for each key within a runtime call. A
+failed watch cancels and joins that session before reconnect and discovery.
+Identity and database controller scheduling, admission beyond queue capacity,
+cross-process ownership, and fencing remain open. See the
+[keyed controller contract](controller-keyed.md).

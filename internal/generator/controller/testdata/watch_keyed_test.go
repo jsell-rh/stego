@@ -120,9 +120,17 @@ func TestKeyedWatchTerminalScanCancelsReceiver(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	var stopped atomic.Bool
+	started := make(chan struct{})
 	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
-		return func() (string, error) { <-ctx.Done(); stopped.Store(true); return "", ctx.Err() }, nil
-	}, Scan: func(context.Context, func(string) error) error { return denied }}
+		return func() (string, error) { close(started); <-ctx.Done(); stopped.Store(true); return "", ctx.Err() }, nil
+	}, Scan: func(ctx context.Context, _ func(string) error) error {
+		select {
+		case <-started:
+			return denied
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}}
 	err := RunKeyedWatch(ctx, source, func(context.Context, string) error { t.Error("unexpected action"); return nil }, watchKeyOptions())
 	if !errors.Is(err, denied) || !stopped.Load() {
 		t.Fatal("terminal scan did not stop receiver", err)
