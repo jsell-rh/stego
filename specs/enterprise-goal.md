@@ -1485,3 +1485,63 @@ Regeneration from the committed files passed with no changes or drift. Hosted
 variant run `34318420211` is queued. Check its result in the next goal turn.
 The next complete application workflow is sandbox creation and execution with
 an enforced isolation boundary. The full enterprise goal remains active.
+
+
+Hosted variant run `34318420211` passed all three jobs on `02202f4`.
+Compiler journal run `34318430356` also passed.
+
+The next application test creates and executes a real sandbox through the
+Gateway. The first complete run passed in 254.27 seconds; its race-enabled
+package took 255.320 seconds. The owner command ran as UID 1000 under guest
+kernel 6.18.35, with a different boot ID from the host. It could not read either
+client-key path. Ungranted users could not create or execute the sandbox.
+The workload could not raise its hard process limit. A bounded fork test reached
+504 children, then received a resource-limit error and removed all children.
+Execution and a stored file survived Gateway and database restart, including
+Gateway namespace replacement. Sandbox deletion and final Gateway cleanup also
+passed. Admission objects remained until the sandbox namespace was absent.
+
+The variant adds an experimental operator-selected runtime class, a separate
+sandbox namespace, and admission rules. The Gateway namespace remains restricted.
+The pinned OpenShell sidecar keeps process and binary network checks enabled.
+Only pinned helpers receive extra capabilities. The client identity is verified
+before copy; database and Gateway signing keys remain outside the sandbox
+namespace. Workspace setup and the workload run without root or capabilities.
+These rules stay in Hypershell. STEGO's existing generated clients and runtime
+support the workflow; no compiler change or compiler-pin change is required.
+
+The tests exposed runtime integration faults. Docker's 64 MiB shared-memory
+mount was too small for QEMU. The fixture now expands that mount inside its
+node before VM startup. A disk-backed sidecar socket could not connect under
+Kata. A namespace-scoped mutation policy puts the socket in guest memory.
+The same policy changes the pinned driver's root workspace setup to the
+workload user. Kubernetes 1.35 must enable its beta mutation API. The controller
+verifies admission before it permits sandbox capabilities.
+
+Neither the kubelet PID setting nor the OCI cgroup PID fields set a limit in
+the guest. The pinned runtime removes the dedicated PID field; its agent
+protocol does not carry the cgroup v2 unified map. The test runtime instead
+sets a hard `RLIMIT_NPROC` of 512 and verifies enforcement through Gateway exec.
+This is a per-user guest limit. It does not limit the trusted root helpers.
+
+The production runtime question remains open. The fixture does not prove
+production isolation. The pinned Kata memory-volume path does not pass its
+16 MiB size request to the guest mount. Its stock configuration disables OCI
+guest seccomp. NetworkPolicy enforcement, image review, hostile-image tests,
+quotas, capacity, and OpenShift support still need evidence. The full enterprise
+goal remains active.
+
+The standard Gateway regression passed in 184.90 seconds, including viewer
+access and deletion recovery. Its combined package took 244.198 seconds.
+Focused race tests, vet, shell syntax, and pinned regeneration passed.
+
+The fresh-cluster sandbox script passed without manual cluster changes. The
+Gateway and sandbox test took 292.75 seconds. The combined recovery and workload
+package took 350.790 seconds with the race detector. Cold sandbox startup took
+65.32 seconds. It repeated all admission, execution, process-limit, key,
+restart, retained-file, and cleanup checks. The new CI job runs the same script.
+
+Variant commit `7db4475537b40d8ea8350a3ce844eecf4a8ac1bc` is on remote main.
+Hosted run `34357695481` has started. Check all four jobs, including the new
+sandbox gate. All local test clusters and the task PostgreSQL container were
+removed. The full enterprise goal remains active.
