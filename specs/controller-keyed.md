@@ -51,10 +51,9 @@ reconnect and a new scan. Terminal errors remain visible when another callback
 returns cancellation. Tests block one action, complete another key, preserve a
 dirty key, and verify shutdown before reconnect.
 
-The adapter reuses the existing bounded queue and retry policy. An overflowing
-scan restarts discovery. Progress for a backlog beyond capacity, or a queue full
-of permanently failing keys, is not established. Cross-process fencing and
-provider-side exclusion remain separate requirements.
+Version 1.4.0 restarts discovery on queue overflow. The version 1.5.0 admission
+contract below replaces that behavior. Cross-process fencing and provider-side
+exclusion remain separate requirements.
 
 A queue contention measurement on 2026-09-09 used the same processor and OS
 listed above. Each worker took a key, invalidated it during the action, and
@@ -76,3 +75,30 @@ It does not establish production throughput or a latency guarantee. Repeat with:
 ```sh
 STEGO_BENCH_CONTROLLER=1 go test -count=1 -v ./internal/generator/controller -run '^TestGeneratedController$'
 ```
+
+Version 1.5.0 applies backpressure to retained scans and keyed watches. The
+generated producers each hold at most one waiting key outside the admitted queue.
+Admission validates input, preserves existing keys and retry delays, and stops on
+cancellation. The scan cursor advances only after admission. Page request
+contexts end before this wait. The nonblocking `KeySink.Add` contract is unchanged.
+
+The regression uses a two-key queue, four discovery keys, and one persistent
+provider failure. Version 1.4.0 restarted its scan 837 times during the one-second
+probe and never reached the last key. With backpressure, one scan reaches that
+key while the failed key retains its retry schedule. A watch-only regression
+checks the same progression. Further tests check capacity, invalid keys, and
+cancellation before and during admission.
+
+This does not evict failed keys. If every slot holds a persistent failure, new
+keys can remain blocked. The user was asked whether durable PostgreSQL retry
+storage or scan-based overflow recovery should address this case. That choice
+and full saturation behavior remain open.
+
+The admission microbenchmark used Go 1.26.8 on Linux amd64 and the Intel Core
+Ultra 9 185H on 2026-09-09. Three 200 ms samples measured admission, take, and
+successful removal of one key. The queue had free capacity. Nonblocking cycles
+took 261.8–288.3 ns. Backpressure cycles took 316.6–339.9 ns. Both used 288 bytes
+and three allocations per cycle. These cycles create and remove an entry, unlike
+the fixed-backlog benchmark above. They exclude waiting, scans, RPC, and provider
+work, and do not establish application throughput. The benchmark command above
+now runs both measurements.

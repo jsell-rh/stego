@@ -84,14 +84,23 @@ A failed subscription cancels and joins actions and source callbacks before the
 next watch opens. Each new connection starts a retained-state scan. Action
 failures use per-key delays. Transient scan failures retry without overlapping
 another scan. Invalid keys, missing receivers, and terminal errors stop the
-controller. Queue overflow restarts the connection and discovery. Retry delays
-reset on reconnect. Lifecycle notices remain serialized.
+controller. Watch delivery and scans wait for capacity instead of restarting discovery
+when their queue is full. Retry delays reset on transport reconnect. Lifecycle
+notices remain serialized.
 
-Capacity is a strict bound, including delayed and active keys. A scan that emits
-more distinct keys than the scheduler can accept can cause repeated recovery.
-This contract does not establish progress beyond that bound or across a backlog
-of permanently failing keys. Set capacity from measured workload bounds. A
-cursor-based admission and fairness contract for larger backlogs remains open.
+Capacity bounds admitted keys, including delayed and active keys. The generated
+watch and scan each retain at most one additional key while waiting for capacity.
+`KeySink.AddWait` waits until a slot is available or its context ends. It validates
+the key before waiting and does not discard another key or reset its retry delay.
+Callers must bound the number of concurrent emitters. `KeySink.Add` retains its
+nonblocking overflow error for observers that must stop on excess input.
+
+A scan can exceed queue capacity when actions continue to release slots. Waiting
+for admission does not hold a scan page request open or reset its cursor. It does
+not impose a total scan deadline. Cancellation stops waiting emitters. Progress
+is not established when persistent failures occupy every slot. Those keys keep
+their retry state, and new keys can remain blocked. Durable retry storage and a
+complete policy for saturation remain open. Set capacity from workload evidence.
 
 `RunSweep` owns bounded worker pools and cursor-based recovery scans. Applications
 supply named groups of streams, a page callback for each stream, and one typed

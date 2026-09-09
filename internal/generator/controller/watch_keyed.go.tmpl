@@ -16,8 +16,9 @@ type KeyedWatchOptions struct {
 // Every action must read authoritative state. This source does not maintain a
 // cache baseline. The subscription opens before either scans or actions start.
 // A failed watch cancels and joins all session callbacks before reconnecting.
-// Each connection starts a new scan. Overflow also restarts discovery; it never
-// permits silent loss. Invalid keys and terminal errors stop the controller.
+// Each connection starts a new scan. Scans and watch delivery wait for queue
+// capacity. They retain one pending key each and stop on cancellation. Invalid
+// keys and terminal errors stop the controller.
 // Repeated events share one pending key and cannot bypass a failed key's delay.
 // Reconnects reset retry delays. Scans must include every retained obligation.
 // This function supplies process-local exclusion, not distributed fencing.
@@ -55,7 +56,7 @@ func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconc
     key,err:=receive()
     if err!=nil{return err}
     if ctx.Err()!=nil{return ctx.Err()}
-    if err:=sink.Add(key);err!=nil{return err}
+    if err:=sink.AddWait(ctx,key);err!=nil{return err}
    }
    return ctx.Err()
   },

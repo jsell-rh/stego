@@ -206,19 +206,19 @@ func TestKeyedSourceFailureStopsAndJoins(t *testing.T) {
 				if stage == "observe" {
 					return denied
 				}
+				if stage == "overflow" {
+					for i := 0; i < 20; i++ {
+						if err := s.Add(fmt.Sprint(i)); err != nil {
+							return err
+						}
+					}
+				}
 				<-ctx.Done()
 				return ctx.Err()
 			}, Scan: func(ctx context.Context, emit func(string) error) error {
 				<-started
 				if stage == "scan" {
 					return denied
-				}
-				if stage == "overflow" {
-					for i := 0; i < 20; i++ {
-						if err := emit(fmt.Sprint(i)); err != nil {
-							return err
-						}
-					}
 				}
 				return nil
 			}}
