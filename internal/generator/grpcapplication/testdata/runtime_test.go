@@ -480,3 +480,54 @@ func TestRuntime(t *testing.T) {
 		t.Fatal("runtime accepted absent TLS")
 	}
 }
+
+type capturedRegistrar struct {
+	descriptor     *grpc.ServiceDesc
+	implementation any
+}
+
+func (r *capturedRegistrar) RegisterService(d *grpc.ServiceDesc, implementation any) {
+	r.descriptor = d
+	r.implementation = implementation
+}
+
+func TestPreparationKeepsRegistrationsIndependent(t *testing.T) {
+	first, second := &capturedRegistrar{}, &capturedRegistrar{}
+	calls := [2]int{}
+	for index, target := range []*capturedRegistrar{first, second} {
+		wrapped, err := transport.PrepareRegistrar(target, func(ctx context.Context) error {
+			if ctx.Value(identityKey{}) != "alice" {
+				return errors.New("preparation ran before the interceptor")
+			}
+			calls[index]++
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pb.RegisterRecordsServer(wrapped, records{})
+	}
+	invoke := func(target *capturedRegistrar) {
+		t.Helper()
+		result, err := target.descriptor.Methods[0].Handler(target.implementation, context.Background(), func(value any) error { value.(*pb.Request).Text = "hello"; return nil }, func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+			return handler(context.WithValue(ctx, identityKey{}, "alice"), request)
+		})
+		if err != nil || result.(*pb.Response).Text != "hello" {
+			t.Fatal("prepared registration", result, err)
+		}
+	}
+	invoke(second)
+	if calls != [2]int{0, 1} {
+		t.Fatal("registration changed another callback", calls)
+	}
+	invoke(first)
+	if calls != [2]int{1, 1} {
+		t.Fatal("registration shared a mutable descriptor", calls)
+	}
+	if _, err := transport.PrepareRegistrar(nil, func(context.Context) error { return nil }); err == nil {
+		t.Fatal("nil registrar accepted")
+	}
+	if _, err := transport.PrepareRegistrar(first, nil); err == nil {
+		t.Fatal("nil preparation accepted")
+	}
+}
