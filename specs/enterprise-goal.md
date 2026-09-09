@@ -885,3 +885,38 @@ They retain the 10,000-row success boundary, 10,001-row refusal, gRPC byte limit
 current access, contract shapes, outbox delivery, and restart checks. The failed
 hosted run was not restarted. The fix starts a new full CI run on its own commit.
 The broader goal and its remaining scope are unchanged.
+
+The grant-snapshot correction passed hosted CI on variant commit `71e2950`
+(run `34306724409`). STEGO commit `f7da5b1` also passed hosted CI
+(run `34306737057`). This closes the failed boundary check from the previous
+increment.
+
+Variant commit `29e83ea` adds authenticated role discovery to the Gateway grant
+workflow. The real browser test now retrieves owner and viewer role IDs through
+REST before it creates grants. Generated storage, search, authentication, and
+transport support this change without a compiler extension. Built-in role names
+and permission metadata remain in the Hypershell variant.
+
+The catalog exposes the reference read routes and role fields. Tests check the
+pinned response schema, search, paging, count-only requests, authentication,
+invalid requests, denied mutations, and restart. A catalog reader cannot create
+a Gateway. A Gateway owner cannot assign discovered platform roles through a
+Gateway grant. Permission metadata does not replace domain access checks.
+
+The explicit role migration preserves existing IDs and grants. It adds metadata
+and seeds the four built-in roles. Repeated execution leaves current metadata
+and its timestamp unchanged, but repairs changed built-in metadata. A deleted
+built-in role stops the whole transaction. Custom roles remain unchanged. The
+application does not apply this migration at startup.
+
+The focused role and real-login race checks passed in 33.152 seconds. The full
+local race suite passed with PostgreSQL and Keycloak required; the acceptance
+package took 295.363 seconds. Dependency verification and committed regeneration
+passed. Details are in the variant's `acceptance/role-catalog.md`.
+
+Recipient user ID discovery remains incomplete. The browser test still reads
+that ID from its private database. The reference has no public user directory.
+The user was asked whether recipients must supply their ID or owners can search
+registered users. No directory has been added while that policy is open. Sparse
+fields, REST page sizes above 100, global grant projection, and the broader
+enterprise and Hypershell requirements remain part of the active goal.
