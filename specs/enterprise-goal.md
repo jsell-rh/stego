@@ -2222,3 +2222,43 @@ string-order check over rows returned in database order. Before replacing it
 with the generated scanner, add a test that uses a database collation whose
 ordering differs from Go string order. The current replay test also assumes Go
 string order; it does not prove correctness for other database collations.
+
+The previous turn made progress: Gateway recovery moved to the generated cursor
+scanner and passed the local workload gate. Compiler documentation run
+`34394192646` passed. This turn applied the same scanner to database deletion
+replay. A new application test used two fixed IDs and the ICU `und-x-icu`
+collation to force an order that differs from Go string order. It compared the
+stream with an ordered database query. The old replay loop passed with C ordering
+but failed with ICU ordering: `Internal: invalid database replay order`.
+
+The replay server now supplies an authorized page query and the reference event
+mapping. STEGO owns the page loop, validation, deadlines, and request limit.
+The application retains the capability header and maps internal contract errors
+to a bounded gRPC error. No new compiler runtime API was necessary. Retained
+storage queries and protocol adapters still need generation; they remain open
+common mechanisms, not assumed domain code.
+
+The final real database workflow passed in 74.819 seconds. The workload took
+65.21 seconds and verified TLS, persisted data, stable credentials, denied foreign
+namespace access, and offline cleanup. Five stable reconciliations took 83.22 ms
+in this run; this is not production capacity evidence. The replay cases took
+8.56 seconds and cover C and ICU ordering, multiple pages, denied requests,
+capability headers, empty authorized results, and API restart. Controller race
+tests, application static checks, pinned generation, and regeneration after the
+commit passed. No Playwright command was used.
+
+Variant `baacc3ccc242d38eb21ba6bfba0e312e908a21b5` is on remote main. It retains
+compiler pin `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09`. Run `34394627677` is
+pending for the new variant. The prior variant run `34394176385` passed its
+database job but was still running at this check; it is not counted as a full
+pass. The task cluster and PostgreSQL container were removed after the local
+processes stopped. This turn made progress. The full enterprise goal remains
+active.
+
+The next storage work should address unused totals in recovery queries. Current
+`ListOptions` has `CountOnly` but no count-free cursor contract. Generated
+`Store.List` executes a count before page retrieval. Gateway ID recovery,
+database deletion replay, and service-account repair do not use that total.
+Use application and generated-storage tests to establish a cursor contract that
+preserves filters and access rules, avoids unused counts, and removes repeated
+query construction from application sources. Measure the resulting queries.
