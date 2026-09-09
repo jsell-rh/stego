@@ -1772,3 +1772,24 @@ request-field check passed. Post-commit regeneration found no changes or
 drift. The temporary PostgreSQL container was removed. Hosted variant run
 `34371717106` is in progress; it replaces the cancelled earlier run. This
 turn made progress. The full CLI port and enterprise goal remain active.
+
+The previous CLI turn made progress. Hosted variant run `34371717106` passed
+all four jobs. Its acceptance package took 527.693 seconds. Compiler journal
+run `34372091311` also passed.
+
+The next application workflow creates and revokes a service account through
+the generated CLI. The reference returns its secret once. STEGO now supports
+up to eight named route parameters and output files reserved before HTTP work.
+Sensitive commands require an explicit output choice. New output files use
+exclusive creation and mode 0600. Existing files are not overwritten. Write
+failures keep the file for inspection and cannot fall back to stdout. Explicit
+`--output-file -` selects stdout. This does not guarantee recovery after a
+process crash or an uncertain mutation result.
+
+Generated Record tests cover private output before a request, existing files,
+symlinks, FIFOs, directory permissions, invalid routes, request-body separation,
+malformed responses, cleanup, exact JSON numbers, and write failures. The full
+compiler race suite passed with PostgreSQL required. Focused generated CLI
+race tests also passed after the final edit. Hypershell supplies its account
+paths and fields; no account types enter the common generator. The real-provider
+application workflow is in progress. The complete enterprise goal remains active.

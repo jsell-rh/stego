@@ -1,0 +1,61 @@
+package command
+
+import (
+ "errors"
+ "io"
+ "os"
+ "path/filepath"
+)
+
+// Reserve a private output file before a request can produce a secret.
+// Never overwrite an existing file or send failed file output to stdout.
+type reservedOutput struct {
+ writer io.Writer
+ file *os.File
+ root *os.Root
+ name string
+ retain bool
+}
+
+func reserveOutput(name string,stdout io.Writer)(*reservedOutput,error){
+ result:=&reservedOutput{writer:stdout}
+ if name==""||name=="-"{return result,nil}
+ absolute,err:=filepath.Abs(name);if err!=nil{return nil,errors.New("invalid output path")}
+ root,err:=os.OpenRoot(filepath.Dir(absolute));if err!=nil{return nil,errors.New("cannot open output directory")}
+ info,err:=root.Stat(".")
+ if err!=nil||info.Mode().Perm()&0022!=0{root.Close();return nil,errors.New("output directory must not permit writes by other users")}
+ leaf:=filepath.Base(absolute)
+ file,err:=root.OpenFile(leaf,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err!=nil{root.Close();return nil,errors.New("cannot reserve output file; select a new file")}
+ result.file,result.root,result.name=file,root,leaf
+ result.writer=file
+ return result,nil
+}
+
+func (r *reservedOutput) write(data []byte)error{
+ // Keep the file if a write or sync fails. Its content can be the only copy
+ // of a credential. The caller must inspect it before it retries a mutation.
+ r.retain=true
+ n,err:=r.writer.Write(data)
+ if err!=nil||n!=len(data){return errors.New("cannot write command output; the request can have succeeded")}
+ if r.file!=nil{
+  if err:=r.file.Sync();err!=nil{return errors.New("cannot sync output file; the request can have succeeded")}
+  if err:=r.file.Close();err!=nil{return errors.New("cannot close output file; the request can have succeeded")}
+  r.file=nil
+  directory,err:=r.root.Open(".");if err!=nil{return errors.New("cannot sync output directory; the request can have succeeded")}
+  syncErr:=directory.Sync();closeErr:=directory.Close()
+  if syncErr!=nil||closeErr!=nil{return errors.New("cannot sync output directory; the request can have succeeded")}
+ }
+ return nil
+}
+
+func (r *reservedOutput) close(){
+ if r.file!=nil{
+  if !r.retain{
+   opened,openErr:=r.file.Stat();current,pathErr:=r.root.Lstat(r.name)
+   if openErr==nil&&pathErr==nil&&os.SameFile(opened,current){_ = r.root.Remove(r.name)}
+  }
+  _ = r.file.Close()
+ }
+ if r.root!=nil{_ = r.root.Close()}
+}

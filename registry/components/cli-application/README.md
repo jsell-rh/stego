@@ -12,7 +12,8 @@ that package path. The generated runtime checks the returned definitions before
 it reads configuration or sends requests. Definitions with duplicate names,
 ambiguous prefixes, invalid routes, or invalid fields are rejected. Command
 names have one through four words. The limit is 128 commands and 64 fields per
-command. Hypershell names and rules do not occur in this component.
+command. Up to eight named path parameters can bind required flags to whole
+route segments. They stay outside request bodies and query strings. Hypershell names and rules do not occur in this component.
 
 Common commands are `login --url URL --token-file FILE [--ca-file FILE]` and
 `logout`. Login stores absolute file references in a private JSON configuration;
@@ -43,11 +44,24 @@ argument bytes, and a 65,536-byte body file. Responses have the shared 4 MiB
 limit. JSON validation also limits depth and node count. Output retains exact
 JSON numbers. Error responses expose the HTTP status and omit response bodies.
 
+Commands can write to a new file with `--output-file FILE`. The CLI reserves the
+file with exclusive creation and mode 0600 before it sends the request. The
+parent directory must exist and must not permit writes by other users. Existing
+files, symlinks, and devices are rejected. The CLI syncs successful file output
+and its directory. An empty reservation is removed after a request or response
+validation error. A write or sync error keeps the file for inspection; it can
+contain the only copy of a credential. No file failure falls back to stdout.
+A successful response with no body creates an empty file when requested.
+
+Commands marked `Sensitive` require `--output-file`. Use `--output-file -` to
+select stdout explicitly. Other commands use stdout by default. This output
+choice does not change uncertain mutation results: check resource state before
+a retry. A process crash can leave an empty or partial private file. The CLI
+cannot recover a secret that the server returned only once.
+
 Commands marked for confirmation require `--yes`. Interactive prompts,
-stdin bodies, browser and device login, token refresh, output files for secrets,
-and automatic SDK generation are not supplied by this version. Factories must
-not register a command that returns credentials until protected output support
-is available. Current file operations target Linux; other platforms need build
+stdin bodies, browser and device login, token refresh, and automatic SDK
+generation are not supplied by this version. Current file operations target Linux; other platforms need build
 and file-semantics checks before support can be claimed.
 
 Generated tests use a Record application. They check request types, validation,

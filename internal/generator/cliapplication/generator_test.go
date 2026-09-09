@@ -41,12 +41,14 @@ func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CL
 			t.Fatal(err)
 		}
 	}
-	data, err := os.ReadFile("testdata/runtime_test.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "out/cli/command/runtime_test.go"), data, 0644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"runtime_test.go", "output_test.go"} {
+		data, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(project, "out/cli/command", name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	command := exec.Command("go", "test", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./...")
 	command.Dir = project

@@ -21,7 +21,8 @@ import (
 // Field describes one public request property. Types are string, string-list,
 // integer, and boolean. The CLI never accepts arbitrary headers or destinations.
 type Field struct {Flag,Key,Type string;Required,Nullable bool}
-type Command struct {Name []string;Method,Path string;ID,Query,Confirm bool;Fields []Field;Success []int}
+type PathParameter struct {Flag,Key string}
+type Command struct {Name []string;Method,Path string;ID,Query,Confirm,Sensitive bool;PathParameters []PathParameter;Fields []Field;Success []int}
 type Application struct {ConfigEnv,ConfigName string;Commands []Command}
 var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
 var pathPart=regexp.MustCompile(`^[a-zA-Z0-9._~!$&'()*+,;=:@-]+$`)
@@ -40,14 +41,21 @@ func validate(app Application)error{
   name:=strings.Join(c.Name," ");for other:=range seen{if name==other||strings.HasPrefix(name,other+" ")||strings.HasPrefix(other,name+" "){return errors.New("ambiguous CLI command")}};seen[name]=true
   u,err:=url.Parse(c.Path)
   if err!=nil||u.IsAbs()||u.Host!=""||!strings.HasPrefix(c.Path,"/")||strings.HasPrefix(c.Path,"//")||u.RawQuery!=""||u.Fragment!=""||strings.ContainsAny(c.Path,"%\\\x00\r\n")||len(c.Path)>1024{return errors.New("invalid CLI route")}
-  for _,part:=range strings.Split(strings.TrimPrefix(c.Path,"/"),"/"){if part=="{id}"&&c.ID {continue};if part=="."||part==".."||!pathPart.MatchString(part){return errors.New("invalid CLI route segment")}}
-  if c.ID!=(strings.Count(c.Path,"{id}")==1)||(!c.ID&&strings.Contains(c.Path,"{")){return errors.New("invalid CLI route parameter")}
+  parameters:=map[string]bool{}
+  pathFlags:=map[string]bool{}
+  if len(c.PathParameters)>8{return errors.New("too many CLI path parameters")}
+  for _,p:=range c.PathParameters{
+   if !word.MatchString(p.Flag)||!property.MatchString(p.Key)||p.Key=="id"||reservedFlag(p.Flag)||parameters[p.Key]||pathFlags[p.Flag]||strings.Count(c.Path,"{"+p.Key+"}")!=1{return errors.New("invalid CLI path parameter")}
+   parameters[p.Key],pathFlags[p.Flag]=true,true
+  }
+  for _,part:=range strings.Split(strings.TrimPrefix(c.Path,"/"),"/"){if part=="{id}"&&c.ID {continue};if strings.HasPrefix(part,"{")&&strings.HasSuffix(part,"}")&&parameters[part[1:len(part)-1]]{continue};if part=="."||part==".."||!pathPart.MatchString(part){return errors.New("invalid CLI route segment")}}
+  if c.ID!=(strings.Count(c.Path,"{id}")==1){return errors.New("invalid CLI route parameter")}
   switch c.Method{case "GET","POST","PATCH","PUT","DELETE":default:return errors.New("invalid CLI method")}
   if len(c.Success)==0||len(c.Success)>4||len(c.Fields)>64{return errors.New("invalid CLI command limits")}
   for _,code:=range c.Success{if code<200||code>299{return errors.New("invalid CLI success code")}}
   flags,keys:=map[string]bool{},map[string]bool{}
   for _,f:=range c.Fields{
-   if !word.MatchString(f.Flag)||!property.MatchString(f.Key)||flags[f.Flag]||keys[f.Key]||f.Flag=="body"||f.Flag=="yes"||f.Flag=="help"{return errors.New("invalid CLI field")}
+   if !word.MatchString(f.Flag)||!property.MatchString(f.Key)||flags[f.Flag]||keys[f.Key]||reservedFlag(f.Flag)||pathFlags[f.Flag]{return errors.New("invalid CLI field")}
    flags[f.Flag],keys[f.Key]=true,true
    switch f.Type{case "string","string-list","integer","boolean":default:return errors.New("invalid CLI field type")}
   }
@@ -55,6 +63,8 @@ func validate(app Application)error{
  }
  return nil
 }
+
+func reservedFlag(flag string)bool{return flag=="body"||flag=="yes"||flag=="help"||flag=="output-file"}
 
 // Run performs one command. Cancellation bounds network work. Configuration
 // stores a token-file reference; each process reads the current private file.
@@ -78,6 +88,7 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  for _,f:=range c.Fields{fields[f.Flag]=f}
  if len(arguments)==1&&arguments[0]=="--help"{
   var names []string;for _,f:=range c.Fields{names=append(names,"--"+f.Flag+" ("+f.Type+")")}
+  for _,p:=range c.PathParameters{names=append(names,"--"+p.Flag+" ID (required)")};names=append(names,"--output-file FILE (- selects stdout)")
   if c.Method=="POST"||c.Method=="PUT"||c.Method=="PATCH"{names=append(names,"--body FILE")};if c.Confirm{names=append(names,"--yes")};sort.Strings(names)
   _,err:=fmt.Fprintln(output,strings.Join(names,"\n"));return err
  }
@@ -85,6 +96,9 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  if (c.ID&&len(positions)!=1)||(!c.ID&&len(positions)!=0){return errArguments}
  route:=c.Path
  if c.ID{if !identifier.MatchString(positions[0]){return errArguments};route=strings.Replace(route,"{id}",url.PathEscape(positions[0]),1)}
+ for _,p:=range c.PathParameters{value,ok:=values[p.Flag];if !ok||!identifier.MatchString(value){return errArguments};route=strings.Replace(route,"{"+p.Key+"}",url.PathEscape(value),1);delete(values,p.Flag)}
+ outputFile,outputSet:=values["output-file"];delete(values,"output-file")
+ if (outputSet&&outputFile=="")||(c.Sensitive&&!outputSet){return errors.New("this command requires --output-file FILE; use - only for explicit stdout output")}
  if c.Confirm{if values["yes"]!="true"{return errors.New("confirmation required: pass --yes")};delete(values,"yes")}
  body:=map[string]json.RawMessage{}
  if name,ok:=values["body"];ok{
@@ -111,14 +125,15 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  token,err:=readToken(cfg.TokenFile);if err!=nil{return err}
  headers:=http.Header{"Authorization":{"Bearer "+token},"Accept":{"application/json"}}
  if payload!=nil{headers.Set("Content-Type","application/json")}
+ destination,err:=reserveOutput(outputFile,output);if err!=nil{return err};defer destination.close()
  response,err:=transport.Do(ctx,c.Method,route,headers,payload);if err!=nil{return err}
  success:=false;for _,code:=range c.Success{if response.StatusCode==code{success=true}}
  if !success{return fmt.Errorf("API request failed (HTTP %d)",response.StatusCode)}
- if response.StatusCode==204{if len(response.Body)!=0{return errors.New("unexpected response body")};return nil}
+ if response.StatusCode==204{if len(response.Body)!=0{return errors.New("unexpected response body")};return destination.write(nil)}
  if !validJSON(response.Body){return errors.New("invalid API JSON response")}
  var formatted bytes.Buffer
  if err:=json.Indent(&formatted,response.Body,"","  ");err!=nil{return errors.New("invalid API JSON response")};formatted.WriteByte('\n')
- _,err=output.Write(formatted.Bytes());return err
+ return destination.write(formatted.Bytes())
 }
 
 func parse(args []string,confirm bool)(map[string]string,[]string,error){

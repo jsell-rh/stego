@@ -19,6 +19,9 @@ var runtimeSource string
 //go:embed config.go.tmpl
 var configSource string
 
+//go:embed output.go.tmpl
+var outputSource string
+
 type Generator struct{}
 
 // MinimumGoVersion covers the os.Root file operations in generated code.
@@ -49,7 +52,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/config.go", configSource}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err
