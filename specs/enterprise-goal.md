@@ -1721,3 +1721,17 @@ malformed JSON, private files, rotation, redirects, and failure handling. Full
 compiler race tests passed; focused generator tests passed after the final
 command-prefix changes. The live variant workflow is the next acceptance check.
 The complete CLI and enterprise goals remain active.
+
+Compiler run `34369953695` passed at `ca5c2ce`. The CLI workflow then passed
+against the generated variant in 5.49 seconds. It checked TLS, atomic Gateway
+and owner-grant creation, gRPC reads, token rotation, filtered access, event
+rollback, restart, deletion events, and logout. Its binary dependency graph
+contains only standard-library and generated or application command packages.
+
+A reuse check exposed an overly strict route validator. It rejected dotted API
+groups, numeric version segments, and `.well-known` paths. A generated test
+reproduced the failure. The validator now accepts these path segments and still
+rejects traversal, encoded separators, alternate origins, queries, and fragments.
+An actual HTTPS request verifies a dotted API path. Focused generated CLI race
+tests passed. The full variant run is still active on the previous pin; repeat
+the CLI gate after the final pin. The full enterprise goal remains active.

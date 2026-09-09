@@ -24,6 +24,7 @@ type Field struct {Flag,Key,Type string;Required,Nullable bool}
 type Command struct {Name []string;Method,Path string;ID,Query,Confirm bool;Fields []Field;Success []int}
 type Application struct {ConfigEnv,ConfigName string;Commands []Command}
 var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
+var pathPart=regexp.MustCompile(`^[a-zA-Z0-9._~!$&'()*+,;=:@-]+$`)
 var property=regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
 var envName=regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 var identifier=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}$`)
@@ -39,7 +40,7 @@ func validate(app Application)error{
   name:=strings.Join(c.Name," ");for other:=range seen{if name==other||strings.HasPrefix(name,other+" ")||strings.HasPrefix(other,name+" "){return errors.New("ambiguous CLI command")}};seen[name]=true
   u,err:=url.Parse(c.Path)
   if err!=nil||u.IsAbs()||u.Host!=""||!strings.HasPrefix(c.Path,"/")||strings.HasPrefix(c.Path,"//")||u.RawQuery!=""||u.Fragment!=""||strings.ContainsAny(c.Path,"%\\\x00\r\n")||len(c.Path)>1024{return errors.New("invalid CLI route")}
-  for _,part:=range strings.Split(strings.TrimPrefix(c.Path,"/"),"/"){if part=="{id}"&&c.ID {continue};if !property.MatchString(strings.ReplaceAll(part,"-","_")){return errors.New("invalid CLI route segment")}}
+  for _,part:=range strings.Split(strings.TrimPrefix(c.Path,"/"),"/"){if part=="{id}"&&c.ID {continue};if part=="."||part==".."||!pathPart.MatchString(part){return errors.New("invalid CLI route segment")}}
   if c.ID!=(strings.Count(c.Path,"{id}")==1)||(!c.ID&&strings.Contains(c.Path,"{")){return errors.New("invalid CLI route parameter")}
   switch c.Method{case "GET","POST","PATCH","PUT","DELETE":default:return errors.New("invalid CLI method")}
   if len(c.Success)==0||len(c.Success)>4||len(c.Fields)>64{return errors.New("invalid CLI command limits")}

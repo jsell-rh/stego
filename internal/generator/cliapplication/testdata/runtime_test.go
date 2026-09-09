@@ -31,10 +31,12 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 	if err := os.WriteFile(token, []byte("first-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	var paths atomic.Value
 	var calls atomic.Int32
 	var mode atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
+		paths.Store(r.URL.Path)
 		want := "first-token"
 		if mode.Load() == 1 {
 			want = "second-token"
@@ -114,10 +116,13 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 		t.Fatal("exact response number changed")
 	}
 	one := definition()
-	one.Commands = append(one.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/records/one", Success: []int{200}})
+	one.Commands = append(one.Commands, Command{Name: []string{"whoami"}, Method: "GET", Path: "/apis/example.test/v1/records", Success: []int{200}})
 	var identity bytes.Buffer
 	if err := Run(context.Background(), one, []string{"whoami"}, &identity); err != nil {
 		t.Fatal(err)
+	}
+	if paths.Load() != "/apis/example.test/v1/records" {
+		t.Fatal("dotted API path changed")
 	}
 	if err := os.Chmod(config, 0644); err != nil {
 		t.Fatal(err)
@@ -245,6 +250,13 @@ func TestDefinitionAndJSONLimits(t *testing.T) {
 		app.Commands[0].Path = path
 		if validate(app) == nil {
 			t.Fatal("invalid route accepted")
+		}
+	}
+	for _, path := range []string{"/.well-known/info", "/apis/example.test/v1/records", "/2026-09/records", "/records:inspect"} {
+		app = definition()
+		app.Commands[0].Path = path
+		if err := validate(app); err != nil {
+			t.Fatalf("valid service route %q rejected: %v", path, err)
 		}
 	}
 	app = definition()
