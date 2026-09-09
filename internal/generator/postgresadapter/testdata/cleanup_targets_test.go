@@ -288,3 +288,56 @@ func TestTargetUpgradeRejectsUnrecordedEarlierTargets(t *testing.T) {
 		t.Fatal("failed history upgrade changed state", state, err)
 	}
 }
+
+func BenchmarkTargetCleanupObservation(b *testing.B) {
+	for _, targets := range []int{1, 32, 128} {
+		b.Run(fmt.Sprintf("targets_%d", targets), func(b *testing.B) {
+			store, db := database(b, true)
+			ctx := context.Background()
+			if err := store.Create(ctx, "Placement", Placement{Meta: Meta{ID: "measured"}, Target: "target-0", Name: "job"}); err != nil {
+				b.Fatal(err)
+			}
+			for i := 1; i < targets; i++ {
+				if _, err := db.Exec("UPDATE placements SET target=$1 WHERE id='measured'", fmt.Sprintf("target-%d", i)); err != nil {
+					b.Fatal(err)
+				}
+			}
+			if err := store.Delete(ctx, "Placement", "measured"); err != nil {
+				b.Fatal(err)
+			}
+			revision := int64(targets + 1)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := store.ObserveTargetCleanupIfVersion(ctx, "Placement", "measured", revision, "worker", "target-0", i%2 == 0); err != nil {
+					b.Fatal(err)
+				}
+				revision++
+			}
+			b.StopTimer()
+		})
+	}
+}
+
+func TestOpaqueTargetValuesStayBoundParameters(t *testing.T) {
+	store, _ := database(t, true)
+	ctx := context.Background()
+	target := "region ' ? ☃ \\ [target]"
+	if err := store.Create(ctx, "Placement", Placement{Meta: Meta{ID: "opaque"}, Target: target, Name: "job"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(ctx, "Placement", "opaque"); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", strings.Repeat("a", 257), string([]byte{0xff}), "region\x00bad"} {
+		if err := store.ObserveTargetCleanupIfVersion(ctx, "Placement", "opaque", 2, "worker", bad, true); err == nil {
+			t.Fatal("invalid target accepted")
+		}
+	}
+	if err := store.ObserveTargetCleanupIfVersion(ctx, "Placement", "opaque", 2, "worker", target, true); err != nil {
+		t.Fatal(err)
+	}
+	if row := placement(t, store, "opaque"); !row.CleanupComplete("worker") {
+		t.Fatal("opaque target did not complete")
+	}
+}

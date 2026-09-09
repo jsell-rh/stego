@@ -150,7 +150,28 @@ all earlier targets. Removing target declarations from populated history also
 fails. Other contract changes retain the targets and clear their observations.
 Repeated migration with the same contract preserves revisions and confirmations.
 
-The target identifies a provider location. The domain adapter defines which
-effects its owner covers. A child resource with its own cleanup record remains
+The domain must bind each target ID to a stable provider location. Reusing an
+ID for another location does not preserve the old location. The domain adapter
+defines which effects its owner covers. A child resource with its own cleanup record remains
 a separate obligation. This release does not define parent finalization, cleanup
 of former targets while the parent is live, target retirement, or safe purge.
+
+A local measurement on 2026-09-09 used PostgreSQL 18.6, UTF-8 with the C
+collation, and 100 conditional target writes per case on Linux amd64. The host
+used an Intel Core Ultra 9 185H. Each write changed one target and advanced the
+resource revision. It did not include an outbox event, RPC, or provider action.
+
+| Retained targets | Mean time per write | Go allocations per write |
+| --- | --- | --- |
+| 1 | 1.15 ms | 53 |
+| 32 | 1.09 ms | 53 |
+| 128 | 1.53 ms | 53 |
+
+These short samples show local cost within the supported bound. They do not
+establish a production latency or throughput limit. The small difference between
+1 and 32 targets is not evidence that larger histories are faster. To repeat the
+measurement, set `STEGO_TEST_POSTGRES_DSN` to a test database connection and run:
+
+```sh
+STEGO_REQUIRE_POSTGRES=1 STEGO_BENCH_STORE=1 go test -count=1 -v ./internal/generator/postgresadapter -run '^TestGeneratedStoreTransactions$'
+```

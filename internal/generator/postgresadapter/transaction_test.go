@@ -141,7 +141,7 @@ require (
 	}
 	commands := [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
 	if os.Getenv("STEGO_BENCH_STORE") == "1" {
-		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=BenchmarkTransactionalCreateNotify", "-benchtime=100x", "-benchmem", "./storage"})
+		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=Benchmark(TransactionalCreateNotify|TargetCleanupObservation)", "-benchtime=100x", "-benchmem", "./storage"})
 	}
 	for _, args := range commands {
 		cmd := exec.Command("go", args...)

@@ -157,14 +157,23 @@ completion requires new provider work. Application checks cover event rollback,
 denied writes, restart, and a late client created after recorded completion.
 See the variant's [identity cleanup evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/gateway-identity-cleanup.md).
 
-The existing Gateway cluster-move workflow exposes another required abstraction.
+The Gateway cluster-move workflow exposed the need for cleanup by target.
 A global workload owner cannot prove cleanup in every cluster that held the
-resource. A controller for the former cluster can remove its objects, then lose
-its local ownership evidence on the next pass. A controller for the new cluster
-cannot confirm absence in the old cluster. Workload completion therefore remains
-unrecorded. The proposed next contract stores cleanup obligations for each target
-in STEGO, while Hypershell supplies cluster identity and provider actions. It must
-preserve previous targets across changes and restart, and record obligations
-before external creation. The contract must also define migration from resources
-whose earlier targets were not recorded. A simple global completion flag does
-not establish these properties.
+resource. The generated target contract now records locations from a declared
+field before provider work and preserves earlier targets after a move. Conditional
+observations update one target and derive the owner's aggregate from all targets.
+
+Hypershell now uses this contract for workload cleanup. The real Gateway workflow
+confirms removal in the former cluster, restarts its controller, creates a late
+namespace, and confirms that the old target becomes pending again. After another
+restart and removal, that target completes while the new cluster stays pending.
+The API check also covers independent identity cleanup, denied and stale writes,
+event rollback, delivery, and restart. See the variant's
+[target cleanup evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/gateway-target-cleanup.md).
+
+Enabling target history or changing its field mapping on existing rows requires
+an explicit history migration. The compiler refuses to infer earlier locations
+from the current field. It has no history import or target retirement protocol.
+Database placement history, cleanup of former locations while a resource is live,
+provider identity binding, permissions for each owner and target, cross-process
+fencing, and parent finalization remain open.
