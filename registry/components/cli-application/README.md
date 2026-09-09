@@ -16,7 +16,8 @@ command. Up to eight named path parameters can bind required flags to whole
 route segments. They stay outside request bodies and query strings. Hypershell names and rules do not occur in this component.
 
 Common commands include `login --url URL --token-file FILE [--ca-file FILE]`
-and `logout`. Login stores absolute file references in a private JSON configuration;
+and `logout`. Token-file login stores absolute file references in a private
+JSON configuration;
 it does not copy the token or claim to have verified it with the API. A command
 reads the current token file before its request. Logout removes configuration
 and retains the externally owned token file. The factory selects the environment

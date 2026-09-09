@@ -1836,3 +1836,27 @@ The generated CLI dependency scan found no known vulnerabilities. The real
 provider workflow has passed browser login, Gateway creation, API restart, and
 concurrent refresh. Its final device and logout checks are still in progress.
 The complete client port and enterprise goal remain active.
+
+Compiler run `34377592668` passed at
+`dc2af4e283d0da07a17bdefd2acf0b97a6a2dd2f`. The real OIDC CLI workflow
+passed in 38.21 seconds. It uses Keycloak 26.7.3, a separate generated CLI,
+and the generated API. It checks browser and device login, Gateway creation,
+filtered access, denied reads, API restart, concurrent refresh, and provider
+refresh-token revocation on logout.
+
+The full local variant race suite then passed with PostgreSQL and Keycloak
+required. Its acceptance package took 441.456 seconds. The original five-part
+Gateway gate remains in this suite. Static checks passed, and the full variant
+dependency scan found no known vulnerabilities. Regeneration from the remote
+compiler pin had no changes or drift. These durations include setup and are
+not capacity measurements.
+
+The provider test browser required an HTML Accept header to select Keycloak's
+form endpoint. The generated CLI does not submit password forms. The test
+supplies those browser interactions while the CLI owns PKCE, callbacks, token
+exchange, session storage, and refresh. The acceptance timeout is now 12 minutes;
+the previous hosted suite took 571 seconds before this workflow was added.
+Individual network deadlines are unchanged. The final application commit and
+hosted checks follow. This turn made progress. Remaining reference CLI options,
+commands, other clients, and production checks remain open. The complete
+enterprise goal remains active.
