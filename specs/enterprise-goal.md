@@ -1860,3 +1860,30 @@ Individual network deadlines are unchanged. The final application commit and
 hosted checks follow. This turn made progress. Remaining reference CLI options,
 commands, other clients, and production checks remain open. The complete
 enterprise goal remains active.
+
+The previous turn made progress. Variant run `34379180034` passed all four
+jobs at `fc2aedb958caf91acc1e50114796251f903e9fbf`. Its acceptance package
+took 607.695 seconds. Compiler run `34379181501` passed at
+`70426bf3481f0fbb5370b20b4e48dbe914f6b435`. Both remote heads were verified.
+
+The next workflow grants and removes Gateway access through the CLI. Hypershell
+now supplies role discovery and role-binding command definitions. The existing
+STEGO runtime handles these definitions without a compiler change. An added
+`get current-user` command returns the API user ID needed for a grant. It does
+not replace the reference `whoami` command.
+
+The focused race test passed in 5.66 seconds. It discovers IDs through the CLI,
+creates a viewer grant, and checks REST and gRPC access. It checks filtered
+lists, denied grant changes, duplicate grants, last-owner protection, event
+rollback, event delivery, restart, and grant restoration with a new ID. The
+request-field checks passed. A reference CLI port table records the remaining
+commands and options. The full application suite is in progress. The complete
+enterprise goal remains active.
+
+The complete local variant race suite passed with PostgreSQL and Keycloak
+required. Its acceptance package took 470.195 seconds. Static checks and pinned
+regeneration passed. This step adds application command definitions and tests.
+The compiler pin and generated source are unchanged. The CLI port table also
+records that Gateway-network application behavior is still missing. The final
+application commit and hosted checks follow. This turn made progress. The full
+Hypershell port and enterprise goal remain active.
