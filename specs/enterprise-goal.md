@@ -531,3 +531,42 @@ the acceptance package completed in 126.135 seconds. The extended failure test
 also passed after owner-grant restoration, restart, repeated revocation, and
 visible-record deletion with audit retention. Pinned regeneration had no output
 changes or drift. CI requires this test with the other application checks.
+
+The late-creation test reproduced another application defect. The API timed out
+while a TLS proxy held the Keycloak client-creation request. Initial cleanup
+removed the failed account reservation, and the Gateway was then deleted. The
+proxy released the request after the API process stopped. Keycloak created the
+client, which survived restart because recovery excluded deleted account rows.
+
+Recovery now revisits deleted records for failed, deleting, and abandoned
+accounts. It uses stable resource IDs and does not require a live parent or an
+old provider UUID. The real Keycloak test passed after this correction. Normal
+API reads still exclude deleted records, and audit history remains available.
+STEGO's existing `IncludeDeleted` storage option supplies the required query.
+Its independent Record and Membership test also preserves live-grant filtering.
+No compiler code change or application-specific generator was required.
+
+A separate application test covers cleanup across 101 deleted records, retry of
+a provider failure, and preservation of a live account. Recovery keeps its page,
+concurrency, and deadline limits. Large-history capacity, bounded tombstone
+retention, external objects with no retained database record, provider drift
+scans, Gateway cleanup composition, and the broader goal remain open.
+
+The expanded cleanup test exposed a priority regression: historical records
+could consume the page before a current failed account was reached. Current
+work and historical checks now have separate cursors. Current work runs first,
+and both passes share the four-second scan deadline and eight-worker limit.
+Each pass reads at most 100 rows. The expanded test passed, including retry
+across pages, current-work priority, and preservation of a live account.
+
+A follow-up access test is also required. Gateway OIDC fields can currently be
+supplied through application mutations, and the service-account provider checks
+the requested audience without checking a trusted binding between that Keycloak
+client and the Gateway ID. Test whether an owner can request another Gateway's
+audience before relying on cross-Gateway isolation. This is a review finding,
+not yet a reproduced test result.
+
+The final local variant race suite passed with PostgreSQL and Keycloak required.
+The acceptance package completed in 172.666 seconds. Pinned regeneration had no
+output changes or drift. The hosted gate requires the late-creation and cleanup
+priority tests with the other application workflows.
