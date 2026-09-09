@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -639,5 +640,52 @@ func TestLockedResourceWaitHonorsDeadline(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNumericBoundsAtStorageBoundary(t *testing.T) {
+	s, db := database(t, false)
+	ctx := context.Background()
+	valid := func() Measurement {
+		return Measurement{Meta: Meta{ID: uuid.NewString()}, Score: 0, Lower: -5, Upper: 9}
+	}
+	row := valid()
+	if err := s.Create(ctx, "Measurement", row); err != nil {
+		t.Fatal("inclusive integer bounds and null optional fields", err)
+	}
+	ratio, single := 0.9, float32(-1.5)
+	row.Ratio = &ratio
+	row.Single = &single
+	row.Score = 100
+	if err := s.Replace(ctx, "Measurement", row.ID, row); err != nil {
+		t.Fatal("inclusive numeric bounds", err)
+	}
+	for name, change := range map[string]func(*Measurement){
+		"score low": func(r *Measurement) { r.Score = -1 }, "score high": func(r *Measurement) { r.Score = 101 },
+		"lower": func(r *Measurement) { r.Lower = -6 }, "upper": func(r *Measurement) { r.Upper = 10 },
+		"ratio low": func(r *Measurement) { v := 0.099; r.Ratio = &v }, "ratio high": func(r *Measurement) { v := 0.901; r.Ratio = &v },
+		"single":           func(r *Measurement) { v := float32(2); r.Single = &v },
+		"NaN minimum":      func(r *Measurement) { v := math.NaN(); r.Floor = &v },
+		"infinite minimum": func(r *Measurement) { v := math.Inf(1); r.Floor = &v },
+		"infinite maximum": func(r *Measurement) { v := math.Inf(-1); r.Ceiling = &v },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := valid()
+			change(&invalid)
+			if err := s.Create(ctx, "Measurement", invalid); err == nil {
+				t.Fatal("invalid create committed")
+			}
+			invalid.ID = row.ID
+			if err := s.Replace(ctx, "Measurement", row.ID, invalid); err == nil {
+				t.Fatal("invalid replacement committed")
+			}
+		})
+	}
+	if _, err := db.Exec(`UPDATE measurements SET score=101 WHERE id=$1`, row.ID); err == nil {
+		t.Fatal("direct SQL bypassed generated constraint")
+	}
+	stored, err := s.Get(ctx, "Measurement", row.ID)
+	if err != nil || stored.(Measurement).Score != 100 {
+		t.Fatal("failed write changed the record", stored, err)
 	}
 }

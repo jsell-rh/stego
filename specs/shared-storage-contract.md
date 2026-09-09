@@ -97,3 +97,15 @@ The generated Record and Membership test checks a visibility union, reverse
 references, references to a shared parent, filtered counts and pages, outer
 scopes, OR search, deletion, literal SQL-like values, malformed conditions, and
 cyclic or excessive trees. This common filter contains no Hypershell policy.
+
+PostgreSQL models enforce declared numeric `min` and `max` bounds with one
+inclusive CHECK constraint per field. Integer and floating fields can use one
+bound or both bounds. Optional fields can remain NULL. Bounded floating fields
+reject NaN and both infinities, including when only one bound is set. SQL column
+names are quoted, so a field can use a SQL keyword. The compiler and the
+PostgreSQL generator reject non-finite bounds before output generation.
+
+The generated Measurement test checks inclusive bounds, optional values,
+fractional limits, integer limits, non-finite values, failed replacements, and
+direct SQL writes. Existing databases require an explicit migration before the
+new model constraints take effect. A constraint does not repair invalid data.

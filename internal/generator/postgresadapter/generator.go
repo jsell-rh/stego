@@ -9,8 +9,10 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"go/format"
+	"math"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -103,6 +105,27 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// Validate that enum fields have non-empty values.
 	if err := validateEnumValues(ctx.Entities); err != nil {
 		return nil, nil, err
+	}
+
+	for _, entity := range ctx.Entities {
+		for _, field := range entity.Fields {
+			if field.Min == nil && field.Max == nil {
+				continue
+			}
+			switch field.Type {
+			case types.FieldTypeInt32, types.FieldTypeInt64, types.FieldTypeFloat, types.FieldTypeDouble:
+			default:
+				return nil, nil, fmt.Errorf("entity %s field %s: numeric bounds require a numeric type", entity.Name, field.Name)
+			}
+			for _, bound := range []*float64{field.Min, field.Max} {
+				if bound != nil && (math.IsNaN(*bound) || math.IsInf(*bound, 0)) {
+					return nil, nil, fmt.Errorf("entity %s field %s: numeric bounds must be finite", entity.Name, field.Name)
+				}
+			}
+			if field.Min != nil && field.Max != nil && *field.Min > *field.Max {
+				return nil, nil, fmt.Errorf("entity %s field %s: numeric range is empty", entity.Name, field.Name)
+			}
+		}
 	}
 
 	// Build upsert key lookup: entity name → list of upsert key field sets.
@@ -444,8 +467,21 @@ func buildGormTag(entity string, f types.Field) string {
 		parts = append(parts, fmt.Sprintf("size:%d", *f.MaxLength))
 	}
 
+	var checks []string
 	if f.MinLength != nil {
-		parts = append(parts, fmt.Sprintf("check:length(%s) >= %d", f.Name, *f.MinLength))
+		checks = append(checks, fmt.Sprintf("length(%s) >= %d", f.Name, *f.MinLength))
+	}
+	if f.Min != nil {
+		checks = append(checks, strconv.Quote(f.Name)+" >= "+strconv.FormatFloat(*f.Min, 'g', -1, 64))
+	}
+	if f.Max != nil {
+		checks = append(checks, strconv.Quote(f.Name)+" <= "+strconv.FormatFloat(*f.Max, 'g', -1, 64))
+	}
+	if (f.Min != nil || f.Max != nil) && (f.Type == types.FieldTypeFloat || f.Type == types.FieldTypeDouble) {
+		checks = append(checks, fmt.Sprintf("%s NOT IN ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)", strconv.Quote(f.Name)))
+	}
+	if len(checks) > 0 {
+		parts = append(parts, "check:"+strings.Join(checks, " AND "))
 	}
 
 	if f.Default != nil {

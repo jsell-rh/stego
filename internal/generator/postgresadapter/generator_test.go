@@ -2,6 +2,7 @@ package postgresadapter
 
 import (
 	"go/format"
+	"math"
 	"strings"
 	"testing"
 
@@ -2005,5 +2006,20 @@ func TestListOptionsIncludesImplicitFilters(t *testing.T) {
 	}
 	if !strings.Contains(storeContent, "map[string]string") {
 		t.Error("ImplicitFilters must be typed as map[string]string")
+	}
+}
+
+func TestGeneratorRejectsInvalidNumericBounds(t *testing.T) {
+	zero, one, nan, infinity := 0.0, 1.0, math.NaN(), math.Inf(1)
+	for _, field := range []types.Field{
+		{Name: "value", Type: types.FieldTypeString, Min: &zero},
+		{Name: "value", Type: types.FieldTypeDouble, Min: &nan},
+		{Name: "value", Type: types.FieldTypeInt64, Max: &infinity},
+		{Name: "value", Type: types.FieldTypeInt32, Min: &one, Max: &zero},
+	} {
+		ctx := gen.Context{OutputNamespace: "storage", Entities: []types.Entity{{Name: "Record", Fields: []types.Field{field}}}}
+		if _, _, err := new(Generator).Generate(ctx); err == nil {
+			t.Fatal("invalid numeric bounds were accepted", field)
+		}
 	}
 }

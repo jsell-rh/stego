@@ -21,6 +21,17 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
 	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
+	low, high, zero, hundred, ratioLow, ratioHigh, singleLow, singleHigh := -5.0, 9.0, 0.0, 100.0, 0.1, 0.9, -1.5, 1.5
+	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Measurement", Fields: []types.Field{
+		{Name: "score", Type: types.FieldTypeInt32, Min: &zero, Max: &hundred},
+		{Name: "limit", Type: types.FieldTypeInt64, Optional: true, Min: &zero},
+		{Name: "lower", Type: types.FieldTypeInt64, Min: &low},
+		{Name: "upper", Type: types.FieldTypeInt64, Max: &high},
+		{Name: "ratio", Type: types.FieldTypeDouble, Optional: true, Min: &ratioLow, Max: &ratioHigh},
+		{Name: "single", Type: types.FieldTypeFloat, Optional: true, Min: &singleLow, Max: &singleHigh},
+		{Name: "floor", Type: types.FieldTypeDouble, Optional: true, Min: &zero},
+		{Name: "ceiling", Type: types.FieldTypeDouble, Optional: true, Max: &hundred},
+	}})
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)

@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -352,6 +353,12 @@ func validateFieldTypes(entities []types.Entity) []ValidationError {
 				}
 			}
 
+			// Numeric bounds must be finite before any target formats them.
+			for _, bound := range []*float64{f.Min, f.Max} {
+				if bound != nil && (math.IsNaN(*bound) || math.IsInf(*bound, 0)) {
+					errs = append(errs, ValidationError{Category: "field-type", Message: fmt.Sprintf("entity %q field %q: numeric bounds must be finite", e.Name, f.Name)})
+				}
+			}
 			// Numeric-only constraints: min, max.
 			if f.Min != nil && !numericTypes[f.Type] {
 				errs = append(errs, ValidationError{
