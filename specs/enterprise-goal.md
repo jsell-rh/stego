@@ -1088,3 +1088,74 @@ passed with PostgreSQL and Keycloak required; the acceptance package took
 312.660 seconds. Dependency verification and regeneration from the committed
 files passed. No generated changes or drift remained. The workflow and migration
 steps are recorded in the variant's `acceptance/placement-catalog.md`.
+
+### Default deployment database placement
+
+The prior STEGO journal passed hosted run `34311049664`. The next increment adds
+the reference deployment placement path. An unset or empty `DATABASE_PROVIDER`
+selects `deployment`; `cnpg` selects the explicit shared-database path. Invalid
+values stop generated application startup. A Gateway creator can create a Gateway
+without catalog write access. One transaction creates a private ManagedDatabase,
+the Gateway, its owner grant, and three resource events. A caller cannot select
+another Gateway's database. Existing shared-database tests now select CNPG.
+
+The workflow exposed a REST compatibility error. The reference requires a
+`database_id` property but permits an empty string. The variant previously
+rejected empty strings. STEGO commit `35349fe` adds `stego:"required"` to the common
+JSON reader. It distinguishes absent or null members from valid zero values during
+the existing shape check. It does not reread the body. Independent Record tests
+cover empty strings, zero, false, empty arrays, nested objects, untagged fields,
+and invalid declarations. The full local STEGO race suite passed with PostgreSQL
+required. Hosted compiler run `34311390396` also passed. The variant pins full
+revision `35349fea6a2b112ac53a59f7cf649550b12369a3` and http-application 1.2.0.
+
+Database names now permit the 255-byte Gateway name plus `gw-` and `-db`.
+Migration 000007 widens the name column and preserves existing data and timestamps.
+The workflow exercises a 255-byte Gateway name. Namespace allocation remains
+based on the database KSUID and is shared with catalog creation.
+
+The fault tests reject database insertion, Gateway insertion, owner insertion,
+and each event kind. Each failure must leave no partial creation. A concurrent
+test creates eight Gateways for one user and requires eight distinct deployment
+databases. The generated process test covers both transports, filtered access,
+owner grants, watches, and all three Kafka events. Its offline creation check
+requires the exact retained message IDs after restart. The real Keycloak browser
+login and sharing test also runs with default deployment placement.
+
+The first focused run found an incomplete grant-list request in the new test.
+The request now includes its required user ID. The corrected deployment workflow
+passed in 5.125 seconds. The fault, concurrency, migration, startup, catalog, and
+real Keycloak checks passed in the earlier focused run; that run took 39.556 seconds
+and failed only the incomplete grant-list request. Dependency verification and
+pinned generation passed before the full variant race suite.
+
+A local 100-call creation benchmark averaged 3.088 ms, 116,992 bytes, and 1,651
+allocations per call. It includes the database, Gateway, owner grant, and three
+queued events in one transaction for an existing caller. It excludes transport,
+token checks, role preparation, Kafka delivery, Kubernetes work, and concurrent
+load. It is not a production capacity claim.
+
+This increment creates placement records. It does not deploy database pods or
+Gateway workloads. The next control-plane workflow also needs the reference
+ManagedDatabase deletion replay, capability handshake, and durable cleanup retries.
+The enterprise goal remains active.
+
+Hosted variant run `34311045030` passed on the prior catalog commit `f4b6842`.
+The reference ManagedDatabase watch uses the capability header
+`hypershell-managed-database-delete-tombstones: v1`. A separate watch request with
+`hypershell-managed-database-replay: deleted-v1` streams deletion history in pages
+of 500. The reference controller starts and drains its live watch before replay.
+The variant currently has live delete records but lacks this replay and handshake.
+The next workflow must prove cleanup after disconnected deletion and restart,
+with replay access limited to configured controller subjects.
+
+Variant commit `4fabc6c` contains default deployment placement. Its full local race
+suite passed with PostgreSQL and Keycloak required; the acceptance package took
+318.581 seconds. Regeneration from the committed files passed with no changes or
+drift. The variant records configuration, migration, evidence, and remaining work
+in `acceptance/deployment-placement.md`.
+
+Local Kubernetes test tools are available: kind 0.31.0 and kubectl 1.35.7. The
+reference control-plane module pins Kubernetes libraries at 0.36.3. The next
+application gate can use an isolated kind cluster to prove actual database
+provisioning and cleanup after disconnected deletion and controller restart.
