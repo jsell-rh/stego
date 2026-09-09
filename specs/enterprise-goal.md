@@ -1564,3 +1564,28 @@ variation and honor bounded server delay metadata. The independent Widget tests
 cover this protocol without Hypershell types. Full compiler race tests passed.
 Additional stream and snapshot bound tests also passed after the final changes.
 The full enterprise goal remains active.
+
+The new Pod count controller passed the real sandbox workflow. REST and gRPC
+reported zero before creation and one after the sandbox became active. The
+controller repaired a forced count of nine from its cache, then restored the
+count after process restart with the same Pod. Sandbox execution, retained data,
+and count survived Gateway and database restart and Gateway namespace
+replacement. Sandbox deletion returned the count to zero. Final Gateway,
+namespace, database, and policy cleanup also passed.
+
+The fresh-cluster Gateway workflow took 299.48 seconds. Recovery and workload
+tests together took 357.304 seconds with the race detector. The full variant
+race suite also passed; its acceptance package took 404.162 seconds. The count
+transport test proved atomic event failure, event delivery, denied access,
+and rejection of writes from a former cluster. It passed again after pinned
+regeneration. Static checks and compiler vulnerability checks passed.
+
+Compiler `9abcea993bfb0eb1c8d3dcd7f38b0ead0a2b32f5` is on remote main.
+Its hosted run `34360166149` passed. The variant now uses that compiler and has
+pushed the count workflow in `64b9685`. Post-commit regeneration passed with
+no changes or drift. Check the new hosted variant run before the next change.
+
+The count is advisory. One active count controller is required per cluster.
+Kubernetes access uses a separate Pod read account. The API still uses the
+existing control-plane subject policy. The production runtime and identity
+policy decisions remain open. The full enterprise goal remains active.
