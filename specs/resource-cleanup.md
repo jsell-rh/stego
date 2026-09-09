@@ -12,7 +12,8 @@ entities:
       - {name: command, type: string}
 ```
 
-Declare at most 32 distinct owners. Each name starts with a lowercase ASCII
+Declare a YAML list of at most 32 distinct string owners. Boolean and numeric
+values are not converted to names. Each name starts with a lowercase ASCII
 letter and contains at most 63 lowercase letters, digits, or underscores.
 Cleanup owners require `versioned: true`. Field names cannot collide with the
 cleanup metadata or generated methods. Cleanup does not require desired

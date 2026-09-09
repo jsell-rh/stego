@@ -157,3 +157,17 @@ func TestResourceVersionDeclarationRequiresBoolean(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupOwnerDeclarationRequiresStrings(t *testing.T) {
+	for _, value := range []string{`[provider]`, `["true"]`, `[]`, `[true]`, `[1]`, `[null]`, `null`, `provider`, `{provider: true}`} {
+		input := "kind: service\nname: test\narchetype: test\nlanguage: go\nentities:\n - name: Record\n   versioned: true\n   cleanup_owners: " + value + "\n"
+		_, err := ParseServiceDeclarationFromBytes([]byte(input), "service.yaml")
+		valid := value == `[provider]` || value == `["true"]` || value == `[]`
+		if valid && err != nil {
+			t.Fatal("valid cleanup list rejected", value, err)
+		}
+		if !valid && err == nil {
+			t.Fatal("cleanup owner type was coerced", value)
+		}
+	}
+}
