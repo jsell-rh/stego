@@ -12,7 +12,7 @@ API paths, resource schemas, or provider rules.
 | --- | --- | --- |
 | Watch setup, bounded queue, serial actions, deadlines, reconnect, and worker shutdown | STEGO | Shared runtime and generated race tests; three application controllers migrated |
 | Failed-work and missed-deletion scheduling | STEGO mechanism, with an application source contract | Runtime repeats retained scans; typed replay and cursor adapters still need generation |
-| Dirty-key scheduling, delayed retries, and duplicate suppression | STEGO | Generated keyed runtime; Pod count migration and its workload checks are in progress |
+| Dirty-key scheduling, delayed retries, and duplicate suppression | STEGO | Generated keyed runtime; Pod count migration passed the local sandbox workload gate |
 | Observation baseline, reset, cache bounds, and shutdown | STEGO | Kubernetes transport emits reset and replacement events; part of cache management remains in the application |
 | Which Pods count as active and which Gateway owns them | Hypershell | Domain label, namespace, and phase rules |
 | Bounded worker pools and fair recovery scans | STEGO | Service-account recovery still contains a local timer, cursor map, and worker pool |

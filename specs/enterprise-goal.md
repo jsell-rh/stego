@@ -2079,3 +2079,29 @@ workflow is running with the generated queue and corrected failure summaries.
 Pinned regeneration and remote application gates follow. The full goal remains
 active; worker pools, shared recovery adapters, and distributed fencing remain
 open.
+
+The real sandbox gate passed in 317.874 seconds with the keyed controller and
+safe diagnostics. Gateway recovery before controller startup took 57.69 seconds;
+the complete sandbox workflow took 259.14 seconds. It verified count repair
+through REST and gRPC, count-controller restart, access changes, actual sandbox
+execution, Gateway and database restart, namespace replacement, and offline
+cleanup. The added reset-during-write test passed with the count race suite in
+3.137 seconds. It allows the active write to finish but requires a complete
+replacement before subsequent writes.
+
+Compiler `50e393410fb9eb77ccfc523155f2b7ccbe60c74d` passed full CI run
+`34390663953`. Regeneration from that pin produced the same controller and
+client bytes used by the workload gate. The count transport test passed in
+7.23 seconds, and application static checks passed. Variant commits
+`facdd0bfe5a3e9f8d4b8504158d9721646be48b8` and
+`b7108c397bb3294d8d748388972e1d4a3be21779` separately update the generated
+runtime with safe diagnostics and migrate Pod count scheduling. Both are on
+remote main. Variant run `34391200715` is running the full acceptance, database,
+Gateway, and sandbox gates on the final commit.
+
+The earlier variant run `34389668334` is terminal: its general acceptance job
+passed, but all three workload jobs failed on the lost cleanup diagnostics.
+The exact failure logs were inspected. No earlier failed job is counted as a
+pass. The new run must verify the corrections. The local test cluster and its
+PostgreSQL container were removed after testing. This turn made progress. The
+full enterprise goal remains active.
