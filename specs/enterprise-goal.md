@@ -1391,3 +1391,47 @@ Variant commit `cd56815850f29498a7907924de259b87ce375ec0` is on remote main.
 Regeneration from that commit passed with no changes or drift. Hosted CI for
 this commit must pass all three jobs: acceptance, database workflow, and Gateway
 workload. Check that result before the next implementation step.
+
+
+Hosted variant run `34316927657` passed all three jobs on `cd56815`:
+acceptance, database workflow, and the actual Gateway workload. Compiler journal
+run `34316943845` also passed.
+
+A new real-cluster test reproduced the next recovery defect. A Gateway was
+deleted before its workload controller first started. Its database already
+existed, but no Gateway namespace or database link existed. After API restart,
+the controller completed repeated empty scans and left the database running.
+The test failed in 85.61 seconds against the previous implementation.
+
+The variant now uses a private controller-only RPC to scan retained Gateway IDs.
+Each page has at most 100 IDs and uses the last ID as its cursor. STEGO already
+supplies field projection, retained-row reads, validated search, transactions,
+and gRPC generation. No compiler change is needed. Cleanup still requires a
+fresh privileged state read. A missing or denied row cannot authorize deletion.
+Scans can exceed the ten-second resync interval. Each request has a deadline,
+and the next scan starts after the previous scan finishes.
+
+The generated-runtime test passed with 205 live and deleted IDs across three
+pages, a concurrent deletion, invalid cursors, and denied callers. The focused
+race tests include a scan that exceeds the resync interval. Vet passed. The Go
+vulnerability scan found no known vulnerabilities. The strongest real-cluster
+recovery check drains the event queue before API restart. It passed in 45.50
+seconds; its package took 46.553 seconds. Retained state supplied the deleted ID,
+and both the database API row and its Kubernetes namespace were removed.
+
+Very large retained histories and progress under sustained watch overflow still
+need measurement. The generated list adapter counts matching rows even when a
+recovery caller does not use the count. Further common infrastructure changes
+must follow that application evidence. This recovery result does not close
+viewer workspace access, sandbox execution, cluster migration, or the complete
+enterprise goal.
+
+The complete local race suite passed with PostgreSQL and Keycloak required;
+its acceptance package took 334.339 seconds. The actual-image regression passed
+in 167.88 seconds. The combined real-cluster recovery and workload package took
+224.754 seconds. All temporary Kubernetes test clusters were removed.
+
+Variant commit `e705e233e4c07a6c2a44254f4382d9a757d52fd9` is on remote main.
+Regeneration from the committed files passed with no changes or drift. Hosted
+variant run `34317681420` is queued. Check all three jobs before the next
+implementation step. The full enterprise goal remains active.
