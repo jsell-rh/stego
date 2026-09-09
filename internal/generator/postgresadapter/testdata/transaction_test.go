@@ -689,3 +689,51 @@ func TestNumericBoundsAtStorageBoundary(t *testing.T) {
 		t.Fatal("failed write changed the record", stored, err)
 	}
 }
+
+func TestDeletedRowsAreFilteredBeforePaging(t *testing.T) {
+	s, _ := database(t, false)
+	ctx := context.Background()
+	for i := 0; i < 7; i++ {
+		r := record(fmt.Sprintf("row-%d", i))
+		if err := s.Create(ctx, "Record", r); err != nil {
+			t.Fatal(err)
+		}
+		if i%2 == 1 {
+			if err := s.Delete(ctx, "Record", r.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, include := range []bool{false, true} {
+		for page := 1; page <= 4; page++ {
+			result, err := s.List(ctx, "Record", "", "", contract.ListOptions{OnlyDeleted: true, IncludeDeleted: include, Page: page, Size: 1, OrderBy: []contract.OrderByField{{Field: "name", Direction: "asc"}}})
+			if err != nil || result.Total != 3 {
+				t.Fatalf("deleted count: %v, %v", result, err)
+			}
+			rows := result.Items.([]Record)
+			if page == 4 {
+				if len(rows) != 0 {
+					t.Fatal("extra deleted row")
+				}
+				continue
+			}
+			if len(rows) != 1 || rows[0].Name != fmt.Sprintf("row-%d", page*2-1) || !rows[0].DeletedAt.Valid {
+				t.Fatalf("deleted page %d: %v", page, rows)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		opts  contract.ListOptions
+		total int64
+	}{
+		{contract.ListOptions{Page: 1, Size: 10}, 4},
+		{contract.ListOptions{Page: 1, Size: 10, IncludeDeleted: true}, 7},
+		{contract.ListOptions{Page: 1, Size: 0, CountOnly: true, OnlyDeleted: true, ImplicitFilters: map[string]string{"name": "row-3"}}, 1},
+		{contract.ListOptions{Page: 1, Size: 10, OnlyDeleted: true, Filter: &contract.RowFilter{Field: "name", Values: []string{"row-0"}}}, 0},
+	} {
+		result, err := s.List(ctx, "Record", "", "", tc.opts)
+		if err != nil || result.Total != tc.total {
+			t.Fatalf("scope count: %v %v", result, err)
+		}
+	}
+}
