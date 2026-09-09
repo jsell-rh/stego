@@ -175,5 +175,21 @@ Enabling target history or changing its field mapping on existing rows requires
 an explicit history migration. The compiler refuses to infer earlier locations
 from the current field. It has no history import or target retirement protocol.
 Database placement history, cleanup of former locations while a resource is live,
-provider identity binding, permissions for each owner and target, cross-process
+provider identity binding, permissions for other controller operations, cross-process
 fencing, and parent finalization remain open.
+
+The generated [grant policy](authorization-grants.md) now matches the verified
+issuer, subject, resource type, operation, and target. Hypershell applies it to
+cleanup observations. Its API tests use separate subjects for cluster targets
+and identity cleanup. They reject writes across targets, owners, and resource
+types, and deny configured subjects that lack a grant. Removing a grant and
+restarting the API revokes that scope while preserving another subject's access.
+A granted target still requires recorded resource history and the current
+revision. See the variant's [cleanup permissions](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/cleanup-permissions.md).
+
+Policies are immutable within each process. All API instances must be updated
+for a grant change to apply throughout a deployment. The policy does not reload
+or revoke grants across running processes. Provider credentials remain a
+separate boundary, and other controller reads and writes still need distinct
+permissions. The tested cleanup observation gap is closed. The complete controller
+permission model remains open.
