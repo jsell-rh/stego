@@ -757,3 +757,49 @@ load. The environment used Go 1.26.8, PostgreSQL 18.6, and an Intel Core Ultra 9
 The active goal remains open. RoleBinding list and watch APIs, complete Users and
 Roles APIs, global role synchronization, browser or device login, deployment,
 production capacity, and the other enterprise requirements remain outstanding.
+
+The next application check completes a real Keycloak browser login and PKCE S256
+code exchange. Variant commits `09b9926` and `63b75b5` add a private generated API
+for current user access and connect it to the Gateway identity controller.
+Gateway owner and viewer grants now determine the roles in newly issued tokens.
+The controller uses the stored issuer and subject, not a profile name. It changes
+only the roles for the managed Gateway client and preserves other client roles.
+
+The login check exposed a missing subject mapper in the managed Gateway client.
+The existing service-account checks did not prove browser token behavior. STEGO
+correctly rejected the browser token. The variant now declares a dedicated
+Keycloak subject mapper; signature, issuer, audience, expiry, and subject checks
+remain unchanged. This increment required no compiler code change.
+
+The real application test covers API login, Gateway creation, owner and viewer
+roles, role union, profile change and reuse, API audience isolation, removal, and
+restart of the API and controller. A user with a reused profile name receives no
+Gateway access. Removing an owner grant preserves a remaining viewer grant.
+Retained grant references let a restarted controller remove missed provider roles.
+
+The private API rejects untrusted readers and preserves errors for missing or
+unbound identities. Provider tests check the issuer, trusted Gateway binding,
+subject lookup, target client, and failed removal before addition. Controller
+fault tests also exposed a retry-position error for the last user in a page.
+The controller now retains that user's position when the pass times out.
+
+The full local race suite passed with PostgreSQL and Keycloak required. The
+acceptance package took 280.953 seconds. The later timeout correction passed
+controller and provider race checks. A final focused race run repeated real
+login and current-state checks in 29.032 seconds. Dependency verification and
+regeneration passed. The variant records details in
+`acceptance/gateway-user-login.md`.
+
+A 100-call local benchmark read current user access with 10,000 unrelated users
+and grants. It averaged 0.928 ms, 46,462 bytes, and 612 allocations per call on
+Go 1.26.8, PostgreSQL 18.6, and an Intel Core Ultra 9 185H. This measures the domain
+transaction and database reads. It excludes gRPC, Keycloak, controller scans,
+browser login, and concurrent load.
+
+The test confirms that an already issued token retains its earlier role claims.
+The user was asked whether grant removal requires an online Gateway access check.
+That decision and enforcement remain open. Provider writes are separate from the
+database transaction and can lag it. Immediate revocation, multiple-controller
+coordination, device login, workload deployment, full user and role APIs, API key
+rotation, production capacity, and the other enterprise requirements remain part
+of the active goal.
