@@ -149,3 +149,22 @@ stored obligations. Hypershell applies it to the database provider and continues
 periodic checks after a recorded success. A later pending or failed provider
 check clears that confirmation. This supplies durable observations, but it does
 not fence other processes or establish safe purge after late external effects.
+
+Gateway login identity now uses the same cleanup contract. The private state API
+uses generated retained reads. The Keycloak adapter confirms absence after a
+delete response. The controller continues checks after completion, and a stale
+completion requires new provider work. Application checks cover event rollback,
+denied writes, restart, and a late client created after recorded completion.
+See the variant's [identity cleanup evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/gateway-identity-cleanup.md).
+
+The existing Gateway cluster-move workflow exposes another required abstraction.
+A global workload owner cannot prove cleanup in every cluster that held the
+resource. A controller for the former cluster can remove its objects, then lose
+its local ownership evidence on the next pass. A controller for the new cluster
+cannot confirm absence in the old cluster. Workload completion therefore remains
+unrecorded. The proposed next contract stores cleanup obligations for each target
+in STEGO, while Hypershell supplies cluster identity and provider actions. It must
+preserve previous targets across changes and restart, and record obligations
+before external creation. The contract must also define migration from resources
+whose earlier targets were not recorded. A simple global completion flag does
+not establish these properties.
