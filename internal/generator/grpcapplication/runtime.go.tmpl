@@ -9,6 +9,7 @@ import (
  "log/slog"
  "net"
  "os"
+ "strconv"
  "strings"
  "sync"
  "time"
@@ -25,6 +26,19 @@ import (
 const RequestTimeout = 10*time.Second
 const MaxRequestBytes = 64<<10
 const MaxResponseBytes = 8<<20
+
+// ResourceVersion reads a canonical, positive revision precondition. Applications
+// must enforce it in the transaction that checks access and changes the row.
+func ResourceVersion(ctx context.Context)(int64,bool,error){
+ if ctx==nil{return 0,false,status.Error(codes.InvalidArgument,"RPC context is required")}
+ md,_:=metadata.FromIncomingContext(ctx)
+ values:=md.Get("if-resource-version")
+ if len(values)==0{return 0,false,nil}
+ if len(values)!=1||len(values[0])>19{return 0,true,status.Error(codes.InvalidArgument,"invalid resource version")}
+ version,err:=strconv.ParseInt(values[0],10,64)
+ if err!=nil||version<1||strconv.FormatInt(version,10)!=values[0]{return 0,true,status.Error(codes.InvalidArgument,"invalid resource version")}
+ return version,true,nil
+}
 type Authenticate func(context.Context,string)(context.Context,error)
 // IdentityInfo reads only claims that Authenticate has verified.
 type Options struct { IdentityInfo func(context.Context)(string,time.Time) }

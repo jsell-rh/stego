@@ -11,6 +11,15 @@ import (
 
 var ErrNotFound = errors.New("entity not found")
 var ErrConflict = errors.New("storage conflict")
+var ErrVersionConflict = errors.New("resource version changed or resource is absent")
+
+// VersionedWriter updates only a live row at the observed resource version.
+// It does not establish access rights or field ownership. Use it in the same
+// transaction as authorization and durable events. A conflict requires a new
+// observation; do not retry with a newer version and an old result.
+type VersionedWriter interface {
+	ReplaceIfVersion(context.Context, string, string, int64, any) error
+}
 // ErrSerialization reports a transaction that did not commit because of a
 // concurrent change or deadlock. The caller can start a new transaction.
 var ErrSerialization = errors.New("transaction serialization conflict")

@@ -148,6 +148,16 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate entity field types.
 	result.Errors = append(result.Errors, validateFieldTypes(svcDecl.Entities)...)
+	for _, err := range types.ValidateVersioned(svcDecl.Entities) {
+		result.Errors = append(result.Errors, ValidationError{Category: "field-type", Message: err.Error()})
+	}
+	for _, entity := range svcDecl.Entities {
+		if entity.Versioned {
+			if _, supported := components["postgres-adapter"]; !supported {
+				result.Errors = append(result.Errors, ValidationError{Category: "component", Message: fmt.Sprintf("versioned entity %s requires postgres-adapter", entity.Name)})
+			}
+		}
+	}
 	for _, err := range types.ValidateLiveUnique(svcDecl.Entities, svcDecl.Collections) {
 		result.Errors = append(result.Errors, ValidationError{Category: "field-type", Message: err.Error()})
 	}

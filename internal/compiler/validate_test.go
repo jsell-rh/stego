@@ -4137,3 +4137,23 @@ func TestValidateLiveUnique(t *testing.T) {
 		})
 	}
 }
+
+func TestVersionedEntityRequiresStorageSupport(t *testing.T) {
+	project, _, input := setupValidateProject(t)
+	file := filepath.Join(project, "service.yaml")
+	source, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, file, strings.Replace(string(source), "  - name: Widget\n", "  - name: Widget\n    versioned: true\n", 1))
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, problem := range result.Errors {
+		if strings.Contains(problem.Message, "versioned entity Widget requires postgres-adapter") {
+			return
+		}
+	}
+	t.Fatal("unsupported storage silently accepted resource revisions")
+}

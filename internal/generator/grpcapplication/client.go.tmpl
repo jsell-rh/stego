@@ -27,6 +27,16 @@ const MaxResponseBytes=64<<10
 const MaxConcurrentCalls=32
 const MaxConcurrentStreams=4
 const StreamTimeout=5*time.Minute
+
+// WithResourceVersion carries the revision read before external work. It copies
+// metadata and preserves authentication. It does not refresh an old observation.
+func WithResourceVersion(ctx context.Context, version int64)(context.Context,error){
+ if ctx==nil||version<1{return nil,errors.New("conditional RPC requires a context and positive resource version")}
+ md,_:=metadata.FromOutgoingContext(ctx)
+ md=md.Copy()
+ md.Set("if-resource-version",strconv.FormatInt(version,10))
+ return metadata.NewOutgoingContext(ctx,md),nil
+}
 // Options come from trusted application configuration. Address is host:port.
 // TokenFile is read for each call so the operator can replace an expiring token.
 type Options struct{Address,CAFile,TokenFile string}

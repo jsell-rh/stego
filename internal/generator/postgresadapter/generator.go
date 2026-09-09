@@ -31,6 +31,9 @@ type Generator struct{}
 // code, SessionFactory, and GenericDao for all entities in the service declaration.
 // It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if errs := types.ValidateVersioned(ctx.Entities); len(errs) > 0 {
+		return nil, nil, errs[0]
+	}
 	if errs := types.ValidateLiveUnique(ctx.Entities, ctx.Collections); len(errs) > 0 {
 		return nil, nil, errs[0]
 	}
@@ -167,6 +170,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating transaction: %w", err)
 	}
 	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile, transactionFile}
+	if hasVersioned(ctx.Entities) {
+		versionFiles, err := generateVersions(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, versionFiles...)
+	}
 
 	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
@@ -207,6 +217,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
+	"ErrVersionConflict":       true,
+	"ResourceVersionMigration": true,
+	"verifyResourceVersions":   true,
+	"migrateResourceVersions":  true,
+	"versioncontract":          true,
 	// Generator-internal identifiers.
 	"Store":                       true,
 	"ErrTransactionRequired":      true,
@@ -339,6 +354,9 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		fmt.Fprintf(&buf, "// %s represents the %s entity.\n", e.Name, e.Name)
 		fmt.Fprintf(&buf, "type %s struct {\n", e.Name)
 		fmt.Fprintf(&buf, "\tMeta\n")
+		if e.Versioned {
+			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
+		}
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f)
@@ -619,7 +637,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintln(&buf, "var schemaInitialization sync.Mutex")
 	fmt.Fprintf(&buf, "// NewStore prepares all model metadata before concurrent queries can start.\n")
 	fmt.Fprintf(&buf, "// Construct the store before other code uses these models on the connection.\n")
-	fmt.Fprintf(&buf, "// Preparation does not read or change database tables.\n")
+	fmt.Fprintf(&buf, "// Preparation does not change database tables. Versioned models require a schema check.\n")
 	fmt.Fprintf(&buf, "func NewStore(db *gorm.DB) (*Store, error) {\n")
 	fmt.Fprintln(&buf, `if db == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
 	fmt.Fprintln(&buf, "if db.Error != nil { return nil, db.Error }")
@@ -633,6 +651,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintln(&buf, "statement := &gorm.Statement{DB: db}")
 	fmt.Fprintln(&buf, `if err := statement.Parse(model); err != nil { return nil, fmt.Errorf("prepare storage schema: %w", err) }`)
 	fmt.Fprintln(&buf, "}")
+	if hasVersioned(entities) {
+		fmt.Fprintln(&buf, "if err := verifyResourceVersions(db); err != nil { return nil, err }")
+	}
 	fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
@@ -1223,6 +1244,9 @@ func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
 	}
 	fmt.Fprintf(&buf, "\t\t)\n")
 	fmt.Fprintf(&buf, "\t})\n")
+	if hasVersioned(entities) {
+		fmt.Fprintln(&buf, `Register("002_resource_versions", func(db *gorm.DB) error { return db.Transaction(migrateResourceVersions) })`)
+	}
 	fmt.Fprintf(&buf, "}\n")
 
 	formatted, err := format.Source(buf.Bytes())

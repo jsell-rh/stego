@@ -19,7 +19,7 @@ const (
 	FieldTypeDouble    FieldType = "double"
 	FieldTypeBool      FieldType = "bool"
 	FieldTypeBytes     FieldType = "bytes"
-	FieldTypeTimestamp  FieldType = "timestamp"
+	FieldTypeTimestamp FieldType = "timestamp"
 	FieldTypeEnum      FieldType = "enum"
 	FieldTypeRef       FieldType = "ref"
 	FieldTypeJsonb     FieldType = "jsonb"
@@ -86,8 +86,9 @@ type Field struct {
 
 // Entity represents a domain entity with its fields.
 type Entity struct {
-	Name   string  `yaml:"name"`
-	Fields []Field `yaml:"fields"`
+	Name      string  `yaml:"name"`
+	Fields    []Field `yaml:"fields"`
+	Versioned bool    `yaml:"versioned,omitempty"`
 }
 
 // Port represents a named capability that a component requires or provides.
@@ -133,14 +134,14 @@ type Convention struct {
 
 // Archetype represents a curated component set with conventions.
 type Archetype struct {
-	Kind             string     `yaml:"kind"`
-	Name             string     `yaml:"name"`
-	Language         string     `yaml:"language"`
-	Version          string     `yaml:"version"`
-	Components       []string   `yaml:"components"`
-	DefaultAuth      string     `yaml:"default_auth"`
-	Conventions      Convention `yaml:"conventions"`
-	CompatibleMixins []string   `yaml:"compatible_mixins"`
+	Kind             string            `yaml:"kind"`
+	Name             string            `yaml:"name"`
+	Language         string            `yaml:"language"`
+	Version          string            `yaml:"version"`
+	Components       []string          `yaml:"components"`
+	DefaultAuth      string            `yaml:"default_auth"`
+	Conventions      Convention        `yaml:"conventions"`
+	CompatibleMixins []string          `yaml:"compatible_mixins"`
 	Bindings         map[string]string `yaml:"bindings,omitempty"`
 }
 
@@ -220,12 +221,12 @@ type Component struct {
 
 // Mixin adds components and slots to an archetype.
 type Mixin struct {
-	Kind          string           `yaml:"kind"`
-	Name          string           `yaml:"name"`
-	Version       string           `yaml:"version"`
-	AddsComponents []string        `yaml:"adds_components"`
-	AddsSlots     []SlotDefinition `yaml:"adds_slots"`
-	Overrides     string           `yaml:"overrides"` // "none"
+	Kind           string           `yaml:"kind"`
+	Name           string           `yaml:"name"`
+	Version        string           `yaml:"version"`
+	AddsComponents []string         `yaml:"adds_components"`
+	AddsSlots      []SlotDefinition `yaml:"adds_slots"`
+	Overrides      string           `yaml:"overrides"` // "none"
 }
 
 // ConcurrencyMode for upsert operations.

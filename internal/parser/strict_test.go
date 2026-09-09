@@ -143,3 +143,17 @@ func TestStrictArtifactLimitRetainsValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestResourceVersionDeclarationRequiresBoolean(t *testing.T) {
+	for _, value := range []string{"true", "false", "yes", "1", "\"true\"", "null"} {
+		input := "kind: service\nname: test\narchetype: test\nlanguage: go\nentities:\n - name: Record\n   versioned: " + value + "\n"
+		result, err := ParseServiceDeclarationFromBytes([]byte(input), "service.yaml")
+		valid := value == "true" || value == "false"
+		if valid && (err != nil || result.Entities[0].Versioned != (value == "true")) {
+			t.Fatalf("boolean %s: %v", value, err)
+		}
+		if !valid && err == nil {
+			t.Fatalf("accepted non-boolean versioned: %s", value)
+		}
+	}
+}

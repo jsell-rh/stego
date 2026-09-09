@@ -649,3 +649,38 @@ func TestClientFailureSummaryOmitsPrivateDetails(t *testing.T) {
 		t.Fatal("nil error reported as failure")
 	}
 }
+
+func TestResourceVersionMetadataIsStrictAndPreservesParent(t *testing.T) {
+	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer test", "if-resource-version", "old"))
+	ctx, err := rpcclient.WithResourceVersion(parent, 9223372036854775807)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, _ := metadata.FromOutgoingContext(ctx)
+	if md.Get("authorization")[0] != "Bearer test" {
+		t.Fatal("lost authentication metadata")
+	}
+	version, present, err := transport.ResourceVersion(metadata.NewIncomingContext(context.Background(), md))
+	if err != nil || !present || version != 9223372036854775807 {
+		t.Fatal(version, present, err)
+	}
+	old, _ := metadata.FromOutgoingContext(parent)
+	if old.Get("if-resource-version")[0] != "old" {
+		t.Fatal("changed parent metadata")
+	}
+	for _, values := range [][]string{{""}, {"0"}, {"-1"}, {"+1"}, {"01"}, {" 1"}, {"1 "}, {"9223372036854775808"}, {"1", "1"}} {
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.MD{"if-resource-version": values})
+		if _, present, err := transport.ResourceVersion(ctx); !present || status.Code(err) != codes.InvalidArgument {
+			t.Fatal("invalid version accepted", values, err)
+		}
+	}
+	if _, present, err := transport.ResourceVersion(context.Background()); present || err != nil {
+		t.Fatal("absent precondition changed meaning", err)
+	}
+	if _, err := rpcclient.WithResourceVersion(parent, 0); err == nil {
+		t.Fatal("accepted zero revision")
+	}
+	if _, err := rpcclient.WithResourceVersion(nil, 1); err == nil {
+		t.Fatal("accepted nil context")
+	}
+}

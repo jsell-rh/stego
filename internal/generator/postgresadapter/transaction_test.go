@@ -15,12 +15,15 @@ import (
 //go:embed testdata/transaction_test.go
 var transactionTests []byte
 
+//go:embed testdata/versions_test.go
+var versionTests []byte
+
 func TestGeneratedStoreTransactions(t *testing.T) {
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
-	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
+	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}}}}}
 	low, high, zero, hundred, ratioLow, ratioHigh, singleLow, singleHigh := -5.0, 9.0, 0.0, 100.0, 0.1, 0.9, -1.5, 1.5
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Measurement", Fields: []types.Field{
 		{Name: "score", Type: types.FieldTypeInt32, Min: &zero, Max: &hundred},
@@ -87,7 +90,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

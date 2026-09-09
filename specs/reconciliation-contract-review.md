@@ -6,8 +6,8 @@ does not provide runtime proof.
 
 The inspected STEGO revision is `ed4d411e6cbf33e7e9e4613e5947c212b3b3dc30`.
 The inspected variant is `baacc3ccc242d38eb21ba6bfba0e312e908a21b5`, with compiler
-pin `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09`. This is a gap review, not a claim
-that the reconciliation contract is complete.
+pin `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09`. The table and probe below describe that baseline. The progress section records
+later changes. The reconciliation contract is not complete.
 
 | Required property | Current evidence | Remaining gap |
 | --- | --- | --- |
@@ -97,3 +97,21 @@ asked for this preference. Resource-version work does not depend on that answer.
 Keep the existing no-exactly-once and no-cross-system-transaction limits explicit.
 Eventual repair depends on stable desired state and responsive dependencies.
 Local success does not establish a production recovery time or capacity limit.
+
+## Progress after the baseline review
+
+The generated [resource revision contract](resource-versions.md) now provides
+opt-in per-write revisions and conditional PostgreSQL writes. The trigger also
+protects immutable IDs and retained deletion. Generated gRPC helpers carry a
+strict revision precondition without changing public protobuf message shapes.
+
+The Gateway variant uses this contract for workload and identity observations.
+A permanent application regression now passes: a REST desired-state change makes
+an earlier controller observation fail through gRPC. The test also covers missing
+and malformed preconditions, denied callers, event rollback, successful delivery,
+and restart. The original failing probe remains useful baseline evidence.
+
+This closes the tested stale Gateway status write. It does not complete desired
+or observed generations, field ownership, database status writes, durable cleanup,
+cross-process fencing, or production capacity evidence. Continue the work order
+above from those remaining requirements.

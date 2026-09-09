@@ -188,6 +188,9 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 		}
 		for i := 0; i < len(node.Content); i += 2 {
 			key, value := node.Content[i], node.Content[i+1]
+			if typ == reflect.TypeFor[types.Entity]() && key.Value == "versioned" && (value.Tag != "!!bool" || (value.Value != "true" && value.Value != "false")) {
+				return nodeError(data, path, value, "versioned must be true or false")
+			}
 			childLocation := key.Value
 			if location != "" {
 				childLocation = location + "." + key.Value
