@@ -60,6 +60,24 @@ non-positive values, non-canonical numbers, and overflow. The metadata is a
 precondition, not authorization. The application must require it on controller
 writes and enforce it inside the transaction.
 
+`grpc-application` 1.4.0 also supplies `transport.SetResourceVersion` and
+`client.ObservedResourceVersion`. A single-resource unary handler calls the
+server helper once, after an authorized read. It must return the data from that
+same read. The revision travels in the `resource-version` response header.
+Capture the header with `grpc.Header`, check the RPC error, then decode it with
+the client helper. Missing, duplicate, invalid, or overflowing revisions fail
+closed. Keep the decoded revision with its response through external work.
+
+A response header does not represent each item in a list or each event in a
+stream. Do not use this helper for those cases. Neither helper grants access or
+adds a conditional write automatically. Hypershell's database API uses them to
+preserve its public protobuf message shapes while requiring controller revisions.
+
+Apply the schema change, replace all API instances that can accept controller
+writes, and then start the updated controllers. An old API instance can ignore a
+new request header. Requiring a header in new client code cannot enforce a check
+inside an old server. Do not treat a mixed rollout as proof of the new contract.
+
 ## Evidence and limits
 
 Generated PostgreSQL tests cover ordinary and raw SQL writes, stale observations,

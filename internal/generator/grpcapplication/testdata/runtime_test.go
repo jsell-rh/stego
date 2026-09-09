@@ -684,3 +684,55 @@ func TestResourceVersionMetadataIsStrictAndPreservesParent(t *testing.T) {
 		t.Fatal("accepted nil context")
 	}
 }
+
+type revisionHeaderStream struct {
+	header  metadata.MD
+	failure error
+}
+
+func (*revisionHeaderStream) Method() string { return "/sample.v1.Records/Echo" }
+func (s *revisionHeaderStream) SetHeader(md metadata.MD) error {
+	if s.failure != nil {
+		return s.failure
+	}
+	s.header = metadata.Join(s.header, md)
+	return nil
+}
+func (s *revisionHeaderStream) SendHeader(md metadata.MD) error { return s.SetHeader(md) }
+func (*revisionHeaderStream) SetTrailer(metadata.MD) error      { return nil }
+
+func TestResourceResponseRevisionFailsClosed(t *testing.T) {
+	for _, value := range []int64{1, 9223372036854775807} {
+		stream := &revisionHeaderStream{}
+		ctx := grpc.NewContextWithServerTransportStream(context.Background(), stream)
+		if err := transport.SetResourceVersion(ctx, value); err != nil {
+			t.Fatal(err)
+		}
+		got, err := rpcclient.ObservedResourceVersion(stream.header)
+		if err != nil || got != value {
+			t.Fatal(got, err)
+		}
+		if err := transport.SetResourceVersion(ctx, value); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rpcclient.ObservedResourceVersion(stream.header); err == nil {
+			t.Fatal("duplicate response revisions accepted")
+		}
+	}
+	for _, values := range [][]string{nil, {""}, {"0"}, {"-1"}, {"+1"}, {"01"}, {" 1"}, {"1 "}, {"9223372036854775808"}, {"1", "2"}} {
+		if _, err := rpcclient.ObservedResourceVersion(metadata.MD{"resource-version": values}); err == nil {
+			t.Fatal("invalid response revision accepted", values)
+		}
+	}
+	if err := transport.SetResourceVersion(nil, 1); err == nil {
+		t.Fatal("nil context accepted")
+	}
+	if err := transport.SetResourceVersion(context.Background(), 0); err == nil {
+		t.Fatal("invalid server revision accepted")
+	}
+	failure := errors.New("closed response")
+	ctx := grpc.NewContextWithServerTransportStream(context.Background(), &revisionHeaderStream{failure: failure})
+	if err := transport.SetResourceVersion(ctx, 1); !errors.Is(err, failure) {
+		t.Fatal("header failure was lost", err)
+	}
+}
