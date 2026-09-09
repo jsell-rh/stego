@@ -471,3 +471,36 @@ Gateway cleanup composition, and client ports remain required work. The proposed
 internal transport policy is TLS plus a verified service token and an explicit
 caller-subject allowlist. The user has been asked to confirm it or select mutual
 TLS. No plaintext provisioner channel is generated. The broad goal remains active.
+
+The service-account workflow now has a real Keycloak adapter and a separate
+provisioner process. The application uses STEGO's generated TLS RPC runtime,
+bounded HTTPS client, and verification of JWT signatures against trusted key
+sets. Hypershell retains ownership metadata, client settings, role mappings,
+audience mappings, and lifecycle policy. Independent STEGO tests cover HTTPS
+origin restrictions, redirects, TLS identity, size limits, concurrency limits,
+deadlines, credential files, key selection, signature failures, and key changes.
+The full STEGO race suite and CI passed for compiler commit
+`b5263cd17553f497a0f0a3c5efbc08019d1936d1`.
+
+The first real-provider test passed with Keycloak 26.7.3, Go 1.26.8, and
+PostgreSQL 18.6. It creates an account through the generated API process and a
+separate provisioner process. It obtains and verifies an actual access token,
+rejects another Gateway audience and an unlisted caller, repairs injected client
+drift, and lowers future token roles after a creator downgrade. It then commits
+a revocation while the provider is stopped. Restart recovery stops new token
+issuance, and deletion removes the client. The variant records the setup and
+limits in `acceptance/keycloak.md`.
+
+This result does not close external-operation ordering, production capacity,
+automatic provider drift scans, orphan discovery, Gateway cleanup composition,
+or deployment requirements. Already issued tokens can remain valid until their
+five-minute expiry. Internal caller signing-key rotation still requires restart.
+The common key-set verifier validates supplied trusted keys; it does not add
+implicit network discovery or a key cache to the API verifier. The next service-
+account correctness work must test stale external operations after database or
+network connection loss before making stronger revocation claims.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required.
+The acceptance package completed in 96.062 seconds. Variant commit `8dd319a`
+regenerated from the pinned compiler without output changes or drift. CI now
+requires the real-provider test through the same gate command.
