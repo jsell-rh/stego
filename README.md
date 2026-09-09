@@ -2,10 +2,12 @@
 
 Service Templates, Extensible Generation & Operations.
 
-STEGO is a declarative code generator that eliminates accidental complexity
-from service development. You describe what your service is in a YAML
-declaration; STEGO deterministically generates production-ready code from
-trusted, pre-built components.
+STEGO generates common service and client code from YAML declarations and
+reusable components. The output is plain Go, with no STEGO runtime dependency.
+Application fills and factories supply domain rules. The
+[enterprise goal](specs/enterprise-goal.md) records verified workflows and open
+work. Production use requires validation for the selected application and
+deployment.
 
 ## Why
 
@@ -24,12 +26,21 @@ the fills is essential complexity.
 
 1. Pick an **archetype** (e.g. `rest-crud`), a curated set of components
    that determines your architecture, conventions, and defaults.
-2. Write a **service declaration** (`service.yaml`), your entities,
-   operations, and slot bindings. This is the only file the LLM produces.
-3. Write **fills** for business logic, Go functions implementing typed
-   slot contracts (protobuf). Tested and qualified by a human.
+2. Write a **service declaration** (`service.yaml`) with entities, operations,
+   component settings, and slot bindings.
+3. Write application code for domain rules. **Fills** implement typed slot
+   contracts. **Factories** supply application handlers and CLI command
+   definitions. Test this code with the generated runtime.
 4. Run `stego apply` for deterministic code generation. Plain Go output.
    No runtime dependency on STEGO.
+
+The [CLI component](registry/components/cli-application/README.md) generates a
+separate executable, command parsing, private configuration, and an HTTPS
+client. Application code declares command names, paths, and fields. Common
+code validates those declarations, binds path parameters, and reserves private
+output files before credential requests. The component tests use a Record
+application. Hypershell tests exercise actual Gateway and service-account
+workflows through the generated runtime.
 
 ## Prerequisites
 

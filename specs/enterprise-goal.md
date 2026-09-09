@@ -1793,3 +1793,22 @@ compiler race suite passed with PostgreSQL required. Focused generated CLI
 race tests also passed after the final edit. Hypershell supplies its account
 paths and fields; no account types enter the common generator. The real-provider
 application workflow is in progress. The complete enterprise goal remains active.
+
+Compiler run `34373555720` passed at
+`f678fb295b221fe158659ff5ab37d59ff5455760`. The complete local variant race
+suite passed with PostgreSQL and Keycloak required; its acceptance package
+took 410.041 seconds. The final service-account CLI workflow passed in 26.60
+seconds after the reference list aliases were added. It checks real token
+issuance, private output, filtered access, denied role elevation, cross-Gateway
+isolation, API and provisioner restart, revocation, deletion, and logout.
+
+Variant commit `2e7e02cf47e83ffd8313de2422661112d10b61f8` is on remote main.
+Post-commit regeneration passed without changes or drift. Static checks passed.
+The CLI dependency graph contains only standard-library and generated or
+application command packages. Hosted run `34374674543` is in progress. The
+local PostgreSQL container was removed. A review also corrected the main
+README's unsupported general production claim and documented application
+factories and the generated CLI. Browser and device login, token refresh,
+remaining commands and reference CLI options, other clients, and production
+checks remain open. This turn made progress. The full enterprise goal remains
+active.
