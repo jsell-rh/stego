@@ -962,3 +962,68 @@ and an Intel Core Ultra 9 185H. It includes the domain transaction and database
 reads. It excludes HTTP, token verification, initial registration, profile writes,
 and concurrent load. The variant records these limits in
 `acceptance/current-user.md`.
+
+The self-identity increment passed hosted checks on variant commit `771ed28`
+(run `34308570500`) and STEGO commit `c935686` (run `34308578790`).
+
+The global-role workflow exposed a transport boundary requirement. Role claims
+must be projected before an application operation, but not once per event on an
+existing stream. STEGO commit `42fe61a` adds an optional HTTP preparation callback
+and a gRPC registrar wrapper. They run with verified identity and a bounded
+context. A preparation error stops the operation and retains an application
+error status. Shared protobuf descriptors remain unchanged. The compiler race
+suite and hosted checks passed (run `34308915530`). A later independent-registration
+check also passed with the generated Record service in 26.493 seconds.
+
+The variant now projects the two managed global roles before its REST and gRPC
+operations. An empty role set removes both records. Preparation commits its own
+transaction before the domain operation; a denied request therefore cannot undo
+a role removal. The transaction includes user profile changes, global records,
+and their outbox events. Gateway creation retains its separate atomic Gateway,
+owner-grant, and event boundary. Authorization still uses current verified claims
+and stored Gateway grants; global records are not a replacement for the token.
+
+Global RoleBindings have no Gateway reference. The migration preserves Gateway
+grants, enforces scope/reference consistency, and adds a separate live global
+key. Lists apply access before count and paging. Callers can read their own
+global records, while existing Gateway inventory rules remain in effect. A
+Gateway-owner role, platform-admin token, or controller status does not itself
+expose another user's global records. Public grant mutation routes cannot assign
+or remove the managed global roles.
+
+The generated runtime delivers global creation and deletion events and replays
+active global records with Gateway grants. Existing streams do not project their
+old claims again when they send an event. The workflow also proves removal before
+a denied request, retained ownership and sharing rights, re-grant with a new ID,
+failed writes, REST and gRPC errors, and restart. The real browser test adds
+Keycloak role removal and re-grant with fresh API tokens.
+
+A new request with an older valid token can still project its old claims. This
+is not immediate revocation or monotonic token tracking. That policy remains
+open. Full user administration, distributed coordination, workload deployment,
+sparse fields, larger REST pages, production capacity, and the other enterprise
+requirements remain part of the active goal.
+
+Variant commit `78d08f7` contains the global-role workflow and pins compiler
+`42fe61abc0ada2232f38bc8b4811d9eeb314fd54`. The focused global-role, grant-discovery,
+and role-catalog race checks passed in 18.747 seconds. Migration and concurrent
+projection checks passed in 1.703 seconds. The sandbox-count check now prepares
+its caller roles before it measures count events. Role preparation can commit
+its own event even when a later count operation is denied. The corrected count
+workflow and migration/concurrency checks passed in 6.950 seconds.
+
+The full local race suite passed with PostgreSQL and Keycloak required. The
+acceptance package took 306.128 seconds. A final reference check corrected valid
+public global-role assignment requests to return HTTP 403. The correction passed
+focused race checks in 11.156 seconds. These repeated global-role changes,
+migration, concurrency, invalid targets, and Gateway sharing through both
+transports and restart. Dependency verification and committed regeneration
+passed with no generated changes or drift.
+
+A 100-call benchmark prepared unchanged claims with 10,000 unrelated users and
+global grants. It averaged 0.922 ms, 60,914 bytes, and 759 allocations per call on
+Go 1.26.8, PostgreSQL 18.6, and an Intel Core Ultra 9 185H. It includes the
+transaction, identity and role lookups, and comparison of current records. It
+excludes transport, token verification, Keycloak, initial registration, role
+changes, and concurrent load. This is not a production capacity claim. The
+variant records the workflow and its limits in `acceptance/global-roles.md`.
