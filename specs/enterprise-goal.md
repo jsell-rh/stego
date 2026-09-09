@@ -680,3 +680,41 @@ verification passed. The implementation and its limits are in the
 [Gateway identity workflow](https://github.com/jsell-rh/hypershell-stego/blob/e6961b6343f392ae68cb062a4ff0dd6fbb89fdb4/acceptance/gateway-identity.md).
 This is application evidence for the active goal; it does not complete the
 enterprise or full Hypershell scope.
+
+Work toward Gateway user login exposed a stored-identity defect. The API used
+username to find a user and then applied that user's grants. A new process test
+proved that a different signed subject with the owner's username could read,
+list, and change the Gateway. A username change also removed access from the
+original subject. This defect required correction before user-role synchronization.
+
+STEGO now exposes the verified issuer with the subject. The independent verifier
+tests check that this issuer appears only after authentication succeeds.
+Hypershell stores the issuer and subject as a composite identity key. Username,
+email, and name remain profile fields. The API tests now check REST and gRPC,
+service-account access, profile changes, restart, and a new configured issuer.
+A second subject cannot reach the credential provider through a reused username.
+
+The domain migration preserves old users and grants but does not infer their
+identity. Legacy rows need a trusted mapping before access can be preserved.
+Recovery revokes service-account clients whose creator has no bound identity.
+The migration test recreates the old User schema, applies the migration twice,
+opens new database connections, and checks refusal of adoption and provider
+cleanup. No running reference database was changed.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required;
+the acceptance package completed in 247.458 seconds. A 100-request benchmark with
+10,000 other users measured 0.935 ms per Gateway read, including domain access and
+local PostgreSQL calls. It used Go 1.26.8 and PostgreSQL 18.6 on an Intel Core
+Ultra 9 185H. It excludes transport and concurrent load. Regeneration and module
+verification passed. The variant records the evidence and migration limits in
+`acceptance/user-identity.md`.
+
+Compiler CI also exposed a stream test timing assumption. Server handler exit
+did not prove that the client had observed connection closure. The test now reads
+the stream's terminal result before it checks reconnection. Three local race
+runs and the next hosted compiler check passed. Runtime limits did not change.
+
+The user was asked whether API and Gateway users must share one Keycloak issuer
+or use an explicit trusted identity mapping. That choice remains open. User-role
+synchronization, completed browser or device login, workload deployment, and the
+other enterprise requirements remain part of the active goal.
