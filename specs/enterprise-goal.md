@@ -920,3 +920,45 @@ The user was asked whether recipients must supply their ID or owners can search
 registered users. No directory has been added while that policy is open. Sparse
 fields, REST page sizes above 100, global grant projection, and the broader
 enterprise and Hypershell requirements remain part of the active goal.
+
+The role-catalog increment passed hosted checks on variant commit `29e83ea`
+(run `34307480461`) and STEGO commit `2608199` (run `34307492187`).
+
+The next application increment removes the remaining recipient-ID database
+lookup from the real browser sharing test. An authenticated recipient calls
+`GET /api/hypershell/v1/users/me` and supplies the returned stored ID to the owner.
+The owner gets a role ID from the catalog and creates the grant through REST.
+The test then verifies the resulting Gateway roles through real Keycloak login,
+removal, and restart. The API extension has its own OpenAPI contract; it is not
+represented as a route in the pinned reference.
+
+The new route selects only the verified caller. It rejects target selectors and
+request bodies. Existing issuer-and-subject rules preserve identity through
+profile changes and prevent profile reuse from transferring grants. The generated
+transaction creates or updates the user record and reads its stored timestamps
+before commit. A failed write returns an error. Concurrent creation is protected
+by the unique identity key; clients can retry conflicts. A deleted identity is
+not restored by login. No compiler or schema change is required.
+
+A public user directory remains a separate policy decision. The self-identity
+route does not create one. Global role projections, full user administration,
+instant token revocation, distributed coordination, workload deployment, and the
+other enterprise requirements remain open. Source inspection confirms that the
+reference specification requires global role records to follow verified claims,
+including removal when the claims are empty. That behavior still needs a full
+application workflow in the variant.
+
+Variant commit `771ed28` contains this self-identity workflow. The focused race
+checks passed in 34.467 seconds. The full local race suite passed with PostgreSQL
+and Keycloak required; the acceptance package took 297.088 seconds. Real responses
+pass the extension's schema. Tests cover token rejection, target selectors,
+profile changes, reused names, failed writes, concurrent registration, deleted
+identities, issuer isolation, and restart. Dependency verification and pinned
+regeneration passed with no generated changes or drift.
+
+A 100-call lookup benchmark with 10,000 unrelated users averaged 0.356 ms,
+26,644 bytes, and 354 allocations per call. It used Go 1.26.8, PostgreSQL 18.6,
+and an Intel Core Ultra 9 185H. It includes the domain transaction and database
+reads. It excludes HTTP, token verification, initial registration, profile writes,
+and concurrent load. The variant records these limits in
+`acceptance/current-user.md`.
