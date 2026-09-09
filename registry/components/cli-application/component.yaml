@@ -1,0 +1,11 @@
+kind: component
+name: cli-application
+version: 1.0.0
+output_namespace: cli
+config:
+  factory_package:
+    type: string
+requires: []
+provides:
+  - application-cli
+slots: []

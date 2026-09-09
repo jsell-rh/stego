@@ -1,0 +1,83 @@
+package command
+
+import (
+ "bytes"
+ "crypto/rand"
+ "time"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "os"
+ "path/filepath"
+ "strings"
+ "syscall"
+ client {{printf "%q" .Client}}
+)
+
+type configuration struct{URL string `json:"url"`;CAFile string `json:"ca_file"`;TokenFile string `json:"token_file"`}
+func configLocation(app Application)(string,error){
+ if value:=os.Getenv(app.ConfigEnv);value!=""{return filepath.Abs(value)}
+ base,err:=os.UserConfigDir();if err!=nil{return "",errors.New("cannot locate CLI configuration")}
+ return filepath.Join(base,app.ConfigName,"config.json"),nil
+}
+func configRoot(app Application,create bool)(*os.Root,string,error){
+ location,err:=configLocation(app);if err!=nil{return nil,"",err}
+ parent:=filepath.Dir(location)
+ if create{if err:=os.MkdirAll(parent,0700);err!=nil{return nil,"",errors.New("cannot create configuration directory")}}
+ root,err:=os.OpenRoot(parent);if err!=nil{return nil,"",errors.New("cannot open configuration directory")}
+ info,err:=root.Stat(".");if err!=nil||info.Mode().Perm()&0022!=0{root.Close();return nil,"",errors.New("configuration directory must not permit writes by other users")}
+ return root,filepath.Base(location),nil
+}
+func login(app Application,args []string,output io.Writer)error{
+ values,positions,err:=parse(args,false);if err!=nil||len(positions)!=0{return errArguments}
+ for key:=range values{if key!="url"&&key!="token-file"&&key!="ca-file"{return errArguments}}
+ if values["url"]==""||values["token-file"]==""{return errors.New("login requires --url and --token-file")}
+ cfg:=configuration{URL:values["url"]}
+ cfg.TokenFile,err=filepath.Abs(values["token-file"]);if err!=nil{return errors.New("invalid token file")}
+ if values["ca-file"]!=""{cfg.CAFile,err=filepath.Abs(values["ca-file"]);if err!=nil{return errors.New("invalid CA file")}}
+ transport,err:=client.New(client.Options{BaseURL:cfg.URL,CAFile:cfg.CAFile,Timeout:15*time.Second});if err!=nil{return err};transport.Close()
+ if _,err:=readToken(cfg.TokenFile);err!=nil{return err}
+ root,name,err:=configRoot(app,true);if err!=nil{return err};defer root.Close()
+ if info,err:=root.Lstat(name);err==nil{if !info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{return errors.New("invalid existing configuration file")}}else if !os.IsNotExist(err){return errors.New("cannot inspect configuration file")}
+ data,_:=json.Marshal(cfg)
+ // Open the directory through os.Root. A random, exclusive file and rename
+ // prevent a partial configuration and do not follow an existing leaf link.
+ temporary:=".stego-cli-"+rand.Text()
+ file,err:=root.OpenFile(temporary,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err!=nil{return errors.New("cannot create configuration file")}
+ defer root.Remove(temporary)
+ if _,err=file.Write(data);err==nil{err=file.Sync()};closeErr:=file.Close()
+ if err!=nil||closeErr!=nil{return errors.New("cannot write configuration file")}
+ if err:=root.Rename(temporary,name);err!=nil{return errors.New("cannot replace configuration file")}
+ directory,err:=root.Open(".");if err!=nil{return errors.New("cannot sync configuration directory")};err=directory.Sync();directory.Close();if err!=nil{return errors.New("cannot sync configuration directory")}
+ _,err=fmt.Fprintln(output,"Configuration saved.");return err
+}
+func load(app Application)(configuration,error){
+ var cfg configuration
+ root,name,err:=configRoot(app,false);if err!=nil{return cfg,err};defer root.Close()
+ file,err:=root.OpenFile(name,os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW,0);if err!=nil{return cfg,errors.New("cannot read configuration file")};defer file.Close()
+ data,err:=readRegular(file,16384,true);if err!=nil{return cfg,err}
+ if _,err:=object(data);err!=nil{return cfg,err}
+ decoder:=json.NewDecoder(bytes.NewReader(data));decoder.DisallowUnknownFields()
+ if decoder.Decode(&cfg)!=nil||cfg.URL==""||!filepath.IsAbs(cfg.TokenFile)||(cfg.CAFile!=""&&!filepath.IsAbs(cfg.CAFile)){return configuration{},errors.New("invalid configuration file")}
+ return cfg,nil
+}
+func logout(app Application)error{
+ root,name,err:=configRoot(app,false);if err!=nil{return err};defer root.Close()
+ if err:=root.Remove(name);err!=nil&&!os.IsNotExist(err){return errors.New("cannot remove configuration")}
+ return nil
+}
+func readToken(name string)(string,error){
+ data,err:=client.ReadPrivateFile(name);if err!=nil{return "",err};token:=strings.TrimSpace(string(data));if token==""{return "",errors.New("empty token file")}
+ for _,r:=range token{if !((r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||strings.ContainsRune("-._~+/=",r)){return "",errors.New("invalid token file")}}
+ return token,nil
+}
+func readBody(name string)([]byte,error){
+ file,err:=os.OpenFile(name,os.O_RDONLY|syscall.O_NONBLOCK,0);if err!=nil{return nil,errors.New("cannot read request body file")};defer file.Close()
+ return readRegular(file,65536,false)
+}
+func readRegular(file *os.File,limit int64,private bool)([]byte,error){
+ info,err:=file.Stat();if err!=nil||!info.Mode().IsRegular()||info.Size()>limit||(private&&info.Mode().Perm()&0077!=0){return nil,errors.New("invalid CLI input file")}
+ data,err:=io.ReadAll(io.LimitReader(file,limit+1));if err!=nil||len(data)==0||int64(len(data))>limit{return nil,errors.New("invalid CLI input file")}
+ return data,nil
+}

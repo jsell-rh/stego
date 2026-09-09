@@ -25,11 +25,12 @@ const MaxConcurrentRequests = 16
 const StreamTimeout = 5 * time.Minute
 const MaxStreamBytes = 64 << 20
 
-type Options struct { BaseURL, CAFile string }
+type Options struct { BaseURL, CAFile string; Timeout time.Duration }
 // Client sends bounded requests to one configured HTTPS origin and path prefix.
 // It does not follow redirects or use proxy settings from the environment.
 type Client struct {
  base *url.URL
+ timeout time.Duration
  http *http.Client
  transport *http.Transport
  permits chan struct{}
@@ -39,20 +40,24 @@ type Client struct {
 }
 
 func New(options Options)(*Client,error){
+ timeout:=options.Timeout;if timeout==0{timeout=RequestTimeout};if timeout<time.Second||timeout>30*time.Second{return nil,errors.New("HTTP request timeout must be one through thirty seconds")}
  base,err:=url.Parse(options.BaseURL)
  if err!=nil || base.Scheme!="https" || base.Host=="" || base.User!=nil || base.RawQuery!="" || base.ForceQuery || base.Fragment!="" || !safePath(base.EscapedPath()) {return nil,errors.New("HTTP client requires a canonical HTTPS base URL")}
+ var roots *x509.CertPool
+ if options.CAFile=="" {roots,err=x509.SystemCertPool();if err!=nil{return nil,errors.New("cannot load system CA certificates")}} else {
  ca,err:=readFile(options.CAFile,65536,false);if err!=nil{return nil,err}
- roots:=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return nil,errors.New("HTTP client requires valid CA certificates")}
+ roots=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return nil,errors.New("HTTP client requires valid CA certificates")}
+ }
  transport:=&http.Transport{
    Proxy:nil, DialContext:(&net.Dialer{Timeout:RequestTimeout,KeepAlive:30*time.Second}).DialContext,
    TLSClientConfig:&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots},
-   TLSHandshakeTimeout:RequestTimeout,ResponseHeaderTimeout:RequestTimeout,
+   TLSHandshakeTimeout:RequestTimeout,ResponseHeaderTimeout:timeout,
    MaxResponseHeaderBytes:32<<10,MaxConnsPerHost:MaxConcurrentRequests,
    MaxIdleConns:MaxConcurrentRequests,MaxIdleConnsPerHost:MaxConcurrentRequests,
    IdleConnTimeout:30*time.Second,DisableCompression:true,
  }
  lifetime,stop:=context.WithCancel(context.Background())
- return &Client{lifetime:lifetime,stop:stop,base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),http:&http.Client{Transport:transport,Timeout:RequestTimeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
+ return &Client{timeout:timeout,lifetime:lifetime,stop:stop,base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),http:&http.Client{Transport:transport,Timeout:timeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
 }
 func safePath(encoded string)bool{
  for _,segment:=range strings.Split(encoded,"/"){
@@ -85,7 +90,7 @@ func(c *Client)exchange(ctx context.Context,method,relative string,headers http.
  headerBytes:=0
  for name,values:=range headers{headerBytes+=len(name);switch strings.ToLower(name){case "host","connection","transfer-encoding","content-length","trailer","upgrade","proxy-authorization","idempotency-key","x-idempotency-key":return failure,errors.New("unsupported HTTP request header")};for _,value:=range values{headerBytes+=len(value);if headerBytes>32768 || len(value)>16384{return failure,errors.New("HTTP request header exceeds limit")}}}
  select{case c.permits<-struct{}{}:defer func(){<-c.permits}();default:return failure,errors.New("HTTP client capacity exceeded")}
- timeout:=RequestTimeout;if consume!=nil{timeout=StreamTimeout}
+ timeout:=c.timeout;if timeout==0{timeout=RequestTimeout};if consume!=nil{timeout=StreamTimeout}
  ctx,cancel:=context.WithTimeout(ctx,timeout);defer cancel()
  stopClose:=context.AfterFunc(c.lifetime,cancel);defer stopClose()
  address:=strings.TrimRight(c.base.String(),"/")+relative

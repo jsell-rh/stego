@@ -227,3 +227,34 @@ func TestHTTPSCloseStopsActiveStream(t *testing.T) {
 		t.Fatal("close left a live stream")
 	}
 }
+
+func TestClientTimeoutAndSystemTrust(t *testing.T) {
+	for _, timeout := range []time.Duration{-time.Second, 500 * time.Millisecond, 31 * time.Second} {
+		if _, err := client.New(client.Options{BaseURL: "https://example.invalid", Timeout: timeout}); err == nil {
+			t.Fatal("invalid timeout accepted")
+		}
+	}
+	system, err := client.New(client.Options{BaseURL: "https://example.invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	system.Close()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer server.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bounded, err := client.New(client.Options{BaseURL: server.URL, CAFile: ca, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bounded.Close()
+	start := time.Now()
+	if _, err := bounded.Do(context.Background(), "GET", "/", nil, nil); err == nil {
+		t.Fatal("request exceeded deadline without error")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Fatal("request did not stop at its deadline")
+	}
+}

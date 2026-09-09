@@ -1700,3 +1700,24 @@ Variant commit `f2ad276990702db535312493d9c28505106b2f4c` is on remote main.
 Hosted run `34367135235` is queued. The task PostgreSQL container was removed.
 The next verification step is the final remote run. The complete STEGO client
 port and wider enterprise goal remain open.
+
+The previous discovery turn made progress. Hosted variant run `34367135235`
+passed all four jobs. Its full acceptance package took 511.419 seconds.
+Compiler journal run `34367179831` also passed.
+
+The next workflow uses a generated CLI to load a private token file, create
+and retrieve a Gateway, check filtered access, and delete it. The baseline
+variant had no CLI entry point. STEGO now has a separate CLI component with
+application command declarations. The HTTP and CLI components share one HTTPS
+renderer. The CLI owns command parsing, private configuration, bounded files,
+JSON checks, token-file rotation, and response handling. The application owns
+its paths and fields. No Hypershell types enter the component.
+
+The CLI uses verified TLS, optional explicit CA roots, and a 15-second request
+deadline. Common client timeouts remain five seconds by default and accept a
+bounded override. Configuration stores file references and uses atomic writes
+through an open directory handle. Generated Record tests cover parsing,
+malformed JSON, private files, rotation, redirects, and failure handling. Full
+compiler race tests passed; focused generator tests passed after the final
+command-prefix changes. The live variant workflow is the next acceptance check.
+The complete CLI and enterprise goals remain active.

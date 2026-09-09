@@ -11,13 +11,11 @@ import (
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/httpclient"
 )
 
 //go:embed endpoint.go.tmpl
 var endpointSource string
-
-//go:embed client.go.tmpl
-var clientSource string
 
 type Generator struct{}
 
@@ -68,7 +66,7 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"bridge.go", bridge}, {"transport/endpoint.go", endpointSource + gen.UnicodeEscapeValidation}, {"client/client.go", clientSource}} {
+	for _, item := range []struct{ name, source string }{{"bridge.go", bridge}, {"transport/endpoint.go", endpointSource + gen.UnicodeEscapeValidation}} {
 		itemData := data
 		if strings.HasPrefix(item.name, "transport/") {
 			itemData.Package = "transport"
@@ -90,6 +88,11 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 		}
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.name), Content: code})
 	}
+	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"))
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, client)
 	ns := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{`mux.Handle("/", handler)`}}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {

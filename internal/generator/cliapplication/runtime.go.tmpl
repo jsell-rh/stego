@@ -1,0 +1,167 @@
+package command
+
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "net/http"
+ "net/url"
+ "regexp"
+ "sort"
+ "strconv"
+ "strings"
+ "unicode/utf8"
+ "time"
+ client {{printf "%q" .Client}}
+)
+
+// Field describes one public request property. Types are string, string-list,
+// integer, and boolean. The CLI never accepts arbitrary headers or destinations.
+type Field struct {Flag,Key,Type string;Required,Nullable bool}
+type Command struct {Name []string;Method,Path string;ID,Query,Confirm bool;Fields []Field;Success []int}
+type Application struct {ConfigEnv,ConfigName string;Commands []Command}
+var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
+var property=regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
+var envName=regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+var identifier=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}$`)
+var errArguments=errors.New("invalid command arguments; use --help")
+
+func validate(app Application)error{
+ if !envName.MatchString(app.ConfigEnv)||!word.MatchString(app.ConfigName)||len(app.Commands)==0||len(app.Commands)>128{return errors.New("invalid CLI definition")}
+ seen:=map[string]bool{}
+ for _,c:=range app.Commands{
+  if len(c.Name)<1||len(c.Name)>4 {return errors.New("invalid CLI command name")}
+  for _,name:=range c.Name{if !word.MatchString(name){return errors.New("invalid CLI command name")}}
+  if c.Name[0]=="login"||c.Name[0]=="logout"||c.Name[0]=="help"{return errors.New("reserved CLI command name")}
+  name:=strings.Join(c.Name," ");for other:=range seen{if name==other||strings.HasPrefix(name,other+" ")||strings.HasPrefix(other,name+" "){return errors.New("ambiguous CLI command")}};seen[name]=true
+  u,err:=url.Parse(c.Path)
+  if err!=nil||u.IsAbs()||u.Host!=""||!strings.HasPrefix(c.Path,"/")||strings.HasPrefix(c.Path,"//")||u.RawQuery!=""||u.Fragment!=""||strings.ContainsAny(c.Path,"%\\\x00\r\n")||len(c.Path)>1024{return errors.New("invalid CLI route")}
+  for _,part:=range strings.Split(strings.TrimPrefix(c.Path,"/"),"/"){if part=="{id}"&&c.ID {continue};if !property.MatchString(strings.ReplaceAll(part,"-","_")){return errors.New("invalid CLI route segment")}}
+  if c.ID!=(strings.Count(c.Path,"{id}")==1)||(!c.ID&&strings.Contains(c.Path,"{")){return errors.New("invalid CLI route parameter")}
+  switch c.Method{case "GET","POST","PATCH","PUT","DELETE":default:return errors.New("invalid CLI method")}
+  if len(c.Success)==0||len(c.Success)>4||len(c.Fields)>64{return errors.New("invalid CLI command limits")}
+  for _,code:=range c.Success{if code<200||code>299{return errors.New("invalid CLI success code")}}
+  flags,keys:=map[string]bool{},map[string]bool{}
+  for _,f:=range c.Fields{
+   if !word.MatchString(f.Flag)||!property.MatchString(f.Key)||flags[f.Flag]||keys[f.Key]||f.Flag=="body"||f.Flag=="yes"||f.Flag=="help"{return errors.New("invalid CLI field")}
+   flags[f.Flag],keys[f.Key]=true,true
+   switch f.Type{case "string","string-list","integer","boolean":default:return errors.New("invalid CLI field type")}
+  }
+  if !c.Query&&len(c.Fields)>0&&(c.Method=="GET"||c.Method=="DELETE"){return errors.New("CLI read and delete fields require query mode")}
+ }
+ return nil
+}
+
+// Run performs one command. Cancellation bounds network work. Configuration
+// stores a token-file reference; each process reads the current private file.
+func Run(ctx context.Context,app Application,args []string,output io.Writer)error{
+ if ctx==nil||output==nil{return errors.New("CLI context and output are required")}
+ if err:=ctx.Err();err!=nil{return err}
+ if err:=validate(app);err!=nil{return err}
+ if len(args)>256{return errArguments};size:=0
+ for _,arg:=range args{size+=len(arg);if len(arg)>4096||size>65536||!utf8.ValidString(arg)||strings.ContainsRune(arg,0){return errArguments}}
+ if len(args)==0||(len(args)==1&&(args[0]=="--help"||args[0]=="help")){
+  names:=[]string{"login --url URL --token-file FILE [--ca-file FILE]","logout"}
+  for _,c:=range app.Commands{names=append(names,strings.Join(c.Name," "))};sort.Strings(names)
+  _,err:=fmt.Fprintln(output,strings.Join(names,"\n"));return err
+ }
+ if args[0]=="login"{return login(app,args[1:],output)}
+ if args[0]=="logout"{if len(args)!=1{return errArguments};return logout(app)}
+ var selected *Command
+ for i:=range app.Commands{c:=&app.Commands[i];if len(args)<len(c.Name){continue};match:=true;for j,name:=range c.Name{if args[j]!=name{match=false;break}};if match{selected=c;break}}
+ if selected==nil{return errArguments};c:=*selected;arguments:=args[len(c.Name):]
+ fields:=map[string]Field{}
+ for _,f:=range c.Fields{fields[f.Flag]=f}
+ if len(arguments)==1&&arguments[0]=="--help"{
+  var names []string;for _,f:=range c.Fields{names=append(names,"--"+f.Flag+" ("+f.Type+")")}
+  if c.Method=="POST"||c.Method=="PUT"||c.Method=="PATCH"{names=append(names,"--body FILE")};if c.Confirm{names=append(names,"--yes")};sort.Strings(names)
+  _,err:=fmt.Fprintln(output,strings.Join(names,"\n"));return err
+ }
+ values,positions,err:=parse(arguments,c.Confirm);if err!=nil{return err}
+ if (c.ID&&len(positions)!=1)||(!c.ID&&len(positions)!=0){return errArguments}
+ route:=c.Path
+ if c.ID{if !identifier.MatchString(positions[0]){return errArguments};route=strings.Replace(route,"{id}",url.PathEscape(positions[0]),1)}
+ if c.Confirm{if values["yes"]!="true"{return errors.New("confirmation required: pass --yes")};delete(values,"yes")}
+ body:=map[string]json.RawMessage{}
+ if name,ok:=values["body"];ok{
+  if c.Query||(c.Method!="POST"&&c.Method!="PATCH"&&c.Method!="PUT")||len(values)!=1{return errArguments}
+  data,err:=readBody(name);if err!=nil{return err}
+  if body,err=object(data);err!=nil{return err};delete(values,"body")
+ }
+ for flag,value:=range values{
+  field,ok:=fields[flag];if !ok{return errArguments}
+  raw:=[]byte(value);if field.Type=="string"{raw,_=json.Marshal(value)}
+  body[field.Key]=raw
+ }
+ allowed:=map[string]Field{};for _,f:=range c.Fields{allowed[f.Key]=f;if f.Required{if _,ok:=body[f.Key];!ok{return errors.New("required request field is missing")}}}
+ for key,raw:=range body{field,ok:=allowed[key];if !ok||!fieldValue(field,raw){return errors.New("invalid request field")}}
+ var payload []byte
+ if c.Query{
+  query:=url.Values{}
+  for key,raw:=range body{field:=allowed[key];if field.Type=="string"{var value string;_ = json.Unmarshal(raw,&value);query.Set(key,value)}else{query.Set(key,string(raw))}}
+  if len(query)>0{route+="?"+query.Encode()}
+ }else if len(body)>0||c.Method=="POST"||c.Method=="PUT"||c.Method=="PATCH"{payload,err=json.Marshal(body);if err!=nil{return errors.New("cannot encode request")}}
+ if len(payload)>65536{return errors.New("request body exceeds CLI limit")}
+ cfg,err:=load(app);if err!=nil{return err}
+ transport,err:=client.New(client.Options{BaseURL:cfg.URL,CAFile:cfg.CAFile,Timeout:15*time.Second});if err!=nil{return err};defer transport.Close()
+ token,err:=readToken(cfg.TokenFile);if err!=nil{return err}
+ headers:=http.Header{"Authorization":{"Bearer "+token},"Accept":{"application/json"}}
+ if payload!=nil{headers.Set("Content-Type","application/json")}
+ response,err:=transport.Do(ctx,c.Method,route,headers,payload);if err!=nil{return err}
+ success:=false;for _,code:=range c.Success{if response.StatusCode==code{success=true}}
+ if !success{return fmt.Errorf("API request failed (HTTP %d)",response.StatusCode)}
+ if response.StatusCode==204{if len(response.Body)!=0{return errors.New("unexpected response body")};return nil}
+ if !validJSON(response.Body){return errors.New("invalid API JSON response")}
+ var formatted bytes.Buffer
+ if err:=json.Indent(&formatted,response.Body,"","  ");err!=nil{return errors.New("invalid API JSON response")};formatted.WriteByte('\n')
+ _,err=output.Write(formatted.Bytes());return err
+}
+
+func parse(args []string,confirm bool)(map[string]string,[]string,error){
+ values:=map[string]string{};var positions []string
+ for i:=0;i<len(args);i++{
+  arg:=args[i]
+  if !strings.HasPrefix(arg,"--"){positions=append(positions,arg);continue}
+  key,value,has:=strings.Cut(strings.TrimPrefix(arg,"--"),"=")
+  if key==""{return nil,nil,errArguments};if _,ok:=values[key];ok{return nil,nil,errArguments}
+  if key=="yes"&&confirm{if !has{value="true"};if value!="true"&&value!="false"{return nil,nil,errArguments}}else if !has{if i+1==len(args){return nil,nil,errArguments};i++;value=args[i]}
+  values[key]=value
+ }
+ return values,positions,nil
+}
+func fieldValue(field Field,raw []byte)bool{
+ if !validJSON(raw){return false};if bytes.Equal(bytes.TrimSpace(raw),[]byte("null")){return field.Nullable&&!field.Required}
+ valid:=func(value string)bool{return len(value)<=4096&&!strings.ContainsRune(value,0)}
+ switch field.Type{
+ case "string":var value string;return json.Unmarshal(raw,&value)==nil&&valid(value)
+ case "integer":var value int64;return json.Unmarshal(raw,&value)==nil
+ case "boolean":var value bool;return json.Unmarshal(raw,&value)==nil
+ case "string-list":var value []string;if json.Unmarshal(raw,&value)!=nil||len(value)>100{return false};for _,s:=range value{if !valid(s){return false}};return true
+ }
+ return false
+}
+func object(data []byte)(map[string]json.RawMessage,error){
+ if !validJSON(data){return nil,errors.New("invalid JSON object")}
+ var result map[string]json.RawMessage
+ if json.Unmarshal(data,&result)!=nil||result==nil{return nil,errors.New("invalid JSON object")}
+ return result,nil
+}
+func validJSON(data []byte)bool{
+ if len(data)>client.MaxResponseBytes||!utf8.Valid(data)||!validUnicodeEscapes(data){return false}
+ decoder:=json.NewDecoder(bytes.NewReader(data));decoder.UseNumber();nodes:=0
+ var visit func(int)bool
+ visit=func(depth int)bool{
+  nodes++;if depth>32||nodes>65536{return false}
+  token,err:=decoder.Token();if err!=nil{return false}
+  delim,ok:=token.(json.Delim);if !ok{return true}
+  switch delim{
+  case '{':seen:=map[string]bool{};for decoder.More(){key,err:=decoder.Token();if err!=nil{return false};name,ok:=key.(string);if !ok||seen[name]||len(seen)>=4096{return false};seen[name]=true;if !visit(depth+1){return false}};end,err:=decoder.Token();return err==nil&&end==json.Delim('}')
+  case '[':for decoder.More(){if !visit(depth+1){return false}};end,err:=decoder.Token();return err==nil&&end==json.Delim(']')
+  default:return false
+  }
+ }
+ if !visit(1){return false};_,err:=decoder.Token();return err==io.EOF
+}
