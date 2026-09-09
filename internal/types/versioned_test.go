@@ -67,3 +67,30 @@ func TestUnobservedValuesAreValidated(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanupOwnerContracts(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		owners    []string
+		versioned bool
+		field     string
+	}{
+		{"not versioned", []string{"worker"}, false, ""},
+		{"duplicate", []string{"worker", "worker"}, true, ""},
+		{"empty", []string{""}, true, ""},
+		{"unsafe", []string{"worker/status"}, true, ""},
+		{"metadata", []string{"worker"}, true, "cleanup_state"},
+		{"method", []string{"worker"}, true, "cleanup_complete"},
+	} {
+		e := Entity{Name: "Record", Versioned: test.versioned, CleanupOwners: test.owners}
+		if test.field != "" {
+			e.Fields = []Field{{Name: test.field, Type: FieldTypeString}}
+		}
+		if len(ValidateVersioned([]Entity{e})) == 0 {
+			t.Fatal("invalid cleanup contract accepted", test.name)
+		}
+	}
+	if result := ValidateVersioned([]Entity{{Name: "Record", Versioned: true, CleanupOwners: []string{"worker", "identity"}}}); len(result) != 0 {
+		t.Fatal(result)
+	}
+}

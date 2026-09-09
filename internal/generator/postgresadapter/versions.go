@@ -63,12 +63,14 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Name, Table, Function, Columns, Body string
 		Generation                           bool
 		Observations                         []observation
+		CleanupOwners                        []string
 	}
 	data := struct {
 		Package, StorageImport, Migration string
 		NotFoundImport                    string
 		HasGeneration                     bool
 		HasObservations                   bool
+		HasCleanup                        bool
 		Entities                          []entity
 		Statements                        []string
 	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
@@ -89,6 +91,13 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		function := fmt.Sprintf("stego_revision_%x", hash[:12])
 		definition := entity{Name: e.Name, Table: table, Function: function, Columns: quoteStringSlice(writeColumns(e)), Body: revisionBody, Generation: len(e.GenerationFields) > 0}
 		add(fmt.Sprintf("ALTER TABLE %q ADD COLUMN IF NOT EXISTS stego_revision bigint NOT NULL DEFAULT 1;\n", table))
+		// The table lock and transaction keep this temporary disable private.
+		add(fmt.Sprintf(`DO $disable$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgrelid=%s::regclass AND tgname='stego_resource_revision') THEN
+  ALTER TABLE %q DISABLE TRIGGER stego_resource_revision;
+ END IF;
+ END; $disable$;
+`, sqlLiteral(table), table))
 		if definition.Generation {
 			data.HasGeneration = true
 			if len(e.Observations) > 0 {
@@ -117,15 +126,6 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 			}
 			signature := sha256.Sum256(contract)
 			definition.Body = strings.Replace(revisionBody, " RETURN NEW;", generation+fmt.Sprintf(" -- generation contract %x\n RETURN NEW;", signature), 1)
-			// The ALTER holds an exclusive table lock through the migration.
-			// A changed field contract invalidates all earlier observations and tokens.
-			add(fmt.Sprintf(`DO $upgrade$ BEGIN
- IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid=%s::regclass AND t.tgname='stego_resource_revision' AND p.prosrc IS DISTINCT FROM %s) THEN
-  ALTER TABLE %q DISABLE TRIGGER stego_resource_revision;
-  UPDATE %q SET stego_generation=stego_generation+1, stego_revision=stego_revision+1, stego_observations='{}'::jsonb;
- END IF;
- END; $upgrade$;
-`, sqlLiteral(table), sqlLiteral(definition.Body), table, table))
 			var owners []string
 			for owner := range e.Observations {
 				owners = append(owners, owner)
@@ -154,6 +154,55 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 				definition.Observations = append(definition.Observations, group)
 			}
 		}
+		cleanupOwners, initial, keys, cleanupBody := cleanupContract(e)
+		definition.CleanupOwners = cleanupOwners
+		if len(cleanupOwners) > 0 {
+			data.HasCleanup = true
+			add(fmt.Sprintf("ALTER TABLE %q ADD COLUMN IF NOT EXISTS stego_cleanup jsonb NOT NULL DEFAULT '{}';\n", table))
+			// Existing owners cannot disappear, including on live resources.
+			add(fmt.Sprintf(`DO $owners$ BEGIN
+ IF EXISTS (SELECT 1 FROM %q WHERE jsonb_typeof(stego_cleanup) IS DISTINCT FROM 'object') THEN
+  RAISE EXCEPTION 'invalid stored cleanup state';
+ END IF;
+ IF EXISTS (SELECT 1 FROM %q WHERE stego_cleanup - %s <> '{}'::jsonb) THEN
+  RAISE EXCEPTION 'cleanup owners cannot be removed from retained resources';
+ END IF;
+ END; $owners$;
+`, table, table, keys))
+			contract, err := json.Marshal(e.Fields)
+			if err != nil {
+				return nil, fmt.Errorf("encode cleanup field contract: %w", err)
+			}
+			signature := sha256.Sum256(contract)
+			definition.Body = strings.Replace(definition.Body, " RETURN NEW;", cleanupBody+fmt.Sprintf(" -- cleanup fields %x\n RETURN NEW;", signature), 1)
+		} else {
+			add(fmt.Sprintf(`DO $owners$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid=%s::regclass AND attname='stego_cleanup' AND NOT attisdropped) THEN
+  IF EXISTS (SELECT 1 FROM %q WHERE stego_cleanup <> '{}'::jsonb) THEN
+   RAISE EXCEPTION 'cleanup owners cannot be removed from retained resources';
+  END IF;
+ END IF;
+ END; $owners$;
+`, sqlLiteral(table), table))
+		}
+		if definition.Generation || len(cleanupOwners) > 0 {
+			assignments := []string{"stego_revision=stego_revision+1"}
+			if definition.Generation {
+				assignments = append(assignments, "stego_generation=stego_generation+1", "stego_observations='{}'::jsonb")
+			}
+			if len(cleanupOwners) > 0 {
+				assignments = append(assignments, "stego_cleanup="+initial)
+			}
+			add(fmt.Sprintf(`DO $upgrade$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid=%s::regclass AND t.tgname='stego_resource_revision' AND p.prosrc IS DISTINCT FROM %s) THEN
+  UPDATE %q SET %s;
+ END IF;
+ END; $upgrade$;
+`, sqlLiteral(table), sqlLiteral(definition.Body), table, strings.Join(assignments, ", ")))
+		}
+		if len(cleanupOwners) > 0 {
+			add(fmt.Sprintf("UPDATE %q SET stego_cleanup=%s || stego_cleanup WHERE NOT (stego_cleanup ?& %s);\n", table, initial, keys))
+		}
 		data.Entities = append(data.Entities, definition)
 		add(fmt.Sprintf("CREATE OR REPLACE FUNCTION %q() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog AS $stego$%s$stego$;\n", function, definition.Body))
 		add(fmt.Sprintf("DROP TRIGGER IF EXISTS stego_resource_revision ON %q;\n", table))
@@ -179,6 +228,9 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 	if data.HasGeneration {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000003_resource_generations.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
 	}
+	if data.HasCleanup {
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000004_resource_cleanup.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
+	}
 	return files, nil
 }
 
@@ -193,6 +245,9 @@ func currentObservationTable(entity types.Entity) string {
 		return ""
 	}
 	columns := []string{`"id"`, `"created_time"`, `"updated_time"`, `"deleted_at"`, `"stego_revision"`, `"stego_generation"`, `"stego_observations"`}
+	if len(entity.CleanupOwners) > 0 {
+		columns = append(columns, `"stego_cleanup"`)
+	}
 	for _, field := range entity.Fields {
 		expression := fmt.Sprintf("%q", field.Name)
 		for group, fields := range entity.Observations {

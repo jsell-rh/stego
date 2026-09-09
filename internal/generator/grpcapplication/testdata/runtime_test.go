@@ -811,3 +811,53 @@ func TestResourceDeletionStateFailsClosed(t *testing.T) {
 		t.Fatal("header error lost", err)
 	}
 }
+
+func TestCleanupResponseIsBoundedAndCanonical(t *testing.T) {
+	stream := &revisionHeaderStream{}
+	ctx := grpc.NewContextWithServerTransportStream(context.Background(), stream)
+	states := map[string]bool{"workload": false, "identity": true}
+	if err := transport.SetResourceState(ctx, 3, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.SetCleanupObservations(ctx, states); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rpcclient.ObservedCleanupObservations(stream.header)
+	if err != nil || len(got) != 2 || !got["identity"] || got["workload"] {
+		t.Fatal(got, err)
+	}
+	got["workload"] = true
+	again, err := rpcclient.ObservedCleanupObservations(stream.header)
+	if err != nil || again["workload"] {
+		t.Fatal("caller changed retained response", err)
+	}
+	if err := transport.SetCleanupObservations(ctx, states); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpcclient.ObservedCleanupObservations(stream.header); err == nil {
+		t.Fatal("duplicate cleanup state accepted")
+	}
+	for _, value := range []string{"", `null`, `[]`, `{"worker":null}`, `{"worker":1}`, `{"worker":false,"worker":true}`, `{"worker": true}`, `{"not/owner":true}`, `{"B":true}`, strings.Repeat("x", 4097)} {
+		if _, err := rpcclient.ObservedCleanupObservations(metadata.Pairs("resource-cleanup", value)); err == nil {
+			t.Fatal("invalid cleanup state accepted", value)
+		}
+	}
+	if err := transport.SetCleanupObservations(ctx, nil); status.Code(err) != codes.Internal {
+		t.Fatal("nil cleanup state accepted", err)
+	}
+	if err := transport.SetCleanupObservations(nil, states); status.Code(err) != codes.Internal {
+		t.Fatal("nil context accepted", err)
+	}
+	tooMany := map[string]bool{}
+	for i := range 33 {
+		tooMany[fmt.Sprintf("owner_%d", i)] = false
+	}
+	if err := transport.SetCleanupObservations(ctx, tooMany); status.Code(err) != codes.Internal {
+		t.Fatal("unbounded cleanup response accepted", err)
+	}
+	failure := errors.New("closed response")
+	failed := grpc.NewContextWithServerTransportStream(context.Background(), &revisionHeaderStream{failure: failure})
+	if err := transport.SetCleanupObservations(failed, states); !errors.Is(err, failure) {
+		t.Fatal("header error lost", err)
+	}
+}

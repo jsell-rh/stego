@@ -5,6 +5,7 @@ import (
  "context"
  "crypto/tls"
  "crypto/x509"
+ "encoding/json"
  "errors"
  "io"
  "net"
@@ -66,6 +67,24 @@ func ObservedResourceState(header metadata.MD)(int64,bool,error){
  values:=header.Get("resource-deleted")
  if len(values)!=1||(values[0]!="true"&&values[0]!="false"){return 0,false,errors.New("resource response has no valid deletion state")}
  return version,values[0]=="true",nil
+}
+
+// ObservedCleanupObservations reads canonical, bounded cleanup metadata from
+// the same successful response as the resource revision and deletion state.
+func ObservedCleanupObservations(header metadata.MD)(map[string]bool,error){
+ values:=header.Get("resource-cleanup")
+ if len(values)!=1||len(values[0])>4096{return nil,errors.New("resource response has no valid cleanup state")}
+ var states map[string]bool
+ if json.Unmarshal([]byte(values[0]),&states)!=nil||states==nil||len(states)>32{return nil,errors.New("resource response has no valid cleanup state")}
+ for owner:=range states{if !cleanupOwnerName(owner){return nil,errors.New("resource response has an invalid cleanup owner")}}
+ canonical,err:=json.Marshal(states)
+ if err!=nil||string(canonical)!=values[0]{return nil,errors.New("resource cleanup state is not canonical")}
+ return states,nil
+}
+func cleanupOwnerName(owner string)bool{
+ if len(owner)<1||len(owner)>63||owner[0]<'a'||owner[0]>'z'{return false}
+ for _,c:=range owner{if !(c>='a'&&c<='z'||c>='0'&&c<='9'||c=='_'){return false}}
+ return true
 }
 
 // Options come from trusted application configuration. Address is host:port.

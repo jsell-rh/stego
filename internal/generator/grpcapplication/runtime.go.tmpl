@@ -3,6 +3,7 @@ package transport
 import (
  "context"
  "crypto/tls"
+ "encoding/json"
  "errors"
  "fmt"
  "io"
@@ -62,6 +63,21 @@ func RetainedResourceRead(ctx context.Context)(bool,error){
 func SetResourceState(ctx context.Context,version int64,deleted bool)error{
  if ctx==nil||version<1{return status.Error(codes.Internal,"resource response requires a context and positive revision")}
  return grpc.SetHeader(ctx,metadata.Pairs("resource-version",strconv.FormatInt(version,10),"resource-deleted",strconv.FormatBool(deleted)))
+}
+
+// SetCleanupObservations sends recorded cleanup state from the same authorized
+// read as SetResourceState. The application must authorize each cleanup writer.
+func SetCleanupObservations(ctx context.Context,states map[string]bool)error{
+ if ctx==nil||states==nil||len(states)>32{return status.Error(codes.Internal,"invalid cleanup response")}
+ for owner:=range states{if !cleanupOwnerName(owner){return status.Error(codes.Internal,"invalid cleanup response")}}
+ encoded,err:=json.Marshal(states)
+ if err!=nil||len(encoded)>4096{return status.Error(codes.Internal,"invalid cleanup response")}
+ return grpc.SetHeader(ctx,metadata.Pairs("resource-cleanup",string(encoded)))
+}
+func cleanupOwnerName(owner string)bool{
+ if len(owner)<1||len(owner)>63||owner[0]<'a'||owner[0]>'z'{return false}
+ for _,c:=range owner{if !(c>='a'&&c<='z'||c>='0'&&c<='9'||c=='_'){return false}}
+ return true
 }
 
 type Authenticate func(context.Context,string)(context.Context,error)

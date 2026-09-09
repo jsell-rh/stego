@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -18,13 +19,16 @@ var transactionTests []byte
 //go:embed testdata/versions_test.go
 var versionTests []byte
 
+//go:embed testdata/cleanup_test.go
+var cleanupTests []byte
+
 func TestGeneratedStoreTransactions(t *testing.T) {
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
 	pending := "Pending \\ ' ?"
-	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, GenerationFields: []string{"name", "desired_config"}, Observations: map[string][]string{"health": {"health"}, "identity": {"identity"}, "evidence": {"certificate", "checked_at"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}, {Name: "health", Type: types.FieldTypeString, Optional: true, Unobserved: &pending}, {Name: "identity", Type: types.FieldTypeString, Optional: true}, {Name: "certificate", Type: types.FieldTypeBytes, Optional: true}, {Name: "checked_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "desired_config", Type: types.FieldTypeJsonb, Optional: true}}}}}
+	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, CleanupOwners: []string{"workload", "identity"}, GenerationFields: []string{"name", "desired_config"}, Observations: map[string][]string{"health": {"health"}, "identity": {"identity"}, "evidence": {"certificate", "checked_at"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}, {Name: "health", Type: types.FieldTypeString, Optional: true, Unobserved: &pending}, {Name: "identity", Type: types.FieldTypeString, Optional: true}, {Name: "certificate", Type: types.FieldTypeBytes, Optional: true}, {Name: "checked_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "desired_config", Type: types.FieldTypeJsonb, Optional: true}}}}}
 	low, high, zero, hundred, ratioLow, ratioHigh, singleLow, singleHigh := -5.0, 9.0, 0.0, 100.0, 0.1, 0.9, -1.5, 1.5
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Measurement", Fields: []types.Field{
 		{Name: "score", Type: types.FieldTypeInt32, Min: &zero, Max: &hundred},
@@ -39,6 +43,21 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for name, owners := range map[string][]string{"cleanup_added.sql": {"workload", "identity", "archive"}, "cleanup_removed.sql": nil} {
+		next := ctx
+		next.Entities = append([]types.Entity(nil), ctx.Entities...)
+		next.Entities[0].CleanupOwners = owners
+		upgrades, err := generateVersions(next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range upgrades {
+			if strings.HasSuffix(file.Path, "/000002_resource_versions.sql") {
+				statement := strings.TrimSuffix(strings.TrimPrefix(string(file.Bytes()), "BEGIN;\n"), "COMMIT;\n")
+				files = append(files, gen.File{Path: "storage/" + name, Content: []byte(statement)})
+			}
+		}
 	}
 	queueFiles, _, err := new(queuegen.Generator).Generate(gen.Context{OutputNamespace: "queue", StorageContract: ctx.StorageContract})
 	if err != nil {
@@ -92,7 +111,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

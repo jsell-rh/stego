@@ -141,3 +141,11 @@ failed before this change because the event alone reached the provider. The
 application regression also changes event fields and recovers after API restart.
 Durable cleanup owners, conditional completion, and cross-process fencing remain
 open. A fresh deletion read does not establish completion of those requirements.
+
+The optional [cleanup contract](resource-cleanup.md) now records declared owners
+and requires a deleted resource at an exact revision for each observation. The
+storage transaction includes the event. Owner removal cannot silently discard
+stored obligations. Hypershell applies it to the database provider and continues
+periodic checks after a recorded success. A later pending or failed provider
+check clears that confirmation. This supplies durable observations, but it does
+not fence other processes or establish safe purge after late external effects.

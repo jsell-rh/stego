@@ -128,6 +128,8 @@ gRPC tests cover strict metadata parsing and preservation of the parent context.
 
 A revision identifies all writes. Optional [desired generations and observation
 groups](resource-generations.md) distinguish declared inputs from observations.
-They require an explicit application policy. Durable finalizers, cross-process
-fencing, and automatic CRUD observation support remain open. A revision cannot undo external work that completed after its
+They require an explicit application policy. The optional
+[cleanup contract](resource-cleanup.md) records declared owners and conditional
+absence observations. Cross-process fencing, safe history purge, and automatic
+CRUD observation support remain open. A revision cannot undo external work that completed after its
 observation became stale. Periodic repair remains necessary.

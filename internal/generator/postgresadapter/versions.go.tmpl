@@ -16,6 +16,7 @@ import (
 var _ versioncontract.VersionedWriter = (*Store)(nil)
 var _ versioncontract.ObservationWriter = (*Store)(nil)
 var _ versioncontract.RetainedReader = (*Store)(nil)
+var _ versioncontract.CleanupWriter = (*Store)(nil)
 {{else}}var ErrVersionConflict = errors.New("resource version changed or resource is absent"){{end}}
 
 // GetRetained reads one exact versioned identity, including soft deletion.
@@ -56,8 +57,8 @@ func verifyResourceVersions(db *gorm.DB) error {
  if parent == nil { parent = context.Background() }
  ctx, cancel := context.WithTimeout(parent, 5*time.Second)
  defer cancel()
- for _, definition := range []struct{ Table, Function, Body string; Generation bool }{
- {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}} },{{end}}
+ for _, definition := range []struct{ Table, Function, Body string; Generation,Cleanup bool }{
+ {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}}, {{if .CleanupOwners}}true{{else}}false{{end}} },{{end}}
  } {
   var count int64
   err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_trigger t
@@ -72,6 +73,11 @@ func verifyResourceVersions(db *gorm.DB) error {
  AND a.atttypid='pg_catalog.int8'::pg_catalog.regtype AND a.attnotnull AND NOT a.attisdropped`, definition.Table, definition.Function, definition.Body).Scan(&count).Error
   if err != nil { return fmt.Errorf("verify resource revision schema: %w", err) }
   if count != 1 { return fmt.Errorf("resource revision migration is required for %s", definition.Table) }
+  if definition.Cleanup {
+   err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
+   if err!=nil{return fmt.Errorf("verify cleanup schema: %w",err)}
+   if count!=1{return fmt.Errorf("resource cleanup migration is required for %s",definition.Table)}
+  }
   if definition.Generation {
    err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attnotnull AND NOT attisdropped AND ((attname='stego_generation' AND atttypid='pg_catalog.int8'::pg_catalog.regtype) OR (attname='stego_observations' AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype))`,definition.Table).Scan(&count).Error
    if err != nil { return fmt.Errorf("verify generation schema: %w",err) }
@@ -80,6 +86,54 @@ func verifyResourceVersions(db *gorm.DB) error {
  }
  return nil
 }
+
+// ObserveCleanupIfVersion records one owner's current cleanup observation.
+// Only a deleted row at the exact observed revision can accept the write.
+// A completion does not stop recovery or prevent late external effects.
+func(s *Store)ObserveCleanupIfVersion(ctx context.Context,entity,id string,version int64,owner string,complete bool)error{
+ if ctx==nil||s==nil||s.db==nil||id==""||version<1{return errors.New("cleanup observation requires a context, store, identity, and revision")}
+ {{if .HasCleanup}}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout)
+ defer cancel()
+ {{end}}
+ switch entity {
+ {{range .Entities}}{{if .CleanupOwners}}case {{printf "%q" .Name}}:
+  switch owner {case {{range $index,$owner:=.CleanupOwners}}{{if $index}},{{end}}{{printf "%q" $owner}}{{end}}:default:return errors.New("cleanup owner is not declared")}
+  result:=s.db.WithContext(operation).Exec({{printf "%q" (printf "UPDATE %q SET stego_cleanup=jsonb_set(stego_cleanup,ARRAY[?]::text[],to_jsonb(?::boolean)),updated_time=now() WHERE id=? AND id COLLATE \"C\"=? AND stego_revision=? AND deleted_at IS NOT NULL" .Table)}},owner,complete,id,id,version)
+  if result.Error!=nil{return result.Error}
+  if result.RowsAffected!=1{return ErrVersionConflict}
+  return nil
+ {{end}}{{end}}default:return errors.New("entity does not declare cleanup owners")
+ }
+}
+
+{{range .Entities}}{{if .CleanupOwners}}
+// CleanupObservations returns the recorded state for every declared owner.
+// A live resource has no completed cleanup. Callers must also check deletion.
+func(row {{.Name}})CleanupObservations()(map[string]bool,error){
+ var raw map[string]json.RawMessage
+ if json.Unmarshal(row.CleanupState,&raw)!=nil||len(raw)!={{len .CleanupOwners}}{return nil,errors.New("invalid cleanup state")}
+ states:=make(map[string]bool,{{len .CleanupOwners}})
+ for _,owner:=range []string{ {{range .CleanupOwners}}{{printf "%q" .}},{{end}} }{
+  value,ok:=raw[owner]
+  if !ok||(string(value)!="true"&&string(value)!="false"){return nil,errors.New("invalid cleanup observation")}
+  states[owner]=string(value)=="true"
+ }
+ return states,nil
+}
+func(row {{.Name}})CleanupComplete(owner string)bool{
+ if !row.DeletedAt.Valid{return false}
+ states,err:=row.CleanupObservations()
+ return err==nil&&states[owner]
+}
+func(row {{.Name}})PendingCleanup()([]string,error){
+ states,err:=row.CleanupObservations();if err!=nil{return nil,err}
+ var pending []string
+ if !row.DeletedAt.Valid{return pending,nil}
+ for _,owner:=range []string{ {{range .CleanupOwners}}{{printf "%q" .}},{{end}} }{if !states[owner]{pending=append(pending,owner)}}
+ return pending,nil
+}
+{{end}}{{end}}
 
 // ReplaceIfVersion rejects absent, deleted, or changed rows. Use the revision
 // read before external work. A new transaction does not make an old observation

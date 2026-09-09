@@ -35,14 +35,27 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 				result = append(result, fmt.Errorf("entity %s: unobserved value requires a valid string observation field %s", entity.Name, field.Name))
 			}
 		}
-		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0) && !entity.Versioned {
-			result = append(result, fmt.Errorf("entity %s: generations and observations require versioned", entity.Name))
+		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.CleanupOwners) > 0) && !entity.Versioned {
+			result = append(result, fmt.Errorf("entity %s: generations, observations, and cleanup owners require versioned", entity.Name))
+		}
+		cleanupOwners := map[string]bool{}
+		if len(entity.CleanupOwners) > 32 {
+			result = append(result, fmt.Errorf("entity %s: at most 32 cleanup owners are supported", entity.Name))
+		}
+		for _, owner := range entity.CleanupOwners {
+			if !observationName.MatchString(owner) || cleanupOwners[owner] {
+				result = append(result, fmt.Errorf("entity %s: invalid or repeated cleanup owner %s", entity.Name, owner))
+			}
+			cleanupOwners[owner] = true
 		}
 		if !entity.Versioned {
 			continue
 		}
 		for _, field := range entity.Fields {
 			name := strings.ToLower(strings.ReplaceAll(field.Name, "_", ""))
+			if len(entity.CleanupOwners) > 0 && (name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete") {
+				result = append(result, fmt.Errorf("entity %s: field %s conflicts with cleanup metadata", entity.Name, field.Name))
+			}
 			if name == "stegorevision" || name == "resourceversion" || (len(entity.GenerationFields) > 0 && (name == "stegogeneration" || name == "resourcegeneration" || name == "stegoobservations" || name == "observedgenerations" || name == "observedgeneration" || name == "currentobservations")) {
 				result = append(result, fmt.Errorf("entity %s: field %s conflicts with resource version metadata", entity.Name, field.Name))
 			}

@@ -199,7 +199,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.PostDBCalls = nil
 	}
 	for _, entity := range ctx.Entities {
-		if len(entity.GenerationFields) > 0 {
+		if len(entity.GenerationFields) > 0 || len(entity.CleanupOwners) > 0 {
 			wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
 		}
 		for _, field := range entity.Fields {
@@ -292,7 +292,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	hasRef := false
 
 	for _, e := range entities {
-		if len(e.GenerationFields) > 0 {
+		if len(e.GenerationFields) > 0 || len(e.CleanupOwners) > 0 {
 			needDatatypes = true
 		}
 		for _, f := range e.Fields {
@@ -362,6 +362,9 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		fmt.Fprintf(&buf, "\tMeta\n")
 		if e.Versioned {
 			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
+		}
+		if len(e.CleanupOwners) > 0 {
+			fmt.Fprintln(&buf, "CleanupState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup;type:jsonb;not null;default:'{}';->\"`")
 		}
 		if len(e.GenerationFields) > 0 {
 			fmt.Fprintln(&buf, "ResourceGeneration int64 `json:\"-\" gorm:\"column:stego_generation;type:bigint;not null;default:1;->\"`")
@@ -1009,6 +1012,9 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t\tselectCols := []string{\"id\"}\n")
 		if e.Versioned {
 			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_revision")`)
+		}
+		if len(e.CleanupOwners) > 0 {
+			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_cleanup", "deleted_at")`)
 		}
 		if len(e.GenerationFields) > 0 {
 			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_generation", "stego_observations")`)

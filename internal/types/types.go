@@ -92,6 +92,7 @@ type Entity struct {
 	Versioned        bool                `yaml:"versioned,omitempty"`
 	GenerationFields []string            `yaml:"generation_fields,omitempty"`
 	Observations     map[string][]string `yaml:"observations,omitempty"`
+	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 }
 
 // Port represents a named capability that a component requires or provides.

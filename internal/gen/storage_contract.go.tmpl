@@ -20,6 +20,14 @@ type RetainedReader interface {
 	GetRetained(context.Context, string, string) (any, error)
 }
 
+// CleanupWriter records one declared owner's cleanup observation on a deleted
+// row at the observed revision. Authorize the owner and commit its event in the
+// same transaction. A confirmation does not stop periodic recovery or fence
+// external work that is still in progress.
+type CleanupWriter interface {
+	ObserveCleanupIfVersion(context.Context, string, string, int64, string, bool) error
+}
+
 // VersionedWriter updates only a live row at the observed resource version.
 // It does not establish access rights or field ownership. Use it in the same
 // transaction as authorization and durable events. A conflict requires a new
