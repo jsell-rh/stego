@@ -121,3 +121,14 @@ tracks declared inputs and each observation group. Gateway phase and status use
 a workload group. The application rejects owner writes and presents an older
 observation as pending after an input change. This does not yet cover database
 status, referenced-resource changes, automatic CRUD APIs, or durable finalization.
+
+The database variant now uses generated revision storage and gRPC response
+metadata. Its controller reads a revision before provider work. A later write
+must match that revision. The API requires this precondition for configured
+controller subjects and commits the write with its event. The application tests
+cover stale observations, denied requests, rollback, restart, and deletion.
+Controller tests require another provider observation after a conflict. Live
+provider selection uses the current record. Database generations and observation
+field ownership remain open; a revision check alone does not make stored status
+current after an input change. See the variant's
+[database evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/database-observations.md).
