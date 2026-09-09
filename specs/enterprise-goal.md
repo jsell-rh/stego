@@ -638,3 +638,45 @@ the request as the response reader returned its final bytes. The client now
 checks cancellation and the deadline before it returns a response. A failed
 completion returns no response data and still releases the body and request
 capacity. The real TLS deadline test remains in the gate.
+
+The next application workflow now creates trusted Gateway identities through a
+separate controller. Its first test exposed a missing common runtime part: the
+generated gRPC client rejected server streams. STEGO now supplies bounded server
+streams with TLS, token-file reads, message limits, a handshake deadline, a
+maximum lifetime, and separate stream capacity. The independent Record service
+checks these behaviors. The compiler race suite passed before publication.
+
+Hypershell owns the controller, provider binding, and OIDC configuration. A new
+control-plane RPC returns current Gateway state, including a retained deletion
+row. Only configured control-plane subjects can call it. A normal not-found
+response cannot authorize provider deletion. The provider requires the immutable
+Gateway client name and trusted binding before it changes or deletes a client.
+It configures a new client while disabled, checks the stored settings, and then
+enables it. Real Keycloak readback exposed provider-added attributes; the
+controller now declares those settings and retains the exact configuration check.
+
+The application test creates one Gateway through REST before controller startup.
+After the initial scan completes, it creates another Gateway through gRPC. The
+live watch must deliver that change before the next scan. The controller creates
+the provider bindings and publishes OIDC settings through generated clients.
+A service account then obtains a real token for one Gateway; verification rejects
+the other Gateway audience. The test also covers API restart while the controller
+stays active, rename, and offline deletion followed by a new controller process.
+No fixture administrator creates the Gateway bindings in this workflow.
+
+The client ID uses the immutable Gateway ID. Browser login requires PKCE S256;
+device login is enabled. The password grant is disabled. This is the current
+assumption after the user was asked about reference compatibility. Existing
+reference clients require a separate migration. Browser and device login
+completion, user role reconciliation, workload deployment, multiple-controller
+coordination, and production scan capacity remain open. The test uses an explicit
+workload-health fixture before service-account creation. The identity controller
+does not claim that a Gateway workload is running.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required;
+the acceptance package completed in 241.274 seconds. The final watch test passed
+in 32.054 seconds. Pinned regeneration had no changes or drift, and dependency
+verification passed. The implementation and its limits are in the
+[Gateway identity workflow](https://github.com/jsell-rh/hypershell-stego/blob/e6961b6343f392ae68cb062a4ff0dd6fbb89fdb4/acceptance/gateway-identity.md).
+This is application evidence for the active goal; it does not complete the
+enterprise or full Hypershell scope.
