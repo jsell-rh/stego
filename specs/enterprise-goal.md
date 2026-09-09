@@ -1589,3 +1589,29 @@ The count is advisory. One active count controller is required per cluster.
 Kubernetes access uses a separate Pod read account. The API still uses the
 existing control-plane subject policy. The production runtime and identity
 policy decisions remain open. The full enterprise goal remains active.
+
+Hosted variant run `34361031910` passed all four jobs. The count workflow ran
+against the real Gateway in 272.22 seconds. Compiler journal run `34361073456`
+also passed.
+
+The next workflow deletes a Gateway that has automation accounts. The baseline
+created three accounts but returned HTTP 409 on Gateway deletion. The reference
+requires provider cleanup before the Gateway disappears, and HTTP 503 when that
+cleanup cannot be verified. The new transport tests cover REST and gRPC,
+provider failure, atomic metadata and audit rollback after event failure,
+restart and retry, and retained cleanup records for late provider results.
+A real Keycloak test removed two stored clients and one orphan after an outage
+and restart. A credential for another Gateway still worked.
+
+The gRPC registration factory needs to own its provider client. STEGO now
+supplies bounded resource registration and cleanup through `OnClose`. Startup
+failure, registration panic, normal stop, repeated close, callback panic, and
+registration limits have independent generated-runtime tests. Full compiler
+race tests and focused runtime tests passed. No Hypershell types entered STEGO.
+
+The actual Gateway test then exposed a separate contract mismatch. The workload
+controller reported `ready`, while service-account creation requires the
+reference `Running` phase and `Healthy` status. The controller now reports both
+fields together and removes healthy state when the workload is unavailable.
+The complete Gateway workflow is being repeated with that correction.
+The full enterprise goal remains active.

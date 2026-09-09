@@ -35,6 +35,7 @@ type Runtime struct {
  started,closed bool
  closeOnce sync.Once
  cancelStreams context.CancelFunc
+ resources *resourceRegistrar
 }
 
 // Addr returns the bound listener address, including an allocated port.
@@ -114,11 +115,16 @@ func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error,opt
    return status.FromContextError(context.Cause(verified)).Err()
   }),
  )
- if err:=register(server);err!=nil{cancelStreams();server.Stop();return nil,err}
+ resources:=&resourceRegistrar{ServiceRegistrar:server}
+ complete:=false
+ defer func(){if !complete{cancelStreams();server.Stop();resources.close()}}()
+ if err:=register(resources);err!=nil{return nil,err}
+ resources.seal()
  address:=os.Getenv("STEGO_GRPC_ADDR");if address==""{address="127.0.0.1:9090"}
- listener,err:=net.Listen("tcp",address);if err!=nil{cancelStreams();server.Stop();return nil,fmt.Errorf("gRPC listener: %w",err)}
+ listener,err:=net.Listen("tcp",address);if err!=nil{return nil,fmt.Errorf("gRPC listener: %w",err)}
  tracker.Listener=listener
- return &Runtime{server:server,listener:tracker,cancelStreams:cancelStreams},nil
+ complete=true
+ return &Runtime{server:server,listener:tracker,cancelStreams:cancelStreams,resources:resources},nil
 }
 
 func durationSetting(name string,fallback,maximum time.Duration)(time.Duration,error){
@@ -161,6 +167,7 @@ func readTLSFile(name string)([]byte,error){
 
 func(r *Runtime)Run(ctx context.Context)error{
  r.mu.Lock();if r.started||r.closed{r.mu.Unlock();return errors.New("gRPC runtime cannot run twice or after close")};r.started=true;r.mu.Unlock()
+ defer r.Close()
  done:=make(chan error,1);go func(){done<-r.server.Serve(r.listener)}()
  slog.Info("gRPC server started","address",r.listener.Addr().String())
  select{
@@ -173,7 +180,7 @@ func(r *Runtime)Run(ctx context.Context)error{
   <-done;return nil
  }
 }
-func(r *Runtime)Close(){r.closeOnce.Do(func(){r.mu.Lock();r.closed=true;r.mu.Unlock();r.cancelStreams();r.server.Stop();_ = r.listener.Close()})}
+func(r *Runtime)Close(){r.closeOnce.Do(func(){r.mu.Lock();r.closed=true;r.mu.Unlock();r.cancelStreams();r.server.Stop();_ = r.listener.Close();r.resources.close()})}
 
 // A stream I/O deadline closes its connection. This also releases queued HTTP/2
 // data when the peer stops reading. Other calls on that connection must retry.
@@ -251,4 +258,28 @@ func(p *preparedRegistrar)RegisterService(desc *grpc.ServiceDesc,implementation 
   }
  }
  p.registrar.RegisterService(&copied,implementation)
+}
+
+// OnClose transfers a resource to the runtime during service registration.
+// Cleanup runs once, in reverse order, after stop or failed startup.
+// The caller must close the resource if registration returns an error.
+func OnClose(registrar grpc.ServiceRegistrar,cleanup func())error{
+ if cleanup==nil{return errors.New("gRPC cleanup callback is required")}
+ for { if prepared,ok:=registrar.(*preparedRegistrar);ok{registrar=prepared.registrar;continue};break }
+ managed,ok:=registrar.(*resourceRegistrar);if !ok{return errors.New("gRPC registrar does not own resources")}
+ managed.mu.Lock();defer managed.mu.Unlock()
+ if managed.sealed || len(managed.callbacks)>=128{return errors.New("gRPC resource registration is closed or full")}
+ managed.callbacks=append(managed.callbacks,cleanup);return nil
+}
+type resourceRegistrar struct {
+ grpc.ServiceRegistrar
+ mu sync.Mutex
+ callbacks []func()
+ sealed bool
+}
+func(r *resourceRegistrar)seal(){r.mu.Lock();r.sealed=true;r.mu.Unlock()}
+func(r *resourceRegistrar)close(){
+ if r==nil{return}
+ r.mu.Lock();callbacks:=r.callbacks;r.callbacks=nil;r.sealed=true;r.mu.Unlock()
+ for n:=len(callbacks)-1;n>=0;n-- {func(){defer func(){if recover()!=nil{slog.Error("gRPC resource cleanup failed")}}();callbacks[n]()}()}
 }

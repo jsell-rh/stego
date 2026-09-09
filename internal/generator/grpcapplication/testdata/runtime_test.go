@@ -76,6 +76,7 @@ func TestRuntime(t *testing.T) {
 		}
 		t.Setenv(name, "")
 	}
+	testResourceCleanup(t)
 	authenticate := func(ctx context.Context, token string) (context.Context, error) {
 		if token != "good" && !strings.HasPrefix(token, "user-") {
 			return nil, errors.New("private authentication error")
@@ -529,5 +530,107 @@ func TestPreparationKeepsRegistrationsIndependent(t *testing.T) {
 	}
 	if _, err := transport.PrepareRegistrar(first, nil); err == nil {
 		t.Fatal("nil preparation accepted")
+	}
+}
+
+func testResourceCleanup(t *testing.T) {
+	t.Helper()
+	authenticate := func(ctx context.Context, _ string) (context.Context, error) { return ctx, nil }
+	for _, mode := range []string{"close", "run", "registration-failure", "bind-failure", "panic"} {
+		t.Run("resources/"+mode, func(t *testing.T) {
+			var calls []int
+			var saved grpc.ServiceRegistrar
+			if mode == "bind-failure" {
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer listener.Close()
+				t.Setenv("STEGO_GRPC_ADDR", listener.Addr().String())
+			}
+			sentinel := errors.New("registration failed")
+			var runtime *transport.Runtime
+			var err error
+			func() {
+				defer func() {
+					if r := recover(); r != nil && mode != "panic" {
+						t.Fatal(r)
+					}
+				}()
+				runtime, err = transport.New(authenticate, func(r grpc.ServiceRegistrar) error {
+					r, e := transport.PrepareRegistrar(r, func(context.Context) error { return nil })
+					if e != nil {
+						return e
+					}
+					saved = r
+					if e := transport.OnClose(r, func() { calls = append(calls, 1) }); e != nil {
+						return e
+					}
+					if e := transport.OnClose(r, func() { calls = append(calls, 2); panic("private cleanup failure") }); e != nil {
+						return e
+					}
+					if mode == "panic" {
+						panic(sentinel)
+					}
+					if mode == "registration-failure" {
+						return sentinel
+					}
+					return nil
+				})
+			}()
+			if mode == "close" || mode == "run" {
+				if err != nil || runtime == nil {
+					t.Fatal(err)
+				}
+				if len(calls) != 0 {
+					t.Fatal("resource closed during startup")
+				}
+				if err := transport.OnClose(saved, func() { t.Error("late callback ran") }); err == nil {
+					t.Fatal("resource registered after factory returned")
+				}
+				if mode == "run" {
+					ctx, cancel := context.WithCancel(context.Background())
+					done := make(chan error, 1)
+					go func() { done <- runtime.Run(ctx) }()
+					cancel()
+					select {
+					case err := <-done:
+						if err != nil {
+							t.Fatal(err)
+						}
+					case <-time.After(time.Second):
+						t.Fatal("runtime did not release resources")
+					}
+				}
+				runtime.Close()
+				runtime.Close()
+			} else if runtime != nil || mode != "panic" && err == nil {
+				t.Fatal("failed startup returned a runtime", err)
+			}
+			if len(calls) != 2 || calls[0] != 2 || calls[1] != 1 {
+				t.Fatal("resource cleanup order or count", calls)
+			}
+			if err := transport.OnClose(saved, func() { t.Error("late cleanup accepted") }); err == nil {
+				t.Fatal("resource registered after startup or close")
+			}
+		})
+	}
+	var closed int
+	runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error {
+		if err := transport.OnClose(r, nil); err == nil {
+			t.Fatal("nil cleanup callback accepted")
+		}
+		for range 128 {
+			if err := transport.OnClose(r, func() { closed++ }); err != nil {
+				return err
+			}
+		}
+		return transport.OnClose(r, func() { t.Error("excess cleanup callback was retained") })
+	})
+	if runtime != nil || err == nil || closed != 128 {
+		t.Fatal("cleanup capacity or failed-startup release", closed, err)
+	}
+	if err := transport.OnClose(grpc.NewServer(), func() {}); err == nil {
+		t.Fatal("unmanaged registrar accepted ownership")
 	}
 }
