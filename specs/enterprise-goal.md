@@ -1435,3 +1435,53 @@ Variant commit `e705e233e4c07a6c2a44254f4382d9a757d52fd9` is on remote main.
 Regeneration from the committed files passed with no changes or drift. Hosted
 variant run `34317681420` is queued. Check all three jobs before the next
 implementation step. The full enterprise goal remains active.
+
+
+The next application check covers viewer access through the actual Gateway.
+The reference resolves the earlier workspace question: its
+`tests/e2e/e2e-openshell.sh` grants workspace membership separately from the
+Hypershell viewer role. The variant preserves this rule. Automatic membership
+would be a product change, not a requirement for reference compatibility.
+
+The test grants viewer access through Hypershell REST using the recipient's
+`/users/me` ID. A real browser login supplies a token to the actual Gateway.
+The Gateway must retain the provider subject and standard user role. The role
+alone must not grant workspace access. The owner then grants default-workspace
+membership through Gateway gRPC. The viewer can read the provider, sees only
+its permitted workspace, and cannot change providers, create workspaces, grant
+administrator membership, or read Gateway administrator information. The test
+repeats access after namespace and database restart. Its initial run passed in
+165.77 seconds; the recovery and workload package took 222.344 seconds.
+
+The test also preserves the two access-removal paths. Hypershell grant removal
+denies API access immediately and removes the Gateway role from new tokens after
+reconciliation. An already issued role-bearing token can still work until
+expiry when membership remains. Workspace removal denies that same viewer token
+immediately. This is viewer behavior; it does not prove immediate revocation
+of an administrator token. Global token revocation remains open.
+
+The user was asked whether production sandboxes may require a runtime with a
+separate virtual machine, such as Kata Containers, or must support standard
+container runtimes on dedicated nodes. No answer has arrived. The pinned
+supervisor requests SYS_ADMIN, NET_ADMIN, SYS_PTRACE, and SYSLOG. The restricted
+namespace rejects that configuration. The Gateway also accepts a requested
+runtime class, so a default class alone cannot enforce isolation. A selected
+boundary needs admission checks and actual execution tests. A local KVM device
+is available for a possible compatibility test. The sandbox runtime choice remains open. Compiler journal run `34317691085`
+passed. The complete enterprise goal remains active.
+
+Hosted variant run `34317681420` passed all three jobs on `e705e23`, including
+the retained-ID recovery test. The current viewer checks extend the actual
+Gateway gate; they do not require a compiler or production runtime change.
+
+The final viewer run also requires redacted provider credentials, no credential
+handles, and Hypershell list changes after grant creation and removal. It passed
+in 165.74 seconds. Recovery before workload startup passed in 55.43 seconds;
+the combined race-enabled package took 222.204 seconds. Vet and pinned
+regeneration passed. All temporary test clusters were removed.
+
+Variant commit `02202f40c5ef2849cae99adab059c2926750e382` is on remote main.
+Regeneration from the committed files passed with no changes or drift. Hosted
+variant run `34318420211` is queued. Check its result in the next goal turn.
+The next complete application workflow is sandbox creation and execution with
+an enforced isolation boundary. The full enterprise goal remains active.
