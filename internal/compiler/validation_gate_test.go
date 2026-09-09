@@ -13,6 +13,63 @@ type rejectedInputGenerator struct {
 	t *testing.T
 }
 
+type versionedGenerator struct {
+	gen.Generator
+	minimum string
+}
+
+func (g versionedGenerator) MinimumGoVersion() string { return g.minimum }
+
+func TestGeneratorGoVersionGatesGeneration(t *testing.T) {
+	for _, tt := range []struct{ minimum, target, want string }{
+		{"1.25", "1.24.9", "requires Go 1.25 or later"},
+		{"1.25.1", "1.25.0", "requires Go 1.25.1 or later"},
+		{"1.25", "", "requires a valid Go target"},
+		{"1.25", "invalid", "requires a valid Go target"},
+		{"", "1.26.8", "invalid minimum Go version"},
+		{"go1.25", "1.26.8", "invalid minimum Go version"},
+	} {
+		t.Run(tt.minimum+"/"+tt.target, func(t *testing.T) {
+			input := snapshotTestInput(t)
+			input.GoVersion = tt.target
+			input.Generators["stub-api"] = rejectedInputGenerator{t}
+			input.Generators["stub-store"] = versionedGenerator{rejectedInputGenerator{t}, tt.minimum}
+			result, err := Validate(input)
+			if err != nil || !result.HasErrors() || !strings.Contains(FormatValidation(result), tt.want) {
+				t.Fatalf("version requirement passed validation: %+v, %v", result, err)
+			}
+			plan, err := Reconcile(input)
+			if plan != nil || err == nil || !strings.Contains(err.Error(), FormatValidation(result)) {
+				t.Fatalf("version requirement did not stop generation: %+v, %v", plan, err)
+			}
+			for _, name := range []string{"out", "go.mod", ".stego"} {
+				if _, err := os.Stat(filepath.Join(input.ProjectDir, name)); !os.IsNotExist(err) {
+					t.Fatalf("rejected target changed %s: %v", name, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGeneratorGoVersionAcceptsSupportedTargets(t *testing.T) {
+	for _, target := range []string{"1.25", "1.25.0", "1.25.1", "1.26.8", "1.30"} {
+		t.Run(target, func(t *testing.T) {
+			input := snapshotTestInput(t)
+			input.GoVersion = target
+			input.Generators["stub-store"] = versionedGenerator{input.Generators["stub-store"], "1.25"}
+			result, err := Validate(input)
+			if err != nil || result.HasErrors() {
+				t.Fatalf("supported target failed validation: %+v, %v", result, err)
+			}
+			applyInitialSnapshot(t, input)
+			data, err := os.ReadFile(filepath.Join(input.ProjectDir, "go.mod"))
+			if err != nil || !strings.Contains(string(data), "go "+target+"\n") {
+				t.Fatalf("apply changed the target: %s, %v", data, err)
+			}
+		})
+	}
+}
+
 func (g rejectedInputGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
 	g.t.Fatal("generator ran after semantic validation rejected the service")
 	return nil, nil, nil

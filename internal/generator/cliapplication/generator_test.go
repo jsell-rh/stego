@@ -10,6 +10,10 @@ import (
 )
 
 func TestGeneratedCLI(t *testing.T) {
+	var requirement gen.GoVersionRequirement = new(cliapplication.Generator)
+	if requirement.MinimumGoVersion() != "1.25" {
+		t.Fatal("CLI file operations require Go 1.25")
+	}
 	project := t.TempDir()
 	ctx := gen.Context{ModuleName: "example.com/cli-test", OutDirName: "out", OutputNamespace: "cli", ComponentConfig: map[string]any{"factory_package": "app"}}
 	files, _, err := new(cliapplication.Generator).Generate(ctx)
@@ -32,7 +36,7 @@ func TestGeneratedCLI(t *testing.T) {
 import command "example.com/cli-test/out/cli/command"
 func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CLI_CONFIG",ConfigName:"sample",Commands:[]command.Command{{Name:[]string{"get","record"},Method:"GET",Path:"/records/{id}",ID:true,Success:[]int{200}}}}}
 `
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo 1.26.8\n"), "app/app.go": []byte(factory)} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo " + requirement.MinimumGoVersion() + "\n"), "app/app.go": []byte(factory)} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

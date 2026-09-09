@@ -22,6 +22,13 @@ type Generator interface {
 	Generate(ctx Context) ([]File, *Wiring, error)
 }
 
+// GoVersionRequirement declares the minimum Go target for generated code.
+// The compiler checks this requirement before it runs any generator.
+// Use Go version syntax without the "go" prefix, for example "1.25".
+type GoVersionRequirement interface {
+	MinimumGoVersion() string
+}
+
 // InputProvider declares source files before generation. The compiler reads
 // each file once and checks its snapshot again before it applies output.
 type InputProvider interface {

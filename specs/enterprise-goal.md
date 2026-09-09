@@ -1754,3 +1754,12 @@ Hosted run `34371164637` is in progress. The task PostgreSQL container was
 removed. Browser and device login, token refresh, remaining CLI commands,
 protected credential output, other client ports, and production checks remain
 open. The complete enterprise goal remains active.
+
+The final CLI review found a target-version gap. Its safe file operations use
+Go 1.25 APIs, but generation accepted an older Go target. A common optional
+generator requirement now lets the compiler reject this mismatch in validation,
+plan, and apply before any generator runs. Tests cover older targets, invalid
+requirements, invalid targets, and successful output at supported versions.
+The generated CLI test now declares its minimum Go version. Compiler, command,
+generator, and generated CLI race tests passed. This check does not change
+the generated application runtime. The complete goal remains active.

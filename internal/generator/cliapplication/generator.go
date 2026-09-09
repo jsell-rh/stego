@@ -21,6 +21,9 @@ var configSource string
 
 type Generator struct{}
 
+// MinimumGoVersion covers the os.Root file operations in generated code.
+func (*Generator) MinimumGoVersion() string { return "1.25" }
+
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil || ctx.ModuleName == "" || ctx.OutDirName == "" {
 		return nil, nil, fmt.Errorf("CLI requires a module and output namespace")

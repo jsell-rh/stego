@@ -3,6 +3,9 @@ and the common HTTPS client. Run or build `<out>/<namespace>/cmd`. The applicati
 factory returns `command.Application` with command names, paths, methods,
 request fields, and expected status codes. It supplies no networking code.
 
+The target must be Go 1.25 or later. Validation, plan, and apply reject an older
+target before generation. This requirement covers the `os.Root` file operations.
+
 Set `factory_package` to a module-relative Go package outside generated output.
 The package must export `Commands() command.Application`. The compiler validates
 that package path. The generated runtime checks the returned definitions before

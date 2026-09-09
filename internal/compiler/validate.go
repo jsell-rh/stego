@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"go/version"
 	"math"
 	"os"
 	"path/filepath"
@@ -139,7 +140,9 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 					Category: "generator",
 					Message:  fmt.Sprintf("component %q has no generator in this compiler build", name),
 				})
+				continue
 			}
+			result.Errors = append(result.Errors, validateGeneratorGoVersion(name, input.Generators[name], input.GoVersion)...)
 		}
 	}
 
@@ -197,6 +200,26 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	result.Errors = append(result.Errors, fillErrs...)
 
 	return result, nil
+}
+
+func validateGeneratorGoVersion(name string, generator gen.Generator, target string) []ValidationError {
+	requirement, ok := generator.(gen.GoVersionRequirement)
+	if !ok {
+		return nil
+	}
+	minimum := requirement.MinimumGoVersion()
+	var message string
+	switch {
+	case !version.IsValid("go" + minimum):
+		message = fmt.Sprintf("component %q declares an invalid minimum Go version %q", name, minimum)
+	case !version.IsValid("go" + target):
+		message = fmt.Sprintf("component %q requires a valid Go target, got %q", name, target)
+	case version.Compare("go"+target, "go"+minimum) < 0:
+		message = fmt.Sprintf("component %q requires Go %s or later; target is %s", name, minimum, target)
+	default:
+		return nil
+	}
+	return []ValidationError{{Category: "generator", Message: message}}
 }
 
 // Reject typed nil implementations as well as missing map entries.
