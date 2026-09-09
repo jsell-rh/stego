@@ -1615,3 +1615,34 @@ reference `Running` phase and `Healthy` status. The controller now reports both
 fields together and removes healthy state when the workload is unavailable.
 The complete Gateway workflow is being repeated with that correction.
 The full enterprise goal remains active.
+
+The corrected Gateway workflow passed. Three automation accounts each obtained
+an actual Keycloak token and read a stored Gateway provider. Gateway deletion
+then removed all three clients before workload cleanup. The Gateway test took
+177.50 seconds. Recovery and workload tests together took 235.178 seconds with
+the race detector. The full variant race suite passed; its acceptance package
+took 392.445 seconds. Focused tests passed again with the final compiler pin.
+
+REST and gRPC checks cover denied deletion, provider outage, event failure,
+transaction rollback, restart, retry, and concurrent account creation. The
+provider ownership check now requires the exact immutable client name as well
+as ownership attributes. A partial provider failure test verifies that all
+owned clients are disabled before any client is removed. Another Gateway's
+client remains active. The real provider outage and orphan cleanup test passed
+in 29.70 seconds. One three-client cleanup took 412.8 milliseconds after restart,
+including connection setup. This measurement does not establish capacity.
+
+Compiler commit `95ff57f6a02bd0d0a2808bbe7da8e0f72da7861c` is on remote main.
+Its hosted run `34363399585` passed. Variant commit
+`d2ae4c1b4e2040ce6e7bac7fe0c9d86f1a5c9cf8` uses that compiler and is on remote
+main. Post-commit regeneration passed with no changes or drift. Hosted variant
+run `34363972330` is in progress. All task test containers and the retained test
+cluster were removed.
+
+Provider cleanup has a five-second limit and a 10,000-client inventory limit.
+Large-realm capacity still needs tests. Provider removal cannot roll back with
+the database transaction; retry verifies cleanup again. Previously issued JWTs
+remain subject to expiry and workload removal. These limits and the production
+runtime and identity decisions remain open. The previous count turn made
+progress. This deletion workflow adds application evidence. The full enterprise
+goal remains active.
