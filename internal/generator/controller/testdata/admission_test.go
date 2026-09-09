@@ -120,6 +120,66 @@ func TestWaitingAdmissionIsBoundedAndCanceled(t *testing.T) {
 	}
 }
 
+func TestFullRetryQueueResumesAdmissionAfterRecovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	failed := make(chan string, 2)
+	var first, second, recovered atomic.Bool
+	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+		return func() (string, error) { <-ctx.Done(); return "", ctx.Err() }, nil
+	}, Scan: func(ctx context.Context, emit func(string) error) error {
+		for _, key := range []string{"first", "second", "last"} {
+			if err := emit(key); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+	o := watchKeyOptions()
+	o.Capacity = 2
+	o.Workers = 2
+	done := make(chan error, 1)
+	go func() {
+		done <- RunKeyedWatch(ctx, source, func(_ context.Context, key string) error {
+			if key == "last" {
+				return denied
+			}
+			if !recovered.Load() {
+				observed := &first
+				if key == "second" {
+					observed = &second
+				}
+				if !observed.Swap(true) {
+					failed <- key
+				}
+				return errors.New("provider unavailable")
+			}
+			return nil
+		}, o)
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-failed:
+		case <-ctx.Done():
+			t.Fatal("both failing keys did not receive a turn")
+		}
+	}
+	select {
+	case err := <-done:
+		t.Fatal("full retry queue discarded an admitted key", err)
+	default:
+	}
+	recovered.Store(true)
+	select {
+	case err := <-done:
+		if !errors.Is(err, denied) {
+			t.Fatal("recovered queue did not admit its waiting key", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("recovery did not release capacity")
+	}
+}
+
 func BenchmarkKeyAdmission(b *testing.B) {
 	for _, wait := range []bool{false, true} {
 		name := "nonblocking"

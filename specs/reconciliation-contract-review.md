@@ -208,3 +208,21 @@ failed watch cancels and joins that session before reconnect and discovery.
 Identity and database controller scheduling, admission beyond queue capacity,
 cross-process ownership, and fencing remain open. See the
 [keyed controller contract](controller-keyed.md).
+
+A larger Gateway test exposed a queue-admission defect. With 1280 retained
+Gateways and a 1024-key queue, repeated scan resets completed only 31 of 1279
+healthy cleanups in 30 seconds. One provider remained deliberately unavailable.
+The generated watch and scanner now wait for queue capacity. They keep their
+current key, and the scan keeps its cursor. The same application check then
+completed every healthy cleanup within its 30-second check. The failing Gateway
+remained pending. The test also verifies gRPC state and delivery of the last
+Gateway's new cleanup event after API restart.
+
+A scan may wait longer than its resync interval. Producers must release locks
+needed by actions before emitting. Capacity still includes pending, active, and
+delayed keys. The generated producers retain one additional waiting key each.
+No admitted key or retry delay is discarded. A full queue of persistent failures
+can still block admission. A generated test verifies that admission resumes when
+those providers recover. Durable retry storage and complete saturation handling
+remain open; the user was asked to choose between persistent retry storage and
+scan-based overflow recovery.

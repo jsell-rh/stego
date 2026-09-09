@@ -92,7 +92,9 @@ Capacity bounds admitted keys, including delayed and active keys. The generated
 watch and scan each retain at most one additional key while waiting for capacity.
 `KeySink.AddWait` waits until a slot is available or its context ends. It validates
 the key before waiting and does not discard another key or reset its retry delay.
-Callers must bound the number of concurrent emitters. `KeySink.Add` retains its
+Callers must bound the number of concurrent emitters. A blocking emitter must
+not hold a lock that an action or observer needs. Scan callbacks must release
+such locks before emitting. `KeySink.Add` retains its
 nonblocking overflow error for observers that must stop on excess input.
 
 A scan can exceed queue capacity when actions continue to release slots. Waiting
