@@ -11,12 +11,12 @@ import (
 
 func TestGeneratedCLI(t *testing.T) {
 	var requirement gen.GoVersionRequirement = new(cliapplication.Generator)
-	if requirement.MinimumGoVersion() != "1.25" {
-		t.Fatal("CLI file operations require Go 1.25")
+	if requirement.MinimumGoVersion() != "1.25.0" {
+		t.Fatal("CLI dependencies require Go 1.25.0")
 	}
 	project := t.TempDir()
 	ctx := gen.Context{ModuleName: "example.com/cli-test", OutDirName: "out", OutputNamespace: "cli", ComponentConfig: map[string]any{"factory_package": "app"}}
-	files, _, err := new(cliapplication.Generator).Generate(ctx)
+	files, wiring, err := new(cliapplication.Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,12 +36,12 @@ func TestGeneratedCLI(t *testing.T) {
 import command "example.com/cli-test/out/cli/command"
 func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CLI_CONFIG",ConfigName:"sample",Commands:[]command.Command{{Name:[]string{"get","record"},Method:"GET",Path:"/records/{id}",ID:true,Success:[]int{200}}}}}
 `
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo " + requirement.MinimumGoVersion() + "\n"), "app/app.go": []byte(factory)} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo " + requirement.MinimumGoVersion() + "\n\nrequire github.com/coreos/go-oidc/v3 " + wiring.GoModRequires["github.com/coreos/go-oidc/v3"] + "\n"), "app/app.go": []byte(factory)} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"runtime_test.go", "output_test.go"} {
+	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
@@ -50,7 +50,13 @@ func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CL
 			t.Fatal(err)
 		}
 	}
-	command := exec.Command("go", "test", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./...")
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = project
+	tidy.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("CLI dependencies: %v\n%s", err, output)
+	}
+	command := exec.Command("go", "test", "-race", "-count=1", "-mod=readonly", "-timeout=60s", "./...")
 	command.Dir = project
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {

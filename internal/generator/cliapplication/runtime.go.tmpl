@@ -23,7 +23,7 @@ import (
 type Field struct {Flag,Key,Type string;Required,Nullable bool}
 type PathParameter struct {Flag,Key string}
 type Command struct {Name []string;Method,Path string;ID,Query,Confirm,Sensitive bool;PathParameters []PathParameter;Fields []Field;Success []int}
-type Application struct {ConfigEnv,ConfigName string;Commands []Command}
+type Application struct {ConfigEnv,ConfigName,OIDCClientID string;Commands []Command}
 var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
 var pathPart=regexp.MustCompile(`^[a-zA-Z0-9._~!$&'()*+,;=:@-]+$`)
 var property=regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
@@ -32,6 +32,7 @@ var identifier=regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,255}$`)
 var errArguments=errors.New("invalid command arguments; use --help")
 
 func validate(app Application)error{
+ if app.OIDCClientID!=""&&!safeClientID(app.OIDCClientID){return errors.New("invalid OIDC client ID")}
  if !envName.MatchString(app.ConfigEnv)||!word.MatchString(app.ConfigName)||len(app.Commands)==0||len(app.Commands)>128{return errors.New("invalid CLI definition")}
  seen:=map[string]bool{}
  for _,c:=range app.Commands{
@@ -64,10 +65,10 @@ func validate(app Application)error{
  return nil
 }
 
-func reservedFlag(flag string)bool{return flag=="body"||flag=="yes"||flag=="help"||flag=="output-file"}
+func reservedFlag(flag string)bool{return flag=="body"||flag=="yes"||flag=="help"||flag=="output-file"||flag=="no-browser"}
 
 // Run performs one command. Cancellation bounds network work. Configuration
-// stores a token-file reference; each process reads the current private file.
+// stores a token-file reference or a private OIDC session.
 func Run(ctx context.Context,app Application,args []string,output io.Writer)error{
  if ctx==nil||output==nil{return errors.New("CLI context and output are required")}
  if err:=ctx.Err();err!=nil{return err}
@@ -75,12 +76,12 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  if len(args)>256{return errArguments};size:=0
  for _,arg:=range args{size+=len(arg);if len(arg)>4096||size>65536||!utf8.ValidString(arg)||strings.ContainsRune(arg,0){return errArguments}}
  if len(args)==0||(len(args)==1&&(args[0]=="--help"||args[0]=="help")){
-  names:=[]string{"login --url URL --token-file FILE [--ca-file FILE]","logout"}
+  names:=[]string{"login --url URL --token-file FILE [--ca-file FILE]","login --url URL --issuer-url URL [--client-id ID] [--no-browser] [--ca-file FILE] [--issuer-ca-file FILE]","logout"}
   for _,c:=range app.Commands{names=append(names,strings.Join(c.Name," "))};sort.Strings(names)
   _,err:=fmt.Fprintln(output,strings.Join(names,"\n"));return err
  }
- if args[0]=="login"{return login(app,args[1:],output)}
- if args[0]=="logout"{if len(args)!=1{return errArguments};return logout(app)}
+ if args[0]=="login"{return login(ctx,app,args[1:],output)}
+ if args[0]=="logout"{if len(args)!=1{return errArguments};return logout(ctx,app)}
  var selected *Command
  for i:=range app.Commands{c:=&app.Commands[i];if len(args)<len(c.Name){continue};match:=true;for j,name:=range c.Name{if args[j]!=name{match=false;break}};if match{selected=c;break}}
  if selected==nil{return errArguments};c:=*selected;arguments:=args[len(c.Name):]
@@ -120,12 +121,11 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
   if len(query)>0{route+="?"+query.Encode()}
  }else if len(body)>0||c.Method=="POST"||c.Method=="PUT"||c.Method=="PATCH"{payload,err=json.Marshal(body);if err!=nil{return errors.New("cannot encode request")}}
  if len(payload)>65536{return errors.New("request body exceeds CLI limit")}
- cfg,err:=load(app);if err!=nil{return err}
+ destination,err:=reserveOutput(outputFile,output);if err!=nil{return err};defer destination.close()
+ cfg,token,err:=requestCredentials(ctx,app);if err!=nil{return err}
  transport,err:=client.New(client.Options{BaseURL:cfg.URL,CAFile:cfg.CAFile,Timeout:15*time.Second});if err!=nil{return err};defer transport.Close()
- token,err:=readToken(cfg.TokenFile);if err!=nil{return err}
  headers:=http.Header{"Authorization":{"Bearer "+token},"Accept":{"application/json"}}
  if payload!=nil{headers.Set("Content-Type","application/json")}
- destination,err:=reserveOutput(outputFile,output);if err!=nil{return err};defer destination.close()
  response,err:=transport.Do(ctx,c.Method,route,headers,payload);if err!=nil{return err}
  success:=false;for _,code:=range c.Success{if response.StatusCode==code{success=true}}
  if !success{return fmt.Errorf("API request failed (HTTP %d)",response.StatusCode)}
@@ -143,7 +143,7 @@ func parse(args []string,confirm bool)(map[string]string,[]string,error){
   if !strings.HasPrefix(arg,"--"){positions=append(positions,arg);continue}
   key,value,has:=strings.Cut(strings.TrimPrefix(arg,"--"),"=")
   if key==""{return nil,nil,errArguments};if _,ok:=values[key];ok{return nil,nil,errArguments}
-  if key=="yes"&&confirm{if !has{value="true"};if value!="true"&&value!="false"{return nil,nil,errArguments}}else if !has{if i+1==len(args){return nil,nil,errArguments};i++;value=args[i]}
+  if key=="no-browser"||(key=="yes"&&confirm){if !has{value="true"};if value!="true"&&value!="false"{return nil,nil,errArguments}}else if !has{if i+1==len(args){return nil,nil,errArguments};i++;value=args[i]}
   values[key]=value
  }
  return values,positions,nil

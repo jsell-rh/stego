@@ -38,7 +38,9 @@ The [CLI component](registry/components/cli-application/README.md) generates a
 separate executable, command parsing, private configuration, and an HTTPS
 client. Application code declares command names, paths, and fields. Common
 code validates those declarations, binds path parameters, and reserves private
-output files before credential requests. The component tests use a Record
+output files before credential requests. It also supplies OIDC browser and
+device login, signed ID-token checks, and stored-session refresh. The component
+tests use a Record
 application. Hypershell tests exercise actual Gateway and service-account
 workflows through the generated runtime.
 

@@ -1,0 +1,59 @@
+package command
+
+import (
+ "context"
+ "errors"
+ "os"
+ "syscall"
+ "time"
+)
+
+// Keep the lock file. Removing it can create two independent process locks.
+func configGuard(ctx context.Context,app Application,create bool)(*os.Root,string,func(),error){
+ root,name,err:=configRoot(app,create);if err!=nil{return nil,"",nil,err}
+ file,err:=root.OpenFile(name+".lock",os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK,0600)
+ if err!=nil{root.Close();return nil,"",nil,errors.New("cannot open configuration lock")}
+ fail:=func(){file.Close();root.Close()}
+ info,err:=file.Stat();if err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{fail();return nil,"",nil,errors.New("invalid configuration lock")}
+ wait,cancel:=context.WithTimeout(ctx,15*time.Second);defer cancel()
+ for {
+  err=syscall.Flock(int(file.Fd()),syscall.LOCK_EX|syscall.LOCK_NB)
+  if err==nil{break}
+  if !errors.Is(err,syscall.EAGAIN)&&!errors.Is(err,syscall.EWOULDBLOCK){fail();return nil,"",nil,errors.New("cannot lock configuration")}
+  if waitContext(wait,50*time.Millisecond)!=nil{fail();return nil,"",nil,errors.New("configuration is busy or command was canceled")}
+ }
+ if info,err:=root.Lstat(name);err==nil{if !info.Mode().IsRegular()||info.Mode().Perm()&0077!=0{fail();return nil,"",nil,errors.New("invalid existing configuration file")}}else if !os.IsNotExist(err){fail();return nil,"",nil,errors.New("cannot inspect configuration file")}
+ return root,name,func(){syscall.Flock(int(file.Fd()),syscall.LOCK_UN);fail()},nil
+}
+
+func requestCredentials(ctx context.Context,app Application)(configuration,string,error){
+ root,name,release,err:=configGuard(ctx,app,false);if err!=nil{return configuration{},"",err};defer release()
+ cfg,err:=loadConfiguration(root,name);if err!=nil{return cfg,"",err}
+ if cfg.OAuth==nil{token,err:=readToken(cfg.TokenFile);return cfg,token,err}
+ session:=cfg.OAuth
+ if session.RefreshPending{return cfg,"",errors.New("previous token refresh is uncertain; log in again")}
+ if time.Now().Before(session.RefreshAt){return cfg,session.AccessToken,nil}
+ if session.RefreshToken==""{return cfg,"",errors.New("session expired; log in again")}
+ ctx,cancel:=context.WithTimeout(ctx,30*time.Second);defer cancel()
+ provider,err:=discover(ctx,*session);if err!=nil{return cfg,"",err};defer provider.close()
+ // A rotated token cannot be safely retried after a lost response or save.
+ // Save the pending state before the remote operation, while holding the lock.
+ session.RefreshPending=true
+ if err:=saveConfiguration(root,name,cfg);err!=nil{return cfg,"",err}
+ value,err:=provider.tokens(ctx,map[string][]string{"grant_type":{"refresh_token"},"client_id":{session.ClientID},"refresh_token":{session.RefreshToken}})
+ if err!=nil{return cfg,"",err}
+ updated,err:=provider.accept(ctx,value,"",session);if err!=nil{return cfg,"",err}
+ cfg.OAuth=updated
+ if err:=saveConfiguration(root,name,cfg);err!=nil{return cfg,"",err}
+ return cfg,updated.AccessToken,nil
+}
+
+func revokeSession(ctx context.Context,session *oauthSession)error{
+ ctx,cancel:=context.WithTimeout(ctx,30*time.Second);defer cancel()
+ provider,err:=discover(ctx,*session);if err!=nil{return errors.New("local session removed; remote revocation failed")};defer provider.close()
+ if provider.metadata.Revoke==""{return errors.New("local session removed; provider has no revocation endpoint")}
+ token,hint:=session.RefreshToken,"refresh_token";if token==""{token,hint=session.AccessToken,"access_token"}
+ result,err:=provider.post(ctx,provider.metadata.Revoke,map[string][]string{"client_id":{session.ClientID},"token":{token},"token_type_hint":{hint}})
+ if err!=nil||(result.StatusCode!=200&&result.StatusCode!=204){return errors.New("local session removed; remote revocation failed")}
+ return nil
+}

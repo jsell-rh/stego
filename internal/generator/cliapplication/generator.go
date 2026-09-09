@@ -22,10 +22,19 @@ var configSource string
 //go:embed output.go.tmpl
 var outputSource string
 
+//go:embed oauth.go.tmpl
+var oauthSource string
+
+//go:embed browser.go.tmpl
+var browserSource string
+
+//go:embed session.go.tmpl
+var sessionSource string
+
 type Generator struct{}
 
-// MinimumGoVersion covers the os.Root file operations in generated code.
-func (*Generator) MinimumGoVersion() string { return "1.25" }
+// MinimumGoVersion covers file operations and the OIDC dependency.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil || ctx.ModuleName == "" || ctx.OutDirName == "" {
@@ -52,7 +61,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err
@@ -75,5 +84,5 @@ func main(){
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{}, nil
+	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}, nil
 }

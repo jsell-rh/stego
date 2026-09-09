@@ -3,8 +3,8 @@ and the common HTTPS client. Run or build `<out>/<namespace>/cmd`. The applicati
 factory returns `command.Application` with command names, paths, methods,
 request fields, and expected status codes. It supplies no networking code.
 
-The target must be Go 1.25 or later. Validation, plan, and apply reject an older
-target before generation. This requirement covers the `os.Root` file operations.
+The target must be Go 1.25.0 or later. Validation, plan, and apply reject an older
+target before generation. This requirement covers file operations and the OIDC dependency.
 
 Set `factory_package` to a module-relative Go package outside generated output.
 The package must export `Commands() command.Application`. The compiler validates
@@ -15,8 +15,8 @@ names have one through four words. The limit is 128 commands and 64 fields per
 command. Up to eight named path parameters can bind required flags to whole
 route segments. They stay outside request bodies and query strings. Hypershell names and rules do not occur in this component.
 
-Common commands are `login --url URL --token-file FILE [--ca-file FILE]` and
-`logout`. Login stores absolute file references in a private JSON configuration;
+Common commands include `login --url URL --token-file FILE [--ca-file FILE]`
+and `logout`. Login stores absolute file references in a private JSON configuration;
 it does not copy the token or claim to have verified it with the API. A command
 reads the current token file before its request. Logout removes configuration
 and retains the externally owned token file. The factory selects the environment
@@ -59,12 +59,62 @@ choice does not change uncertain mutation results: check resource state before
 a retry. A process crash can leave an empty or partial private file. The CLI
 cannot recover a secret that the server returned only once.
 
+OIDC login uses `login --url URL --issuer-url URL [--client-id ID]`.
+The factory can set `OIDCClientID` as the default public client ID. Add
+`--issuer-ca-file FILE` for an explicit provider CA. The API and provider have
+separate CA settings. Browser login uses an external browser, S256 PKCE, a
+random state and nonce, and an HTTP callback on `127.0.0.1` at a random port.
+Register the `/callback` path with the provider and permit random loopback
+ports. The provider must advertise S256 support. The CLI prints the URL and
+tries `xdg-open`; the user can open the URL if that program is absent.
+
+Use `--no-browser` for device login. The provider must support device
+authorization. The CLI also sends PKCE proof for device grants when discovery
+advertises S256. The CLI prints a verification URL and user code. It follows the
+provider polling interval and adds five seconds after each `slow_down` result.
+Login has a five-minute limit. Individual remote calls have a 15-second limit.
+Transport errors stop login. The CLI requests only the `openid` scope. Password grants and client secrets
+are not used.
+
+Discovery and credential endpoints require HTTPS. Discovery can name separate
+HTTPS origins, with a limit of eight origins. The supplied issuer is the trust
+source for these endpoints. OIDC documents and token responses have a 64 KiB
+limit. The generated runtime uses `coreos/go-oidc/v3` for signature verification.
+It requires the exact issuer, one matching audience, a valid expiry and issue
+time, and RS256, ES256, or PS256 signatures. It also checks the authorized party,
+browser nonce, and access-token hash when present. This is a restricted OIDC
+profile; providers that use other signing algorithms or multiple audiences
+need a separate contract change and tests.
+
+OIDC configuration stores access and refresh tokens in the private file.
+Commands refresh near expiry. A persistent private lock file prevents concurrent
+CLI processes from using the same refresh token. Lock acquisition has a
+15-second limit. Before the token request, the CLI saves a pending state. It
+saves the new session before an API request can use the token. A lost response or a failure before replacement leaves a pending state and
+requires a new login. If the final directory sync fails, a later read can find
+the complete replacement. After a crash, it can instead find the durable
+pending state. Neither state permits a retry with the old refresh token. Refresh cannot change the subject, nonce, or
+original authentication time. Logout attempts provider token revocation and
+then removes local configuration, even if revocation fails. A revocation error
+is reported. Provider browser cookies and other applications are outside this
+logout operation. The lock file remains in place.
+
 Commands marked for confirmation require `--yes`. Interactive prompts,
-stdin bodies, browser and device login, token refresh, and automatic SDK
-generation are not supplied by this version. Current file operations target Linux; other platforms need build
-and file-semantics checks before support can be claimed.
+stdin bodies, legacy configuration migration, and automatic SDK generation
+are not supplied by this version. Current file operations target Linux; other
+platforms need build and file-semantics checks before support can be claimed.
 
 Generated tests use a Record application. They check request types, validation,
 private files, token rotation, redirects, malformed responses, no response-status
 retry, exact number output, and definition limits. The existing HTTP tests cover
 transport failure, request completion, cancellation, and bounded timeouts.
+
+Generated OIDC tests use a TLS provider with application-neutral endpoints.
+They check signed claims, PKCE, wrong and repeated callbacks, device polling,
+concurrent refresh across processes, changed identity, failed session saves,
+and revocation. The protocol contracts use [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html),
+[native application OAuth](https://www.rfc-editor.org/rfc/rfc8252), and
+[device authorization](https://www.rfc-editor.org/rfc/rfc8628).
+
+The device PKCE extension is tested with [Keycloak](https://github.com/keycloak/keycloak/issues/9710).
+The standard device flow is also tested without a PKCE advertisement.

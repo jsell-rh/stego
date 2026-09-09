@@ -1812,3 +1812,27 @@ factories and the generated CLI. Browser and device login, token refresh,
 remaining commands and reference CLI options, other clients, and production
 checks remain open. This turn made progress. The full enterprise goal remains
 active.
+
+The previous turn made progress. Hosted variant run `34374674543` passed all
+four jobs at `2e7e02c`. Compiler run `34374770068` passed at `82527b0`.
+
+The next client workflow uses a real OIDC provider. STEGO now generates browser
+and device login, discovery, PKCE, signed ID-token checks, private stored
+sessions, process locking, refresh, and token revocation. Hypershell supplies
+its default public client ID and domain command definitions. The common
+runtime contains no Hypershell names or provider endpoint paths.
+
+The live workflow exposed two missing details. The CLI must request only the
+`openid` scope; it does not need email or profile data. It must also support
+device PKCE when the provider advertises S256. Generated tests check both
+device modes, claim validation, callbacks, polling, concurrent refresh,
+cancellation, failed saves, and local logout after provider failure. Output
+reservation precedes refresh and API requests. A durable pending record prevents
+reuse of an old refresh token after an uncertain exchange.
+
+The full compiler race suite passed with PostgreSQL required. Static checks
+passed. The final focused generated CLI race tests passed in 10.371 seconds.
+The generated CLI dependency scan found no known vulnerabilities. The real
+provider workflow has passed browser login, Gateway creation, API restart, and
+concurrent refresh. Its final device and logout checks are still in progress.
+The complete client port and enterprise goal remain active.

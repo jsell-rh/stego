@@ -1,0 +1,67 @@
+package command
+
+import (
+ "context"
+ "crypto/rand"
+ "crypto/sha256"
+ "crypto/subtle"
+ "encoding/base64"
+ "errors"
+ "fmt"
+ "io"
+ "log"
+ "net"
+ "net/http"
+ "net/url"
+ "os/exec"
+ "sync"
+ "time"
+)
+
+func randomToken()string{var value [32]byte;_,_=rand.Read(value[:]);return base64.RawURLEncoding.EncodeToString(value[:])}
+func openBrowser(ctx context.Context,address string){
+ ctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
+ // The URL is a direct argument. No shell interprets its contents.
+ _ = exec.CommandContext(ctx,"xdg-open",address).Run()
+}
+type callbackResult struct {code string; denied bool}
+func(p *oauthProvider)browser(ctx context.Context,output io.Writer,open func(context.Context,string))(*oauthSession,error){
+ supported:=false;for _,method:=range p.metadata.PKCE{if method=="S256"{supported=true}}
+ if !supported{return nil,errors.New("OIDC provider must advertise S256 PKCE")}
+ verifier,state,nonce:=randomToken(),randomToken(),randomToken()
+ digest:=sha256.Sum256([]byte(verifier));challenge:=base64.RawURLEncoding.EncodeToString(digest[:])
+ listener,err:=net.Listen("tcp4","127.0.0.1:0");if err!=nil{return nil,errors.New("cannot open login callback listener")}
+ callback:="http://"+listener.Addr().String()+"/callback"
+ result:=make(chan callbackResult,1)
+ var once sync.Once
+ handler:=http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+  w.Header().Set("Cache-Control","no-store");w.Header().Set("Referrer-Policy","no-referrer");w.Header().Set("Content-Security-Policy","default-src 'none'")
+  if r.Method!="GET"||r.Host!=listener.Addr().String()||r.URL.Path!="/callback"||len(r.URL.RawQuery)>8192{http.Error(w,"Invalid login callback",400);return}
+  query,err:=url.ParseQuery(r.URL.RawQuery);if err!=nil{http.Error(w,"Invalid login callback",400);return}
+  for name,values:=range query{if len(values)!=1{http.Error(w,"Invalid login callback",400);return};switch name{case "code","state","iss","session_state","error","error_description","error_uri":default:http.Error(w,"Invalid login callback",400);return}}
+  if subtle.ConstantTimeCompare([]byte(query.Get("state")),[]byte(state))!=1||(query.Get("iss")!=""&&query.Get("iss")!=p.session.Issuer){http.Error(w,"Invalid login callback",400);return}
+  code,denied:=query.Get("code"),query.Get("error")!=""
+  if ((code==""&&!denied)||(code!=""&&denied))||!plainText(code,4096){http.Error(w,"Invalid login callback",400);return}
+  accepted:=false
+  once.Do(func(){result<-callbackResult{code:code,denied:denied};accepted=true})
+  if !accepted{http.Error(w,"Login callback already received",409);return}
+  _,_=io.WriteString(w,"Authorization received. Return to the CLI to check login.\n")
+ })
+ server:=&http.Server{Handler:handler,ReadHeaderTimeout:5*time.Second,ReadTimeout:5*time.Second,WriteTimeout:5*time.Second,IdleTimeout:5*time.Second,MaxHeaderBytes:8192,ErrorLog:log.New(io.Discard,"",0)}
+ done:=make(chan error,1);go func(){done<-server.Serve(listener)}()
+ defer func(){closeCtx,cancel:=context.WithTimeout(context.Background(),2*time.Second);defer cancel();if server.Shutdown(closeCtx)!=nil{server.Close()}}()
+ address,_:=url.Parse(p.metadata.Authorization);query:=address.Query()
+ for key,value:=range map[string]string{"response_type":"code","client_id":p.session.ClientID,"redirect_uri":callback,"state":state,"nonce":nonce,"scope":"openid","code_challenge":challenge,"code_challenge_method":"S256"}{query.Set(key,value)}
+ address.RawQuery=query.Encode()
+ if _,err:=fmt.Fprintf(output,"Open this URL to log in:\n%s\n",address.String());err!=nil{return nil,errors.New("cannot display login URL")}
+ open(ctx,address.String())
+ select{
+ case <-ctx.Done():return nil,errors.New("browser login ended")
+ case <-done:return nil,errors.New("login callback listener stopped")
+ case response:=<-result:
+  if response.denied{return nil,errors.New("OIDC authorization was denied")}
+  value,err:=p.tokens(ctx,url.Values{"grant_type":{"authorization_code"},"client_id":{p.session.ClientID},"code":{response.code},"redirect_uri":{callback},"code_verifier":{verifier}})
+  if err!=nil{return nil,err}
+  return p.accept(ctx,value,nonce,nil)
+ }
+}
