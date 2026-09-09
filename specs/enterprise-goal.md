@@ -718,3 +718,42 @@ The user was asked whether API and Gateway users must share one Keycloak issuer
 or use an explicit trusted identity mapping. That choice remains open. User-role
 synchronization, completed browser or device login, workload deployment, and the
 other enterprise requirements remain part of the active goal.
+
+The Gateway grant workflow exposed another missing storage rule. After an owner
+removed a viewer grant, a new grant failed because the deleted row still reserved
+its unique key. The initial application test reproduced that conflict before
+any compiler change.
+
+STEGO commit `65ba629` adds explicit `unique_when_live` keys. Normal unique keys
+keep their previous behavior. A live composite key requires the same ordered
+member list on each field. Computed fields and upsert keys cannot use this rule.
+Generated PostgreSQL indexes use the fixed `deleted_at IS NULL` predicate and
+stable names that include the entity. Independent Lease, Reservation, and Alias
+tests check new creation after deletion, retained history, concurrent duplicates,
+NULL values, and normal unique keys. Full compiler tests passed after the registry
+version expectation was updated; hosted CI also passed.
+
+Hypershell now provides REST creation, reads, and removal for Gateway grants.
+The domain code locks the Gateway while it checks ownership and changes grants.
+It refuses to remove the last owner. Grant changes and their grant and Gateway
+events commit together. Event failures roll back the operation. A deleted grant
+retains its history, and a new grant receives a new ID.
+
+The application test checks Gateway access through REST and gRPC, filtered lists,
+denied changes, duplicate grants, last-owner refusal, watch access after removal,
+and event delivery after restart. Separate tests cover concurrent owner removal,
+invalid targets, unbound user profiles, and transaction rollback. The index
+migration test reproduces the previous conflict, applies the migration twice,
+and verifies retained history and live uniqueness. No reference database changed.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required;
+the acceptance package took 252.023 seconds. A 100-cycle benchmark with 10,000
+unrelated grants measured 5.861 ms per owner-grant creation and removal cycle,
+252,203 bytes, and 3,455 allocations. This includes domain checks, PostgreSQL
+transactions, and event writes. It excludes transport, delivery, and concurrent
+load. The environment used Go 1.26.8, PostgreSQL 18.6, and an Intel Core Ultra 9
+185H. The variant records the evidence in `acceptance/gateway-grants.md`.
+
+The active goal remains open. RoleBinding list and watch APIs, complete Users and
+Roles APIs, global role synchronization, browser or device login, deployment,
+production capacity, and the other enterprise requirements remain outstanding.
