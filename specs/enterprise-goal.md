@@ -1912,3 +1912,44 @@ remain open. The complete enterprise goal remains active.
 Pinned regeneration and static checks passed. No generated source or dependency
 change was needed. The application definitions, tests, and port documentation
 are ready for remote checks. This turn made progress.
+
+The previous turn made progress. Variant run `34383391563` passed all four
+jobs at `6bcdc1400cd74331b51faa0eb5c9b4f30e7bdfd6`. Its acceptance package
+took 603.078 seconds. Compiler run `34383391678` passed at
+`d0783f38ed8d3c39eabe152d60985c5af237e0cb`. Both remote heads were verified.
+
+The next application workflow covers Gateway-network records. The reference
+has CRUD and watch contracts, but its network controller only records events.
+The port now uses STEGO-generated storage and protobuf services, with Hypershell
+field mapping and access rules. It also supplies CLI commands. The existing
+STEGO runtime required no compiler change.
+
+A design question asked whether networks should be shared platform records,
+user-owned records, or shared records that all Gateway creators can change.
+The current default uses the existing placement policy: administrators and
+configured controllers can write; Gateway creators can read. REST and gRPC use
+the same policy. The reference fallback rules differ by transport. The open
+question can change this application policy without changing STEGO.
+
+The final focused race workflow passed in 6.02 seconds. It checks REST and gRPC
+CRUD, CLI commands, response shapes, filtered lists, watch events, denied
+requests, Gateway ownership limits, validation, mutation rollback, offline event
+delivery, restart, deletion, and schema upgrade. Descriptor and CLI field checks
+passed. The full application race suite is running. Tunnel execution, the full
+CLI and client ports, and production acceptance remain open. The complete
+enterprise goal remains active.
+
+Reference inspection found a concrete CLI risk for the next workflow. The
+reference `apply` command declares `--dry-run`, but does not read that flag before
+it writes resources. It also continues after resource errors and returns success.
+The STEGO port must implement a real dry run, validate inputs, and report failed
+application with a nonzero exit status. These checks belong in an executable
+apply workflow. No reference source was changed.
+
+Pinned regeneration and static checks passed. The full local race suite found
+one stale role-discovery expectation after 465.807 seconds. It omitted the new
+network permissions. The role seed and expected permission map now include those
+permissions. The affected role, migration, and network checks passed in 11.590
+seconds; the network workflow took 5.61 seconds. CI will run the complete suite
+on the final commit. The first full local run is not a pass. This turn made
+progress. The complete enterprise goal remains active.
