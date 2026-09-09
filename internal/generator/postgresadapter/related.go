@@ -47,6 +47,21 @@ func filterColumns(entity string) map[string]bool {
  return nil
 }
 
+func textColumns(entity string) map[string]bool {
+ switch entity {`)
+	for _, entity := range entities {
+		fmt.Fprintf(buf, "case %q: return map[string]bool{", entity.Name)
+		for _, field := range entity.Fields {
+			if field.Type == types.FieldTypeString {
+				fmt.Fprintf(buf, "%q:true,", field.Name)
+			}
+		}
+		fmt.Fprintln(buf, "}")
+	}
+	fmt.Fprintln(buf, `}
+ return nil
+}
+
 func (s *Store) relatedExpression(ctx context.Context, target string, filter stegostorage.RelatedFilter) (clause.Expression, error) {
  if len(filter.Values) > 16 { return nil, fmt.Errorf("too many related filter fields") }
  local := filter.LocalField
@@ -99,9 +114,25 @@ func (s *Store) rowExpression(ctx context.Context, entity string, filter stegost
  modes := 0
  if filter.Field != "" { modes++ }
  if filter.Related != nil { modes++ }
+ if filter.Text != nil { modes++ }
  if filter.All != nil { modes++ }
  if filter.Any != nil { modes++ }
  if modes != 1 || (filter.Field == "" && filter.Values != nil) { return nil, fmt.Errorf("row filter requires one condition") }
+ if filter.Text != nil {
+  text := filter.Text
+  if len(text.Fields)<1 || len(text.Fields)>8 || len(text.Value)<1 || len(text.Value)>4096 || !utf8.ValidString(text.Value) || strings.ContainsRune(text.Value,0) { return nil, fmt.Errorf("invalid text match") }
+  *bytes += len(text.Value)
+  if *bytes > 65536 { return nil, fmt.Errorf("row filter exceeds value size limit") }
+  columns, seen := textColumns(entity), map[string]bool{}
+  pattern := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(text.Value) + "%"
+  expressions := make([]clause.Expression,0,len(text.Fields))
+  for _, field := range text.Fields {
+   if !columns[field] || seen[field] { return nil, fmt.Errorf("invalid text match field") }
+   seen[field] = true
+   expressions = append(expressions,clause.Expr{SQL:"? ILIKE ? ESCAPE '!'",Vars:[]any{clause.Column{Name:field},pattern}})
+  }
+  return clause.Or(expressions...),nil
+ }
  values := filter.Values
  if filter.Related != nil {
   for _, group := range filter.Related.Values {

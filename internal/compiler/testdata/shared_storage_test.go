@@ -491,3 +491,85 @@ func TestRowFilterUnionAndDeclaredReferencePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestLiteralTextMatchPreservesScopeAndPaging(t *testing.T) {
+	storage, _ := testStore(t)
+	ctx := context.Background()
+	for _, row := range []map[string]any{
+		{"id": "one", "tenant": "owner", "name": `Build%_!\Night`},
+		{"id": "two", "tenant": "owner", "name": "Build plain"},
+		{"id": "three", "tenant": "other", "name": `Build%_!\Night`},
+		{"id": "four", "tenant": "owner", "name": "' OR true --"},
+	} {
+		if err := storage.Create(ctx, "Lease", row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := contract.ListOptions{Page: 1, Size: 1, OrderBy: []contract.OrderByField{{Field: "id", Direction: "asc"}}, ImplicitFilters: map[string]string{"tenant": "owner"}}
+	match := func(value string, page int, total int64, want string) {
+		t.Helper()
+		opts.Page = page
+		opts.Filter = &contract.RowFilter{Text: &contract.TextMatch{Fields: []string{"name", "tenant"}, Value: value}}
+		result, err := storage.List(ctx, "Lease", "", "", opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Items.([]store.Lease)
+		if result.Total != total {
+			t.Fatalf("text total: %+v", result)
+		}
+		if want == "" {
+			if len(rows) != 0 {
+				t.Fatalf("unexpected text match: %+v", rows)
+			}
+		} else if len(rows) != 1 || rows[0].ID != want {
+			t.Fatalf("text page: %+v", rows)
+		}
+	}
+	match("BUILD", 1, 2, "one")
+	match("BUILD", 2, 2, "two")
+	match("BUILD", 3, 2, "")
+	match(`%_!\nIgHt`, 1, 1, "one")
+	match("' OR true --", 1, 1, "four")
+	match("other", 1, 0, "")
+	match(strings.Repeat("x", 4096), 1, 0, "")
+	opts.CountOnly = true
+	match("BUILD", 1, 2, "")
+	opts.CountOnly = false
+	if err := storage.Delete(ctx, "Lease", "one"); err != nil {
+		t.Fatal(err)
+	}
+	match("BUILD", 1, 1, "two")
+	// A nullable string must not match a nonempty value.
+	if err := storage.Create(ctx, "Alias", map[string]any{"id": "null"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := storage.List(ctx, "Alias", "", "", contract.ListOptions{Page: 1, Size: 10, Filter: &contract.RowFilter{Text: &contract.TextMatch{Fields: []string{"name"}, Value: "null"}}})
+	if err != nil || result.Total != 0 {
+		t.Fatalf("NULL text match: %+v %v", result, err)
+	}
+	invalid := []contract.RowFilter{
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: ""}},
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: string([]byte{255})}},
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: "\x00"}},
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: strings.Repeat("x", 4097)}},
+		{Text: &contract.TextMatch{Value: "x"}},
+		{Text: &contract.TextMatch{Fields: []string{"name", "name"}, Value: "x"}},
+		{Text: &contract.TextMatch{Fields: []string{"id"}, Value: "x"}},
+		{Text: &contract.TextMatch{Fields: []string{"serial"}, Value: "1"}},
+		{Text: &contract.TextMatch{Fields: []string{"name OR true --"}, Value: "x"}},
+		{Text: &contract.TextMatch{Fields: make([]string, 9), Value: "x"}},
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: "x"}, Field: "name"},
+		{Text: &contract.TextMatch{Fields: []string{"name"}, Value: "x"}, Values: []string{"unused"}},
+	}
+	group := contract.RowFilter{All: make([]contract.RowFilter, 17)}
+	for i := range group.All {
+		group.All[i] = contract.RowFilter{Text: &contract.TextMatch{Fields: []string{"name"}, Value: strings.Repeat("x", 4096)}}
+	}
+	invalid = append(invalid, group)
+	for _, filter := range invalid {
+		if _, err := storage.List(ctx, "Record", "", "", contract.ListOptions{Page: 1, Size: 1, Filter: &filter}); err == nil {
+			t.Fatal("invalid text match accepted")
+		}
+	}
+}

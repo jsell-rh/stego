@@ -56,12 +56,22 @@ type RelatedFilter struct {
 	Values       map[string][]string
 }
 
-// RowFilter supplies one condition: Field with Values, Related, All, or Any.
+// TextMatch finds a literal substring in any selected string field. PostgreSQL
+// determines case folding from the database collation. Wildcards have no special
+// meaning. Fields must be unique declared string fields (1 through 8). Value
+// must be valid UTF-8, contain no NUL, and have 1 through 4096 bytes.
+type TextMatch struct {
+	Fields []string
+	Value  string
+}
+
+// RowFilter supplies one condition: Field with Values, Related, Text, All, or Any.
 // All and Any must contain at least one condition. Empty Values match no rows.
 // A nil ListOptions.Filter adds no condition; an empty RowFilter is invalid.
 // Filters apply before counting and paging, in addition to search and scopes.
 // The adapter limits depth to 8 and nodes to 64. Values never contain SQL.
 type RowFilter struct {
+	Text    *TextMatch
 	Field   string
 	Values  []string
 	Related *RelatedFilter

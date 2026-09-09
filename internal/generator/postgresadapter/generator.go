@@ -546,6 +546,9 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
 	fmt.Fprintf(&buf, "\t\"sync\"\n")
+	if ctx.StorageContract != "" {
+		fmt.Fprintf(&buf, "\t\"unicode/utf8\"\n")
+	}
 	fmt.Fprintf(&buf, "\n")
 	if apiPkg != "" {
 		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)

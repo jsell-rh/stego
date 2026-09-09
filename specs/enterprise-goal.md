@@ -1655,3 +1655,25 @@ that Gateway deletion removed all three automation clients before workload
 teardown. The full acceptance package passed in 505.083 seconds, including
 regeneration. Compiler journal run `34364188267` also passed. Both repositories
 match remote main. The full enterprise goal remains active.
+
+The previous turn made progress. Compiler journal run `34365395664` passed.
+The next workflow starts from the reference CLI account list. That command
+always sends `sort` and `order`. The variant accepted only `page` and `size`,
+so the normal client request returned HTTP 400. A new generated-process test
+reproduced that failure in 3.37 seconds.
+
+STEGO now supplies a bounded literal text match in the shared storage contract.
+The adapter accepts declared string fields, quotes columns, and binds values.
+SQL-like text and wildcard characters remain literal. Scopes and access rules
+apply before counts and paging. Independent generated tests cover these rules,
+NULL values, invalid types, duplicate fields, and input and structure limits.
+The full compiler race suite passed with PostgreSQL required.
+
+Hypershell now selects its account search fields and supplies status and sort
+rules. The reference CLI at `14256be29bcfe4fff38bcaf4a41511cb394ea8e1` passed the
+new discovery test against the generated API. It covered all five sort fields,
+filtered totals, owner and viewer access, revocation, deletion, and restart.
+The test took 5.782 seconds. The reference CLI is a compatibility probe; the
+complete STEGO client port remains open. History measurements and the full
+variant checks are the next verification steps. The full enterprise goal remains
+active.
