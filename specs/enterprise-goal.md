@@ -1159,3 +1159,130 @@ Local Kubernetes test tools are available: kind 0.31.0 and kubectl 1.35.7. The
 reference control-plane module pins Kubernetes libraries at 0.36.3. The next
 application gate can use an isolated kind cluster to prove actual database
 provisioning and cleanup after disconnected deletion and controller restart.
+
+The next increment connects Gateway creation to an actual PostgreSQL workload.
+STEGO compiler commit `8b3da389821bdcb2d10e48319f50daadc9c2484b` adds
+`ListOptions.OnlyDeleted` and postgres-adapter 3.4.0. It selects deleted root rows
+before counts and pages. Related access rows must remain live. The independent
+Record test covers page boundaries, counts, live-row exclusion, combined filters,
+and precedence over IncludeDeleted. The first local full run found a registry
+version expectation that still named 3.3.0. The corrected registry test passed.
+Hosted compiler run `34312268198` passed on the committed change.
+
+The variant adds the reference database tombstone capability and dedicated
+historical replay. It limits replay to configured controller subjects, pages by
+canonical ID, and rejects invalid modes. A generated gRPC test crosses a replay
+page, excludes live records, and denies ordinary users, creators, and admins.
+The database controller starts and drains a live watch before replay and live
+list scans. Failed cleanup remains in stored replay data. Generated clients
+supply bounded TLS transport, credential file reads, request limits, and stream
+limits. The Kubernetes objects and Hypershell ownership rules are domain code.
+
+The controller provisions a namespace, Certificate, Secrets, ConfigMap, PVC,
+Service, and Deployment in one configured Kubernetes cluster. Namespace and
+resource ownership checks prevent adoption of foreign resources. Namespace
+DELETE includes the observed UID and resource version. Missing namespaces are
+already cleaned up; denied or conflicting requests must be retried. Credentials
+are preserved. Missing credentials for an existing volume produce an error.
+A stale create notice must fetch current API state before it can create anything.
+
+The database image is PostgreSQL 18.6 Alpine, pinned by digest. The Pod runs as
+UID/GID 70 under the restricted Pod security policy. It has a read-only root
+filesystem, no added capabilities, no privilege escalation, no service-account
+token, seccomp, and explicit CPU and memory limits. Database connections require
+TLS 1.3, a verified certificate, and SCRAM credentials. The application account
+owns its database but has no superuser, role creation, database creation,
+replication, or row policy bypass privileges. Bootstrap credentials are separate
+and must not be copied to Gateway workloads. Readiness performs a verified SQL
+query; failed reconciliation clears a stored ready state through the API.
+
+The TLS issuer choice was sent to the user for review. The current assumption
+uses a configured cert-manager ClusterIssuer. The user has not confirmed that
+choice. Certificate issuance is covered by the cluster test. Scheduled renewal,
+CA rotation, network policy enforcement, backups, restore, OpenShift UID handling,
+CNPG provisioning, multiple controller coordination, and production capacity
+remain open. Large-history replay also needs a completion test against the
+five-minute generated stream limit. These limits prevent a production-readiness
+claim.
+
+The application test creates a Gateway through REST and obtains database
+readiness through generated gRPC. It writes data through the database Service
+with TLS and hostname verification, rejects an unencrypted connection, checks
+the limited application role, and preserves data and credentials after restart.
+It rejects adoption and deletion of a foreign namespace. It then deletes the
+Gateway and database while the controller is stopped, restarts the API, forces
+a Kubernetes delete denial, restores access, and requires successful cleanup.
+This is actual workload and recovery evidence, not only a contract check.
+
+The local Kubernetes environment uses kind 0.33.0, Kubernetes 1.35.8, and
+cert-manager 1.21.1. Tool downloads, the cert-manager manifest, and runtime images
+are pinned. The isolated-cluster script creates and removes its own cluster.
+The first complete workload test passed in 59.66 seconds. After separation of
+the database accounts and the forced delete denial, it passed in 60.20 seconds.
+Five stable reconciliations took 75.7 ms and left the Deployment unchanged. A
+second run through the new cluster setup script passed the workload in 70.93
+seconds and replay in 3.47 seconds. That run took 75.443 seconds for the acceptance
+package. These measurements do not establish production latency or capacity.
+
+The next application gate is an actual Gateway workload that uses this database
+and the existing identity configuration. It must prove startup, authenticated
+use, stored application data, and recovery. Let failures in that workflow select
+further reusable compiler and runtime work. The enterprise goal remains active.
+
+The focused workflow with verified SQL readiness passed in 60.02 seconds; the
+acceptance package took 61.073 seconds. The controller failure tests cover namespace
+identity conflicts, denied deletion, absent namespaces, foreign ownership,
+missing volume credentials, token file rotation and permissions, unsupported
+watch capabilities, stale create events, and failed status updates. The controller
+race tests and `go vet` passed. The prior variant run `34312014752` on commit
+`4fabc6c` also completed successfully.
+
+The pre-publication dependency scan found reachable
+[GO-2026-5970](https://pkg.go.dev/vuln/GO-2026-5970) in golang.org/x/text 0.36.0.
+Invalid UTF-8 input could cause an infinite loop in normalization. Compiler commit
+`ef842d5` adds a direct runtime minimum of 0.40.0 for the relevant dependencies.
+The variant now selects that version. The review also raised golang.org/x/net to
+0.56.0, golang.org/x/sys to 0.48.0, and filippo.io/edwards25519 to 1.1.1. Those
+updates remove the additional package and module findings from the scan.
+The updates also select golang.org/x/sync 0.22.0 through module resolution.
+
+The compiler supplies these minimums when the corresponding runtime dependencies
+are present. It preserves higher selected versions and does not add unrelated
+modules to independent services. The tests cover those rules. Both CI workflows
+now run govulncheck 1.4.0 with Go 1.26.8. The local scan of the updated variant
+reports no known vulnerabilities at symbol, package, or module level. The
+compiler scan also reports no known vulnerabilities. These results are bounded
+by the vulnerability database and static analysis; they do not prove the absence
+of unknown defects.
+
+The variant full race suite before these dependency updates passed; its acceptance
+package took 326.992 seconds. A new full race run and a new real-cluster workflow
+run check the final dependency set before publication.
+
+Compiler commit `e8374ca995c6ea3964b316250645f29bc57d7d32` supplies the remaining
+transitive dependency minimums. The full local compiler race suite passed with
+PostgreSQL required. The variant pins this compiler and regenerated with no
+changes or drift. Its real-cluster workflow with the updated dependencies passed
+in 60.65 seconds; the acceptance package took 61.696 seconds. The controller also
+rejects unsupported engine, version, region, instance class, and connection Secret
+settings before Kubernetes writes. Invalid mutable settings do not block cleanup.
+
+Hosted compiler run `34313105365` passed on the final compiler pin `e8374ca`.
+The complete Kubernetes workflow after the unsupported-setting checks passed in
+60.18 seconds; the acceptance package took 61.217 seconds. Both the script-created
+cluster and the separate development test cluster were removed after their checks.
+
+The final full variant race suite passed with PostgreSQL and Keycloak required;
+its acceptance package took 325.383 seconds. The separate real-cluster run and
+focused controller tests cover the final provisioning checks. Module verification,
+formatting, and shell syntax checks passed. This result closes the database
+workload gate. The actual Gateway workload and the complete enterprise goal
+remain open.
+
+Variant commit `c3f4618` contains the dependency updates. Commit
+`a622a177bd63b1014f68504ba422d5d84e70e336` contains the database workflow and its
+required CI job. Both are on remote main. Regeneration from the committed files
+passed with no changes or drift. Hosted variant run `34313469490` is queued;
+its final result must be checked in the next goal turn. The test bed records
+configuration, measured results, security rules, and limits in
+`acceptance/database-workflow.md`.
