@@ -37,3 +37,21 @@ The runtime does not provide distributed fencing or exactly-once effects. A
 paused baseline cannot retract an external write already in progress. The count
 is advisory and uses later repair. Domains that require stronger write ordering
 must supply version checks and test them before they use this pattern.
+
+Component version 1.4.0 adds bounded workers and `RunKeyedWatch`. A worker can
+process another key while one action waits on its provider. The queue still
+allows only one active action for each key within the runtime call. Duplicate
+events during that action request a later pass. Zero workers preserves the
+previous single-worker behavior. Explicit concurrency is limited to 64 workers
+and cannot exceed the key capacity.
+
+The watch adapter opens the subscription before discovery. Each action reads
+authoritative state. Source failure cancels and joins the old session before
+reconnect and a new scan. Terminal errors remain visible when another callback
+returns cancellation. Tests block one action, complete another key, preserve a
+dirty key, and verify shutdown before reconnect.
+
+The adapter reuses the existing bounded queue and retry policy. An overflowing
+scan restarts discovery. Progress for a backlog beyond capacity, or a queue full
+of permanently failing keys, is not established. Cross-process fencing and
+provider-side exclusion remain separate requirements.

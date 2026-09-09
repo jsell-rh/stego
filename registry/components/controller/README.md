@@ -51,7 +51,11 @@ runtime starts paused. The observer owns its transport reconnects; an observer
 error stops the controller and joins its workers.
 
 The keyed runtime owns duplicate suppression, delayed retries, wakeups, periodic
-scans, operation deadlines, and one serial writer. Capacity includes queued,
+scans, operation deadlines, and bounded workers. `Workers` defaults to one when
+zero. An explicit value must be from 1 to 64 and cannot exceed capacity. Only
+one action for each key can run at a time within a call. Other keys can run
+concurrently. Actions and the terminal-error policy must support concurrent
+calls when more than one worker is selected. Capacity includes queued,
 delayed, and active keys. Keys contain 1 to 1,024 UTF-8 bytes. A change during an
 active action schedules another pass. Repeated changes cannot bypass a failed
 key's delay. Retry delay doubles from `RetryMin` to `RetryMax`; a successful pass
@@ -69,6 +73,25 @@ sequence whose intermediate effects must all occur. A pause stops new queue
 takes. It cannot retract an external write already in progress. Use domain
 version checks or later repair for such writes. Distributed ownership and fencing
 remain open work.
+
+`RunKeyedWatch` connects the same keyed scheduler to `Source[string]` or a source
+with another string-based key type. `KeyedWatchOptions` contains `KeyedOptions`
+and `ReconnectDelay`. The runtime opens the watch before discovery or actions.
+The source supplies invalidation keys. Each action must read authoritative state;
+this adapter does not maintain a cache or wait for a cached baseline.
+
+A failed subscription cancels and joins actions and source callbacks before the
+next watch opens. Each new connection starts a retained-state scan. Action
+failures use per-key delays. Transient scan failures retry without overlapping
+another scan. Invalid keys, missing receivers, and terminal errors stop the
+controller. Queue overflow restarts the connection and discovery. Retry delays
+reset on reconnect. Lifecycle notices remain serialized.
+
+Capacity is a strict bound, including delayed and active keys. A scan that emits
+more distinct keys than the scheduler can accept can cause repeated recovery.
+This contract does not establish progress beyond that bound or across a backlog
+of permanently failing keys. Set capacity from measured workload bounds. A
+cursor-based admission and fairness contract for larger backlogs remains open.
 
 `RunSweep` owns bounded worker pools and cursor-based recovery scans. Applications
 supply named groups of streams, a page callback for each stream, and one typed

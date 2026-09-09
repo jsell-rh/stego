@@ -18,6 +18,9 @@ var source string
 //go:embed keyed.go.tmpl
 var keyedSource string
 
+//go:embed watch_keyed.go.tmpl
+var watchKeyedSource string
+
 //go:embed sweep.go.tmpl
 var sweepSource string
 
@@ -36,7 +39,7 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("controller has no component settings")
 	}
 	var files []gen.File
-	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}} {
+	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err
