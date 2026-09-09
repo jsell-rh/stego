@@ -2182,3 +2182,43 @@ request-context setup, and dispatch for 100 empty actions took 4.69–5.14
 microseconds, 3,768 bytes, and seven allocations per scan. It excludes transport,
 storage, provider calls, and payload construction. It is not production capacity
 evidence. Real Gateway identity, restart, and workload checks are running.
+
+All four jobs in variant run `34392649734` passed at
+`9254dec8910a6b6705c190ccb238b8b33f85b3b7`. The recovery sweep therefore has
+complete remote workflow evidence. Compiler `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09`
+adds the cursor scanner and passed remote run `34393311879`.
+
+A host restart stopped the first local scanner transport and workload test
+processes. The missing process handles and process list confirmed that they had
+stopped. Their incomplete logs are not counted as complete passes. The task test
+cluster was removed, PostgreSQL was restarted, and the interrupted checks were
+started again. No Playwright command was used. The user has prohibited Playwright
+because it causes a kernel panic; do not use it in later goal work.
+
+Regeneration from compiler `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09` produced
+identical controller files to the local tested build. Application static checks
+passed. The restarted transport suite passed in 38.838 seconds: real Gateway
+identity took 33.45 seconds, and 205-ID recovery with denied requests and API
+restart took 4.34 seconds. The workload controller race tests passed in 11.214
+seconds. The missed-deletion workload test passed in 55.30 seconds, including API
+restart and database removal. The complete Gateway workload test is running.
+
+The complete Gateway workload suite passed in 226.455 seconds. The full workload
+case took 170.11 seconds and verified database and OIDC setup, owner access,
+filtered workspaces, denied writes, removal of access, three service-account
+identities, controller restart, Pod and database restart, namespace replacement,
+stable keys, and offline deletion. These results use the pinned generated
+scanner. They do not establish production recovery capacity.
+
+Variant `b3809721a7b3a2a0814eda9a47a738ddaa0bc36d` commits the scanner migration
+and is on remote main. Regeneration after the commit passed. Remote run
+`34394176385` is queued for the final variant. The local workload script removed
+its test cluster, and the task PostgreSQL container was removed after tests
+stopped. This turn made progress. The full enterprise goal remains active.
+
+The next inspected common loop is database deletion replay in
+`internal/grpcapi/catalog.go` in the variant. It has a local page loop and a Go
+string-order check over rows returned in database order. Before replacing it
+with the generated scanner, add a test that uses a database collation whose
+ordering differs from Go string order. The current replay test also assumes Go
+string order; it does not prove correctness for other database collations.
