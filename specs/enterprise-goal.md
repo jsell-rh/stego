@@ -1887,3 +1887,28 @@ The compiler pin and generated source are unchanged. The CLI port table also
 records that Gateway-network application behavior is still missing. The final
 application commit and hosted checks follow. This turn made progress. The full
 Hypershell port and enterprise goal remain active.
+
+The previous turn made progress. Variant run `34381693723` passed all four
+jobs at `98328a03bedb905179c8142716bfddb1f59f3314`. Its acceptance package
+took 597.046 seconds. Compiler run `34381695228` passed at
+`4748f695368efa412d079199bacb6d2d8db29d41`. Both remote heads were verified.
+
+The next CLI workflow starts with empty placement catalogs. Hypershell now
+declares create, get, list, and delete commands for managed clusters, Gateway
+releases, and managed databases. It uses the existing STEGO runtime without a
+compiler change. The field checks now recognize pointer integer types as well
+as scalar and list types.
+
+The focused race workflow passed in 8.10 seconds. It obtains catalog IDs through
+the CLI and creates Gateways under CNPG and default deployment modes. It checks
+access rules, response shapes, zero and null values, invalid numeric values,
+server-owned namespaces, event rollback, event delivery, REST and gRPC reads,
+restart, reference protection, and deletion. The default path proves that a
+client database ID cannot override dedicated placement. Field checks passed.
+The full acceptance and workload suites will run in CI. The full CLI port,
+Gateway-network application behavior, other clients, and production acceptance
+remain open. The complete enterprise goal remains active.
+
+Pinned regeneration and static checks passed. No generated source or dependency
+change was needed. The application definitions, tests, and port documentation
+are ready for remote checks. This turn made progress.
