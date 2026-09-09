@@ -11,7 +11,8 @@ API paths, resource schemas, or provider rules.
 | Responsibility | Owner | Current evidence or remaining work |
 | --- | --- | --- |
 | Watch setup, bounded queue, serial actions, deadlines, reconnect, and worker shutdown | STEGO | Shared runtime and generated race tests; three application controllers migrated |
-| Failed-work and missed-deletion scheduling | STEGO mechanism, with an application source contract | Runtime repeats retained scans; typed replay and cursor adapters still need generation |
+| Failed-work and missed-deletion scheduling | STEGO mechanism, with an application source contract | Runtime repeats retained scans; storage and replay adapters still need generation |
+| Cursor page loops, request limits, and complete-page validation | STEGO | Generated scanner; both Gateway controllers use one domain API mapping |
 | Dirty-key scheduling, delayed retries, and duplicate suppression | STEGO | Generated keyed runtime; Pod count migration passed the local sandbox workload gate |
 | Observation baseline, reset, cache bounds, and shutdown | STEGO | Kubernetes transport emits reset and replacement events; part of cache management remains in the application |
 | Which Pods count as active and which Gateway owns them | Hypershell | Domain label, namespace, and phase rules |
@@ -26,7 +27,7 @@ Each later extraction must remove common application code and retain executable
 workflow evidence. Do not create a broad framework whose only test is a mock
 controller, or add a new copy of a mechanism in Hypershell.
 
-The current runtime preserves FIFO items. It does not combine a live record with
+The FIFO runtime preserves each item. It does not combine a live record with
 a deletion record, supply distributed exclusion, or guarantee exactly-once writes.
 Its source contract requires retained recovery data and cancellation. Its action
 contract requires safe repeated execution and authoritative access checks. These

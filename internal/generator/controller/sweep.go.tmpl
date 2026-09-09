@@ -7,13 +7,12 @@ import (
  "fmt"
  "sync"
  "time"
- "unicode/utf8"
 )
 
 var ErrSweepContract = errors.New("controller sweep contract is invalid")
 
-type SweepItem[T any] struct { Cursor string; Value T }
-type SweepPage[T any] struct { Items []SweepItem[T]; More bool }
+type SweepItem[T any] = CursorItem[T]
+type SweepPage[T any] = CursorPage[T]
 // A stream must return retained, cursor-ordered work after the supplied cursor.
 // Failed actions must remain eligible on a later cycle. Cursor progress is not
 // a durable acknowledgment. Empty pages end a cycle. The source owns cursor
@@ -98,12 +97,7 @@ func RunSweep[T any](ctx context.Context, groups []SweepGroup[T], reconcile func
  return nil
 }
 func validateSweepPage[T any](page SweepPage[T],after string,limit int)error{
- if len(page.Items)>limit||page.More&&len(page.Items)==0{return sweepError("page size or continuation is invalid")}
- seen:=make(map[string]bool,len(page.Items))
- for _,item:=range page.Items{
-  if len(item.Cursor)==0||len(item.Cursor)>1024||!utf8.ValidString(item.Cursor)||item.Cursor==after||seen[item.Cursor]{return sweepError("page cursor is invalid or duplicated")}
-  seen[item.Cursor]=true
- }
+ if err:=validateCursorPage(page,after,limit);err!=nil{return sweepError(err.Error())}
  return nil
 }
 func sweepGroup[T any](parent context.Context,group SweepGroup[T],cursors []sweepCursor,nextStream *int,reconcile func(context.Context,T)error,options SweepOptions)error{

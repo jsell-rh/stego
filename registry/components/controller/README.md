@@ -1,6 +1,6 @@
 This component generates a controller runtime without a transport dependency.
 Add `controller` to an archetype. It supplies `reconciliation-runtime` and writes
-`out/controller/runtime.go`. The component has no generation settings.
+`out/controller/*.go`. The component has no generation settings.
 
 An application supplies a typed `Source[T]`, a reconciliation function, and
 validated `Options`. The source opens and confirms a live watch, then returns a
@@ -27,7 +27,7 @@ cannot enforce these properties inside arbitrary application callbacks.
 The resync interval starts after a scan finishes. It does not impose a total
 scan deadline. A transient action failure is retried through the next scan.
 Reconnects use the configured delay. One controller process has one worker and
-a FIFO queue. This version does not coalesce events, schedule individual retries,
+a FIFO queue. `Run` does not coalesce events, schedule individual retries,
 or provide distributed leases, fencing, or durable acknowledgments. A successful
 callback is not proof of exactly-once effects. Domain actions must tolerate
 repeated execution. Run one active process for each ownership scope until a
@@ -100,3 +100,25 @@ Cursor state is local to the process. Restart begins each cycle again. A source
 must bound each item and return when its context ends. This runtime does not
 provide durable claims, distributed exclusion, exactly-once effects, or a global
 snapshot across mutable pages. It is a repair mechanism over retained state.
+
+`Scan` supplies one bounded cursor scan for a controller source. It accepts a
+typed `CursorSource`, an emitter, and `ScanOptions`. It owns page requests,
+request deadlines, complete-page validation, cancellation checks, and cursor
+progress. `CursorPage` and `CursorItem` are shared with the sweep runtime; the
+existing `SweepPage` and `SweepItem` names remain aliases.
+
+The scanner accepts 1–1,000 items per page, 1–1,000,000 pages per scan, and a
+request timeout from 1 millisecond to 1 minute. It uses the same cursor checks
+as the sweep. It never sorts opaque cursors. A source must validate its payloads
+before it returns a page. A malformed page emits no items. An error stops the
+scan and remains available to the controller's terminal-error policy. Set that
+policy to stop on `ErrScanContract` when a source contract failure requires
+operator action.
+
+Each request context ends before dispatch. The emitter must respect the parent
+context; it can apply queue backpressure without holding a request open. A scan
+retains one page and does not start helper workers. Earlier emits are not undone
+when a later page fails. A new scan starts at the first page. Repeated work must
+be safe. Retained state, payload bounds, database ordering, and access checks
+remain source obligations. This API does not supply a storage adapter, a durable
+cursor, a global snapshot, or exactly-once delivery.

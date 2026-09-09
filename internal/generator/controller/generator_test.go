@@ -19,12 +19,16 @@ var keyedTests []byte
 //go:embed testdata/sweep_test.go
 var sweepTests []byte
 
+//go:embed testdata/scan_test.go
+var scanTests []byte
+
 func TestGeneratedController(t *testing.T) {
 	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "controller"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	files = append(files, gen.File{Path: "controller/runtime_test.go", Content: runtimeTests}, gen.File{Path: "controller/keyed_test.go", Content: keyedTests}, gen.File{Path: "controller/sweep_test.go", Content: sweepTests})
+	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests})
 	project := t.TempDir()
 	for _, file := range files {
 		name := filepath.Join(project, file.Path)

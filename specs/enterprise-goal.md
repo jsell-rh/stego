@@ -2155,3 +2155,30 @@ bytes used by the workflow suite. Application static checks and regeneration
 after the commit passed. Variant run `34392649734` is running all four remote
 gates on the migration. The task PostgreSQL container was removed after tests
 stopped. This turn made progress. The full enterprise goal remains active.
+
+The previous turn was a verified wait: it polled the live variant run
+`34392649734`. Compiler run `34392732740` passed. The current turn removes
+another common mechanism from Hypershell. The Gateway recovery page loop could
+emit one valid ID before it found an invalid later ID. A strengthened application
+regression failed on the old loop with one emitted item. The generated scanner
+now checks the whole page before dispatch and sets page-count and request-time
+limits. The regression and both Gateway controller race suites passed.
+
+The `controller` component version 1.3.0 adds `Scan`, `CursorSource`, and shared
+cursor page types. The sweep names remain aliases. Both Gateway controllers use
+one domain adapter for the private recovery API and canonical, nonzero KSUIDs.
+The identity controller now scans retained IDs instead of numbered pages of full
+live Gateways. Invalid scan contracts stop the controllers. Provider discovery,
+current-state reads, access rules, and cleanup actions remain in the application.
+Storage and replay adapter generation remains open; this change does not claim
+that the remaining source code is all domain-specific.
+
+The generated scanner tests cover malformed pages before effects, opaque cursor
+order, request limits, repeated cursors, cancellation, source and emitter errors,
+and request expiry. The full compiler race suite with PostgreSQL and static
+checks passed. A local Go 1.26.8 benchmark on Linux amd64, Intel Core Ultra 9 185H,
+used three 200-millisecond samples without the race detector. Validation,
+request-context setup, and dispatch for 100 empty actions took 4.69–5.14
+microseconds, 3,768 bytes, and seven allocations per scan. It excludes transport,
+storage, provider calls, and payload construction. It is not production capacity
+evidence. Real Gateway identity, restart, and workload checks are running.
