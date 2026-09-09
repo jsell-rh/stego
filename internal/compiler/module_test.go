@@ -189,3 +189,23 @@ func TestRuntimeDependenciesRequirePatchedUnicodeNormalization(t *testing.T) {
 		t.Fatal("unrelated service acquired a runtime dependency", result, err)
 	}
 }
+
+func TestRuntimeTransitiveSecurityMinimums(t *testing.T) {
+	for _, tc := range []struct{ parent, parentVersion, path, minimum string }{
+		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/net", "v0.56.0"},
+		{"google.golang.org/grpc", "v1.82.1", "golang.org/x/sys", "v0.48.0"},
+		{"gorm.io/datatypes", "v1.2.5", "filippo.io/edwards25519", "v1.1.1"},
+		{"github.com/go-sql-driver/mysql", "v1.8.1", "filippo.io/edwards25519", "v1.1.1"},
+	} {
+		for _, selected := range []string{"v0.0.1", "v1.99.0"} {
+			want := tc.minimum
+			if selected == "v1.99.0" {
+				want = selected
+			}
+			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: map[string]string{tc.parent: tc.parentVersion, tc.path: selected}}}})
+			if err != nil || result[tc.path] != want {
+				t.Fatalf("minimum %s: %v %v", tc.path, result, err)
+			}
+		}
+	}
+}

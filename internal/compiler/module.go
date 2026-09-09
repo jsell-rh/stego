@@ -63,6 +63,20 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 			requires["golang.org/x/text"] = "v0.40.0"
 		}
 	}
+
+	// These minimums also remove known defects outside the current call graph.
+	// Keep them with the runtime requirements so new generated paths do not
+	// inherit affected transitive versions.
+	for _, minimum := range []struct{ parent, path, version string }{
+		{"google.golang.org/grpc", "golang.org/x/net", "v0.56.0"},
+		{"google.golang.org/grpc", "golang.org/x/sys", "v0.48.0"},
+		{"gorm.io/datatypes", "filippo.io/edwards25519", "v1.1.1"},
+		{"github.com/go-sql-driver/mysql", "filippo.io/edwards25519", "v1.1.1"},
+	} {
+		if requires[minimum.parent] != "" && semver.Compare(requires[minimum.path], minimum.version) < 0 {
+			requires[minimum.path] = minimum.version
+		}
+	}
 	return requires, nil
 }
 
