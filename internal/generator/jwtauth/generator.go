@@ -17,6 +17,9 @@ import (
 //go:embed middleware.go.tmpl
 var middlewareTemplate string
 
+//go:embed jwks.go.tmpl
+var jwksTemplate string
+
 // Generator produces the jwt-auth component.
 type Generator struct{}
 
@@ -71,6 +74,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("formatting authentication code: %w", err)
 	}
 	files := []gen.File{{Path: path.Join(ns, "middleware.go"), Content: source}}
+	keys, err := template.New("jwks").Parse(jwksTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	buf.Reset()
+	if err := keys.Execute(&buf, data); err != nil {
+		return nil, nil, err
+	}
+	keySource, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, gen.File{Path: path.Join(ns, "jwks.go"), Content: keySource})
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}

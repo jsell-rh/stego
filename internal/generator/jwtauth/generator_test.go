@@ -27,8 +27,8 @@ func TestGenerateDefaultHeader(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(files))
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
 	}
 
 	f := files[0]
@@ -115,8 +115,8 @@ func TestGenerateCustomHeader(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(files))
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
 	}
 
 	content := string(files[0].Content)
@@ -151,8 +151,8 @@ func TestGenerateCustomNamespace(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file, got %d", len(files))
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
 	}
 
 	if files[0].Path != "pkg/authn/middleware.go" {

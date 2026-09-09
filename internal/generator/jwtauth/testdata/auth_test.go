@@ -357,3 +357,54 @@ func TestVerifierRejectsUnpairedSurrogatesInIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestTrustedJWKSSelection(t *testing.T) {
+	key, other := keyForTest(t), keyForTest(t)
+	config := Config{Issuer: "https://issuer.example", Audience: "example-api"}
+	raw := signed(t, validClaims(), jwt.SigningMethodRS256, key, map[string]any{"kid": "active"})
+	entry := map[string]any{"kid": "active", "kty": "RSA", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": "AQAB"}
+	encode := func(keys ...map[string]any) []byte {
+		data, err := json.Marshal(map[string]any{"keys": keys})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	if id, err := VerifyWithJWKS(config, raw, encode(entry)); err != nil || id.UserID != "alice" {
+		t.Fatalf("valid key: %v", err)
+	}
+	for _, field := range []string{"kid", "kty", "alg", "use", "n", "e"} {
+		changed := map[string]any{}
+		for k, v := range entry {
+			changed[k] = v
+		}
+		changed[field] = "invalid"
+		if _, err := VerifyWithJWKS(config, raw, encode(changed)); err == nil {
+			t.Fatalf("accepted invalid %s", field)
+		}
+	}
+	for _, doc := range [][]byte{encode(entry, entry), []byte(`{"keys":[],"keys":[]}`), []byte(`{"keys":null}`), []byte(strings.Repeat(" ", 65537))} {
+		if _, err := VerifyWithJWKS(config, raw, doc); err == nil {
+			t.Fatal("accepted invalid key document")
+		}
+	}
+	forged := signed(t, validClaims(), jwt.SigningMethodRS256, other, map[string]any{"kid": "active"})
+	if _, err := VerifyWithJWKS(config, forged, encode(entry)); err == nil {
+		t.Fatal("accepted forged signature")
+	}
+	entry["key_ops"] = []string{"sign"}
+	if _, err := VerifyWithJWKS(config, raw, encode(entry)); err == nil {
+		t.Fatal("accepted signing-only key")
+	}
+	delete(entry, "key_ops")
+	old := signed(t, validClaims(), jwt.SigningMethodRS256, key, map[string]any{"kid": "removed"})
+	if _, err := VerifyWithJWKS(config, old, encode(entry)); err == nil {
+		t.Fatal("fell back to an unrelated key")
+	}
+	entry["kid"] = "rotated"
+	entry["n"] = base64.RawURLEncoding.EncodeToString(other.N.Bytes())
+	next := signed(t, validClaims(), jwt.SigningMethodRS256, other, map[string]any{"kid": "rotated"})
+	if _, err := VerifyWithJWKS(config, next, encode(entry)); err != nil {
+		t.Fatal(err)
+	}
+}

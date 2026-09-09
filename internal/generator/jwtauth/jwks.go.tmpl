@@ -1,0 +1,39 @@
+package {{.Package}}
+
+import (
+ "crypto/rsa"
+ "encoding/base64"
+ "encoding/json"
+ "errors"
+ "math/big"
+ "strings"
+)
+
+// VerifyWithJWKS uses keys obtained from an independently trusted source.
+// It never fetches URLs from the token or the key document. The caller owns
+// authenticated key retrieval. Unknown keys fail without a fallback key.
+func VerifyWithJWKS(config Config,raw string,document []byte)(Identity,error){
+ failure:=errors.New("invalid authentication key set or token")
+ if len(raw)==0 || len(raw)>maxTokenBytes || len(document)==0 || len(document)>65536{return Identity{},failure}
+ if checkJSONObject(document)!=nil{return Identity{},failure}
+ parts:=strings.Split(raw,".");if len(parts)!=3{return Identity{},failure}
+ header,err:=base64.RawURLEncoding.Strict().DecodeString(parts[0]);if err!=nil || checkJSONObject(header)!=nil{return Identity{},failure}
+ var h struct {KeyID string `json:"kid"`;Algorithm string `json:"alg"`}
+ if json.Unmarshal(header,&h)!=nil || h.KeyID=="" || len(h.KeyID)>255 || h.Algorithm!="RS256" {return Identity{},failure}
+ var set struct{Keys []struct{KeyID string `json:"kid"`;Type string `json:"kty"`;Algorithm string `json:"alg"`;Use string `json:"use"`;Operations []string `json:"key_ops"`;N string `json:"n"`;E string `json:"e"`} `json:"keys"`}
+ if json.Unmarshal(document,&set)!=nil || len(set.Keys)==0 || len(set.Keys)>32{return Identity{},failure}
+ seen:=map[string]bool{}
+ var selected *rsa.PublicKey
+ for _,key:=range set.Keys{
+   if key.KeyID=="" || len(key.KeyID)>255 || seen[key.KeyID]{return Identity{},failure};seen[key.KeyID]=true
+   if key.KeyID!=h.KeyID{continue}
+   if key.Type!="RSA" || (key.Algorithm!="" && key.Algorithm!="RS256") || (key.Use!="" && key.Use!="sig") || (key.Operations!=nil && (len(key.Operations)!=1 || key.Operations[0]!="verify")){return Identity{},failure}
+   n,err:=base64.RawURLEncoding.Strict().DecodeString(key.N);if err!=nil || len(n)<256 || len(n)>1024 || n[0]==0{return Identity{},failure}
+   e,err:=base64.RawURLEncoding.Strict().DecodeString(key.E);if err!=nil || string(e)!="\x01\x00\x01"{return Identity{},failure}
+   selected=&rsa.PublicKey{N:new(big.Int).SetBytes(n),E:65537}
+ }
+ if selected==nil{return Identity{},failure}
+ config.PublicKey=selected
+ verifier,err:=NewVerifier(config);if err!=nil{return Identity{},failure}
+ return verifier.Verify(raw)
+}
