@@ -574,7 +574,7 @@ func TestStoreUsesGORM(t *testing.T) {
 	}
 
 	// Constructor should accept *gorm.DB.
-	if !strings.Contains(storeContent, "func NewStore(db *gorm.DB) *Store") {
+	if !strings.Contains(storeContent, "func NewStore(db *gorm.DB) (*Store, error)") {
 		t.Error("store.go NewStore should accept *gorm.DB")
 	}
 

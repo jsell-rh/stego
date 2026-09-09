@@ -76,7 +76,11 @@ func database(t testing.TB, prepared bool) (*Store, *sql.DB) {
 	if _, err := db.ExecContext(ctx, queueSchema); err != nil {
 		t.Fatal(err)
 	}
-	return NewStore(orm), db
+	storage, err := NewStore(orm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return storage, db
 }
 
 func message(key string) queue.Message {
@@ -406,7 +410,7 @@ func TestInvalidTransactionInputs(t *testing.T) {
 	if err := (*Store)(nil).WithTransaction(context.Background(), callback); err == nil {
 		t.Fatal("nil store accepted")
 	}
-	if err := NewStore(&gorm.DB{}).WithTransaction(context.Background(), callback); err == nil {
+	if _, err := NewStore(&gorm.DB{}); err == nil {
 		t.Fatal("invalid database accepted")
 	}
 	store, _ := database(t, false)
@@ -418,13 +422,17 @@ func TestInvalidTransactionInputs(t *testing.T) {
 		t.Fatal(db.Error)
 	}
 	defer db.Rollback()
-	if err := NewStore(db).WithTransaction(context.Background(), callback); !errors.Is(err, ErrTransactionNested) {
+	nested, err := NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nested.WithTransaction(context.Background(), callback); !errors.Is(err, ErrTransactionNested) {
 		t.Fatal(err)
 	}
 	broken := store.db.Session(&gorm.Session{})
 	want := errors.New("existing connection error")
 	broken.AddError(want)
-	if err := NewStore(broken).WithTransaction(context.Background(), callback); !errors.Is(err, want) {
+	if _, err := NewStore(broken); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 }
@@ -449,8 +457,11 @@ func BenchmarkTransactionalCreateNotify(b *testing.B) {
 
 func TestUnavailableNotificationsPreventCommit(t *testing.T) {
 	store, db := database(t, false)
-	plain := plainstore.NewStore(store.db)
-	err := plain.WithTransaction(context.Background(), func(ctx context.Context, tx contract.Transaction) error {
+	plain, err := plainstore.NewStore(store.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = plain.WithTransaction(context.Background(), func(ctx context.Context, tx contract.Transaction) error {
 		if err := tx.Create(ctx, "Record", record("unavailable")); err != nil {
 			return err
 		}

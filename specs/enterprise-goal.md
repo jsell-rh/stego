@@ -612,3 +612,21 @@ correction passed focused race tests in 11.978 seconds. Pinned regeneration had
 no output changes or drift, and dependency verification passed. CI requires the
 full test set on the final commit. These results do not establish production
 capacity or complete the broader goal.
+
+The hosted variant gate found a GORM schema data race. The first Gateway request
+and service-account recovery parsed related model metadata concurrently. The
+race detector stopped the generated API process. This was a common runtime
+defect, not a failure of the new audience rule.
+
+The PostgreSQL adapter now prepares all generated model metadata before it
+returns a store. Preparation is serialized between constructors. It performs no
+database reads or writes, so external migrations remain separate. `NewStore`
+now returns `(*Store, error)`, and generated startup handles the error before
+listeners or tasks start. The component version changes from 2 to 3 for this
+constructor API change.
+
+An independent Record/Membership test failed before this correction. It uses a
+cold GORM cache, concurrent queries, and an observed naming strategy to detect
+metadata work after construction. It requires no database connection and runs
+under the race detector. The Hypershell failure remains part of the application
+gate. The variant must regenerate and handle constructor errors in its fixtures.

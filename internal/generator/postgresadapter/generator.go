@@ -143,11 +143,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 
 	base := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{
-		Imports:      []string{ctx.OutputNamespace},
-		Constructors: []string{base + ".NewStore(db)"},
-		NeedsDB:      true,
-		DBBackend:    "gorm",
-		PostDBCalls:  []string{base + ".Migrate(db)"},
+		Imports:                 []string{ctx.OutputNamespace},
+		Constructors:            []string{base + ".NewStore(db)"},
+		ConstructorReturnsError: map[int]bool{0: true},
+		NeedsDB:                 true,
+		DBBackend:               "gorm",
+		PostDBCalls:             []string{base + ".Migrate(db)"},
 		GoModRequires: map[string]string{
 			"github.com/google/uuid":  "v1.6.0",
 			"gorm.io/gorm":            "v1.25.12",
@@ -482,6 +483,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\t\"errors\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, "\t\"sync\"\n")
 	fmt.Fprintf(&buf, "\n")
 	if apiPkg != "" {
 		fmt.Fprintf(&buf, "\t%s %q\n", apiAlias, apiPkg)
@@ -549,9 +551,24 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
-	fmt.Fprintf(&buf, "// NewStore creates a new Store with the given GORM connection.\n")
-	fmt.Fprintf(&buf, "func NewStore(db *gorm.DB) *Store {\n")
-	fmt.Fprintf(&buf, "\treturn &Store{db: db}\n")
+	fmt.Fprintln(&buf, "var schemaInitialization sync.Mutex")
+	fmt.Fprintf(&buf, "// NewStore prepares all model metadata before concurrent queries can start.\n")
+	fmt.Fprintf(&buf, "// Construct the store before other code uses these models on the connection.\n")
+	fmt.Fprintf(&buf, "// Preparation does not read or change database tables.\n")
+	fmt.Fprintf(&buf, "func NewStore(db *gorm.DB) (*Store, error) {\n")
+	fmt.Fprintln(&buf, `if db == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
+	fmt.Fprintln(&buf, "if db.Error != nil { return nil, db.Error }")
+	fmt.Fprintln(&buf, `if db.Config == nil || db.Statement == nil || db.NamingStrategy == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
+	fmt.Fprintln(&buf, "schemaInitialization.Lock(); defer schemaInitialization.Unlock()")
+	fmt.Fprintln(&buf, "for _, model := range []any{")
+	for _, entity := range entities {
+		fmt.Fprintf(&buf, "&%s{},\n", entity.Name)
+	}
+	fmt.Fprintln(&buf, "} {")
+	fmt.Fprintln(&buf, "statement := &gorm.Statement{DB: db}")
+	fmt.Fprintln(&buf, `if err := statement.Parse(model); err != nil { return nil, fmt.Errorf("prepare storage schema: %w", err) }`)
+	fmt.Fprintln(&buf, "}")
+	fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	fmt.Fprintf(&buf, "}\n\n")
 
 	emitCreateMethod(&buf, entities, apiAlias)

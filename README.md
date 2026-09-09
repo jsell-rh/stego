@@ -100,6 +100,13 @@ Other Go environment settings, including private module and proxy settings,
 remain in effect. Plan and apply do not resolve or download dependencies.
 These checks do not replace application tests or dependency security review.
 
+The PostgreSQL adapter prepares model metadata before concurrent work starts.
+This step does not read or change database tables. It also runs when migrations
+are external. Adapter version 3 changes `NewStore(db)` to return `(*Store, error)`.
+Generated startup code checks that error before it starts listeners or tasks.
+Update handwritten constructor calls to handle the error after regeneration.
+Construct the store before other code uses its models on the same GORM connection.
+
 The generated HTTP server uses a five-second header deadline, 30-second read and
 write deadlines, a 60-second idle deadline, and a 32 KiB header limit setting.
 SIGINT and SIGTERM start shutdown. Active requests have ten seconds to finish.

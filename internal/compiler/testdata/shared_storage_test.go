@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,7 +26,54 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	gormschema "gorm.io/gorm/schema"
 )
+
+type observedNamer struct {
+	gormschema.NamingStrategy
+	started *atomic.Bool
+	late    *atomic.Int32
+}
+
+func (n observedNamer) ColumnName(table, column string) string {
+	if n.started.Load() {
+		n.late.Add(1)
+	}
+	return n.NamingStrategy.ColumnName(table, column)
+}
+
+func TestStorePreparesRelatedSchemasBeforeConcurrentUse(t *testing.T) {
+	for range 20 {
+		var started atomic.Bool
+		var late atomic.Int32
+		orm, err := gorm.Open(postgres.Open("host=127.0.0.1 port=1 user=test dbname=test sslmode=disable"), &gorm.Config{DryRun: true, DisableAutomaticPing: true, NamingStrategy: observedNamer{started: &started, late: &late}, Logger: logger.Default.LogMode(logger.Silent)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		db, err := orm.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		storage, err := store.NewStore(orm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		started.Store(true)
+		var wait sync.WaitGroup
+		for _, entity := range []string{"Record", "Membership"} {
+			wait.Go(func() {
+				if _, err := storage.List(context.Background(), entity, "", "", contract.ListOptions{Page: 1, Size: 1, CountOnly: true}); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		wait.Wait()
+		db.Close()
+		if late.Load() != 0 {
+			t.Fatal("store deferred schema initialization until concurrent queries")
+		}
+	}
+}
 
 //go:embed internal/queue/migrations/000001_outbox.sql
 var schema string
@@ -112,7 +161,11 @@ func testStore(t *testing.T) (*store.Store, *sql.DB) {
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		t.Fatal(err)
 	}
-	return store.NewStore(orm), db
+	storage, err := store.NewStore(orm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return storage, db
 }
 
 func TestDomainRuleThroughPublicContract(t *testing.T) {
