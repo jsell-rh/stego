@@ -630,3 +630,11 @@ cold GORM cache, concurrent queries, and an observed naming strategy to detect
 metadata work after construction. It requires no database connection and runs
 under the race detector. The Hypershell failure remains part of the application
 gate. The variant must regenerate and handle constructor errors in its fixtures.
+
+The next compiler CI run passed the schema checks but failed the HTTPS deadline
+test. Response completion could return success when cancellation occurred at
+the end of the body read. A deterministic test reproduced this by canceling
+the request as the response reader returned its final bytes. The client now
+checks cancellation and the deadline before it returns a response. A failed
+completion returns no response data and still releases the body and request
+capacity. The real TLS deadline test remains in the gate.

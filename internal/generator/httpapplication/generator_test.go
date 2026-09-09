@@ -66,6 +66,13 @@ func TestGeneratedApplicationEndpoint(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	completionTest, err := os.ReadFile(filepath.Join("testdata", "client_completion_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "out", "application", "client", "completion_test.go"), completionTest, 0644); err != nil {
+		t.Fatal(err)
+	}
 	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
 		command := exec.Command("go", args...)
 		command.Dir = project

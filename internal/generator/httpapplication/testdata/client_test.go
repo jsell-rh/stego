@@ -90,8 +90,8 @@ func TestBoundedHTTPSClient(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err := c.Do(ctx, "GET", "/slow", nil, nil); err == nil {
-		t.Fatal("ignored deadline")
+	if response, err := c.Do(ctx, "GET", "/slow", nil, nil); err == nil {
+		t.Fatalf("deadline returned status %d with context error %v", response.StatusCode, ctx.Err())
 	}
 	c.Close()
 	if _, err := c.Do(context.Background(), "GET", "/record", nil, nil); err == nil {

@@ -1,6 +1,6 @@
 kind: component
 name: http-application
-version: 1.0.0
+version: 1.0.1
 output_namespace: application
 config:
   factory_package:
