@@ -6,6 +6,7 @@ package postgresadapter
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"go/format"
 	"path"
@@ -28,6 +29,9 @@ type Generator struct{}
 // code, SessionFactory, and GenericDao for all entities in the service declaration.
 // It returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if errs := types.ValidateLiveUnique(ctx.Entities, ctx.Collections); len(errs) > 0 {
+		return nil, nil, errs[0]
+	}
 	migrations := "startup"
 	if value, present := ctx.ComponentConfig["migrations"]; present {
 		var ok bool
@@ -315,7 +319,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		for _, f := range e.Fields {
 			goName := toPascalCase(f.Name)
 			goType := fieldTypeToGo(f)
-			gormTag := buildGormTag(f)
+			gormTag := buildGormTag(e.Name, f)
 			// Append upsert key composite unique indexes.
 			if idxNames, ok := upsertIdxByField[f.Name]; ok {
 				for _, idx := range idxNames {
@@ -386,8 +390,14 @@ func fieldTypeToGo(f types.Field) string {
 	return base
 }
 
+// liveUniqueName includes the entity and bounds the PostgreSQL identifier length.
+func liveUniqueName(entity string, fields []string) string {
+	sum := sha256.Sum256([]byte(entity + "\x00" + strings.Join(fields, "\x00")))
+	return fmt.Sprintf("stego_live_unique_%x", sum[:16])
+}
+
 // buildGormTag constructs the GORM struct tag value for a field.
-func buildGormTag(f types.Field) string {
+func buildGormTag(entity string, f types.Field) string {
 	var parts []string
 
 	// Column name mapping.
@@ -405,14 +415,29 @@ func buildGormTag(f types.Field) string {
 
 	// Constraints.
 	if f.Unique {
-		parts = append(parts, "uniqueIndex")
+		if f.UniqueWhenLive {
+			parts = append(parts, "uniqueIndex:"+liveUniqueName(entity, []string{f.Name})+",where:deleted_at IS NULL")
+		} else {
+			parts = append(parts, "uniqueIndex")
+		}
 	}
 
 	// Composite unique constraints: each field in the group gets the same
 	// named uniqueIndex so GORM creates a single composite index.
 	if len(f.UniqueComposite) > 0 {
 		idxName := "composite_" + strings.Join(f.UniqueComposite, "_")
-		parts = append(parts, "uniqueIndex:"+idxName)
+		if f.UniqueWhenLive {
+			idxName = liveUniqueName(entity, f.UniqueComposite)
+			priority := 0
+			for i, name := range f.UniqueComposite {
+				if name == f.Name {
+					priority = i + 1
+				}
+			}
+			parts = append(parts, fmt.Sprintf("uniqueIndex:%s,where:deleted_at IS NULL,priority:%d", idxName, priority))
+		} else {
+			parts = append(parts, "uniqueIndex:"+idxName)
+		}
 	}
 
 	if f.MaxLength != nil {
@@ -972,6 +997,11 @@ func emitUpsertMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias strin
 		}
 		fmt.Fprintf(buf, "}\n")
 
+		for _, field := range e.Fields {
+			if field.UniqueWhenLive {
+				fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey { if k == %q { return false, fmt.Errorf(\"upsert cannot use a live-row unique key\") } }\n", field.Name)
+			}
+		}
 		fmt.Fprintf(buf, "\t\tfor _, k := range upsertKey {\n")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[k] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn false, fmt.Errorf(\"invalid upsert key field %%q for entity %s\", k)\n", e.Name)

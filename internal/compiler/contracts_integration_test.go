@@ -43,6 +43,9 @@ func TestSharedStorageDomainAndHTTP(t *testing.T) {
 		ModuleName: "example.com/shared", OutDirName: "out", StorageContract: "example.com/shared/out/contracts/storage",
 		Entities: []types.Entity{
 			{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "serial", Type: types.FieldTypeInt64}}},
+			{Name: "Lease", Fields: []types.Field{{Name: "tenant", Type: types.FieldTypeString, UniqueWhenLive: true, UniqueComposite: []string{"tenant", "name"}}, {Name: "name", Type: types.FieldTypeString, UniqueWhenLive: true, UniqueComposite: []string{"tenant", "name"}}}},
+			{Name: "Reservation", Fields: []types.Field{{Name: "tenant", Type: types.FieldTypeString, UniqueWhenLive: true, UniqueComposite: []string{"tenant", "name"}}, {Name: "name", Type: types.FieldTypeString, UniqueWhenLive: true, UniqueComposite: []string{"tenant", "name"}}}},
+			{Name: "Alias", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Optional: true, Unique: true, UniqueWhenLive: true}}},
 			{Name: "Membership", Fields: []types.Field{{Name: "record_id", Type: types.FieldTypeRef, To: "Record"}, {Name: "subject", Type: types.FieldTypeString}}},
 		},
 		Collections:    []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpCreate, types.OpRead, types.OpList}}},

@@ -4106,3 +4106,34 @@ collections:
 	}
 	assertHasError(t, result, "collection", "implicit key \"kind\" with empty value")
 }
+
+func TestValidateLiveUnique(t *testing.T) {
+	for _, tc := range []struct{ name, fields, key, failure string }{
+		{"single", "      - {name: name, type: string, unique: true, unique_when_live: true}\n", "", ""},
+		{"composite", "      - {name: name, type: string, unique_composite: [name, tenant], unique_when_live: true}\n      - {name: tenant, type: string, unique_composite: [name, tenant], unique_when_live: true}\n", "", ""},
+		{"missing_key", "      - {name: name, type: string, unique_when_live: true}\n", "", "requires unique"},
+		{"missing_member", "      - {name: name, type: string, unique_composite: [name, tenant], unique_when_live: true}\n      - {name: tenant, type: string}\n", "", "same ordered composite"},
+		{"missing_self", "      - {name: name, type: string, unique_composite: [tenant], unique_when_live: true}\n      - {name: tenant, type: string}\n", "", "requires this field"},
+		{"wrong_order", "      - {name: name, type: string, unique_composite: [name, tenant], unique_when_live: true}\n      - {name: tenant, type: string, unique_composite: [tenant, name], unique_when_live: true}\n", "", "same ordered composite"},
+		{"computed", "      - {name: name, type: string, computed: true, unique: true, unique_when_live: true}\n", "", "computed field"},
+		{"upsert", "      - {name: name, type: string, unique: true, unique_when_live: true}\n", "    upsert_key: [name]\n", "upsert_key cannot include"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			project, _, input := setupValidateProject(t)
+			operations := "[create, read]"
+			if tc.key != "" {
+				operations = "[create, read, upsert]"
+			}
+			writeFile(t, filepath.Join(project, "service.yaml"), "kind: service\nname: test-service\narchetype: test-arch\nlanguage: go\nentities:\n  - name: Widget\n    fields:\n"+tc.fields+"collections:\n  widgets:\n    entity: Widget\n    operations: "+operations+"\n"+tc.key)
+			result, err := Validate(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.failure != "" {
+				assertHasError(t, result, "field-type", tc.failure)
+			} else if len(result.Errors) != 0 {
+				t.Fatal(result.Errors)
+			}
+		})
+	}
+}

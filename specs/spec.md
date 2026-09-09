@@ -427,3 +427,26 @@ Single archetype (`rest-crud`), end-to-end with fills and slots working. Full CL
 ## Open Questions
 
 - The first ~10 services will be blocked waiting for components that don't exist yet. Mitigation: seed the registry from existing real services; allow early services to be fill-heavy with TODOs to extract reusable components later
+
+### Unique keys for live rows
+
+Set `unique_when_live: true` with `unique: true` or `unique_composite` to
+reserve a key only while `deleted_at IS NULL`. A new row can use the key
+after the previous row is deleted. The old row keeps its ID and data.
+Normal unique keys continue to include deleted rows.
+
+Each member of a live composite key must declare the same ordered list
+and `unique_when_live: true`. A computed field cannot use this rule.
+Use either `unique` or `unique_composite` on a live-key field, not both.
+An upsert key cannot contain a field with this rule. Use an explicit
+create or update operation. Optional fields retain PostgreSQL NULL
+semantics: NULL values do not compare equal for this constraint.
+
+The PostgreSQL adapter emits a partial unique index with a fixed predicate.
+It uses the entity and field names to derive a stable index name with a
+bounded length. This rule does not accept SQL from a service declaration.
+See the [PostgreSQL partial index documentation](https://www.postgresql.org/docs/18/indexes-partial.html).
+
+For an existing database, review and apply a migration that replaces the
+old full unique index. Startup migration does not remove an old index.
+Adding the partial index alone does not release keys in deleted rows.

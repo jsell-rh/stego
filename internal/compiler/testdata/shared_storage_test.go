@@ -319,3 +319,73 @@ func TestRelatedFilterCountsAndPagesOnlyVisibleRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestLiveUniqueKeysPreserveHistory(t *testing.T) {
+	storage, db := testStore(t)
+	ctx := context.Background()
+	for _, entity := range []string{"Lease", "Reservation", "Alias"} {
+		first := map[string]any{"id": "first", "tenant": "tenant", "name": "shared"}
+		second := map[string]any{"id": "second", "tenant": "tenant", "name": "shared"}
+		if err := storage.Create(ctx, entity, first); err != nil {
+			t.Fatal(entity, err)
+		}
+		if err := storage.Create(ctx, entity, second); !errors.Is(err, contract.ErrConflict) {
+			t.Fatal("live duplicate", entity, err)
+		}
+		if _, err := storage.Upsert(ctx, entity, second, []string{"name"}, ""); err == nil {
+			t.Fatal("upsert accepted a live key", entity)
+		}
+		if err := storage.Delete(ctx, entity, "first"); err != nil {
+			t.Fatal(err)
+		}
+		if err := storage.Create(ctx, entity, second); err != nil {
+			t.Fatal("key remained reserved", entity, err)
+		}
+		if _, err := storage.Get(ctx, entity, "first"); !errors.Is(err, contract.ErrNotFound) {
+			t.Fatal("deleted row is visible", err)
+		}
+	}
+	var old int
+	if err := db.QueryRow("SELECT count(*) FROM leases WHERE id='first' AND deleted_at IS NOT NULL").Scan(&old); err != nil || old != 1 {
+		t.Fatal("history lost", old, err)
+	}
+	for _, id := range []string{"null-a", "null-b"} {
+		if err := storage.Create(ctx, "Alias", map[string]any{"id": id}); err != nil {
+			t.Fatal("NULL semantics changed", err)
+		}
+	}
+	// A normal unique key continues to reserve its value after deletion.
+	if err := storage.Create(ctx, "Record", map[string]any{"id": "old", "name": "reserved"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Delete(ctx, "Record", "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Create(ctx, "Record", map[string]any{"id": "new", "name": "reserved"}); !errors.Is(err, contract.ErrConflict) {
+		t.Fatal("normal unique key changed", err)
+	}
+	// Concurrent callers must not create two live rows with the same key.
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, id := range []string{"racer-a", "racer-b"} {
+		go func() {
+			<-start
+			results <- storage.Create(ctx, "Lease", map[string]any{"id": id, "tenant": "other", "name": "race"})
+		}()
+	}
+	close(start)
+	successes, conflicts := 0, 0
+	for range 2 {
+		err := <-results
+		if err == nil {
+			successes++
+		} else if errors.Is(err, contract.ErrConflict) {
+			conflicts++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatal("concurrent uniqueness failed", successes, conflicts)
+	}
+}

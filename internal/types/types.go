@@ -66,21 +66,22 @@ var ValidOperations = map[Operation]bool{
 
 // Field represents a single field within an entity definition.
 type Field struct {
-	Name           string    `yaml:"name"`
-	Type           FieldType `yaml:"type"`
-	MinLength      *int      `yaml:"min_length,omitempty"`
-	MaxLength      *int      `yaml:"max_length,omitempty"`
-	Pattern        string    `yaml:"pattern,omitempty"`
-	Min            *float64  `yaml:"min,omitempty"`
-	Max            *float64  `yaml:"max,omitempty"`
-	Unique         bool      `yaml:"unique,omitempty"`
-	UniqueComposite []string `yaml:"unique_composite,omitempty"`
-	Optional       bool      `yaml:"optional,omitempty"`
-	Default        any       `yaml:"default,omitempty"`
-	Values         []string  `yaml:"values,omitempty"`
-	Computed       bool      `yaml:"computed,omitempty"`
-	FilledBy       string    `yaml:"filled_by,omitempty"`
-	To             string    `yaml:"to,omitempty"` // for ref type
+	Name            string    `yaml:"name"`
+	Type            FieldType `yaml:"type"`
+	MinLength       *int      `yaml:"min_length,omitempty"`
+	MaxLength       *int      `yaml:"max_length,omitempty"`
+	Pattern         string    `yaml:"pattern,omitempty"`
+	Min             *float64  `yaml:"min,omitempty"`
+	Max             *float64  `yaml:"max,omitempty"`
+	Unique          bool      `yaml:"unique,omitempty"`
+	UniqueComposite []string  `yaml:"unique_composite,omitempty"`
+	UniqueWhenLive  bool      `yaml:"unique_when_live,omitempty"`
+	Optional        bool      `yaml:"optional,omitempty"`
+	Default         any       `yaml:"default,omitempty"`
+	Values          []string  `yaml:"values,omitempty"`
+	Computed        bool      `yaml:"computed,omitempty"`
+	FilledBy        string    `yaml:"filled_by,omitempty"`
+	To              string    `yaml:"to,omitempty"` // for ref type
 }
 
 // Entity represents a domain entity with its fields.
