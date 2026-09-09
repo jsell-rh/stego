@@ -1,6 +1,11 @@
-The JWT verifier exposes the subject and standard profile claims only after
+The JWT verifier exposes the issuer, subject, and standard profile claims only after
 signature, issuer, audience, and time checks pass. Profile claims include
 `preferred_username`, `email`, `given_name`, and `family_name`.
+
+`Identity.Issuer` and `Identity.UserID` contain the verified issuer and subject.
+Applications must use this pair for persistent identity. A username or email can
+change or be assigned to another subject. It must not transfer existing access.
+See [OpenID Connect claim stability](https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability).
 
 The optional `roles_claim` setting selects one role array through a dotted
 claim path. For example, `realm_access.roles` selects a nested role array. An

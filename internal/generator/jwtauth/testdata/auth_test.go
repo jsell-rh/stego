@@ -114,7 +114,7 @@ func TestAuthenticationRequests(t *testing.T) {
 			handler := verifier.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				called = true
 				id := IdentityFromContext(r.Context())
-				if id.UserID != "alice" || id.Role != "admin" || id.Attributes["team"] != "engineering" {
+				if id.Issuer != "https://issuer.example" || id.UserID != "alice" || id.Role != "admin" || id.Attributes["team"] != "engineering" {
 					t.Errorf("wrong identity: %+v", id)
 				}
 				w.WriteHeader(http.StatusNoContent)
@@ -138,7 +138,7 @@ func TestAuthenticationRequests(t *testing.T) {
 					t.Fatal("response exposes the token")
 				}
 				id, err := verifier.Verify(raw)
-				if err == nil || id.UserID != "" || id.Role != "" || id.Attributes != nil {
+				if err == nil || id.Issuer != "" || id.UserID != "" || id.Role != "" || id.Attributes != nil {
 					t.Fatal("unverified claims escaped the verifier")
 				}
 			}
