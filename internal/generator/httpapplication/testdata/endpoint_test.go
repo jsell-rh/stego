@@ -351,3 +351,60 @@ func TestRequestPreparation(t *testing.T) {
 		t.Fatal("canceled request reached preparation")
 	}
 }
+
+func TestRequiredJSONFieldsPreserveZeroValues(t *testing.T) {
+	type Nested struct {
+		Enabled bool `json:"enabled" stego:"required"`
+	}
+	type Required struct {
+		Name     string   `json:"name" stego:"required"`
+		Count    int      `json:"count" stego:"required"`
+		Nested   *Nested  `json:"nested" stego:"required"`
+		Items    []string `json:"items" stego:"required"`
+		Optional *string  `json:"optional"`
+	}
+	for _, body := range []string{
+		`{"name":"","count":0,"nested":{"enabled":false},"items":[]}`,
+		`{"name":"x","count":1,"nested":{"enabled":true},"items":["a"],"optional":null}`,
+	} {
+		request := httptest.NewRequest("POST", "/records", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		value, err := transport.JSONBody[Required](request)
+		if err != nil || value.Nested == nil || value.Items == nil {
+			t.Fatal("valid required fields", body, value, err)
+		}
+	}
+	for _, body := range []string{
+		`{}`, `{"name":null,"count":0,"nested":{"enabled":false},"items":[]}`,
+		`{"name":"","nested":{"enabled":false},"items":[]}`,
+		`{"name":"","count":null,"nested":{"enabled":false},"items":[]}`,
+		`{"name":"","count":0,"nested":null,"items":[]}`,
+		`{"name":"","count":0,"nested":{},"items":[]}`,
+		`{"name":"","count":0,"nested":{"enabled":null},"items":[]}`,
+		`{"name":"","count":0,"nested":{"enabled":false},"items":null}`,
+		`{"name":"","count":0,"nested":{"enabled":false}}`,
+	} {
+		request := httptest.NewRequest("POST", "/records", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		if _, err := transport.JSONBody[Required](request); !errors.Is(err, transport.ErrRequest) {
+			t.Fatal("missing or null required field was accepted", body, err)
+		}
+	}
+	type Invalid struct {
+		Name string `json:"name" stego:"required,unknown"`
+	}
+	request := httptest.NewRequest("POST", "/records", strings.NewReader(`{"name":"ok"}`))
+	request.Header.Set("Content-Type", "application/json")
+	if _, err := transport.JSONBody[Invalid](request); err == nil || errors.Is(err, transport.ErrRequest) {
+		t.Fatal("invalid field declaration must be a configuration error", err)
+	}
+	type Unchanged struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	request = httptest.NewRequest("POST", "/records", strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	if _, err := transport.JSONBody[Unchanged](request); err != nil {
+		t.Fatal("untagged fields changed behavior", err)
+	}
+}

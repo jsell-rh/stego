@@ -64,3 +64,11 @@ honor cancellation. Its error goes to the application error handler and stops
 the operation. It is not converted to a token error. A nil callback or more than
 one callback is a configuration error. A callback that commits work must define
 its own transaction; a later domain error does not undo that commit.
+
+A request field can add `stego:"required"` to require a present, non-null JSON
+member. Empty strings, zero numbers, false, and empty arrays remain valid values.
+The rule also applies to tagged fields in nested objects. An omitted optional
+parent does not require its children. Untagged fields keep their existing behavior.
+Unknown `stego` tag values are application configuration errors. The common JSON
+reader checks presence during its existing shape check. It does not read the
+request body again. Independent Record tests cover these cases.
