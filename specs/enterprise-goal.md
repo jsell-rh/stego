@@ -570,3 +570,45 @@ The final local variant race suite passed with PostgreSQL and Keycloak required.
 The acceptance package completed in 172.666 seconds. Pinned regeneration had no
 output changes or drift. The hosted gate requires the late-creation and cleanup
 priority tests with the other application workflows.
+
+The audience follow-up reproduced an access defect with real Keycloak. A second
+Gateway owner could not read the first Gateway through REST, but obtained a
+verified admin token for its audience. The service-account adapter now checks
+trusted Keycloak attributes that bind the audience client to the immutable
+Gateway ID. Missing or incorrect bindings fail before role lookup or client
+creation. Both creation and repair use the same check. Hypershell owns this
+identity rule; no compiler change was required.
+
+The same application test reproduced a second defect. Invalid Gateway OIDC
+settings prevented role reduction after an owner became a viewer. The old admin
+credential stayed active. Failed reduction now queues terminal revocation and
+its audit before provider cleanup. A separate database test proves that failed
+cleanup retains this intent across a new service instance and restored owner
+access. The real-provider test covers invalid OIDC settings, loss of the binding,
+process restart, and restored configuration.
+
+The user was asked about the trusted binding and terminal action after failed
+role reduction. Both are current design assumptions. A temporary provider error
+can require a new credential. Database or context failure can delay the state
+commit; provider outages can delay cleanup. Existing tokens retain their expiry.
+Production recovery latency remains unverified.
+
+The Keycloak test fixture sets the binding through its administrator. The actual
+control-plane port must create it from trusted Gateway identity data. Existing
+clients need a trusted migration. The service-account provider must not adopt a
+client from caller-supplied OIDC fields. This is now an explicit requirement for
+the next control-plane workflow, with the broader enterprise goal unchanged.
+
+A further failure test exposed a role increase after interrupted completion.
+The provider accepted the lower role, but the completion audit failed. Restored
+owner access then let recovery raise the credential back to admin. Recovery now
+stores the lower role with pending state before the provider call. It also
+handles pending records from the earlier implementation. The test checks both
+forms of stored state after completion failure and a new service instance.
+
+The expanded local race suite passed with PostgreSQL and Keycloak required;
+the acceptance package completed in 210.318 seconds. The later role-completion
+correction passed focused race tests in 11.978 seconds. Pinned regeneration had
+no output changes or drift, and dependency verification passed. CI requires the
+full test set on the final commit. These results do not establish production
+capacity or complete the broader goal.
