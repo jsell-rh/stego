@@ -46,6 +46,24 @@ func SetResourceVersion(ctx context.Context,version int64)error{
  return grpc.SetHeader(ctx,metadata.Pairs("resource-version",strconv.FormatInt(version,10)))
 }
 
+// RetainedResourceRead reads the optional recovery mode. The application must
+// authorize it before reading retained state. Ordinary reads remain live-only.
+func RetainedResourceRead(ctx context.Context)(bool,error){
+ if ctx==nil{return false,status.Error(codes.InvalidArgument,"RPC context is required")}
+ md,_:=metadata.FromIncomingContext(ctx)
+ values:=md.Get("resource-read-mode")
+ if len(values)==0{return false,nil}
+ if len(values)!=1||values[0]!="retained-v1"{return false,status.Error(codes.InvalidArgument,"invalid resource read mode")}
+ return true,nil
+}
+
+// SetResourceState attaches the revision and deletion state from one authorized
+// read. Call it once for a successful unary response, instead of SetResourceVersion.
+func SetResourceState(ctx context.Context,version int64,deleted bool)error{
+ if ctx==nil||version<1{return status.Error(codes.Internal,"resource response requires a context and positive revision")}
+ return grpc.SetHeader(ctx,metadata.Pairs("resource-version",strconv.FormatInt(version,10),"resource-deleted",strconv.FormatBool(deleted)))
+}
+
 type Authenticate func(context.Context,string)(context.Context,error)
 // IdentityInfo reads only claims that Authenticate has verified.
 type Options struct { IdentityInfo func(context.Context)(string,time.Time) }

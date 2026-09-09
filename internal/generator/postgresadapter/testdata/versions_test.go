@@ -532,3 +532,65 @@ func TestCurrentObservationMetadataFailsClosedPerGroup(t *testing.T) {
 		t.Fatal("group metadata is not independent", current)
 	}
 }
+
+func TestRetainedReadRequiresExactVersionedIdentity(t *testing.T) {
+	store, db := database(t, true)
+	ctx := context.Background()
+	if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: "retained"}, Name: "before"}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.GetRetained(ctx, "Record", "retained")
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := value.(Record)
+	if live.DeletedAt.Valid || live.ResourceVersion != 1 || live.Name != "before" {
+		t.Fatal("invalid live read", live)
+	}
+	if err := store.WithTransaction(ctx, func(ctx context.Context, tx contract.Transaction) error {
+		if err := tx.Delete(ctx, "Record", "retained"); err != nil {
+			return err
+		}
+		value, err := tx.(contract.RetainedReader).GetRetained(ctx, "Record", "retained")
+		if err != nil {
+			return err
+		}
+		row := value.(Record)
+		if !row.DeletedAt.Valid || row.ResourceVersion != 2 {
+			t.Fatal("read missed transaction deletion", row)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, "Record", "retained"); !errors.Is(err, contract.ErrNotFound) {
+		t.Fatal("ordinary read exposed deleted row", err)
+	}
+	// A retained read must use current stored data, not an earlier event snapshot.
+	if _, err := db.Exec("UPDATE records SET name='after' WHERE id='retained'"); err != nil {
+		t.Fatal(err)
+	}
+	value, err = store.GetRetained(ctx, "Record", "retained")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted := value.(Record)
+	if !deleted.DeletedAt.Valid || deleted.ResourceVersion != 3 || deleted.Name != "after" {
+		t.Fatal("retained read returned old state", deleted)
+	}
+	for _, id := range []string{"missing", "RETAINED", "retained' OR true --"} {
+		if _, err := store.GetRetained(ctx, "Record", id); !errors.Is(err, contract.ErrNotFound) {
+			t.Fatal("wrong identity accepted", id, err)
+		}
+	}
+	for _, entity := range []string{"Unknown", "Measurement"} {
+		if _, err := store.GetRetained(ctx, entity, "retained"); err == nil {
+			t.Fatal("unversioned entity accepted", entity)
+		}
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, err := store.GetRetained(canceled, "Record", "retained"); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled read accepted", err)
+	}
+}

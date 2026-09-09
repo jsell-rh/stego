@@ -13,6 +13,13 @@ var ErrNotFound = errors.New("entity not found")
 var ErrConflict = errors.New("storage conflict")
 var ErrVersionConflict = errors.New("resource version changed or resource is absent")
 
+// RetainedReader reads one versioned resource, including its retained deletion
+// state. It returns the stored fields and revision from the same read. The
+// caller must authorize recovery access before use. Absence is not deletion.
+type RetainedReader interface {
+	GetRetained(context.Context, string, string) (any, error)
+}
+
 // VersionedWriter updates only a live row at the observed resource version.
 // It does not establish access rights or field ownership. Use it in the same
 // transaction as authorization and durable events. A conflict requires a new

@@ -78,6 +78,47 @@ writes, and then start the updated controllers. An old API instance can ignore a
 new request header. Requiring a header in new client code cannot enforce a check
 inside an old server. Do not treat a mixed rollout as proof of the new contract.
 
+## Retained reads
+
+`postgres-adapter` 3.7.0 supplies the optional `storage.RetainedReader` interface.
+`GetRetained` returns one versioned resource, whether live or soft-deleted. The
+query matches the exact ID and does not run a list count. It returns raw stored
+fields, the revision, and deletion metadata from the same query. It supports a
+transaction and bounds the query by the storage operation timeout. Unknown and
+unversioned entities fail. Missing IDs return `ErrNotFound`.
+
+Authorize recovery access before this read. The storage method does not grant
+access or convert raw observation fields to their current public presentation.
+An absent record is not proof of deletion. Do not delete external resources when
+the retained read fails, is denied, or returns a different ID.
+
+`grpc-application` 1.5.0 adds `client.WithRetainedResourceRead` and
+`transport.RetainedResourceRead`. They use the explicit request mode
+`resource-read-mode: retained-v1`. A handler must authorize this mode before it
+uses `GetRetained`. Missing mode keeps the ordinary live-only read. Unknown,
+empty, and duplicate values fail. The helper does not make other handlers accept
+retained reads.
+
+After an authorized single-resource read, use `transport.SetResourceState`
+instead of `SetResourceVersion`. It sends the revision and explicit
+`resource-deleted: true` or `false` from that read. Capture the response header
+and use `client.ObservedResourceState`. Require a successful RPC, matching
+resource ID, valid revision, and explicit deletion state before cleanup. The
+decoder rejects missing, invalid, and duplicate state. An old server that omits
+this evidence cannot authorize cleanup through the new client contract.
+
+Events supply identities that need another check. Read current retained state
+before each provider action and after each failed attempt. A delayed live event
+can refer to a resource that is now deleted. A deletion event cannot override a
+current live record. Keep periodic recovery after a successful provider action;
+these helpers do not record durable cleanup completion or prevent late external
+effects. They also do not fence actions across controller processes.
+
+Replace the API before the updated controllers. During a mixed rollout, old
+controllers can still use event data directly. Complete their replacement before
+claiming this contract for all cleanup actions. Public deletion visibility and
+retention policy remain application decisions.
+
 ## Evidence and limits
 
 Generated PostgreSQL tests cover ordinary and raw SQL writes, stale observations,

@@ -47,6 +47,27 @@ func ObservedResourceVersion(header metadata.MD)(int64,error){
  return version,nil
 }
 
+// WithRetainedResourceRead requests current live or retained deleted state.
+// The server must authorize this mode. It does not grant recovery access.
+func WithRetainedResourceRead(ctx context.Context)(context.Context,error){
+ if ctx==nil{return nil,errors.New("retained resource read requires a context")}
+ md,_:=metadata.FromOutgoingContext(ctx)
+ md=md.Copy()
+ md.Set("resource-read-mode","retained-v1")
+ return metadata.NewOutgoingContext(ctx,md),nil
+}
+
+// ObservedResourceState requires a successful single-resource response with
+// an explicit deletion state and revision. Check the returned resource ID too.
+// A missing row or response metadata never proves deletion.
+func ObservedResourceState(header metadata.MD)(int64,bool,error){
+ version,err:=ObservedResourceVersion(header)
+ if err!=nil{return 0,false,err}
+ values:=header.Get("resource-deleted")
+ if len(values)!=1||(values[0]!="true"&&values[0]!="false"){return 0,false,errors.New("resource response has no valid deletion state")}
+ return version,values[0]=="true",nil
+}
+
 // Options come from trusted application configuration. Address is host:port.
 // TokenFile is read for each call so the operator can replace an expiring token.
 type Options struct{Address,CAFile,TokenFile string}

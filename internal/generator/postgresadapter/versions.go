@@ -66,11 +66,15 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 	}
 	data := struct {
 		Package, StorageImport, Migration string
+		NotFoundImport                    string
 		HasGeneration                     bool
 		HasObservations                   bool
 		Entities                          []entity
 		Statements                        []string
 	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	if ctx.StorageContract == "" && ctx.ModuleName != "" && ctx.PeerNamespaces["rest-api"] != "" {
+		data.NotFoundImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["rest-api"])
+	}
 	var ddl bytes.Buffer
 	add := func(statement string) {
 		data.Statements = append(data.Statements, statement)

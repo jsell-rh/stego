@@ -132,3 +132,12 @@ provider selection uses the current record. Database generations and observation
 field ownership remain open; a revision check alone does not make stored status
 current after an input change. See the variant's
 [database evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/database-observations.md).
+
+The generated retained-read contract now provides one exact versioned resource
+with its deletion state. The database controller uses it before provider work,
+including work caused by deletion events. Missing records, failed reads, and
+missing deletion metadata do not permit cleanup. A false deletion-event test
+failed before this change because the event alone reached the provider. The
+application regression also changes event fields and recovers after API restart.
+Durable cleanup owners, conditional completion, and cross-process fencing remain
+open. A fresh deletion read does not establish completion of those requirements.

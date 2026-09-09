@@ -9,12 +9,31 @@ import (
  "time"
  "gorm.io/gorm"
  {{if .StorageImport}}versioncontract {{printf "%q" .StorageImport}}{{end}}
+ {{if .NotFoundImport}}retainederrors {{printf "%q" .NotFoundImport}}{{end}}
 )
 
 {{if .StorageImport}}var ErrVersionConflict = versioncontract.ErrVersionConflict
 var _ versioncontract.VersionedWriter = (*Store)(nil)
 var _ versioncontract.ObservationWriter = (*Store)(nil)
+var _ versioncontract.RetainedReader = (*Store)(nil)
 {{else}}var ErrVersionConflict = errors.New("resource version changed or resource is absent"){{end}}
+
+// GetRetained reads one exact versioned identity, including soft deletion.
+// It does not grant access. The caller must authorize recovery before this read.
+func(s *Store)GetRetained(ctx context.Context,entity,id string)(any,error){
+ if ctx==nil||s==nil||s.db==nil||id==""{return nil,errors.New("retained read requires a context, store, and identity")}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout)
+ defer cancel()
+ switch entity {
+ {{range .Entities}}case {{printf "%q" .Name}}:
+  var row {{.Name}}
+  err:=s.db.WithContext(operation).Unscoped().Where("id = ? AND id COLLATE \"C\" = ?",id,id).Take(&row).Error
+  if errors.Is(err,gorm.ErrRecordNotFound){return nil,{{if $.StorageImport}}versioncontract.ErrNotFound{{else if $.NotFoundImport}}retainederrors.ErrNotFound{{else}}ErrNotFound{{end}}}
+  if err!=nil{return nil,err}
+  return row,nil
+ {{end}}default:return nil,errors.New("entity does not support retained resource reads")
+ }
+}
 
 // ResourceVersionMigration is an explicit migration for existing tables.
 // Run it in a transaction before new application code starts. It does not reset

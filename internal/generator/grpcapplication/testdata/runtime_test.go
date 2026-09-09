@@ -736,3 +736,78 @@ func TestResourceResponseRevisionFailsClosed(t *testing.T) {
 		t.Fatal("header failure was lost", err)
 	}
 }
+
+func TestRetainedResourceReadIsStrictAndPreservesParent(t *testing.T) {
+	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "Bearer test", "resource-read-mode", "old"))
+	ctx, err := rpcclient.WithRetainedResourceRead(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, _ := metadata.FromOutgoingContext(ctx)
+	if md.Get("authorization")[0] != "Bearer test" {
+		t.Fatal("lost authentication metadata")
+	}
+	retained, err := transport.RetainedResourceRead(metadata.NewIncomingContext(context.Background(), md))
+	if err != nil || !retained {
+		t.Fatal(retained, err)
+	}
+	old, _ := metadata.FromOutgoingContext(parent)
+	if old.Get("resource-read-mode")[0] != "old" {
+		t.Fatal("changed parent metadata")
+	}
+	for _, values := range [][]string{{""}, {"true"}, {"retained-v2"}, {" retained-v1"}, {"retained-v1", "retained-v1"}} {
+		if _, err := transport.RetainedResourceRead(metadata.NewIncomingContext(context.Background(), metadata.MD{"resource-read-mode": values})); status.Code(err) != codes.InvalidArgument {
+			t.Fatal("invalid mode accepted", values, err)
+		}
+	}
+	if retained, err := transport.RetainedResourceRead(context.Background()); retained || err != nil {
+		t.Fatal("ordinary read changed", retained, err)
+	}
+	if _, err := transport.RetainedResourceRead(nil); status.Code(err) != codes.InvalidArgument {
+		t.Fatal("nil context accepted", err)
+	}
+	if _, err := rpcclient.WithRetainedResourceRead(nil); err == nil {
+		t.Fatal("nil context accepted")
+	}
+}
+
+func TestResourceDeletionStateFailsClosed(t *testing.T) {
+	for _, deleted := range []bool{false, true} {
+		stream := &revisionHeaderStream{}
+		ctx := grpc.NewContextWithServerTransportStream(context.Background(), stream)
+		if err := transport.SetResourceState(ctx, 42, deleted); err != nil {
+			t.Fatal(err)
+		}
+		version, got, err := rpcclient.ObservedResourceState(stream.header)
+		if err != nil || version != 42 || got != deleted {
+			t.Fatal(version, got, err)
+		}
+		if err := transport.SetResourceState(ctx, 42, deleted); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := rpcclient.ObservedResourceState(stream.header); err == nil {
+			t.Fatal("duplicate state accepted")
+		}
+	}
+	for _, values := range [][]string{nil, {""}, {"TRUE"}, {"1"}, {" true"}, {"false "}, {"true", "true"}, {"true", "false"}} {
+		if _, _, err := rpcclient.ObservedResourceState(metadata.MD{"resource-version": {"1"}, "resource-deleted": values}); err == nil {
+			t.Fatal("invalid deletion state accepted", values)
+		}
+	}
+	for _, values := range [][]string{nil, {"0"}, {"01"}, {"1", "1"}, {"9223372036854775808"}} {
+		if _, _, err := rpcclient.ObservedResourceState(metadata.MD{"resource-version": values, "resource-deleted": {"true"}}); err == nil {
+			t.Fatal("deletion accepted without valid revision", values)
+		}
+	}
+	if err := transport.SetResourceState(nil, 1, true); err == nil {
+		t.Fatal("nil context accepted")
+	}
+	if err := transport.SetResourceState(context.Background(), 0, true); err == nil {
+		t.Fatal("invalid revision accepted")
+	}
+	failure := errors.New("closed response")
+	ctx := grpc.NewContextWithServerTransportStream(context.Background(), &revisionHeaderStream{failure: failure})
+	if err := transport.SetResourceState(ctx, 1, true); !errors.Is(err, failure) {
+		t.Fatal("header error lost", err)
+	}
+}
