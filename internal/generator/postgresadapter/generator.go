@@ -568,6 +568,10 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 		searchAlias = path.Base(searchNS)
 	}
 
+	sortAlias := "sort"
+	for sortAlias == apiAlias || sortAlias == searchAlias {
+		sortAlias = "_" + sortAlias
+	}
 	fmt.Fprintf(&buf, "package %s\n\n", path.Base(ns))
 	fmt.Fprintf(&buf, "import (\n")
 	fmt.Fprintf(&buf, "\t\"context\"\n")
@@ -576,6 +580,7 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\t\"errors\"\n")
 	fmt.Fprintf(&buf, "\t\"fmt\"\n")
 	fmt.Fprintf(&buf, "\t\"strings\"\n")
+	fmt.Fprintf(&buf, "\t%s \"sort\"\n", sortAlias)
 	fmt.Fprintf(&buf, "\t\"sync\"\n")
 	if ctx.StorageContract != "" {
 		fmt.Fprintf(&buf, "\t\"unicode/utf8\"\n")
@@ -591,6 +596,15 @@ func generateStore(ns string, entities []types.Entity, ctx gen.Context) (gen.Fil
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm\"\n")
 	fmt.Fprintf(&buf, "\t\"gorm.io/gorm/clause\"\n")
 	fmt.Fprintf(&buf, ")\n\n")
+
+	fmt.Fprintf(&buf, `// filterKeys keeps equivalent maps on one prepared-query shape.
+func filterKeys[V any](values map[string]V) []string {
+ keys := make([]string, 0, len(values))
+ for key := range values { keys = append(keys,key) }
+ %s.Strings(keys)
+ return keys
+}
+`, sortAlias)
 
 	// When the API package is not available (e.g., standalone generation),
 	// define the Storage interface types locally.
@@ -934,7 +948,8 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		// Apply implicit filters from ListOptions. These are compile-time
 		// constant filters set by the handler for collections with implicit
 		// field declarations. Each entry adds a WHERE field = value clause.
-		fmt.Fprintf(buf, "\t\tfor field, value := range opts.ImplicitFilters {\n")
+		fmt.Fprintf(buf, "\t\tfor _, field := range filterKeys(opts.ImplicitFilters) {\n")
+		fmt.Fprintln(buf, "value := opts.ImplicitFilters[field]")
 		fmt.Fprintf(buf, "\t\t\tif !validCols[field] {\n")
 		fmt.Fprintf(buf, "\t\t\t\treturn %s{}, fmt.Errorf(\"invalid implicit filter field %%q for entity %s\", field)\n", listResultType, e.Name)
 		fmt.Fprintf(buf, "\t\t\t}\n")

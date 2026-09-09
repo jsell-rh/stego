@@ -81,7 +81,8 @@ func (s *Store) relatedExpression(ctx context.Context, target string, filter ste
 	fmt.Fprintln(buf, `default: return nil, fmt.Errorf("unknown related entity")
  }
  columns := filterColumns(filter.Entity)
- for field, values := range filter.Values {
+ for _, field := range filterKeys(filter.Values) {
+  values := filter.Values[field]
   if !columns[field] { return nil, fmt.Errorf("invalid related filter field") }
   if err := checkFilterValues(values); err != nil { return nil, err }
   related = related.Where(clause.IN{Column: clause.Column{Name:field}, Values: relatedValues(values)})

@@ -1951,7 +1951,7 @@ func TestListImplicitFiltersApplied(t *testing.T) {
 	if !strings.Contains(storeContent, "opts.ImplicitFilters") {
 		t.Error("List must reference opts.ImplicitFilters")
 	}
-	if !strings.Contains(storeContent, "range opts.ImplicitFilters") {
+	if !strings.Contains(storeContent, "range filterKeys(opts.ImplicitFilters)") {
 		t.Error("List must iterate over opts.ImplicitFilters")
 	}
 	// Each implicit filter must be validated against valid columns.
@@ -1980,7 +1980,7 @@ func TestListImplicitFiltersAfterScope(t *testing.T) {
 
 	// Implicit filters must come after scope filters (both applied as AND).
 	scopeIdx := strings.Index(storeContent, `query.Where(scopeField+" = ?"`)
-	implicitIdx := strings.Index(storeContent, `range opts.ImplicitFilters`)
+	implicitIdx := strings.Index(storeContent, `range filterKeys(opts.ImplicitFilters)`)
 	if scopeIdx == -1 || implicitIdx == -1 {
 		t.Fatal("scope or implicit filter code not found in List method")
 	}

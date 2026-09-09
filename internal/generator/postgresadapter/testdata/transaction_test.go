@@ -737,3 +737,59 @@ func TestDeletedRowsAreFilteredBeforePaging(t *testing.T) {
 		}
 	}
 }
+
+func TestEquivalentFilterMapsReusePreparedQueries(t *testing.T) {
+	for _, related := range []bool{false, true} {
+		t.Run(fmt.Sprintf("related=%t", related), func(t *testing.T) {
+			store, _ := database(t, true)
+			ctx := context.Background()
+			for _, row := range []Record{{Meta: Meta{ID: "allowed"}, Name: "match", Value: 7}, {Meta: Meta{ID: "denied"}, Name: "other", Value: 8}} {
+				if err := store.Create(ctx, "Record", row); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := range 100 {
+				fields := []string{"id", "name", "value"}
+				values := []string{"allowed", "match", "7"}
+				options := contract.ListOptions{Page: 1, Size: 20}
+				if related {
+					filter := contract.RelatedFilter{Entity: "Record", ForeignField: "id", Values: map[string][]string{}}
+					for offset := range fields {
+						index := (i + offset) % len(fields)
+						filter.Values[fields[index]] = []string{values[index]}
+					}
+					options.Related = []contract.RelatedFilter{filter}
+				} else {
+					options.ImplicitFilters = map[string]string{}
+					for offset := range fields {
+						index := (i + offset) % len(fields)
+						options.ImplicitFilters[fields[index]] = values[index]
+					}
+				}
+				page, err := store.List(ctx, "Record", "", "", options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rows := page.Items.([]Record)
+				if page.Total != 1 || len(rows) != 1 || rows[0].ID != "allowed" {
+					t.Fatal("filter changed its result", page)
+				}
+			}
+			cache, ok := store.db.ConnPool.(*gorm.PreparedStmtDB)
+			if !ok {
+				t.Fatal("fixture has no prepared statement cache")
+			}
+			cache.Mux.RLock()
+			defer cache.Mux.RUnlock()
+			var queries []string
+			for query := range cache.Stmts {
+				if strings.HasPrefix(query, "SELECT ") && strings.Contains(query, `) AS "records"`) {
+					queries = append(queries, query)
+				}
+			}
+			if len(queries) != 2 {
+				t.Fatalf("equivalent filters created %d prepared queries; want one count and one page", len(queries))
+			}
+		})
+	}
+}
