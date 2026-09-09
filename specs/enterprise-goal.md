@@ -1326,3 +1326,68 @@ job and its database workflow job. These results close the current gate review.
 The acceptance report records the exact compiler and variant code revisions,
 commands, results, and limits. Further infrastructure work must follow failures
 in complete application workflows.
+
+
+The actual OpenShell Gateway now runs with the STEGO Hypershell API, provisioned
+TLS database, and Keycloak identity configuration. Variant commit `cd56815`
+adds the Gateway workload controller and a required `gateway-workload` CI job.
+The compiler pin remains `e6b4d6ceb198c89c9ad4eaedb486a1b2e81e7037`.
+The test uses the Gateway image at digest
+`sha256:a80b79e514826e8d57ea137749cf18a6e7f3d92e26bfefe005f3a9c4a55b8bdd`.
+Its original gRPC contracts come from image source revision
+`681c9b2d8b9887f230cee4871bdbdbc9a362dfc8` and have recorded file hashes.
+
+An owner signs in through real Keycloak browser login with PKCE, creates a
+Gateway through REST, and creates and retrieves a provider through the actual
+Gateway gRPC service. Missing, forged, and wrong-audience tokens are rejected.
+An ungranted user is denied. Provider data survives Gateway and database Pod
+restart, controller restart, and complete Gateway namespace replacement.
+Signing and encryption keys remain identical. Provider retrieval returns a
+redacted record; this does not prove external provider credential use.
+
+The application test found that database cleanup could lose its retry path
+after the Gateway namespace was removed. A link on the database namespace now
+keeps that work visible. The test forces the database deletion transaction to
+fail, removes the failure, and requires automatic cleanup. It also changes the
+cluster assignment before deletion while the controller is stopped. The former
+cluster still removes resources that it owns. This does not prove migration.
+
+The workload uses the generated Kubernetes client and API runtime. Placement,
+resource definitions, readiness, and identity policy remain in Hypershell.
+Keys have an immutable primary Secret in the database namespace and a recorded
+fingerprint. The controller rejects missing, replaced, corrupt, and foreign
+keys. The Gateway uses a limited database account with verified TLS. The public
+trust ConfigMap contains only parsed certificates. Private-key blocks are
+rejected. The Gateway Pod uses restricted security settings and resource limits.
+
+The final local actual-image test passed in 163.20 seconds; its race-enabled
+acceptance package took 164.243 seconds. The complete variant race suite passed
+with PostgreSQL and Keycloak required; its acceptance package took 331.637
+seconds. The database workflow and deletion replay regression package passed in
+74.076 seconds. Focused race tests and vet cover the final ownership and trust
+checks. The Go vulnerability scan found no known vulnerabilities. External
+container images were not included in that scan. All temporary test clusters
+were removed. Prior journal CI runs `34314772170` and `34314774032` passed.
+
+The next recovery test must cover Gateway deletion before the workload controller
+first observes it. Live watches and owned-resource scans cannot recover that ID
+when neither a Gateway resource nor a database namespace link exists. Retained
+Gateway IDs need a replay path. Large-list progress across watch reconnects also
+needs evidence. Common watch and retry behavior remains a candidate for STEGO
+extraction after these application tests define its requirements.
+
+The pinned Gateway image requires workspace membership as well as the standard
+user role. The user was asked whether a Hypershell viewer grant must also create
+default-workspace membership. No answer has arrived. Owner access and ungranted
+user denial are proved; full viewer workspace access remains open. Sandbox
+execution is also open: the reference supervisor requests capabilities that the
+restricted Gateway namespace rejects. Do not weaken that policy without a clear
+isolation design. The provider-management gate does not prove sandbox execution.
+Backup, restore, key rotation, certificate renewal, CNPG, public routes, network
+policy enforcement, capacity, and complete CLI and console behavior remain open.
+The complete enterprise goal remains active.
+
+Variant commit `cd56815850f29498a7907924de259b87ce375ec0` is on remote main.
+Regeneration from that commit passed with no changes or drift. Hosted CI for
+this commit must pass all three jobs: acceptance, database workflow, and Gateway
+workload. Check that result before the next implementation step.
