@@ -51,6 +51,16 @@ func TestGeneratedController(t *testing.T) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated controller: %v\n%s", err, output)
 	}
+	if os.Getenv("STEGO_BENCH_CONTROLLER") == "1" {
+		bench := exec.Command("go", "test", "-run=^$", "-bench=^BenchmarkKeyQueueWorkers$", "-benchtime=200ms", "-count=3", "./...")
+		bench.Dir = project
+		bench.Env = append(os.Environ(), "GOWORK=off")
+		output, err := bench.CombinedOutput()
+		if err != nil {
+			t.Fatalf("generated controller benchmark: %v\n%s", err, output)
+		}
+		t.Logf("generated controller benchmark:\n%s", output)
+	}
 }
 func TestRejectInvalidGeneration(t *testing.T) {
 	for _, ctx := range []gen.Context{{}, {OutputNamespace: "../escape"}, {OutputNamespace: "controller", ComponentConfig: map[string]any{"workers": 0}}} {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -317,5 +318,44 @@ func TestKeyedScanRetriesAndReportsFailure(t *testing.T) {
 	err := RunKeyed(ctx, source, func(context.Context, string) error { return denied }, o)
 	if !errors.Is(err, denied) || attempts != 2 || notices.Load() != 1 {
 		t.Fatal("scan failure was hidden or not retried", err)
+	}
+}
+
+// Keep a fixed backlog while workers invalidate their active key and complete it.
+// This measures queue contention without network calls or retry delays.
+func BenchmarkKeyQueueWorkers(b *testing.B) {
+	for _, size := range []int{1024, 10000} {
+		for _, count := range []int{1, 4} {
+			b.Run(fmt.Sprintf("keys_%d/workers_%d", size, count), func(b *testing.B) {
+				q := newKeyQueue[string](size)
+				q.setReady(true)
+				for i := 0; i < size; i++ {
+					if err := q.add(fmt.Sprint(i)); err != nil {
+						b.Fatal(err)
+					}
+				}
+				ctx := context.Background()
+				var workers sync.WaitGroup
+				b.ReportAllocs()
+				b.ResetTimer()
+				for worker := 0; worker < count; worker++ {
+					workers.Go(func() {
+						for i := worker; i < b.N; i += count {
+							key, err := q.take(ctx)
+							if err != nil {
+								b.Error(err)
+								return
+							}
+							if err := q.add(key); err != nil {
+								b.Error(err)
+								return
+							}
+							q.finish(key, false, time.Millisecond, time.Second)
+						}
+					})
+				}
+				workers.Wait()
+			})
+		}
 	}
 }

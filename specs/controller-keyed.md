@@ -55,3 +55,24 @@ The adapter reuses the existing bounded queue and retry policy. An overflowing
 scan restarts discovery. Progress for a backlog beyond capacity, or a queue full
 of permanently failing keys, is not established. Cross-process fencing and
 provider-side exclusion remain separate requirements.
+
+A queue contention measurement on 2026-09-09 used the same processor and OS
+listed above. Each worker took a key, invalidated it during the action, and
+completed it. Three 200 ms samples used a fixed backlog and no race
+instrumentation. Application checks ran on the same host during this measurement.
+
+| Keys | Workers | Time per cycle | Bytes per cycle | Allocations per cycle |
+| --- | --- | --- | --- | --- |
+| 1024 | 1 | 375.1–410.6 ns | 112 | 1 |
+| 1024 | 4 | 591.4–646.3 ns | 112 | 1 |
+| 10000 | 1 | 504.6–515.8 ns | 112 | 1 |
+| 10000 | 4 | 706.4–727.6 ns | 112 | 1 |
+
+Four workers add queue contention. Their application benefit is progress while
+another provider call waits; this microbenchmark does not measure that benefit.
+It excludes the watch, scan, action, request timers, and external providers.
+It does not establish production throughput or a latency guarantee. Repeat with:
+
+```sh
+STEGO_BENCH_CONTROLLER=1 go test -count=1 -v ./internal/generator/controller -run '^TestGeneratedController$'
+```
