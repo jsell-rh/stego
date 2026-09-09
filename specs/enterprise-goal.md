@@ -1953,3 +1953,23 @@ permissions. The affected role, migration, and network checks passed in 11.590
 seconds; the network workflow took 5.61 seconds. CI will run the complete suite
 on the final commit. The first full local run is not a pass. This turn made
 progress. The complete enterprise goal remains active.
+
+The previous turn made progress. Variant run `34385889566` passed all four
+jobs at `b3bc451e3b89388636a1ee25285e46ed4309909c`. Its acceptance package
+took 621.560 seconds. Compiler run `34385893286` passed at
+`3c79f8f487a09c2b1e0e8360e6c910901930b4b2`. Both remote heads were verified.
+
+The next workflow applies resource documents through the generated CLI. STEGO
+now provides bounded YAML and JSON input, typed resource definitions, a local
+dry run, complete preflight before resource writes, exact ID selection, and
+ordered create or patch requests. It rejects ambiguous names and duplicate
+targets. Partial results distinguish failed, unknown, and unattempted writes.
+Mutations are not retried. Hypershell will supply its own kinds and fields.
+
+The generated Record and Widget tests passed. They check input and response
+boundaries, no-contact dry runs, preflight failures, partial writes, integer
+precision, search escaping, file protection, stdin, and cancellation. The full
+compiler race suite and static checks passed. Name lookup is not an atomic
+server upsert, and a batch is not one transaction. These limits are explicit in
+`specs/cli-apply.md`. Kustomize rendering and remaining client behavior remain
+open. The Hypershell acceptance workflow follows. The full goal remains active.

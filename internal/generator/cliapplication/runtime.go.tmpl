@@ -23,7 +23,7 @@ import (
 type Field struct {Flag,Key,Type string;Required,Nullable bool}
 type PathParameter struct {Flag,Key string}
 type Command struct {Name []string;Method,Path string;ID,Query,Confirm,Sensitive bool;PathParameters []PathParameter;Fields []Field;Success []int}
-type Application struct {ConfigEnv,ConfigName,OIDCClientID string;Commands []Command}
+type Application struct {ConfigEnv,ConfigName,OIDCClientID string;Commands []Command;Resources []ApplyResource}
 var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
 var pathPart=regexp.MustCompile(`^[a-zA-Z0-9._~!$&'()*+,;=:@-]+$`)
 var property=regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`)
@@ -33,12 +33,12 @@ var errArguments=errors.New("invalid command arguments; use --help")
 
 func validate(app Application)error{
  if app.OIDCClientID!=""&&!safeClientID(app.OIDCClientID){return errors.New("invalid OIDC client ID")}
- if !envName.MatchString(app.ConfigEnv)||!word.MatchString(app.ConfigName)||len(app.Commands)==0||len(app.Commands)>128{return errors.New("invalid CLI definition")}
+ if !envName.MatchString(app.ConfigEnv)||!word.MatchString(app.ConfigName)||(len(app.Commands)==0&&len(app.Resources)==0)||len(app.Commands)>128{return errors.New("invalid CLI definition")}
  seen:=map[string]bool{}
  for _,c:=range app.Commands{
   if len(c.Name)<1||len(c.Name)>4 {return errors.New("invalid CLI command name")}
   for _,name:=range c.Name{if !word.MatchString(name){return errors.New("invalid CLI command name")}}
-  if c.Name[0]=="login"||c.Name[0]=="logout"||c.Name[0]=="help"{return errors.New("reserved CLI command name")}
+  if c.Name[0]=="apply"||c.Name[0]=="login"||c.Name[0]=="logout"||c.Name[0]=="help"{return errors.New("reserved CLI command name")}
   name:=strings.Join(c.Name," ");for other:=range seen{if name==other||strings.HasPrefix(name,other+" ")||strings.HasPrefix(other,name+" "){return errors.New("ambiguous CLI command")}};seen[name]=true
   u,err:=url.Parse(c.Path)
   if err!=nil||u.IsAbs()||u.Host!=""||!strings.HasPrefix(c.Path,"/")||strings.HasPrefix(c.Path,"//")||u.RawQuery!=""||u.Fragment!=""||strings.ContainsAny(c.Path,"%\\\x00\r\n")||len(c.Path)>1024{return errors.New("invalid CLI route")}
@@ -62,7 +62,7 @@ func validate(app Application)error{
   }
   if !c.Query&&len(c.Fields)>0&&(c.Method=="GET"||c.Method=="DELETE"){return errors.New("CLI read and delete fields require query mode")}
  }
- return nil
+ return validateApply(app.Resources)
 }
 
 func reservedFlag(flag string)bool{return flag=="body"||flag=="yes"||flag=="help"||flag=="output-file"||flag=="no-browser"}
@@ -77,9 +77,10 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  for _,arg:=range args{size+=len(arg);if len(arg)>4096||size>65536||!utf8.ValidString(arg)||strings.ContainsRune(arg,0){return errArguments}}
  if len(args)==0||(len(args)==1&&(args[0]=="--help"||args[0]=="help")){
   names:=[]string{"login --url URL --token-file FILE [--ca-file FILE]","login --url URL --issuer-url URL [--client-id ID] [--no-browser] [--ca-file FILE] [--issuer-ca-file FILE]","logout"}
-  for _,c:=range app.Commands{names=append(names,strings.Join(c.Name," "))};sort.Strings(names)
+  if len(app.Resources)>0{names=append(names,"apply -f FILE [--dry-run] [-o json]")};for _,c:=range app.Commands{names=append(names,strings.Join(c.Name," "))};sort.Strings(names)
   _,err:=fmt.Fprintln(output,strings.Join(names,"\n"));return err
  }
+ if args[0]=="apply"{return runApply(ctx,app,args[1:],output)}
  if args[0]=="login"{return login(ctx,app,args[1:],output)}
  if args[0]=="logout"{if len(args)!=1{return errArguments};return logout(ctx,app)}
  var selected *Command

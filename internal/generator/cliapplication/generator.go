@@ -31,6 +31,12 @@ var browserSource string
 //go:embed session.go.tmpl
 var sessionSource string
 
+//go:embed apply.go.tmpl
+var applySource string
+
+//go:embed apply_input.go.tmpl
+var applyInputSource string
+
 type Generator struct{}
 
 // MinimumGoVersion covers file operations and the OIDC dependency.
@@ -61,7 +67,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err
@@ -84,5 +90,5 @@ func main(){
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}, nil
+	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0", "gopkg.in/yaml.v3": "v3.0.1"}}, nil
 }

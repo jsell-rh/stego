@@ -1,0 +1,92 @@
+package command
+
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "errors"
+ "io"
+ "io/fs"
+ "os"
+ "path/filepath"
+ "strings"
+ "syscall"
+ "unicode/utf8"
+ "gopkg.in/yaml.v3"
+)
+
+const maxApplyDocuments=128
+const maxApplyBytes=1<<20
+var errApplyInput=errors.New("invalid apply input; check document fields, types, and limits")
+
+// Apply accepts the JSON subset of YAML. Aliases, merge keys, and custom tags
+// are rejected. Limits apply before decoding and during the node walk.
+func decodeApply(data []byte)([]map[string]json.RawMessage,error){
+ if len(data)==0||len(data)>maxApplyBytes||!utf8.Valid(data){return nil,errApplyInput}
+ decoder:=yaml.NewDecoder(bytes.NewReader(data));var documents []map[string]json.RawMessage
+ for {
+  var node yaml.Node
+  err:=decoder.Decode(&node);if err==io.EOF{break};if err!=nil||len(node.Content)!=1{return nil,errApplyInput}
+  n:=node.Content[0]
+  if n.Kind==yaml.ScalarNode&&n.Tag=="!!null"&&n.Value==""{continue}
+  nodes:=0;value,err:=applyJSON(n,0,&nodes);if err!=nil{return nil,err}
+  encoded,err:=json.Marshal(value);if err!=nil||len(encoded)>65536{return nil,errApplyInput}
+  document,err:=object(encoded);if err!=nil{return nil,errApplyInput}
+  documents=append(documents,document);if len(documents)>maxApplyDocuments{return nil,errApplyInput}
+ }
+ return documents,nil
+}
+func applyJSON(n *yaml.Node,depth int,nodes *int)(any,error){
+ *nodes = *nodes + 1;if depth>32||*nodes>65536||n.Anchor!=""{return nil,errApplyInput}
+ switch n.Kind{
+ case yaml.MappingNode:
+  if n.Tag!="!!map"||len(n.Content)%2!=0{return nil,errApplyInput}
+  result:=map[string]any{}
+  for i:=0;i<len(n.Content);i+=2{
+   key:=n.Content[i];if key.Kind!=yaml.ScalarNode||key.Tag!="!!str"||key.Anchor!=""||key.Value=="<<"{return nil,errApplyInput}
+   if _,ok:=result[key.Value];ok{return nil,errApplyInput}
+   value,err:=applyJSON(n.Content[i+1],depth+1,nodes);if err!=nil{return nil,err};result[key.Value]=value
+  }
+  return result,nil
+ case yaml.SequenceNode:
+  if n.Tag!="!!seq"{return nil,errApplyInput};result:=make([]any,0,len(n.Content))
+  for _,child:=range n.Content{value,err:=applyJSON(child,depth+1,nodes);if err!=nil{return nil,err};result=append(result,value)};return result,nil
+ case yaml.ScalarNode:
+  switch n.Tag{
+  case "!!str":if !utf8.ValidString(n.Value)||strings.ContainsRune(n.Value,0){return nil,errApplyInput};return n.Value,nil
+  case "!!null":return nil,nil
+  case "!!bool":switch n.Value{case "true","True","TRUE":return true,nil;case "false","False","FALSE":return false,nil};return nil,errApplyInput
+  case "!!int","!!float":
+   raw:=[]byte(n.Value);if !validJSON(raw){return nil,errApplyInput}
+   var number json.Number;decoder:=json.NewDecoder(bytes.NewReader(raw));decoder.UseNumber();var value any
+   if decoder.Decode(&value)!=nil{return nil,errApplyInput};number,ok:=value.(json.Number);if !ok{return nil,errApplyInput};return number,nil
+  }
+ }
+ return nil,errApplyInput
+}
+func loadApply(ctx context.Context,name string)([]map[string]json.RawMessage,error){
+ var data [][]byte;total:=0
+ appendData:=func(value []byte)error{total+=len(value);if total>maxApplyBytes||len(data)>=maxApplyDocuments{return errApplyInput};data=append(data,value);return nil}
+ if name=="-"{
+  // Closing stdin makes pipe input interruptible without leaving a read worker.
+  input:=os.Stdin;stop:=make(chan struct{});stopped:=make(chan struct{});defer func(){close(stop);<-stopped}()
+  go func(){defer close(stopped);select{case <-ctx.Done():_ = input.Close();case <-stop:}}()
+  value,err:=io.ReadAll(io.LimitReader(input,maxApplyBytes+1));if ctx.Err()!=nil{return nil,ctx.Err()};if err!=nil{return nil,errApplyInput};if err:=appendData(value);err!=nil{return nil,err}
+ }else{
+  info,err:=os.Lstat(name);if err!=nil||info.Mode()&os.ModeSymlink!=0{return nil,errApplyInput}
+  if !info.IsDir(){file,err:=os.OpenFile(name,os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW,0);if err!=nil{return nil,errApplyInput};value,readErr:=readRegular(file,65536,false);closeErr:=file.Close();if readErr!=nil||closeErr!=nil{return nil,errApplyInput};if err:=appendData(value);err!=nil{return nil,err}}else{
+   root,err:=os.OpenRoot(name);if err!=nil{return nil,errApplyInput};defer root.Close()
+   entries:=0
+   err=fs.WalkDir(root.FS(),".",func(path string,entry fs.DirEntry,walkErr error)error{
+    if ctx.Err()!=nil{return ctx.Err()};if walkErr!=nil{return errApplyInput};entries++;if entries>1024||strings.Count(path,"/")>16{return errApplyInput}
+    if entry.Type()&os.ModeSymlink!=0{return errApplyInput};if entry.IsDir(){return nil}
+    switch strings.ToLower(filepath.Ext(path)){case ".yaml",".yml",".json":default:return nil}
+    file,err:=root.OpenFile(path,os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW,0);if err!=nil{return errApplyInput}
+    value,readErr:=readRegular(file,65536,false);closeErr:=file.Close();if readErr!=nil||closeErr!=nil{return errApplyInput};return appendData(value)
+   });if err!=nil{return nil,err}
+  }
+ }
+ var result []map[string]json.RawMessage
+ for _,value:=range data{if ctx.Err()!=nil{return nil,ctx.Err()};documents,err:=decodeApply(value);if err!=nil{return nil,err};result=append(result,documents...);if len(result)>maxApplyDocuments{return nil,errApplyInput}}
+ if len(result)==0{return nil,errApplyInput};return result,nil
+}

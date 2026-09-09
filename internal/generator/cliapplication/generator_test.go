@@ -36,12 +36,12 @@ func TestGeneratedCLI(t *testing.T) {
 import command "example.com/cli-test/out/cli/command"
 func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CLI_CONFIG",ConfigName:"sample",Commands:[]command.Command{{Name:[]string{"get","record"},Method:"GET",Path:"/records/{id}",ID:true,Success:[]int{200}}}}}
 `
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo " + requirement.MinimumGoVersion() + "\n\nrequire github.com/coreos/go-oidc/v3 " + wiring.GoModRequires["github.com/coreos/go-oidc/v3"] + "\n"), "app/app.go": []byte(factory)} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/cli-test\n\ngo " + requirement.MinimumGoVersion() + "\n\nrequire github.com/coreos/go-oidc/v3 " + wiring.GoModRequires["github.com/coreos/go-oidc/v3"] + "\n\nrequire gopkg.in/yaml.v3 " + wiring.GoModRequires["gopkg.in/yaml.v3"] + "\n"), "app/app.go": []byte(factory)} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go"} {
+	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go", "apply_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
