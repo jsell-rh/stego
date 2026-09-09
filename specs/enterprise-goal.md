@@ -2031,3 +2031,21 @@ The full compiler race suite and static checks passed with the new controller
 component. All three application domain race suites also passed. The final
 compiler pin and application workflow checks follow before publication of the
 controller migration.
+
+Compiler commit `b7837932b0fc6792cb6859e69a39d7096fff7e60` passed CI run
+`34389383086`. Variant commit `add91d3a310560204d9f5b0efccb16a5a1f0b2f6`
+is on remote main and pins that compiler. Its focused application race suite
+passed in 95.408 seconds: identity reconciliation, stored-grant user login,
+Gateway recovery IDs, database deletion replay, and CLI apply. Application static
+checks and regeneration after the commit passed. Both remote refs were verified.
+
+Variant run `34389668334` is running all four gates on the controller migration.
+It replaced apply-only run `34389001511`; that older run was canceled after its
+database job passed. Do not count the older run as a full pass. The task-owned
+local PostgreSQL container was removed after all local tests stopped.
+
+The boundary review also found a timer, cursor map, and worker pool in
+`internal/serviceaccounts/recovery.go`. Those mechanisms belong in STEGO;
+account expiry, creator access, and credential rules belong in Hypershell.
+`specs/controller-boundary.md` records the ownership split and next workflow
+checks. This turn made progress. The complete enterprise goal remains active.
