@@ -16,6 +16,9 @@ import (
 //go:embed endpoint.go.tmpl
 var endpointSource string
 
+//go:embed client.go.tmpl
+var clientSource string
+
 type Generator struct{}
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -65,10 +68,13 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"bridge.go", bridge}, {"transport/endpoint.go", endpointSource + gen.UnicodeEscapeValidation}} {
+	for _, item := range []struct{ name, source string }{{"bridge.go", bridge}, {"transport/endpoint.go", endpointSource + gen.UnicodeEscapeValidation}, {"client/client.go", clientSource}} {
 		itemData := data
 		if strings.HasPrefix(item.name, "transport/") {
 			itemData.Package = "transport"
+		}
+		if strings.HasPrefix(item.name, "client/") {
+			itemData.Package = "client"
 		}
 		tmpl, err := template.New(item.name).Parse(item.source)
 		if err != nil {

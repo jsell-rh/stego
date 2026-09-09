@@ -57,7 +57,7 @@ func TestGeneratedApplicationEndpoint(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(project, "sample"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"sample.go", "endpoint_test.go", "lifecycle_test.go"} {
+	for _, name := range []string{"sample.go", "endpoint_test.go", "lifecycle_test.go", "client_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
