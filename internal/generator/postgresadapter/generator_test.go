@@ -1478,7 +1478,7 @@ func TestCaseInsensitiveEntityCollision(t *testing.T) {
 }
 
 func TestReservedEntityName(t *testing.T) {
-	for _, name := range []string{"Store", "NewStore", "Meta", "GenericDao", "SessionFactory", "Migrate"} {
+	for _, name := range []string{"Store", "NewStore", "Meta", "GenericDao", "SessionFactory", "Migrate", "schemaInitialization"} {
 		t.Run(name, func(t *testing.T) {
 			ctx := gen.Context{
 				Entities: []types.Entity{

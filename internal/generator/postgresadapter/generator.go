@@ -188,6 +188,7 @@ var reservedTypeNames = map[string]bool{
 	"ErrSerialization":            true,
 	"ErrNotificationLimit":        true,
 	"transactionState":            true,
+	"schemaInitialization":        true,
 	"transactionTimeout":          true,
 	"sqlTransaction":              true,
 	"stegooutbox":                 true,
