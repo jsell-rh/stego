@@ -110,3 +110,47 @@ Cross-process fencing, owner-specific controller credentials, completion history
 cleanup metrics, public deletion presentation, retention, and purge remain open.
 Do not use the confirmed flag to remove a resource from all recovery scans until
 late external effects and in-flight work have a separate safe completion rule.
+
+## Cleanup by target
+
+Version 3.9.0 adds `cleanup_targets`. Map a declared owner to a required string
+or reference field. For example:
+
+```yaml
+cleanup_owners: [identity, worker]
+cleanup_targets:
+  worker: location_id
+```
+
+The generated trigger records the current target on insertion and on each field
+change, before external work. It retains every earlier target. Each value must
+contain 1 through 256 UTF-8 bytes. A resource can retain at most 128 target entries
+across its owners, with at most 65536 bytes of target metadata. A change that
+exceeds the bound fails and leaves the old state intact. Targets cannot be
+removed through normal writes. Changes to cleanup inputs clear confirmations
+but preserve the full set of targets.
+
+The generated `CleanupTargets` method reads the private target history.
+`CleanupObservations` checks that a targeted owner's aggregate matches its
+individual targets. An owner is complete only when the resource is deleted and
+all its targets are complete. Sparse lists retain the target fields and metadata.
+
+Use `TargetCleanupWriter.ObserveTargetCleanupIfVersion` for a targeted owner.
+The call requires a recorded target, a deleted resource, and the exact observed
+revision. It changes only that target. The global owner write rejects owners
+that require target evidence. Authorize the owner and target before this call,
+and commit its event in the same transaction. Repeat provider work after a
+conflict. Continue checks on completed targets to find late effects.
+
+`000005_cleanup_targets.sql` contains the complete contract. Enabling targets or
+changing their field mapping on a populated table requires an explicit migration
+that establishes prior history. This release refuses that operation; it has no
+history import protocol yet. It does not infer that the current field contains
+all earlier targets. Removing target declarations from populated history also
+fails. Other contract changes retain the targets and clear their observations.
+Repeated migration with the same contract preserves revisions and confirmations.
+
+The target identifies a provider location. The domain adapter defines which
+effects its owner covers. A child resource with its own cleanup record remains
+a separate obligation. This release does not define parent finalization, cleanup
+of former targets while the parent is live, target retirement, or safe purge.

@@ -64,6 +64,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Generation                           bool
 		Observations                         []observation
 		CleanupOwners                        []string
+		CleanupTargets                       []cleanupTarget
 	}
 	data := struct {
 		Package, StorageImport, Migration string
@@ -71,6 +72,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		HasGeneration                     bool
 		HasObservations                   bool
 		HasCleanup                        bool
+		HasCleanupTargets                 bool
 		Entities                          []entity
 		Statements                        []string
 	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
@@ -185,6 +187,17 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
  END; $owners$;
 `, sqlLiteral(table), table))
 		}
+		definition.CleanupTargets = targetDefinitions(e)
+		marker := ""
+		if len(e.CleanupTargets) > 0 {
+			data.HasCleanupTargets = true
+			var body string
+			marker, body = targetContract(e)
+			definition.Body = targetDeclarations + strings.Replace(definition.Body, " RETURN NEW;", body+" RETURN NEW;", 1)
+		}
+		for _, statement := range targetMigration(e, table, marker) {
+			add(statement)
+		}
 		if definition.Generation || len(cleanupOwners) > 0 {
 			assignments := []string{"stego_revision=stego_revision+1"}
 			if definition.Generation {
@@ -192,6 +205,9 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 			}
 			if len(cleanupOwners) > 0 {
 				assignments = append(assignments, "stego_cleanup="+initial)
+			}
+			if len(e.CleanupTargets) > 0 {
+				assignments = append(assignments, resetTargetObservations())
 			}
 			add(fmt.Sprintf(`DO $upgrade$ BEGIN
  IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid=%s::regclass AND t.tgname='stego_resource_revision' AND p.prosrc IS DISTINCT FROM %s) THEN
@@ -231,6 +247,9 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 	if data.HasCleanup {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000004_resource_cleanup.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
 	}
+	if data.HasCleanupTargets {
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000005_cleanup_targets.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
+	}
 	return files, nil
 }
 
@@ -247,6 +266,9 @@ func currentObservationTable(entity types.Entity) string {
 	columns := []string{`"id"`, `"created_time"`, `"updated_time"`, `"deleted_at"`, `"stego_revision"`, `"stego_generation"`, `"stego_observations"`}
 	if len(entity.CleanupOwners) > 0 {
 		columns = append(columns, `"stego_cleanup"`)
+	}
+	if len(entity.CleanupTargets) > 0 {
+		columns = append(columns, `"stego_cleanup_targets"`)
 	}
 	for _, field := range entity.Fields {
 		expression := fmt.Sprintf("%q", field.Name)

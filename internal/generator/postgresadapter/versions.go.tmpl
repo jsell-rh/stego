@@ -7,6 +7,8 @@ import (
  "errors"
  "fmt"
  "time"
+ {{if .HasCleanupTargets}}"strings"
+ "unicode/utf8"{{end}}
  "gorm.io/gorm"
  {{if .StorageImport}}versioncontract {{printf "%q" .StorageImport}}{{end}}
  {{if .NotFoundImport}}retainederrors {{printf "%q" .NotFoundImport}}{{end}}
@@ -17,6 +19,7 @@ var _ versioncontract.VersionedWriter = (*Store)(nil)
 var _ versioncontract.ObservationWriter = (*Store)(nil)
 var _ versioncontract.RetainedReader = (*Store)(nil)
 var _ versioncontract.CleanupWriter = (*Store)(nil)
+var _ versioncontract.TargetCleanupWriter = (*Store)(nil)
 {{else}}var ErrVersionConflict = errors.New("resource version changed or resource is absent"){{end}}
 
 // GetRetained reads one exact versioned identity, including soft deletion.
@@ -57,8 +60,8 @@ func verifyResourceVersions(db *gorm.DB) error {
  if parent == nil { parent = context.Background() }
  ctx, cancel := context.WithTimeout(parent, 5*time.Second)
  defer cancel()
- for _, definition := range []struct{ Table, Function, Body string; Generation,Cleanup bool }{
- {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}}, {{if .CleanupOwners}}true{{else}}false{{end}} },{{end}}
+ for _, definition := range []struct{ Table, Function, Body string; Generation,Cleanup,Targets bool }{
+ {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}}, {{if .CleanupOwners}}true{{else}}false{{end}}, {{if .CleanupTargets}}true{{else}}false{{end}} },{{end}}
  } {
   var count int64
   err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_trigger t
@@ -73,6 +76,11 @@ func verifyResourceVersions(db *gorm.DB) error {
  AND a.atttypid='pg_catalog.int8'::pg_catalog.regtype AND a.attnotnull AND NOT a.attisdropped`, definition.Table, definition.Function, definition.Body).Scan(&count).Error
   if err != nil { return fmt.Errorf("verify resource revision schema: %w", err) }
   if count != 1 { return fmt.Errorf("resource revision migration is required for %s", definition.Table) }
+  if definition.Targets {
+   err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup_targets' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
+   if err!=nil{return fmt.Errorf("verify cleanup target schema: %w",err)}
+   if count!=1{return fmt.Errorf("cleanup target migration is required for %s",definition.Table)}
+  }
   if definition.Cleanup {
    err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
    if err!=nil{return fmt.Errorf("verify cleanup schema: %w",err)}
@@ -99,6 +107,8 @@ func(s *Store)ObserveCleanupIfVersion(ctx context.Context,entity,id string,versi
  switch entity {
  {{range .Entities}}{{if .CleanupOwners}}case {{printf "%q" .Name}}:
   switch owner {case {{range $index,$owner:=.CleanupOwners}}{{if $index}},{{end}}{{printf "%q" $owner}}{{end}}:default:return errors.New("cleanup owner is not declared")}
+  {{range .CleanupTargets}}if owner=={{printf "%q" .Owner}} {return errors.New("cleanup owner requires a target observation")}
+  {{end}}
   result:=s.db.WithContext(operation).Exec({{printf "%q" (printf "UPDATE %q SET stego_cleanup=jsonb_set(stego_cleanup,ARRAY[?]::text[],to_jsonb(?::boolean)),updated_time=now() WHERE id=? AND id COLLATE \"C\"=? AND stego_revision=? AND deleted_at IS NOT NULL" .Table)}},owner,complete,id,id,version)
   if result.Error!=nil{return result.Error}
   if result.RowsAffected!=1{return ErrVersionConflict}
@@ -119,6 +129,14 @@ func(row {{.Name}})CleanupObservations()(map[string]bool,error){
   if !ok||(string(value)!="true"&&string(value)!="false"){return nil,errors.New("invalid cleanup observation")}
   states[owner]=string(value)=="true"
  }
+ {{if .CleanupTargets}}
+ targets,err:=row.CleanupTargets();if err!=nil{return nil,err}
+ for owner,entries:=range targets {
+  complete:=row.DeletedAt.Valid
+  for _,observed:=range entries{complete=complete&&observed}
+  if states[owner]!=complete{return nil,errors.New("cleanup owner does not match its target observations")}
+ }
+ {{end}}
  return states,nil
 }
 func(row {{.Name}})CleanupComplete(owner string)bool{
@@ -224,5 +242,44 @@ func (row {{.Name}}) CurrentObservations() {{.Name}} {
  {{range .Projections}}{{if .HasUnobserved}}{ value:={{printf "%q" .Unobserved}}; row.{{.Name}}=&value }{{else}}row.{{.Name}}=nil{{end}}
  {{end}}}
  {{end}}return row
+}
+{{end}}{{end}}
+
+// ObserveTargetCleanupIfVersion records one target without removing its history.
+func(s *Store)ObserveTargetCleanupIfVersion(ctx context.Context,entity,id string,version int64,owner,target string,complete bool)error{
+ if ctx==nil||s==nil||s.db==nil||id==""||version<1{return errors.New("target cleanup requires a context, store, identity, and revision")}
+ {{if .HasCleanupTargets}}
+ if len(target)<1||len(target)>256||!utf8.ValidString(target)||strings.ContainsRune(target,0){return errors.New("invalid cleanup target")}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout);defer cancel()
+ switch entity {
+ {{range .Entities}}{{if .CleanupTargets}}case {{printf "%q" .Name}}:
+  switch owner {case {{range $index,$target:=.CleanupTargets}}{{if $index}},{{end}}{{printf "%q" $target.Owner}}{{end}}: default:return errors.New("target cleanup owner is not declared")}
+  result:=s.db.WithContext(operation).Exec({{printf "%q" (printf "UPDATE %q SET stego_cleanup_targets=jsonb_set(stego_cleanup_targets,ARRAY[?,?]::text[],to_jsonb(?::boolean),false),updated_time=now() WHERE id=? AND id COLLATE \"C\"=? AND stego_revision=? AND deleted_at IS NOT NULL AND jsonb_exists(stego_cleanup_targets->?,?)" .Table)}},owner,target,complete,id,id,version,owner,target)
+  if result.Error!=nil{return fmt.Errorf("record target cleanup: %w",result.Error)}
+  if result.RowsAffected!=1{return ErrVersionConflict};return nil
+ {{end}}{{end}}default:return errors.New("entity does not declare cleanup targets")
+ }
+ {{else}}return errors.New("entity does not declare cleanup targets"){{end}}
+}
+
+{{range .Entities}}{{if .CleanupTargets}}
+// CleanupTargets returns the retained observations, including earlier targets.
+func(row {{.Name}})CleanupTargets()(map[string]map[string]bool,error){
+ if len(row.CleanupTargetState)>65536{return nil,errors.New("cleanup target history exceeds its limit")}
+ var raw map[string]map[string]json.RawMessage
+ if json.Unmarshal(row.CleanupTargetState,&raw)!=nil||len(raw)!={{len .CleanupTargets}}{return nil,errors.New("invalid cleanup target history")}
+ result:=make(map[string]map[string]bool,len(raw));total:=0
+ {{range .CleanupTargets}}{
+  entries,ok:=raw[{{printf "%q" .Owner}}];if !ok||len(entries)==0{return nil,errors.New("missing cleanup target history")}
+  if _,ok:=entries[row.{{.GoField}}];!ok{return nil,errors.New("current cleanup target is absent")}
+  states:=make(map[string]bool,len(entries))
+  for target,value:=range entries{
+   if len(target)<1||len(target)>256||!utf8.ValidString(target)||strings.ContainsRune(target,0)||(string(value)!="true"&&string(value)!="false"){return nil,errors.New("invalid cleanup target observation")}
+   states[target]=string(value)=="true";total++
+  }
+  result[{{printf "%q" .Owner}}]=states
+ }{{end}}
+ if total>128{return nil,errors.New("cleanup target history exceeds its limit")}
+ return result,nil
 }
 {{end}}{{end}}

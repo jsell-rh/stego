@@ -171,3 +171,14 @@ func TestCleanupOwnerDeclarationRequiresStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupTargetDeclarationDoesNotCoerceTypes(t *testing.T) {
+	for _, value := range []string{`{worker: target}`, `{}`, `[]`, `null`, `{worker: true}`, `{worker: 1}`, `{worker: null}`, `{true: target}`, `{worker: [target]}`} {
+		input := "kind: service\nname: test\narchetype: test\nlanguage: go\nentities:\n - name: Placement\n   versioned: true\n   cleanup_owners: [worker]\n   cleanup_targets: " + value + "\n"
+		_, err := ParseServiceDeclarationFromBytes([]byte(input), "service.yaml")
+		valid := value == `{worker: target}` || value == `{}`
+		if (err == nil) != valid {
+			t.Fatal(value, err)
+		}
+	}
+}

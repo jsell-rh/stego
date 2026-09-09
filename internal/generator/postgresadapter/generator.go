@@ -366,6 +366,9 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		if len(e.CleanupOwners) > 0 {
 			fmt.Fprintln(&buf, "CleanupState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup;type:jsonb;not null;default:'{}';->\"`")
 		}
+		if len(e.CleanupTargets) > 0 {
+			fmt.Fprintln(&buf, "CleanupTargetState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup_targets;type:jsonb;not null;default:'{}';->\"`")
+		}
 		if len(e.GenerationFields) > 0 {
 			fmt.Fprintln(&buf, "ResourceGeneration int64 `json:\"-\" gorm:\"column:stego_generation;type:bigint;not null;default:1;->\"`")
 			fmt.Fprintln(&buf, "ObservedGenerations datatypes.JSON `json:\"-\" gorm:\"column:stego_observations;type:jsonb;not null;default:'{}';->\"`")
@@ -1015,6 +1018,12 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		}
 		if len(e.CleanupOwners) > 0 {
 			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_cleanup", "deleted_at")`)
+		}
+		if len(e.CleanupTargets) > 0 {
+			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_cleanup_targets")`)
+			for _, target := range targetDefinitions(e) {
+				fmt.Fprintf(buf, "selectCols = append(selectCols, %q)\n", target.Field)
+			}
 		}
 		if len(e.GenerationFields) > 0 {
 			fmt.Fprintln(buf, `selectCols = append(selectCols, "stego_generation", "stego_observations")`)

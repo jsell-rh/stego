@@ -191,6 +191,16 @@ func checkSchema(data []byte, path string, node *yaml.Node, typ reflect.Type, lo
 			if typ == reflect.TypeFor[types.Entity]() && key.Value == "versioned" && (value.Tag != "!!bool" || (value.Value != "true" && value.Value != "false")) {
 				return nodeError(data, path, value, "versioned must be true or false")
 			}
+			if typ == reflect.TypeFor[types.Entity]() && key.Value == "cleanup_targets" {
+				if value.Kind != yaml.MappingNode {
+					return nodeError(data, path, value, "cleanup_targets must map owners to field names")
+				}
+				for _, item := range value.Content {
+					if item.Kind != yaml.ScalarNode || item.Tag != "!!str" {
+						return nodeError(data, path, item, "cleanup target owners and fields must be strings")
+					}
+				}
+			}
 			if typ == reflect.TypeFor[types.Entity]() && key.Value == "cleanup_owners" {
 				if value.Kind != yaml.SequenceNode {
 					return nodeError(data, path, value, "cleanup_owners must be a list of strings")

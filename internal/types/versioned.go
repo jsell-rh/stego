@@ -35,7 +35,7 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 				result = append(result, fmt.Errorf("entity %s: unobserved value requires a valid string observation field %s", entity.Name, field.Name))
 			}
 		}
-		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.CleanupOwners) > 0) && !entity.Versioned {
+		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.CleanupOwners) > 0 || len(entity.CleanupTargets) > 0) && !entity.Versioned {
 			result = append(result, fmt.Errorf("entity %s: generations, observations, and cleanup owners require versioned", entity.Name))
 		}
 		cleanupOwners := map[string]bool{}
@@ -48,12 +48,31 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 			}
 			cleanupOwners[owner] = true
 		}
+		targetOwners := make([]string, 0, len(entity.CleanupTargets))
+		for owner := range entity.CleanupTargets {
+			targetOwners = append(targetOwners, owner)
+		}
+		sort.Strings(targetOwners)
+		for _, owner := range targetOwners {
+			name := entity.CleanupTargets[owner]
+			valid := cleanupOwners[owner]
+			found := false
+			for _, field := range entity.Fields {
+				if field.Name == name {
+					found = true
+					valid = valid && !field.Optional && !entity.IsObservationField(name) && (field.Type == FieldTypeString || field.Type == FieldTypeRef)
+				}
+			}
+			if !valid || !found {
+				result = append(result, fmt.Errorf("entity %s: cleanup target %s requires a declared owner and a required string or reference field", entity.Name, owner))
+			}
+		}
 		if !entity.Versioned {
 			continue
 		}
 		for _, field := range entity.Fields {
 			name := strings.ToLower(strings.ReplaceAll(field.Name, "_", ""))
-			if len(entity.CleanupOwners) > 0 && (name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete") {
+			if len(entity.CleanupOwners) > 0 && (name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete" || name == "stegocleanuptargets" || name == "cleanuptargetstate" || name == "cleanuptargets") {
 				result = append(result, fmt.Errorf("entity %s: field %s conflicts with cleanup metadata", entity.Name, field.Name))
 			}
 			if name == "stegorevision" || name == "resourceversion" || (len(entity.GenerationFields) > 0 && (name == "stegogeneration" || name == "resourcegeneration" || name == "stegoobservations" || name == "observedgenerations" || name == "observedgeneration" || name == "currentobservations")) {

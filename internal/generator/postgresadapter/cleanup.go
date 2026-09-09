@@ -9,6 +9,14 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
+func cleanupIgnored(entity types.Entity) string {
+	names := "'stego_revision','stego_generation','stego_observations','stego_cleanup','updated_time'"
+	if len(entity.CleanupTargets) > 0 {
+		names += ",'stego_cleanup_targets'"
+	}
+	return "ARRAY[" + names + "]"
+}
+
 func cleanupContract(entity types.Entity) (owners []string, initial, keys, body string) {
 	owners = slices.Clone(entity.CleanupOwners)
 	slices.Sort(owners)
@@ -29,8 +37,8 @@ func cleanupContract(entity types.Entity) (owners []string, initial, keys, body 
   NEW.stego_cleanup := %[1]s;
  ELSE
   IF NEW.deleted_at IS NULL OR OLD.deleted_at IS NULL OR
-   (to_jsonb(NEW) - ARRAY['stego_revision','stego_generation','stego_observations','stego_cleanup','updated_time']) IS DISTINCT FROM
-   (to_jsonb(OLD) - ARRAY['stego_revision','stego_generation','stego_observations','stego_cleanup','updated_time']) THEN
+   (to_jsonb(NEW) - %[3]s) IS DISTINCT FROM
+   (to_jsonb(OLD) - %[3]s) THEN
    NEW.stego_cleanup := %[1]s;
   ELSE
    IF jsonb_typeof(NEW.stego_cleanup) IS DISTINCT FROM 'object' THEN
@@ -42,6 +50,6 @@ func cleanupContract(entity types.Entity) (owners []string, initial, keys, body 
    END IF;
   END IF;
  END IF;
-`, initial, keys)
+`, initial, keys, cleanupIgnored(entity))
 	return
 }

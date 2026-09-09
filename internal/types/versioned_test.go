@@ -94,3 +94,25 @@ func TestCleanupOwnerContracts(t *testing.T) {
 		t.Fatal(result)
 	}
 }
+
+func TestCleanupTargetsRequireDeclaredOwnersAndRequiredInputFields(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		targets map[string]string
+		field   Field
+		valid   bool
+	}{
+		{"string", map[string]string{"worker": "target"}, Field{Name: "target", Type: FieldTypeString}, true},
+		{"reference", map[string]string{"worker": "target"}, Field{Name: "target", Type: FieldTypeRef}, true},
+		{"unknown owner", map[string]string{"other": "target"}, Field{Name: "target", Type: FieldTypeString}, false},
+		{"unknown field", map[string]string{"worker": "missing"}, Field{Name: "target", Type: FieldTypeString}, false},
+		{"optional", map[string]string{"worker": "target"}, Field{Name: "target", Type: FieldTypeString, Optional: true}, false},
+		{"number", map[string]string{"worker": "target"}, Field{Name: "target", Type: FieldTypeInt64}, false},
+		{"reserved", map[string]string{"worker": "cleanup_targets"}, Field{Name: "cleanup_targets", Type: FieldTypeString}, false},
+	} {
+		e := Entity{Name: "Placement", Versioned: true, CleanupOwners: []string{"worker"}, CleanupTargets: tc.targets, Fields: []Field{tc.field}}
+		if result := ValidateVersioned([]Entity{e}); (len(result) == 0) != tc.valid {
+			t.Fatal(tc.name, result)
+		}
+	}
+}

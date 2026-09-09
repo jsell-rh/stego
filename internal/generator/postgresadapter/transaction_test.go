@@ -22,6 +22,9 @@ var versionTests []byte
 //go:embed testdata/cleanup_test.go
 var cleanupTests []byte
 
+//go:embed testdata/cleanup_targets_test.go
+var cleanupTargetTests []byte
+
 func TestGeneratedStoreTransactions(t *testing.T) {
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
@@ -40,9 +43,29 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 		{Name: "floor", Type: types.FieldTypeDouble, Optional: true, Min: &zero},
 		{Name: "ceiling", Type: types.FieldTypeDouble, Optional: true, Max: &hundred},
 	}})
+	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Placement", Versioned: true, CleanupOwners: []string{"worker", "identity"}, CleanupTargets: map[string]string{"worker": "target"}, Fields: []types.Field{{Name: "target", Type: types.FieldTypeString}, {Name: "name", Type: types.FieldTypeString}}})
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for name, mapping := range map[string]map[string]string{"target_removed.sql": nil, "target_changed.sql": {"worker": "name"}, "target_same_mapping.sql": {"worker": "target"}} {
+		next := ctx
+		next.Entities = append([]types.Entity(nil), ctx.Entities...)
+		last := len(next.Entities) - 1
+		next.Entities[last].CleanupTargets = mapping
+		if name == "target_same_mapping.sql" {
+			next.Entities[last].Fields = append(append([]types.Field(nil), next.Entities[last].Fields...), types.Field{Name: "new_input", Type: types.FieldTypeString, Optional: true})
+		}
+		upgrades, err := generateVersions(next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range upgrades {
+			if strings.HasSuffix(file.Path, "/000002_resource_versions.sql") {
+				statement := strings.TrimSuffix(strings.TrimPrefix(string(file.Bytes()), "BEGIN;\n"), "COMMIT;\n")
+				files = append(files, gen.File{Path: "storage/" + name, Content: []byte(statement)})
+			}
+		}
 	}
 	for name, owners := range map[string][]string{"cleanup_added.sql": {"workload", "identity", "archive"}, "cleanup_removed.sql": nil} {
 		next := ctx
@@ -111,7 +134,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_targets_test.go": cleanupTargetTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

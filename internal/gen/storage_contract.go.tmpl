@@ -28,6 +28,12 @@ type CleanupWriter interface {
 	ObserveCleanupIfVersion(context.Context, string, string, int64, string, bool) error
 }
 
+// TargetCleanupWriter records one retained target observation on a deleted row.
+// Authorize both the owner and target, and commit the event in this transaction.
+type TargetCleanupWriter interface {
+ ObserveTargetCleanupIfVersion(context.Context, string, string, int64, string, string, bool) error
+}
+
 // VersionedWriter updates only a live row at the observed resource version.
 // It does not establish access rights or field ownership. Use it in the same
 // transaction as authorization and durable events. A conflict requires a new
