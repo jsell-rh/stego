@@ -2105,3 +2105,33 @@ The exact failure logs were inspected. No earlier failed job is counted as a
 pass. The new run must verify the corrections. The local test cluster and its
 PostgreSQL container were removed after testing. This turn made progress. The
 full enterprise goal remains active.
+
+The previous turn made progress. Compiler run `34391254604` passed at
+`18a3151bac6b97f1b983016f3357412cf2db0442`. The final keyed-controller variant
+run `34391200715` has passed its database, Gateway, and sandbox workload gates;
+the general acceptance job is still running. This verifies the corrected failure
+diagnostics in the real workload paths.
+
+The next extraction covers service-account recovery. The application still had
+its own timer, cursor map, worker semaphore, and goroutine lifecycle. A new
+17-record regression test proved a cursor bug in that code: eight slow provider
+calls caused the short page to restart forever, so later records received no
+turn. The test failed on the old code after 20.41 seconds. It passed with the
+new generated sweep in 13.32 seconds. Multi-page cleanup and role/expiry recovery
+also passed with the first generated build.
+
+The `controller` component now supplies `RunSweep`. It validates groups, streams,
+and complete pages before effects. It owns a fixed worker pool, a group time
+budget, cursor progress through the started prefix, and group rotation. A partial
+short page retains its cursor. Failures remain in retained source data for later
+cycles. The application supplies state groups, expiry and access filters, and
+provider actions. It no longer owns a scheduler or worker pool.
+
+A second generated regression proved that a slow first stream could starve
+history. After a pass exhausts its budget, the next pass now begins with the next
+stream. The full compiler race suite and static checks passed after this fix.
+The real application and Keycloak workflows are running on the final scheduler.
+A dispatch benchmark measured 40.2–47.8 microseconds and about 4 KB per 100 empty
+actions with eight workers. `specs/controller-sweep.md` records the limits; this
+is not an application throughput claim. Cursor progress is not an acknowledgment,
+and distributed claims and fencing remain open. The full goal remains active.

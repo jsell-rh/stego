@@ -69,3 +69,34 @@ sequence whose intermediate effects must all occur. A pause stops new queue
 takes. It cannot retract an external write already in progress. Use domain
 version checks or later repair for such writes. Distributed ownership and fencing
 remain open work.
+
+`RunSweep` owns bounded worker pools and cursor-based recovery scans. Applications
+supply named groups of streams, a page callback for each stream, and one typed
+action. The runtime validates all definitions before it calls a source. It also
+validates the whole page before it starts any action. It rejects oversized pages,
+empty continuation pages, invalid or duplicate cursors, and an immediate repeat
+of the supplied cursor.
+
+A group shares one time budget. Groups rotate after each pass. Streams initially
+use their declared order. If a stream uses the remaining budget, the next pass
+starts with the next stream. Thus a slow current-state scan cannot indefinitely
+prevent retained-history work. A full pass restores the declared order.
+
+Each page uses a fixed worker pool. Workers honor cancellation and join before
+the next page or group. The cursor advances only through the contiguous prefix
+whose actions started. A short page does not reset a partial cursor. A complete
+page with no continuation resets the cycle, so failed retained work receives a
+later turn. Callback failure does not prove that an external effect did not
+occur; actions must tolerate repeated execution.
+
+The runtime holds one page and bounded cursor state. Configuration limits the
+worker count, page size, group and stream count, cycle page count, time budget,
+and pass interval. Cursors are opaque UTF-8 strings of at most 1,024 bytes. The
+source owns their ordering and must retain failed work. The runtime does not
+infer database collation or use cursor progress as an acknowledgment. The page
+limit bounds a faulty source that continues to return new cursor values.
+
+Cursor state is local to the process. Restart begins each cycle again. A source
+must bound each item and return when its context ends. This runtime does not
+provide durable claims, distributed exclusion, exactly-once effects, or a global
+snapshot across mutable pages. It is a repair mechanism over retained state.
