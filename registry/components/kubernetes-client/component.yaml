@@ -1,0 +1,9 @@
+kind: component
+name: kubernetes-client
+version: 1.0.0
+output_namespace: kubernetes
+requires:
+  - application-http
+provides:
+  - kubernetes-resources
+slots: []
