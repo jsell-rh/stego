@@ -504,3 +504,30 @@ The full local variant race suite passed with PostgreSQL and Keycloak required.
 The acceptance package completed in 96.062 seconds. Variant commit `8dd319a`
 regenerated from the pinned compiler without output changes or drift. CI now
 requires the real-provider test through the same gate command.
+
+The next real-provider failure test reproduced a revocation defect. A TLS proxy
+held an accepted Keycloak enable request. The test terminated the PostgreSQL
+connection that held the Gateway lock, then revoked through the generated REST
+process. After revocation returned success, the test stopped that process and
+released the old request. Keycloak returned HTTP 204 and issued a new token for
+the revoked account. A database transaction cannot undo accepted external work.
+
+Terminal revocation now uses the existing Delete RPC and removes the Keycloak
+identity. The variant retains account metadata, terminal status, and audit
+history until a separate visible-resource deletion. The same delayed update now
+returns HTTP 404, and token issuance remains denied. This is a domain lifecycle
+correction; no compiler change or new Hypershell-specific STEGO abstraction was
+required. The domain provider contract now calls the operation `Revoke`.
+
+The user was asked whether to remove the Keycloak identity or retain a disabled
+client. Removal is the current design assumption, selected to satisfy permanent
+revocation. It differs from the reference's provider retention behavior. Existing
+access tokens can still remain valid until their five-minute expiry. Late client
+creation after cleanup, orphan discovery, other external failure orderings,
+production capacity, and the remaining enterprise and application scope stay open.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required;
+the acceptance package completed in 126.135 seconds. The extended failure test
+also passed after owner-grant restoration, restart, repeated revocation, and
+visible-record deletion with audit retention. Pinned regeneration had no output
+changes or drift. CI requires this test with the other application checks.
