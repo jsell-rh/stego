@@ -1677,3 +1677,26 @@ The test took 5.782 seconds. The reference CLI is a compatibility probe; the
 complete STEGO client port remains open. History measurements and the full
 variant checks are the next verification steps. The full enterprise goal remains
 active.
+
+Compiler commit `bfc113b72015bc441583363e66138856d4e03a4a` is on remote main.
+Its hosted run `34366140046` passed. The variant uses that compiler. The full
+local variant race suite passed with PostgreSQL and Keycloak required, including
+the reference CLI probe. Its acceptance package took 437.363 seconds.
+
+A contract check then found that OpenAPI permits the degraded status filter,
+while the reference handler omits it. The new contract-driven test reproduced
+HTTP 400. The variant now accepts every OpenAPI status. The final discovery
+workflow passed in 5.41 seconds through HTTP and the reference CLI. Static
+checks and post-commit regeneration passed with no changes or drift.
+
+A local benchmark queried 5,000 revoked account records, including 1,000 in the
+selected Gateway. The status and literal search matched 100 rows in that
+Gateway. A 20-row page averaged 7.19 milliseconds across 100 calls, with 111,362
+bytes and 1,875 allocations per call. This includes domain access checks and
+PostgreSQL count and paging. It excludes transport and concurrent load and does
+not establish production capacity or large-history retention policy.
+
+Variant commit `f2ad276990702db535312493d9c28505106b2f4c` is on remote main.
+Hosted run `34367135235` is queued. The task PostgreSQL container was removed.
+The next verification step is the final remote run. The complete STEGO client
+port and wider enterprise goal remain open.
