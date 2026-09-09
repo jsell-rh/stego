@@ -803,3 +803,58 @@ database transaction and can lag it. Immediate revocation, multiple-controller
 coordination, device login, workload deployment, full user and role APIs, API key
 rotation, production capacity, and the other enterprise requirements remain part
 of the active goal.
+
+The grant discovery workflow now uses REST lists and the reference gRPC
+RoleBinding list and watch service. Variant commits `e4d7227` and `277b590`
+contain the generated contracts and the application implementation. The compiler
+pin is `0839f9da65cbfff1a0aa328da663c145fc1682a5`.
+
+The application requires a union of two access paths: the caller's own grants
+and grants on Gateways that the caller owns. Both require a live Gateway. The
+previous storage contract could not express that union before count and paging.
+STEGO now supplies bounded `RowFilter` trees and related filters through declared
+keys. Parent references and references to the same parent are supported. All
+identifiers come from the schema; values remain SQL parameters. Empty or
+ambiguous conditions, invalid joins, and excessive trees fail. Record and
+Membership tests prove these rules without Hypershell entities. Full compiler
+checks and hosted CI passed.
+
+The first application watch check exposed a second gap. Gateway creation
+committed its owner grant but emitted only the Gateway event. It now commits
+both creation events with the Gateway and owner grant. Failure of either event
+write rolls back all of them. The generated runtime delivers the owner-grant
+event through the outbox and the grant watch stream.
+
+Grant lists apply current access before search, count, and paging. Role and
+profile details are read in batches in the same transaction. Missing roles fail
+the complete response. The watch subscribes before its active replay and checks
+current access before each send. It checks stored deletion state before sending
+a delete event. Restart, false notices, failed writes, removed grants, filtered
+pages, and denied reads are covered through the generated runtime.
+
+The unpaged gRPC list and initial replay have a 10,000-grant limit. Tests prove
+that 10,000 grants return in full and 10,001 fail without partial output. A
+separate gRPC test rejects a response above 3 MiB and then returns a smaller
+filtered response. REST paging can read the tail of a larger inventory. These
+are resource bounds, not production capacity claims. Replay restores active
+state; it does not recover missed deletions. The identity controller still uses
+retained grant references for deletion recovery.
+
+The full local variant race suite passed with PostgreSQL and Keycloak required.
+The acceptance package took 286.550 seconds. Final descriptor, schema, and row
+boundary checks passed in 13.703 seconds. A separate byte-limit check passed in
+5.655 seconds. Dependency verification and pinned regeneration passed. The
+variant records the evidence in `acceptance/grant-discovery.md`.
+
+A separate 100-call benchmark read two visible grants among 10,000 unrelated
+grants. It averaged 4.271 ms, 92,691 bytes, and 1,129 allocations per call. It used
+Go 1.26.8, PostgreSQL 18.6, and an Intel Core Ultra 9 185H. It includes access,
+filtered count, database reads, and role and user details. It excludes transport,
+concurrent load, and watch replay.
+
+The active goal remains open. Full Users and Roles APIs, global grants, sparse
+fields, larger REST pages, device login, workload deployment, immediate token
+revocation, distributed coordination, key rotation, production capacity, and the
+remaining enterprise requirements still need work. The current grant inventory
+uses the existing grantee, Gateway-owner, and configured control-plane rules.
+A platform-admin token alone does not grant access to it.
