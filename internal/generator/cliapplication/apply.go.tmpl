@@ -62,7 +62,7 @@ func prepareApply(app Application,documents []map[string]json.RawMessage)([]appl
   for key,value:=range body{
    valid:=false;for _,set:=range [][]Field{r.CreateFields,r.PatchFields}{for _,f:=range set{if f.Key==key&&fieldValue(f,value){valid=true}}};if !valid{return nil,errors.New("invalid apply field")}
   }
-  key:=kind+"\x00name\x00"+name;if id!=""{key=kind+"\x00id\x00"+id};if seen[key]{return nil,errors.New("duplicate apply resource")};seen[key]=true
+  key:=r.Path+"\x00name\x00"+name;if id!=""{key=r.Path+"\x00id\x00"+id};if seen[key]{return nil,errors.New("duplicate apply resource")};seen[key]=true
   plans=append(plans,applyPlan{resource:r,name:name,id:id,body:body})
  }
  return plans,nil
@@ -108,14 +108,14 @@ func runApply(ctx context.Context,app Application,args []string,output io.Writer
   }
   response,err:=transport.Do(ctx,"GET",route,headers,nil);if err!=nil{return err}
   if response.StatusCode!=200{return fmt.Errorf("apply lookup failed (HTTP %d); no resources were written",response.StatusCode)}
-  object,err:=object(response.Body);if err!=nil{return errors.New("invalid apply lookup response")}
+  lookup,err:=object(response.Body);if err!=nil{return errors.New("invalid apply lookup response")}
   if p.id==""{
    var total int64;var items []json.RawMessage
-   if json.Unmarshal(object["total"],&total)!=nil||total<0||json.Unmarshal(object["items"],&items)!=nil||bytes.Equal(bytes.TrimSpace(object["items"]),[]byte("null")){return errors.New("invalid apply list response")}
+   if bytes.Equal(bytes.TrimSpace(lookup["total"]),[]byte("null"))||json.Unmarshal(lookup["total"],&total)!=nil||total<0||json.Unmarshal(lookup["items"],&items)!=nil||bytes.Equal(bytes.TrimSpace(lookup["items"]),[]byte("null")){return errors.New("invalid apply list response")}
    if total>1||len(items)>1{return errors.New("apply name is ambiguous; select metadata.id")}
    if total!=int64(len(items)){return errors.New("inconsistent apply list response")}
    if total==1{var row map[string]json.RawMessage;if !validJSON(items[0])||json.Unmarshal(items[0],&row)!=nil{return errors.New("invalid apply resource response")};var name string;if json.Unmarshal(row["name"],&name)!=nil||name!=p.name||json.Unmarshal(row["id"],&p.id)!=nil||!identifier.MatchString(p.id){return errors.New("invalid apply resource identity")}}
-  }else{var id string;if json.Unmarshal(object["id"],&id)!=nil||id!=p.id{return errors.New("invalid apply resource identity")}}
+  }else{var id string;if json.Unmarshal(lookup["id"],&id)!=nil||id!=p.id{return errors.New("invalid apply resource identity")}}
   p.path=p.resource.Path;p.method="POST";fields:=p.resource.CreateFields
   if p.id!=""{p.method="PATCH";p.path+="/"+url.PathEscape(p.id);fields=p.resource.PatchFields;key:=p.path;if targets[key]{return errors.New("multiple apply documents select the same resource")};targets[key]=true}
   if err:=applyFields(fields,p.body,true);err!=nil{return err}

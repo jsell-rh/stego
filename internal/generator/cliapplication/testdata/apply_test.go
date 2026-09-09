@@ -56,6 +56,10 @@ func applySetup(t *testing.T) *applyFixture {
 				fmt.Fprint(w, `{"private":"do-not-print"}`)
 				return
 			}
+			if f.mode == "null-total" {
+				fmt.Fprint(w, `{"items":[],"total":null}`)
+				return
+			}
 			if f.mode == "invalid-list" {
 				fmt.Fprint(w, `{"items":null,"total":0}`)
 				return
@@ -369,5 +373,23 @@ func TestApplyDefinitionAndOutputFailures(t *testing.T) {
 	results, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json")
 	if err == nil || len(results) != 1 || results[0].Status != "unknown" || f.writes != 1 {
 		t.Fatal("invalid write response allowed success or retry", results, err)
+	}
+}
+
+func TestApplyAliasesCannotDuplicateTarget(t *testing.T) {
+	f := applySetup(t)
+	app := applyDefinition()
+	app.Resources[1].Path = app.Resources[0].Path
+	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "same", "{}")+"---\n"+manifest("Widget", "same", "{}"))
+	if _, _, err := runApplyTest(t, app, "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+		t.Fatal("aliased kinds selected the same create target")
+	}
+}
+func TestApplyRejectsNullListCount(t *testing.T) {
+	f := applySetup(t)
+	f.mode = "null-total"
+	path := applyFile(t, filepath.Join(f.directory, "input.yaml"), manifest("Record", "example", "{}"))
+	if _, _, err := runApplyTest(t, applyDefinition(), "apply", "-f", path, "-o", "json"); err == nil || f.writes != 0 {
+		t.Fatal("null list count caused a create")
 	}
 }

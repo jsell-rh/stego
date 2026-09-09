@@ -1973,3 +1973,25 @@ compiler race suite and static checks passed. Name lookup is not an atomic
 server upsert, and a batch is not one transaction. These limits are explicit in
 `specs/cli-apply.md`. Kustomize rendering and remaining client behavior remain
 open. The Hypershell acceptance workflow follows. The full goal remains active.
+
+Compiler run `34388034265` passed at
+`cc4c3527e4394f7a1eddc32db8887ec9c4604767`. Hypershell now pins that revision
+and declares apply contracts for its five current resource kinds. Its focused
+race workflow passed in 8.02 seconds. It starts from empty catalogs, creates a
+Gateway and owner grant, patches through owner access, checks both database
+modes, rejects ambiguous names, and uses exact IDs. It proves no-contact dry
+runs, preflight before resource writes, event rollback, partial failure with a
+nonzero exit status, event delivery, gRPC reads, and restart. Field checks passed.
+The full application suite and workload gates will run in CI. Role and grant
+apply mappings, Kustomize, the remaining client ports, and production capacity
+remain open. The full enterprise goal remains active.
+
+Review added two executable compiler regressions. Two kinds could map to the
+same collection and create the same target twice. A null list count could also
+select creation. Both tests reproduced the problem. Duplicate input identity
+now uses the collection path, and null counts are rejected before writes. The
+full compiler race suite is running again before the final application pin.
+
+The full compiler race suite passed after both regression fixes. The generated
+CLI suite includes the two failing cases. The application will regenerate from
+the follow-up compiler commit and rerun its focused workflow before publication.

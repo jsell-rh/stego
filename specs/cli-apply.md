@@ -95,3 +95,8 @@ later documents, preflight failure, partial failure, unknown write results,
 private error text, file protection, directory order, input limits, stdin, and
 cancellation. The complete compiler race suite and static checks passed for this
 implementation. Application acceptance remains a separate gate.
+
+Two added regression tests reproduced a duplicate target through kind aliases
+and a null list count treated as zero. Target checks now use the collection
+path as well as the selected name or ID. A null count is rejected. Both errors
+must stop apply before resource writes.
