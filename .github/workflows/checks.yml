@@ -34,6 +34,7 @@ jobs:
           go-version: '1.26.8'
           cache: true
       - run: go mod verify
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
       - run: go test -race -count=1 -mod=readonly ./...
         env:
           STEGO_REQUIRE_POSTGRES: '1'

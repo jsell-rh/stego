@@ -56,6 +56,13 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 	if hasDB && !gormDB && semver.Compare("v5.11.0", requires["github.com/jackc/pgx/v5"]) > 0 {
 		requires["github.com/jackc/pgx/v5"] = "v5.11.0"
 	}
+	// These runtime dependencies can select an affected unicode/norm version.
+	// Keep a direct minimum so module resolution cannot restore GO-2026-5970.
+	for _, dependency := range []string{"github.com/jackc/pgx/v5", "gorm.io/gorm", "google.golang.org/grpc", "golang.org/x/text"} {
+		if requires[dependency] != "" && semver.Compare(requires["golang.org/x/text"], "v0.40.0") < 0 {
+			requires["golang.org/x/text"] = "v0.40.0"
+		}
+	}
 	return requires, nil
 }
 

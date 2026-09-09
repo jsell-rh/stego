@@ -165,3 +165,27 @@ func TestReconcileRetainsApplicationModuleAcrossApplies(t *testing.T) {
 		t.Fatal("go.mod is still tracked as generated output")
 	}
 }
+
+func TestRuntimeDependenciesRequirePatchedUnicodeNormalization(t *testing.T) {
+	for _, dependency := range []struct{ path, version string }{
+		{"github.com/jackc/pgx/v5", "v5.11.0"}, {"gorm.io/gorm", "v1.25.12"},
+		{"google.golang.org/grpc", "v1.82.1"}, {"golang.org/x/text", "v0.36.0"},
+	} {
+		for _, newer := range []bool{false, true} {
+			requirements := map[string]string{dependency.path: dependency.version}
+			want := "v0.40.0"
+			if newer {
+				requirements["golang.org/x/text"] = "v0.41.0"
+				want = "v0.41.0"
+			}
+			result, err := moduleRequirements([]ComponentWiring{{Name: "runtime", Wiring: &gen.Wiring{GoModRequires: requirements}}})
+			if err != nil || result["golang.org/x/text"] != want {
+				t.Fatalf("runtime minimum for %s: %v %v", dependency.path, result, err)
+			}
+		}
+	}
+	result, err := moduleRequirements([]ComponentWiring{{Name: "independent", Wiring: &gen.Wiring{GoModRequires: map[string]string{"example.com/module": "v1.0.0"}}}})
+	if err != nil || result["golang.org/x/text"] != "" {
+		t.Fatal("unrelated service acquired a runtime dependency", result, err)
+	}
+}
