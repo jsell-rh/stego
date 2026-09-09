@@ -1735,3 +1735,22 @@ rejects traversal, encoded separators, alternate origins, queries, and fragments
 An actual HTTPS request verifies a dotted API path. Focused generated CLI race
 tests passed. The full variant run is still active on the previous pin; repeat
 the CLI gate after the final pin. The full enterprise goal remains active.
+
+The complete local variant race suite passed with PostgreSQL and Keycloak
+required. Its acceptance package took 456.425 seconds. Compiler run
+`34370817903` passed at `1810c7c91a5a29c41c7ad25fad97e1a9a4a06795`.
+The variant now uses that compiler. Its final CLI workflow passed in 4.95
+seconds, and the request-field check passed. This duration includes setup and
+is not a latency or capacity measurement.
+
+The final rollback test first completes identity synchronization, then rejects
+only the Gateway creation event. It verifies rollback of the placement database,
+Gateway, and owner grant. This targets the resource transaction directly; the
+earlier general event rejection could fail during identity preparation.
+
+Variant commit `a75075775c2861e4d4a88496f602717dd997a2e5` is on remote main.
+Post-commit regeneration passed without changes or drift. Static checks passed.
+Hosted run `34371164637` is in progress. The task PostgreSQL container was
+removed. Browser and device login, token refresh, remaining CLI commands,
+protected credential output, other client ports, and production checks remain
+open. The complete enterprise goal remains active.
