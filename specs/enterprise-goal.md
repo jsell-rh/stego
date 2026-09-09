@@ -2262,3 +2262,34 @@ database deletion replay, and service-account repair do not use that total.
 Use application and generated-storage tests to establish a cursor contract that
 preserves filters and access rules, avoids unused counts, and removes repeated
 query construction from application sources. Measure the resulting queries.
+
+The user's PR 200 guidance changed the next action before cursor-storage work
+began. The review used PR head `a5dbb5c427d461b3988d371d20a02cf5f46088d0`, all
+seven changed specifications, and the review discussion. The new
+`specs/reconciliation-contract-review.md` maps all eight requirement groups to
+current code and tests. It separates restart-safe retained deletion data from
+finalization and records missing version checks, status ownership, per-resource
+retry coverage, cross-process exclusion, and metrics.
+
+A PostgreSQL probe proved a stale-status defect at variant
+`baacc3ccc242d38eb21ba6bfba0e312e908a21b5`. It read a Gateway, changed desired DNS
+through the owner update path, then published Healthy through the control-plane
+status path using the earlier observation. The API accepted the old success for
+the changed desired state. The probe failed its expected-conflict assertion in
+0.24 seconds. Its temporary test file was removed after execution. This result
+is not an implemented fix and is not counted as a passing check.
+
+The implementation order now starts with generated identity, revision,
+generation, conditional writes, and status ownership. The application must then
+prove stale-result rejection through real transports and provider work. Durable
+cleanup completion, keyed scheduling across resources, fencing, and observability
+follow. Unused-count optimization remains open but has lower priority. Common
+mechanisms remain STEGO responsibilities. Hypershell retains domain policies and
+provider rules.
+
+The user was asked whether public reads should retain a Deleting resource until
+cleanup finishes, or preserve immediate 404 with an operator view. Visible
+pending deletion is recommended. The answer was still pending at this review;
+version-check work does not depend on it. No Playwright command was used. The
+probe PostgreSQL container was removed after the probe stopped. The full goal
+remains active, and reconciliation is not claimed complete.

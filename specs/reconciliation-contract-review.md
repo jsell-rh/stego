@@ -1,0 +1,99 @@
+This review applies the guidance in [Hypershell PR 200](https://github.com/openshift-online/hypershell/pull/200)
+to STEGO and its application test bed. The reviewed PR head is
+`a5dbb5c427d461b3988d371d20a02cf5f46088d0`. The review includes all seven changed
+specifications and the review discussion. The PR defines intended behavior; it
+does not provide runtime proof.
+
+The inspected STEGO revision is `ed4d411e6cbf33e7e9e4613e5947c212b3b3dc30`.
+The inspected variant is `baacc3ccc242d38eb21ba6bfba0e312e908a21b5`, with compiler
+pin `639b95bb49bc9020b849f5f9ee6180a7b1a1ee09`. This is a gap review, not a claim
+that the reconciliation contract is complete.
+
+| Required property | Current evidence | Remaining gap |
+| --- | --- | --- |
+| Current state, initial discovery, and periodic repair | Gateway actions read privileged current state. Generated controllers open a watch before scanning. Retained Gateway IDs and database rows recover missed deletion events. Restart and offline-deletion workflows passed locally. | Database deletion actions still use retained event data directly. They need a common authoritative deletion-state contract. |
+| Repeat-safe actions and repair after drift | Generated Kubernetes writes check ownership and object identity. Repeated stable database reconciliations avoid changes. Gateway workload tests cover Pod and database restart, namespace replacement, and recovery. Healthy phase does not bypass `Ensure`. | There is no complete failure-injection matrix for stopping after every external write. External providers need explicit adoption and repeat rules. |
+| Per-resource serialization and bounded retry | `Run` serializes a whole controller. `RunKeyed` combines repeated keys, preserves changes during actions, and applies capped exponential delays. `RunSweep` bounds worker count and rotates recovery groups. | Gateway and database controllers still use FIFO scheduling and scan-based retries. One slow action delays unrelated keys until its timeout. There is no cross-process leader or fencing contract. |
+| Immutable identity, versions, and conditional commits | Resource IDs are assigned at creation. Kubernetes mutations use observed UID and resource-version preconditions. Database transactions prevent conflicting writes inside one transaction. | API resources lack a common revision, desired generation, and observed-generation contract. An earlier observation can publish status after a later desired-state change. Identity must also remain safe across deletion, restore, and any future reuse policy. |
+| Durable cleanup completion | Soft-deleted rows retain cleanup data. Recovery APIs require a configured control-plane subject. Cleanup failures survive restart and later scans. | Retention is not finalization. There is no durable set of pending cleanup owners, conditional completion, or common pending-deletion status. Public reads return 404 before all external cleanup ends. |
+| Destructive operations require positive evidence | Gateway cleanup requires explicit deleted state. Generated Kubernetes deletion checks owner labels, observed UID, and resource version. Denied reads and foreign namespaces have tests. | All destructive adapters need the same durable intent and identity checks. Labels require a trusted permission boundary; a matching name alone must never permit adoption. A stale action can still be in flight when deletion starts. |
+| Status describes current observations and has distinct owners | Domain controllers check provider readiness and avoid some unchanged status writes. Count updates protect current cluster assignment. Patches preserve unrelated stored fields inside their transaction. | Public and controller Gateway writes share mutable phase/status fields. Status ownership is not compiler-enforced. Stale success, independent controller updates, and generation-specific failure conditions need tests. |
+| Bounded calls and useful diagnostics | Generated clients bound requests and response sizes. Runtime cancellation joins workers. Protocol failure summaries omit private remote messages. | Controller notices do not supply the full queue-depth, duration, retry, and pending-cleanup metrics. Operators cannot yet identify every unconverged resource from durable status. |
+
+The main local evidence is in the generated controller tests under
+[`internal/generator/controller/testdata`](../internal/generator/controller/testdata),
+the generated Kubernetes client, and the variant's Gateway, database, identity,
+count, and service-account acceptance workflows. A passing queue test does not
+prove correct application status or finalization.
+
+The existing `TestConcurrentChangeCannotBeOverwrittenByGatewayPatch` checks a
+write that races another write inside a serializable transaction. It does not
+check the interval between a controller's external observation and its later
+status request. A temporary PostgreSQL probe tested that interval on 2026-09-09:
+
+1. Create a Gateway and read its privileged identity state.
+2. Change its desired external DNS through the owner's normal update path.
+3. Submit `Healthy` and `Running` through `UpdateControlPlane`, using the earlier
+   observation.
+4. Require a conflict instead of accepting success for the changed resource.
+
+The probe failed in 0.24 seconds: the stored resource had the new DNS and the
+old pass's `Healthy` status. The status API carries no expected revision or
+generation. Starting a serializable transaction for that later request cannot
+establish which resource version the controller observed. The temporary test was
+removed after execution; it is not a passing acceptance test. The next
+implementation must add this case as a permanent regression and make it pass.
+
+Use the following implementation order. It replaces the prior plan to optimize
+unused recovery counts first.
+
+1. Define a generated resource-lifecycle storage contract. Separate immutable
+   identity, per-write revision, desired generation, and deletion intent. Define
+   which declared fields affect generation. Apply revision checks and status
+   ownership in the same transaction as the write and event. Reject stale
+   commits and return a conflict that requires a new observation. Do not use a
+   timestamp or a client-supplied higher generation as proof of freshness.
+2. Connect Gateway and database observations to conditional status operations.
+   Test a desired-state change during provider work, independent status writers,
+   deletion during an active pass, and restart. Required checks must cross REST,
+   gRPC, storage, and generated runtime boundaries. An older successful pass must
+   not mark a newer desired state healthy.
+3. Add durable cleanup ownership and conditional completion. Keep cleanup data
+   until required effects are confirmed absent. Do not make early public
+   disappearance the proof of cleanup. Preserve repair data for late external
+   effects; the existing late Keycloak creation tests must continue to pass.
+4. Extend shared keyed scheduling for independent resource progress and bounded
+   concurrency. Preserve one active action for each controller/resource identity,
+   keep changes that arrive during work, and give deletion priority over obsolete
+   desired work. Add cross-process ownership with fencing before permitting
+   multiple active writers. A replica count of one is not a lease.
+5. Generate bounded metrics and durable failure conditions. Cover queue depth,
+   action time, retry counts, and age of pending cleanup. Avoid credentials,
+   remote error bodies, and per-resource IDs in unbounded metric labels. Keep
+   resource-specific diagnostic detail in access-controlled status or logs.
+6. Complete common storage cursor adapters and remove unused counts. Preserve
+   filters, deletion visibility, access checks, and database ordering. Measure
+   queries and backlogs after the correctness contract is in place.
+
+Common lifecycle storage, conditional writes, scheduling, metrics, and fencing
+belong in STEGO. Hypershell supplies desired fields, owned conditions, provider
+definitions, access policy, and cleanup dependencies. Do not add another local
+controller framework or a Hypershell-specific primitive to the compiler.
+
+The PR discussion identifies differences with other upstream proposals. This
+variant will continue periodic observation and drift repair after a resource
+reports healthy. Generation equality alone must not disable observation. Events
+can carry snapshots, but snapshots do not replace current authoritative state.
+Use one version vocabulary in STEGO rather than copying incompatible field names
+from several proposals. These are local design choices, not claims that upstream
+has resolved its open discussions.
+
+One client-visible decision is pending: retain an authorized public read with a
+Deleting state until completion, or retain immediate 404 with a separate operator
+view. The recommended choice is visible pending deletion. Either choice still
+requires durable cleanup tracking and must not permit resurrection. The user was
+asked for this preference. Resource-version work does not depend on that answer.
+
+Keep the existing no-exactly-once and no-cross-system-transaction limits explicit.
+Eventual repair depends on stable desired state and responsive dependencies.
+Local success does not establish a production recovery time or capacity limit.

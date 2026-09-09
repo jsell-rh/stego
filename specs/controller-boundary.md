@@ -2,6 +2,12 @@ The controller mechanism belongs in STEGO. The application supplies the rules
 that determine the desired state and the permitted effects. A generated transport
 client alone does not establish this boundary.
 
+The [PR 200 contract review](reconciliation-contract-review.md) expands this
+boundary to conditional API writes, generations, durable finalization, status
+ownership, and controller metrics. Its implementation order takes precedence
+over the earlier focus on scan efficiency. A scheduler alone cannot provide
+these guarantees.
+
 The first correction adds the `controller` component. Hypershell's Gateway
 identity, Gateway workload, and managed-database controllers use it. Their
 repeated queue, timer, reconnect, scan scheduling, and worker shutdown code was
