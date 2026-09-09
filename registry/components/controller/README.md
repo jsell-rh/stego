@@ -42,3 +42,30 @@ The generated tests use resource IDs and typed records. They exercise queue
 limits, action deadlines, watch setup deadlines, source failure, reconnect,
 retained recovery, denied access, serial actions, slow scans, and cancellation.
 These tests are correctness checks. They do not establish production capacity.
+
+`RunKeyed` supplies a second source contract for current-state reconciliation.
+`KeyedSource` connects an observer and a retained-state scan. The observer emits
+bounded string keys through `KeySink.Add`. It calls `SetReady(false)` before an
+incomplete baseline and `SetReady(true)` after a complete replacement. The
+runtime starts paused. The observer owns its transport reconnects; an observer
+error stops the controller and joins its workers.
+
+The keyed runtime owns duplicate suppression, delayed retries, wakeups, periodic
+scans, operation deadlines, and one serial writer. Capacity includes queued,
+delayed, and active keys. Keys contain 1 to 1,024 UTF-8 bytes. A change during an
+active action schedules another pass. Repeated changes cannot bypass a failed
+key's delay. Retry delay doubles from `RetryMin` to `RetryMax`; a successful pass
+resets it. Due retries precede newer work, so new events cannot starve them.
+
+A heap orders pending work by due time and insertion order. There is at most one
+heap entry for each pending key and no timer for each key. The worker waits for a
+change or the next due key. It does not poll the whole queue. The source scan has
+separate bounded retry delays. Lifecycle notices are serialized; callbacks must
+return promptly and apply a policy before they log private error data.
+
+The action reads current state for each key. A key is an invalidation hint, not a
+stored payload. Do not use keyed coalescing for an ordered command log or a
+sequence whose intermediate effects must all occur. A pause stops new queue
+takes. It cannot retract an external write already in progress. Use domain
+version checks or later repair for such writes. Distributed ownership and fencing
+remain open work.

@@ -2049,3 +2049,33 @@ The boundary review also found a timer, cursor map, and worker pool in
 account expiry, creator access, and credential rules belong in Hypershell.
 `specs/controller-boundary.md` records the ownership split and next workflow
 checks. This turn made progress. The complete enterprise goal remains active.
+
+The previous turn made progress. Compiler run `34389875945` passed at
+`8445a0aff7151ab6dad53ec4de81315c283f24d2`. The full controller application
+run `34389668334` then exposed a regression: the migration removed specific
+failure diagnostics. The database and Gateway workload tests still retried, but
+could no longer observe the denied DELETE or failed database cleanup. The
+acceptance checks were not weakened. Compiler commit
+`66a58a6eb00f24c39a68e187f621128c00ed0a61` adds tested, bounded protocol
+summaries. They include the known Kubernetes method and status, or the gRPC code,
+and omit remote messages, response bodies, URLs, and credentials. The application
+uses these summaries in its controller notices.
+
+The next common mechanism is keyed scheduling. The `controller` component now
+provides `RunKeyed`, a baseline gate, duplicate suppression, one serial writer,
+operation deadlines, scan scheduling, and capped exponential retries. Capacity
+includes queued, delayed, and active keys. A change during a write is retained;
+a new event cannot bypass a failed key's delay. Due retries precede newer work.
+The Pod count controller now supplies cache changes and domain actions without a
+polling timer, retry map, or worker lifecycle. Its changed-namespace set describes
+one cache update; STEGO owns pending work and retries.
+
+The generated keyed tests and domain count tests passed. The full compiler race
+suite and static checks passed. A final scan-retry reporting test and registry
+checks also passed. The local benchmark at 10,000 keys measured 369.1–391.2 ns and
+112 allocated bytes per cycle. `specs/controller-keyed.md` states the method and
+limits; these values are not production capacity evidence. The real sandbox
+workflow is running with the generated queue and corrected failure summaries.
+Pinned regeneration and remote application gates follow. The full goal remains
+active; worker pools, shared recovery adapters, and distributed fencing remain
+open.
