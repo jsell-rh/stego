@@ -858,3 +858,30 @@ revocation, distributed coordination, key rotation, production capacity, and the
 remaining enterprise requirements still need work. The current grant inventory
 uses the existing grantee, Gateway-owner, and configured control-plane rules.
 A platform-admin token alone does not grant access to it.
+
+Hosted variant CI exposed a timeout in the new 10,000-grant boundary check.
+Variant commit `71e2950` removes repeated root scans from that snapshot. It now
+counts and reads the bounded grant set once, caches role and user details within
+the transaction, and selects only the required display fields. The transaction
+deadline is unchanged.
+
+Database inspection also found stale statistics after the fixture's bulk load.
+PostgreSQL estimated three live users instead of 10,001 and chose the deletion
+index for repeated detail reads. The bulk fixture now runs `ANALYZE` before
+response-limit checks. A diagnostic run measured user-detail reads at 3.94
+seconds before the statistics update and 0.17 seconds after it. Application
+requests do not run `ANALYZE`.
+
+With unchanged stale statistics, one local snapshot sample fell from 6.48 seconds
+to 4.08 seconds after the code change. With current statistics, ten final
+snapshots of 10,000 grants averaged 316.48 ms, 35,755,411 bytes, and 377,492
+allocations per call. This used `GOMAXPROCS=2` and the race detector on the same
+local environment. It excludes transport and concurrent load. The final small
+page averaged 4.095 ms, 91,536 bytes, and 1,091 allocations across 100 calls
+without the race detector. These are test measurements, not capacity guarantees.
+
+The final focused race checks passed with two Go processors in 10.301 seconds.
+They retain the 10,000-row success boundary, 10,001-row refusal, gRPC byte limit,
+current access, contract shapes, outbox delivery, and restart checks. The failed
+hosted run was not restarted. The fix starts a new full CI run on its own commit.
+The broader goal and its remaining scope are unchanged.
