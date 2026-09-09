@@ -1286,3 +1286,43 @@ passed with no changes or drift. Hosted variant run `34313469490` is queued;
 its final result must be checked in the next goal turn. The test bed records
 configuration, measured results, security rules, and limits in
 `acceptance/database-workflow.md`.
+
+The user reaffirmed the five-part Gateway acceptance gate. The current variant
+already has generated-process tests for creation, atomic owner grants, access
+filtering and denial, event delivery, and REST/gRPC restart behavior. Keep this
+gate as the basis for application claims. Its broker is a mutual-TLS Kafka
+protocol fixture. It does not prove a production Kafka deployment or an actual
+OpenShell Gateway workload. Hosted variant run `34313469490` passed both the
+acceptance and database workflow jobs. Compiler journal run `34313489049` passed.
+
+Compiler commit `e6b4d6ceb198c89c9ad4eaedb486a1b2e81e7037` completes the pending
+Kubernetes client extraction from the database workflow. It is optional and has
+no Hypershell types. The generated HTTP transport supplies TLS, deadlines, body
+limits, and connection limits. The resource client supplies ownership checks,
+UID and resource-version preconditions, and completion checks for deletion.
+Hypershell retains placement, resource definitions, and readiness rules.
+
+The review found that float64 JSON decoding could make different int64 values
+compare equal. The client now preserves exact JSON numbers. Its independent
+Widget test checks integer precision, caller input preservation, creation,
+unchanged resources, updates, deletion, denied requests, ownership failures,
+conflicts, invalid responses, and token rotation. The complete compiler race
+suite passed with PostgreSQL required. The compiler commit is on remote main.
+
+Variant commit `cbfce8e025145900ea00bdf47ecaeef8f707116b` pins this compiler and
+uses the generated client. The real Kubernetes database workflow passed in
+69.77 seconds; deletion replay passed in 2.93 seconds. Five stable reconciliations
+took 75.8 ms without a Deployment change. Both repository vulnerability scans
+reported no known vulnerabilities. Hosted compiler run `34314041752` passed.
+
+The complete local `scripts/check-gateway.sh` gate passed on this variant commit.
+It required PostgreSQL and Keycloak and enabled race detection. Pinned generation
+had no changes or drift; the acceptance package took 321.869 seconds. All other
+packages passed or had no tests. This verifies the requested five-part Gateway
+API gate on the current implementation. The compiler and variant code commits
+are on remote main. The actual Gateway workload and the full enterprise goal
+remain open. Hosted variant run `34314163495` passed both its full acceptance
+job and its database workflow job. These results close the current gate review.
+The acceptance report records the exact compiler and variant code revisions,
+commands, results, and limits. Further infrastructure work must follow failures
+in complete application workflows.
