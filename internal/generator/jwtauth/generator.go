@@ -20,6 +20,9 @@ var middlewareTemplate string
 //go:embed jwks.go.tmpl
 var jwksTemplate string
 
+//go:embed grants.go.tmpl
+var grantsTemplate string
+
 // Generator produces the jwt-auth component.
 type Generator struct{}
 
@@ -87,6 +90,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, gen.File{Path: path.Join(ns, "jwks.go"), Content: keySource})
+	grants, err := template.New("grants").Parse(grantsTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	buf.Reset()
+	if err := grants.Execute(&buf, data); err != nil {
+		return nil, nil, err
+	}
+	grantSource, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, gen.File{Path: path.Join(ns, "grants.go"), Content: grantSource})
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}

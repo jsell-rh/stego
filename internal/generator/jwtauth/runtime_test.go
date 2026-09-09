@@ -33,6 +33,13 @@ func TestGeneratedAuthenticationRuntime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "auth/auth_test.go"), tests, 0644); err != nil {
 		t.Fatal(err)
 	}
+	grants, err := os.ReadFile("testdata/grants_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "auth/grants_test.go"), grants, 0644); err != nil {
+		t.Fatal(err)
+	}
 	module := "module example.com/auth-test\ngo 1.26.8\nrequire github.com/golang-jwt/jwt/v5 " + wiring.GoModRequires["github.com/golang-jwt/jwt/v5"] + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0644); err != nil {
 		t.Fatal(err)
@@ -46,7 +53,7 @@ func TestGeneratedAuthenticationRuntime(t *testing.T) {
 		}
 	}
 	if os.Getenv("STEGO_BENCH_AUTH") == "1" {
-		command := exec.Command("go", "test", "-run", "^$", "-bench", "^BenchmarkVerify$", "-benchtime=1s", "-benchmem", "./...")
+		command := exec.Command("go", "test", "-run", "^$", "-bench", "^Benchmark(Verify|GrantPolicy)$", "-benchtime=1s", "-benchmem", "./...")
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")
 		output, err := command.CombinedOutput()

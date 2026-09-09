@@ -1,6 +1,6 @@
 kind: component
 name: jwt-auth
-version: 2.1.0
+version: 2.2.0
 output_namespace: internal/auth
 
 config:
