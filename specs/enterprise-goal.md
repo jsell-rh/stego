@@ -1763,3 +1763,12 @@ requirements, invalid targets, and successful output at supported versions.
 The generated CLI test now declares its minimum Go version. Compiler, command,
 generator, and generated CLI race tests passed. This check does not change
 the generated application runtime. The complete goal remains active.
+
+Compiler run `34371661001` passed at
+`6a7b973739116fea81fe827c5ca75d3274f1a3ec`. Variant commit
+`fd56df62076b38fb9beaa8b6eb6785eedb2e8eb9` uses that compiler and is on
+remote main. Its live CLI workflow passed again in 5.06 seconds. The
+request-field check passed. Post-commit regeneration found no changes or
+drift. The temporary PostgreSQL container was removed. Hosted variant run
+`34371717106` is in progress; it replaces the cancelled earlier run. This
+turn made progress. The full CLI port and enterprise goal remain active.
