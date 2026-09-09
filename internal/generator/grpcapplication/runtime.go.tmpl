@@ -213,3 +213,42 @@ func(t *trackingListener)TagConn(ctx context.Context,info *stats.ConnTagInfo)con
 func(t *trackingListener)HandleConn(context.Context,stats.ConnStats){}
 func(t *trackingListener)TagRPC(ctx context.Context,_ *stats.RPCTagInfo)context.Context{return ctx}
 func(t *trackingListener)HandleRPC(context.Context,stats.RPCStats){}
+
+// PrepareRegistrar runs preparation once per RPC after the runtime's verification
+// and admission checks. It copies descriptors and leaves shared input unchanged.
+// The callback must honor its bounded context and return safe application errors.
+func PrepareRegistrar(registrar grpc.ServiceRegistrar,prepare func(context.Context)error)(grpc.ServiceRegistrar,error){
+ if registrar==nil||prepare==nil{return nil,errors.New("gRPC preparation requires registration and a callback")}
+ return &preparedRegistrar{registrar:registrar,prepare:prepare},nil
+}
+type preparedRegistrar struct{registrar grpc.ServiceRegistrar;prepare func(context.Context)error}
+func(p *preparedRegistrar)run(ctx context.Context)error{
+ ctx,cancel:=context.WithTimeout(ctx,RequestTimeout);defer cancel()
+ if err:=ctx.Err();err!=nil{return status.FromContextError(err).Err()}
+ if err:=p.prepare(ctx);err!=nil{return err}
+ if err:=ctx.Err();err!=nil{return status.FromContextError(err).Err()}
+ return nil
+}
+func(p *preparedRegistrar)RegisterService(desc *grpc.ServiceDesc,implementation any){
+ copied:=*desc
+ copied.Methods=append([]grpc.MethodDesc(nil),desc.Methods...)
+ copied.Streams=append([]grpc.StreamDesc(nil),desc.Streams...)
+ for i,method:=range copied.Methods{
+  original:=method.Handler
+  copied.Methods[i].Handler=func(srv any,ctx context.Context,decode func(any)error,interceptor grpc.UnaryServerInterceptor)(any,error){
+   return original(srv,ctx,decode,func(ctx context.Context,request any,info *grpc.UnaryServerInfo,handler grpc.UnaryHandler)(any,error){
+    call:=func(ctx context.Context,request any)(any,error){if err:=p.run(ctx);err!=nil{return nil,err};return handler(ctx,request)}
+    if interceptor!=nil{return interceptor(ctx,request,info,call)}
+    return call(ctx,request)
+   })
+  }
+ }
+ for i,stream:=range copied.Streams{
+  original:=stream.Handler
+  copied.Streams[i].Handler=func(srv any,stream grpc.ServerStream)error{
+   if err:=p.run(stream.Context());err!=nil{return err}
+   return original(srv,stream)
+  }
+ }
+ p.registrar.RegisterService(&copied,implementation)
+}

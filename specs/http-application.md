@@ -56,3 +56,11 @@ Its typed `Reply[T]` requires a non-nil value for a response body. HTTP 204 and
 success response is written. Authentication, decoding, deadlines, and response
 limits are the same as `Endpoint`. This supports a durable operation that returns
 202 while work is pending and 200 or 204 when the work is complete.
+
+`Endpoint` and `ReplyEndpoint` accept one optional `Prepare` callback after the
+error handler. The callback runs once after token verification and successful
+input decoding, before the domain call. It uses the request deadline and must
+honor cancellation. Its error goes to the application error handler and stops
+the operation. It is not converted to a token error. A nil callback or more than
+one callback is a configuration error. A callback that commits work must define
+its own transaction; a later domain error does not undo that commit.

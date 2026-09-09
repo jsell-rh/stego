@@ -6,11 +6,14 @@ import (
 	events "example.com/grpc-test/out/contracts/events"
 	storage "example.com/grpc-test/out/contracts/storage"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
+	transport "example.com/grpc-test/out/grpcapi/transport"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 type Repository interface {
@@ -19,6 +22,7 @@ type Repository interface {
 	storage.ResourceLocker
 }
 
+var preparations atomic.Int32
 var activeWaits atomic.Int32
 var unavailableCalls atomic.Int32
 
@@ -26,7 +30,33 @@ type identityKey struct{}
 type records struct{ pb.UnimplementedRecordsServer }
 
 func Register(registrar grpc.ServiceRegistrar, _ Repository, _ ...events.Source) error {
-	pb.RegisterRecordsServer(registrar, records{})
+	prepared, err := transport.PrepareRegistrar(registrar, func(ctx context.Context) error {
+		if ctx.Value(identityKey{}) != "alice" {
+			return errors.New("preparation lost verified identity")
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > transport.RequestTimeout {
+			return errors.New("preparation has no deadline")
+		}
+		preparations.Add(1)
+		if values := metadata.ValueFromIncomingContext(ctx, "x-test-prepare"); len(values) > 0 {
+			if values[0] == "fail" {
+				return status.Error(codes.Unavailable, "preparation failed")
+			}
+			if values[0] == "private" {
+				return errors.New("private preparation details")
+			}
+			if values[0] == "wait" {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	pb.RegisterRecordsServer(prepared, records{})
 	return nil
 }
 func (records) Echo(ctx context.Context, request *pb.Request) (*pb.Response, error) {

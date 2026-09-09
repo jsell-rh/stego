@@ -268,3 +268,86 @@ func TestDynamicReplyPreservesStatusAndBodyRules(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestPreparation(t *testing.T) {
+	type verifiedKey struct{}
+	prepared, called := 0, 0
+	failure := errors.New("preparation failed")
+	var prepareErr error
+	authenticate := func(ctx context.Context, token string) (context.Context, error) {
+		if token != "good" {
+			return nil, errors.New("bad token")
+		}
+		return context.WithValue(ctx, verifiedKey{}, true), nil
+	}
+	decode := func(r *http.Request) (string, error) {
+		if r.URL.RawQuery != "" {
+			return "", transport.ErrRequest
+		}
+		return "record", nil
+	}
+	call := func(ctx context.Context, input string) (string, error) { called++; return input, nil }
+	writeError := func(w http.ResponseWriter, _ *http.Request, err error) {
+		switch {
+		case errors.Is(err, transport.ErrUnauthenticated):
+			w.WriteHeader(401)
+		case errors.Is(err, transport.ErrRequest):
+			w.WriteHeader(400)
+		case errors.Is(err, failure):
+			w.WriteHeader(503)
+		default:
+			w.WriteHeader(500)
+		}
+	}
+	prepare := func(ctx context.Context) error {
+		prepared++
+		if ctx.Value(verifiedKey{}) != true {
+			t.Error("preparation ran without verified identity")
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > transport.RequestTimeout {
+			t.Error("unbounded preparation")
+		}
+		return prepareErr
+	}
+	handler, err := transport.Endpoint(authenticate, decode, call, 200, writeError, prepare)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		token, path              string
+		failure                  error
+		status, prepared, called int
+	}{
+		{"bad", "/", nil, 401, 0, 0},
+		{"good", "/?invalid=1", nil, 400, 0, 0},
+		{"good", "/", failure, 503, 1, 0},
+		{"good", "/", nil, 200, 2, 1},
+	} {
+		prepareErr = test.failure
+		request := httptest.NewRequest("GET", test.path, nil)
+		request.Header.Set("Authorization", "Bearer "+test.token)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.status || prepared != test.prepared || called != test.called {
+			t.Fatalf("preparation order: %d %d %d", response.Code, prepared, called)
+		}
+		if test.failure != nil && response.Header().Get("WWW-Authenticate") != "" {
+			t.Fatal("preparation failure became an authentication failure")
+		}
+	}
+	for _, callbacks := range [][]transport.Prepare{{nil}, {prepare, prepare}} {
+		if _, err := transport.Endpoint(authenticate, decode, call, 200, writeError, callbacks...); err == nil {
+			t.Fatal("invalid preparation accepted")
+		}
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest("GET", "/", nil).WithContext(canceled)
+	request.Header.Set("Authorization", "Bearer good")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 500 || prepared != 2 || called != 1 {
+		t.Fatal("canceled request reached preparation")
+	}
+}

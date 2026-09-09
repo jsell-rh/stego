@@ -1,6 +1,6 @@
 kind: component
 name: grpc-application
-version: 1.1.0
+version: 1.2.0
 output_namespace: grpcapi
 config:
   watch_events:

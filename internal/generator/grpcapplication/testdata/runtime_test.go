@@ -128,6 +128,33 @@ func TestRuntime(t *testing.T) {
 			t.Fatalf("private error escaped: %v", err)
 		}
 	}
+	// Preparation errors stop both RPC forms without becoming token failures.
+	for _, test := range []struct {
+		mode string
+		want codes.Code
+	}{{"fail", codes.Unavailable}, {"private", codes.Internal}} {
+		requestCtx := metadata.AppendToOutgoingContext(authorized, "x-test-prepare", test.mode)
+		if _, err := client.Echo(requestCtx, &pb.Request{Text: "hello"}); status.Code(err) != test.want || strings.Contains(err.Error(), "private") {
+			t.Fatalf("unary preparation: %v", err)
+		}
+		before := activeStreams.Load()
+		denied, err := client.Watch(requestCtx, &pb.Request{})
+		if err == nil {
+			_, err = denied.Recv()
+		}
+		if status.Code(err) != test.want || strings.Contains(err.Error(), "private") || activeStreams.Load() != before {
+			t.Fatalf("stream preparation: %v", err)
+		}
+	}
+	before := preparations.Load()
+	if _, err := client.Echo(calls, &pb.Request{}); status.Code(err) != codes.Unauthenticated || preparations.Load() != before {
+		t.Fatal("unauthenticated request reached preparation")
+	}
+	waitCtx, waitCancel := context.WithTimeout(metadata.AppendToOutgoingContext(authorized, "x-test-prepare", "wait"), 30*time.Millisecond)
+	if _, err := client.Echo(waitCtx, &pb.Request{}); status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("preparation deadline: %v", err)
+	}
+	waitCancel()
 	stream, err := client.Watch(authorized, &pb.Request{})
 	if err != nil {
 		t.Fatal(err)

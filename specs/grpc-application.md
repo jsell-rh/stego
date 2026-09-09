@@ -82,3 +82,15 @@ are disabled. Go gRPC can still retry calls that the server application has not
 processed. See the [gRPC retry model](https://grpc.io/docs/guides/retry/) and the
 pinned Go implementation. A failed mutation can still have an uncertain outcome;
 applications need stable operation IDs and recovery rules.
+
+`transport.PrepareRegistrar` wraps a service registrar with one request
+preparation callback. Use the returned registrar for the services that need
+preparation. In the generated runtime, the callback runs after verification and
+admission. Unary preparation runs after protobuf decoding. Stream preparation
+runs once before the stream handler, not once per message. It has at most the
+normal ten-second request deadline, even when the stream has a longer lifetime.
+The callback must honor cancellation and return safe application errors. An
+error stops the handler. Registration copies descriptors and does not change
+the shared generated descriptors. Preparation does not supply authentication
+when used outside the generated runtime. Its commits are separate from later
+domain operations.
