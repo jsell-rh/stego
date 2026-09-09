@@ -1027,3 +1027,64 @@ transaction, identity and role lookups, and comparison of current records. It
 excludes transport, token verification, Keycloak, initial registration, role
 changes, and concurrent load. This is not a production capacity claim. The
 variant records the workflow and its limits in `acceptance/global-roles.md`.
+
+### Placement records through the generated application
+
+The global-role workflow on variant commit `78d08f7` passed hosted run
+`34309947994`. STEGO journal commit `aa29d12` passed hosted run `34309968117`.
+
+The next workflow removes direct placement inserts from the application test.
+The variant creates clusters, releases, and managed databases through REST and
+gRPC. It then creates a Gateway from the returned cluster and release IDs. The
+server selects the sole CNPG database. Retrieval, owner grants, events, watches,
+and restart use the generated process.
+
+The first test found that the database namespace needs 29 characters. The schema
+was corrected. The workflow also exposed a common numeric constraint gap:
+PostgreSQL models ignored declared `min` and `max`. STEGO commit `eae36e0` adds
+inclusive database checks, preserves optional NULL values, rejects non-finite
+bounds, and rejects non-finite values in bounded floating fields. Its independent
+Measurement test covers integer, fractional, optional, and direct SQL writes.
+The full local race suite passed every package except a registry expectation for
+the previous component version. That expectation was corrected. The registry
+race check then passed in 4.568 seconds. PostgreSQL was required for these checks.
+The variant pins the full compiler revision
+`eae36e055bfcf26e564f40930ca52c7b8c0aeb06` and postgres-adapter 3.3.0.
+
+Catalog writes use platform admins and configured controller subjects. Gateway
+creators can read and select records. This restricts the reference fallback,
+which lets Gateway creators change placement records. The user was asked to
+review the rule. The more restrictive rule applies unless that decision changes.
+Each catalog mutation and its event use one serializable storage transaction.
+Deletion refuses live Gateway references. The concurrent test forces a Gateway
+creation between the deletion reference check and commit. PostgreSQL rejects
+the deletion for all three resource types.
+
+The focused workflow, migration, concurrency, and role discovery race checks
+passed in 10.485 seconds. The new migration requires explicit placement data for
+old name-only records. It does not invent providers, images, or secret references.
+It preserves IDs and timestamps and can run again. An offline change test requires
+the exact retained event ID to reach Kafka after process restart.
+
+A 100-call local catalog page benchmark over 10,001 matching cluster records
+averaged 4.212 ms, 222,506 bytes, and 2,865 allocations. It includes domain access,
+transaction, count, and page queries. It excludes transport, token verification,
+role preparation, and concurrent load. It is not a production capacity result.
+
+Per-Gateway deployment database placement and workload deployment remain open.
+Catalog metadata does not prove cluster access, secret resolution, image integrity,
+rollout behavior, or database provisioning. These need the next control-plane
+workflow. The enterprise goal remains active.
+
+Hosted STEGO run `34310608422` passed on compiler commit `eae36e0`.
+The reference `DATABASE_PROVIDER` setting defaults to `deployment`. Its adapter
+creates a database named `gw-<gateway-name>-db`. The variant does not yet implement
+that default. The next placement workflow must create the dedicated database,
+Gateway, owner grant, and their events in one transaction. This work does not
+require broad catalog write access for a Gateway creator.
+
+Variant commit `f4b6842` contains the catalog workflow. Its full local race suite
+passed with PostgreSQL and Keycloak required; the acceptance package took
+312.660 seconds. Dependency verification and regeneration from the committed
+files passed. No generated changes or drift remained. The workflow and migration
+steps are recorded in the variant's `acceptance/placement-catalog.md`.
