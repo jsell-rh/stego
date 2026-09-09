@@ -1,0 +1,48 @@
+package controller
+
+import (
+	_ "embed"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/jsell-rh/stego/internal/gen"
+)
+
+//go:embed testdata/runtime_test.go
+var runtimeTests []byte
+
+func TestGeneratedController(t *testing.T) {
+	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "controller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, gen.File{Path: "controller/runtime_test.go", Content: runtimeTests})
+	project := t.TempDir()
+	for _, file := range files {
+		name := filepath.Join(project, file.Path)
+		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, file.Bytes(), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/records\ngo 1.25.0\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("go", "test", "-race", "-count=1", "-timeout=30s", "./...")
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated controller: %v\n%s", err, output)
+	}
+}
+func TestRejectInvalidGeneration(t *testing.T) {
+	for _, ctx := range []gen.Context{{}, {OutputNamespace: "../escape"}, {OutputNamespace: "controller", ComponentConfig: map[string]any{"workers": 0}}} {
+		if _, _, err := new(Generator).Generate(ctx); err == nil {
+			t.Fatal("invalid generation accepted")
+		}
+	}
+}

@@ -1995,3 +1995,39 @@ full compiler race suite is running again before the final application pin.
 The full compiler race suite passed after both regression fixes. The generated
 CLI suite includes the two failing cases. The application will regenerate from
 the follow-up compiler commit and rerun its focused workflow before publication.
+
+Compiler run `34388741815` passed at
+`ae8364b9525e279ac75257ee963f881a91d6b044`. The final pinned apply workflow
+passed in 8.43 seconds, including a name with quotes and search operators.
+Field checks, regeneration, and static checks passed. Variant commit
+`def701137f7f0a603609118bb7631379104e7271` is on remote main. Its complete
+application and workload checks are running in `34389001511`.
+
+The user identified a misplaced boundary: common controller mechanisms remained
+in Hypershell. Source inspection confirmed repeated watch, queue, scan, timeout,
+reconnect, and shutdown code in three controllers. The database controller lacked
+the other controllers' action deadline. The identity controller also canceled
+scans at a fixed interval. These differences belong in one tested STEGO runtime.
+
+The new `controller` component provides a typed source contract and one serial
+worker. It starts a confirmed live watch before recovery scans. It bounds queue
+size, watch setup, and each action. Source failure or overflow cancels and joins
+the session before a new watch and scan. Scans finish before their next interval
+starts. A required error policy stops on denied access. Domain callbacks retain
+placement, identity mapping, workload definitions, authoritative reads, provider
+ownership, and cleanup order. Hypershell's identity, workload, and database
+controllers now use this component in the local test build.
+
+Generated runtime tests and all three domain race suites passed. The tests use
+IDs and typed records; STEGO contains no Hypershell resource rules. Full compiler
+checks and pinned application workflows follow. This is the first boundary
+correction, not the end of the common-runtime work. The Pod count controller's
+observation cache, dirty-key scheduling, retained deletion scans, typed transport
+adapters, and process coordination still require a common contract and executable
+migration evidence. Do not add more copies of these mechanisms to Hypershell.
+The full enterprise goal remains active.
+
+The full compiler race suite and static checks passed with the new controller
+component. All three application domain race suites also passed. The final
+compiler pin and application workflow checks follow before publication of the
+controller migration.
