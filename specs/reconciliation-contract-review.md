@@ -502,3 +502,9 @@ The saved progress is still process-local. A controller process restart repeats
 the full inventory. Frequent restarts can delay later users. Durable progress,
 retry storage, cursor-map bounds, and cross-process fencing remain unresolved.
 The new cursor contract does not establish an acknowledgment or a state snapshot.
+
+The keyed runtime now supplies [bounded controller metrics](controller-metrics.md).
+Queue pressure, active work, retry counts, action outcomes, and action duration
+can be observed without resource IDs or private error labels. Hypershell's
+cleanup workflow checks these values while one provider action waits and another
+resource completes. Durable conditions and cleanup-age metrics remain open.

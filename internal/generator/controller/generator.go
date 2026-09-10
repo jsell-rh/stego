@@ -33,6 +33,12 @@ var streamSource string
 //go:embed observation.go.tmpl
 var observationSource string
 
+//go:embed metrics.go.tmpl
+var metricsSource string
+
+//go:embed monitor.go.tmpl
+var monitorSource string
+
 type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
@@ -45,7 +51,7 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("controller has no component settings")
 	}
 	var files []gen.File
-	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}, {"stream.go", streamSource}, {"observation.go", observationSource}} {
+	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}, {"stream.go", streamSource}, {"observation.go", observationSource}, {"metrics.go", metricsSource}, {"monitor.go", monitorSource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err

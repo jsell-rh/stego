@@ -2471,3 +2471,10 @@ complete application runs before they could finish. The
 [CI evidence rule](ci-evidence.md) now preserves active push runs in both
 repositories. Pull requests can still cancel obsolete runs. This changes how
 checks are scheduled; it does not reduce the full application acceptance gate.
+
+The [controller metrics contract](controller-metrics.md) adds fixed queue,
+retry, action, scan, and duration metrics to the generated keyed runtime.
+Hypershell selects the metrics address and passes the collector to its domain
+controllers. The listener and collector remain common STEGO code. Durable
+conditions, cleanup age, distributed ownership, and production capacity remain
+open reconciliation requirements.
