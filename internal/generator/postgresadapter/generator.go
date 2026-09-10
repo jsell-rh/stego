@@ -176,6 +176,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, err
 		}
 		files = append(files, cursor)
+		summary, err := generateCleanupSummary(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, summary)
 	}
 	if hasVersioned(ctx.Entities) {
 		versionFiles, err := generateVersions(ctx)

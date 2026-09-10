@@ -62,3 +62,8 @@ These metrics do not supply durable resource conditions, cleanup age, historical
 observations, distributed ownership, or persistent retries. They do not prove
 that all desired resources are known to the queue. Those requirements remain
 open. FIFO `Run` and `RunSweep` do not yet use this collector.
+
+Controller 1.10.0 adds an independent sampler for authorized cleanup summaries.
+It reports pending resources and the oldest deletion timestamp, with availability
+and sample-time gauges. See [cleanup summaries](cleanup-summaries.md) for scope,
+failure behavior, query cost, and remaining diagnostic requirements.

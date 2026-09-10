@@ -291,3 +291,99 @@ func TestMetricsSurviveWatchReconnectAndCountFailedScan(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+
+func TestCleanupMetricsRefreshWhileScanIsBlocked(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	m := new(Metrics)
+	o := keyOptions()
+	o.Metrics = m
+	o.ResyncInterval = 5 * time.Millisecond
+	release := make(chan struct{})
+	var calls atomic.Int32
+	oldest := time.Now().Add(-time.Hour)
+	o.Cleanup = func(ctx context.Context) (CleanupSample, error) {
+		switch calls.Add(1) {
+		case 1:
+			return CleanupSample{Pending: 2, OldestPending: &oldest}, nil
+		case 2:
+			return CleanupSample{}, errors.New("PRIVATE cleanup read failure")
+		default:
+			select {
+			case <-release:
+				return CleanupSample{Pending: 1, OldestPending: &oldest}, nil
+			case <-ctx.Done():
+				return CleanupSample{}, ctx.Err()
+			}
+		}
+	}
+	source := KeyedSource[string]{Observe: func(ctx context.Context, sink *KeySink[string]) error {
+		sink.SetReady(true)
+		<-ctx.Done()
+		return ctx.Err()
+	}, Scan: func(ctx context.Context, emit func(string) error) error { <-ctx.Done(); return ctx.Err() }}
+	done := make(chan error, 1)
+	go func() { done <- RunKeyed(ctx, source, func(context.Context, string) error { return nil }, o) }()
+	failed := awaitMetrics(t, m, func(s MetricsSnapshot) bool { return s.CleanupReadsFailed == 1 })
+	if !failed.CleanupEnabled || failed.CleanupAvailable || failed.CleanupPending != 2 || !failed.CleanupOldest.Equal(oldest) || failed.CleanupSampleAt.IsZero() {
+		t.Fatal(failed)
+	}
+	close(release)
+	current := awaitMetrics(t, m, func(s MetricsSnapshot) bool { return s.CleanupAvailable && s.CleanupPending == 1 })
+	if current.CleanupReadsSucceeded < 2 || current.ScansSucceeded != 0 || !current.CleanupSampleAt.After(failed.CleanupSampleAt) {
+		t.Fatal(current)
+	}
+	recorder := httptest.NewRecorder()
+	m.ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	if strings.Contains(recorder.Body.String(), "PRIVATE") || !strings.Contains(recorder.Body.String(), "stego_controller_cleanup_pending_resources 1\n") {
+		t.Fatal("invalid cleanup metrics")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if m.Snapshot().CleanupAvailable {
+		t.Fatal("stopped sampler reports fresh data")
+	}
+}
+func TestCleanupMetricsRejectContradictorySamples(t *testing.T) {
+	now := time.Now()
+	for _, sample := range []CleanupSample{{Pending: -1}, {Pending: 1}, {Pending: 0, OldestPending: &now}, {Pending: 1, OldestPending: new(time.Time)}} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		o := keyOptions()
+		o.Metrics = new(Metrics)
+		o.Cleanup = func(context.Context) (CleanupSample, error) { return sample, nil }
+		source := KeyedSource[string]{Observe: func(ctx context.Context, sink *KeySink[string]) error {
+			sink.SetReady(true)
+			<-ctx.Done()
+			return ctx.Err()
+		}, Scan: func(context.Context, func(string) error) error { return nil }}
+		err := RunKeyed(ctx, source, func(context.Context, string) error { return nil }, o)
+		cancel()
+		if !errors.Is(err, ErrMetricsContract) || o.Metrics.Snapshot().CleanupReadsFailed != 1 {
+			t.Fatal(err, o.Metrics.Snapshot())
+		}
+	}
+}
+func TestDisabledMetricsDoNotReadCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := keyOptions()
+	o.Cleanup = func(context.Context) (CleanupSample, error) {
+		t.Error("disabled collector read cleanup")
+		return CleanupSample{}, nil
+	}
+	o.Observe = func(e Event) {
+		if e.Phase == "scan_completed" {
+			cancel()
+		}
+	}
+	source := KeyedSource[string]{Observe: func(ctx context.Context, sink *KeySink[string]) error {
+		sink.SetReady(true)
+		<-ctx.Done()
+		return ctx.Err()
+	}, Scan: func(context.Context, func(string) error) error { return nil }}
+	if err := RunKeyed(ctx, source, func(context.Context, string) error { return nil }, o); err != nil {
+		t.Fatal(err)
+	}
+}

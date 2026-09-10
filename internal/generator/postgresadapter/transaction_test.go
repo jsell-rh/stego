@@ -28,6 +28,9 @@ var cursorTests []byte
 //go:embed testdata/cleanup_targets_test.go
 var cleanupTargetTests []byte
 
+//go:embed testdata/cleanup_summary_test.go
+var cleanupSummaryTests []byte
+
 func TestGeneratedStoreTransactions(t *testing.T) {
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
@@ -137,7 +140,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -148,6 +151,9 @@ require (
 	}
 	if os.Getenv("STEGO_BENCH_CURSOR") == "1" {
 		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=^BenchmarkRecoveryCursorPage$", "-count=3", "-benchtime=100x", "-benchmem", "./storage"})
+	}
+	if os.Getenv("STEGO_BENCH_CLEANUP_SUMMARY") == "1" {
+		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=^BenchmarkCleanupSummary$", "-count=3", "-benchtime=100x", "-benchmem", "./storage"})
 	}
 	for _, args := range commands {
 		cmd := exec.Command("go", args...)

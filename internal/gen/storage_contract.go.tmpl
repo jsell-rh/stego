@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -26,6 +27,24 @@ type RetainedReader interface {
 // external work that is still in progress.
 type CleanupWriter interface {
 	ObserveCleanupIfVersion(context.Context, string, string, int64, string, bool) error
+}
+
+// CleanupSummaryReader reads pending deleted resources for an owner and target.
+// Arguments select entity, owner, target, scope field, and scope value. The last
+// two must both be empty or select one declared text field with exact equality.
+// A target owner requires a nonempty target; another owner requires none.
+// Authorize this entire scope first. The result has no resource identifiers.
+type CleanupSummaryReader interface {
+ ReadCleanupSummary(context.Context, string, string, string, string, string) (CleanupSummary, error)
+}
+var ErrCleanupSummary = errors.New("invalid cleanup summary request or result")
+// ObservedAt is the database statement time. OldestPending is nil only when
+// Pending is zero. It is the original deletion time, including reopened work.
+// A summary is one database snapshot; it is not proof of external absence.
+type CleanupSummary struct {
+ Pending int64
+ OldestPending *time.Time
+ ObservedAt time.Time
 }
 
 // TargetCleanupWriter records one retained target observation on a deleted row.

@@ -2478,3 +2478,10 @@ Hypershell selects the metrics address and passes the collector to its domain
 controllers. The listener and collector remain common STEGO code. Durable
 conditions, cleanup age, distributed ownership, and production capacity remain
 open reconciliation requirements.
+
+[Cleanup summaries](cleanup-summaries.md) extend controller diagnostics beyond
+the admitted queue. A generated aggregate reads pending deleted resources for
+one authorized owner and target. An independent runtime sampler reports their
+count and oldest deletion time without resource IDs. Per-resource conditions,
+history, distributed ownership, durable retries, and production capacity remain
+open requirements.

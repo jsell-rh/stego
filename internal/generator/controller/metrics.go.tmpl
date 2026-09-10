@@ -9,6 +9,8 @@ import (
  "time"
 )
 
+var ErrMetricsContract = errors.New("invalid controller cleanup summary")
+
 var ErrMetricsInUse = errors.New("controller metrics already have an active queue")
 
 // Metrics belongs to one active keyed controller. It retains counters across
@@ -23,6 +25,10 @@ type Metrics struct {
  reconnects uint64
  durations [10]uint64
  seconds float64
+ cleanupEnabled,cleanupAvailable bool
+ cleanupPending int64
+ cleanupOldest,cleanupSampleAt time.Time
+ cleanupReads [2]uint64
 }
 
 // QueueMetrics counts admitted keys. Retrying is a subset of Queued and
@@ -35,6 +41,10 @@ type MetricsSnapshot struct {
  Succeeded, Failed, TimedOut, Canceled, Retries, ScansSucceeded, ScansFailed, Reconnects uint64
  DurationBuckets [10]uint64
  DurationSeconds float64
+ CleanupEnabled,CleanupAvailable bool
+ CleanupPending int64
+ CleanupOldest,CleanupSampleAt time.Time
+ CleanupReadsSucceeded,CleanupReadsFailed uint64
 }
 var durationBounds = [10]float64{0.001,0.01,0.1,0.5,1,2,5,10,30,60}
 
@@ -44,11 +54,12 @@ func(m *Metrics)attach(queue func() QueueMetrics)error{
  if m.queue!=nil{return ErrMetricsInUse}
  m.queue=queue;return nil
 }
-func(m *Metrics)detach(){if m!=nil{m.mu.Lock();m.queue=nil;m.mu.Unlock()}}
+func(m *Metrics)detach(){if m!=nil{m.mu.Lock();m.queue=nil;m.cleanupAvailable=false;m.mu.Unlock()}}
 func(m *Metrics)Snapshot()MetricsSnapshot{
  if m==nil{return MetricsSnapshot{}}
  m.mu.Lock()
  s:=MetricsSnapshot{Succeeded:m.actions[0],Failed:m.actions[1],TimedOut:m.actions[2],Canceled:m.actions[3],Retries:m.retries,ScansSucceeded:m.scans[0],ScansFailed:m.scans[1],Reconnects:m.reconnects,DurationBuckets:m.durations,DurationSeconds:m.seconds}
+ s.CleanupEnabled=m.cleanupEnabled;s.CleanupAvailable=m.cleanupAvailable;s.CleanupPending=m.cleanupPending;s.CleanupOldest=m.cleanupOldest;s.CleanupSampleAt=m.cleanupSampleAt;s.CleanupReadsSucceeded=m.cleanupReads[0];s.CleanupReadsFailed=m.cleanupReads[1]
  queue:=m.queue
  // Queue snapshots do not call Metrics. This lock keeps detach and a later
  // attach from changing the run while its queue is read.
@@ -66,6 +77,21 @@ func(m *Metrics)action(outcome int, duration time.Duration,retry bool){
 }
 func(m *Metrics)scan(failed bool){if m!=nil{m.mu.Lock();if failed{m.scans[1]++}else{m.scans[0]++};m.mu.Unlock()}}
 func(m *Metrics)reconnect(){if m!=nil{m.mu.Lock();m.reconnects++;m.mu.Unlock()}}
+
+// CleanupSample contains one authorized cleanup scope. OldestPending is the
+// original deletion time, including work reopened after an earlier success.
+// It must be nil exactly when Pending is zero. It carries no resource IDs.
+type CleanupSample struct { Pending int64; OldestPending *time.Time }
+func(m *Metrics)enableCleanup(enabled bool){if m!=nil{m.mu.Lock();m.cleanupEnabled=enabled;m.cleanupAvailable=false;m.mu.Unlock()}}
+func(m *Metrics)recordCleanup(sample CleanupSample,err error)error{
+ if err==nil&&(sample.Pending<0||(sample.Pending==0)!=(sample.OldestPending==nil)||(sample.OldestPending!=nil&&sample.OldestPending.IsZero())){err=ErrMetricsContract}
+ m.mu.Lock();defer m.mu.Unlock()
+ if err!=nil{m.cleanupAvailable=false;m.cleanupReads[1]++;return err}
+ m.cleanupAvailable=true;m.cleanupPending=sample.Pending;m.cleanupOldest=time.Time{}
+ if sample.OldestPending!=nil{m.cleanupOldest=*sample.OldestPending}
+ m.cleanupSampleAt=time.Now();m.cleanupReads[0]++
+ return nil
+}
 
 // ServeHTTP exports Prometheus text at /metrics. It accepts GET only. Metric
 // names, labels, and bucket limits are fixed. No application data is rendered.
@@ -96,4 +122,13 @@ func(m *Metrics)ServeHTTP(w http.ResponseWriter,r *http.Request){
  for i,limit:=range durationBounds{fmt.Fprintf(w,"stego_controller_action_duration_seconds_bucket{le=\"%g\"} %d\n",limit,s.DurationBuckets[i])}
  total:=s.Succeeded+s.Failed+s.TimedOut+s.Canceled
  fmt.Fprintf(w,"stego_controller_action_duration_seconds_bucket{le=\"+Inf\"} %d\nstego_controller_action_duration_seconds_count %d\nstego_controller_action_duration_seconds_sum %g\n",total,total,s.DurationSeconds)
+ gauge("cleanup_enabled","A cleanup summary source is configured.",boolean(s.CleanupEnabled))
+ gauge("cleanup_available","The last cleanup read succeeded.",boolean(s.CleanupAvailable))
+ gauge("cleanup_pending_resources","Pending deleted resources in the authorized cleanup scope.",s.CleanupPending)
+ timestamp:=func(t time.Time)float64{if t.IsZero(){return 0};return float64(t.Unix())+float64(t.Nanosecond())/1e9}
+ gauge("cleanup_oldest_pending_timestamp_seconds","Original deletion time of the oldest pending resource, or zero.",timestamp(s.CleanupOldest))
+ gauge("cleanup_last_success_timestamp_seconds","Local time of the last successful cleanup read, or zero.",timestamp(s.CleanupSampleAt))
+ fmt.Fprint(w,"# HELP stego_controller_cleanup_reads_total Completed cleanup reads by outcome.\n# TYPE stego_controller_cleanup_reads_total counter\n")
+ fmt.Fprintf(w,"stego_controller_cleanup_reads_total{outcome=\"success\"} %d\nstego_controller_cleanup_reads_total{outcome=\"failure\"} %d\n",s.CleanupReadsSucceeded,s.CleanupReadsFailed)
+
 }

@@ -508,3 +508,9 @@ Queue pressure, active work, retry counts, action outcomes, and action duration
 can be observed without resource IDs or private error labels. Hypershell's
 cleanup workflow checks these values while one provider action waits and another
 resource completes. Durable conditions and cleanup-age metrics remain open.
+
+[Cleanup summaries](cleanup-summaries.md) now provide the pending count and oldest
+original deletion time for a selected owner and retained target. The generated
+sampler runs independently of recovery scans and reports unavailable data after
+a failed read. This adds cleanup-age data without resource labels. It does not
+complete durable conditions, per-resource diagnosis, or safe history retirement.

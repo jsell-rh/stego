@@ -1,0 +1,45 @@
+package {{.Package}}
+
+import (
+ "context"
+ "fmt"
+ "strings"
+ "unicode/utf8"
+
+ contract {{printf "%q" .StorageImport}}
+)
+
+var _ contract.CleanupSummaryReader = (*Store)(nil)
+
+// ReadCleanupSummary reads pending deleted rows for one declared owner and,
+// when required, one retained target. Scope values use exact text equality.
+// This is one aggregate statement, with no resource payloads or row paging.
+// The caller must authorize the complete selected scope before this call.
+func(s *Store)ReadCleanupSummary(ctx context.Context,entity,owner,target,scopeField,scopeValue string)(contract.CleanupSummary,error){
+ var zero contract.CleanupSummary
+ validText:=func(value string)bool{return len(value)<=256&&utf8.ValidString(value)&&!strings.ContainsRune(value,0)}
+ if ctx==nil||s==nil||s.db==nil||!validText(entity)||!validText(owner)||!validText(target)||!validText(scopeField)||!validText(scopeValue)||(scopeField=="")!=(scopeValue==""){return zero,contract.ErrCleanupSummary}
+ if err:=ctx.Err();err!=nil{return zero,err}
+ var table string
+ var owners,targets,scopes map[string]bool
+ switch entity{
+ {{range .Entities}}case {{printf "%q" .Name}}:
+ table={{printf "%q" .Table}}
+ owners=map[string]bool{ {{range .Owners}}{{printf "%q" .}}:true,{{end}} }
+ targets=map[string]bool{ {{range .Targets}}{{printf "%q" .}}:true,{{end}} }
+ scopes=map[string]bool{ {{range .Scopes}}{{printf "%q" .}}:true,{{end}} }
+ {{end}}default:return zero,contract.ErrCleanupSummary
+ }
+ if !owners[owner]||targets[owner]!=(target!="")||(scopeField!=""&&!scopes[scopeField]){return zero,contract.ErrCleanupSummary}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout);defer cancel()
+ query:=s.db.WithContext(operation).Table(table).Where("deleted_at IS NOT NULL")
+ if targets[owner]{
+  query=query.Where("jsonb_exists(stego_cleanup_targets -> ?, ?)",owner,target).Where("stego_cleanup_targets -> ? -> ? IS DISTINCT FROM 'true'::jsonb",owner,target)
+ }else{query=query.Where("stego_cleanup -> ? IS DISTINCT FROM 'true'::jsonb",owner)}
+ if scopeField!=""{query=query.Where(fmt.Sprintf("%q COLLATE \"C\" = ?",scopeField),scopeValue)}
+ var result contract.CleanupSummary
+ err:=query.Select("count(*) AS pending, min(deleted_at) AS oldest_pending, statement_timestamp() AS observed_at").Scan(&result).Error
+ if err!=nil{return zero,err}
+ if result.Pending<0||result.ObservedAt.IsZero()||(result.Pending==0)!=(result.OldestPending==nil){return zero,contract.ErrCleanupSummary}
+ return result,nil
+}
