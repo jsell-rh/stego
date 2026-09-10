@@ -38,6 +38,18 @@ func DecodeCycle(encoded string)(CycleState,error){
  if err!=nil||canonical!=encoded{return CycleState{},ErrScanContract};return value,nil
 }
 
+// ValidateCycleTransition prevents loss of earlier failure evidence within a
+// cycle. The caller must also check its input version and checkpoint revision.
+// Cursor ordering belongs to the source contract; this function does not order
+// opaque cursors. A complete cycle or changed source starts a new cycle.
+func ValidateCycleTransition(previous,next CycleState)error{
+ if _,err:=EncodeCycle(next);err!=nil{return err}
+ if previous.Source==""{if previous!=(CycleState{}){return ErrScanContract};return nil}
+ if _,err:=EncodeCycle(previous);err!=nil{return err}
+ if previous.Source==next.Source&&!previous.Complete&&previous.Failed&&!next.Failed{return ErrScanContract}
+ return nil
+}
+
 // ScanCycle retains earlier action failures when the next process resumes work.
 // A changed Source or a completed cycle starts again at the beginning. The caller
 // must invalidate the checkpoint atomically when a dependency changes, or supply

@@ -108,3 +108,25 @@ func TestCycleTimeoutSavesFailureButParentCancellationDoesNot(t *testing.T) {
 		}
 	}
 }
+
+func TestCycleTransitionCannotEraseEarlierFailure(t *testing.T) {
+	previous := CycleState{Source: "1", After: "opaque-cursor", Failed: true}
+	next := CycleState{Source: "1", After: "next-cursor", Complete: true}
+	if err := ValidateCycleTransition(previous, next); !errors.Is(err, ErrScanContract) {
+		t.Fatal("failure was erased", err)
+	}
+	next.Failed = true
+	if err := ValidateCycleTransition(previous, next); err != nil {
+		t.Fatal(err)
+	}
+	previous.Complete = true
+	next.Failed = false
+	if err := ValidateCycleTransition(previous, next); err != nil {
+		t.Fatal("new cycle was rejected", err)
+	}
+	previous.Complete = false
+	next.Source = "2"
+	if err := ValidateCycleTransition(previous, next); err != nil {
+		t.Fatal("changed source was rejected", err)
+	}
+}

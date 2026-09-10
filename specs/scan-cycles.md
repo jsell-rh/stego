@@ -22,6 +22,8 @@ checkpoint storage. It contains the source version, cursor, failure flag, and
 completion flag. Source versions contain 1–128 UTF-8 bytes. Cursors contain at
 most 512 UTF-8 bytes. NUL is rejected. The encoded record is at most 1,024 bytes.
 No provider error text is stored. Unknown or malformed formats fail before work.
+`ValidateCycleTransition` rejects loss of earlier failure evidence within the
+same unfinished cycle. API adapters can use this check before a conditional save.
 The runtime checks each whole page for persistence bounds before its effects.
 
 A work timeout can save the completed prefix and failure state with the reserved
