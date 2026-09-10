@@ -4,7 +4,9 @@ package cliapplication
 import (
 	"bytes"
 	_ "embed"
+	"encoding/json"
 	"fmt"
+	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
 	"go/format"
@@ -40,6 +42,9 @@ var applySource string
 //go:embed apply_input.go.tmpl
 var applyInputSource string
 
+//go:embed version.go.tmpl
+var versionSource string
+
 type Generator struct{}
 
 // MinimumGoVersion covers file operations and the OIDC dependency.
@@ -54,7 +59,11 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("CLI requires a factory outside generated output")
 	}
 	root := path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace)
-	data := struct{ Client, Runtime, Factory string }{root + "/client", root + "/command", path.Join(ctx.ModuleName, factory)}
+	record, err := json.Marshal(buildidentity.Current())
+	if err != nil {
+		return nil, nil, err
+	}
+	data := struct{ Client, Runtime, Factory, BuildIdentity, CompilerBuild string }{root + "/client", root + "/command", path.Join(ctx.ModuleName, factory), root + "/buildidentity", string(record)}
 	main := `package main
 import (
  "context"
@@ -70,7 +79,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"command/version.go", versionSource}, {"buildidentity/runtime.go", buildidentity.Source}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err

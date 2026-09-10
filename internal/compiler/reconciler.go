@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/ports"
 	"github.com/jsell-rh/stego/internal/registry"
@@ -789,8 +790,10 @@ func computePlan(
 		}
 	}
 
+	compilerBuild := buildidentity.Current()
 	newState := &State{
 		LastApplied: &AppliedState{
+			CompilerBuild:         &compilerBuild,
 			ServiceHash:           serviceHash,
 			RegistrySHA:           registrySHA,
 			RegistryContentSHA256: registryContentHash,

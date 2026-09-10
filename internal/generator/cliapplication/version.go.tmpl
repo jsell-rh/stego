@@ -1,0 +1,24 @@
+package command
+
+import (
+ "encoding/json"
+ "io"
+ buildidentity {{printf "%q" .BuildIdentity}}
+)
+
+// CompilerBuild returns the selected build metadata of the generating process.
+// This record does not prove artifact integrity or the state of application code.
+func CompilerBuild() buildidentity.Record {
+ var record buildidentity.Record
+ // The compiler supplies this JSON value from a typed record during generation.
+ if err:=json.Unmarshal([]byte({{printf "%q" .CompilerBuild}}),&record);err!=nil {panic("invalid generated compiler build record")}
+ return record
+}
+
+func versionReport(args []string, output io.Writer) error {
+ if len(args)!=0{return errArguments}
+ return json.NewEncoder(output).Encode(struct {
+  Application buildidentity.Record `json:"application"`
+  Compiler buildidentity.Record `json:"compiler"`
+ }{buildidentity.Current(),CompilerBuild()})
+}

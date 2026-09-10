@@ -2402,3 +2402,8 @@ event delivery, and restart. Post-commit regeneration preserved all 76 generated
 dependency, and state hashes. Both feature commits are on remote `main`.
 The broad goal remains active; this change does not resolve the outstanding
 controller ownership, durable progress, build identity, or full client port.
+
+Compiler and CLI build records are implemented in STEGO. See
+[`build-identity.md`](build-identity.md). The common record separates the
+compiler build from the application build. It reports missing source metadata
+as unknown. Artifact verification and complete input manifests remain open.

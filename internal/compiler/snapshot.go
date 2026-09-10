@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/jsell-rh/stego/internal/buildidentity"
 	"io"
 	"io/fs"
 	"os"
@@ -132,6 +133,9 @@ func verifyPlanLocation(plan *Plan, projectDir, outDir string) error {
 func (plan *Plan) verifyRegistry() error {
 	if plan.registry == nil || plan.NewState == nil || plan.NewState.LastApplied == nil || plan.NewState.LastApplied.RegistryContentSHA256 != plan.registry.ContentHash() {
 		return fmt.Errorf("plan has no matching registry snapshot; run plan again")
+	}
+	if plan.NewState.LastApplied.CompilerBuild == nil || *plan.NewState.LastApplied.CompilerBuild != buildidentity.Current() {
+		return fmt.Errorf("plan has no matching compiler build record; run plan again")
 	}
 	return plan.registry.Verify()
 }

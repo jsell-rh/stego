@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/jsell-rh/stego/internal/buildidentity"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +58,7 @@ func main() {
 	var err error
 	switch cmd {
 	case "version":
-		fmt.Println("stego", version)
+		err = runVersion(os.Args[2:], os.Stdout)
 	case "init":
 		err = runInit(os.Args[2:])
 	case "plan":
@@ -834,4 +837,19 @@ func slotDefNames(slots []types.SlotDefinition) []string {
 		names[i] = s.Name
 	}
 	return names
+}
+
+// runVersion preserves the short version form and supplies a structured record.
+func runVersion(args []string, output io.Writer) error {
+	if len(args) == 0 {
+		_, err := fmt.Fprintln(output, "stego", version)
+		return err
+	}
+	if len(args) != 1 || args[0] != "--json" {
+		return fmt.Errorf("usage: stego version [--json]")
+	}
+	return json.NewEncoder(output).Encode(struct {
+		Version string               `json:"version"`
+		Build   buildidentity.Record `json:"build"`
+	}{version, buildidentity.Current()})
 }

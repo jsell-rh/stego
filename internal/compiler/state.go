@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
 	"gopkg.in/yaml.v3"
@@ -23,6 +24,10 @@ type State struct {
 
 // AppliedState captures the details of a single apply operation.
 type AppliedState struct {
+	// CompilerBuild records selected metadata of the compiler executable.
+	// Old state can omit this record.
+	CompilerBuild *buildidentity.Record `yaml:"compiler_build,omitempty"`
+
 	// ServiceHash is the SHA-256 hash of the service.yaml content at apply time.
 	ServiceHash string `yaml:"service_hash"`
 
@@ -109,6 +114,11 @@ func validateStatePaths(state *State) error {
 	}
 	if state.LastApplied == nil {
 		return nil
+	}
+	if record := state.LastApplied.CompilerBuild; record != nil {
+		if err := record.Validate(); err != nil {
+			return err
+		}
 	}
 	if digest := state.LastApplied.RegistryContentSHA256; digest != "" {
 		if len(digest) != sha256.Size*2 {
