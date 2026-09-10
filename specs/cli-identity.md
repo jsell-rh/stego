@@ -45,3 +45,24 @@ fields, protected output, exact decoded numbers, explicit stdout, existing-file
 rejection, invalid definitions, conflicting flags, and failures before output.
 The full compiler race suite and static checks passed. The Hypershell baseline
 first rejected `whoami` as an unknown command in 3.873 seconds.
+
+Hypershell commit `0c8092c82d962d5f9ce1c2158beee916ab5c4269` pins compiler
+`c4a49b3a86e81b5a2190635505492a57cb9644d7`. It selects the current-user route
+and adds verified issuer, subject, and token expiry to that response. The
+application extension schema is version 1.1.0. Strict clients must update their
+schema; an older server response cannot satisfy the new identity command.
+
+Eight application workflows passed in 103.272 seconds with PostgreSQL and
+Keycloak required. They covered six CLI workflows and two current-user checks.
+The Gateway CLI test rejected forged and expired tokens without token output,
+checked private export files and token-file rotation, and repeated identity
+reporting after API restart. The OIDC test ran identity reporting beside two
+resource reads during refresh and checked browser and device identities.
+CLI, HTTP, and contract race tests and static checks also passed. The compiler
+feature passed [CI](https://github.com/jsell-rh/stego/actions/runs/34493880749).
+
+Post-commit `scripts/generate.sh --check` passed, and all 76 generated, dependency,
+and state hashes matched. Both feature commits are on remote `main`. Local
+verification covered the changed CLI and current-user contracts; it did not
+repeat the full application or Kubernetes suites. This does not complete the
+remaining CLI output, configuration, or enterprise requirements.

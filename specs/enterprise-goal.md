@@ -2387,3 +2387,18 @@ expiry checks, access denial, event delivery, and restart. Post-commit generatio
 preserved all 75 generated, dependency, and state hashes. Both repositories are
 on remote `main`. The remaining CLI, controller, and enterprise requirements
 remain active.
+
+[CLI identity reporting](cli-identity.md) now uses an authenticated API response
+and requires explicit protected output for raw or decoded tokens. STEGO owns
+command execution, refresh, transport, validation, and output protection.
+Hypershell supplies its current-user route and verified identity fields. The
+extension schema is version 1.1.0; strict clients must update that schema.
+
+Compiler `c4a49b3a86e81b5a2190635505492a57cb9644d7` passed the full race suite,
+static checks, and CI. Hypershell `0c8092c82d962d5f9ce1c2158beee916ab5c4269`
+passed eight CLI and current-user workflows in 103.272 seconds. The checks
+include real JWT rejection, protected token export, OIDC refresh, access denial,
+event delivery, and restart. Post-commit regeneration preserved all 76 generated,
+dependency, and state hashes. Both feature commits are on remote `main`.
+The broad goal remains active; this change does not resolve the outstanding
+controller ownership, durable progress, build identity, or full client port.
