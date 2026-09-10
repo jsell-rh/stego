@@ -15,3 +15,9 @@ undeclared fields are rejected. An empty search must omit the text condition.
 These limits bound input, not database cost. Substring matching can scan rows.
 Applications must select appropriate fields, require access checks, and measure
 representative data and concurrent load before making a capacity claim.
+Cursor reads are available through the optional generated CursorReader contract.
+ReadCursor uses a bound ID, fixed database order, and one bounded query without
+a total or offset. It shares List filters and current-observation projection.
+The caller must authorize access and select the required deletion visibility.
+See [the cursor contract](../../../specs/storage-cursors.md) for limits,
+continuation rules, tests, and application evidence.

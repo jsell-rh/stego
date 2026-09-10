@@ -170,6 +170,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating transaction: %w", err)
 	}
 	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile, transactionFile}
+	if ctx.StorageContract != "" {
+		cursor, err := generateCursor(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, cursor)
+	}
 	if hasVersioned(ctx.Entities) {
 		versionFiles, err := generateVersions(ctx)
 		if err != nil {
@@ -225,6 +232,7 @@ var reservedTypeNames = map[string]bool{
 	"verifyResourceVersions":   true,
 	"migrateResourceVersions":  true,
 	"versioncontract":          true,
+	"cursorcontract":           true,
 	// Generator-internal identifiers.
 	"Store":                       true,
 	"ErrTransactionRequired":      true,
@@ -915,6 +923,10 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 	fmt.Fprintf(buf, "// It performs a COUNT(*) query first to get the total matching records,\n")
 	fmt.Fprintf(buf, "// then applies ordering and fetches the requested page via OFFSET/LIMIT.\n")
 	fmt.Fprintf(buf, "func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts %s) (%s, error) {\n", listOptsType, listResultType)
+	if apiAlias == "stegostorage" {
+		fmt.Fprintln(buf, "return s.listQuery(ctx,entity,scopeField,scopeValue,opts,\"\",false)\n}")
+		fmt.Fprintln(buf, "func(s *Store)listQuery(ctx context.Context,entity,scopeField,scopeValue string,opts stegostorage.ListOptions,afterID string,cursor bool)(stegostorage.ListResult,error){")
+	}
 	fmt.Fprintf(buf, "\tswitch entity {\n")
 
 	for _, e := range entities {
@@ -997,8 +1009,14 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t\t}\n")
 		fmt.Fprintf(buf, "\t\t}\n")
 
+		if apiAlias == "stegostorage" {
+			fmt.Fprintln(buf, `if cursor && afterID!="" { query = query.Where("id > ?",afterID) }`)
+		}
 		// Count total matching records before applying pagination.
 		fmt.Fprintf(buf, "\t\tvar total int64\n")
+		if apiAlias == "stegostorage" {
+			fmt.Fprintln(buf, "if !cursor {")
+		}
 		fmt.Fprintf(buf, "\t\tif err := query.Count(&total).Error; err != nil {\n")
 		if searchAlias != "" {
 			fmt.Fprintf(buf, "\t\t\tif opts.Search != \"\" && searchInputError(err) { return %s{}, fmt.Errorf(\"%%w: invalid search value\", %s) }\n", listResultType, errSearchRef)
@@ -1007,6 +1025,10 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 		fmt.Fprintf(buf, "\t\t}\n")
 		if apiAlias == "stegostorage" {
 			fmt.Fprintf(buf, "\t\tif opts.CountOnly { return %s{Items: []%s{}, Total: total}, nil }\n", listResultType, e.Name)
+		}
+
+		if apiAlias == "stegostorage" {
+			fmt.Fprintln(buf, "}")
 		}
 
 		// Apply sparse fieldset selection.

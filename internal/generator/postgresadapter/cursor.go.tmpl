@@ -1,0 +1,43 @@
+package {{.Package}}
+
+import (
+ "context"
+ "strings"
+ "unicode/utf8"
+
+ cursorcontract {{printf "%q" .StorageImport}}
+)
+
+var _ cursorcontract.CursorReader = (*Store)(nil)
+
+// ReadCursor shares list filters and current-observation projection. It uses a
+// bound ID, fixed ascending order, one extra row, and no count or offset query.
+// It does not authorize access. Both scope arguments must be present or absent.
+func(s *Store)ReadCursor(ctx context.Context,entity,scopeField,scopeValue string,opts cursorcontract.CursorOptions)(cursorcontract.CursorResult,error){
+ if ctx==nil||s==nil||s.db==nil||opts.Limit<1||opts.Limit>1000||len(opts.AfterID)>256||!utf8.ValidString(opts.AfterID)||strings.IndexByte(opts.AfterID,0)>=0||opts.Deletion>cursorcontract.CursorDeleted||len(opts.Fields)>1024||len(opts.ImplicitFilters)>1024||(scopeField=="")!=(scopeValue==""){return cursorcontract.CursorResult{},cursorcontract.ErrCursor}
+ if err:=ctx.Err();err!=nil{return cursorcontract.CursorResult{},err}
+ var columns map[string]bool
+ switch entity {
+ {{range .Entities}}case {{printf "%q" .Name}}: columns=map[string]bool{ {{range .Columns}}{{printf "%q" .}}:true,{{end}} }
+ {{end}}default:return cursorcontract.CursorResult{},cursorcontract.ErrCursor
+ }
+ if scopeField!=""&&!columns[scopeField]{return cursorcontract.CursorResult{},cursorcontract.ErrCursor}
+ seen:=map[string]bool{}
+ for _,field:=range opts.Fields{if !columns[field]||seen[field]{return cursorcontract.CursorResult{},cursorcontract.ErrCursor};seen[field]=true}
+ for field:=range opts.ImplicitFilters{if !columns[field]{return cursorcontract.CursorResult{},cursorcontract.ErrCursor}}
+ operation,cancel:=context.WithTimeout(ctx,transactionTimeout);defer cancel()
+ options:=cursorcontract.ListOptions{Page:1,Size:opts.Limit+1,OrderBy:[]cursorcontract.OrderByField{ {Field:"id",Direction:"asc"} },Fields:opts.Fields,Search:opts.Search,ImplicitFilters:opts.ImplicitFilters,Related:opts.Related,Filter:opts.Filter,IncludeDeleted:opts.Deletion==cursorcontract.CursorAll,OnlyDeleted:opts.Deletion==cursorcontract.CursorDeleted}
+ result,err:=s.listQuery(operation,entity,scopeField,scopeValue,options,opts.AfterID,true)
+ if err!=nil{return cursorcontract.CursorResult{},err}
+ switch entity {
+ {{range .Entities}}case {{printf "%q" .Name}}:
+  rows,ok:=result.Items.([]{{.Name}});if !ok||len(rows)>opts.Limit+1{return cursorcontract.CursorResult{},cursorcontract.ErrCursorResult}
+  ids:=map[string]bool{}
+  for _,row:=range rows{if row.ID==""||len(row.ID)>256||!utf8.ValidString(row.ID)||strings.IndexByte(row.ID,0)>=0||ids[row.ID]||row.ID==opts.AfterID{return cursorcontract.CursorResult{},cursorcontract.ErrCursorResult};ids[row.ID]=true}
+  more:=len(rows)>opts.Limit
+  if more{rows=rows[:opts.Limit:opts.Limit]}
+  next:="";if len(rows)>0{next=rows[len(rows)-1].ID}
+  return cursorcontract.CursorResult{Items:rows,NextID:next,More:more},nil
+ {{end}}default:return cursorcontract.CursorResult{},cursorcontract.ErrCursor
+ }
+}

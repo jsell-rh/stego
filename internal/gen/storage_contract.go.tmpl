@@ -121,6 +121,49 @@ type ListResult struct {
 	Total int64
 }
 
+// CursorReader reads one bounded page in ascending database ID order without
+// a total or offset. Authorize access before use. Each call has its own database
+// snapshot unless the caller uses one transaction. Concurrent writes can change
+// later pages; start a watch before recovery and repeat scans for convergence.
+type CursorReader interface {
+	ReadCursor(context.Context, string, string, string, CursorOptions) (CursorResult, error)
+}
+
+var ErrCursor = errors.New("invalid storage cursor request")
+var ErrCursorResult = errors.New("invalid storage cursor result")
+
+type CursorDeletion uint8
+const (
+	CursorLive CursorDeletion = iota
+	CursorAll
+	CursorDeleted
+)
+
+// CursorOptions has no caller-selected order or offset. AfterID is a bound SQL
+// value with at most 256 UTF-8 bytes and no NUL. Limit must be 1 through 1000.
+// Search and filters have the same meaning as ListOptions. Deletion changes only
+// root rows; related grants must remain live. Fields must be unique known names.
+type CursorOptions struct {
+	AfterID string
+	Limit int
+	Deletion CursorDeletion
+	Fields []string
+	Search string
+	ImplicitFilters map[string]string
+	Related []RelatedFilter
+	Filter *RowFilter
+}
+
+// CursorResult contains the entity's typed slice. NextID is the last returned
+// ID, or empty for an empty page. More is based on one extra row in the same
+// query. Resume after NextID; the extra row is not part of Items. Do not compare
+// IDs with Go string ordering: the database collation defines their order.
+type CursorResult struct {
+	Items any
+	NextID string
+	More bool
+}
+
 // Storage supplies resource operations. Missing resources return ErrNotFound.
 // Constraint and version conflicts return ErrConflict. Invalid search returns
 // ErrSearch. Implementations can wrap these errors.

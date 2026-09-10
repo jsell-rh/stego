@@ -483,6 +483,10 @@ func TestCurrentObservationsControlListsAndPredicates(t *testing.T) {
 			if result.Total != 1 || len(rows) != 1 || rows[0].ID != test.id {
 				t.Fatal("predicate used stale observation", result)
 			}
+			page, err := store.ReadCursor(ctx, "Record", test.scope, test.value, contract.CursorOptions{Limit: 10, Related: test.options.Related, Filter: test.options.Filter, ImplicitFilters: test.options.ImplicitFilters})
+			if err != nil || len(page.Items.([]Record)) != 1 || page.NextID != test.id || page.More {
+				t.Fatal("cursor predicate used stale observation", page, err)
+			}
 			test.options.CountOnly = true
 			count, err := store.List(ctx, "Record", test.scope, test.value, test.options)
 			if err != nil || count.Total != 1 {
