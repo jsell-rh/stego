@@ -179,6 +179,24 @@ func (q *keyQueue[K]) finish(key K, failed bool, minimum,maximum time.Duration){
  heap.Push(&q.pending,entry);q.notify()
 }
 
+// restart is called only after all callbacks from the old session have joined.
+// Keep due times for queued failures. An interrupted action has no confirmed
+// outcome, so retain it with the next delay. No key leaves the capacity bound.
+func(q *keyQueue[K])restart(minimum,maximum time.Duration){
+ q.mu.Lock();defer q.mu.Unlock()
+ q.ready=false
+ now:=time.Now()
+ for _,entry:=range q.entries {
+  if !entry.active {continue}
+  entry.active=false;entry.dirty=true
+  entry.delay=nextDelay(entry.delay,minimum,maximum)
+  entry.due=now.Add(entry.delay)
+  q.retrying++
+  heap.Push(&q.pending,entry)
+ }
+ q.notify()
+}
+
 // RunKeyed owns bounded workers, the observer lifecycle, periodic scans, and a
 // bounded queue. Only one action for each key can run at a time in this call.
 // Different keys can run concurrently. The action must read current state and
@@ -190,8 +208,12 @@ func (q *keyQueue[K]) finish(key K, failed bool, minimum,maximum time.Duration){
 func RunKeyed[K ~string](parent context.Context, source KeyedSource[K], reconcile func(context.Context,K)error, options KeyedOptions)error {
  if parent==nil||source.Observe==nil||source.Scan==nil||reconcile==nil{return errors.New("keyed controller requires context, source, and action")}
  if err:=options.validate();err!=nil{return err}
+ return runKeyed(parent,source,reconcile,options,newKeyQueue[K](options.Capacity))
+}
+
+// runKeyed can reuse a stopped queue for a new watch session.
+func runKeyed[K ~string](parent context.Context,source KeyedSource[K],reconcile func(context.Context,K)error,options KeyedOptions,q *keyQueue[K])error{
  if parent.Err()!=nil{return nil}
- q:=newKeyQueue[K](options.Capacity)
  if err:=options.Metrics.attach(q.metrics);err!=nil{return err}
  defer options.Metrics.detach()
  options.Metrics.enableCleanup(options.Cleanup!=nil)

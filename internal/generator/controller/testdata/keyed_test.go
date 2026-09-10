@@ -359,3 +359,62 @@ func BenchmarkKeyQueueWorkers(b *testing.B) {
 		}
 	}
 }
+
+func TestReconnectRetainsCapacityAndInterruptedWork(t *testing.T) {
+	q := newKeyQueue[string](3)
+	q.setReady(true)
+	for _, key := range []string{"delayed", "active", "pending"} {
+		if err := q.add(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if keyTake(t, q) != "delayed" {
+		t.Fatal("wrong first key")
+	}
+	q.finish("delayed", true, time.Second, time.Minute)
+	due := q.entries["delayed"].due
+	if keyTake(t, q) != "active" {
+		t.Fatal("wrong active key")
+	}
+	before := time.Now()
+	q.restart(time.Second, time.Minute)
+	if q.ready || q.metrics().Active != 0 || q.metrics().Queued != 3 || q.metrics().Retrying != 2 {
+		t.Fatal("invalid resumed queue", q.metrics())
+	}
+	if !q.entries["delayed"].due.Equal(due) {
+		t.Fatal("reconnect changed an existing delay")
+	}
+	active := q.entries["active"]
+	if active.delay != time.Second || active.due.Before(before.Add(time.Second)) || !active.dirty {
+		t.Fatal("interrupted work lost its delay")
+	}
+	if !errors.Is(q.add("overflow"), ErrOverflow) {
+		t.Fatal("reconnect lost the capacity bound")
+	}
+	q.restart(time.Second, time.Minute)
+	if active.delay != time.Second || !q.entries["delayed"].due.Equal(due) || q.metrics().Queued != 3 {
+		t.Fatal("failed reconnect duplicated or postponed pending work")
+	}
+	q.setReady(true)
+	if keyTake(t, q) != "pending" {
+		t.Fatal("a delayed key blocked independent pending work")
+	}
+}
+
+func BenchmarkKeyReconnect(b *testing.B) {
+	for _, count := range []int{1024, 10000, 65536} {
+		b.Run(fmt.Sprint(count), func(b *testing.B) {
+			q := newKeyQueue[string](count)
+			for i := 0; i < count; i++ {
+				if err := q.add(fmt.Sprint(i)); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				q.restart(time.Second, time.Minute)
+			}
+		})
+	}
+}

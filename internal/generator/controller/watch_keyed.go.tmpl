@@ -20,16 +20,20 @@ type KeyedWatchOptions struct {
 // capacity. They retain one pending key each and stop on cancellation. Invalid
 // keys and terminal errors stop the controller.
 // Repeated events share one pending key and cannot bypass a failed key's delay.
-// Reconnects reset retry delays. Scans must include every retained obligation.
+// Reconnects preserve retry delays and pending keys. Interrupted actions receive
+// the next capped delay. Scans must include every retained obligation.
+// A process restart still loses the queue and its retry history.
 // This function supplies process-local exclusion, not distributed fencing.
 func RunKeyedWatch[K ~string](ctx context.Context, source Source[K], reconcile func(context.Context,K)error, options KeyedWatchOptions)error {
  if ctx==nil||source.Watch==nil||source.Scan==nil||reconcile==nil{return errors.New("keyed watch requires context, source, and action")}
  if err:=options.KeyedOptions.validate();err!=nil{return err}
  if options.ReconnectDelay<time.Millisecond||options.ReconnectDelay>time.Minute{return errors.New("controller reconnect delay is outside its limits")}
+ q:=newKeyQueue[K](options.Capacity)
  for ctx.Err()==nil {
-  err:=keyedWatchSession(ctx,source,reconcile,options)
+  err:=keyedWatchSession(ctx,source,reconcile,options,q)
   if ctx.Err()!=nil{return nil}
   if errors.Is(err,ErrWatch)||errors.Is(err,ErrKey)||errors.Is(err,ErrMetricsInUse)||errors.Is(err,ErrMetricsContract)||options.Terminal(err){return err}
+  q.restart(options.RetryMin,options.RetryMax)
   options.Metrics.reconnect()
   if options.Observe!=nil{options.Observe(Event{Phase:"reconnect",Err:err})}
   timer:=time.NewTimer(options.ReconnectDelay)
@@ -38,7 +42,7 @@ func RunKeyedWatch[K ~string](ctx context.Context, source Source[K], reconcile f
  return nil
 }
 
-func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconcile func(context.Context,K)error,options KeyedWatchOptions)error{
+func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconcile func(context.Context,K)error,options KeyedWatchOptions,q *keyQueue[K])error{
  ctx,cancel:=context.WithCancel(parent)
  defer cancel()
  setup:=time.AfterFunc(options.Timeout,cancel)
@@ -48,7 +52,7 @@ func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconc
  if ctx.Err()!=nil{return ctx.Err()}
  if receive==nil{return ErrWatch}
  if options.Observe!=nil{options.Observe(Event{Phase:"watch_started"})}
- return RunKeyed(parent,KeyedSource[K]{
+ return runKeyed(parent,KeyedSource[K]{
   Observe:func(ctx context.Context,sink *KeySink[K])error{
    stop:=context.AfterFunc(ctx,cancel)
    defer stop()
@@ -62,5 +66,5 @@ func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconc
    return ctx.Err()
   },
   Scan:source.Scan,
- },reconcile,options.KeyedOptions)
+ },reconcile,options.KeyedOptions,q)
 }

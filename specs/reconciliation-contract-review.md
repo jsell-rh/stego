@@ -633,3 +633,21 @@ The real Keycloak workflow checks grant removal while the controller is offline,
 API restart, role repair, and restored evidence. Failure and transaction tests
 cover partial recovery, stale saves, independent condition owners, and rollback.
 The variant records the full scope in `acceptance/grant-conditions.md`.
+
+The next identity workflow exposed a watch-reconnect retry gap. The controller
+had reached a four-second provider delay, but a dropped watch reduced the next
+interval to about 1.05 seconds. The shared [keyed runtime](controller-keyed.md)
+now retains its queue and due times across watch sessions. It still joins old
+callbacks before reconnect and rereads current state. Interrupted work receives
+the next capped delay. Process-restart retry persistence and provider fencing
+remain open; this change does not supply either contract.
+
+A second regression restarted the actual generated API while the identity
+controller stayed active. REST and gRPC recovered, and the stored failure
+condition stayed unchanged. The provider's next call occurred after 3.04 seconds
+instead of its eight-second delay. This confirms the gap across real transport
+and process boundaries. The test uses a controlled failing identity provider.
+
+The compiler fix passed the full race suite with PostgreSQL required on port
+32904. Static checks passed. Generated tests also verify preserved retry due
+times, interrupted work, capacity bounds, and shutdown before reconnect.

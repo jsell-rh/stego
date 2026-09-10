@@ -85,8 +85,10 @@ next watch opens. Each new connection starts a retained-state scan. Action
 failures use per-key delays. Transient scan failures retry without overlapping
 another scan. Invalid keys, missing receivers, and terminal errors stop the
 controller. Watch delivery and scans wait for capacity instead of restarting discovery
-when their queue is full. Retry delays reset on transport reconnect. Lifecycle
-notices remain serialized.
+when their queue is full. Reconnects preserve the bounded queue and existing
+retry due times. After old callbacks stop, interrupted actions receive their
+next capped delay. Lifecycle notices remain serialized. A process restart still
+loses pending keys and retry history; retained-state scans recover obligations.
 
 Capacity bounds admitted keys, including delayed and active keys. The generated
 watch and scan each retain at most one additional key while waiting for capacity.

@@ -74,7 +74,7 @@ func TestGeneratedController(t *testing.T) {
 		t.Fatalf("generated controller: %v\n%s", err, output)
 	}
 	if os.Getenv("STEGO_BENCH_CONTROLLER") == "1" {
-		bench := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(KeyQueueWorkers|KeyAdmission|StreamScan|ControllerMetrics)$", "-benchtime=200ms", "-count=3", "./...")
+		bench := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(KeyQueueWorkers|KeyAdmission|StreamScan|ControllerMetrics|KeyReconnect)$", "-benchtime=200ms", "-count=3", "./...")
 		bench.Dir = project
 		bench.Env = append(os.Environ(), "GOWORK=off")
 		output, err := bench.CombinedOutput()

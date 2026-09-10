@@ -153,3 +153,47 @@ func TestKeyedWatchRejectsInvalidOptionsBeforeOpening(t *testing.T) {
 		}
 	}
 }
+
+func TestKeyedWatchPreservesDelayedKeysAcrossReconnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	failed := make(chan struct{})
+	var watches, calls atomic.Int32
+	var first time.Time
+	options := watchKeyOptions()
+	options.RetryMin = 150 * time.Millisecond
+	options.RetryMax = time.Second
+	options.Observe = func(event Event) {
+		if event.Phase == "reconcile_failed" && calls.Load() == 1 {
+			close(failed)
+		}
+	}
+	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+		count := watches.Add(1)
+		return func() (string, error) {
+			if count == 1 {
+				select {
+				case <-failed:
+					return "", io.EOF
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}, nil
+	}, Scan: func(ctx context.Context, emit func(string) error) error { return emit("failed") }}
+	err := RunKeyedWatch(ctx, source, func(context.Context, string) error {
+		if calls.Add(1) == 1 {
+			first = time.Now()
+			return errors.New("provider unavailable")
+		}
+		if time.Since(first) < options.RetryMin {
+			t.Error("reconnect bypassed the key retry delay")
+		}
+		return denied
+	}, options)
+	if !errors.Is(err, denied) || watches.Load() != 2 || calls.Load() != 2 {
+		t.Fatal("retry recovery failed", err, watches.Load(), calls.Load())
+	}
+}

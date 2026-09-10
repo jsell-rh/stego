@@ -2605,3 +2605,12 @@ The checks also found unreachable cleanup-reader code for services without
 cleanup owners; the template now handles that case directly. See
 [generator Go targets](generator-go-targets.md). The full target and wiring
 audit remains open. C1, C7, and the broad goal remain active.
+
+The next application probe returned to reconciliation behavior. Both an
+identity controller test and an actual API restart test showed that a watch
+reconnect bypassed provider retry delays. The shared keyed runtime now retains
+its bounded queue across watch sessions. Interrupted actions receive the next
+capped delay after old callbacks stop. Full compiler race tests with PostgreSQL
+and static checks passed. See [keyed controllers](controller-keyed.md) and the
+[PR 200 review](reconciliation-contract-review.md). Process-restart retry
+persistence, provider fencing, and the broad goal remain open.

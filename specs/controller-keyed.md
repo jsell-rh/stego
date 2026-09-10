@@ -38,6 +38,36 @@ paused baseline cannot retract an external write already in progress. The count
 is advisory and uses later repair. Domains that require stronger write ordering
 must supply version checks and test them before they use this pattern.
 
+Version 1.12.3 preserves the bounded queue across `RunKeyedWatch` connections.
+The previous runtime reset all retry delays after a watch failure. A Hypershell
+identity regression observed a provider retry after 1.05 seconds instead of its
+four-second delay. A watch failure must not bypass provider backoff.
+
+The runtime still cancels and joins all old callbacks before a new watch opens.
+It preserves due times and order for queued keys. Interrupted actions have no
+confirmed outcome, so they receive the next capped delay. This work remains
+inside the same capacity bound. A failed connection attempt does not add delay
+to keys already queued. Each successful connection still starts a fresh scan,
+and actions still read authoritative state. No application retry map is needed.
+
+Generated tests cover preserved due times, interrupted actions, queue capacity,
+independent pending keys, terminal errors, and shutdown before reconnect. These
+checks do not establish retry persistence across process restart or distributed
+provider ownership. Those contracts remain open.
+
+A local reconnect benchmark used Go 1.26.8 on Linux amd64, Intel Core Ultra 9
+185H, on 2026-09-10. Three 200 ms samples measured queue preparation with all
+keys pending and no active callbacks. It excluded network and provider work.
+
+| Pending keys | Time per reconnect preparation | Bytes | Allocations |
+| --- | --- | --- | --- |
+| 1,024 | 11.17–11.93 microseconds | 112 | 1 |
+| 10,000 | 123.89–133.15 microseconds | 112 | 1 |
+| 65,536 | 0.91–1.06 milliseconds | 112 | 1 |
+
+Preparation visits the bounded queue once. These measurements do not include
+rescheduling interrupted workers and do not establish production capacity.
+
 Component version 1.4.0 adds bounded workers and `RunKeyedWatch`. A worker can
 process another key while one action waits on its provider. The queue still
 allows only one active action for each key within the runtime call. Duplicate
