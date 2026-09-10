@@ -2710,3 +2710,11 @@ blocks. Full compiler race tests with PostgreSQL and static checks passed.
 The Gateway test first showed missing lifecycle logs on the preceding compiler.
 General process logging, domain declarations, and the full observability and
 enterprise goals remain open.
+
+The [controller observability contract](controller-observability.md) moves common
+keyed-work logging, metrics, and tracing into generated code. Controllers that
+overlap in one process share providers and bounded queue registrations. Full
+compiler race tests with PostgreSQL and static checks passed. The Gateway probe
+first reproduced missing telemetry after a real API creation and a controlled
+provider failure. Application adoption and full observability remain separate
+gates. The enterprise goal remains active.

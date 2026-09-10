@@ -1,0 +1,114 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "sync"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ "go.opentelemetry.io/otel/codes"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/trace"
+)
+
+// ControllerQueue has counts only. No key or provider data can enter a sample.
+type ControllerQueue struct {Capacity,Queued,Active,Retrying int;Waiting int64;Ready bool}
+// ControllerTelemetry aggregates at most 64 active queues in one process.
+type ControllerTelemetry struct {
+ runtime *Runtime
+ mu sync.Mutex
+ queues map[*controllerQueueRegistration]func()ControllerQueue
+ tracer trace.Tracer
+ logger otellog.Logger
+ duration metric.Float64Histogram
+ retries metric.Int64Counter
+ events metric.Int64Counter
+}
+func(r *Runtime)ControllerTelemetry()(*ControllerTelemetry,error){
+ if r.closed.Load(){return nil,errors.New("telemetry runtime is closed")}
+ r.controllerOnce.Do(func(){r.controller,r.controllerError=r.newControllerTelemetry()})
+ return r.controller,r.controllerError
+}
+func(r *Runtime)newControllerTelemetry()(*ControllerTelemetry,error){
+ c:=&ControllerTelemetry{runtime:r,queues:make(map[*controllerQueueRegistration]func()ControllerQueue)}
+ if r.provider!=nil{c.tracer=r.provider.Tracer("stego/controller")}
+ if r.signals.logs!=nil{c.logger=r.signals.logs.Logger("stego/controller")}
+ if r.signals.meter==nil{return c,nil}
+ meter:=r.signals.meter.Meter("stego/controller")
+ var err error
+ c.duration,err=meter.Float64Histogram("stego.controller.work.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(0.001,0.01,0.1,0.5,1,2,5,10,30,60,300,1800,3600));if err!=nil{return nil,errors.New("cannot create controller metric")}
+ c.retries,err=meter.Int64Counter("stego.controller.retries",metric.WithUnit("{retry}"));if err!=nil{return nil,errors.New("cannot create controller metric")}
+ c.events,err=meter.Int64Counter("stego.controller.events",metric.WithUnit("{event}"));if err!=nil{return nil,errors.New("cannot create controller metric")}
+ names:=[]string{"running","capacity","queued","active","retrying","waiting","ready"}
+ gauges:=make([]metric.Int64ObservableGauge,len(names));instruments:=make([]metric.Observable,len(names))
+ for i,name:=range names{
+  gauges[i],err=meter.Int64ObservableGauge("stego.controller.queue."+name);if err!=nil{return nil,errors.New("cannot create controller metric")};instruments[i]=gauges[i]
+ }
+ _,err=meter.RegisterCallback(func(ctx context.Context,observer metric.Observer)error{
+  c.mu.Lock();defer c.mu.Unlock()
+  var values [7]int64
+  for _,read:=range c.queues{q:=read();values[0]++;values[1]+=int64(q.Capacity);values[2]+=int64(q.Queued);values[3]+=int64(q.Active);values[4]+=int64(q.Retrying);values[5]+=q.Waiting;if q.Ready{values[6]++}}
+  for i,value:=range values{observer.ObserveInt64(gauges[i],value)}
+  return nil
+ },instruments...)
+ if err!=nil{return nil,errors.New("cannot register controller metrics")}
+ return c,nil
+}
+type controllerQueueRegistration struct{active bool}
+func(c *ControllerTelemetry)Attach(queue func()ControllerQueue)(func(),error){
+ c.mu.Lock();defer c.mu.Unlock()
+ if queue==nil||len(c.queues)>=64{return nil,errors.New("controller telemetry queue limit reached")}
+ registration:=&controllerQueueRegistration{active:true};c.queues[registration]=queue
+ return func(){c.mu.Lock();delete(c.queues,registration);c.mu.Unlock()},nil
+}
+
+// Begin accepts reconcile, scan, or watch. Other operation names record nothing.
+// Finish records one fixed outcome. It never records error text.
+func(c *ControllerTelemetry)Begin(ctx context.Context,operation string)(context.Context,func(error,bool)){
+ switch operation{case "reconcile","scan","watch":default:return ctx,func(error,bool){}}
+ if c.runtime.closed.Load(){return ctx,func(error,bool){}}
+ start:=time.Now()
+ var span trace.Span
+ if c.tracer!=nil{ctx,span=c.tracer.Start(ctx,"controller."+operation,trace.WithTimestamp(start),trace.WithAttributes(attribute.String("operation",operation)))}
+ var once sync.Once
+ return ctx,func(err error,retry bool){once.Do(func(){
+  end:=time.Now();outcome:="success"
+  if err!=nil{outcome="failure";if errors.Is(err,context.DeadlineExceeded){outcome="timeout"}else if errors.Is(err,context.Canceled){outcome="canceled"}}
+  retry=retry&&err!=nil
+  attrs:=[]attribute.KeyValue{attribute.String("operation",operation),attribute.String("outcome",outcome),attribute.Bool("retry",retry)}
+  duration:=end.Sub(start).Seconds()
+  if c.duration!=nil{c.duration.Record(ctx,duration,metric.WithAttributes(attrs...));if retry{c.retries.Add(ctx,1,metric.WithAttributes(attribute.String("operation",operation)))}}
+  severity:=otellog.SeverityInfo;if err!=nil&&outcome!="canceled"{severity=otellog.SeverityWarn;if !retry{severity=otellog.SeverityError}}
+  c.emit(ctx,end,"controller.work.completed","Controller work completed",severity,operation,outcome,retry,&duration,attrs)
+  if span!=nil{span.SetAttributes(attrs...);if err!=nil&&outcome!="canceled"{span.SetStatus(codes.Error,"")};span.End(trace.WithTimestamp(end))}
+ })}
+}
+// Event accepts only common runtime notices. Unknown notices record nothing.
+func(c *ControllerTelemetry)Event(ctx context.Context,phase string){
+ var name,message string
+ severity:=otellog.SeverityWarn
+ switch phase{
+ case "watch_started":name="controller.watch.started";message="Controller watch started";severity=otellog.SeverityInfo
+ case "reconnect":name="controller.watch.reconnect";message="Controller watch will reconnect"
+ case "metrics_failed":name="controller.cleanup.sample_failed";message="Controller cleanup summary is unavailable"
+ default:return
+ }
+ if c.events!=nil{c.events.Add(ctx,1,metric.WithAttributes(attribute.String("event",name)))}
+ c.emit(ctx,time.Now(),name,message,severity,"","",false,nil,nil)
+}
+func(c *ControllerTelemetry)emit(ctx context.Context,now time.Time,event,message string,severity otellog.Severity,operation,outcome string,retry bool,duration *float64,attrs []attribute.KeyValue){
+ r:=c.runtime;r.service.mu.Lock();defer r.service.mu.Unlock()
+ if r.closed.Load(){return}
+ text:="INFO";if severity==otellog.SeverityWarn{text="WARN"};if severity==otellog.SeverityError{text="ERROR"}
+ local:=localRecord{Time:now,Service:r.service.service,Severity:text,Event:event,Message:message,Operation:operation,Outcome:outcome,Retry:retry,DurationSeconds:duration}
+ sc:=trace.SpanContextFromContext(ctx);if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+ if r.service.local!=nil{r.service.local.enqueue(local)}
+ if c.logger!=nil{
+  var record otellog.Record
+  record.SetTimestamp(now);record.SetEventName(event);record.SetBody(attribute.StringValue(message));record.SetSeverity(severity);record.SetSeverityText(text);record.AddAttributes(attrs...)
+  if duration!=nil{record.AddAttributes(attribute.Float64("duration_seconds",*duration))}
+  c.logger.Emit(ctx,record)
+ }
+}

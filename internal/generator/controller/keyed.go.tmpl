@@ -229,7 +229,11 @@ func(q *keyQueue[K])restart(minimum,maximum time.Duration){
 func RunKeyed[K ~string](parent context.Context, source KeyedSource[K], reconcile func(context.Context,K)error, options KeyedOptions)error {
  if parent==nil||source.Observe==nil||source.Scan==nil||reconcile==nil{return errors.New("keyed controller requires context, source, and action")}
  if err:=options.validate();err!=nil{return err}
- return runKeyed(parent,source,reconcile,options,newKeyQueue[K](options.Capacity))
+ if parent.Err()!=nil{return nil}
+ parent,closeTelemetry,err:=startControllerTelemetry(parent);if err!=nil{return err};defer closeTelemetry()
+ q:=newKeyQueue[K](options.Capacity)
+ detach,err:=attachControllerQueue(parent,q.metrics);if err!=nil{return err};defer detach()
+ return runKeyed(parent,source,reconcile,options,q)
 }
 
 // runKeyed can reuse a stopped queue for a new watch session.
@@ -242,7 +246,7 @@ func runKeyed[K ~string](parent context.Context,source KeyedSource[K],reconcile 
  var workers sync.WaitGroup
  defer func(){cancel();workers.Wait()}()
  var notices sync.Mutex
- notice:=func(phase string,err error){if options.Observe!=nil{notices.Lock();defer notices.Unlock();options.Observe(Event{Phase:phase,Err:err})}}
+ notice:=func(phase string,err error){controllerNotice(ctx,phase);if options.Observe!=nil{notices.Lock();defer notices.Unlock();options.Observe(Event{Phase:phase,Err:err})}}
  count:=options.Workers
  if count==0{count=1}
  failures:=make(chan error,count+3)
@@ -270,9 +274,11 @@ func runKeyed[K ~string](parent context.Context,source KeyedSource[K],reconcile 
    if err:=q.scan.wait(ctx);err!=nil{return}
    if err:=q.waitReady(ctx);err!=nil{return}
    q.scan.active=true
-   err:=source.Scan(ctx,func(key K)error{return q.addWait(ctx,key)})
+   err,finish:=controllerWork(ctx,"scan",func(operation context.Context)error{return source.Scan(operation,func(key K)error{return q.addWait(operation,key)})})
+   terminal:=err!=nil&&(options.Terminal(err)||errors.Is(err,ErrOverflow)||errors.Is(err,ErrKey))
+   finish(err!=nil&&!terminal&&ctx.Err()==nil)
    if ctx.Err()==nil{options.Metrics.scan(err!=nil)}
-   if err!=nil&&(options.Terminal(err)||errors.Is(err,ErrOverflow)||errors.Is(err,ErrKey)){fail(err);return}
+   if terminal{fail(err);return}
    if ctx.Err()!=nil{return}
    q.scan.finish(err!=nil,time.Now(),options)
    if err!=nil{notice("scan_failed",err)}else{notice("scan_completed",nil)}
@@ -285,8 +291,7 @@ func runKeyed[K ~string](parent context.Context,source KeyedSource[K],reconcile 
    if ctx.Err()!=nil{return}
    operation,stop:=context.WithTimeout(ctx,options.Timeout)
    started:=time.Now()
-   err=reconcile(operation,key)
-   if err==nil{err=operation.Err()}
+   err,finish:=controllerWork(operation,"reconcile",func(operation context.Context)error{return reconcile(operation,key)})
    stop()
    terminal:=err!=nil&&options.Terminal(err)
    outcome:=0
@@ -296,6 +301,7 @@ func runKeyed[K ~string](parent context.Context,source KeyedSource[K],reconcile 
    duration:=time.Since(started)
    if !terminal&&ctx.Err()==nil{q.finish(key,err!=nil,options.RetryMin,options.RetryMax);retry=err!=nil}
    options.Metrics.action(outcome,duration,retry)
+   finish(retry)
    if terminal{fail(err);return}
    if ctx.Err()!=nil{return}
    if err!=nil{notice("reconcile_failed",err)}

@@ -2,9 +2,13 @@ package controller
 
 import (
 	_ "embed"
+	"fmt"
+	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -43,8 +47,20 @@ var checkpointTests []byte
 //go:embed testdata/cycle_test.go
 var cycleTests []byte
 
+//go:embed testdata/telemetry_test.go
+var telemetryTests []byte
+
 func TestGeneratedController(t *testing.T) {
-	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "controller"})
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
+	}
+}
+func testGeneratedController(t *testing.T, telemetry bool) {
+	ctx := gen.Context{OutputNamespace: "controller", ModuleName: "example.com/records", ServiceName: "records"}
+	if telemetry {
+		ctx.PeerNamespaces = map[string]string{"otel-tracing": "telemetry"}
+	}
+	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +70,32 @@ func TestGeneratedController(t *testing.T) {
 	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests}, gen.File{Path: "controller/watch_keyed_test.go", Content: watchKeyedTests})
 	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests}, gen.File{Path: "controller/checkpoint_test.go", Content: checkpointTests})
 	files = append(files, gen.File{Path: "controller/cycle_test.go", Content: cycleTests})
+	var module strings.Builder
+	module.WriteString("module example.com/records\n")
+	if telemetry {
+		module.WriteString("go 1.26.0\n")
+	} else {
+		module.WriteString("go 1.25.0\n")
+	}
+	if telemetry {
+		ctx.OutputNamespace = "telemetry"
+		generated, wiring, err := new(oteltracing.Generator).Generate(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, generated...)
+		files = append(files, gen.File{Path: "controller/telemetry_test.go", Content: telemetryTests})
+		var names []string
+		for name := range wiring.GoModRequires {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		module.WriteString("require (\n")
+		for _, name := range names {
+			fmt.Fprintf(&module, "%s %s\n", name, wiring.GoModRequires[name])
+		}
+		module.WriteString(")\n")
+	}
 	project := t.TempDir()
 	for _, file := range files {
 		name := filepath.Join(project, file.Path)
@@ -64,10 +106,18 @@ func TestGeneratedController(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/records\ngo 1.25.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module.String()), 0644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "test", "-race", "-count=1", "-timeout=30s", "./...")
+	if telemetry {
+		cmd := exec.Command("go", "mod", "tidy")
+		cmd.Dir = project
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("resolve telemetry modules: %v %s", err, output)
+		}
+	}
+	cmd := exec.Command("go", "test", "-race", "-count=1", "-timeout=45s", "./...")
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -95,7 +145,7 @@ func TestGeneratedController(t *testing.T) {
 	}
 }
 func TestRejectInvalidGeneration(t *testing.T) {
-	for _, ctx := range []gen.Context{{}, {OutputNamespace: "../escape"}, {OutputNamespace: "controller", ComponentConfig: map[string]any{"workers": 0}}} {
+	for _, ctx := range []gen.Context{{}, {OutputNamespace: "../escape"}, {OutputNamespace: "controller", ComponentConfig: map[string]any{"workers": 0}}, {OutputNamespace: "controller", PeerNamespaces: map[string]string{"otel-tracing": "../outside"}}, {OutputNamespace: "controller", PeerNamespaces: map[string]string{"otel-tracing": "tracing"}}} {
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
 			t.Fatal("invalid generation accepted")
 		}

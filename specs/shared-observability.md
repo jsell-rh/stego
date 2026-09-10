@@ -49,3 +49,8 @@ The [service logging contract](service-logging.md) adds a private fixed-event AP
 local JSON output, and automatic telemetry runtime lifecycle events. It preserves
 bounded callers and shutdown when local output blocks. General process and
 domain logging remain open; this step does not close the full requirement.
+
+The [controller observability contract](controller-observability.md) adds common
+keyed-work logs, metrics, spans, and aggregate queue gauges. Consumers no longer
+need common event-to-log callbacks for these boundaries. Non-keyed work and the
+remaining telemetry requirements stay open.

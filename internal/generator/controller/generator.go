@@ -45,6 +45,9 @@ var checkpointSource string
 //go:embed cycle.go.tmpl
 var cycleSource string
 
+//go:embed telemetry.go.tmpl
+var telemetrySource string
+
 type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
@@ -57,6 +60,14 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		return fmt.Errorf("controller has no component settings")
 	}
 
+	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
+		if err := gen.ValidateGoPackageNamespace(tracing); err != nil {
+			return err
+		}
+		if ctx.ModuleName == "" {
+			return fmt.Errorf("controller telemetry requires a module name")
+		}
+	}
 	return nil
 }
 
@@ -65,13 +76,17 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	var files []gen.File
-	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}, {"stream.go", streamSource}, {"observation.go", observationSource}, {"metrics.go", metricsSource}, {"monitor.go", monitorSource}, {"checkpoint.go", checkpointSource}, {"cycle.go", cycleSource}} {
+	tracing := ""
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
+	}
+	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}, {"stream.go", streamSource}, {"observation.go", observationSource}, {"metrics.go", metricsSource}, {"monitor.go", monitorSource}, {"checkpoint.go", checkpointSource}, {"cycle.go", cycleSource}, {"telemetry.go", telemetrySource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err
 		}
 		var output bytes.Buffer
-		if err := tmpl.Execute(&output, struct{ Package string }{path.Base(ctx.OutputNamespace)}); err != nil {
+		if err := tmpl.Execute(&output, struct{ Package, Tracing string }{path.Base(ctx.OutputNamespace), tracing}); err != nil {
 			return nil, nil, err
 		}
 		code, err := format.Source(output.Bytes())

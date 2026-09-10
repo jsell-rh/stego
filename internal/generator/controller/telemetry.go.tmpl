@@ -1,0 +1,55 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ {{if .Tracing}}"sync"
+ tracing {{printf "%q" .Tracing}}{{end}}
+)
+
+var ErrTelemetryInUse=errors.New("controller telemetry queue limit reached")
+var errControllerPanic=errors.New("controller callback did not return")
+{{if .Tracing}}
+type controllerTelemetryKey struct{}
+// One private provider set aggregates overlapping controllers in this process.
+// The last caller flushes it. New callers wait for that bounded flush to finish.
+var controllerTelemetryOwner struct{sync.Mutex;runtime *tracing.Runtime;telemetry *tracing.ControllerTelemetry;users int}
+func startControllerTelemetry(ctx context.Context)(context.Context,func(),error){
+ owner:=&controllerTelemetryOwner;owner.Lock();defer owner.Unlock()
+ if owner.runtime==nil{
+  runtime,err:=tracing.NewTracingRuntime();if err!=nil{return ctx,nil,err}
+  telemetry,err:=runtime.ControllerTelemetry();if err!=nil{runtime.Close();return ctx,nil,err}
+  owner.runtime=runtime;owner.telemetry=telemetry
+ }
+ owner.users++
+ var once sync.Once
+ close:=func(){once.Do(func(){owner.Lock();defer owner.Unlock();owner.users--;if owner.users==0{owner.runtime.Close();owner.runtime=nil;owner.telemetry=nil}})}
+ return context.WithValue(ctx,controllerTelemetryKey{},owner.telemetry),close,nil
+}
+func attachControllerQueue(ctx context.Context,read func()QueueMetrics)(func(),error){
+ telemetry:=ctx.Value(controllerTelemetryKey{}).(*tracing.ControllerTelemetry)
+ detach,err:=telemetry.Attach(func()tracing.ControllerQueue{q:=read();return tracing.ControllerQueue{Capacity:q.Capacity,Queued:q.Queued,Active:q.Active,Retrying:q.Retrying,Waiting:q.Waiting,Ready:q.Ready}})
+ if err!=nil{return nil,ErrTelemetryInUse};return detach,nil
+}
+func beginControllerWork(ctx context.Context,operation string)(context.Context,func(error,bool)){
+ telemetry,_:=ctx.Value(controllerTelemetryKey{}).(*tracing.ControllerTelemetry)
+ if telemetry==nil{return ctx,func(error,bool){}}
+ return telemetry.Begin(ctx,operation)
+}
+func controllerNotice(ctx context.Context,phase string){if telemetry,ok:=ctx.Value(controllerTelemetryKey{}).(*tracing.ControllerTelemetry);ok{telemetry.Event(ctx,phase)}}
+{{else}}
+func startControllerTelemetry(ctx context.Context)(context.Context,func(),error){return ctx,func(){},nil}
+func attachControllerQueue(context.Context,func()QueueMetrics)(func(),error){return func(){},nil}
+func beginControllerWork(ctx context.Context,_ string)(context.Context,func(error,bool)){return ctx,func(error,bool){}}
+func controllerNotice(context.Context,string){}
+{{end}}
+// A callback panic still propagates. Its value cannot enter telemetry.
+func controllerWork(ctx context.Context,operation string,work func(context.Context)error)(err error,finish func(bool)){
+ {{if .Tracing}}ctx,end:=beginControllerWork(ctx,operation)
+ completed:=false
+ defer func(){if !completed{end(errControllerPanic,false)}}()
+ err=work(ctx);if err==nil{err=ctx.Err()}
+ completed=true
+ return err,func(retry bool){end(err,retry)}
+ {{else}}err=work(ctx);if err==nil{err=ctx.Err()};return err,func(bool){}{{end}}
+}

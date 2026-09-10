@@ -207,3 +207,7 @@ See [scan checkpoints](../../../specs/scan-checkpoints.md).
 It uses versioned checkpoint callbacks and a bounded record with no provider error
 text. A completed cycle with an earlier failure returns `ErrCycleFailed`.
 See [scan-cycle outcomes](../../../specs/scan-cycles.md) for invalidation rules.
+
+[Shared controller telemetry](../../../specs/controller-observability.md) now
+records keyed actions, scans, watch sessions, retries, and aggregate queue state.
+The generated runtime owns logging, metrics, spans, and provider lifetime.
