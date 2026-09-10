@@ -88,3 +88,25 @@ The full `go test -race -count=1 -mod=readonly ./...` run passed with PostgreSQL
 required on port 32900. The compiler package passed in 33.742 seconds and the
 storage generator package passed in 27.804 seconds. `go vet ./...` passed.
 The command and component regressions also passed separately under race detection.
+
+The next assembly audit found two source checks that validation did not use.
+Direct compiler calls accepted an absent or invalid module name or Go target.
+Distinct slot names, such as `before_create` and `before__create`, could also
+produce the same generated variable name. Assembly rejected these inputs later.
+Both regression cases failed before the fix.
+
+Project settings, validation, and assembly now share the build-target check.
+It checks Go version syntax with the Go version library and the module parser.
+Validation also uses the existing assembly check for derived slot names.
+Tests require these errors to stop all generators. Command tests require
+validate, plan, and apply to reject the slot conflict without changing existing
+source, output, state, or dependency files. Valid Go targets remain accepted.
+The full compiler race suite passed with PostgreSQL required on port 32902.
+Static checks passed. No generator output or component version changed.
+
+The target audit remains open. The pinned pgx, gRPC, and Kafka modules each
+declare Go 1.25.0 in their module files, but their generators do not all declare
+that minimum through `gen.GoVersionRequirement`. Shared dependency minimums
+also need review. Target syntax alone does not prove dependency compatibility.
+Wiring checks that need generated wiring still occur after rendering. These
+remaining checks must become part of the common compiler contract.

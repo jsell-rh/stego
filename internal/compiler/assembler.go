@@ -12,9 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"golang.org/x/mod/modfile"
-	"golang.org/x/mod/module"
-
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -59,17 +56,8 @@ type ComponentWiring struct {
 // slot bindings. Currently produces main.go and go.mod. No files are
 // ever generated under fills/ — that directory is human-owned.
 func Assemble(input AssemblerInput) ([]gen.File, error) {
-	if input.ModuleName == "" {
-		return nil, fmt.Errorf("ModuleName must not be empty")
-	}
-	if input.GoVersion == "" {
-		return nil, fmt.Errorf("GoVersion must not be empty")
-	}
-	if err := module.CheckImportPath(input.ModuleName); err != nil {
-		return nil, fmt.Errorf("invalid module name: %w", err)
-	}
-	if err := new(modfile.File).AddGoStmt(input.GoVersion); err != nil {
-		return nil, fmt.Errorf("invalid Go version: %w", err)
+	if err := validateBuildTarget(input.ModuleName, input.GoVersion); err != nil {
+		return nil, err
 	}
 
 	mainGo, err := generateMainGo(input)

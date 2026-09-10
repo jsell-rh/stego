@@ -2584,3 +2584,15 @@ GitHub replaced pending metadata run 34521193713; it preserved the active
 grant-condition run 34520447297. No success is claimed for these unfinished
 runs. The full application and Kubernetes gates were not repeated locally for
 this metadata update. C1 and the broad goal remain active.
+
+The assembly source audit now rejects invalid build targets and conflicting
+derived slot names before rendering. Project settings and assembly use the
+same target check. Regression tests first reproduced both gaps. The full
+compiler race suite passed with PostgreSQL required on port 32902; vet passed.
+See [component preflight](compiler-preflight-gap.md) for the scope and the open
+dependency minimum and wiring checks. C1 remains active.
+
+Remote grant-condition run 34520447297 has now passed all six application jobs,
+including acceptance, database, Gateway, CNPG, and sandbox workflows. Compiler
+package-name run 34521857221 also passed. Application metadata run 34521961193
+is still active. These results do not close the remaining reconciliation gaps.

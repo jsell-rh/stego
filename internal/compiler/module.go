@@ -200,11 +200,9 @@ func ProjectModuleSettings(projectDir, name, goVersion string) (string, string, 
 	if goVersion == "" {
 		goVersion = "1.26.8"
 	}
-	if err := module.CheckImportPath(name); err != nil {
+	if err := validateBuildTarget(name, goVersion); err != nil {
 		return "", "", err
 	}
-	if err := new(modfile.File).AddGoStmt(goVersion); err != nil {
-		return "", "", err
-	}
+
 	return name, goVersion, nil
 }

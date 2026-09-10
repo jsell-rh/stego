@@ -163,3 +163,63 @@ func TestCommandsRejectInvalidGoPackageNamespaces(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandsRejectNormalizedSlotCollisions(t *testing.T) {
+	builtin, err := filepath.Abs("../../registry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := filepath.Join(t.TempDir(), "registry")
+	if err := os.CopyFS(registry, os.DirFS(builtin)); err != nil {
+		t.Fatal(err)
+	}
+	component := filepath.Join(registry, "components/rest-api/component.yaml")
+	data, err := os.ReadFile(component)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(component, append(data, []byte("  - name: before__create\n    proto: stego.components.rest_api.slots.BeforeRetry\n    default: passthrough\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(registry, "components/rest-api/slots/before_create.proto"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(registry, "components/rest-api/slots/before__create.proto"), []byte(strings.ReplaceAll(string(data), "BeforeCreate", "BeforeRetry")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("STEGO_REGISTRY", registry)
+	t.Setenv("STEGO_MODULE", "example.com/slots")
+	t.Setenv("STEGO_GO_VERSION", "1.26.8")
+	files := map[string]string{
+		"service.yaml":     "kind: service\nname: slots\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Widget\n    fields: [{name: label, type: string}]\ncollections:\n  widgets: {entity: Widget, operations: [create]}\nslots:\n  - {slot: before_create, collection: widgets, gate: [first]}\n  - {slot: before__create, collection: widgets, gate: [second]}\n",
+		"out/retained.txt": "retained output", ".stego/state.yaml": "last_applied: null\n", "go.mod": "module example.com/slots\ngo 1.26.8\n", "go.sum": "",
+	}
+	for i, slot := range []string{"before_create", "before__create"} {
+		name := []string{"first", "second"}[i]
+		files["fills/"+name+"/fill.yaml"] = "kind: fill\nname: " + name + "\nimplements: rest-api." + slot + "\ncollection: widgets\nqualified_by: tester\nqualified_at: 2026-04-01\n"
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, command := range []struct {
+		name string
+		run  func([]string) error
+	}{{"validate", runValidate}, {"plan", runPlan}, {"apply", runApply}} {
+		if err := command.run(nil); err == nil || !strings.Contains(err.Error(), "validation failed") {
+			t.Fatal(command.name, "accepted colliding slot names", err)
+		}
+		for name, want := range files {
+			got, err := os.ReadFile(name)
+			if err != nil || string(got) != want {
+				t.Fatal(command.name, "changed", name, err)
+			}
+		}
+	}
+}

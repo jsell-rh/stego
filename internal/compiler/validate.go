@@ -49,6 +49,9 @@ func Validate(input ReconcilerInput) (*ValidationResult, error) {
 // validateSource is the common semantic gate for validate, plan, and apply.
 func validateSource(input ReconcilerInput, source *compilationSource) (*ValidationResult, error) {
 	result := &ValidationResult{}
+	if err := validateBuildTarget(input.ModuleName, input.GoVersion); err != nil {
+		result.Errors = append(result.Errors, ValidationError{Category: "target", Message: err.Error()})
+	}
 	svcDecl, reg := source.Service, source.Registry
 
 	// Validate archetype exists.
@@ -203,6 +206,9 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate slot binding uniqueness (no duplicate slot+entity+operator).
 	result.Errors = append(result.Errors, validateSlotBindingUniquenessCollect(svcDecl.Slots)...)
+	if err := validateSlotVarNameUniqueness(svcDecl.Slots); err != nil {
+		result.Errors = append(result.Errors, ValidationError{Category: "slot-binding", Message: err.Error()})
+	}
 
 	// Validate fills exist on disk and reference valid collections.
 	fillErrs, fillInfraErr := validateFillsExist(svcDecl.Slots, svcDecl.Collections, input.ProjectDir)
