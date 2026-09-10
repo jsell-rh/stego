@@ -46,7 +46,8 @@ The cursor has its own version; it does not change a public resource revision.
 
 Apply `000006_scan_checkpoints.sql` before new code starts when migrations run
 externally. Startup verifies required column types, exact key columns, the
-immediate valid primary key, and absence of row-level security on this internal
+immediate valid primary key, required byte and version bounds, and absence of
+row-level security on this internal
 table. Application roles must not have schema change permission. Runtime checks
 also validate stored values. Checkpoint storage does not authorize access, lock
 the resource, or establish exclusive ownership of provider actions.

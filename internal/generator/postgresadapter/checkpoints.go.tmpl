@@ -32,6 +32,13 @@ func verifyScanCheckpoints(db *gorm.DB)error{
   AND i.indisvalid AND i.indisready AND i.indisunique AND i.indnkeyatts=3 AND i.indpred IS NULL AND i.indexprs IS NULL
   AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) FROM unnest(c.conkey) WITH ORDINALITY k(num,ordinality)
     JOIN pg_catalog.pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num)=ARRAY['entity','resource_id','scope']::text[])
+ AND (SELECT count(DISTINCT pg_catalog.pg_get_expr(c.conbin,c.conrelid))=5
+  FROM pg_catalog.pg_constraint c WHERE c.conrelid=pg_catalog.to_regclass('stego_scan_checkpoints') AND c.contype='c' AND c.convalidated
+  AND pg_catalog.pg_get_expr(c.conbin,c.conrelid) IN (
+   '((octet_length(entity) >= 1) AND (octet_length(entity) <= 256))',
+   '((octet_length(resource_id) >= 1) AND (octet_length(resource_id) <= 256))',
+   '((octet_length(scope) >= 1) AND (octet_length(scope) <= 128))',
+   '(octet_length(after_cursor) <= 1024)', '(version > 0)'))
  AND EXISTS(SELECT 1 FROM pg_catalog.pg_class WHERE oid=pg_catalog.to_regclass('stego_scan_checkpoints') AND relkind='r' AND NOT relrowsecurity)`).Scan(&valid).Error
  if err!=nil{return err};if !valid{return errors.New("scan checkpoint migration is required")};return nil
 }

@@ -136,3 +136,13 @@ func TestConcurrentCheckpointWritersHaveOneWinner(t *testing.T) {
 		t.Fatal("checkpoint had multiple winners", winners)
 	}
 }
+
+func TestCheckpointSchemaMustKeepCursorBounds(t *testing.T) {
+	s, db := database(t, false)
+	if _, err := db.Exec("ALTER TABLE stego_scan_checkpoints DROP CONSTRAINT stego_scan_checkpoints_after_cursor_check"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(s.db); err == nil {
+		t.Fatal("missing cursor bound accepted")
+	}
+}
