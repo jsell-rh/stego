@@ -263,6 +263,10 @@ func TestCommandsRejectUnsupportedDependencyTarget(t *testing.T) {
 		}
 	}
 	t.Setenv("STEGO_GO_VERSION", "1.25.0")
+	if err := runValidate(nil); err == nil {
+		t.Fatal("target below the tracing dependency minimum was accepted")
+	}
+	t.Setenv("STEGO_GO_VERSION", "1.26.0")
 	if err := runValidate(nil); err != nil {
 		t.Fatal("supported target rejected", err)
 	}

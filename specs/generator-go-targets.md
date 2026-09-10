@@ -8,6 +8,7 @@ The dependency audit on 2026-09-10 found five missing requirements:
 | --- | --- | --- |
 | `postgres-adapter` | Go 1.25.0 | The compiler pins `golang.org/x/text` to v0.40.0 for GORM. |
 | `postgres-client` | Go 1.25.0 | pgx v5.11.0 requires it. |
+| `otel-tracing` | Go 1.26.0 | OTLP/gRPC uses the compiler's x/sys security minimum. |
 | `outbox` | Go 1.25.0 | pgx v5.11.0 requires it. |
 | `kafka-producer` | Go 1.25.0 | franz-go v1.21.6 requires it. |
 | `grpc-application` | Go 1.26.0 | The compiler pins `golang.org/x/sys` to v0.48.0. |

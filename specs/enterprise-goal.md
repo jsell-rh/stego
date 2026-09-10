@@ -3,6 +3,12 @@ to build a fully STEGO-based Hypershell variant. The user authorized this work o
 2026-09-08. The findings in `repository-assessment.md` are the initial defect
 list. A passing build alone does not satisfy this goal.
 
+The [HTTP tracing contract](http-tracing.md) replaces the tracing stub with a
+bounded exporter and common request instrumentation. The Gateway test checks
+successful and denied reads, trace continuation, restart, and collector loss.
+The broader observability requirements remain active, including gRPC and
+database spans, metrics, controller spans, and browser-to-API evidence.
+
 The [health probe contract](health-probes.md) adds the missing process and SQL
 readiness behavior for C6. Its Gateway test delays database traffic, checks
 readiness loss with independent liveness, and verifies recovery and API restart.
