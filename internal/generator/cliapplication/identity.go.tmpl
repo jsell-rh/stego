@@ -1,0 +1,83 @@
+package command
+
+import (
+ "bytes"
+ "context"
+ "encoding/base64"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "net/http"
+ "strings"
+ "time"
+ client {{printf "%q" .Client}}
+)
+
+// IdentityReport contains identity fields returned by the authenticated API.
+// APIURL is the configured destination. No local unverified claims are used.
+type IdentityReport struct {
+ Username string `json:"username"`
+ Email string `json:"email,omitempty"`
+ Issuer string `json:"issuer"`
+ Subject string `json:"subject"`
+ ExpiresAt time.Time `json:"expires_at"`
+ APIURL string `json:"api_url"`
+}
+
+func whoami(ctx context.Context,app Application,args []string,output io.Writer)error{
+ if len(args)==1&&(args[0]=="--help"||args[0]=="-h"){
+  _,err:=fmt.Fprintln(output,"whoami [--show-token | -t | --show-token-decoded] [--output-file FILE]\nToken output requires --output-file FILE; use - only for explicit stdout output.");return err
+ }
+ normalized:=append([]string(nil),args...)
+ for i:=0;i<len(args);i++{
+  arg:=args[i]
+  if arg=="--output-file"{i++;continue}
+  if arg=="-t"||strings.HasPrefix(arg,"-t="){arg="--show-token"+strings.TrimPrefix(arg,"-t")}
+  if arg=="--show-token"||arg=="--show-token-decoded"{arg+="=true"}
+  normalized[i]=arg
+ }
+ values,positions,err:=parse(normalized,false)
+ if err!=nil||len(positions)!=0{return errArguments}
+ for name,value:=range values{
+  switch name{
+  case "show-token","show-token-decoded":if value!="true"&&value!="false"{return errArguments}
+  case "output-file":if value==""{return errArguments}
+  default:return errArguments
+  }
+ }
+ raw,decoded:=values["show-token"]=="true",values["show-token-decoded"]=="true"
+ if raw&&decoded{return errArguments}
+ path,explicit:=values["output-file"]
+ if (raw||decoded)&&!explicit{return errors.New("token output requires --output-file FILE; use - only for explicit stdout output")}
+ destination,err:=reserveOutput(path,output);if err!=nil{return err};defer destination.close()
+ cfg,token,err:=requestCredentials(ctx,app);if err!=nil{return err}
+ transport,err:=client.New(client.Options{BaseURL:cfg.URL,CAFile:cfg.CAFile,Timeout:15*time.Second});if err!=nil{return err};defer transport.Close()
+ response,err:=transport.Do(ctx,"GET",app.IdentityPath,http.Header{"Authorization":{"Bearer "+token},"Accept":{"application/json"}},nil)
+ if err!=nil{return err}
+ if response.StatusCode!=http.StatusOK{return fmt.Errorf("identity request failed (HTTP %d)",response.StatusCode)}
+ if len(response.Body)>65536{return errors.New("identity response exceeds its limit")}
+ fields,err:=object(response.Body);if err!=nil{return errors.New("invalid identity response")}
+ report:=IdentityReport{APIURL:cfg.URL}
+ for key,target:=range map[string]*string{"username":&report.Username,"email":&report.Email,"issuer":&report.Issuer,"subject":&report.Subject}{
+  value,present:=fields[key]
+  if !present&&key=="email"{continue}
+  if !present||bytes.Equal(bytes.TrimSpace(value),[]byte("null"))||json.Unmarshal(value,target)!=nil||len(*target)>4096||strings.ContainsRune(*target,0)||(key!="email"&&*target==""){return errors.New("invalid identity response")}
+ }
+ if json.Unmarshal(fields["expires_at"],&report.ExpiresAt)!=nil||report.ExpiresAt.IsZero(){return errors.New("invalid identity expiry")}
+ var result []byte
+ if raw{result=[]byte(token)}else if decoded{
+  parts:=strings.Split(token,".")
+  if len(parts)!=3{return errors.New("verified access token is not a decodable JWT")}
+  payload,err:=base64.RawURLEncoding.Strict().DecodeString(parts[1])
+  if err!=nil{return errors.New("verified access token has invalid claim encoding")}
+  if _,err:=object(payload);err!=nil{return errors.New("verified access token has invalid claim JSON")}
+  var formatted bytes.Buffer
+  if json.Indent(&formatted,payload,"","  ")!=nil{return errors.New("cannot format verified token claims")}
+  result=formatted.Bytes()
+ }else{
+  result,err=json.MarshalIndent(report,"","  ");if err!=nil{return errors.New("cannot format identity response")}
+ }
+ result=append(result,'\n')
+ return destination.write(result)
+}

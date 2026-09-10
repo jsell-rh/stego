@@ -31,6 +31,9 @@ var browserSource string
 //go:embed session.go.tmpl
 var sessionSource string
 
+//go:embed identity.go.tmpl
+var identitySource string
+
 //go:embed apply.go.tmpl
 var applySource string
 
@@ -67,7 +70,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err

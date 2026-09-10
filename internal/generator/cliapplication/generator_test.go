@@ -41,7 +41,7 @@ func Commands()command.Application{return command.Application{ConfigEnv:"TEST_CL
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go", "apply_test.go", "relative_time_test.go"} {
+	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go", "apply_test.go", "relative_time_test.go", "identity_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
