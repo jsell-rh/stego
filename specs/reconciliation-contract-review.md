@@ -651,3 +651,12 @@ and process boundaries. The test uses a controlled failing identity provider.
 The compiler fix passed the full race suite with PostgreSQL required on port
 32904. Static checks passed. Generated tests also verify preserved retry due
 times, interrupted work, capacity bounds, and shutdown before reconnect.
+
+The inventory follow-up found that a session-local scan counter still bypassed
+backoff. API discovery and provider inventory regressions both failed. A real
+API restart reduced an eight-second inventory delay to about 3.02 seconds.
+Controller version 1.12.4 now retains the failed-scan schedule. A successful
+scan permits immediate discovery after reconnect; a scan wait does not block
+resource actions. Generated tests and the full compiler race suite passed with
+PostgreSQL required. This remains process-local scheduling, with no distributed
+ownership or provider-fencing claim.

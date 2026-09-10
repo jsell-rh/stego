@@ -81,7 +81,7 @@ The source supplies invalidation keys. Each action must read authoritative state
 this adapter does not maintain a cache or wait for a cached baseline.
 
 A failed subscription cancels and joins actions and source callbacks before the
-next watch opens. Each new connection starts a retained-state scan. Action
+next watch opens. Each new connection requests a retained-state scan. Action
 failures use per-key delays. Transient scan failures retry without overlapping
 another scan. Invalid keys, missing receivers, and terminal errors stop the
 controller. Watch delivery and scans wait for capacity instead of restarting discovery
@@ -89,6 +89,13 @@ when their queue is full. Reconnects preserve the bounded queue and existing
 retry due times. After old callbacks stop, interrupted actions receive their
 next capped delay. Lifecycle notices remain serialized. A process restart still
 loses pending keys and retry history; retained-state scans recover obligations.
+
+Failed scans retain their due time across reconnects. An interrupted scan
+receives the next capped delay after its callback stops. A successful scan
+resets failure backoff: a later reconnect can discover state immediately, and
+the current connection uses `ResyncInterval`. Scan waits permit independent
+resource actions and stop on cancellation. The runtime owns this fixed-size
+schedule; applications supply no scan retry map or timer.
 
 Capacity bounds admitted keys, including delayed and active keys. The generated
 watch and scan each retain at most one additional key while waiting for capacity.

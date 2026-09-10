@@ -2633,3 +2633,12 @@ regression is recorded in [keyed controllers](controller-keyed.md).
 The [provider failover contract](provider-failover-contract.md) records a pending
 design choice about stale external writes. It is independent of transport retry
 recovery. No automatic failover or provider-fencing guarantee is claimed.
+
+The inventory retry follow-up now preserves failed-scan backoff across watch
+sessions. API and provider discovery regressions first reproduced the gap,
+including actual API restart with a live identity controller. A fixed-size
+generated schedule preserves failed due times, delays interrupted scans, and
+permits immediate discovery after a successful scan. Independent resource
+actions remain eligible during the scan wait. The full compiler race suite
+passed with PostgreSQL required on port 32905, and vet passed. See
+[keyed controllers](controller-keyed.md). The broad goal remains active.

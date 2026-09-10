@@ -197,3 +197,139 @@ func TestKeyedWatchPreservesDelayedKeysAcrossReconnect(t *testing.T) {
 		t.Fatal("retry recovery failed", err, watches.Load(), calls.Load())
 	}
 }
+
+func TestKeyedWatchPreservesFailedScanDelayAcrossReconnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	failed, acted := make(chan struct{}), make(chan struct{})
+	var watches, scans atomic.Int32
+	var first time.Time
+	options := watchKeyOptions()
+	options.RetryMin = 150 * time.Millisecond
+	options.RetryMax = time.Second
+	options.Observe = func(event Event) {
+		if event.Phase == "scan_failed" {
+			close(failed)
+		}
+	}
+	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+		count := watches.Add(1)
+		sent := false
+		return func() (string, error) {
+			if count == 1 {
+				select {
+				case <-failed:
+					return "", io.EOF
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			if !sent {
+				sent = true
+				return "independent", nil
+			}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}, nil
+	}, Scan: func(context.Context, func(string) error) error {
+		if scans.Add(1) == 1 {
+			first = time.Now()
+			return errors.New("inventory unavailable")
+		}
+		if elapsed := time.Since(first); elapsed < options.RetryMin {
+			t.Error("reconnect bypassed inventory retry delay", elapsed)
+		}
+		select {
+		case <-acted:
+		default:
+			t.Error("scan backoff blocked a resource action")
+		}
+		return denied
+	}}
+	err := RunKeyedWatch(ctx, source, func(context.Context, string) error { close(acted); return nil }, options)
+	if !errors.Is(err, denied) || watches.Load() != 2 || scans.Load() != 2 {
+		t.Fatal("scan recovery failed", err, watches.Load(), scans.Load())
+	}
+}
+
+func TestKeyedWatchSuccessfulScanPermitsImmediateRediscovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	scanned := make(chan struct{})
+	var watches, scans atomic.Int32
+	options := watchKeyOptions()
+	options.Observe = func(event Event) {
+		if event.Phase == "scan_completed" {
+			close(scanned)
+		}
+	}
+	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+		count := watches.Add(1)
+		return func() (string, error) {
+			if count == 1 {
+				select {
+				case <-scanned:
+					return "", io.EOF
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}
+			<-ctx.Done()
+			return "", ctx.Err()
+		}, nil
+	}, Scan: func(context.Context, func(string) error) error {
+		if scans.Add(1) == 1 {
+			return nil
+		}
+		return denied
+	}}
+	err := RunKeyedWatch(ctx, source, func(context.Context, string) error { t.Error("unexpected action"); return nil }, options)
+	if !errors.Is(err, denied) || scans.Load() != 2 {
+		t.Fatal("successful scan delayed fresh discovery", err, scans.Load())
+	}
+}
+
+func TestScanScheduleRetainsFailureAndResetsAfterSuccess(t *testing.T) {
+	options := watchKeyOptions().KeyedOptions
+	options.RetryMin = time.Second
+	options.RetryMax = 4 * time.Second
+	now := time.Now()
+	schedule := scanSchedule{active: true}
+	schedule.finish(true, now, options)
+	due := schedule.due
+	schedule.reconnect(now.Add(time.Millisecond), options.RetryMin, options.RetryMax)
+	if schedule.active || schedule.delay != time.Second || !schedule.due.Equal(due) {
+		t.Fatal("failed scan lost its due time")
+	}
+	schedule.active = true
+	schedule.reconnect(now, options.RetryMin, options.RetryMax)
+	if schedule.active || schedule.delay != 2*time.Second || !schedule.due.Equal(now.Add(2*time.Second)) {
+		t.Fatal("interrupted scan lost its next delay")
+	}
+	schedule.active = true
+	schedule.reconnect(now, options.RetryMin, options.RetryMax)
+	schedule.active = true
+	schedule.reconnect(now, options.RetryMin, options.RetryMax)
+	if schedule.delay != options.RetryMax {
+		t.Fatal("scan retry exceeded its cap")
+	}
+	schedule.finish(false, now, options)
+	if schedule.delay != 0 || !schedule.due.Equal(now.Add(options.ResyncInterval)) {
+		t.Fatal("successful scan did not reset periodic discovery")
+	}
+	schedule.reconnect(now, options.RetryMin, options.RetryMax)
+	if !schedule.due.IsZero() {
+		t.Fatal("successful scan delayed new discovery")
+	}
+	schedule.active = true
+	schedule.reconnect(now, options.RetryMin, options.RetryMax)
+	if schedule.delay != options.RetryMin {
+		t.Fatal("successful scan did not reset retry growth")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	schedule.due = now.Add(time.Hour)
+	if !errors.Is(schedule.wait(ctx), context.Canceled) {
+		t.Fatal("cancellation did not stop the scan wait")
+	}
+}

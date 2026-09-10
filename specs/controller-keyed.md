@@ -68,13 +68,27 @@ keys pending and no active callbacks. It excluded network and provider work.
 Preparation visits the bounded queue once. These measurements do not include
 rescheduling interrupted workers and do not establish production capacity.
 
-The scan retry counter remains local to each session. A separate temporary
-probe used an isolated copy of the generated controller at `4ca5a06`. After an
+The scan retry counter was still local to each session at `4ca5a06`. A temporary
+probe used an isolated copy of that generated controller. After an
 inventory failure, it dropped the watch and measured the next scan. The scan
-started after 1.26 milliseconds despite a 150-millisecond retry minimum. This
-is an open source-scan retry gap. The queued resource-action fix above does not
-close it. The next change must add this probe as a permanent regression and
-preserve failed-scan backoff without delaying ordinary initial discovery.
+started after 1.26 milliseconds despite a 150-millisecond retry minimum.
+
+Version 1.12.4 retains a fixed-size scan schedule across watch sessions. Failed
+scans keep their due time. Interrupted scans receive the next capped delay after
+the old callback stops. A successful scan clears failure backoff and permits
+immediate discovery on a later reconnect. Periodic scans on the same connection
+still use `ResyncInterval`. Resource actions can run during a scan wait.
+
+The permanent regression first failed after 1.27 milliseconds. New tests verify
+failure backoff, independent actions, immediate discovery after success, retry
+growth and caps, interrupted work, and cancellation. Hypershell regressions
+first reproduced early retries for both API discovery and provider inventory:
+about 1.05 seconds instead of four seconds. A real API restart probe repeated
+the inventory failure and observed 3.02 seconds instead of eight seconds.
+
+The full compiler race suite passed with PostgreSQL required on port 32905.
+Static checks passed. Controller process-restart persistence, distributed
+ownership, and provider fencing remain open.
 
 Component version 1.4.0 adds bounded workers and `RunKeyedWatch`. A worker can
 process another key while one action waits on its provider. The queue still
