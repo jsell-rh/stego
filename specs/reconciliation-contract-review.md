@@ -263,3 +263,31 @@ workflow passed in 229.855 seconds. The separate database workflow passed in
 read through the Service. A prior CI connection refusal is recorded in the
 variant's database evidence; the later pass does not prove its cause. These
 checks add application evidence without completing the enterprise goal.
+
+Gateway identity now uses the generated keyed watch runtime with four workers.
+The application cleanup check first failed with its FIFO worker: a blocked
+identity provider prevented another Gateway from completing after API restart.
+With the shared scheduler, the second Gateway commits cleanup through TLS gRPC
+and delivers its event while the first stays blocked. Releasing the first call
+then permits its completion. The same test helper checks workload cleanup.
+
+The identity controller's existing user-scan cursors now have a short lock.
+No API or provider call holds that lock. A race test starts 64 Gateway user scans,
+interrupts each after its first user, and verifies that each resumes at its own
+second user and removes its completed cursor. The real Keycloak identity and
+stored-grant user-login workflows also pass with the shared scheduler.
+The application adds no scheduler, retry map, or worker pool. The generated
+runtime remains the owner of those mechanisms.
+
+Database scheduling, durable retry storage, complete queue saturation handling,
+cursor memory bounds, cross-process ownership, and fencing remain open. The
+identity cursor data is process-local; a queue bound alone does not prove a bound
+on all application memory. See the variant's
+[identity scheduling evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/gateway-scheduling.md).
+
+The identity migration passed the full local PostgreSQL/Keycloak race suite;
+its acceptance package took 652.983 seconds. The actual Gateway Kubernetes
+workflow passed in 219.678 seconds. The prior variant revision `08b399f` also
+passed all four CI jobs in run `34418365029`, including the revised backlog and
+database restart checks. The identity migration requires its own new CI run.
+The enterprise goal remains active.
