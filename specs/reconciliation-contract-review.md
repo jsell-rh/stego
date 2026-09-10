@@ -521,4 +521,31 @@ Cluster specification repair, and cleanup after a denied deletion. Common API
 discovery validation now belongs to the generated Kubernetes client. CNPG
 resources and readiness policy remain in Hypershell. CNPG's readiness condition
 lacks an observed generation, so this evidence does not certify every external
-setting at a specific generation. Gateway SQL resources on CNPG remain open.
+setting at a specific generation. The later Gateway work is recorded below.
+
+The shared CNPG Gateway workflow exposed two more common requirements. A
+computed role list must use the exact Kubernetes version from which it was
+built; attaching a newer version to an old list can remove another Gateway's
+role. STEGO now supplies `PatchOwned` for this case. A resource write must also
+reject unknown fields. An incorrect CNPG policy field was silently pruned,
+which retained the SQL database after its resource was deleted. The generated
+Kubernetes client now requests strict field validation. Both contracts have
+independent generated Widget tests.
+
+The provider still needs current external evidence. CNPG's role status did not
+repair direct SQL drift within the gate's limit. Hypershell now checks SQL role
+permissions and authentication through verified TLS and requests operator repair
+when needed. Cleanup requires actual SQL role and database absence before it
+removes credentials and keys. These provider rules run inside STEGO's existing
+controller, retry, recovery, and conditional-observation contracts. They do not
+add an application controller framework. See the
+[CNPG evidence record](cnpg-provider-evidence.md) for the test result and limits.
+
+The full CNPG Gateway gate passed under race detection in 335.777 seconds at
+application commit `0cf98a51900e58ac9b3cccdcad525d93dff481ff`. It verifies separate
+Gateway data and keys, privilege and password repair, actual SQL deletion,
+retained cleanup after denied SQL access, and recovery from a late SQL role
+after restart. The deployment regression passed in 215.319 seconds. Pinned
+regeneration preserved 83 generated and dependency file hashes. Cross-process
+fencing, durable progress and conditions, safe history retirement, and measured
+production recovery capacity remain open.
