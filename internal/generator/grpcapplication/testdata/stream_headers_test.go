@@ -75,3 +75,35 @@ func TestStreamHeaderContract(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func BenchmarkStreamHeaderContract(b *testing.B) {
+	for _, count := range []int{1, 2, 32} {
+		name := "single"
+		if count == 2 {
+			name = "replay"
+		} else if count == 32 {
+			name = "maximum"
+		}
+		b.Run(name, func(b *testing.B) {
+			stream := &startupStream{header: metadata.MD{}}
+			var required []rpc.StreamHeader
+			for i := range count {
+				key := "capability-" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+				value := "v1"
+				if count == 32 {
+					key += strings.Repeat("a", 256-len(key))
+					value = strings.Repeat("v", 1024)
+				}
+				stream.header.Set(key, value)
+				required = append(required, rpc.StreamHeader{Name: key, Value: value})
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				if err := rpc.RequireStreamHeaders(stream, required...); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

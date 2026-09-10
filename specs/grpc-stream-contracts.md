@@ -39,3 +39,37 @@ errors, clean empty streams, missing and duplicate capabilities, wrong versions,
 and the first event after both successful and failed validation. Unit tests
 check several required headers, input bounds, nil streams, stream read counts,
 and preservation of error identity and details.
+
+The full compiler race suite and `go vet ./...` passed. The generated gRPC
+package completed in 29.288 seconds. The Hypershell controller race tests passed
+in 1.144 seconds; contract race tests passed in 1.433 seconds. Application static
+checks also passed.
+
+Three 200 ms benchmark samples used Go 1.26.8, Linux amd64, and an Intel Core
+Ultra 9 185H. The benchmark calls the generated helper with a stream double that
+returns an existing metadata map. One short requirement took 34.14–34.85 ns per
+call; two took 63.47–66.71 ns. The maximum input set, with 32 names of 256 bytes
+and values of 1,024 bytes, took 23,080–23,349 ns. All cases allocated zero bytes.
+This measures validation only. It excludes network work, TLS, and the generated
+client's metadata copies. The benchmark is in the generated runtime fixture;
+the measured copy changed only its import to the pinned Hypershell client.
+
+Hypershell commit `6e530b71716af805c0284ee51a4c51cc6094b9bf` pins compiler
+`da993db0b506ff2ab0084c6c2a817f084efa9a69`. The compiler feature passed
+[CI](https://github.com/jsell-rh/stego/actions/runs/34491896881).
+The application uses the helper for live database watch and retained replay.
+It preserves the existing watch and scan error classifications.
+
+The real database gate passed in 89.440 seconds. The complete Gateway gate
+passed in 206.710 seconds, including deletion before startup and the live
+database and identity workflow. The application records the detailed scope in
+[stream startup](https://github.com/jsell-rh/hypershell-stego/blob/6e530b71716af805c0284ee51a4c51cc6094b9bf/acceptance/stream-startup.md).
+These checks include provider work, access denial, event delivery, restart,
+retained recovery, and cleanup of late resources on a former cluster.
+
+Post-commit `scripts/generate.sh --check` passed. All 75 generated, dependency,
+and state hashes matched the pre-commit result. The previous 73 generated and
+dependency files are unchanged; generation added one helper and updated state.
+Both feature commits are on remote `main`. Local verification used the changed
+consumer tests and both real workload gates; the full PostgreSQL and Keycloak
+acceptance suite was not repeated locally for this refactor.

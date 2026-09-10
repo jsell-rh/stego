@@ -2360,3 +2360,13 @@ The generated TLS tests check exact headers, duplicate values, empty streams,
 early failures, and preservation of the first event. This removes a common
 protocol procedure from domain code. Database field ownership and generation
 tracking still require the pending application contract decision.
+
+Compiler `da993db0b506ff2ab0084c6c2a817f084efa9a69` passed the full race suite,
+static checks, and CI. Hypershell `6e530b71716af805c0284ee51a4c51cc6094b9bf`
+uses its generated stream helper. Controller and contract race tests passed.
+The real database gate passed in 89.440 seconds; the complete Gateway gate passed
+in 206.710 seconds. Post-commit regeneration preserved all 75 generated,
+dependency, and state hashes. Both feature commits are on remote `main`.
+Validation cost and its measurement limits are recorded with the stream
+contract. Durable retries, cross-process fencing, complete database observation
+ownership, and the broader client and enterprise requirements remain open.
