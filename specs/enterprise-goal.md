@@ -2547,3 +2547,14 @@ regressions now fail consistently through validate, plan, and apply. Invalid
 protobufs and a late source change also stop compilation without output changes.
 See [component preflight](compiler-preflight-gap.md) for tests, timing results,
 and the next proven namespace defect. C1 and the broad goal remain active.
+
+Compiler preflight is committed at `0b959fb4ffe7842942d2946f82d2e83d093c969b`.
+The full compiler race suite passed with PostgreSQL required, and vet passed.
+Hypershell `25c09dd53cb36be90ddaf17945e8b3527f50a5e6` uses this pin and the
+updated component versions. Regeneration changed only saved compiler state and
+the CLI compiler build record among 90 output, state, and dependency files.
+Contracts and the offline CLI version check passed under race detection in
+1.517 and 1.625 seconds. Vet and post-commit regeneration passed. Repeated
+regeneration preserved all 90 hashes. Both commits are on remote main; their
+new CI runs were still active at this check. No full application or Kubernetes
+suite was repeated locally for the compiler metadata update.
