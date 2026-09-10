@@ -358,6 +358,35 @@ func TestRuntime(t *testing.T) {
 			}
 		})
 	}
+	for _, code := range []codes.Code{codes.OK, codes.Aborted, codes.Unavailable, codes.PermissionDenied, codes.Unauthenticated, codes.InvalidArgument, codes.Unimplemented} {
+		stream, err := outboundClient.Watch(calls, &pb.Request{Text: "end/" + code.String()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = rpcclient.RequireStreamHeaders(stream, rpcclient.StreamHeader{Name: "sample-capability", Value: "v1"})
+		if code == codes.OK {
+			if !errors.Is(err, rpcclient.ErrStreamContract) {
+				t.Fatal("empty stream confirmed capability", err)
+			}
+		} else if status.Code(err) != code || errors.Is(err, rpcclient.ErrStreamContract) {
+			t.Fatal("header contract hid RPC failure", code, err)
+		}
+	}
+	for _, request := range []string{"headers/wrong", "headers/duplicate", "headers/missing"} {
+		stream, err := outboundClient.Watch(calls, &pb.Request{Text: request})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := rpcclient.RequireStreamHeaders(stream, rpcclient.StreamHeader{Name: "sample-capability", Value: "v1"}); !errors.Is(err, rpcclient.ErrStreamContract) {
+			t.Fatal("invalid capability accepted", request, err)
+		}
+		if event, err := stream.Recv(); err != nil || event.GetText() != "event" {
+			t.Fatal("failed contract consumed an event", request, err)
+		}
+		if _, err := stream.Recv(); !errors.Is(err, io.EOF) {
+			t.Fatal(err)
+		}
+	}
 	withHeader, err := outboundClient.Watch(calls, &pb.Request{Text: "headers"})
 	if err != nil {
 		t.Fatal(err)
@@ -371,6 +400,9 @@ func TestRuntime(t *testing.T) {
 	again, err := withHeader.Header()
 	if err != nil || len(again.Get("sample-capability")) != 1 || again.Get("sample-capability")[0] != "v1" || len(again.Get("extra")) != 0 {
 		t.Fatal("caller changed cached headers", again, err)
+	}
+	if err := rpcclient.RequireStreamHeaders(withHeader, rpcclient.StreamHeader{Name: "sample-capability", Value: "v1"}); err != nil {
+		t.Fatal(err)
 	}
 	if response, err := withHeader.Recv(); err != nil || response.GetText() != "event" {
 		t.Fatal("header read consumed a message", err)

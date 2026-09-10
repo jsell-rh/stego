@@ -1,0 +1,54 @@
+package client
+
+import (
+ "errors"
+ "io"
+ "reflect"
+
+ "google.golang.org/grpc/metadata"
+)
+
+// ErrStreamContract reports invalid requirements or missing stream capabilities.
+// It never includes remote metadata values or remote error details.
+var ErrStreamContract = errors.New("RPC stream header contract is not satisfied")
+
+// StreamHeader requires exactly one matching text value. Names must be canonical
+// lowercase metadata keys. Duplicate requirements are invalid.
+type StreamHeader struct { Name, Value string }
+
+// RequireStreamHeaders checks startup metadata before the caller reads events.
+// It preserves an RPC error sent before headers, including its status details.
+// An empty successful stream without the required headers is a contract error.
+// Present headers are checked without receiving a message. The caller owns the
+// stream context and must cancel it on error. Do not call this concurrently with
+// Header or Recv. The stream must honor its context and have a setup deadline.
+func RequireStreamHeaders[T any](stream interface {
+ Header() (metadata.MD, error)
+ Recv() (T, error)
+}, required ...StreamHeader) error {
+ if stream == nil || len(required)<1 || len(required)>32 { return ErrStreamContract }
+ value:=reflect.ValueOf(stream)
+ switch value.Kind() {
+ case reflect.Chan,reflect.Func,reflect.Interface,reflect.Map,reflect.Pointer,reflect.Slice:
+  if value.IsNil(){return ErrStreamContract}
+ }
+ for i, item:=range required {
+  if len(item.Name)<1 || len(item.Name)>256 || len(item.Value)<1 || len(item.Value)>1024 {return ErrStreamContract}
+  for _,c:=range item.Name {if !(c>='a'&&c<='z'||c>='0'&&c<='9'||c=='-'||c=='_'||c=='.'){return ErrStreamContract}}
+  for _,c:=range item.Value {if c<32||c>126{return ErrStreamContract}}
+  for j:=0;j<i;j++ {if required[j].Name==item.Name{return ErrStreamContract}}
+ }
+ header,err:=stream.Header()
+ if err!=nil{return err}
+ if header==nil {
+  // gRPC exposes a trailers-only error through Recv. Do not replace it with a
+  // missing-capability error. A conforming stream cannot send data before headers.
+  if _,err:=stream.Recv();err!=nil&&!errors.Is(err,io.EOF){return err}
+  return ErrStreamContract
+ }
+ for _,item:=range required {
+  values:=header.Get(item.Name)
+  if len(values)!=1||values[0]!=item.Value{return ErrStreamContract}
+ }
+ return nil
+}

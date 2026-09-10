@@ -93,8 +93,17 @@ func (records) Watch(request *pb.Request, stream grpc.ServerStreamingServer[pb.R
 			return status.Error(code, "stream ended before headers")
 		}
 	}
-	if request.Text == "headers" {
-		if err := stream.SendHeader(metadata.Pairs("sample-capability", "v1")); err != nil {
+	if strings.HasPrefix(request.Text, "headers") {
+		header := metadata.Pairs("sample-capability", "v1")
+		switch request.Text {
+		case "headers/wrong":
+			header.Set("sample-capability", "v2")
+		case "headers/duplicate":
+			header.Append("sample-capability", "v1")
+		case "headers/missing":
+			header.Delete("sample-capability")
+		}
+		if err := stream.SendHeader(header); err != nil {
 			return err
 		}
 		return stream.Send(&pb.Response{Text: "event"})

@@ -2352,3 +2352,11 @@ Its 73 generated and dependency files are unchanged. Only compiler state gained
 the registry digest, which an independent calculation verified. Contract race
 tests, the application build, and post-commit regeneration passed. Both feature
 commits are on remote `main`. The broad enterprise goal remains active.
+
+[Stream startup contracts](grpc-stream-contracts.md) move initial gRPC header
+validation and early RPC error handling into the generated client. Hypershell
+keeps the database capability names, replay scope, and controller error policy.
+The generated TLS tests check exact headers, duplicate values, empty streams,
+early failures, and preservation of the first event. This removes a common
+protocol procedure from domain code. Database field ownership and generation
+tracking still require the pending application contract decision.
