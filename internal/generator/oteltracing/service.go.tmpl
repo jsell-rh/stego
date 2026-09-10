@@ -1,0 +1,96 @@
+package {{.Package}}
+
+import (
+ "context"
+ "encoding/json"
+ "io"
+ "sync"
+ "sync/atomic"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/trace"
+)
+
+// ServiceEvent permits fixed common events. It cannot carry user data or errors.
+// Domain events need a separate declaration contract.
+type ServiceEvent uint8
+const (
+ RuntimeStarted ServiceEvent = iota + 1
+ RuntimeStopped
+ ServiceReady
+ ServiceStopping
+ ServiceFailed
+)
+func(event ServiceEvent)description()(string,string,string,otellog.Severity){
+ switch event {
+ case RuntimeStarted:return "telemetry.runtime.started","Telemetry runtime started","INFO",otellog.SeverityInfo
+ case RuntimeStopped:return "telemetry.runtime.stopped","Telemetry runtime stopped","INFO",otellog.SeverityInfo
+ case ServiceReady:return "service.ready","Service is ready","INFO",otellog.SeverityInfo
+ case ServiceStopping:return "service.stopping","Service is stopping","INFO",otellog.SeverityInfo
+ case ServiceFailed:return "service.failed","Service failed","ERROR",otellog.SeverityError
+ default:return "","","",0
+ }
+}
+type serviceLogs struct {
+ mu sync.Mutex
+ service string
+ logger otellog.Logger
+ local *localLogs
+ lifecycle bool
+}
+type localRecord struct {
+ Time time.Time `json:"timestamp"`
+ Severity string `json:"severity"`
+ Service string `json:"service.name"`
+ Event string `json:"event.name"`
+ Message string `json:"message"`
+ TraceID string `json:"trace_id,omitempty"`
+ SpanID string `json:"span_id,omitempty"`
+}
+type localLogs struct {
+ queue chan localRecord
+ done chan struct{}
+ dropped, failures atomic.Uint64
+}
+func newLocalLogs(writer io.Writer)*localLogs {
+ local:=&localLogs{queue:make(chan localRecord,QueueSize),done:make(chan struct{})}
+ go func(){
+  defer close(local.done)
+  encoder:=json.NewEncoder(writer)
+  for record:=range local.queue {if err:=encoder.Encode(record);err!=nil{local.failures.Add(1)}}
+ }()
+ return local
+}
+func(local *localLogs)enqueue(record localRecord){select{case local.queue<-record:default:local.dropped.Add(1)}}
+func(r *Runtime)initServiceLogs(service string,writer io.Writer){
+ r.service.service=service
+ r.service.local=newLocalLogs(writer)
+ if r.signals.logs!=nil{r.service.logger=r.signals.logs.Logger("stego/service")}
+}
+// LogServiceEvent queues a declared event for local JSON output and OTLP export.
+// False means the event is unknown or the runtime is closed. True does not
+// guarantee delivery. Queue pressure can drop records. No global logger changes.
+func(r *Runtime)LogServiceEvent(ctx context.Context,event ServiceEvent)bool {
+ r.service.mu.Lock();defer r.service.mu.Unlock()
+ if r.closed.Load(){return false}
+ return r.emitServiceEvent(ctx,event)
+}
+// The caller holds service.mu. The record retains no context or application data.
+func(r *Runtime)emitServiceEvent(ctx context.Context,event ServiceEvent)bool {
+ name,message,severity,level:=event.description();if name==""{return false}
+ now:=time.Now()
+ local:=localRecord{Time:now,Severity:severity,Service:r.service.service,Event:name,Message:message}
+ sc:=trace.SpanContextFromContext(ctx)
+ if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+ if r.service.local!=nil{r.service.local.enqueue(local)}
+ if r.service.logger!=nil{
+  var record otellog.Record
+  record.SetTimestamp(now);record.SetEventName(name);record.SetBody(attribute.StringValue(message));record.SetSeverity(level);record.SetSeverityText(severity)
+  r.service.logger.Emit(ctx,record)
+ }
+ return true
+}
+func(r *Runtime)LocalLogDrops()uint64{if r.service.local==nil{return 0};return r.service.local.dropped.Load()}
+func(r *Runtime)LocalLogFailures()uint64{if r.service.local==nil{return 0};return r.service.local.failures.Load()}

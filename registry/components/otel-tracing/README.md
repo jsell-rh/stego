@@ -12,3 +12,8 @@ excluded. Queues, metric series, export time, and shutdown time have fixed limit
 See the [request observability contract](../../../specs/request-observability.md)
 for settings, privacy rules, evidence, and remaining observability requirements.
 Complete service, controller, database, and outbound instrumentation remains open.
+
+Version 1.3.0 also emits fixed runtime lifecycle events as local JSON and OTLP
+logs. Local service logs remain available without a collector. See the
+[service logging contract](../../../specs/service-logging.md) for the declared
+event API, queue limits, shutdown behavior, and remaining process logging work.

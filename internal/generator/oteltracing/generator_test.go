@@ -19,12 +19,15 @@ var runtimeTests []byte
 //go:embed testdata/signals_test.go
 var signalTests []byte
 
+//go:embed testdata/service_test.go
+var serviceTests []byte
+
 func TestGeneratedTracing(t *testing.T) {
 	files, wiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "records"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests})
+	files = append(files, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")
 	var names []string
@@ -47,7 +50,7 @@ func TestGeneratedTracing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy", "-go=1.26.0"}, {"vet", "./..."}, {"test", "-race", "-count=1", "-timeout=45s", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy", "-go=1.26.0"}, {"vet", "./..."}, {"test", "-race", "-count=1", "-timeout=60s", "./..."}} {
 		command := exec.Command("go", args...)
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")
@@ -56,7 +59,7 @@ func TestGeneratedTracing(t *testing.T) {
 		}
 	}
 	if os.Getenv("STEGO_BENCH_TRACING") == "1" {
-		command := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(HTTPTracing|RequestSignals)$", "-benchtime=200ms", "-count=3", "./...")
+		command := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(HTTPTracing|RequestSignals|ServiceLogs)$", "-benchtime=200ms", "-count=3", "./...")
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")
 		output, err := command.CombinedOutput()

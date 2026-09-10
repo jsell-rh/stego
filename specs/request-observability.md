@@ -12,7 +12,7 @@ by default. `OTEL_METRICS_EXPORTER` and `OTEL_LOGS_EXPORTER` each accept `otlp`,
 defaults to ten seconds. `OTEL_METRIC_EXPORT_INTERVAL` accepts a canonical integer
 from 1,000 through 60,000 milliseconds. Other nonempty, undeclared `OTEL_` settings
 still fail startup. Without an endpoint, these providers and request wrappers
-remain disabled. Existing process logging remains in use. Public health and discovery routes
+remain disabled. Version 1.3.0 adds [local service events](service-logging.md). Public health and discovery routes
 remain outside the application request wrappers.
 
 The generated instruments are:
@@ -77,7 +77,7 @@ then cancels it. It checks correlated logs and spans, cumulative request counts,
 API restart, and progress after collector loss. The old compiler served this
 workflow but did not export the required logs.
 
-This change does not complete service-log capture, JSON process logging,
+This change does not complete complete service-log capture or complete JSON process logging,
 controller or database instrumentation, outbound propagation, runtime metrics,
 Prometheus integration, or production capacity. Request logs currently export
 through OTLP; they do not replace the application's existing process logs.

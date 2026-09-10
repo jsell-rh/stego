@@ -2701,3 +2701,12 @@ in 31.02 seconds, but the full CI result remains failed. The variant records the
 evidence and aggregate CI limit change in `acceptance/ci-evidence.md`. Later
 application runs remain unverified until they finish. This does not change the
 open process-restart retry, provider-fencing, or broad enterprise requirements.
+
+The [service logging contract](service-logging.md) adds fixed common events,
+local JSON output, and OTLP service logs with trace correlation. Generated
+telemetry runtimes emit start and stop events automatically. One bounded local
+queue preserves caller progress and the shared shutdown limit when stderr
+blocks. Full compiler race tests with PostgreSQL and static checks passed.
+The Gateway test first showed missing lifecycle logs on the preceding compiler.
+General process logging, domain declarations, and the full observability and
+enterprise goals remain open.

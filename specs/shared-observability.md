@@ -44,3 +44,8 @@ bounded queue, and verified TLS OTLP/gRPC export. The combined request gate
 adds log and metric export. Complete service logging, database and outbound
 spans, runtime metrics, and controller telemetry remain open.
 The broader upstream observability requirements also remain in force.
+
+The [service logging contract](service-logging.md) adds a private fixed-event API,
+local JSON output, and automatic telemetry runtime lifecycle events. It preserves
+bounded callers and shutdown when local output blocks. General process and
+domain logging remain open; this step does not close the full requirement.
