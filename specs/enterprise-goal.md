@@ -10,6 +10,15 @@ That application exposed a separate constructor-name conflict in shared route
 assembly. Both fixes have standalone generated runtime regressions. Complete
 dependency readiness, tracing, gRPC health, and deployment probes remain open.
 
+Hypershell `d162879d1ef73d5121c9b23e7931f63a5ff17b77` adopts health compiler
+`edc5bca696f1aeb5507eac458a758d17fc911412`. The pinned health workflow passed
+in 6.15 seconds. Five selected acceptance workflows passed under race detection
+with PostgreSQL required in 22.986 seconds. Internal and contract race tests,
+static checks, and repeated generation also passed. All 91 output, state, and
+dependency hashes stayed unchanged on repeat generation. The full compiler race
+suite passed with PostgreSQL required. Full application CI is pending; local
+Keycloak, Kubernetes, and VM gates were not repeated for this health change.
+
 The reference application is `/home/jsell/code/hypershell` at commit
 `14256be29bcfe4fff38bcaf4a41511cb394ea8e1`. The test bed is
 `/home/jsell/code/hypershell-stego`, cloned from

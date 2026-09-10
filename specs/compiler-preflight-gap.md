@@ -42,7 +42,9 @@ The following components now implement the contract:
 - Kafka, outbox, Kubernetes, PostgreSQL clients, controllers, and search: their
   existing path, dependency, setting, or metadata checks.
 
-This is 12 components. Health and tracing generators do not consume the context.
+This initial change covered 12 components. The later
+[health generator](health-probes.md) adds namespace and setting checks through
+the same contract. The tracing generator still has no runtime implementation.
 The legacy SSO generator initially had no separate input rejection block to
 move. The later Go package-name change adds its namespace check. Its other
 configuration and runtime behavior still need the broader security audit.
