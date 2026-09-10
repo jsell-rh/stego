@@ -53,3 +53,17 @@ is no comparison with the old implementation or production throughput claim.
 go test -run '^$' -bench '^BenchmarkAssembleWithImportsAndFills$' \
   -benchmem -benchtime=200ms -count=3 ./internal/compiler
 ```
+
+Hypershell now pins compiler `3a4a64f246643b155d2653af72925543c4e6b08f` in application
+commit `7f74632984e9113e17f94888cf367f4cd0169492`. Both commits are on remote main.
+Regeneration before and after the application commit preserved all 74 generated
+and dependency file hashes from application revision `ea79d53`. The application
+source also stayed unchanged. Contract race tests passed in 1.548 seconds, and
+`go build -mod=readonly ./...` passed.
+
+The preceding application revision had passed 114 acceptance tests with
+PostgreSQL and Keycloak, plus both Kubernetes gates. Those tests were not repeated
+locally for this pin change because the application source, generated files, and
+dependencies are identical. New remote CI is pending. This evidence establishes
+compatibility for the current Hypershell output; the separate generated program
+tests establish the changed name-binding behavior.
