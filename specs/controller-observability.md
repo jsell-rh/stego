@@ -94,6 +94,11 @@ The later [instance identity contract](telemetry-instance-identity.md) adds
 `service.instance.id` to all signals and local logs. It distinguishes separate
 replicas and runtime replacements. Full production observability remains open.
 
+The later [sweep contract](sweep-observability.md) extends provider ownership and
+work signals to `RunSweep` in controller 1.14.0. It preserves the source terminal
+policy and distinguishes pass deadlines from run cancellation. Other non-keyed
+entry points remain open.
+
 The [corrected compiler run 34532926692](https://github.com/jsell-rh/stego/actions/runs/34532926692)
 passed for `86b436c27bd31817733dd0356d3aea5ca10c8a77`. This resolves the CI test
 ordering failure at that revision. Later changes need their own CI results.

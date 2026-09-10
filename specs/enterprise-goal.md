@@ -2744,3 +2744,9 @@ found after Gateway creation and event delivery. Generated task callbacks now
 report abnormal exits, cancel peers, and wait for cleanup. Compiler race tests
 with PostgreSQL and static checks passed. Application adoption and the broader
 enterprise requirements remain open.
+
+The [sweep observability contract](sweep-observability.md) moves common recovery
+signals into `RunSweep`. A Hypershell service-account probe exposed the missing
+signals after creation and a retained revocation request. Compiler race tests
+with PostgreSQL and static checks passed. Application adoption and the wider
+enterprise goal remain open.

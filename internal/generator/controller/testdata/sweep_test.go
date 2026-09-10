@@ -221,9 +221,29 @@ func BenchmarkSweepDispatch(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				ctx, cancel := context.WithCancel(context.Background())
-				sweepPage(ctx, cancel, page, action, options)
+				sweepPage(ctx, ctx, cancel, page, action, options)
 				cancel()
 			}
 		})
+	}
+}
+
+func TestSweepDeadlineAfterSuccessfulPagePreservesTerminalPolicy(t *testing.T) {
+	options := sweepOptions()
+	calls, classified := 0, 0
+	options.Terminal = func(error) bool { classified++; return true }
+	groups := []SweepGroup[int]{{Name: "records", Streams: []SweepStream[int]{{Name: "live", Page: func(ctx context.Context, _ string, _ int) (SweepPage[int], error) {
+		calls++
+		if calls == 1 {
+			<-ctx.Done()
+			return SweepPage[int]{}, nil
+		}
+		return SweepPage[int]{}, denied
+	}}}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := RunSweep(ctx, groups, func(context.Context, int) error { t.Error("empty page started an action"); return nil }, options)
+	if !errors.Is(err, denied) || calls != 2 || classified != 1 {
+		t.Fatal("telemetry changed the source terminal policy", err, calls, classified)
 	}
 }

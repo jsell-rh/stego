@@ -208,6 +208,10 @@ It uses versioned checkpoint callbacks and a bounded record with no provider err
 text. A completed cycle with an earlier failure returns `ErrCycleFailed`.
 See [scan-cycle outcomes](../../../specs/scan-cycles.md) for invalidation rules.
 
+[Sweep telemetry](../../../specs/sweep-observability.md) covers page reads and
+actions in `RunSweep`. It shares providers with keyed controllers and omits
+domain values from common logs, metrics, and spans.
+
 [Shared controller telemetry](../../../specs/controller-observability.md) now
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.

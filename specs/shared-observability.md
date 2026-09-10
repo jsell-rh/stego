@@ -71,3 +71,8 @@ fallback otherwise. Request panic signals retain their separate correlation.
 The [task abort policy](task-abort-handling.md) adds safe task names for callbacks
 that panic or exit without return. Peer cancellation and resource cleanup finish
 before the local failure report. Full process lifecycle export remains open.
+
+The [sweep observability contract](sweep-observability.md) adds common page and
+action signals to retained-state recovery. `RunSweep` now shares controller
+providers and fixed fields. Standalone scans, cycles, and the older `Run` loop
+still need telemetry coverage.
