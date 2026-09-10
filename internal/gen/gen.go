@@ -150,6 +150,8 @@ type Wiring struct {
 
 	// Constructors lists constructor call expressions for main.go assembly.
 	// Each entry is a code fragment like "api.NewUserHandler(userService, ...)".
+	// The derived value name must not be predeclared in Go. String expressions
+	// cannot distinguish a shadowed language name from an intended dependency.
 	Constructors []string
 
 	// ConstructorResources appends compiler-owned arguments to a constructor.

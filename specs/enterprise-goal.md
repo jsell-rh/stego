@@ -2293,3 +2293,14 @@ pending deletion is recommended. The answer was still pending at this review;
 version-check work does not depend on it. No Playwright command was used. The
 probe PostgreSQL container was removed after the probe stopped. The full goal
 remains active, and reconciliation is not claimed complete.
+
+The assembler now protects predeclared Go names and generated startup names
+when it assigns imports. A generated module first failed to compile because
+imports hid `error`, `nil`, and `make`, or conflicted with `main` and `run`.
+The allocator also rejects reuse of an already assigned suffix. Fill wiring
+now consumes the import allocation record directly; the duplicate allocation
+pass was removed. Ambiguous predeclared constructor value names fail before
+output. Generated startup tests cover component and fill calls, HTTP and task
+wiring, collisions, and repeated assembly. The compiler race suite and static
+checks passed. See [symbol bindings](symbol-bindings.md) for measured cost and
+limits. Complete typed constructor bindings remain open under C7.

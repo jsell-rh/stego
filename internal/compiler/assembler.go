@@ -279,7 +279,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	// Slot wiring — create operators before constructors so they can be
 	// injected as handler constructor arguments.
 	if hasSlots {
-		writeSlotWiring(&buf, input, slotVarsByCollection, hasDB, isGORM, consumedWirings)
+		writeSlotWiring(&buf, input, slotVarsByCollection, imports.FillAliases)
 	}
 
 	wiringRenames, err := writeConstructors(&buf, input, slotVarsByCollection, allSlotVarNames, hasDB, isGORM, hasRoutes, imports, consumed)
@@ -334,6 +334,9 @@ type importResult struct {
 
 	// PackageAliases includes standard library and generated package aliases.
 	PackageAliases map[string]bool
+
+	// FillAliases shares the exact assigned imports with slot construction.
+	FillAliases map[string]string
 }
 
 // writeMainImports writes the import block and returns per-wiring import alias
@@ -399,9 +402,13 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	if hasDB && !isGORM {
 		compImports = append(compImports, "\t_ \"github.com/jackc/pgx/v5/stdlib\"")
 	}
-	seen := make(map[string]bool)      // full import path → already added
-	aliases := make(map[string]int)    // base alias → count (for disambiguation)
-	aliasUsed := make(map[string]bool) // tracks the exact alias string used
+	seen := make(map[string]bool)   // full import path → already added
+	aliases := make(map[string]int) // base alias → count (for disambiguation)
+	aliasUsed := reservedImportNames()
+	for name := range aliasUsed {
+		aliases[name] = 1
+	}
+	fillAliases := make(map[string]string)
 
 	// Seed the disambiguation maps with stdlib import aliases so that
 	// non-stdlib imports cannot shadow them. A component import like
@@ -501,6 +508,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		for _, name := range fillNames {
 			baseAlias := rawFillImportAlias(name)
 			alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
+			fillAliases[name] = alias
 			nonStdlibAliases[alias] = true
 			fullPath := input.ModuleName + "/fills/" + name
 			compImports = append(compImports, fmt.Sprintf("\t%s %q", alias, fullPath))
@@ -525,6 +533,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 	return importResult{
 		PackageAliases:   packageAliases,
+		FillAliases:      fillAliases,
 		Renames:          importRenames,
 		NonStdlibAliases: nonStdlibAliases,
 	}
@@ -1219,16 +1228,8 @@ func topoSortConstructors(entries []constructorEntry, provided map[string]bool) 
 	return sorted, nil
 }
 
-func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, hasDB, isGORM bool, consumedWirings map[int]bool) {
+func writeSlotWiring(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollection map[string][]string, fillAliasMap map[string]string) {
 	buf.WriteString("\t// Slot wiring — fills composed via operators.\n")
-
-	// Compute fill import aliases (must match writeMainImports exactly).
-	// hasDB is passed from the caller (effectiveHasDB from
-	// computeConsumedConstructors) to ensure stdlib alias seeding matches
-	// writeMainImports exactly — see checklist item 121. consumedWirings
-	// ensures component import filtering matches writeMainImports — see
-	// finding 30.
-	fillAliasMap := buildFillAliasMap(input, hasDB, isGORM, consumedWirings)
 
 	// Build a set of operator variable names that will be injected into
 	// handler constructors. Variables NOT in this set need `_ =` to prevent
@@ -1587,9 +1588,12 @@ func rawFillImportAlias(fillName string) string {
 // The counts and used maps are mutated to track state across calls.
 func disambiguateAlias(base string, counts map[string]int, used map[string]bool) string {
 	counts[base]++
-	if counts[base] == 1 {
+	if counts[base] == 1 && !used[base] {
 		used[base] = true
 		return base
+	}
+	if counts[base] < 2 {
+		counts[base] = 2
 	}
 	alias := fmt.Sprintf("%s%d", base, counts[base])
 	for used[alias] {
@@ -1646,81 +1650,6 @@ func buildSlotVarsByCollection(bindings []types.SlotDeclaration, hasSlots bool) 
 		if len(sb.FanOut) > 0 {
 			result[sb.Collection] = append(result[sb.Collection], slotVarName(sb.Slot, sb.Collection, "FanOut"))
 		}
-	}
-	return result
-}
-
-// buildFillAliasMap returns a map from fill name to its resolved import alias.
-// Must replay the same unified disambiguation sequence as writeMainImports:
-// slots alias first, then component import aliases, then fill aliases.
-// hasDB must be the same effectiveHasDB value used by writeMainImports so that
-// stdlib alias seeding is identical — see checklist item 121.
-func buildFillAliasMap(input AssemblerInput, hasDB, isGORM bool, consumedWirings map[int]bool) map[string]string {
-	aliases := make(map[string]int)
-	aliasUsed := make(map[string]bool)
-	seen := make(map[string]bool)
-
-	// Collect extra stdlib imports from consumed wirings (must match writeMainImports).
-	extraStdlib := make(map[string]bool)
-	for i, cw := range input.Wirings {
-		if cw.Wiring == nil || !consumedWirings[i] {
-			continue
-		}
-		for _, pkg := range cw.Wiring.StdlibImports {
-			extraStdlib[pkg] = true
-		}
-	}
-
-	// Seed stdlib aliases (must match writeMainImports exactly).
-	hasRoutes := hasAnyRoutes(input)
-	for _, name := range stdlibAliases(hasRoutes, hasBackgroundTasks(input), hasDB, isGORM, extraStdlib) {
-		aliases[name]++
-		aliasUsed[name] = true
-	}
-
-	// Replay GORM alias registration (must match writeMainImports exactly).
-	if isGORM {
-		for _, gi := range gormImports() {
-			disambiguateAlias(gi.alias, aliases, aliasUsed)
-		}
-	}
-
-	// Replay slots alias registration.
-	hasSlots := len(input.SlotBindings) > 0 && input.SlotsPackage != ""
-	if hasSlots {
-		fullPath := generatedImportPath(input.ModuleName, input.OutDirName, input.SlotsPackage)
-		if !seen[fullPath] {
-			seen[fullPath] = true
-			disambiguateAlias("slots", aliases, aliasUsed)
-		}
-	}
-
-	// Replay component import alias registration — only for consumed
-	// wirings, matching writeMainImports filtering (finding 30).
-	for i, cw := range input.Wirings {
-		if cw.Wiring == nil {
-			continue
-		}
-		if !consumedWirings[i] {
-			continue
-		}
-		for _, imp := range cw.Wiring.Imports {
-			fullPath := generatedImportPath(input.ModuleName, input.OutDirName, imp)
-			if seen[fullPath] {
-				continue
-			}
-			seen[fullPath] = true
-			disambiguateAlias(path.Base(imp), aliases, aliasUsed)
-		}
-	}
-
-	// Now compute fill aliases using the same namespace.
-	fillNames := collectFillNames(input.SlotBindings)
-	result := make(map[string]string, len(fillNames))
-	for _, name := range fillNames {
-		baseAlias := rawFillImportAlias(name)
-		alias := disambiguateAlias(baseAlias, aliases, aliasUsed)
-		result[name] = alias
 	}
 	return result
 }
@@ -1791,6 +1720,9 @@ func validateConstructorUniqueness(wirings []ComponentWiring) error {
 		seen := make(map[string]string) // base var name → first constructor expression
 		for _, constructor := range cw.Wiring.Constructors {
 			baseVar := rawConstructorVarName(constructor)
+			if predeclaredName(baseVar) {
+				return fmt.Errorf("component %q constructor derives predeclared Go name %q; use a distinct constructor name", cw.Name, baseVar)
+			}
 			if first, ok := seen[baseVar]; ok {
 				return fmt.Errorf("component %q has multiple constructors deriving variable name %q: %q and %q — constructor names within a component must be distinct",
 					cw.Name, baseVar, first, constructor)
