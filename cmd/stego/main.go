@@ -29,6 +29,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
+	"github.com/jsell-rh/stego/internal/generator/postgresclient"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
@@ -788,6 +789,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"http-application":  &httpapplication.Generator{},
 		"cli-application":   &cliapplication.Generator{},
 		"kubernetes-client": &kubernetesclient.Generator{},
+		"postgres-client":   &postgresclient.Generator{},
 		"controller":        &controller.Generator{},
 		"grpc-application":  &grpcapplication.Generator{},
 		"outbox":            &outbox.Generator{},
