@@ -46,3 +46,11 @@ columns, authorize a resource, change counts, or recover omitted data. An atomic
 schema field permits its complete JSON value; declare child fields when the
 value needs further restrictions. The application retains responsibility for
 its public field declarations and for private data in the list envelope.
+
+Version 1.4.0 adds `ProjectListIfSelected`. Pass a nil selection when the client
+did not request fields. The function returns the original public response to
+the endpoint without encoding or projection work. An explicit selection uses
+the checked projector. The endpoint still applies its normal encoding and
+response-size checks in both cases. This adapter avoids the cost of projection
+on ordinary requests; it does not replace the public response type or its access
+checks with a field schema.

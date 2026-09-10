@@ -19,6 +19,15 @@ type fieldSelectionNode struct { all bool; children map[string]*fieldSelectionNo
 type FieldSelection struct { schema FieldSchema; root *fieldSelectionNode }
 var ErrProjection = errors.New("invalid response projection contract")
 
+// ProjectListIfSelected preserves the normal response encoding path when there
+// is no selector. A non-nil selection uses the checked projector. The caller
+// must supply an authorized public response in both cases.
+func ProjectListIfSelected(value any,selection *FieldSelection,itemsField string)(any,error){
+ if !fieldName(itemsField){return nil,ErrProjection}
+ if selection==nil{return value,nil}
+ return selection.ProjectList(value,itemsField)
+}
+
 func NewFieldProjector(schema FieldSchema)(*FieldProjector,error){
  count:=0
  copy,err:=copyFieldSchema(schema,1,&count)

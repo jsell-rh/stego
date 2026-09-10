@@ -55,6 +55,31 @@ func TestProjectionPreservesJSONAndEnvelope(t *testing.T) {
 	}
 }
 
+func TestOptionalProjectionKeepsTheNormalEncodingPath(t *testing.T) {
+	value := &struct {
+		Items []map[string]string `json:"items"`
+	}{Items: []map[string]string{{"id": "one", "name": "record"}}}
+	plain, err := transport.ProjectListIfSelected(value, nil, "items")
+	if err != nil || plain != value {
+		t.Fatal("normal response was copied or encoded", err)
+	}
+	selection, err := fieldProjector(t).Parse("name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := transport.ProjectListIfSelected(value, &selection, "items")
+	if err != nil || string(projected.(json.RawMessage)) != `{"items":[{"name":"record"}]}` {
+		t.Fatal("selected response", projected, err)
+	}
+	var zero transport.FieldSelection
+	if _, err := transport.ProjectListIfSelected(value, &zero, "items"); !errors.Is(err, transport.ErrProjection) {
+		t.Fatal("zero selection accepted", err)
+	}
+	if _, err := transport.ProjectListIfSelected(value, nil, "bad.path"); !errors.Is(err, transport.ErrProjection) {
+		t.Fatal("invalid item field accepted", err)
+	}
+}
+
 func TestProjectionRejectsSelectorsWithoutData(t *testing.T) {
 	p := fieldProjector(t)
 	for _, query := range []string{"unknown", "profile.unknown", "profile.name.more", "name.*", "*,unknown", "name,,id", "name,name", "name, name", ".name", "profile.", "profile.*.name", "id;DROP", "Name", strings.Repeat("a", 4097), strings.Repeat("name,", 64) + "id", "\x00", "\xff"} {

@@ -37,3 +37,20 @@ network transfer. It does not establish production throughput or a latency gain.
 ```sh
 STEGO_BENCH_PROJECTION=1 go test -count=1 -v ./internal/generator/httpapplication -run '^TestGeneratedApplicationEndpoint$'
 ```
+
+The first Hypershell integration also projected requests without a `fields`
+parameter. Three paired local samples each read 100 pages of 20 visible
+Gateways from a 200-row fixture with current PostgreSQL statistics. Full replies
+took 3.417–3.638 ms and allocated 513687–525174 bytes per request. Selected
+`id,name` replies took 3.047–3.132 ms and allocated 433736–436706 bytes. Reply
+bodies were 9705–9710 bytes and 1246–1250 bytes, respectively. The full race
+suite ran on the same host. These measurements include JWT checks, database
+queries, and an HTTP recorder; they exclude network latency.
+
+The full-reply path did unnecessary encoding, validation, and projection work.
+Component 1.4.0 adds `ProjectListIfSelected` to preserve the ordinary response
+path when the caller supplies no selector. It returns the original response
+without encoding it. An explicit selector still uses all projector checks.
+Tests verify both branches, invalid selections, and invalid item-field names.
+The endpoint retains its normal response-size and encoding checks. Applications
+must supply authorized public response types even when projection is absent.
