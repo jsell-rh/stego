@@ -2614,3 +2614,22 @@ capped delay after old callbacks stop. Full compiler race tests with PostgreSQL
 and static checks passed. See [keyed controllers](controller-keyed.md) and the
 [PR 200 review](reconciliation-contract-review.md). Process-restart retry
 persistence, provider fencing, and the broad goal remain open.
+
+The action retry fix is committed at `4ca5a064bdee4131aaffbf198d37feec3f1ecabf`.
+Hypershell `7dfc96a` adopts that compiler and controller version 1.12.3. Both
+application regressions now pass, including actual API restart with a live
+identity controller. The full application race suite passed with PostgreSQL
+and Keycloak required; acceptance completed in 869.854 seconds. All 350 reported
+tests and subtests passed. Static checks passed. Repeated generation preserved
+all 90 output, state, and dependency hashes. Local Kubernetes and VM gates were
+not repeated for this change; the new remote application run remains pending.
+
+Compiler CI run 34523682726 passed. The preceding application run 34521961193
+also passed all six jobs. These are separate results. A new source-scan probe
+found that failed inventory backoff still resets across watch sessions; the
+resource-action queue fix does not close that case. The next permanent
+regression is recorded in [keyed controllers](controller-keyed.md).
+
+The [provider failover contract](provider-failover-contract.md) records a pending
+design choice about stale external writes. It is independent of transport retry
+recovery. No automatic failover or provider-fencing guarantee is claimed.

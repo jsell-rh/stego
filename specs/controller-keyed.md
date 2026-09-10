@@ -68,6 +68,14 @@ keys pending and no active callbacks. It excluded network and provider work.
 Preparation visits the bounded queue once. These measurements do not include
 rescheduling interrupted workers and do not establish production capacity.
 
+The scan retry counter remains local to each session. A separate temporary
+probe used an isolated copy of the generated controller at `4ca5a06`. After an
+inventory failure, it dropped the watch and measured the next scan. The scan
+started after 1.26 milliseconds despite a 150-millisecond retry minimum. This
+is an open source-scan retry gap. The queued resource-action fix above does not
+close it. The next change must add this probe as a permanent regression and
+preserve failed-scan backoff without delaying ordinary initial discovery.
+
 Component version 1.4.0 adds bounded workers and `RunKeyedWatch`. A worker can
 process another key while one action waits on its provider. The queue still
 allows only one active action for each key within the runtime call. Duplicate
