@@ -30,3 +30,7 @@ Version 1.6.0 supplies the generated HTTP server's diagnostic logger. It discard
 raw panic and server error text, then queues a fixed local and OTLP service
 event. See [HTTP diagnostics](../../../specs/http-diagnostics.md) for ownership,
 queue limits, request correlation, and remaining work.
+
+[RPC client observability](../../../specs/rpc-client-observability.md) adds
+common outbound signals through the active runtime. Generated clients select
+method names from compiled contracts and preserve the complete stream lifetime.

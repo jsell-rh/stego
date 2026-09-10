@@ -77,14 +77,15 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	factory := ctx.ComponentConfig["factory_package"].(string)
 	watch, _ := ctx.ComponentConfig["watch_events"].(bool)
-	files, err := generateProto(ctx)
+	files, methods, err := generateProto(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	data := struct {
 		Package, Factory, Storage, Auth, Transport, Events, Tracing string
+		Methods                                                     []string
 		Watch                                                       bool
-	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), ctx.EventsContract, "", watch}
+	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), ctx.EventsContract, "", methods, watch}
 	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
 		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, tracing)
 	}

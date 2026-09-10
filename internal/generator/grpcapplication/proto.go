@@ -129,24 +129,31 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 	return plugin, nil
 }
 
-func generateProto(ctx gen.Context) ([]gen.File, error) {
+func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 	plugin, err := prepareProto(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var methods []string
 	for _, file := range plugin.Files {
 		if file.Generate {
+			for _, service := range file.Services {
+				for _, method := range service.Methods {
+					methods = append(methods, "/"+string(service.Desc.FullName())+"/"+string(method.Desc.Name()))
+				}
+			}
 			gengo.GenerateFile(plugin, file)
 			grpcgen.GenerateFile(plugin, file)
 		}
 	}
 	response := plugin.Response()
 	if response.GetError() != "" {
-		return nil, fmt.Errorf("protobuf generation: %s", response.GetError())
+		return nil, nil, fmt.Errorf("protobuf generation: %s", response.GetError())
 	}
 	result := make([]gen.File, 0, len(response.File))
 	for _, file := range response.File {
 		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "pb", file.GetName()), Content: []byte(file.GetContent())})
 	}
-	return result, nil
+	sort.Strings(methods)
+	return result, methods, nil
 }

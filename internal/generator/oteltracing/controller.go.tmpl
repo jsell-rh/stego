@@ -69,6 +69,7 @@ func(c *ControllerTelemetry)Attach(queue func()ControllerQueue)(func(),error){
 func(c *ControllerTelemetry)Begin(ctx context.Context,operation string)(context.Context,func(error,bool)){
  switch operation{case "reconcile","scan","watch":default:return ctx,func(error,bool){}}
  if c.runtime.closed.Load(){return ctx,func(error,bool){}}
+ ctx=c.runtime.Context(ctx)
  start:=time.Now()
  var span trace.Span
  if c.tracer!=nil{ctx,span=c.tracer.Start(ctx,"controller."+operation,trace.WithTimestamp(start),trace.WithAttributes(attribute.String("operation",operation)))}

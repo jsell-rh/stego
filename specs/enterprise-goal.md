@@ -2750,3 +2750,9 @@ signals into `RunSweep`. A Hypershell service-account probe exposed the missing
 signals after creation and a retained revocation request. Compiler race tests
 with PostgreSQL and static checks passed. Application adoption and the wider
 enterprise goal remain open.
+
+The [RPC client contract](rpc-client-observability.md) addresses the missing
+provider-call spans found during account recovery. Generated clients now reuse
+the current runtime for logs, metrics, spans, and trace propagation. Compiler
+race tests with PostgreSQL and static checks passed. Recording cost was measured.
+Application adoption and the full enterprise goal remain open.

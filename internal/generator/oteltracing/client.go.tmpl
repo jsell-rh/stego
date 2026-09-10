@@ -1,0 +1,94 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "strings"
+ "sync"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ "go.opentelemetry.io/otel/codes"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/propagation"
+ "go.opentelemetry.io/otel/trace"
+ grpccodes "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/metadata"
+ "google.golang.org/grpc/status"
+)
+
+type runtimeContextKey struct{}
+// Context lets generated clients use this runtime. It does not transfer ownership.
+// Generated request and controller boundaries call it automatically.
+func(r *Runtime)Context(ctx context.Context)context.Context{
+ if ctx==nil||r==nil||r.closed.Load(){return ctx}
+ if ctx.Value(runtimeContextKey{})==r{return ctx}
+ return context.WithValue(ctx,runtimeContextKey{},r)
+}
+type clientSignals struct{tracer trace.Tracer;logger otellog.Logger;duration metric.Float64Histogram;active metric.Int64UpDownCounter}
+func(r *Runtime)initClientSignals()error{
+ if r.provider!=nil{r.client.tracer=r.provider.Tracer("stego/grpc-client")}
+ if r.signals.logs!=nil{r.client.logger=r.signals.logs.Logger("stego/grpc-client")}
+ if r.signals.meter!=nil{
+  meter:=r.signals.meter.Meter("stego/grpc-client")
+  var err error
+  r.client.duration,err=meter.Float64Histogram("rpc.client.call.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(0.005,0.01,0.025,0.05,0.075,0.1,0.25,0.5,0.75,1,2.5,5,7.5,10,30,60,300));if err!=nil{return errors.New("cannot create RPC client metric")}
+  r.client.active,err=meter.Int64UpDownCounter("rpc.client.active_requests",metric.WithUnit("{request}"));if err!=nil{return errors.New("cannot create RPC client metric")}
+ }
+ return nil
+}
+func clientCode(err error)grpccodes.Code{
+ if err==nil{return grpccodes.OK}
+ if errors.Is(err,context.DeadlineExceeded){return grpccodes.DeadlineExceeded}
+ if errors.Is(err,context.Canceled){return grpccodes.Canceled}
+ var coded interface{GRPCStatus()*status.Status}
+ if errors.As(err,&coded){if value:=coded.GRPCStatus();value!=nil{code:=value.Code();if code>grpccodes.OK&&code<=grpccodes.Unauthenticated{return code}}}
+ return grpccodes.Unknown
+}
+// TraceClientRPC accepts a method from the generated contract allowlist, or
+// _OTHER. It records no addresses, request data, metadata, or error messages.
+// The returned finish function is safe to call more than once.
+func TraceClientRPC(ctx context.Context,method string)(context.Context,func(error)){
+ if ctx==nil{return ctx,func(error){}}
+ r,_:=ctx.Value(runtimeContextKey{}).(*Runtime)
+ if r==nil||r.closed.Load(){return ctx,func(error){}}
+ if len(method)>256||strings.Count(method,"/")!=1||strings.Trim(method,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/")!=""{method="_OTHER"}
+ start:=time.Now()
+ var span trace.Span
+ if r.client.tracer!=nil{ctx,span=r.client.tracer.Start(ctx,method,trace.WithSpanKind(trace.SpanKindClient),trace.WithTimestamp(start),trace.WithAttributes(attribute.String("rpc.system.name","grpc"),attribute.String("rpc.method",method)))}
+ if span!=nil{
+  // Replace caller trace headers without mutating the caller's metadata.
+  md,_:=metadata.FromOutgoingContext(ctx);md=md.Copy()
+  md.Delete("traceparent");md.Delete("tracestate");md.Delete("baggage")
+  carrier:=propagation.MapCarrier{}
+  (propagation.TraceContext{}).Inject(trace.ContextWithSpanContext(ctx,trace.SpanContextFromContext(ctx).WithTraceState(trace.TraceState{})),carrier)
+  if value:=carrier.Get("traceparent");value!=""{md.Set("traceparent",value)}
+  ctx=metadata.NewOutgoingContext(ctx,md)
+ }
+ if r.client.active!=nil{r.client.active.Add(ctx,1)}
+ var once sync.Once
+ return ctx,func(err error){once.Do(func(){
+  end:=time.Now();code:=clientCode(err)
+  names:=[...]string{"OK","CANCELLED","UNKNOWN","INVALID_ARGUMENT","DEADLINE_EXCEEDED","NOT_FOUND","ALREADY_EXISTS","PERMISSION_DENIED","RESOURCE_EXHAUSTED","FAILED_PRECONDITION","ABORTED","OUT_OF_RANGE","UNIMPLEMENTED","INTERNAL","UNAVAILABLE","DATA_LOSS","UNAUTHENTICATED"}
+  value:=names[code]
+  attrs:=[]attribute.KeyValue{attribute.String("rpc.system.name","grpc"),attribute.String("rpc.method",method),attribute.String("rpc.response.status_code",value)}
+  severity:=otellog.SeverityInfo;text:="INFO"
+  if code!=grpccodes.OK{attrs=append(attrs,attribute.String("error.type",value));severity=otellog.SeverityError;text="ERROR"}
+  duration:=end.Sub(start).Seconds()
+  if r.client.duration!=nil{r.client.duration.Record(ctx,duration,metric.WithAttributes(attrs...));r.client.active.Add(ctx,-1)}
+  r.service.mu.Lock()
+  if !r.closed.Load(){
+   sc:=trace.SpanContextFromContext(ctx)
+   local:=localRecord{Time:end,Service:r.service.service,Instance:r.instance,Severity:text,Event:"rpc.client.call.completed",Message:"RPC client call completed",RPCMethod:method,RPCStatus:value,DurationSeconds:&duration}
+   if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+   if r.service.local!=nil{r.service.local.enqueue(local)}
+   if r.client.logger!=nil{
+    var record otellog.Record
+    record.SetTimestamp(end);record.SetEventName(local.Event);record.SetBody(attribute.StringValue(local.Message));record.SetSeverity(severity);record.SetSeverityText(text);record.AddAttributes(attrs...);record.AddAttributes(attribute.Float64("duration_seconds",duration));r.client.logger.Emit(ctx,record)
+   }
+  }
+  r.service.mu.Unlock()
+  if span!=nil{span.SetAttributes(attrs...);if code!=grpccodes.OK{span.SetStatus(codes.Error,"")};span.End(trace.WithTimestamp(end))}
+ })}
+}

@@ -76,3 +76,8 @@ The [sweep observability contract](sweep-observability.md) adds common page and
 action signals to retained-state recovery. `RunSweep` now shares controller
 providers and fixed fields. Standalone scans, cycles, and the older `Run` loop
 still need telemetry coverage.
+
+The [RPC client contract](rpc-client-observability.md) adds outbound gRPC signals
+through the current request or controller runtime. Compiled method allowlists
+bound labels and exclude dynamic names. HTTP and database client coverage and
+independent entry-point integration remain open.

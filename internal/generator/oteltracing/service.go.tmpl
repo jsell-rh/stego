@@ -44,6 +44,8 @@ type serviceLogs struct {
  lifecycle bool
 }
 type localRecord struct {
+ RPCMethod string `json:"rpc.method,omitempty"`
+ RPCStatus string `json:"rpc.response.status_code,omitempty"`
  Time time.Time `json:"timestamp"`
  Severity string `json:"severity"`
  Service string `json:"service.name"`

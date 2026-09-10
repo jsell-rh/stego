@@ -16,6 +16,7 @@ import (
  "syscall"
  "time"
 
+ {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
  "google.golang.org/grpc"
  "google.golang.org/grpc/codes"
  "google.golang.org/grpc/credentials"
@@ -107,7 +108,10 @@ func New(options Options)(*Client,error){
  return &Client{connection:connection,permits:make(chan struct{},MaxConcurrentCalls),streams:make(chan struct{},MaxConcurrentStreams)},nil
 }
 func(c *Client)Close(){_ = c.connection.Close()}
-func(c *Client)Invoke(ctx context.Context,method string,request,response any,options ...grpc.CallOption)error{
+func(c *Client)Invoke(ctx context.Context,method string,request,response any,options ...grpc.CallOption)(result error){
+ {{if .Tracing}}ctx,finish:=tracing.TraceClientRPC(ctx,clientMethod(method))
+ result=errClientAborted
+ defer func(){finish(result)}(){{end}}
  select{case c.permits<-struct{}{}:default:return status.Error(codes.ResourceExhausted,"RPC client capacity exceeded")};defer func(){<-c.permits}()
  ctx,cancel:=context.WithTimeout(ctx,CallTimeout);defer cancel()
  // These limits override caller options. Retry buffering is disabled.
@@ -117,18 +121,24 @@ func(c *Client)Invoke(ctx context.Context,method string,request,response any,opt
 // NewStream supports one request and a stream of responses. The caller must
 // call Header or RecvMsg to complete the handshake within CallTimeout.
 // The application must reconnect and read current state after a watch ends.
-func(c *Client)NewStream(parent context.Context,desc *grpc.StreamDesc,method string,options ...grpc.CallOption)(grpc.ClientStream,error){
- if desc==nil||desc.ClientStreams||!desc.ServerStreams{return nil,status.Error(codes.Unimplemented,"RPC client requires a server response stream")}
- select{case c.streams<-struct{}{}:default:return nil,status.Error(codes.ResourceExhausted,"RPC stream capacity exceeded")}
+func(c *Client)NewStream(parent context.Context,desc *grpc.StreamDesc,method string,options ...grpc.CallOption)(result grpc.ClientStream,resultError error){
+ {{if .Tracing}}parent,finish:=tracing.TraceClientRPC(parent,clientMethod(method))
+ resultError=errClientAborted;handedOff:=false
+ defer func(){if !handedOff{finish(resultError)}}(){{end}}
+ if desc==nil||desc.ClientStreams||!desc.ServerStreams{err:=status.Error(codes.Unimplemented,"RPC client requires a server response stream");{{if .Tracing}}finish(err);{{end}}return nil,err}
+ select{case c.streams<-struct{}{}:default:err:=status.Error(codes.ResourceExhausted,"RPC stream capacity exceeded");{{if .Tracing}}finish(err);{{end}}return nil,err}
  lifetime,stopLifetime:=context.WithTimeout(parent,StreamTimeout)
  ctx,cancel:=context.WithCancelCause(lifetime)
  handshake:=time.AfterFunc(CallTimeout,func(){cancel(context.DeadlineExceeded)})
  var once sync.Once
  release:=func(){once.Do(func(){handshake.Stop();cancel(context.Canceled);stopLifetime();<-c.streams})}
  stopRelease:=context.AfterFunc(ctx,release)
- options=append(options,grpc.MaxCallSendMsgSize(MaxRequestBytes),grpc.MaxCallRecvMsgSize(MaxResponseBytes),grpc.MaxRetryRPCBufferSize(0),grpc.WaitForReady(false),grpc.OnFinish(func(error){release();stopRelease()}))
+ options=append(options,grpc.MaxCallSendMsgSize(MaxRequestBytes),grpc.MaxCallRecvMsgSize(MaxResponseBytes),grpc.MaxRetryRPCBufferSize(0),grpc.WaitForReady(false),grpc.OnFinish(func(err error){
+ {{if .Tracing}}if context.Cause(ctx)==context.DeadlineExceeded{err=context.DeadlineExceeded};finish(err){{end}}
+ release();stopRelease()}))
  stream,err:=c.connection.NewStream(ctx,desc,method,options...)
- if err!=nil{release();stopRelease();return nil,err}
+ if err!=nil{release();stopRelease();{{if .Tracing}}finish(err);{{end}}return nil,err}
+ {{if .Tracing}}handedOff=true{{end}}
  return &boundedStream{ClientStream:stream,ctx:ctx,handshake:handshake},nil
 }
 type boundedStream struct{
@@ -181,3 +191,14 @@ func FailureSummary(err error) string {
  if code<codes.OK||code>codes.Unauthenticated{code=codes.Unknown}
  return "RPC code = "+code.String()
 }
+
+{{if .Tracing}}
+var errClientAborted=status.Error(codes.Internal,"RPC callback did not return")
+// Only methods from the compiled contract can become telemetry attributes.
+func clientMethod(method string)string{
+ switch method {
+ {{range .Methods}}case {{printf "%q" .}}: return method[1:]
+ {{end}}default:return "_OTHER"
+ }
+}
+{{end}}

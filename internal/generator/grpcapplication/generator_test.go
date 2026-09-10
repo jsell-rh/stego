@@ -76,7 +76,11 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"sample.go", "runtime_test.go", "stream_headers_test.go"} {
+	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go"}
+	if watch {
+		tests = append(tests, "client_telemetry_test.go")
+	}
+	for _, name := range tests {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)

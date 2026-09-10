@@ -14,3 +14,7 @@ and must not call the parent runtime's `Close` method.
 A callback panic is reported without its contents; remaining callbacks still
 run. Tests cover normal stop, repeated close, registration error, registration
 panic, and listener failure.
+
+[RPC client observability](../../../specs/rpc-client-observability.md) adds
+common outbound signals through the active runtime. Generated clients select
+method names from compiled contracts and preserve the complete stream lifetime.

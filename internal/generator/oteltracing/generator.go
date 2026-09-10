@@ -27,6 +27,9 @@ var controllerSource string
 //go:embed identity.go.tmpl
 var identitySource string
 
+//go:embed client.go.tmpl
+var clientSource string
+
 type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.26.0" }
@@ -47,7 +50,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"runtime.go", source}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}} {
+	for _, item := range []struct{ name, source string }{{"runtime.go", source}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}, {"client.go", clientSource}} {
 		tmpl, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err

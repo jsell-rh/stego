@@ -39,7 +39,7 @@ const defaultService={{printf "%q" .Service}}
 // Runtime owns its tracer provider and export connection. It does not change
 // global OpenTelemetry providers. Missing collector configuration disables export.
 // Local service logging remains enabled.
-type Runtime struct{instance string;resource *resource.Resource;controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
+type Runtime struct{client clientSignals;instance string;resource *resource.Resource;controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
 // NewTracingRuntime gives compiler assembly a distinct dependency name.
 func NewTracingRuntime()(*Runtime,error){
  runtime,err:=NewRuntime();if err!=nil{return nil,err}
@@ -74,6 +74,7 @@ func newRuntime(localOutput io.Writer)(*Runtime,error){
  runtime.tracer=runtime.provider.Tracer("stego/http")
  runtime.grpcTracer=runtime.provider.Tracer("stego/grpc")
  if err:=runtime.initSignals(interval);err!=nil{runtime.Close();return nil,err}
+ if err:=runtime.initClientSignals();err!=nil{runtime.Close();return nil,err}
  runtime.initServiceLogs(service,localOutput)
  return runtime,nil
 }
@@ -116,10 +117,10 @@ func(r *Runtime)ShutdownFailures()uint64{return r.shutdownFailures.Load()}
 // exports method, registered route pattern, and status. It does not record
 // request URLs, headers, or bodies.
 func(r *Runtime)Handler(next http.Handler)http.Handler{
- if r.provider==nil{return next}
+ if r.provider==nil{return http.HandlerFunc(func(w http.ResponseWriter,request *http.Request){next.ServeHTTP(w,request.WithContext(r.Context(request.Context())))})}
  return http.HandlerFunc(func(w http.ResponseWriter,request *http.Request){
   if r.closed.Load(){next.ServeHTTP(w,request);return}
-  ctx:=request.Context()
+  ctx:=r.Context(request.Context())
   values:=request.Header.Values("traceparent")
   if len(values)==1&&len(values[0])==55{ctx=(propagation.TraceContext{}).Extract(ctx,propagation.MapCarrier{"traceparent":values[0]})}
   method:=request.Method
@@ -172,7 +173,9 @@ func recordRoute(span trace.Span,method,pattern string){
 // calls finish once, with its final status, after authentication and execution.
 // A stream span ends when the transport ends the stream, including expiry.
 func(r *Runtime)TraceRPC(ctx context.Context,fullMethod string)(context.Context,func(error)){
- if r.provider==nil||r.closed.Load(){return ctx,func(error){}}
+ if r.closed.Load(){return ctx,func(error){}}
+ ctx=r.Context(ctx)
+ if r.provider==nil{return ctx,func(error){}}
  md,_:=metadata.FromIncomingContext(ctx)
  values:=md.Get("traceparent")
  if len(values)==1&&len(values[0])==55{ctx=(propagation.TraceContext{}).Extract(ctx,propagation.MapCarrier{"traceparent":values[0]})}
