@@ -94,6 +94,21 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 			}
 		}
 	}
+	for name, conditions := range map[string]map[string][]string{"no_conditions.sql": nil, "removed_conditions.sql": {"health": {"Ready"}}} {
+		next := ctx
+		next.Entities = append([]types.Entity(nil), ctx.Entities...)
+		next.Entities[0].Conditions = conditions
+		versions, err := generateVersions(next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range versions {
+			if strings.HasSuffix(file.Path, "/000002_resource_versions.sql") {
+				statement := strings.TrimSuffix(strings.TrimPrefix(string(file.Bytes()), "BEGIN;\n"), "COMMIT;\n")
+				files = append(files, gen.File{Path: "storage/" + name, Content: []byte(statement)})
+			}
+		}
+	}
 	queueFiles, _, err := new(queuegen.Generator).Generate(gen.Context{OutputNamespace: "queue", StorageContract: ctx.StorageContract})
 	if err != nil {
 		t.Fatal(err)

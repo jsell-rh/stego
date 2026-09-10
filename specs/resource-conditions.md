@@ -50,7 +50,9 @@ An application must define and check those dependencies before it claims success
 ## Migration and input checks
 
 Apply `000007_resource_conditions.sql` before new application code starts when
-migrations run externally. Startup verifies the condition column and the exact
+migrations run externally. Restart API database connections after the schema
+change; prepared queries from the previous row shape must not remain in use.
+This check does not establish a deployment without downtime. Startup verifies the condition column and the exact
 resource trigger. The trigger checks stored shape, declared owners and names,
 status, reason, message bounds, generation, and time.
 
@@ -84,3 +86,8 @@ results. Existing real Keycloak workflows remain required application checks.
 Generated storage tests with a Record entity verify owner isolation, revision
 conflicts, transition times, generation changes, deletion, malformed state,
 transaction rollback, and schema requirements.
+
+The upgrade test also starts with a declaration without conditions. It applies
+the new migration on fresh database connections and checks that the old health
+observation is no longer current. Removing an observed condition owner fails
+and rolls back the migration without changing stored history or the trigger.

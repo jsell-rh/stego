@@ -2,11 +2,13 @@ package storage
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"strings"
 	"testing"
 
 	contract "example.com/transaction-test/contracts/storage"
+	"gorm.io/gorm"
 )
 
 func conditionRecord(t *testing.T, s *Store, id string) Record {
@@ -164,5 +166,63 @@ func TestConditionsRejectMalformedStoredEvidence(t *testing.T) {
 		if _, err := row.Conditions(); !errors.Is(err, ErrCondition) {
 			t.Fatal("malformed stored condition accepted", err)
 		}
+	}
+}
+
+//go:embed no_conditions.sql
+var noConditionsMigration string
+
+//go:embed removed_conditions.sql
+var removedConditionsMigration string
+
+func TestConditionUpgradeInvalidatesEarlierObservations(t *testing.T) {
+	s, db := database(t, false)
+	ctx := context.Background()
+	if err := s.db.Transaction(func(tx *gorm.DB) error { return tx.Exec(noConditionsMigration).Error }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("ALTER TABLE records DROP COLUMN stego_conditions"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO records(id,name,value,created_time,updated_time) VALUES('old','old-condition-schema',1,now(),now())"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ObserveIfVersion(ctx, "Record", "old", 1, "health", map[string]any{"health": "Healthy"}); err != nil {
+		t.Fatal(err)
+	}
+	old := conditionRecord(t, s, "old")
+	if old.ObservedGeneration("health") != old.ResourceGeneration {
+		t.Fatal("old observation was not established")
+	}
+	if _, err := NewStore(s.db); err == nil {
+		t.Fatal("new store accepted the old schema")
+	}
+	// The deployment contract starts new API connections after schema changes.
+	// Drop connections whose prepared queries used the earlier SELECT row shape.
+	db.SetMaxIdleConns(0)
+	if err := s.db.Transaction(migrateResourceVersions); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(s.db); err != nil {
+		t.Fatal(err)
+	}
+	current := conditionRecord(t, s, "old")
+	conditions, err := current.CurrentConditions()
+	if err != nil || conditions["identity"]["Ready"].Current || current.ResourceGeneration != old.ResourceGeneration+1 || current.ObservedGeneration("health") != 0 {
+		t.Fatal("upgrade retained old current evidence", current.ResourceGeneration, conditions, err)
+	}
+	if err := conditionWrite(s, "old", current.ResourceVersion, "identity", "True", "IdentityReady"); err != nil {
+		t.Fatal(err)
+	}
+	observed := conditionRecord(t, s, "old")
+	if err := s.db.Transaction(func(tx *gorm.DB) error { return tx.Exec(removedConditionsMigration).Error }); err == nil {
+		t.Fatal("migration removed observed condition history")
+	}
+	if _, err := NewStore(s.db); err != nil {
+		t.Fatal("failed migration changed the schema contract", err)
+	}
+	retained := conditionRecord(t, s, "old")
+	if retained.ResourceVersion != observed.ResourceVersion {
+		t.Fatal("failed migration changed condition history")
 	}
 }
