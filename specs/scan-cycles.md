@@ -42,6 +42,9 @@ transaction. Desired Gateway generation changes also invalidate cycle input.
 
 These records describe a scan of the chosen inputs. They do not establish
 provider liveness, a maximum observation age, a cross-page database snapshot,
-or exclusive ownership. Hypershell still needs a complete dependency contract
-before it exposes a general user-grant readiness condition. Its existing
-`ClientReady` condition remains limited to client configuration.
+or exclusive ownership. Hypershell uses these records for a scoped
+`GrantsSynchronized` [condition](resource-conditions.md). Grant changes reset the
+cycle and invalidate the condition atomically. Desired generation, resource
+revision, and checkpoint version protect its commit. This condition covers
+stored Gateway grant references; it is not general provider readiness.
+`ClientReady` remains limited to client configuration.

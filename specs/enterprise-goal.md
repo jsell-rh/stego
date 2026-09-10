@@ -2506,3 +2506,36 @@ SQL queries, identity selection, resource ownership, and repair decisions.
 The full Gateway gate passed again with that generated client. This does not
 complete production capacity, HA, distributed ownership, or the full enterprise
 and Hypershell goals.
+
+The identity grant workflow now uses the existing generated condition writer
+and [scan-cycle runtime](scan-cycles.md). Hypershell declares
+`identity_users/GrantsSynchronized` for stored Gateway grant references. Failed
+passes retain Unknown across restart and resumed tails. Only a full clean cycle
+can restore True. Grant writes invalidate the condition and checkpoint in their
+existing event transaction. Cycle save checks resource revision, desired
+generation, and checkpoint version. No generator change was needed for this
+application condition; the compiler pin remains
+`635dc4636f1d2ffa808b300a668c2eceaae52ad3`.
+
+Five application workflows passed under race detection in 95.137 seconds.
+They cover real Keycloak role changes, offline grant removal, API and controller
+restart, stale saves, and condition/event rollback. The upgrade and transaction
+checks passed in 6.514 seconds. The upgrade preserves client condition history
+and invalidates old observations. It requires the old controller to stop before
+the new migration and API start. See the variant's `acceptance/grant-conditions.md`
+for the evidence and rollout contract. Distributed ownership, provider fencing,
+observation-age policy, durable retries, and production recovery capacity remain
+open. This condition does not revoke issued tokens or certify unrelated provider
+identities. The broad goal remains active.
+
+The full application race suite then passed with PostgreSQL and Keycloak
+required; the acceptance package completed in 923.127 seconds. Static checks
+passed. Local Kubernetes and VM gates were not repeated for this condition
+change. The preceding scan-cycle commit `0128ef5` passed all six remote CI jobs
+in run 34517913592. That earlier run does not cover the new condition.
+
+The grant-condition application commit is
+`d0ad397d1d12fbfc99fffabb2bc2fdc280cbc8d5`, pushed to remote `main`.
+Final controller compatibility tests passed under race detection in 1.305
+seconds, and vet passed again. Pinned regeneration preserved all 90 output,
+state, and dependency file hashes. New remote CI results remain pending.

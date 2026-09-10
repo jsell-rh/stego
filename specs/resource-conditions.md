@@ -74,7 +74,7 @@ records the condition at the resulting generation. No other writer can change
 the locked input during that operation.
 
 The condition covers the Gateway identity client. It does not certify user-grant
-synchronization. That work needs separate dependency and condition rules. A
+synchronization. The separate grant condition below checks those dependencies. A
 provider error is `Unknown`, because an unavailable provider does not prove that
 the existing identity client is absent or broken.
 
@@ -91,3 +91,26 @@ The upgrade test also starts with a declaration without conditions. It applies
 the new migration on fresh database connections and checks that the old health
 observation is no longer current. Removing an observed condition owner fails
 and rolls back the migration without changing stored history or the trigger.
+
+Hypershell also declares `identity_users/GrantsSynchronized`. It uses the existing
+condition writer and [scan-cycle runtime](scan-cycles.md). A completed clean
+cycle records True for stored Gateway grant references, including retained
+removals. A failed partial pass records Unknown. The failure survives resumed
+passes and restart. Only another full clean cycle can restore True. Successful
+partial rescans preserve the last complete observation for unchanged inputs.
+
+Grant create and delete operations invalidate this condition and advance the
+checkpoint version in the grant/event transaction. Cycle save checks the observed
+resource revision, desired generation, and checkpoint version under the Gateway
+lock. Checkpoint, condition, and event changes commit together. An unchanged
+condition leaves the public revision unchanged, but grant invalidation still
+advances the checkpoint version. The two version checks are both required.
+
+The application tests include actual Keycloak role changes, offline grant
+removal, API and controller restart, stale and denied saves, and event rollback.
+An upgrade test applies the previous trigger, rejects new-store startup, and
+checks that migration preserves client history while invalidating old evidence.
+The rollout stops the old controller before migration and API replacement.
+This condition has no liveness or maximum-age guarantee. It does not certify
+unrelated provider identities or revoke issued tokens. See the variant's
+`acceptance/grant-conditions.md` for scope and measured checks.

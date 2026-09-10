@@ -613,11 +613,23 @@ on parent cancellation. These checks passed under race detection in 24.807
 seconds. The provider supplies controlled results; real provider checks remain
 separate. See the variant's `acceptance/identity-conditions.md`.
 
-A user-grant condition must not use `ScanProgress.Complete` as proof of success.
-The current application can skip an ordinary per-user error and save progress
-after that item. A later pass can reach the end without retaining the earlier
-failure. Grant creation and deletion emit Gateway events, but do not advance its
-desired generation. A complete grant condition therefore needs durable failure
-state for the full scan cycle and a version that covers all relevant dependency
-changes. A checkpoint cursor alone supplies neither property. This remains an
-application requirement; no grant-sync condition is claimed by `ClientReady`.
+The grant workflow exposed a second missing contract: a later pass could reach
+the end without retaining an earlier user's failure. The generated
+[scan-cycle runtime](scan-cycles.md) now retains that failure across partial
+passes and restart. Grant changes reset the checkpoint in their transaction.
+
+Hypershell now declares the separate `identity_users/GrantsSynchronized`
+[condition](resource-conditions.md). A failed pass records Unknown; a full clean
+cycle records True. A successful partial rescan preserves the last complete
+observation for unchanged inputs. Grant writes invalidate it atomically. Cycle
+save checks the observed resource revision, desired generation, and checkpoint
+version, then commits checkpoint, condition, and event together. These mechanisms
+remain generated STEGO code. Hypershell supplies grant dependencies, access
+checks, provider actions, and condition meaning.
+
+This supplies durable evidence for stored Gateway grant references. It does not
+establish provider liveness, observation age, or exclusive provider ownership.
+The real Keycloak workflow checks grant removal while the controller is offline,
+API restart, role repair, and restored evidence. Failure and transaction tests
+cover partial recovery, stale saves, independent condition owners, and rollback.
+The variant records the full scope in `acceptance/grant-conditions.md`.
