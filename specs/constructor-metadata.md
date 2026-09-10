@@ -49,3 +49,16 @@ constructors with all indexed maps, tasks, and inner middleware took
 The existing assembly benchmark took 813,356–883,863 ns per operation, with
 491,145–491,650 bytes and 10,133 allocations. These are local measurements;
 they do not establish a production performance limit.
+
+The Hypershell variant pins compiler commit
+`6cd73171452ec92731bd897859824f72f88cb4a0` in application commit
+`0ab80d5635a35067ef87b2098433ffc8c8af9f11`. Generation before and after the
+application commit preserved all 74 generated and dependency file hashes.
+Contract race tests passed in 1.542 seconds, and the application build passed.
+`scripts/generate.sh --check` also passed after the commit. Both repositories
+were pushed to `main`.
+
+The full PostgreSQL, Keycloak, and Kubernetes workflows were not repeated for
+this compiler pin change. Application source, generated files, and dependencies
+are unchanged from the prior tested application. The earlier full workflow
+results remain recorded in [database recovery](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/database-recovery.md).

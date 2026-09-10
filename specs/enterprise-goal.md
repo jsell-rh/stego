@@ -2314,3 +2314,10 @@ fields, and requires one unambiguous primary middleware selection. Tests use val
 control fixtures and check stable diagnostics. An older task-index test now
 reaches the intended validation check. See [constructor metadata](constructor-metadata.md).
 Complete typed dependency binding and Go type checking remain open.
+
+The constructor metadata change passed the full STEGO race suite and static
+checks. Hypershell commit `0ab80d5635a35067ef87b2098433ffc8c8af9f11` pins the
+new compiler. All 74 generated and dependency file hashes are unchanged; contract
+race tests, the build, and post-commit regeneration passed. Both repositories
+were pushed to `main`. This change does not close the remaining reconciliation
+or typed compiler contracts.
