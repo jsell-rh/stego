@@ -1,0 +1,140 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "encoding/json"
+ "errors"
+ "io"
+ "strings"
+ "unicode/utf8"
+)
+
+// FieldSchema declares public JSON fields. A nil child is an atomic value.
+// A nonempty child declares an object, or the object elements of an array.
+// Construction copies the schema. The caller must not change it during construction.
+type FieldSchema map[string]FieldSchema
+type FieldProjector struct { schema FieldSchema }
+type fieldSelectionNode struct { all bool; children map[string]*fieldSelectionNode }
+// FieldSelection is immutable after Parse. Its zero value is invalid.
+type FieldSelection struct { schema FieldSchema; root *fieldSelectionNode }
+var ErrProjection = errors.New("invalid response projection contract")
+
+func NewFieldProjector(schema FieldSchema)(*FieldProjector,error){
+ count:=0
+ copy,err:=copyFieldSchema(schema,1,&count)
+ if err!=nil{return nil,err}
+ return &FieldProjector{schema:copy},nil
+}
+func copyFieldSchema(schema FieldSchema,depth int,count *int)(FieldSchema,error){
+ if depth>8||len(schema)==0||len(schema)>1024{return nil,ErrProjection}
+ result:=make(FieldSchema,len(schema))
+ for name,child:=range schema {
+  *count++
+  if *count>1024||!fieldName(name){return nil,ErrProjection}
+  if child==nil{result[name]=nil;continue}
+  value,err:=copyFieldSchema(child,depth+1,count);if err!=nil{return nil,err};result[name]=value
+ }
+ return result,nil
+}
+func fieldName(name string)bool{
+ if len(name)==0||len(name)>128{return false}
+ for i,c:=range []byte(name){if c=='_'||c>='a'&&c<='z'||c>='A'&&c<='Z'||i>0&&(c>='0'&&c<='9'||c=='-'){continue};return false};return true
+}
+
+// Parse accepts up to 64 comma-separated paths in 4096 bytes. A final wildcard
+// selects all declared children. Empty input selects all declared fields.
+// Unknown paths fail even when a later response has no items.
+func(p *FieldProjector)Parse(value string)(FieldSelection,error){
+ if p==nil||len(p.schema)==0{return FieldSelection{},ErrProjection}
+ if len(value)>4096||!utf8.ValidString(value){return FieldSelection{},ErrRequest}
+ root:=&fieldSelectionNode{children:map[string]*fieldSelectionNode{}}
+ result:=FieldSelection{schema:p.schema,root:root}
+ value=strings.TrimSpace(value)
+ if value==""{root.all=true;return result,nil}
+ terms:=strings.Split(value,",");if len(terms)>64{return FieldSelection{},ErrRequest}
+ seen:=map[string]bool{}
+ for _,term:=range terms{
+  term=strings.TrimSpace(term);if term==""||seen[term]{return FieldSelection{},ErrRequest};seen[term]=true
+  path:=strings.Split(term,".");if len(path)>8{return FieldSelection{},ErrRequest}
+  schema:=p.schema
+  for i,name:=range path {
+   if name=="*" {if i!=len(path)-1||len(schema)==0{return FieldSelection{},ErrRequest};break}
+   child,ok:=schema[name];if !ok||!fieldName(name){return FieldSelection{},ErrRequest}
+   if i<len(path)-1&&child==nil{return FieldSelection{},ErrRequest};schema=child
+  }
+  node:=root
+  for i,name:=range path{
+   if node.all{break}
+   if name=="*"{node.all=true;node.children=nil;break}
+   next:=node.children[name];if next==nil{next=&fieldSelectionNode{children:map[string]*fieldSelectionNode{}};node.children[name]=next}
+   node=next
+   if i==len(path)-1{node.all=true;node.children=nil}
+  }
+ }
+ return result,nil
+}
+
+// ProjectList preserves the envelope and selects fields only in the named item
+// array. Call it after authorization and presentation. It does not select SQL
+// columns, change counts or order, or grant access to a resource.
+// Public fields absent from an item stay absent. Explicit nulls stay null.
+// The schema controls wildcards and prevents undeclared fields from escaping.
+func(s FieldSelection)ProjectList(value any,itemsField string)(json.RawMessage,error){
+ if s.root==nil||len(s.schema)==0||!fieldName(itemsField){return nil,ErrProjection}
+ data,err:=json.Marshal(value)
+ if err!=nil||len(data)>MaxResponseBytes||!utf8.Valid(data)||!validUnicodeEscapes(data){return nil,ErrProjection}
+ decoder:=json.NewDecoder(bytes.NewReader(data));decoder.UseNumber()
+ first,err:=decoder.Token();if err!=nil||first!=json.Delim('{'){return nil,ErrProjection}
+ budget:=0
+ if checkProjectionJSON(decoder,'{',1,&budget)!=nil{return nil,ErrProjection}
+ if _,err:=decoder.Token();err!=io.EOF{return nil,ErrProjection}
+ var envelope map[string]json.RawMessage
+ if json.Unmarshal(data,&envelope)!=nil{return nil,ErrProjection}
+ raw,ok:=envelope[itemsField];if !ok||len(raw)==0||raw[0]!='['{return nil,ErrProjection}
+ var items []json.RawMessage
+ if json.Unmarshal(raw,&items)!=nil||len(items)>1000{return nil,ErrProjection}
+ for i,item:=range items{
+  if len(bytes.TrimSpace(item))==0||bytes.TrimSpace(item)[0]!='{'{return nil,ErrProjection}
+  items[i],err=projectObject(item,s.schema,s.root,1);if err!=nil{return nil,err}
+ }
+ envelope[itemsField],err=json.Marshal(items);if err!=nil{return nil,ErrProjection}
+ result,err:=json.Marshal(envelope);if err!=nil||len(result)>MaxResponseBytes{return nil,ErrProjection}
+ return result,nil
+}
+func projectObject(data json.RawMessage,schema FieldSchema,selection *fieldSelectionNode,depth int)(json.RawMessage,error){
+ if depth>32{return nil,ErrProjection}
+ data=bytes.TrimSpace(data)
+ if bytes.Equal(data,[]byte("null")){return json.RawMessage("null"),nil}
+ if len(data)==0{return nil,ErrProjection}
+ if data[0]=='['{
+  var items []json.RawMessage;if json.Unmarshal(data,&items)!=nil||len(items)>1000{return nil,ErrProjection}
+  for i,item:=range items{var err error;items[i],err=projectObject(item,schema,selection,depth+1);if err!=nil{return nil,err}}
+  return json.Marshal(items)
+ }
+ if data[0]!='{'{return nil,ErrProjection}
+ var object map[string]json.RawMessage;if json.Unmarshal(data,&object)!=nil{return nil,ErrProjection}
+ result:=make(map[string]json.RawMessage)
+ for name,childSchema:=range schema{
+  childSelection:=selection.children[name]
+  if selection.all{childSelection=selection}
+  if childSelection==nil{continue}
+  raw,ok:=object[name];if !ok{continue}
+  if childSchema!=nil{var err error;raw,err=projectObject(raw,childSchema,childSelection,depth+1);if err!=nil{return nil,err}}
+  result[name]=raw
+ }
+ return json.Marshal(result)
+}
+
+func checkProjectionJSON(decoder *json.Decoder,opener json.Delim,depth int,budget *int)error{
+ if depth>32{return ErrProjection}
+ keys:=map[string]bool{};count:=0
+ for decoder.More(){
+  count++;*budget++
+  if count>1024||*budget>100000||opener=='['&&count>1000{return ErrProjection}
+  if opener=='{'{token,err:=decoder.Token();if err!=nil{return ErrProjection};key,ok:=token.(string);if !ok||keys[key]{return ErrProjection};keys[key]=true}
+  token,err:=decoder.Token();if err!=nil{return ErrProjection}
+  if delimiter,ok:=token.(json.Delim);ok{if delimiter!='{'&&delimiter!='['{return ErrProjection};if err:=checkProjectionJSON(decoder,delimiter,depth+1,budget);err!=nil{return err}}
+ }
+ closing,err:=decoder.Token();if err!=nil{return ErrProjection}
+ if opener=='{'&&closing!=json.Delim('}')||opener=='['&&closing!=json.Delim(']'){return ErrProjection};return nil
+}

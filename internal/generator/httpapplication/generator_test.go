@@ -57,7 +57,7 @@ func TestGeneratedApplicationEndpoint(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(project, "sample"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"sample.go", "endpoint_test.go", "lifecycle_test.go", "client_test.go"} {
+	for _, name := range []string{"sample.go", "endpoint_test.go", "lifecycle_test.go", "client_test.go", "fields_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
@@ -80,6 +80,16 @@ func TestGeneratedApplicationEndpoint(t *testing.T) {
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("generated HTTP application: %v\n%s", err, output)
 		}
+	}
+	if os.Getenv("STEGO_BENCH_PROJECTION") == "1" {
+		command := exec.Command("go", "test", "-run=^$", "-bench=^BenchmarkProjectionPage$", "-benchtime=200ms", "-count=3", "./sample")
+		command.Dir = project
+		command.Env = append(os.Environ(), "GOWORK=off")
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("projection benchmark: %v\n%s", err, output)
+		}
+		t.Logf("projection benchmark:\n%s", output)
 	}
 }
 func TestApplicationRejectsInvalidFactory(t *testing.T) {
