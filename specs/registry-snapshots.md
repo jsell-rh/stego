@@ -89,3 +89,23 @@ The new loader costs more because it reads and hashes the full input set.
 Verification adds another read. A shared read buffer limits allocation cost.
 These measurements cover a small local registry. They do not establish complete
 compilation cost or a production performance limit.
+
+## Hypershell evidence
+
+Hypershell commit `028c54f32f2ed5c7a3fe6a7100849c623f94e525` pins compiler
+`2837ae62d042dc11e54643d3c2df8a89a26c8992`. Generation added the registry
+digest to state. All 73 generated and dependency files kept the same hashes.
+An independent Python calculation used the encoding above and matched the saved
+digest for the 11 local registry inputs:
+`a75ade9496abf00b6ff64ecc32a99c48197057779f5005906cf28c4b1b217f8f`.
+
+Contract race tests passed in 1.424 seconds. The application build passed.
+After the application commit, `scripts/generate.sh --check` passed and all 74
+generated, dependency, and state hashes matched. Both feature commits were
+pushed to `main`.
+
+The PostgreSQL, Keycloak, and Kubernetes workflows were not repeated locally for
+this state and compiler pin change. Application source, generated code, and
+dependencies are unchanged. The previous application evidence remains recorded
+in [gRPC stream headers](grpc-stream-headers.md) and
+[identity query reads](identity-query-reads.md).

@@ -2346,3 +2346,9 @@ Missing, malformed, and invalid-path slot imports also stop generation. The full
 compiler race suite and static checks passed. Local measurements show the added
 read and hash cost. Complete compiler build identity, input manifests, and
 isolated builds remain open under C3; this digest does not close those contracts.
+
+Hypershell `028c54f32f2ed5c7a3fe6a7100849c623f94e525` pins the snapshot compiler.
+Its 73 generated and dependency files are unchanged. Only compiler state gained
+the registry digest, which an independent calculation verified. Contract race
+tests, the application build, and post-commit regeneration passed. Both feature
+commits are on remote `main`. The broad enterprise goal remains active.
