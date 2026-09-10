@@ -191,7 +191,7 @@ func TestCursorBindsInputAndKeepsRelatedAccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	opts := contract.CursorOptions{Limit: 10, AfterID: "' OR 1=1 --", Related: []contract.RelatedFilter{{Entity: "Record", ForeignField: "id", Values: map[string][]string{"value": {"1"}}}}}
+	opts := contract.CursorOptions{Limit: 10, Related: []contract.RelatedFilter{{Entity: "Record", ForeignField: "id", Values: map[string][]string{"value": {"1"}}}}}
 	result, err := s.ReadCursor(ctx, "Record", "", "", opts)
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +199,19 @@ func TestCursorBindsInputAndKeepsRelatedAccess(t *testing.T) {
 	rows := result.Items.([]Record)
 	if len(rows) != 2 || rows[0].ID != "a-public" || rows[1].ID != "c-public" {
 		t.Fatal("cursor escaped related access", rows)
+	}
+	// The malicious boundary can sort before or after these IDs under the
+	// database collation. It must never make a hidden record visible.
+	attack := opts
+	attack.AfterID = "' OR 1=1 --"
+	bounded, err := s.ReadCursor(ctx, "Record", "", "", attack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range bounded.Items.([]Record) {
+		if row.ID != "a-public" && row.ID != "c-public" {
+			t.Fatal("cursor input escaped related access", row.ID)
+		}
 	}
 	if err := s.Delete(ctx, "Record", "a-public"); err != nil {
 		t.Fatal(err)
