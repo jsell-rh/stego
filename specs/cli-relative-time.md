@@ -37,3 +37,24 @@ no HTTP request and leave no output file. The full compiler race suite and
 The Hypershell baseline first rejected `--expires-in` as an unknown argument in
 the service-account workflow. That run failed in 24.582 seconds before the API
 could enforce its lifetime policy. It does not show an API authorization defect.
+
+Hypershell commit `d4ea8724b44406e125bca46d06b3b0fe16ce6cb5` pins compiler
+`5a2f13eec5e8a2ae633d02e9adf4d82f6dabe02e`. The application supplies one
+`RelativeFlag` mapping on `expires_at`; the common runtime performs conversion.
+Its service-account workflow passed in 26.83 seconds. It checked day and hour
+durations, zero-contact rejection of invalid input, API lifetime limits, protected
+credential output, Keycloak token issuance, denied elevation, restart, revocation,
+and deletion. The selected expiry remained unchanged after restart.
+
+All six generated CLI workflows passed in 87.367 seconds with PostgreSQL and
+Keycloak required. They covered catalog, apply, OIDC login, Gateway, grants, and
+service accounts. CLI and contract race tests and application static checks
+passed. The compiler feature also passed
+[CI](https://github.com/jsell-rh/stego/actions/runs/34493038544).
+
+Only the generated CLI runtime and state changed among the 75 generated,
+dependency, and state files. After the application commit,
+`scripts/generate.sh --check` passed and all 75 hashes matched. Both feature
+commits are on remote `main`. The full application and Kubernetes suites were
+not repeated locally for this command-runtime change. The full CLI port and
+enterprise goal remain open.

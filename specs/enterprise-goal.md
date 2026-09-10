@@ -2370,3 +2370,20 @@ dependency, and state hashes. Both feature commits are on remote `main`.
 Validation cost and its measurement limits are recorded with the stream
 contract. Durable retries, cross-process fencing, complete database observation
 ownership, and the broader client and enterprise requirements remain open.
+
+The CLI port review found unsupported command scaffolding in reference Hypershell
+`14256be29bcfe4fff38bcaf4a41511cb394ea8e1`: role create/delete commands and a role
+apply mapping exist, but role route registration and OpenAPI expose only reads.
+Variant commit `b347af4` corrects the port table. Role mutation and dynamic
+permission policy must not be inferred from those unused command stubs.
+
+[Relative timestamp flags](cli-relative-time.md) now supply the supported
+service-account `--expires-in` behavior through STEGO. Hypershell selects the
+field mapping and retains API lifetime limits. Compiler
+`5a2f13eec5e8a2ae633d02e9adf4d82f6dabe02e` passed the full race suite, static
+checks, and CI. Variant `d4ea8724b44406e125bca46d06b3b0fe16ce6cb5` passed all
+six CLI workflows in 87.367 seconds, including real Keycloak credentials,
+expiry checks, access denial, event delivery, and restart. Post-commit generation
+preserved all 75 generated, dependency, and state hashes. Both repositories are
+on remote `main`. The remaining CLI, controller, and enterprise requirements
+remain active.
