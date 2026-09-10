@@ -9,7 +9,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Let active push checks finish. New pull requests can replace obsolete checks.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   compiler:

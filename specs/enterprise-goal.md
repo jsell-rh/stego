@@ -2465,3 +2465,9 @@ adds [immutable apply](immutable-apply.md) with declared identity fields, exact
 comparison, and no automatic replacement. Named mutable resources retain their
 existing contract. Hypershell supplies the binding field mapping and keeps
 creation permissions and uniqueness in the API transaction.
+
+CI history exposed a verification gap: frequent main-branch pushes canceled
+complete application runs before they could finish. The
+[CI evidence rule](ci-evidence.md) now preserves active push runs in both
+repositories. Pull requests can still cancel obsolete runs. This changes how
+checks are scheduled; it does not reduce the full application acceptance gate.
