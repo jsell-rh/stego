@@ -65,9 +65,10 @@ controller repeated the first 10,000 references and could not reach the tail in
 its next pass. Application tests also use a real API and PostgreSQL. The generated runtime
 reads all 10,106 retained references across API restart. A separate test replaces
 both the API and the Gateway identity controller after a work timeout. It
-checks saved progress, current grants, and the unchanged public resource
-revision. That test uses a recording provider; existing identity workflows
-provide the real Keycloak evidence.
+checks saved progress and current grants. The separate direct RPC scan test
+checks that checkpoint saves preserve the public resource revision. An identity
+condition write can change that revision. The controller test uses a recording
+provider; existing identity workflows provide the real Keycloak evidence.
 
 This contract does not provide distributed provider ownership. A cursor version
 check prevents a stale bookmark write. It cannot undo a provider action that

@@ -600,3 +600,24 @@ safe reason and message. It does not copy provider error text or assert that an
 unreachable provider proves the client is broken. Other controller conditions,
 distributed ownership and provider fencing, retry persistence, safe history
 retirement, and production capacity evidence remain open.
+
+## Provider timeout and concurrent desired state
+
+The identity condition now has an application test with an actual provider call
+held in flight. A REST change invalidates the old desired generation. The test
+releases the old provider result and holds the next call before it reads storage.
+The old result cannot publish configuration or a current condition. A fresh pass
+recovers. Another phase lets the provider call reach its deadline and verifies
+Unknown status, generated event delivery, API restart, and unchanged evidence
+on parent cancellation. These checks passed under race detection in 24.807
+seconds. The provider supplies controlled results; real provider checks remain
+separate. See the variant's `acceptance/identity-conditions.md`.
+
+A user-grant condition must not use `ScanProgress.Complete` as proof of success.
+The current application can skip an ordinary per-user error and save progress
+after that item. A later pass can reach the end without retaining the earlier
+failure. Grant creation and deletion emit Gateway events, but do not advance its
+desired generation. A complete grant condition therefore needs durable failure
+state for the full scan cycle and a version that covers all relevant dependency
+changes. A checkpoint cursor alone supplies neither property. This remains an
+application requirement; no grant-sync condition is claimed by `ClientReady`.
