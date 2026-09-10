@@ -549,3 +549,10 @@ after restart. The deployment regression passed in 215.319 seconds. Pinned
 regeneration preserved 83 generated and dependency file hashes. Cross-process
 fencing, durable progress and conditions, safe history retirement, and measured
 production recovery capacity remain open.
+
+The two CNPG SQL checks now use the common generated
+[PostgreSQL read client](postgres-reads.md). Verified TLS, environment isolation,
+connection lifetime, time and message limits, and safe SQL error metadata no
+longer reside in the provider. SQL queries and decisions about repair remain
+in Hypershell. The complete CNPG Gateway workflow passed with this boundary
+in 362.168 seconds under race detection.

@@ -19,8 +19,9 @@ files, another host, fallback TLS modes, or session parameters. A CA input must
 contain only certificate PEM blocks. Private keys and trailing data are rejected.
 
 A query is limited to 16 KiB. Up to 128 scalar arguments share a 64 KiB value
-limit. Supported arguments are nil, booleans, integers, finite floating-point
-values, strings, byte slices, and `time.Time`. There can be up to 32 non-nil scan
+limit. Supported arguments are nil, booleans, `int`, `int16`, `int32`, `int64`,
+`uint`, `uint16`, `uint32`, `uint64`, finite floating-point values, strings,
+byte slices, and `time.Time`. There can be up to 32 non-nil scan
 pointers. Each PostgreSQL protocol message is limited to 64 KiB. This is a
 message limit, not a total result-byte limit. The operation deadline also applies
 while the client consumes the response. `ReadRow` returns the first row, as
