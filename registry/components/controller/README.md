@@ -182,3 +182,9 @@ total scan time limit. Earlier emits remain effective if a later receive fails,
 and a retry starts from the beginning. Actions must tolerate repeated work.
 This API does not supply durable progress, retained storage, or an idle timeout
 for a live watch.
+RunObservation reserves time to commit a conditional observation after provider
+work. Its work timeout cannot consume the commit reserve within a parent action
+deadline. Both callbacks run synchronously and retain cancellation. The caller
+owns status values, access rules, revision checks, and atomic events. See the
+[observation budget contract](../../../specs/observation-budgets.md) for limits,
+error behavior, tests, and application evidence.
