@@ -51,6 +51,10 @@ required behavior. Do not treat a CRUD-only replacement as a complete result.
 Remove the need for rh-trex-ai generation and runtime infrastructure in the
 variant. Keep application-specific decisions separate from reusable generators.
 
+The [request observability runtime](request-observability.md) adds correlated
+request logs and metrics to the existing server spans. Full service, controller,
+database, and outbound instrumentation remains open.
+
 The [shared observability requirement](shared-observability.md) includes full
 OpenTelemetry logs, metrics, and traces as generated service behavior. The user
 confirmed that consumers must not implement this common infrastructure.

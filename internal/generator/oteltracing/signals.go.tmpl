@@ -1,0 +1,96 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "os"
+ "strconv"
+ "sync/atomic"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+ "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+ sdklog "go.opentelemetry.io/otel/sdk/log"
+ sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+ "go.opentelemetry.io/otel/sdk/metric/metricdata"
+ "go.opentelemetry.io/otel/sdk/resource"
+ grpccodes "google.golang.org/grpc/codes"
+)
+
+// MetricSeriesLimit includes the SDK overflow series for each instrument.
+const MetricSeriesLimit=128
+
+type requestSignals struct {
+ meter *sdkmetric.MeterProvider
+ logs *sdklog.LoggerProvider
+ logger otellog.Logger
+ httpDuration,rpcDuration metric.Float64Histogram
+ httpActive,rpcActive metric.Int64UpDownCounter
+ metricFailures,logFailures atomic.Uint64
+}
+func signalSettings()(time.Duration,error){
+ for _,name:=range []string{"OTEL_METRICS_EXPORTER","OTEL_LOGS_EXPORTER"}{value:=os.Getenv(name);if value!=""&&value!="otlp"&&value!="none"{return 0,errors.New("unsupported telemetry exporter")}}
+ interval:=10*time.Second
+ if raw:=os.Getenv("OTEL_METRIC_EXPORT_INTERVAL");raw!=""{ms,err:=strconv.Atoi(raw);if err!=nil||ms<1000||ms>60000||strconv.Itoa(ms)!=raw{return 0,errors.New("invalid metric export interval")};interval=time.Duration(ms)*time.Millisecond}
+ return interval,nil
+}
+func(r *Runtime)initSignals(service string,interval time.Duration)error{
+ res:=resource.NewSchemaless(attribute.String("service.name",service))
+ if os.Getenv("OTEL_METRICS_EXPORTER")!="none" {
+  exporter,err:=otlpmetricgrpc.New(context.Background(),otlpmetricgrpc.WithGRPCConn(r.connection),otlpmetricgrpc.WithHeaders(map[string]string{}),otlpmetricgrpc.WithTimeout(ExportTimeout),otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{Enabled:false}),otlpmetricgrpc.WithMaxRequestSize(1<<20),otlpmetricgrpc.WithTemporalitySelector(func(sdkmetric.InstrumentKind)metricdata.Temporality{return metricdata.CumulativeTemporality}))
+  if err!=nil{return errors.New("cannot create metric exporter")}
+  r.signals.meter=sdkmetric.NewMeterProvider(sdkmetric.WithResource(res),sdkmetric.WithCardinalityLimit(MetricSeriesLimit),sdkmetric.WithReader(sdkmetric.NewPeriodicReader(&safeMetricExporter{Exporter:exporter,signals:&r.signals},sdkmetric.WithInterval(interval),sdkmetric.WithTimeout(ExportTimeout))))
+  meter:=r.signals.meter.Meter("stego/requests")
+  bounds:=[]float64{0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60,300,1800}
+  r.signals.httpDuration,err=meter.Float64Histogram("http.server.request.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(bounds...));if err!=nil{return errors.New("cannot create request metric")}
+  r.signals.rpcDuration,err=meter.Float64Histogram("rpc.server.call.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(bounds...));if err!=nil{return errors.New("cannot create request metric")}
+  r.signals.httpActive,err=meter.Int64UpDownCounter("http.server.active_requests",metric.WithUnit("{request}"));if err!=nil{return errors.New("cannot create request metric")}
+  r.signals.rpcActive,err=meter.Int64UpDownCounter("rpc.server.active_requests",metric.WithUnit("{request}"));if err!=nil{return errors.New("cannot create request metric")}
+ }
+ if os.Getenv("OTEL_LOGS_EXPORTER")!="none" {
+  exporter,err:=otlploggrpc.New(context.Background(),otlploggrpc.WithGRPCConn(r.connection),otlploggrpc.WithHeaders(map[string]string{}),otlploggrpc.WithTimeout(ExportTimeout),otlploggrpc.WithRetry(otlploggrpc.RetryConfig{Enabled:false}),otlploggrpc.WithMaxRequestSize(1<<20))
+  if err!=nil{return errors.New("cannot create log exporter")}
+  r.signals.logs=sdklog.NewLoggerProvider(sdklog.WithResource(res),sdklog.WithAttributeCountLimit(8),sdklog.WithAttributeValueLengthLimit(256),sdklog.WithProcessor(sdklog.NewBatchProcessor(&safeLogExporter{Exporter:exporter,signals:&r.signals},sdklog.WithMaxQueueSize(QueueSize),sdklog.WithExportMaxBatchSize(BatchSize),sdklog.WithExportInterval(200*time.Millisecond),sdklog.WithExportTimeout(ExportTimeout))))
+  r.signals.logger=r.signals.logs.Logger("stego/requests")
+ }
+ return nil
+}
+func(s *requestSignals)httpStarted(ctx context.Context){if s.httpActive!=nil{s.httpActive.Add(ctx,1)}}
+func(s *requestSignals)rpcStarted(ctx context.Context){if s.rpcActive!=nil{s.rpcActive.Add(ctx,1)}}
+func(s *requestSignals)httpFinished(ctx context.Context,start,end time.Time,method,route string,status int){
+ if s.httpDuration==nil&&s.logger==nil{return}
+ attrs:=[]attribute.KeyValue{attribute.String("http.request.method",method)}
+ if status==0{attrs=append(attrs,attribute.String("error.type","panic"))}else{attrs=append(attrs,attribute.Int("http.response.status_code",status))}
+ if status>=500{attrs=append(attrs,attribute.String("error.type",strconv.Itoa(status)))}
+ if route!=""{attrs=append(attrs,attribute.String("http.route",route))}
+ duration:=end.Sub(start).Seconds()
+ if s.httpDuration!=nil{s.httpDuration.Record(ctx,duration,metric.WithAttributes(attrs...));s.httpActive.Add(ctx,-1)}
+ severity:=otellog.SeverityInfo;if status==0||status>=500{severity=otellog.SeverityError}else if status>=400{severity=otellog.SeverityWarn}
+ s.completed(ctx,end,"http.server.request.completed","HTTP request completed",duration,severity,attrs)
+}
+func(s *requestSignals)rpcFinished(ctx context.Context,start,end time.Time,method,status string,code grpccodes.Code){
+ if s.rpcDuration==nil&&s.logger==nil{return}
+ attrs:=[]attribute.KeyValue{attribute.String("rpc.system.name","grpc"),attribute.String("rpc.method",method),attribute.String("rpc.response.status_code",status)}
+ switch code{case grpccodes.Unknown,grpccodes.DeadlineExceeded,grpccodes.Unimplemented,grpccodes.Internal,grpccodes.Unavailable,grpccodes.DataLoss:attrs=append(attrs,attribute.String("error.type",status))}
+ duration:=end.Sub(start).Seconds()
+ if s.rpcDuration!=nil{s.rpcDuration.Record(ctx,duration,metric.WithAttributes(attrs...));s.rpcActive.Add(ctx,-1)}
+ severity:=otellog.SeverityInfo;if code!=grpccodes.OK{severity=otellog.SeverityWarn};switch code{case grpccodes.Unknown,grpccodes.DeadlineExceeded,grpccodes.Unimplemented,grpccodes.Internal,grpccodes.Unavailable,grpccodes.DataLoss:severity=otellog.SeverityError}
+ s.completed(ctx,end,"rpc.server.call.completed","RPC call completed",duration,severity,attrs)
+}
+func(s *requestSignals)completed(ctx context.Context,end time.Time,event,body string,duration float64,severity otellog.Severity,attrs []attribute.KeyValue){
+ if s.logger==nil{return}
+ var record otellog.Record
+ record.SetTimestamp(end);record.SetEventName(event);record.SetBody(attribute.StringValue(body));record.SetSeverity(severity)
+ text:="INFO";if severity==otellog.SeverityWarn{text="WARN"};if severity==otellog.SeverityError{text="ERROR"};record.SetSeverityText(text)
+ record.AddAttributes(attrs...);record.AddAttributes(attribute.Float64("duration_seconds",duration))
+ s.logger.Emit(ctx,record)
+}
+func(r *Runtime)MetricExportFailures()uint64{return r.signals.metricFailures.Load()}
+func(r *Runtime)LogExportFailures()uint64{return r.signals.logFailures.Load()}
+type safeMetricExporter struct{sdkmetric.Exporter;signals *requestSignals}
+func(e *safeMetricExporter)Export(ctx context.Context,data *metricdata.ResourceMetrics)error{if err:=e.Exporter.Export(ctx,data);err!=nil{e.signals.metricFailures.Add(1);return errors.New("metric export failed")};return nil}
+type safeLogExporter struct{sdklog.Exporter;signals *requestSignals}
+func(e *safeLogExporter)Export(ctx context.Context,data []sdklog.Record)error{if err:=e.Exporter.Export(ctx,data);err!=nil{e.signals.logFailures.Add(1);return errors.New("log export failed")};return nil}

@@ -18,6 +18,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	logcollector "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metriccollector "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
@@ -30,6 +32,8 @@ import (
 type traceCollector struct {
 	collector.UnimplementedTraceServiceServer
 	received chan *collector.ExportTraceServiceRequest
+	logs     chan *logcollector.ExportLogsServiceRequest
+	metrics  chan *metriccollector.ExportMetricsServiceRequest
 	block    bool
 }
 
@@ -45,7 +49,7 @@ func (c *traceCollector) Export(ctx context.Context, req *collector.ExportTraceS
 	}
 	return &collector.ExportTraceServiceResponse{}, nil
 }
-func traceEnvironment(t *testing.T) {
+func traceEnvironment(t testing.TB) {
 	t.Helper()
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
@@ -54,7 +58,7 @@ func traceEnvironment(t *testing.T) {
 		}
 	}
 }
-func collectorFixture(t *testing.T, block bool) *traceCollector {
+func collectorFixture(t testing.TB, block bool) *traceCollector {
 	t.Helper()
 	traceEnvironment(t)
 	certificate := httptest.NewTLSServer(http.NotFoundHandler())
@@ -68,8 +72,10 @@ func collectorFixture(t *testing.T, block bool) *traceCollector {
 		t.Fatal(err)
 	}
 	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, Certificates: certificate.TLS.Certificates})))
-	c := &traceCollector{received: make(chan *collector.ExportTraceServiceRequest, 32), block: block}
+	c := &traceCollector{received: make(chan *collector.ExportTraceServiceRequest, 32), logs: make(chan *logcollector.ExportLogsServiceRequest, 64), metrics: make(chan *metriccollector.ExportMetricsServiceRequest, 64), block: block}
 	collector.RegisterTraceServiceServer(server, c)
+	logcollector.RegisterLogsServiceServer(server, &testLogCollector{sink: c})
+	metriccollector.RegisterMetricsServiceServer(server, &testMetricCollector{sink: c})
 	go server.Serve(listener)
 	t.Cleanup(server.Stop)
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://"+listener.Addr().String())

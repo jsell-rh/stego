@@ -34,8 +34,13 @@ same common behavior with an independent service. Measure enabled and disabled
 cost, concurrent request behavior, and bounded resource use. A trace-only test
 or a declaration file is not evidence for the complete requirement.
 
-Current evidence covers [HTTP spans](http-tracing.md) and
+The [request observability contract](request-observability.md) adds automatic
+OTLP request logs and metrics to the same runtime. This covers the request
+boundary, not complete service or controller logging.
+
+Earlier evidence covers [HTTP spans](http-tracing.md) and
 [gRPC call and stream spans](grpc-tracing.md) with a shared private provider,
-bounded queue, and verified TLS OTLP/gRPC export. These do not complete log
-export, metric export, database or outbound spans, or controller telemetry.
+bounded queue, and verified TLS OTLP/gRPC export. The combined request gate
+adds log and metric export. Complete service logging, database and outbound
+spans, runtime metrics, and controller telemetry remain open.
 The broader upstream observability requirements also remain in force.
