@@ -2407,3 +2407,19 @@ Compiler and CLI build records are implemented in STEGO. See
 [`build-identity.md`](build-identity.md). The common record separates the
 compiler build from the application build. It reports missing source metadata
 as unknown. Artifact verification and complete input manifests remain open.
+
+Hypershell build-report evidence is recorded at commit
+`4127c2c11427ce8698cdeea5df38dbd52b6fdc08`, with STEGO compiler pin
+`8ae682d5bc3b7fceecc590db0dfbdf21b28f0385`. The variant enables the common
+version command with one application setting. Its offline executable test checks
+the application metadata, compiler pin, and saved compiler state. Seven selected
+CLI acceptance tests passed in 100.494 seconds with PostgreSQL and Keycloak
+required. CLI unit tests, contract tests, and vet passed. These tests cover
+Gateway access, atomic creation, grants, events, restart, login, apply, catalogs,
+and service accounts. The full application suite and Kubernetes provider gates
+were not repeated locally for this change.
+
+After the variant commit, pinned regeneration passed with all 78 generated,
+state, and dependency file hashes unchanged. STEGO feature CI run 34494759858
+passed. Build records remain diagnostic data: artifact digests, signatures,
+complete input manifests, and controlled release builds are still open work.
