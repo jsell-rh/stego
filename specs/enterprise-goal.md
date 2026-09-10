@@ -51,6 +51,10 @@ required behavior. Do not treat a CRUD-only replacement as a complete result.
 Remove the need for rh-trex-ai generation and runtime infrastructure in the
 variant. Keep application-specific decisions separate from reusable generators.
 
+The [shared observability requirement](shared-observability.md) includes full
+OpenTelemetry logs, metrics, and traces as generated service behavior. The user
+confirmed that consumers must not implement this common infrastructure.
+
 The following milestones define completion:
 
 | ID | Requirement | Acceptance evidence | State |

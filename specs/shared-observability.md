@@ -1,0 +1,41 @@
+The user requires complete OpenTelemetry logging, metrics, and tracing in STEGO.
+The requirement was confirmed on 2026-09-10. Consumers must receive common
+instrumentation through generated code. They must not need to build exporters,
+span wrappers, metric registries, log bridges, or controller telemetry loops.
+This requirement is part of C6, H2, and H3, and remains open.
+
+The shared runtime must provide:
+
+- Structured service logs with severity, service identity, and trace correlation.
+- OpenTelemetry log export, request and runtime metrics, and distributed traces.
+- Automatic HTTP and gRPC instrumentation, including denied requests, failures,
+  cancellation, streaming calls, and shutdown.
+- Common controller and reconciliation telemetry for attempts, work duration,
+  pending work, retries, errors, and recovery. Domain code supplies only the
+  resource meaning and provider action.
+- Common database and outbound client instrumentation where STEGO owns those
+  boundaries, with context propagation through generated clients.
+- One validated deployment configuration, explicit resource ownership, bounded
+  queues and attribute cardinality, verified export transport, and bounded flush.
+- Failure isolation: an unavailable collector must not stop application work or
+  cause unbounded memory growth, request delay, or shutdown delay.
+
+Common fields must have a clear data policy. Do not export credentials, raw
+request bodies, raw SQL, resource IDs as metric labels, arbitrary baggage,
+provider error text, or user profile data by default. Domain telemetry needs
+explicit declarations. Logging must remain useful when export is disabled.
+Export settings belong to deployment configuration, not application handlers.
+
+Acceptance must use a complete Gateway workflow through the generated process
+and a real local OTLP collector. Verify log, metric, and trace correlation;
+authorized and denied access; watch lifetime; event delivery and reconciliation;
+restart; collector failure; queue pressure; and repeat generation. Verify the
+same common behavior with an independent service. Measure enabled and disabled
+cost, concurrent request behavior, and bounded resource use. A trace-only test
+or a declaration file is not evidence for the complete requirement.
+
+Current evidence covers [HTTP spans](http-tracing.md) and
+[gRPC call and stream spans](grpc-tracing.md) with a shared private provider,
+bounded queue, and verified TLS OTLP/gRPC export. These do not complete log
+export, metric export, database or outbound spans, or controller telemetry.
+The broader upstream observability requirements also remain in force.
