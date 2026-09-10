@@ -8,6 +8,7 @@ import (
  "fmt"
  "io"
  "net/http"
+ "net/url"
  "strings"
  "strconv"
  "time"
@@ -34,6 +35,16 @@ func readToken(file string) (string, error) {
 	return token, nil
 }
 func (k *Client) Request(ctx context.Context, method, path string, input Object) (Object, int, error) {
+	// Require schema errors to fail writes instead of pruning unknown fields.
+	if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
+		u, err := url.Parse(path)
+		if err != nil { return nil, 0, errors.New("invalid Kubernetes write path") }
+		query, err := url.ParseQuery(u.RawQuery)
+		if err != nil { return nil, 0, errors.New("invalid Kubernetes write query") }
+		query.Set("fieldValidation", "Strict")
+		u.RawQuery = query.Encode()
+		path = u.String()
+	}
 	token, err := readToken(k.tokenFile)
 	if err != nil {
 		return nil, 0, err

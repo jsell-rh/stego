@@ -55,3 +55,11 @@ This is required when an application changes one member of a shared list. After
 a conflict, read the resource again and recompute the complete change. System
 fields and ownership labels cannot be changed through this method. The method
 preserves both input objects and reports a missing resource as an error.
+
+Create, replace, and patch requests require `fieldValidation=Strict`. Existing
+query options are preserved, but callers cannot select weaker validation.
+Malformed queries fail before I/O. This prevents a supporting Kubernetes API
+from silently discarding unknown fields. It does not replace the installed
+resource schema or certify an external API that ignores this option. Schemas
+can explicitly preserve unknown fields. See the
+[Kubernetes validation contract](https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation).

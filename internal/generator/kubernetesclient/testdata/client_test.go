@@ -667,3 +667,31 @@ func TestPatchOwnedRejectsMissingAndTerminatingResources(t *testing.T) {
 		t.Fatal("terminating resource reached the network")
 	}
 }
+
+func TestWritesRequireStrictFieldValidation(t *testing.T) {
+	calls := 0
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		q := r.URL.Query()
+		if r.URL.Path != "/apis/example.com/v1/widgets" || len(q["fieldValidation"]) != 1 || q.Get("fieldValidation") != "Strict" || q.Get("dryRun") != "All" {
+			t.Error("write lost strict validation or caller options", r.URL)
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"private rejected value"}`))
+	})
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
+		_, code, err := client.Request(context.Background(), method, "/apis/example.com/v1/widgets?dryRun=All&fieldValidation=Ignore&fieldValidation=Warn", Object{"spec": Object{"unknown": true}})
+		var failure *APIError
+		if code != 400 || !errors.As(err, &failure) || failure.StatusCode != 400 || failure.Method != method || err.Error() != fmt.Sprintf("Kubernetes %s failed with status 400", method) {
+			t.Fatal("schema rejection was lost or exposed response data", code, err)
+		}
+	}
+	for _, query := range []string{"bad=%xx", "bad=one;two"} {
+		if _, _, err := client.Request(context.Background(), http.MethodPost, "/api/v1/namespaces?"+query, Object{}); err == nil {
+			t.Fatal("accepted malformed write query")
+		}
+	}
+	if calls != 3 {
+		t.Fatal("invalid query performed I/O or a rejected write was retried", calls)
+	}
+}
