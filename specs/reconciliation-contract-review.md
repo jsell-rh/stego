@@ -432,3 +432,44 @@ permission loss, a concurrent revision, or parent cancellation can still prevent
 it. Durable conditions, freshness after controller loss, retry persistence,
 complete queue saturation handling, and cross-process fencing remain open.
 The enterprise goal is not complete.
+
+Database recovery now uses existing generated mechanisms for all retained IDs.
+The application requests one finite stream of live and deleted databases. Its
+server uses `Scan` with storage `CursorReader`; its controller uses `ScanStream`
+with `RunKeyedWatch`. This removes the separate live offset-list loop and its
+unused totals. Hypershell retains recovery authorization, canonical IDs, replay
+scope validation, and event shapes. No new compiler API is required.
+
+The retained replay test first failed because the server did not support that
+scope. The focused checks then passed in 58.136 seconds. They covered both the
+legacy deleted-only mode and retained mode, more than one page, C and ICU order,
+access denial, empty results, restart, an idle stream, and current-state cleanup.
+Another check deleted an earlier row between pages and still recovered all 21
+IDs exactly once. A query recorder found one read and no count per retained
+page, with no reads for a denied caller.
+
+The server continues to support the old deletion replay. The new controller
+requires an exact retained-scope confirmation and stops if that protocol is
+unsupported. Deploy the API before that controller. Page snapshots, watches,
+and repeated scans still define recovery; this is not a durable queue or a
+cross-process ownership mechanism.
+
+The Kubernetes database gate passed in 94.465 seconds, including both replay
+modes. The complete Kubernetes Gateway gate passed in 238.447 seconds with the
+new database recovery path. It covered access, service accounts, provider
+persistence, restart, namespace replacement, offline deletion, and former-cluster
+cleanup. These runs do not establish production recovery capacity.
+
+The full PostgreSQL/Keycloak race suite passed with 114 acceptance tests and a
+941.540-second acceptance package run. Static checks and module verification
+passed. Application commit `ea79d5310f598522989fca3a85a69b886267d8f8` is on remote
+main. Regeneration after commit used compiler
+`46b5f4e5327dfd056cafb65fe3a39ff0cde74500` and preserved all 74 generated and
+dependency file hashes. The application [database recovery contract](https://github.com/jsell-rh/hypershell-stego/blob/ea79d5310f598522989fca3a85a69b886267d8f8/acceptance/database-recovery.md)
+records the protocol, deployment order, test coverage, and limits.
+
+The preceding observation revision `354715a` passed all four CI jobs in run
+`34483963655`. The new recovery revision still requires its own CI result.
+Other discovery paths, durable retry storage, complete queue saturation
+handling, cross-process fencing, field ownership, and production capacity remain
+open. The enterprise goal is not complete.
