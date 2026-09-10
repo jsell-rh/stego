@@ -57,3 +57,39 @@ STEGO_BENCH_OBSERVATION=1 go test -count=1 -v ./internal/generator/controller
 
 Observation timestamps, durable failure conditions, freshness after controller
 loss, cross-process fencing, durable retries, and production targets remain open.
+
+The five application deadline checks passed together in 116.907 seconds. They
+cover Gateway and database status, plus Gateway workload, database, and identity
+cleanup. Each check confirms failure event delivery, stored failure after API
+restart, and recovery with a working provider. Cleanup remains hidden from public
+reads. Gateway recovery confirms its current generation, and database recovery
+advances its revision.
+
+The database cleanup check also exposed an error in the application capability
+handshake. A gRPC stream can report an initial error through Recv after Header
+returns no metadata. The old check treated this as permanent missing capability.
+An in-memory gRPC test reproduced that error for Aborted, Unavailable,
+PermissionDenied, and Unauthenticated. The application now preserves these
+statuses. A clean end without the required capability remains invalid. This is
+protocol validation in Hypershell; STEGO retains reconnect and retry scheduling.
+
+The real Kubernetes database gate passed in 81.938 seconds. It covered TLS,
+persistence, foreign namespace denial, offline deletion, late effects, and
+replay with C and ICU database ordering. The complete Kubernetes Gateway gate
+passed in 231.422 seconds. It covered database and identity setup, access rules,
+service accounts, provider persistence, restart, namespace replacement, offline
+deletion, and cleanup on a former cluster. Both gates used the generated time
+reserve in the application controllers.
+
+The complete PostgreSQL and Keycloak race suite passed with 112 acceptance tests
+and a 917.518-second acceptance package run. Static checks and module verification
+also passed. The application commits are `e64f446` for the watch handshake and
+`354715aca8d77eecf3ecb25bce38810db7c527ba` for observation budgets. Both are on remote
+main. Generation from pinned compiler `46b5f4e5327dfd056cafb65fe3a39ff0cde74500`
+passed after commit and preserved all 74 generated and dependency file hashes.
+The compiler revision also passed CI in run `34481789390`.
+
+These checks used the repository's pinned fixtures on Linux amd64 with Go 1.26.8
+and PostgreSQL 18.6. The Kubernetes gates overlapped part of the full suite. The
+elapsed times are local evidence, not production capacity or recovery targets.
+The remaining observation and reconciliation requirements above still apply.

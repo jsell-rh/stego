@@ -405,3 +405,30 @@ This removes common query construction and unused counts from three recovery
 paths. Other discovery queries, cursor memory bounds, durable retries, complete
 queue saturation handling, cross-process fencing, field ownership, and production
 capacity remain open. The enterprise goal is not complete.
+
+Controller 1.7.0 now generates an observation time reserve. Application tests
+first showed that a provider timeout could leave a previous Healthy Gateway or
+ready database in place because its failure write used an expired context.
+`RunObservation` bounds provider work and leaves time for a conditional write
+under the same parent. It preserves work and commit errors, waits for callbacks,
+and stops writes on parent cancellation. Hypershell retains status values,
+revision preconditions, exact grants, and cleanup meaning.
+
+The [observation budget contract](observation-budgets.md) records five application
+workflows: Gateway and database status, plus workload, database, and identity
+cleanup. All check timeout failure, event delivery, API restart, and recovery.
+The workflow also exposed an initial gRPC error hidden by a capability check;
+the application now preserves that status for the generated retry policy.
+
+Compiler `46b5f4e` passed its race suite, static checks, and CI. Application
+`354715a` passed the complete PostgreSQL/Keycloak race suite in 917.518 seconds,
+the real database gate in 81.938 seconds, and the complete Gateway gate in
+231.422 seconds. Both repositories have these changes on remote main. Pinned
+regeneration after the application commit preserved all 74 generated and
+dependency hashes.
+
+A reserved write budget does not guarantee a successful observation. API failure,
+permission loss, a concurrent revision, or parent cancellation can still prevent
+it. Durable conditions, freshness after controller loss, retry persistence,
+complete queue saturation handling, and cross-process fencing remain open.
+The enterprise goal is not complete.
