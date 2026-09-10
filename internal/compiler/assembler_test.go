@@ -822,11 +822,9 @@ func TestDisambiguateAlias(t *testing.T) {
 }
 
 func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T) {
-	// Finding 29: Two constructors from different wirings with the same
-	// baseVar ("store"). Only component-a's constructor is consumed
-	// (transitively via rest-api's route → handler → store). Component-b's
-	// constructor should NOT be emitted — it would be disambiguated to
-	// "store2" which no code references, producing an unused variable error.
+	// Equal names remain valid when a route identifies its producer by
+	// component. The unused constructor and its import must stay absent.
+	// A cross-component dependency with this name is tested as an error.
 	input := AssemblerInput{
 		ModuleName:  "github.com/myorg/svc",
 		ServiceName: "svc",
@@ -838,6 +836,7 @@ func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T)
 				Wiring: &gen.Wiring{
 					Imports:      []string{"internal/a"},
 					Constructors: []string{"a.NewStore(db)"},
+					Routes:       []string{`mux.HandleFunc("GET /store", store.List)`},
 					NeedsDB:      true,
 				},
 			},
@@ -851,10 +850,9 @@ func TestAssemble_ConstructorVarNameCollision_UnconsumedNotEmitted(t *testing.T)
 			{
 				Name: "rest-api",
 				Wiring: &gen.Wiring{
-					Imports:         []string{"internal/api"},
-					Constructors:    []string{"api.NewHandler(store)"},
-					ConstructorDeps: map[int][]string{0: {"store"}},
-					Routes:          []string{`mux.HandleFunc("GET /", handler.Index)`},
+					Imports:      []string{"internal/api"},
+					Constructors: []string{"api.NewHandler()"},
+					Routes:       []string{`mux.HandleFunc("GET /", handler.Index)`},
 				},
 			},
 		},

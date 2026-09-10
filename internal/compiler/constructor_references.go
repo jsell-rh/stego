@@ -12,6 +12,11 @@ import (
 // renameConstructorReferences keeps package qualifiers separate from value
 // references. Only arguments can refer to earlier constructor values.
 func renameConstructorReferences(source string, values, packages map[string]string, importNames map[string]bool, dependencies []string) (string, error) {
+	return transformConstructorReferences(source, values, packages, importNames, dependencies, nil)
+}
+
+// The observer and renderer use the same rules for Go value references.
+func transformConstructorReferences(source string, values, packages map[string]string, importNames map[string]bool, dependencies []string, observe func(string)) (string, error) {
 	expression, err := parser.ParseExpr(source)
 	if err != nil {
 		return "", fmt.Errorf("invalid constructor expression: %w", err)
@@ -96,6 +101,9 @@ func renameConstructorReferences(source string, values, packages map[string]stri
 		ast.Inspect(argument, func(node ast.Node) bool {
 			if name, ok := node.(*ast.Ident); ok && !excluded[name] {
 				if replacement := values[name.Name]; replacement != "" {
+					if observe != nil {
+						observe(name.Name)
+					}
 					name.Name = replacement
 				}
 			}

@@ -201,6 +201,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, consumedWirings)
+	if err := validateConstructorDependencies(input.Wirings, imports.PackageAliases); err != nil {
+		return gen.File{}, err
+	}
 
 	fallible := hasRoutes || hasTasks || hasDB || hasFallibleConstructor(input, consumed)
 	if fallible {
