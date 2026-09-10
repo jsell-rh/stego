@@ -386,3 +386,22 @@ all 71 generated and dependency file hashes unchanged. The compiler pin remains
 verification passed. The preceding variant CI run had passed its database,
 Gateway, and sandbox jobs; its full acceptance job was still running when these
 local checks finished. That run is not yet counted as a complete CI pass.
+Gateway ID recovery, database deletion replay, and service-account recovery now
+use the generated CursorReader storage contract. An application test first found
+one unused count and two total reads per Gateway or database recovery page. With
+the new reader, the page uses one read and no count. Denied callers perform no
+read. STEGO owns the bound ID predicate, database order, shared filters, row
+limits, and continuation. Hypershell retains access, canonical IDs, and state
+policy. Deleted service-account streams now select deleted rows directly.
+
+The [storage cursor contract](storage-cursors.md) records C and ICU ordering,
+current-observation filtering, related access, transaction reads, cancellation,
+and measured query cost. The application passed the full PostgreSQL/Keycloak
+race suite in 673.043 seconds, the real database gate in 66.974 seconds, and the
+complete Gateway gate in 206.104 seconds. Variant cc36ff2 is on remote main;
+regeneration preserved all 73 generated and dependency file hashes.
+
+This removes common query construction and unused counts from three recovery
+paths. Other discovery queries, cursor memory bounds, durable retries, complete
+queue saturation handling, cross-process fencing, field ownership, and production
+capacity remain open. The enterprise goal is not complete.

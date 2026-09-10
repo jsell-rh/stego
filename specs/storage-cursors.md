@@ -66,5 +66,17 @@ STEGO_BENCH_CURSOR=1 go test -count=1 -v ./internal/generator/postgresadapter -r
 
 Set STEGO_TEST_POSTGRES_DSN and STEGO_REQUIRE_POSTGRES=1 for this command.
 
+Variant cc36ff2f13a5bc8ef2deec92a1e570b46f53b52b is on remote main and pins
+compiler 18337ac98127a32d96b5bafb05d6b8d2a58693dd. The full PostgreSQL/Keycloak
+race suite passed with a 673.043-second acceptance package run. The real database
+Kubernetes gate passed in 66.974 seconds. The complete Gateway Kubernetes gate
+passed in 206.104 seconds. Static checks, module verification, and regeneration
+after commit passed. All 73 generated and dependency file hashes stayed unchanged.
+See the [application evidence](https://github.com/jsell-rh/hypershell-stego/blob/cc36ff2f13a5bc8ef2deec92a1e570b46f53b52b/acceptance/storage-cursors.md).
+
+Compiler revision 18337ac passed CI in run 34479573034. The previous variant
+7178981 passed all four jobs in run 34478875550. The cursor variant requires its
+own CI run. The full enterprise goal remains active.
+
 This change does not provide durable retry storage, cross-process fencing,
 cursor persistence, storage indexes for every workload, or production capacity.
