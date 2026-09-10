@@ -624,7 +624,6 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool
 	}
 	if hasDiscovery {
 		vars["topMux"] = true
-		vars["handler"] = true
 	}
 	// "os" is used in writeDBSetup (DATABASE_URL) and writeServerStart (PORT).
 	if hasDB || hasRoutes || hasTasks {
@@ -1428,7 +1427,6 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 	// handler for all other routes.
 	hasDiscovery := hasAnyDiscoveryRoutes(input)
 	if hasDiscovery {
-		fmt.Fprintf(buf, "\thandler := %s\n", handlerExpr)
 		buf.WriteString("\ttopMux := http.NewServeMux()\n")
 		for i, cw := range input.Wirings {
 			if cw.Wiring == nil {
@@ -1439,7 +1437,7 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 				fmt.Fprintf(buf, "\t%s\n", updatedRoute)
 			}
 		}
-		buf.WriteString("\ttopMux.Handle(\"/\", handler)\n")
+		fmt.Fprintf(buf, "\ttopMux.Handle(\"/\", %s)\n", handlerExpr)
 		handlerExpr = "topMux"
 	}
 	buf.WriteString("\tlistener, err := net.Listen(\"tcp\", addr)\n\tif err != nil { return err }\n")

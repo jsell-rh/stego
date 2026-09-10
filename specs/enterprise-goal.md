@@ -3,6 +3,13 @@ to build a fully STEGO-based Hypershell variant. The user authorized this work o
 2026-09-08. The findings in `repository-assessment.md` are the initial defect
 list. A passing build alone does not satisfy this goal.
 
+The [health probe contract](health-probes.md) adds the missing process and SQL
+readiness behavior for C6. Its Gateway test delays database traffic, checks
+readiness loss with independent liveness, and verifies recovery and API restart.
+That application exposed a separate constructor-name conflict in shared route
+assembly. Both fixes have standalone generated runtime regressions. Complete
+dependency readiness, tracing, gRPC health, and deployment probes remain open.
+
 The reference application is `/home/jsell/code/hypershell` at commit
 `14256be29bcfe4fff38bcaf4a41511cb394ea8e1`. The test bed is
 `/home/jsell/code/hypershell-stego`, cloned from

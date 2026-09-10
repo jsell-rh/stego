@@ -5329,7 +5329,7 @@ func TestAssemble_DiscoveryRoutesOutsideAuthMiddleware(t *testing.T) {
 	}
 
 	// topMux should delegate all other routes to the middleware-wrapped handler.
-	if !strings.Contains(mainContent, `topMux.Handle("/", handler)`) {
+	if !strings.Contains(mainContent, `topMux.Handle("/", mux)`) {
 		t.Error("main.go missing topMux fallback delegation to handler")
 	}
 
@@ -5434,12 +5434,12 @@ func TestAssemble_DiscoveryWithAuthMiddleware(t *testing.T) {
 	}
 
 	// handler should be the auth-wrapped mux.
-	if !strings.Contains(mainContent, "handler := authMiddleware(mux)") {
+	if !strings.Contains(mainContent, `topMux.Handle("/", authMiddleware(mux))`) {
 		t.Error("main.go should wrap mux with auth middleware")
 	}
 
 	// topMux delegates to the auth-wrapped handler.
-	if !strings.Contains(mainContent, `topMux.Handle("/", handler)`) {
+	if !strings.Contains(mainContent, `topMux.Handle("/", authMiddleware(mux))`) {
 		t.Error("main.go topMux should delegate to auth-wrapped handler")
 	}
 
