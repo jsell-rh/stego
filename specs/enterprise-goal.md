@@ -2429,3 +2429,26 @@ Controller 1.8.0 adds [resumable cursor scans](resumable-scans.md). It returns
 completed progress across page budgets and cancellation. The existing full-scan
 API keeps its limit behavior. Durable progress storage and cross-process
 ownership remain open; this addition does not substitute for either contract.
+
+Hypershell cursor recovery is implemented at
+`19f021ff13e8489a1a14496fbe24c4b2b228d5a0`, with STEGO compiler pin
+`e8afad97deda15136091ab5e203bd96726435ef0`. Its former 10,000-reference
+limit failed the backlog regression. The new controller completes 10,100
+references across bounded passes. The PostgreSQL and generated gRPC/runtime
+test resumes a partial page after API restart and reads 10,106 retained grant
+references without loss or repeat. Invalid and denied reads, late insertion
+before a cursor, current grants, and cleanup remain covered.
+
+Eight selected acceptance tests passed in 57.873 seconds. The final insertion
+and version checks passed in 2.139 seconds. After the duplicate-user check,
+the identity workflow passed in 36.270 seconds. Real Gateway login and
+independent identity cleanup passed in 38.802 seconds. Unit, contract, race,
+and vet checks passed. This does not claim a full application or Kubernetes
+suite run for the change. Post-commit regeneration preserved all 78 generated,
+state, and dependency file hashes. STEGO feature CI run 34495275642 passed.
+
+The measured late inventory page improved from 3.632–3.876 ms with offsets to
+0.764–0.917 ms with a cursor. Each new page uses two reads and no count query.
+See the variant's `acceptance/identity-cursors.md` for benchmark conditions and
+limits. Durable progress, bounds for incomplete resource cursors, cross-process
+fencing, and production recovery targets remain open.

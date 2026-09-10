@@ -489,3 +489,16 @@ the compiler and application test the generated client. The fixed-compiler
 Gateway gate passed, including the failed deletion-before-startup case. See
 [stream header evidence](grpc-stream-headers.md). This is another case where the
 application workflow determined the common infrastructure correction.
+
+Identity inventory recovery now uses common resumable cursor scans. The old
+controller stopped after 10,000 retained grant references. The application
+regression exposed that limit; controller 1.8.0 and the variant's private cursor
+RPC now continue across bounded passes. A PostgreSQL/gRPC runtime check resumes
+a partial page after API restart and reads 10,106 retained references. Current
+identity reads, real login from stored grants, and independent cleanup after
+restart passed. See [resumable scans](resumable-scans.md).
+
+The saved progress is still process-local. A controller process restart repeats
+the full inventory. Frequent restarts can delay later users. Durable progress,
+retry storage, cursor-map bounds, and cross-process fencing remain unresolved.
+The new cursor contract does not establish an acknowledgment or a state snapshot.
