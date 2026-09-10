@@ -605,3 +605,65 @@ func TestDiscoveryAllowsResourceNamesWithHyphens(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPatchOwnedUsesTheExactObservation(t *testing.T) {
+	calls := 0
+	old := Object{"metadata": Object{"name": "sample", "uid": "uid", "resourceVersion": "4", "labels": Object{"owner": "widget"}}, "spec": Object{"items": []string{"first"}}}
+	changes := Object{"spec": Object{"items": []string{"first", "second"}}}
+	beforeOld, _ := json.Marshal(old)
+	beforeChanges, _ := json.Marshal(changes)
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "PATCH" || r.URL.Path != "/apis/example.com/v1/widgets/sample" {
+			t.Error("computed patch performed a new read", r.Method, r.URL.Path)
+		}
+		var patch Object
+		_ = json.NewDecoder(r.Body).Decode(&patch)
+		if String(patch, "metadata", "uid") != "uid" || String(patch, "metadata", "resourceVersion") != "4" {
+			t.Error("patch lost its original preconditions")
+		}
+		w.WriteHeader(http.StatusConflict)
+	})
+	_, err := client.PatchOwned(context.Background(), "/apis/example.com/v1/widgets/sample", old, changes, Owner{"owner": "widget"})
+	var failure *APIError
+	if !errors.As(err, &failure) || failure.StatusCode != 409 || calls != 1 {
+		t.Fatal("stale change was retried or accepted", err, calls)
+	}
+	afterOld, _ := json.Marshal(old)
+	afterChanges, _ := json.Marshal(changes)
+	if string(beforeOld) != string(afterOld) || string(beforeChanges) != string(afterChanges) {
+		t.Fatal("patch changed caller input")
+	}
+	for _, patch := range []Object{{}, {"metadata": Object{}}, {"status": nil}, {"kind": "Other"}, {"apiVersion": "v1"}} {
+		if _, err := client.PatchOwned(context.Background(), "/apis/example.com/v1/widgets/sample", old, patch, Owner{"owner": "widget"}); err == nil {
+			t.Fatal("accepted system field or empty patch")
+		}
+	}
+	for _, path := range []string{"/apis/example.com/v1/widgets/other", "/apis/example.com/v1/widgets/sample?watch=true"} {
+		if _, err := client.PatchOwned(context.Background(), path, old, changes, Owner{"owner": "widget"}); err == nil {
+			t.Fatal("accepted wrong observed path")
+		}
+	}
+	if _, err := client.PatchOwned(context.Background(), "/apis/example.com/v1/widgets/sample", old, changes, Owner{"owner": "other"}); err == nil {
+		t.Fatal("accepted foreign ownership")
+	}
+	if calls != 1 {
+		t.Fatal("invalid changes reached the network")
+	}
+}
+
+func TestPatchOwnedRejectsMissingAndTerminatingResources(t *testing.T) {
+	calls := 0
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(404) })
+	old := Object{"metadata": Object{"name": "sample", "uid": "uid", "resourceVersion": "4", "labels": Object{"owner": "widget"}}}
+	if _, err := client.PatchOwned(context.Background(), "/api/v1/widgets/sample", old, Object{"data": Object{"key": "value"}}, Owner{"owner": "widget"}); err == nil {
+		t.Fatal("absent patch succeeded")
+	}
+	old["metadata"].(Object)["deletionTimestamp"] = "2026-09-10T00:00:00Z"
+	if _, err := client.PatchOwned(context.Background(), "/api/v1/widgets/sample", old, Object{"data": Object{"key": "value"}}, Owner{"owner": "widget"}); err == nil {
+		t.Fatal("terminating patch succeeded")
+	}
+	if calls != 1 {
+		t.Fatal("terminating resource reached the network")
+	}
+}

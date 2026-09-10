@@ -132,6 +132,23 @@ func subset(actual,desired any)bool{
 }
 func identity(object Object)bool{return String(object,"metadata","uid")!="" && String(object,"metadata","resourceVersion")!=""}
 
+// PatchOwned applies changes computed from a previous read. It never reads a
+// newer version or retries a conflict. The caller must recompute after a new
+// observation. System fields and ownership cannot be changed through this API.
+func(c *Client)PatchOwned(ctx context.Context,path string,observed,changes Object,owner Owner)(Object,error){
+ old,err:=snapshot(observed);if err!=nil{return nil,err}
+ patch,err:=snapshot(changes);if err!=nil{return nil,err}
+ name:=String(old,"metadata","name")
+ if name=="" || strings.ContainsAny(name,"/\\?#% \t\r\n") || name=="." || name==".." || !strings.HasSuffix(path,"/"+name) || strings.ContainsAny(path,"?#") {return nil,errors.New("invalid Kubernetes observed resource path")}
+ if !owner.Matches(old)||!identity(old)||String(old,"metadata","deletionTimestamp")!=""{return nil,errors.New("Kubernetes observed resource is not owned and active")}
+ if len(patch)==0{return nil,errors.New("Kubernetes changes are empty")}
+ for _,key:=range []string{"apiVersion","kind","metadata","status"}{if _,present:=patch[key];present{return nil,errors.New("Kubernetes changes contain a system field")}}
+ patch["metadata"]=Object{"uid":String(old,"metadata","uid"),"resourceVersion":String(old,"metadata","resourceVersion")}
+ updated,code,err:=c.Request(ctx,http.MethodPatch,path,patch)
+ if err!=nil{return nil,err};if code==http.StatusNotFound{return nil,&APIError{Method:http.MethodPatch,StatusCode:code}}
+ return updated,nil
+}
+
 // Ensure creates an absent object or applies a merge patch to an owned object.
 // The observed UID and version guard each patch. The caller retains ownership
 // of desired; the client never changes it. Conflicts require a new observation.

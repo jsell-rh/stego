@@ -47,3 +47,11 @@ These rules follow the Kubernetes list and watch protocol. See the
 [Kubernetes API concepts](https://kubernetes.io/docs/reference/using-api/api-concepts/).
 The Widget tests cover page consistency, reconnects, token rotation, expired
 history, access denial, invalid paths, and callback failure.
+
+`PatchOwned` applies changes computed from an earlier owned resource read. It
+uses the UID and resource version from that exact observation. It does not read
+a newer version, retry a conflict, or skip a write based on partial map equality.
+This is required when an application changes one member of a shared list. After
+a conflict, read the resource again and recompute the complete change. System
+fields and ownership labels cannot be changed through this method. The method
+preserves both input objects and reports a missing resource as an error.
