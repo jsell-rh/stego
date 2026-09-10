@@ -291,3 +291,34 @@ workflow passed in 219.678 seconds. The prior variant revision `08b399f` also
 passed all four CI jobs in run `34418365029`, including the revised backlog and
 database restart checks. The identity migration requires its own new CI run.
 The enterprise goal remains active.
+
+The database controller now uses the same generated keyed watch runtime as the
+Gateway controllers. A new application check first failed with FIFO scheduling:
+after API restart, one blocked provider call prevented another deleted database
+from completing cleanup. With four generated workers, the second database
+records cleanup through TLS gRPC and delivers its event while the first remains
+blocked. The same test helper checks database, Gateway workload, and Gateway
+identity cleanup.
+
+The database adapter validates event types and matching IDs before admission.
+The queue retains only IDs. Each action reads current retained state and checks
+the ID, revision, deletion metadata, and cleanup owner. Current live state selects
+provisioning; current deleted state selects cleanup. A delete-type hint cannot
+authorize deletion of a live database. Missing state remains an error for every
+event type and permits no provider work. This removes event-type dependence from
+the action while preserving current-state authority and one queue key per ID.
+
+Invalid recovery records, list pages, and missing replay capabilities stop the
+runtime. Tests check that these invalid inputs cannot reach resource reads or
+provider work. Live list calls have a 20-second limit. Replay has a scoped
+context, but still needs a separate idle deadline. Durable retries, complete
+queue saturation handling, count-free storage cursors, field ownership,
+cross-process fencing, and production capacity remain open. See the variant's
+[database scheduling evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/database-scheduling.md).
+
+The database migration passed the full local PostgreSQL/Keycloak race suite;
+its acceptance package took 647.391 seconds. The real database Kubernetes
+workflow passed in 76.921 seconds, and the complete Gateway workflow passed in
+215.211 seconds. The preceding identity revision `6074a76` passed all four CI
+jobs in run `34419484600`. The database migration requires its own new CI run.
+The complete enterprise goal remains active.
