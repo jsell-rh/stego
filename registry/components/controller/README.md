@@ -156,3 +156,29 @@ when a later page fails. A new scan starts at the first page. Repeated work must
 be safe. Retained state, payload bounds, database ordering, and access checks
 remain source obligations. This API does not supply a storage adapter, a durable
 cursor, a global snapshot, or exactly-once delivery.
+
+`ScanStream` supplies a finite stream scan. The application opens a stream with
+the supplied context and returns a receive function. STEGO limits stream setup,
+each receive call, and the number of items. The source must include protocol
+setup, such as header validation, in its open function. Each successful receive
+passes one value to the emitter. `io.EOF` completes the scan.
+
+`StreamScanOptions` requires 1–1,000,000 items and separate open and receive
+timeouts from 1 millisecond to 1 minute. STEGO permits one extra receive to
+check for EOF at the item limit. It rejects an excess value before emission.
+Invalid options or a missing receiver return `ErrScanContract`. Other errors
+remain available to the controller's terminal-error policy.
+
+Each timeout cancels the stream context. Open and receive functions must honor
+that cancellation. Calls run synchronously and must return before the scanner
+returns; STEGO does not detach blocked callbacks. A timed-out call cannot emit
+a late value. The stream context is cancelled on every exit. This contract
+requires the source to release its transport resources on cancellation.
+
+No receive timer runs while the emitter waits for queue capacity. The emitter
+must honor the parent context. The scanner holds one value and starts no receive
+workers. The source must bound each value and validate its contents. There is no
+total scan time limit. Earlier emits remain effective if a later receive fails,
+and a retry starts from the beginning. Actions must tolerate repeated work.
+This API does not supply durable progress, retained storage, or an idle timeout
+for a live watch.

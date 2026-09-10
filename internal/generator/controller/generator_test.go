@@ -28,6 +28,9 @@ var sweepTests []byte
 //go:embed testdata/scan_test.go
 var scanTests []byte
 
+//go:embed testdata/stream_test.go
+var streamTests []byte
+
 func TestGeneratedController(t *testing.T) {
 	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "controller"})
 	if err != nil {
@@ -35,6 +38,7 @@ func TestGeneratedController(t *testing.T) {
 	}
 	files = append(files, gen.File{Path: "controller/runtime_test.go", Content: runtimeTests}, gen.File{Path: "controller/keyed_test.go", Content: keyedTests}, gen.File{Path: "controller/sweep_test.go", Content: sweepTests})
 	files = append(files, gen.File{Path: "controller/admission_test.go", Content: admissionTests})
+	files = append(files, gen.File{Path: "controller/stream_test.go", Content: streamTests})
 	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests}, gen.File{Path: "controller/watch_keyed_test.go", Content: watchKeyedTests})
 	project := t.TempDir()
 	for _, file := range files {
@@ -56,7 +60,7 @@ func TestGeneratedController(t *testing.T) {
 		t.Fatalf("generated controller: %v\n%s", err, output)
 	}
 	if os.Getenv("STEGO_BENCH_CONTROLLER") == "1" {
-		bench := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(KeyQueueWorkers|KeyAdmission)$", "-benchtime=200ms", "-count=3", "./...")
+		bench := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(KeyQueueWorkers|KeyAdmission|StreamScan)$", "-benchtime=200ms", "-count=3", "./...")
 		bench.Dir = project
 		bench.Env = append(os.Environ(), "GOWORK=off")
 		output, err := bench.CombinedOutput()
