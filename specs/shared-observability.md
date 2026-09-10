@@ -67,3 +67,7 @@ output. Bootstrap export and complete process and database telemetry remain open
 The [HTTP diagnostic policy](http-diagnostics.md) replaces raw server error logs
 with fixed events. It uses the telemetry runtime when present and a bounded local
 fallback otherwise. Request panic signals retain their separate correlation.
+
+The [task abort policy](task-abort-handling.md) adds safe task names for callbacks
+that panic or exit without return. Peer cancellation and resource cleanup finish
+before the local failure report. Full process lifecycle export remains open.

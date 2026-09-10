@@ -8,6 +8,7 @@ type stegoServiceFailure struct {
  stage string
  cause error
  tasks []string
+ abortedTasks []string
 }
 
 func (e *stegoServiceFailure) Error() string { return "service failed at " + e.stage }
@@ -18,8 +19,8 @@ func (e *stegoServiceFailure) Unwrap() error { return e.cause }
 // A blocked output can retain one worker until the process exits.
 func stegoReportFailure(output io.Writer, err error) {
  stage := "service.run"
- var tasks []string
- if failure, ok := err.(*stegoServiceFailure); ok { stage = failure.stage; tasks = failure.tasks }
+ var tasks, abortedTasks []string
+ if failure, ok := err.(*stegoServiceFailure); ok { stage = failure.stage; tasks = failure.tasks; abortedTasks = failure.abortedTasks }
  record := struct {
   Timestamp string ` + "`json:\"timestamp\"`" + `
   Severity string ` + "`json:\"severity\"`" + `
@@ -27,7 +28,8 @@ func stegoReportFailure(output io.Writer, err error) {
   Message string ` + "`json:\"message\"`" + `
   Stage string ` + "`json:\"stage\"`" + `
   Tasks []string ` + "`json:\"tasks,omitempty\"`" + `
- }{time.Now().UTC().Format(time.RFC3339Nano), "ERROR", "service.failed", "Service failed", stage, tasks}
+  AbortedTasks []string ` + "`json:\"aborted_tasks,omitempty\"`" + `
+ }{time.Now().UTC().Format(time.RFC3339Nano), "ERROR", "service.failed", "Service failed", stage, tasks, abortedTasks}
  done := make(chan struct{})
  go func() {
   defer close(done)

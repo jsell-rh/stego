@@ -142,3 +142,68 @@ func TestTaskFailureNamesExcludeCauses(t *testing.T) {
 		t.Fatal("invalid task summary", names)
 	}
 }
+
+type privateTaskPanic struct{}
+
+func (privateTaskPanic) Error() string { panic("private panic formatter must not run") }
+
+func TestAbnormalTaskExitStopsAndJoinsPeers(t *testing.T) {
+	cases := []struct {
+		name  string
+		abort func()
+	}{
+		{"panic", func() { panic("private-task-panic") }},
+		{"nil panic", func() { panic(nil) }},
+		{"error panic", func() { panic(privateTaskPanic{}) }},
+		{"deferred panic", func() { defer func() { panic(privateTaskPanic{}) }() }},
+		{"Goexit", runtime.Goexit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			started, left, canceled, release := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+			done := make(chan error, 1)
+			go func() {
+				done <- stegoRunTasks(context.Background(), []stegoTask{
+					{name: "broken", run: func(context.Context) error { <-started; defer close(left); tc.abort(); return nil }},
+					{name: "peer", run: func(ctx context.Context) error {
+						close(started)
+						<-ctx.Done()
+						select {
+						case <-left:
+						default:
+							t.Error("peer canceled before task defers finished")
+						}
+						close(canceled)
+						<-release
+						return ctx.Err()
+					}},
+				})
+			}()
+			select {
+			case <-canceled:
+			case <-time.After(3 * time.Second):
+				t.Fatal("abnormal task exit did not cancel peer")
+			}
+			select {
+			case <-done:
+				t.Fatal("supervisor returned before peer cleanup")
+			case <-time.After(10 * time.Millisecond):
+			}
+			close(release)
+			select {
+			case err := <-done:
+				if err == nil || strings.Contains(err.Error(), "private") {
+					t.Fatal("abnormal exit lost failure or exposed private data")
+				}
+				if names := stegoTaskNames(err); len(names) != 1 || names[0] != "broken" {
+					t.Fatal("task name was lost", names)
+				}
+				if names := stegoAbortedTaskNames(err); len(names) != 1 || names[0] != "broken" {
+					t.Fatal("abort classification was lost", names)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("supervisor did not join tasks")
+			}
+		})
+	}
+}

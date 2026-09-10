@@ -90,6 +90,12 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 			if output, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("generated lifecycle: %v\n%s", err, output)
 			}
+			legacy := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "-run", "TestAbnormalTaskExitStopsAndJoinsPeers", "./...")
+			legacy.Dir = project
+			legacy.Env = append(os.Environ(), "GOWORK=off", "GODEBUG=panicnil=1")
+			if output, err := legacy.CombinedOutput(); err != nil {
+				t.Fatalf("legacy nil panic lifecycle: %v\n%s", err, output)
+			}
 			if os.Getenv("STEGO_CROSS_COMPILE") == "1" {
 				for _, target := range []struct{ os, arch string }{{"windows", "amd64"}, {"darwin", "arm64"}} {
 					command := exec.Command("go", "test", "-c", "-mod=readonly", "-o", filepath.Join(t.TempDir(), "task-test"))

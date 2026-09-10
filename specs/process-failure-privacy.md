@@ -7,6 +7,7 @@ The process boundary now writes one JSON record to stderr with these fields:
 - `message`: `Service failed`.
 - `stage`: the failed step from generated code.
 - `tasks`: sorted generated task names, when background tasks failed.
+- `aborted_tasks`: sorted task names for callbacks that did not return, when present.
 
 Database stages are `database.configure`, `database.open`, and `database.handle`.
 Component stages use `component[i].constructor[j]` or `component[i].database[j]`.
@@ -35,8 +36,9 @@ which it can attach a failure. This bootstrap record is local; it is not an OTLP
 event. Complete process lifecycle export, typed fault codes, database signals,
 and safe domain event declarations remain open. HTTP listener startup still uses
 its existing local message. The later [HTTP diagnostic policy](http-diagnostics.md)
-covers server panic output. Other panics and application-owned log calls remain
-outside this process failure boundary.
+covers server panic output. The [task abort policy](task-abort-handling.md)
+covers registered background callbacks. Other panics and application-owned log
+calls remain outside this process failure boundary.
 
 The Hypershell probe first exposed usernames, database names, network addresses,
 and source paths during startup. A second probe injected a database error during

@@ -2738,3 +2738,9 @@ boundary for HTTP server diagnostics. The telemetry component supplies fixed
 events through its existing providers. A bounded local fallback covers services
 without that component. Full compiler race tests with PostgreSQL and static
 checks passed. The broader observability and enterprise requirements remain open.
+
+The [task abort policy](task-abort-handling.md) addresses a private panic value
+found after Gateway creation and event delivery. Generated task callbacks now
+report abnormal exits, cancel peers, and wait for cleanup. Compiler race tests
+with PostgreSQL and static checks passed. Application adoption and the broader
+enterprise requirements remain open.

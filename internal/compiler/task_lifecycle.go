@@ -46,18 +46,20 @@ func writeBackgroundStart(buf *bytes.Buffer, input AssemblerInput, renames map[i
 
 const taskLifecycleSource = `
 
-type stegoTaskFailure struct { name string; cause error }
+type stegoTaskFailure struct { name string; cause error; aborted bool }
 func (e *stegoTaskFailure) Error() string { return "task " + e.name + " failed" }
 func (e *stegoTaskFailure) Unwrap() error { return e.cause }
 
 // stegoTaskNames reads only the direct task failures made by stegoRunTasks.
 // It does not inspect or format component error causes.
-func stegoTaskNames(err error) []string {
+func stegoTaskNames(err error) []string { return stegoTaskFailureNames(err, false) }
+func stegoAbortedTaskNames(err error) []string { return stegoTaskFailureNames(err, true) }
+func stegoTaskFailureNames(err error, abortedOnly bool) []string {
  joined, ok := err.(interface { Unwrap() []error })
  if !ok { return nil }
  var names []string
  for _, cause := range joined.Unwrap() {
-  if failure, ok := cause.(*stegoTaskFailure); ok { names = append(names, failure.name) }
+  if failure, ok := cause.(*stegoTaskFailure); ok && (!abortedOnly || failure.aborted) { names = append(names, failure.name) }
  }
  sort.Strings(names)
  return names
@@ -79,13 +81,22 @@ func stegoRunTasks(parent context.Context, tasks []stegoTask) error {
  results := make(chan error, len(tasks))
  for _, task := range tasks {
   go func(task stegoTask) {
-   err := task.run(ctx)
-   if err == nil && ctx.Err() == nil {
-    err = errors.New("task stopped before cancellation")
-   }
-   if err == context.Canceled && ctx.Err() != nil { err = nil }
-   if err != nil { err = &stegoTaskFailure{name: task.name, cause: err} }
-   results <- err
+   returned := false
+   var err error
+   defer func() {
+    // An explicit return flag also covers panic(nil) in legacy mode and Goexit.
+    // Never retain, format, or unwrap the panic value.
+    aborted := !returned
+    if aborted { recover(); err = errors.New("task aborted before return") }
+    if err == nil && ctx.Err() == nil {
+     err = errors.New("task stopped before cancellation")
+    }
+    if err == context.Canceled && ctx.Err() != nil { err = nil }
+    if err != nil { err = &stegoTaskFailure{name: task.name, cause: err, aborted: aborted} }
+    results <- err
+   }()
+   err = task.run(ctx)
+   returned = true
   }(task)
  }
  var failures []error
