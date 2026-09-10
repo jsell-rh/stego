@@ -60,8 +60,8 @@ func verifyResourceVersions(db *gorm.DB) error {
  if parent == nil { parent = context.Background() }
  ctx, cancel := context.WithTimeout(parent, 5*time.Second)
  defer cancel()
- for _, definition := range []struct{ Table, Function, Body string; Generation,Cleanup,Targets bool }{
- {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}}, {{if .CleanupOwners}}true{{else}}false{{end}}, {{if .CleanupTargets}}true{{else}}false{{end}} },{{end}}
+ for _, definition := range []struct{ Table, Function, Body string; Generation,Cleanup,Targets,Conditions bool }{
+ {{range .Entities}}{ {{printf "%q" .Table}}, {{printf "%q" .Function}}, {{printf "%q" .Body}}, {{.Generation}}, {{if .CleanupOwners}}true{{else}}false{{end}}, {{if .CleanupTargets}}true{{else}}false{{end}}, {{.Conditions}} },{{end}}
  } {
   var count int64
   err := db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_trigger t
@@ -76,6 +76,10 @@ func verifyResourceVersions(db *gorm.DB) error {
  AND a.atttypid='pg_catalog.int8'::pg_catalog.regtype AND a.attnotnull AND NOT a.attisdropped`, definition.Table, definition.Function, definition.Body).Scan(&count).Error
   if err != nil { return fmt.Errorf("verify resource revision schema: %w", err) }
   if count != 1 { return fmt.Errorf("resource revision migration is required for %s", definition.Table) }
+  if definition.Conditions {
+   err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_conditions' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
+   if err!=nil{return err};if count!=1{return fmt.Errorf("resource condition migration is required for %s",definition.Table)}
+  }
   if definition.Targets {
    err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup_targets' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
    if err!=nil{return fmt.Errorf("verify cleanup target schema: %w",err)}

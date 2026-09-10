@@ -35,8 +35,36 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 				result = append(result, fmt.Errorf("entity %s: unobserved value requires a valid string observation field %s", entity.Name, field.Name))
 			}
 		}
-		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.CleanupOwners) > 0 || len(entity.CleanupTargets) > 0) && !entity.Versioned {
+		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.Conditions) > 0 || len(entity.CleanupOwners) > 0 || len(entity.CleanupTargets) > 0) && !entity.Versioned {
 			result = append(result, fmt.Errorf("entity %s: generations, observations, and cleanup owners require versioned", entity.Name))
+		}
+		if len(entity.Conditions) > 0 {
+			if len(entity.GenerationFields) == 0 {
+				result = append(result, fmt.Errorf("entity %s: conditions require generation_fields", entity.Name))
+			}
+			total := 0
+			conditionOwners := make([]string, 0, len(entity.Conditions))
+			for owner := range entity.Conditions {
+				conditionOwners = append(conditionOwners, owner)
+			}
+			sort.Strings(conditionOwners)
+			for _, owner := range conditionOwners {
+				names := entity.Conditions[owner]
+				if !observationName.MatchString(owner) || len(names) == 0 {
+					result = append(result, fmt.Errorf("entity %s: invalid condition owner %s", entity.Name, owner))
+				}
+				seen := map[string]bool{}
+				for _, name := range names {
+					if !conditionName.MatchString(name) || seen[name] {
+						result = append(result, fmt.Errorf("entity %s: invalid or repeated condition %s", entity.Name, name))
+					}
+					seen[name] = true
+					total++
+				}
+			}
+			if len(entity.Conditions) > 8 || total > 32 {
+				result = append(result, fmt.Errorf("entity %s: conditions exceed 8 owners or 32 types", entity.Name))
+			}
 		}
 		cleanupOwners := map[string]bool{}
 		if len(entity.CleanupOwners) > 32 {
@@ -74,6 +102,9 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 			name := strings.ToLower(strings.ReplaceAll(field.Name, "_", ""))
 			if len(entity.CleanupOwners) > 0 && (name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete" || name == "stegocleanuptargets" || name == "cleanuptargetstate" || name == "cleanuptargets") {
 				result = append(result, fmt.Errorf("entity %s: field %s conflicts with cleanup metadata", entity.Name, field.Name))
+			}
+			if name == "stegoconditions" || (len(entity.Conditions) > 0 && (name == "conditionstate" || name == "conditions" || name == "currentconditions")) {
+				result = append(result, fmt.Errorf("entity %s: field %s conflicts with condition metadata", entity.Name, field.Name))
 			}
 			if name == "stegorevision" || name == "resourceversion" || (len(entity.GenerationFields) > 0 && (name == "stegogeneration" || name == "resourcegeneration" || name == "stegoobservations" || name == "observedgenerations" || name == "observedgeneration" || name == "currentobservations")) {
 				result = append(result, fmt.Errorf("entity %s: field %s conflicts with resource version metadata", entity.Name, field.Name))
@@ -130,6 +161,8 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 	}
 	return result
 }
+
+var conditionName = regexp.MustCompile(`^[A-Z][A-Za-z0-9]{0,62}$`)
 
 var observationName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 

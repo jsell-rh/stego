@@ -62,6 +62,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 	type entity struct {
 		Name, Table, Function, Columns, Body string
 		Generation                           bool
+		Conditions                           bool
 		Observations                         []observation
 		CleanupOwners                        []string
 		CleanupTargets                       []cleanupTarget
@@ -70,6 +71,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Package, StorageImport, Migration string
 		NotFoundImport                    string
 		HasGeneration                     bool
+		HasConditions                     bool
 		HasObservations                   bool
 		HasCleanup                        bool
 		HasCleanupTargets                 bool
@@ -155,6 +157,22 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 				}
 				definition.Observations = append(definition.Observations, group)
 			}
+		}
+		if len(e.Conditions) > 0 {
+			data.HasConditions = true
+			definition.Conditions = true
+			add(fmt.Sprintf("ALTER TABLE %q ADD COLUMN IF NOT EXISTS stego_conditions jsonb NOT NULL DEFAULT '{}';\n", table))
+			body := conditionBody(e)
+			definition.Body = strings.Replace(definition.Body, " RETURN NEW;", body+" RETURN NEW;", 1)
+			validation := strings.TrimPrefix(body, " IF TG_OP = 'INSERT' THEN NEW.stego_conditions := '{}'::jsonb; END IF;\n")
+			add(fmt.Sprintf("DO $conditions$ DECLARE NEW record; BEGIN FOR NEW IN SELECT stego_conditions,stego_generation FROM %q LOOP %s END LOOP; END; $conditions$;\n", table, validation))
+		} else {
+			add(fmt.Sprintf(`DO $conditions$ BEGIN
+ IF EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid=%s::regclass AND attname='stego_conditions' AND NOT attisdropped) THEN
+  IF EXISTS(SELECT 1 FROM %q WHERE stego_conditions <> '{}'::jsonb) THEN RAISE EXCEPTION 'condition owners cannot be removed from retained resources'; END IF;
+ END IF;
+ END; $conditions$;
+`, sqlLiteral(table), table))
 		}
 		cleanupOwners, initial, keys, cleanupBody := cleanupContract(e)
 		definition.CleanupOwners = cleanupOwners
@@ -250,6 +268,9 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 	if data.HasCleanupTargets {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000005_cleanup_targets.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
 	}
+	if data.HasConditions {
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "migrations/000007_resource_conditions.sql"), Content: []byte("BEGIN;\n" + data.Migration + "COMMIT;\n")})
+	}
 	return files, nil
 }
 
@@ -264,6 +285,9 @@ func currentObservationTable(entity types.Entity) string {
 		return ""
 	}
 	columns := []string{`"id"`, `"created_time"`, `"updated_time"`, `"deleted_at"`, `"stego_revision"`, `"stego_generation"`, `"stego_observations"`}
+	if len(entity.Conditions) > 0 {
+		columns = append(columns, `"stego_conditions"`)
+	}
 	if len(entity.CleanupOwners) > 0 {
 		columns = append(columns, `"stego_cleanup"`)
 	}

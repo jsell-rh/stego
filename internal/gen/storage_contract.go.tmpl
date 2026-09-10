@@ -254,3 +254,27 @@ type CheckpointStore interface {
  LoadCheckpoint(context.Context,string,string,string)(ScanCheckpoint,error)
  SaveCheckpoint(context.Context,string,string,string,int64,string)(ScanCheckpoint,error)
 }
+
+// ResourceCondition contains one owner's stored observation. Current is derived
+// from the resource generation and deletion state. An old status is not current.
+type ResourceCondition struct {
+ Status string `json:"status"`
+ Reason string `json:"reason"`
+ Message string `json:"message"`
+ ObservedGeneration int64 `json:"observed_generation"`
+ LastTransitionTime time.Time `json:"last_transition_time"`
+ Current bool `json:"-"`
+}
+type ConditionUpdate struct {
+ Name string `json:"name"`
+ Status string `json:"status"`
+ Reason string `json:"reason"`
+ Message string `json:"message"`
+}
+var ErrCondition = errors.New("invalid resource condition")
+// ConditionWriter requires a transaction, a complete declared owner group, and
+// the resource revision read before work. The database supplies generation and
+// transition time. The caller owns authorization and safe diagnostic messages.
+type ConditionWriter interface {
+ ObserveConditionsIfVersion(context.Context,string,string,int64,string,[]ConditionUpdate)error
+}

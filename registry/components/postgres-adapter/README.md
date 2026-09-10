@@ -26,3 +26,8 @@ continuation rules, tests, and application evidence.
 stale saves, retains the version when a scan completes, and requires a store
 transaction for each save. The application must authorize each fixed scope.
 See [scan checkpoints](../../../specs/scan-checkpoints.md).
+
+Versioned entities with desired generations can declare condition owners and
+names. The generated condition writer requires the observed resource revision
+and a transaction. PostgreSQL supplies generation and transition time. Current
+views hide old-generation status. See [resource conditions](../../../specs/resource-conditions.md).

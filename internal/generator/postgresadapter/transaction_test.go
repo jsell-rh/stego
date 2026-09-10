@@ -22,6 +22,9 @@ var versionTests []byte
 //go:embed testdata/cleanup_test.go
 var cleanupTests []byte
 
+//go:embed testdata/conditions_test.go
+var conditionTests []byte
+
 //go:embed testdata/checkpoints_test.go
 var checkpointTests []byte
 
@@ -40,7 +43,7 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
 	}
 	pending := "Pending \\ ' ?"
-	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, CleanupOwners: []string{"workload", "identity"}, GenerationFields: []string{"name", "desired_config"}, Observations: map[string][]string{"health": {"health"}, "identity": {"identity"}, "evidence": {"certificate", "checked_at"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}, {Name: "health", Type: types.FieldTypeString, Optional: true, Unobserved: &pending}, {Name: "identity", Type: types.FieldTypeString, Optional: true}, {Name: "certificate", Type: types.FieldTypeBytes, Optional: true}, {Name: "checked_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "desired_config", Type: types.FieldTypeJsonb, Optional: true}}}}}
+	ctx := gen.Context{ModuleName: "example.com/transaction-test", OutputNamespace: "storage", StorageContract: "example.com/transaction-test/contracts/storage", PeerNamespaces: map[string]string{"outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Versioned: true, Conditions: map[string][]string{"identity": {"Ready"}, "health": {"Ready"}}, CleanupOwners: []string{"workload", "identity"}, GenerationFields: []string{"name", "desired_config"}, Observations: map[string][]string{"health": {"health"}, "identity": {"identity"}, "evidence": {"certificate", "checked_at"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString, Unique: true}, {Name: "value", Type: types.FieldTypeInt64}, {Name: "health", Type: types.FieldTypeString, Optional: true, Unobserved: &pending}, {Name: "identity", Type: types.FieldTypeString, Optional: true}, {Name: "certificate", Type: types.FieldTypeBytes, Optional: true}, {Name: "checked_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "desired_config", Type: types.FieldTypeJsonb, Optional: true}}}}}
 	low, high, zero, hundred, ratioLow, ratioHigh, singleLow, singleHigh := -5.0, 9.0, 0.0, 100.0, 0.1, 0.9, -1.5, 1.5
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Measurement", Fields: []types.Field{
 		{Name: "score", Type: types.FieldTypeInt32, Min: &zero, Max: &hundred},
@@ -143,7 +146,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests, "storage/conditions_test.go": conditionTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

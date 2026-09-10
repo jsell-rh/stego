@@ -92,6 +92,7 @@ type Entity struct {
 	Versioned        bool                `yaml:"versioned,omitempty"`
 	GenerationFields []string            `yaml:"generation_fields,omitempty"`
 	Observations     map[string][]string `yaml:"observations,omitempty"`
+	Conditions       map[string][]string `yaml:"conditions,omitempty"`
 	CleanupTargets   map[string]string   `yaml:"cleanup_targets,omitempty"`
 	CleanupOwners    []string            `yaml:"cleanup_owners,omitempty"`
 }

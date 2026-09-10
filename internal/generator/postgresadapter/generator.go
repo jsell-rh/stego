@@ -193,6 +193,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		files = append(files, summary)
 	}
+	conditionFiles, err := generateConditions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, conditionFiles...)
 	if hasVersioned(ctx.Entities) {
 		versionFiles, err := generateVersions(ctx)
 		if err != nil {
@@ -222,7 +227,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.PostDBCalls = nil
 	}
 	for _, entity := range ctx.Entities {
-		if len(entity.GenerationFields) > 0 || len(entity.CleanupOwners) > 0 {
+		if len(entity.GenerationFields) > 0 || len(entity.CleanupOwners) > 0 || len(entity.Conditions) > 0 {
 			wiring.GoModRequires["gorm.io/datatypes"] = "v1.2.5"
 		}
 		for _, field := range entity.Fields {
@@ -243,6 +248,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
+	"conditioncontract":        true,
+	"ResourceCondition":        true,
+	"ConditionUpdate":          true,
+	"ErrCondition":             true,
+	"conditionReason":          true,
+	"validCondition":           true,
 	"ErrVersionConflict":       true,
 	"ScanCheckpointMigration":  true,
 	"verifyScanCheckpoints":    true,
@@ -322,7 +333,7 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 	hasRef := false
 
 	for _, e := range entities {
-		if len(e.GenerationFields) > 0 || len(e.CleanupOwners) > 0 {
+		if len(e.GenerationFields) > 0 || len(e.CleanupOwners) > 0 || len(e.Conditions) > 0 {
 			needDatatypes = true
 		}
 		for _, f := range e.Fields {
@@ -392,6 +403,9 @@ func generateModels(ns string, entities []types.Entity, upsertKeys map[string][]
 		fmt.Fprintf(&buf, "\tMeta\n")
 		if e.Versioned {
 			fmt.Fprintln(&buf, "ResourceVersion int64 `json:\"-\" gorm:\"column:stego_revision;type:bigint;not null;default:1;->\"`")
+		}
+		if len(e.Conditions) > 0 {
+			fmt.Fprintln(&buf, "ConditionState datatypes.JSON `json:\"-\" gorm:\"column:stego_conditions;type:jsonb;not null;default:'{}';->\"`")
 		}
 		if len(e.CleanupOwners) > 0 {
 			fmt.Fprintln(&buf, "CleanupState datatypes.JSON `json:\"-\" gorm:\"column:stego_cleanup;type:jsonb;not null;default:'{}';->\"`")

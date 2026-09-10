@@ -583,3 +583,20 @@ This closes the identity cursor's restart and process-memory gaps. Distributed
 provider ownership, durable retry scheduling and conditions, safe history
 retirement, and production capacity evidence remain open. A checkpoint version
 is not a provider lease and does not fence external actions.
+
+## Durable identity client conditions
+
+Hypershell now declares `identity/ClientReady` through the common generated
+[condition contract](resource-conditions.md). The provider failure regression
+first found no durable condition in the recovery API. The new workflow preserves
+failure evidence and transition time across API restart. Desired-state changes
+hide old-generation status. Revision and grant checks reject stale or denied
+observations. Configuration, condition, and event changes share one transaction;
+an event failure rolls back all three.
+
+The condition certifies only the Gateway identity client. User-grant convergence
+needs separate dependency checks. A provider error produces Unknown with a fixed
+safe reason and message. It does not copy provider error text or assert that an
+unreachable provider proves the client is broken. Other controller conditions,
+distributed ownership and provider fencing, retry persistence, safe history
+retirement, and production capacity evidence remain open.
