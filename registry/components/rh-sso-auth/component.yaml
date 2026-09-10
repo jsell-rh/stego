@@ -1,6 +1,6 @@
 kind: component
 name: rh-sso-auth
-version: 1.0.0
+version: 1.0.1
 output_namespace: internal/auth
 
 config:

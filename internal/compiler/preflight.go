@@ -64,6 +64,9 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	if err != nil {
 		return nil, err
 	}
+	if err := gen.ValidateGoImportNamespace(outDirName); err != nil {
+		return nil, err
+	}
 
 	// Resolve the auth package import path for generators that need to
 	// extract caller identity from the request context (e.g. rest-api

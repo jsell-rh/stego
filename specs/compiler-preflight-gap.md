@@ -1,8 +1,9 @@
 # Component checks before rendering
 
 C1 is not complete. The shared semantic gate now calls component input checks
-before rendering. The factory mismatch below is fixed. A further namespace
-probe still exposes a command mismatch, recorded at the end of this document.
+before rendering. The factory mismatch below is fixed. The later namespace
+probe is also fixed by the [Go package-name contract](go-package-names.md).
+The complete component and assembly audit remains open.
 
 A probe on 2026-09-10 used compiler
 `635dc4636f1d2ffa808b300a668c2eceaae52ad3` and a temporary copy of Hypershell
@@ -42,7 +43,8 @@ The following components now implement the contract:
   existing path, dependency, setting, or metadata checks.
 
 This is 12 components. Health and tracing generators do not consume the context.
-The legacy SSO generator has no separate input rejection block to move. Its
+The legacy SSO generator initially had no separate input rejection block to
+move. The later Go package-name change adds its namespace check. Its other
 configuration and runtime behavior still need the broader security audit.
 Component patch versions advance for the changed input-check contract. Valid
 runtime source is intended to remain unchanged, apart from compiler build data.
@@ -73,14 +75,14 @@ Protobuf validation adds parsing to `validate`; `plan` also parses the captured
 bytes for generation. No input is reopened by the protobuf generator. A future
 prepared representation can remove repeated parsing if measurements justify it.
 
-The next C1 defect is explicit. In another temporary copy of that Hypershell
+The next C1 probe found another defect. In a temporary copy of that Hypershell
 commit, changing only the controller `output_namespace` from `controller` to
 `bad-name` made `validate` return exit 0. `plan` returned exit 1 while formatting
 the package declaration. A canonical filesystem path is not sufficient proof
-of a valid generated Go package name. This needs a common package-name contract,
-with checks for all applicable generators and valid nested output paths. The
-full component and assembly audit remains open. Do not mark C1 complete from the
-factory and preflight results alone.
+of a valid generated Go package name. The later [package-name contract](go-package-names.md)
+adds shared checks for library names, Go import paths, and resolved protobuf
+mappings. Valid nested output paths remain supported. The full component and
+assembly audit remains open; these changes alone do not complete C1.
 
 The full `go test -race -count=1 -mod=readonly ./...` run passed with PostgreSQL
 required on port 32900. The compiler package passed in 33.742 seconds and the

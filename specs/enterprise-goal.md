@@ -68,8 +68,9 @@ changes application behavior, the deployment trust boundary, or migration
 compatibility. Routine implementation choices do not require approval.
 
 The [component preflight review](compiler-preflight-gap.md) records shared input
-checks before rendering and a remaining Go package-name mismatch. Keep C1 active
-until the full command consistency audit passes.
+checks before rendering. The [Go package-name contract](go-package-names.md)
+resolves the later namespace mismatch. Keep C1 active until the full command
+consistency audit passes.
 
 Completed checks for C1: strict declaration and registry parsing rejects unknown
 fields, duplicate keys, multiple documents, anchors, aliases, and merge keys.
@@ -2558,3 +2559,12 @@ Contracts and the offline CLI version check passed under race detection in
 regeneration preserved all 90 hashes. Both commits are on remote main; their
 new CI runs were still active at this check. No full application or Kubernetes
 suite was repeated locally for the compiler metadata update.
+
+The Go package-name probe now has a common compiler fix. Library generators
+check import paths and derived package names before rendering. CLI package
+containers retain valid hyphenated paths. The protobuf generator checks its
+resolved Go mapping, including the previously accepted main and invalid import
+paths. Command tests preserve existing output on failure. Independent build
+tests import nested controller and protobuf libraries. Hypershell probes also
+pass with unchanged output. See [Go package names](go-package-names.md).
+C1 and the broad goal remain active pending the complete acceptance audit.

@@ -35,7 +35,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		}
 	}
 
-	return nil
+	ns := ctx.OutputNamespace
+	if ns == "" {
+		ns = "internal/search"
+	}
+	return gen.ValidateGoPackageNamespace(ns)
 }
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {

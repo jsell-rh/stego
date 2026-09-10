@@ -17,9 +17,21 @@ import (
 // Generator produces the rh-sso-auth component's generated code.
 type Generator struct{}
 
+// ValidateContext checks the namespace of the generated authentication library.
+func (*Generator) ValidateContext(ctx gen.Context) error {
+	ns := ctx.OutputNamespace
+	if ns == "" {
+		ns = "internal/auth"
+	}
+	return gen.ValidateGoPackageNamespace(ns)
+}
+
 // Generate produces Go files for JWT authentication middleware and identity
 // context helpers. Returns wiring instructions for main.go assembly.
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
 	ns := ctx.OutputNamespace
 	if ns == "" {
 		ns = "internal/auth"

@@ -135,7 +135,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		}
 	}
 
-	return nil
+	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {

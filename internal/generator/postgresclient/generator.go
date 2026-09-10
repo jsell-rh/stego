@@ -16,7 +16,7 @@ var source string
 type Generator struct{}
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
 

@@ -111,7 +111,22 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 			return nil, err
 		}
 	}
-	return (protogen.Options{}).New(request)
+	plugin, err := (protogen.Options{}).New(request)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range plugin.Files {
+		if !file.Generate {
+			continue
+		}
+		if err := gen.ValidateGoImportNamespace(string(file.GoImportPath)); err != nil {
+			return nil, fmt.Errorf("protobuf %s: %w", file.Desc.Path(), err)
+		}
+		if err := gen.ValidateGoLibraryName(string(file.GoPackageName)); err != nil {
+			return nil, fmt.Errorf("protobuf %s: %w", file.Desc.Path(), err)
+		}
+	}
+	return plugin, nil
 }
 
 func generateProto(ctx gen.Context) ([]gen.File, error) {

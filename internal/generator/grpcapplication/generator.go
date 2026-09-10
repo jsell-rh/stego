@@ -32,11 +32,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	return err
 }
 func validateContext(ctx gen.Context) error {
-	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
-	if !ok || factory == "" || gen.ValidatePath(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
+	if !ok || factory == "" || gen.ValidateGoImportNamespace(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
 		return fmt.Errorf("grpc-application requires a factory_package outside generated output")
 	}
 	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
@@ -55,7 +55,7 @@ func validateContext(ctx gen.Context) error {
 	}
 
 	if watch {
-		if err := gen.ValidatePath(ctx.PeerNamespaces["outbox"]); err != nil {
+		if err := gen.ValidateGoPackageNamespace(ctx.PeerNamespaces["outbox"]); err != nil {
 			return err
 		}
 	}
@@ -111,7 +111,7 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
 	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: map[string]string{"google.golang.org/grpc": "v1.82.1", "google.golang.org/protobuf": "v1.36.11"}}
 	if watch {
 		outbox := ctx.PeerNamespaces["outbox"]
-		if err := gen.ValidatePath(outbox); err != nil {
+		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
 			return nil, nil, err
 		}
 		wiring.Imports = append(wiring.Imports, outbox)

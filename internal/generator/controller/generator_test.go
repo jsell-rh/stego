@@ -101,3 +101,31 @@ func TestRejectInvalidGeneration(t *testing.T) {
 		}
 	}
 }
+
+func TestNestedControllerLibraryCanBeImported(t *testing.T) {
+	for _, namespace := range []string{"go-services/worker", "libs/init", "libs/string"} {
+		t.Run(namespace, func(t *testing.T) {
+			files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: namespace})
+			if err != nil {
+				t.Fatal(err)
+			}
+			project := t.TempDir()
+			files = append(files, gen.File{Path: "go.mod", Content: []byte("module example.com/controllernamespace\ngo 1.26.8\n")}, gen.File{Path: "main.go", Content: []byte("package main\nimport runtime \"example.com/controllernamespace/" + namespace + "\"\nfunc main(){_=runtime.ErrScanContract}\n")})
+			for _, file := range files {
+				name := filepath.Join(project, file.Path)
+				if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(name, file.Content, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			command := exec.Command("go", "build", "-mod=readonly", "./...")
+			command.Dir = project
+			command.Env = append(os.Environ(), "GOWORK=off")
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("nested library import failed: %v\n%s", err, output)
+			}
+		})
+	}
+}

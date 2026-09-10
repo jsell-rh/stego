@@ -23,11 +23,11 @@ type Generator struct{}
 
 // ValidateContext checks the publisher path and the optional outbox runtime.
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
 	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		if err := gen.ValidatePath(outbox); err != nil {
+		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
 			return err
 		}
 		if ctx.ModuleName == "" {

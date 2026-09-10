@@ -30,7 +30,7 @@ type Generator struct{}
 // ValidateContext checks the output namespace before queue code is rendered.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	ns := ctx.OutputNamespace
-	if err := gen.ValidatePath(ns); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ns); err != nil {
 		return err
 	}
 

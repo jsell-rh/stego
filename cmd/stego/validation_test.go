@@ -114,3 +114,52 @@ func TestCommandsRejectInvalidApplicationFactories(t *testing.T) {
 		})
 	}
 }
+
+func TestCommandsRejectInvalidGoPackageNamespaces(t *testing.T) {
+	for _, namespace := range []string{"bad-name", "workers/type", "workers/_", "workers/main", "workers/9worker", "workers/café", "workers/bad name"} {
+		t.Run(namespace, func(t *testing.T) {
+			registry := t.TempDir()
+			files := map[string]string{
+				"archetypes/application/archetype.yaml": "kind: archetype\nname: application\nlanguage: go\nversion: 1.0.0\ncomponents: [controller]\n",
+				"components/controller/component.yaml":  "kind: component\nname: controller\nversion: 1.0.0\noutput_namespace: " + namespace + "\n",
+			}
+			for name, data := range files {
+				name = filepath.Join(registry, name)
+				if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			project := t.TempDir()
+			t.Chdir(project)
+			t.Setenv("STEGO_REGISTRY", registry)
+			t.Setenv("STEGO_MODULE", "example.com/namespace")
+			t.Setenv("STEGO_GO_VERSION", "1.26.8")
+			files = map[string]string{"service.yaml": "kind: service\nname: namespace\narchetype: application\nlanguage: go\n", "out/retained.txt": "retained output", ".stego/state.yaml": "last_applied: null\n", "go.mod": "module example.com/namespace\ngo 1.26.8\n", "go.sum": ""}
+			for name, data := range files {
+				if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, command := range []struct {
+				name string
+				run  func([]string) error
+			}{{"validate", runValidate}, {"plan", runPlan}, {"apply", runApply}} {
+				if err := command.run(nil); err == nil || !strings.Contains(err.Error(), "validation failed") {
+					t.Fatal(command.name, "accepted invalid Go package namespace", namespace, err)
+				}
+				for name, want := range files {
+					got, err := os.ReadFile(name)
+					if err != nil || string(got) != want {
+						t.Fatal(command.name, "changed", name, err)
+					}
+				}
+			}
+		})
+	}
+}

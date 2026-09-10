@@ -24,11 +24,11 @@ var discoverySource string
 type Generator struct{}
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
 	peer := ctx.PeerNamespaces["http-application"]
-	if ctx.ModuleName == "" || peer == "" || gen.ValidatePath(peer) != nil {
+	if ctx.ModuleName == "" || peer == "" || gen.ValidateGoPackageNamespace(peer) != nil {
 		return fmt.Errorf("kubernetes-client requires the generated HTTP application client")
 	}
 

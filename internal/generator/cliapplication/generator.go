@@ -54,11 +54,11 @@ type Generator struct{}
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil || ctx.ModuleName == "" || ctx.OutDirName == "" {
+	if ctx.OutputNamespace == "" || gen.ValidateGoImportNamespace(ctx.OutputNamespace) != nil || ctx.ModuleName == "" || ctx.OutDirName == "" {
 		return fmt.Errorf("CLI requires a module and output namespace")
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
-	if !ok || factory == "" || gen.ValidatePath(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
+	if !ok || factory == "" || gen.ValidateGoImportNamespace(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
 		return fmt.Errorf("CLI requires a factory outside generated output")
 	}
 

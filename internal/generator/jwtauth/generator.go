@@ -49,7 +49,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		}
 	}
 
-	return nil
+	ns := ctx.OutputNamespace
+	if ns == "" {
+		ns = "internal/auth"
+	}
+	return gen.ValidateGoPackageNamespace(ns)
 }
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {

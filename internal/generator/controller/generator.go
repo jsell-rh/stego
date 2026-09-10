@@ -50,8 +50,8 @@ type Generator struct{}
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil {
-		return fmt.Errorf("controller requires a valid output namespace")
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
+		return err
 	}
 	if len(ctx.ComponentConfig) != 0 {
 		return fmt.Errorf("controller has no component settings")

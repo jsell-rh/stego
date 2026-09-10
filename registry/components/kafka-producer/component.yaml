@@ -1,6 +1,6 @@
 kind: component
 name: kafka-producer
-version: 1.0.1
+version: 1.0.2
 output_namespace: internal/events
 
 config: {}

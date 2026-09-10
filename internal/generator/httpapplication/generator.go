@@ -23,11 +23,11 @@ var fieldsSource string
 type Generator struct{}
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
-	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
-	if !ok || gen.ValidatePath(factory) != nil || factory == "" {
+	if !ok || gen.ValidateGoImportNamespace(factory) != nil || factory == "" {
 		return fmt.Errorf("http-application requires a module-relative factory_package")
 	}
 	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
