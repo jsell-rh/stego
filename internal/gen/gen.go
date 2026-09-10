@@ -263,6 +263,11 @@ type Wiring struct {
 	// The wrapping order is: OuterMiddlewares(auth(Middlewares(mux))).
 	OuterMiddlewares []MiddlewareSpec
 
+	// HTTPErrorLogger selects the constructor that provides HTTPErrorLog() *log.Logger.
+	// The assembler uses this logger for HTTP server diagnostics. Only one
+	// component can provide it. The constructor is consumed when HTTP routes exist.
+	HTTPErrorLogger *int
+
 	// DiscoveryRoutes lists route registration expressions for main.go
 	// assembly that must be registered OUTSIDE the auth middleware chain.
 	// These are unauthenticated documentation/discovery endpoints (e.g.

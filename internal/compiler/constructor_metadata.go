@@ -13,6 +13,7 @@ import (
 func validateConstructorMetadata(wirings []ComponentWiring) error {
 	primarySeen := false
 	primaryName := ""
+	loggerSeen, loggerName := false, ""
 	for _, component := range wirings {
 		w := component.Wiring
 		if w == nil {
@@ -23,6 +24,15 @@ func validateConstructorMetadata(wirings []ComponentWiring) error {
 				return fmt.Errorf("component %q has invalid %s constructor index %d", component.Name, role, index)
 			}
 			return nil
+		}
+		if w.HTTPErrorLogger != nil {
+			if err := check(*w.HTTPErrorLogger, "HTTP error logger"); err != nil {
+				return err
+			}
+			if loggerSeen {
+				return fmt.Errorf("components %q and %q both declare an HTTP error logger", loggerName, component.Name)
+			}
+			loggerSeen, loggerName = true, component.Name
 		}
 		for _, index := range constructorMetadataIndexes(w.ConstructorResources) {
 			if err := check(index, "resource"); err != nil {

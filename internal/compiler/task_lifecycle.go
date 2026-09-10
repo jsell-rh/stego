@@ -24,7 +24,7 @@ func writeBackgroundStart(buf *bytes.Buffer, input AssemblerInput, renames map[i
 	buf.WriteString("\tstegoStage = \"service.run\"\n")
 	buf.WriteString("\treturn stegoRunTasks(ctx, []stegoTask{\n")
 	if httpHandler != "" {
-		fmt.Fprintf(buf, "{name: \"http\", run: func(ctx context.Context) error { return stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second) }},\n", httpHandler)
+		fmt.Fprintf(buf, "{name: \"http\", run: func(ctx context.Context) error { return stegoServeHTTP(ctx, listener, %s, 10*time.Second) }},\n", httpServerExpression(input, renames, httpHandler))
 	}
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {

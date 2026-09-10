@@ -25,3 +25,8 @@ The generated runtime owns logging, metrics, spans, and provider lifetime.
 Version 1.5.0 adds a random `service.instance.id` shared by all signals and local
 logs in one runtime. Replacements get a new identity. See the
 [instance identity contract](../../../specs/telemetry-instance-identity.md).
+
+Version 1.6.0 supplies the generated HTTP server's diagnostic logger. It discards
+raw panic and server error text, then queues a fixed local and OTLP service
+event. See [HTTP diagnostics](../../../specs/http-diagnostics.md) for ownership,
+queue limits, request correlation, and remaining work.

@@ -34,8 +34,9 @@ dependency. Before telemetry starts, the process has no telemetry instance to
 which it can attach a failure. This bootstrap record is local; it is not an OTLP
 event. Complete process lifecycle export, typed fault codes, database signals,
 and safe domain event declarations remain open. HTTP listener startup still uses
-its existing local message. Panics and application-owned log calls are not
-covered by this change.
+its existing local message. The later [HTTP diagnostic policy](http-diagnostics.md)
+covers server panic output. Other panics and application-owned log calls remain
+outside this process failure boundary.
 
 The Hypershell probe first exposed usernames, database names, network addresses,
 and source paths during startup. A second probe injected a database error during

@@ -28,6 +28,7 @@ func TestConstructorMetadataIndexesMustExist(t *testing.T) {
 		{"collections", func(w *gen.Wiring, i int) { w.ConstructorCollections = map[int]string{i: "items"} }},
 		{"dependencies", func(w *gen.Wiring, i int) { w.ConstructorDeps = map[int][]string{i: {}} }},
 		{"cleanup", func(w *gen.Wiring, i int) { w.ConstructorDeferCalls = map[int]string{i: "Close()"} }},
+		{"HTTP error logger", func(w *gen.Wiring, i int) { w.HTTPErrorLogger = &i }},
 		{"primary middleware", func(w *gen.Wiring, i int) { w.MiddlewareConstructor = &i; w.MiddlewareWrapExpr = "%s(%s)" }},
 		{"inner middleware", func(w *gen.Wiring, i int) {
 			w.Middlewares = []gen.MiddlewareSpec{{ConstructorIndex: i, WrapExpr: "%s(%s)"}}

@@ -63,3 +63,7 @@ backend storage and production capacity remain separate gates.
 The [process failure policy](process-failure-privacy.md) adds safe local failure
 records before telemetry is available and removes GORM's raw query and error
 output. Bootstrap export and complete process and database telemetry remain open.
+
+The [HTTP diagnostic policy](http-diagnostics.md) replaces raw server error logs
+with fixed events. It uses the telemetry runtime when present and a bounded local
+fallback otherwise. Request panic signals retain their separate correlation.

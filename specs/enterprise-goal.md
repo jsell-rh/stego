@@ -2731,3 +2731,10 @@ found by real Hypershell startup and failed Gateway creation probes. Generated
 process failures now report fixed stages and task names. GORM no longer prints
 raw query or driver data. Compiler race tests with PostgreSQL and static checks
 passed. Full process and database telemetry remain open.
+
+The [HTTP diagnostic policy](http-diagnostics.md) addresses a private panic value
+found by a Gateway workflow probe. The compiler selects and owns a safe logging
+boundary for HTTP server diagnostics. The telemetry component supplies fixed
+events through its existing providers. A bounded local fallback covers services
+without that component. Full compiler race tests with PostgreSQL and static
+checks passed. The broader observability and enterprise requirements remain open.

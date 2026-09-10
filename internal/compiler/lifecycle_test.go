@@ -10,6 +10,9 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
+//go:embed testdata/http_diagnostics_test.go
+var httpDiagnosticsTests []byte
+
 //go:embed testdata/service_failure_test.go
 var serviceFailureTests []byte
 
@@ -36,6 +39,9 @@ func TestGeneratedHTTPLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(project, "failure_test.go"), serviceFailureTests, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "diagnostics_test.go"), httpDiagnosticsTests, 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")

@@ -629,7 +629,7 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool
 		}
 	}
 	if hasRoutes {
-		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoServeHTTP", "stegoHTTPError"} {
+		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics"} {
 			vars[name] = true
 		}
 		for _, pkg := range httpLifecycleImports {
@@ -804,6 +804,10 @@ func computeConsumedConstructors(input AssemblerInput, hasRoutes bool) (map[cons
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil || !hasRoutes {
 			continue
+		}
+		// The HTTP logger is also a constructor consumer.
+		if cw.Wiring.HTTPErrorLogger != nil {
+			consumed[constructorKey{WiringIndex: i, ConstructorIndex: *cw.Wiring.HTTPErrorLogger}] = true
 		}
 		// Primary auth middleware.
 		if cw.Wiring.MiddlewareConstructor != nil {
@@ -1479,7 +1483,7 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		writeBackgroundStart(buf, input, wiringRenames, handlerExpr)
 	} else {
 		buf.WriteString("\tstegoStage = \"http.serve\"\n")
-		fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second)\n", handlerExpr)
+		fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, %s, 10*time.Second)\n", httpServerExpression(input, wiringRenames, handlerExpr))
 	}
 }
 
@@ -1766,7 +1770,7 @@ func stdlibAliases(hasRoutes, hasTasks, hasDB, isGORM bool, extraStdlib map[stri
 		for _, pkg := range httpLifecycleImports {
 			names = append(names, path.Base(pkg))
 		}
-		names = append(names, "stegoHTTPServer", "stegoServeHTTP", "stegoHTTPError")
+		names = append(names, "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics")
 	}
 	if hasDB || hasRoutes || hasTasks {
 		names = append(names, "log")
