@@ -2642,3 +2642,19 @@ permits immediate discovery after a successful scan. Independent resource
 actions remain eligible during the scan wait. The full compiler race suite
 passed with PostgreSQL required on port 32905, and vet passed. See
 [keyed controllers](controller-keyed.md). The broad goal remains active.
+
+Hypershell commit `132177d82b0145803c59e03502294c77fbee22f8` adopts compiler
+`3d288fa89fa6c57da95f0407a83b14438c1920ba` and controller version 1.12.4.
+All internal and contract race tests passed. Twelve selected acceptance tests
+passed with PostgreSQL and Keycloak required in 229.138 seconds. They cover
+action and inventory retry delays across API restart, real Keycloak behavior,
+backlog progress, deadlines, cleanup after restart, and watch expiry and failure.
+Static checks and pinned generation checks passed. Repeated generation preserved
+all 90 output, state, and dependency hashes. Compiler CI run 34525797025 passed.
+
+Earlier application CI run 34523173525 reached its full suite's 18-minute limit.
+Its five provider jobs passed. The CLI test active at the timeout passed locally
+in 31.02 seconds, but the full CI result remains failed. The variant records the
+evidence and aggregate CI limit change in `acceptance/ci-evidence.md`. Later
+application runs remain unverified until they finish. This does not change the
+open process-restart retry, provider-fencing, or broad enterprise requirements.
