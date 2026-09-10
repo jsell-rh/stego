@@ -67,6 +67,10 @@ commands, outcomes, and limits of each acceptance run. Ask the user when a choic
 changes application behavior, the deployment trust boundary, or migration
 compatibility. Routine implementation choices do not require approval.
 
+The [remaining command validation mismatch](compiler-preflight-gap.md) records
+a current C1 failure with the Hypershell declaration. Keep C1 active until
+component input checks also run before rendering.
+
 Completed checks for C1: strict declaration and registry parsing rejects unknown
 fields, duplicate keys, multiple documents, anchors, aliases, and merge keys.
 Document reads are bounded. The root test suite passes. A 10-second parser fuzz
