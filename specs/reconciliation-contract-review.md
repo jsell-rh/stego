@@ -351,3 +351,38 @@ verification and application static checks also passed.
 Durable retries, complete queue saturation handling, cursor bounds, field
 ownership, cross-process fencing, and production capacity remain open. The
 enterprise goal is not complete.
+
+Database conditional observations now use the generated exact grant policy.
+The application permission test first failed in 3.21 seconds: a configured
+identity controller without a database grant could publish database status.
+Hypershell now maps status and the connection-secret reference to
+`ManagedDatabase` / `observe.provider`, with the stored provider name as target.
+The field and grant checks run in the mutation transaction before any patch.
+
+The focused check passed in 5.48 seconds. Wrong subjects, providers, and
+operations, missing grants, and mixed field groups cannot change database state
+or commit a database event. Valid observations advance the revision and deliver
+the event.
+Removing a grant and restarting the API denies the same token. Existing stale
+observation, transaction rollback, catalog, and Gateway grant tests also pass.
+See the variant's [database write contract](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/database-write-permissions.md).
+
+STEGO already supplies strict grant parsing and exact matching, so this change
+needs no new compiler mechanism. Hypershell supplies its field mapping and
+provider scope. Public administrator access to observation fields remains in
+the current API. The connection-secret ownership choice, database generations,
+other controller operations, stable provider identity, and fencing remain open.
+
+The full PostgreSQL/Keycloak race suite passed on 2026-09-10 with a
+664.210-second acceptance package run. The real database Kubernetes gate passed
+in 77.547 seconds. The complete Gateway Kubernetes gate passed in 213.285
+seconds, including database and identity setup, access denial, provider
+persistence, restart, offline deletion, and late-effect cleanup. These results
+verify the application grant change; they do not complete the enterprise goal.
+
+The variant commit is `87966df`. Pinned generation passed after commit, with
+all 71 generated and dependency file hashes unchanged. The compiler pin remains
+`9cf5a48d2b7bbf7d32b576a23d87a18b6390977b`. Application static checks and module
+verification passed. The preceding variant CI run had passed its database,
+Gateway, and sandbox jobs; its full acceptance job was still running when these
+local checks finished. That run is not yet counted as a complete CI pass.
