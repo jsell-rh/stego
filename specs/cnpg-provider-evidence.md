@@ -75,3 +75,26 @@ passed in 102.420 seconds. All these runs used race detection.
 passed for that exact compiler commit. The variant also passed provider unit
 checks, all contract tests, CLI build-record checks, and `go vet`. Its new CNPG
 CI job runs the same fresh-cluster script and requires pinned regeneration.
+
+A later Gateway review exposed a connection-isolation gap in the shared profile.
+The old client rule allowed the application role to connect to the existing
+`postgres` database. A regression with the real operator failed against variant
+`d01bb29` in 121.64 seconds. The revised profile permits encrypted application
+connections only when the role and database names match, then rejects other
+client connections. The full revised CNPG workflow passed in 85.54 seconds under
+race detection. Both the initial SQL write and the read after restart verify
+the forbidden connection. This does not prove isolation of all SQL catalog
+metadata or complete Gateway execution.
+
+The variant's [Gateway design record](https://github.com/jsell-rh/hypershell-stego/blob/eef1996/acceptance/cnpg-gateway-design.md)
+records two further requirements. Shared namespaces need separate durable key
+identities for each Gateway. The prepared key path has TLS fixture and race
+tests, including concurrent writers and lost material. It is not yet evidence
+of a working CNPG Gateway. The provider still rejects that execution path.
+
+CNPG role ownership also needs care. Standalone DatabaseRole resources do not
+periodically repair direct SQL drift. Inline roles do, but their status does
+not identify the desired generation and cannot alone prove that a role was
+removed. The user was asked about this choice. A bounded, read-only SQL catalog
+check is a proposed source of cleanup evidence. It is not implemented, and the
+full role, database, credential, and cleanup workflow remains required.
