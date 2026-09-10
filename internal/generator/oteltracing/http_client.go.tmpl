@@ -1,0 +1,83 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "net/http"
+ "strconv"
+ "strings"
+ "sync"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ "go.opentelemetry.io/otel/codes"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/propagation"
+ "go.opentelemetry.io/otel/trace"
+)
+
+func(r *Runtime)initHTTPClientSignals()error{
+ if r.provider!=nil{r.httpClient.tracer=r.provider.Tracer("stego/http-client")}
+ if r.signals.logs!=nil{r.httpClient.logger=r.signals.logs.Logger("stego/http-client")}
+ if r.signals.meter!=nil{
+  meter:=r.signals.meter.Meter("stego/http-client")
+  var err error
+  r.httpClient.duration,err=meter.Float64Histogram("http.client.request.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(0.005,0.01,0.025,0.05,0.075,0.1,0.25,0.5,0.75,1,2.5,5,7.5,10,30,60,300));if err!=nil{return errors.New("cannot create HTTP client metric")}
+  r.httpClient.active,err=meter.Int64UpDownCounter("http.client.active_requests",metric.WithUnit("{request}"));if err!=nil{return errors.New("cannot create HTTP client metric")}
+ }
+ return nil
+}
+// TraceClientHTTP records one complete call, including the response body and
+// stream callbacks. The header function returns a copy when tracing is active.
+// The caller must finish the call before it closes the runtime.
+// The finish function accepts only fixed error classes and is idempotent.
+func TraceClientHTTP(ctx context.Context,method string)(context.Context,func(http.Header)http.Header,func(int,string)){
+ unchanged:=func(h http.Header)http.Header{return h}
+ if ctx==nil{return ctx,unchanged,func(int,string){}}
+ r,_:=ctx.Value(runtimeContextKey{}).(*Runtime)
+ if r==nil||r.closed.Load(){return ctx,unchanged,func(int,string){}}
+ switch method{case "GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS","CONNECT","TRACE":default:method="_OTHER"}
+ start:=time.Now()
+ var span trace.Span
+ if r.httpClient.tracer!=nil{ctx,span=r.httpClient.tracer.Start(ctx,method,trace.WithSpanKind(trace.SpanKindClient),trace.WithTimestamp(start),trace.WithAttributes(attribute.String("http.request.method",method)))}
+ inject:=unchanged
+ if span!=nil{
+  inject=func(headers http.Header)http.Header{
+   headers=headers.Clone();if headers==nil{headers=make(http.Header)}
+   // Header maps can contain keys that do not use canonical letter case.
+   for key:=range headers{switch strings.ToLower(key){case "traceparent","tracestate","baggage":delete(headers,key)}}
+   (propagation.TraceContext{}).Inject(trace.ContextWithSpanContext(ctx,trace.SpanContextFromContext(ctx).WithTraceState(trace.TraceState{})),propagation.HeaderCarrier(headers))
+   return headers
+  }
+ }
+ if r.httpClient.active!=nil{r.httpClient.active.Add(ctx,1)}
+ var once sync.Once
+ return ctx,inject,func(status int,kind string){once.Do(func(){
+  end:=time.Now()
+  if status<100||status>599{status=0}
+  switch kind{case "","invalid_request","capacity","transport","redirect","response","stream","callback","canceled","deadline","aborted":default:kind="_OTHER"}
+  outcome:="success"
+  if kind=="canceled"{outcome="canceled";kind=""}else if kind==""&&status>=400{kind=strconv.Itoa(status)}
+  if kind!=""{outcome="failure"}
+  attrs:=[]attribute.KeyValue{attribute.String("http.request.method",method),attribute.String("outcome",outcome)}
+  if status!=0{attrs=append(attrs,attribute.Int("http.response.status_code",status))}
+  severity:=otellog.SeverityInfo;text:="INFO"
+  if kind!=""{attrs=append(attrs,attribute.String("error.type",kind));severity=otellog.SeverityError;text="ERROR"}
+  duration:=end.Sub(start).Seconds()
+  if r.httpClient.duration!=nil{r.httpClient.duration.Record(ctx,duration,metric.WithAttributes(attrs...));r.httpClient.active.Add(ctx,-1)}
+  r.service.mu.Lock()
+  if !r.closed.Load(){
+   sc:=trace.SpanContextFromContext(ctx)
+   local:=localRecord{Time:end,Service:r.service.service,Instance:r.instance,Severity:text,Event:"http.client.request.completed",Message:"HTTP client request completed",HTTPMethod:method,HTTPStatus:status,ErrorType:kind,Outcome:outcome,DurationSeconds:&duration}
+   if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+   if r.service.local!=nil{r.service.local.enqueue(local)}
+   if r.httpClient.logger!=nil{
+    var record otellog.Record
+    record.SetTimestamp(end);record.SetEventName(local.Event);record.SetBody(attribute.StringValue(local.Message));record.SetSeverity(severity);record.SetSeverityText(text);record.AddAttributes(attrs...);record.AddAttributes(attribute.Float64("duration_seconds",duration));r.httpClient.logger.Emit(ctx,record)
+   }
+  }
+  r.service.mu.Unlock()
+  if span!=nil{span.SetAttributes(attrs...);if kind!=""{span.SetStatus(codes.Error,"")};span.End(trace.WithTimestamp(end))}
+ })}
+}

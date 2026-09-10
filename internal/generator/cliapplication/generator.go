@@ -62,6 +62,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		return fmt.Errorf("CLI requires a factory outside generated output")
 	}
 
+	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
+		if err := gen.ValidateGoPackageNamespace(tracing); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -106,7 +111,11 @@ func main(){
 		}
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.name), Content: code})
 	}
-	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"))
+	tracing := ""
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
+	}
+	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), tracing)
 	if err != nil {
 		return nil, nil, err
 	}

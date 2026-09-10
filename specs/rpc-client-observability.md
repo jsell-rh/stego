@@ -72,6 +72,7 @@ request in that mode. Its recording mode measured 1.528–1.592 microseconds,
 1,896 bytes, and 31 allocations. Repeat with `STEGO_BENCH_CLIENT=1 go test -v
 -count=1 ./internal/generator/oteltracing`.
 
-Outbound HTTP, database signals, independent CLI and worker entry points,
+[Outbound HTTP coverage](http-client-observability.md) is now available.
+Database signals, independent CLI and worker entry points,
 process resource metrics, and the wider observability requirements remain open.
 Application adoption and production capacity are separate gates.

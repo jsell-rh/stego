@@ -119,3 +119,8 @@ and revocation. The protocol contracts use [OIDC Core](https://openid.net/specs/
 
 The device PKCE extension is tested with [Keycloak](https://github.com/keycloak/keycloak/issues/9710).
 The standard device flow is also tested without a PKCE advertisement.
+
+Generated HTTPS clients use the telemetry runtime in their call context.
+The [HTTP client contract](../../../specs/http-client-observability.md) defines
+completion, propagation, privacy, and resource bounds. Independent CLI entry
+points still need runtime integration.

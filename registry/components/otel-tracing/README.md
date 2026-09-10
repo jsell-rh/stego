@@ -34,3 +34,8 @@ queue limits, request correlation, and remaining work.
 [RPC client observability](../../../specs/rpc-client-observability.md) adds
 common outbound signals through the active runtime. Generated clients select
 method names from compiled contracts and preserve the complete stream lifetime.
+
+Generated HTTPS clients use the telemetry runtime in their call context.
+The [HTTP client contract](../../../specs/http-client-observability.md) defines
+completion, propagation, privacy, and resource bounds. Independent CLI entry
+points still need runtime integration.

@@ -2756,3 +2756,11 @@ provider-call spans found during account recovery. Generated clients now reuse
 the current runtime for logs, metrics, spans, and trace propagation. Compiler
 race tests with PostgreSQL and static checks passed. Recording cost was measured.
 Application adoption and the full enterprise goal remain open.
+
+The [HTTP client contract](http-client-observability.md) adds shared outbound
+HTTP logs, metrics, and spans to generated service and CLI clients. Real TLS
+tests cover complete response and stream lifetime, cancellation, failure, and
+private-data exclusion. The real Keycloak probe first failed on `d771730` with
+no HTTP client signals after successful account creation. Provider entry-point
+wiring and restart correlation are part of the Hypershell acceptance test.
+All enterprise and application milestones remain active.

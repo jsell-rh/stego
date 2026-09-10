@@ -79,5 +79,9 @@ still need telemetry coverage.
 
 The [RPC client contract](rpc-client-observability.md) adds outbound gRPC signals
 through the current request or controller runtime. Compiled method allowlists
-bound labels and exclude dynamic names. HTTP and database client coverage and
-independent entry-point integration remain open.
+bound labels and exclude dynamic names.
+
+The [HTTP client contract](http-client-observability.md) adds common HTTPS call
+signals, including response bodies and stream callbacks. The Keycloak workflow
+checks the full API, provider RPC, and HTTP trace. Database client coverage and
+independent CLI and worker entry-point integration remain open.

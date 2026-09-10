@@ -13,16 +13,21 @@ import (
 //go:embed client.go.tmpl
 var source string
 
-func Render(namespace string) (gen.File, error) {
+func Render(namespace, tracing string) (gen.File, error) {
 	if err := gen.ValidatePath(namespace); err != nil {
 		return gen.File{}, err
+	}
+	if tracing != "" {
+		if err := gen.ValidateGoImportNamespace(tracing); err != nil {
+			return gen.File{}, err
+		}
 	}
 	t, err := template.New("client").Parse(source)
 	if err != nil {
 		return gen.File{}, err
 	}
 	var output bytes.Buffer
-	if err = t.Execute(&output, struct{ Package string }{path.Base(namespace)}); err != nil {
+	if err = t.Execute(&output, struct{ Package, Tracing string }{path.Base(namespace), tracing}); err != nil {
 		return gen.File{}, err
 	}
 	code, err := format.Source(output.Bytes())

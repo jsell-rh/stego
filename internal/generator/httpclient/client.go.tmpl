@@ -16,6 +16,7 @@ import (
  "sync/atomic"
  "syscall"
  "time"
+ {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
 )
 
 const MaxRequestBytes = 1 << 20
@@ -83,43 +84,58 @@ func(c *Client)Stream(ctx context.Context,relative string,headers http.Header,co
 func(c *Client)exchange(ctx context.Context,method,relative string,headers http.Header,body []byte,consume func(context.Context,[]byte)error)(Response,error){
  failure:=Response{}
  if c==nil || c.closed.Load() || ctx==nil{return failure,errors.New("HTTP client is unavailable")}
+ cancel:=func(){};defer func(){cancel()}()
+ {{if .Tracing}}
+ ctx,inject,finish:=tracing.TraceClientHTTP(ctx,method)
+ status:=0;kind:="aborted"
+ defer func(){
+  // A normal return sets kind. A panic or Goexit keeps the abort class.
+  if kind!="aborted"{if ctx.Err()==context.DeadlineExceeded{kind="deadline"}else if ctx.Err()==context.Canceled{kind="canceled"}}
+  finish(status,kind)
+ }()
+ fail:=func(class string,err error)(Response,error){kind=class;return failure,err}
+ {{else}}fail:=func(_ string,err error)(Response,error){return failure,err}{{end}}
  u,err:=url.Parse(relative)
- if err!=nil || !strings.HasPrefix(relative,"/") || strings.HasPrefix(relative,"//") || u.IsAbs() || u.Host!="" || u.User!=nil || u.Fragment!="" || !safePath(u.EscapedPath()){return failure,errors.New("HTTP request requires a canonical relative path")}
- switch method{case http.MethodGet,http.MethodPost,http.MethodPut,http.MethodPatch,http.MethodDelete,http.MethodHead:default:return failure,errors.New("unsupported HTTP method")}
- if len(body)>MaxRequestBytes{return failure,errors.New("HTTP request body exceeds limit")}
+ if err!=nil || !strings.HasPrefix(relative,"/") || strings.HasPrefix(relative,"//") || u.IsAbs() || u.Host!="" || u.User!=nil || u.Fragment!="" || !safePath(u.EscapedPath()){return fail("invalid_request",errors.New("HTTP request requires a canonical relative path"))}
+ switch method{case http.MethodGet,http.MethodPost,http.MethodPut,http.MethodPatch,http.MethodDelete,http.MethodHead:default:return fail("invalid_request",errors.New("unsupported HTTP method"))}
+ if len(body)>MaxRequestBytes{return fail("invalid_request",errors.New("HTTP request body exceeds limit"))}
  headerBytes:=0
- for name,values:=range headers{headerBytes+=len(name);switch strings.ToLower(name){case "host","connection","transfer-encoding","content-length","trailer","upgrade","proxy-authorization","idempotency-key","x-idempotency-key":return failure,errors.New("unsupported HTTP request header")};for _,value:=range values{headerBytes+=len(value);if headerBytes>32768 || len(value)>16384{return failure,errors.New("HTTP request header exceeds limit")}}}
- select{case c.permits<-struct{}{}:defer func(){<-c.permits}();default:return failure,errors.New("HTTP client capacity exceeded")}
+ for name,values:=range headers{headerBytes+=len(name);switch strings.ToLower(name){case "host","connection","transfer-encoding","content-length","trailer","upgrade","proxy-authorization","idempotency-key","x-idempotency-key":return fail("invalid_request",errors.New("unsupported HTTP request header"))};for _,value:=range values{headerBytes+=len(value);if headerBytes>32768 || len(value)>16384{return fail("invalid_request",errors.New("HTTP request header exceeds limit"))}}}
+ select{case c.permits<-struct{}{}:defer func(){<-c.permits}();default:return fail("capacity",errors.New("HTTP client capacity exceeded"))}
  timeout:=c.timeout;if timeout==0{timeout=RequestTimeout};if consume!=nil{timeout=StreamTimeout}
- ctx,cancel:=context.WithTimeout(ctx,timeout);defer cancel()
+ ctx,cancel=context.WithTimeout(ctx,timeout)
  stopClose:=context.AfterFunc(c.lifetime,cancel);defer stopClose()
  address:=strings.TrimRight(c.base.String(),"/")+relative
- request,err:=http.NewRequestWithContext(ctx,method,address,bytes.NewReader(body));if err!=nil{return failure,errors.New("invalid HTTP request")}
+ request,err:=http.NewRequestWithContext(ctx,method,address,bytes.NewReader(body));if err!=nil{return fail("invalid_request",errors.New("invalid HTTP request"))}
  request.Header=headers.Clone();request.GetBody=nil
+ {{if .Tracing}}request.Header=inject(request.Header){{end}}
  client:=*c.http;client.Timeout=timeout
  response,err:=client.Do(request)
- if err!=nil{return failure,errors.New("HTTP service request failed")}
+ if err!=nil{return fail("transport",errors.New("HTTP service request failed"))}
+ {{if .Tracing}}status=response.StatusCode{{end}}
  defer response.Body.Close()
- if response.StatusCode>=300 && response.StatusCode<400{return failure,errors.New("HTTP service redirect is forbidden")}
+ if response.StatusCode>=300 && response.StatusCode<400{return fail("redirect",errors.New("HTTP service redirect is forbidden"))}
  if consume!=nil && response.StatusCode==http.StatusOK{
    limited:=&io.LimitedReader{R:response.Body,N:MaxStreamBytes+1}
    scanner:=bufio.NewScanner(limited);scanner.Buffer(make([]byte,4096),MaxResponseBytes+2)
    for scanner.Scan(){
      frame:=scanner.Bytes()
-     if len(frame)>MaxResponseBytes || limited.N==0{return failure,errors.New("HTTP stream exceeds its limit")}
-     if err:=ctx.Err();err!=nil{return failure,err}
+     if len(frame)>MaxResponseBytes || limited.N==0{return fail("stream",errors.New("HTTP stream exceeds its limit"))}
+     if err:=ctx.Err();err!=nil{return fail("canceled",err)}
      if len(bytes.TrimSpace(frame))==0{continue}
-     if err:=consume(ctx,frame);err!=nil{return failure,err}
+     if err:=consume(ctx,frame);err!=nil{return fail("callback",err)}
    }
-   if limited.N==0{return failure,errors.New("HTTP stream exceeds its limit")}
-   if scanner.Err()!=nil{return failure,errors.New("invalid HTTP stream frame")}
-   if err:=ctx.Err();err!=nil{return failure,err}
+   if limited.N==0{return fail("stream",errors.New("HTTP stream exceeds its limit"))}
+   if scanner.Err()!=nil{return fail("stream",errors.New("invalid HTTP stream frame"))}
+   if err:=ctx.Err();err!=nil{return fail("canceled",err)}
+   {{if .Tracing}}kind=""{{end}}
    return Response{StatusCode:response.StatusCode,Header:response.Header.Clone()},nil
  }
  data,err:=io.ReadAll(io.LimitReader(response.Body,MaxResponseBytes+1))
- if err!=nil || len(data)>MaxResponseBytes{return failure,errors.New("invalid HTTP response body")}
- if ctx.Err()!=nil{return failure,errors.New("HTTP service request canceled")}
- if deadline,ok:=ctx.Deadline();ok && !time.Now().Before(deadline){return failure,errors.New("HTTP service request expired")}
+ if err!=nil || len(data)>MaxResponseBytes{return fail("response",errors.New("invalid HTTP response body"))}
+ if ctx.Err()!=nil{return fail("canceled",errors.New("HTTP service request canceled"))}
+ if deadline,ok:=ctx.Deadline();ok && !time.Now().Before(deadline){return fail("deadline",errors.New("HTTP service request expired"))}
+ {{if .Tracing}}kind=""{{end}}
  return Response{StatusCode:response.StatusCode,Header:response.Header.Clone(),Body:data},nil
 }
 

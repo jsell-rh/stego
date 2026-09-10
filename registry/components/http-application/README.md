@@ -54,3 +54,8 @@ the checked projector. The endpoint still applies its normal encoding and
 response-size checks in both cases. This adapter avoids the cost of projection
 on ordinary requests; it does not replace the public response type or its access
 checks with a field schema.
+
+Generated HTTPS clients use the telemetry runtime in their call context.
+The [HTTP client contract](../../../specs/http-client-observability.md) defines
+completion, propagation, privacy, and resource bounds. Independent CLI entry
+points still need runtime integration.

@@ -44,6 +44,9 @@ type serviceLogs struct {
  lifecycle bool
 }
 type localRecord struct {
+ HTTPMethod string `json:"http.request.method,omitempty"`
+ HTTPStatus int `json:"http.response.status_code,omitempty"`
+ ErrorType string `json:"error.type,omitempty"`
  RPCMethod string `json:"rpc.method,omitempty"`
  RPCStatus string `json:"rpc.response.status_code,omitempty"`
  Time time.Time `json:"timestamp"`
