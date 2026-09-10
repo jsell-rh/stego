@@ -992,9 +992,12 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		customOutDir,
 		tmpDir,
 		"",
+		"",
 	)
 
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Since the file exists on disk at customOutDir with the same hash,
 	// it should be unchanged (not generate).

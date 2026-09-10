@@ -3,6 +3,7 @@ package compiler
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -27,7 +28,7 @@ func TestSaveAndLoadState(t *testing.T) {
 				"rest-api": {Version: "2.1.0", SHA: "f4e5d6"},
 			},
 			Files: map[string]string{
-				"main.go":           "hash1",
+				"main.go":                 "hash1",
 				"internal/api/handler.go": "hash2",
 			},
 		},
@@ -134,5 +135,14 @@ func TestSaveState_CreatesParentDirectories(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("state file not created at nested path: %v", err)
+	}
+}
+
+func TestStateRejectsInvalidRegistryContentHash(t *testing.T) {
+	for _, digest := range []string{"bad", strings.Repeat("A", 64), "0123456789"} {
+		data := []byte("last_applied:\n  service_hash: old\n  registry_content_sha256: " + digest + "\n")
+		if _, err := decodeState(data, "state.yaml"); err == nil {
+			t.Fatal("invalid registry digest was accepted", digest)
+		}
 	}
 }

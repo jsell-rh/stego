@@ -128,3 +128,10 @@ func verifyPlanLocation(plan *Plan, projectDir, outDir string) error {
 	}
 	return nil
 }
+
+func (plan *Plan) verifyRegistry() error {
+	if plan.registry == nil || plan.NewState == nil || plan.NewState.LastApplied == nil || plan.NewState.LastApplied.RegistryContentSHA256 != plan.registry.ContentHash() {
+		return fmt.Errorf("plan has no matching registry snapshot; run plan again")
+	}
+	return plan.registry.Verify()
+}

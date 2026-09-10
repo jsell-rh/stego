@@ -2337,3 +2337,12 @@ gate passed in 209.690 seconds. Final controller, contract, query, and static
 checks passed; post-commit regeneration preserved all 74 generated and dependency
 hashes. Both repositories are on remote main. Durable retries, progress bounds,
 fencing, status ownership, and the broader enterprise requirements remain open.
+
+[Registry snapshots](registry-snapshots.md) now bind captured YAML and protobuf
+bytes to a plan and record their content digest in applied state. Tests first
+showed that the previous compiler accepted registry changes during generation
+and after planning. Apply and dependency resolution now reject those changes.
+Missing, malformed, and invalid-path slot imports also stop generation. The full
+compiler race suite and static checks passed. Local measurements show the added
+read and hash cost. Complete compiler build identity, input manifests, and
+isolated builds remain open under C3; this digest does not close those contracts.

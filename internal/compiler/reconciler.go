@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +59,7 @@ type Plan struct {
 	// StateChanged includes input and ownership changes with unchanged output.
 	StateChanged bool
 
+	registry     *registry.Registry
 	requirements map[string]string
 	snapshots    map[string]fileSnapshot
 	projectDir   string
@@ -98,8 +100,8 @@ type ReconcilerInput struct {
 	// ModuleName is the Go module path (e.g. "github.com/myorg/user-service").
 	ModuleName string
 
-	// RegistrySHA is the registry ref SHA from .stego/config.yaml, used for
-	// auditability in state tracking.
+	// RegistrySHA is the supplied registry reference, which can be a local
+	// label. Captured registry content has a separate SHA-256 identity.
 	RegistrySHA string
 
 	// OutDir is the output directory for generated files. Defaults to
@@ -312,7 +314,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 
 	// Generate slot interfaces and operators if slots are configured.
-	slotFiles, err := generateSlotFiles(slotsPackage, input.RegistryDir, components, svcDecl, reg)
+	slotFiles, err := generateSlotFiles(slotsPackage, components, svcDecl, reg)
 	if err != nil {
 		return nil, fmt.Errorf("generating slot files: %w", err)
 	}
@@ -358,11 +360,15 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 
 	// Compute plan by comparing generated files against existing state.
-	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA)
+	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA, reg.ContentHash())
 	if err != nil {
 		return nil, err
 	}
 	if err := bindPlanInputs(plan, input.ProjectDir, inputSnapshots); err != nil {
+		return nil, err
+	}
+	plan.registry = reg
+	if err := plan.verifyRegistry(); err != nil {
 		return nil, err
 	}
 	plan.requirements, err = moduleRequirements(wirings)
@@ -446,6 +452,9 @@ func applyWithFault(plan *Plan, projectDir, outDir string, fault applyFault) err
 	}
 	// Another apply can finish between the first snapshot check and the lock.
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
+		return err
+	}
+	if err := plan.verifyRegistry(); err != nil {
 		return err
 	}
 	return commitTransaction(project, projectDir, plan, relative, fault)
@@ -534,7 +543,7 @@ func resolveComponentConfig(comp *types.Component, svcDecl *types.ServiceDeclara
 
 // generateSlotFiles generates Go interface and operator files for all slots
 // used by the service declaration.
-func generateSlotFiles(slotsPackage, registryDir string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
+func generateSlotFiles(slotsPackage string, components map[string]*types.Component, svcDecl *types.ServiceDeclaration, reg *registry.Registry) ([]gen.File, error) {
 	if slotsPackage == "" || len(svcDecl.Slots) == 0 {
 		return nil, nil
 	}
@@ -551,8 +560,7 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 	type slotInfo struct {
 		definition types.SlotDefinition
 		// protoDir is the directory containing the slots/ subdirectory for this
-		// slot's proto file. For component slots: <registry>/components/<name>.
-		// For mixin-added slots: <registry>/mixins/<name>.
+		// slot's proto file, relative to the captured registry root.
 		protoDir string
 	}
 	slotDefs := make(map[string]slotInfo)
@@ -561,7 +569,7 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 			if slotNames[sd.Name] {
 				slotDefs[sd.Name] = slotInfo{
 					definition: sd,
-					protoDir:   filepath.Join(registryDir, "components", comp.Name),
+					protoDir:   filepath.Join("components", comp.Name),
 				}
 			}
 		}
@@ -577,7 +585,7 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 				if _, exists := slotDefs[sd.Name]; !exists {
 					slotDefs[sd.Name] = slotInfo{
 						definition: sd,
-						protoDir:   filepath.Join(registryDir, "mixins", mixin.Name),
+						protoDir:   filepath.Join("mixins", mixin.Name),
 					}
 				}
 			}
@@ -605,33 +613,26 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 
 		protoPath := filepath.Join(info.protoDir, "slots", slotName+".proto")
 
-		protoFile, err := os.Open(protoPath)
+		protoData, err := reg.ReadFile(filepath.ToSlash(protoPath))
 		if err != nil {
 			return nil, fmt.Errorf("opening proto for slot %q: %w", slotName, err)
 		}
-		parsed, err := slot.ParseProto(protoFile)
-		protoFile.Close()
+		parsed, err := slot.ParseProto(bytes.NewReader(protoData))
 		if err != nil {
 			return nil, fmt.Errorf("parsing proto for slot %q: %w", slotName, err)
 		}
 
-		// Resolve proto imports (e.g. stego/common/types.proto).
 		var imports []*slot.ProtoFile
-		for _, imp := range parsed.Imports {
-			impPath := resolveProtoImport(imp, registryDir)
-			if impPath == "" {
-				continue
-			}
-			impFile, err := os.Open(impPath)
+		for _, name := range parsed.Imports {
+			data, err := reg.ReadProtoImport(name)
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("slot %q import %q: %w", slotName, name, err)
 			}
-			impParsed, err := slot.ParseProto(impFile)
-			impFile.Close()
+			parsedImport, err := slot.ParseProto(bytes.NewReader(data))
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("slot %q import %q: %w", slotName, name, err)
 			}
-			imports = append(imports, impParsed)
+			imports = append(imports, parsedImport)
 		}
 
 		// Generate interface file, excluding types already emitted by a
@@ -680,23 +681,6 @@ func generateSlotFiles(slotsPackage, registryDir string, components map[string]*
 	return files, nil
 }
 
-// resolveProtoImport maps a proto import path to a file on disk.
-// Proto imports like "stego/common/types.proto" map to <registry>/common/types.proto.
-func resolveProtoImport(importPath, registryDir string) string {
-	// Strip the "stego/" prefix that proto packages use.
-	trimmed := strings.TrimPrefix(importPath, "stego/")
-	candidate := filepath.Join(registryDir, trimmed)
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
-	}
-	// Also try the import path directly.
-	candidate = filepath.Join(registryDir, importPath)
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate
-	}
-	return ""
-}
-
 // computePlan compares generated files against existing state to determine
 // which files need to be written and what entity changes occurred.
 func computePlan(
@@ -708,6 +692,7 @@ func computePlan(
 	outDir string,
 	projectDir string,
 	registrySHA string,
+	registryContentHash string,
 ) (*Plan, error) {
 	root, err := os.OpenRoot(projectDir)
 	if err != nil {
@@ -806,11 +791,12 @@ func computePlan(
 
 	newState := &State{
 		LastApplied: &AppliedState{
-			ServiceHash: serviceHash,
-			RegistrySHA: registrySHA,
-			Components:  compState,
-			Entities:    entitySnapshot,
-			Files:       newFileHashes,
+			ServiceHash:           serviceHash,
+			RegistrySHA:           registrySHA,
+			RegistryContentSHA256: registryContentHash,
+			Components:            compState,
+			Entities:              entitySnapshot,
+			Files:                 newFileHashes,
 		},
 	}
 

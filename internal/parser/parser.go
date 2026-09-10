@@ -149,6 +149,21 @@ func ParseMixin(path string) (*types.Mixin, error) {
 	return parseFile[types.Mixin](path, "mixin")
 }
 
+// ParseArchetypeFromBytes parses one captured registry document.
+func ParseArchetypeFromBytes(data []byte, path string) (*types.Archetype, error) {
+	return parseBytes[types.Archetype](data, path, "archetype")
+}
+
+// ParseComponentFromBytes parses one captured registry document.
+func ParseComponentFromBytes(data []byte, path string) (*types.Component, error) {
+	return parseBytes[types.Component](data, path, "component")
+}
+
+// ParseMixinFromBytes parses one captured registry document.
+func ParseMixinFromBytes(data []byte, path string) (*types.Mixin, error) {
+	return parseBytes[types.Mixin](data, path, "mixin")
+}
+
 // ParseServiceDeclaration reads and parses a service declaration YAML file.
 func ParseServiceDeclaration(path string) (*types.ServiceDeclaration, error) {
 	return parseFile[types.ServiceDeclaration](path, "service")

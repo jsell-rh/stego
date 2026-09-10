@@ -2,10 +2,12 @@ package compiler
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
@@ -27,6 +29,10 @@ type AppliedState struct {
 	// RegistrySHA is the registry ref from .stego/config.yaml.
 	RegistrySHA string `yaml:"registry_sha,omitempty"`
 
+	// RegistryContentSHA256 identifies captured registry YAML and protobuf files.
+	// An absent hash in old state means that registry content was not recorded.
+	RegistryContentSHA256 string `yaml:"registry_content_sha256,omitempty"`
+
 	// Components records the version and SHA of each component used.
 	Components map[string]ComponentState `yaml:"components,omitempty"`
 
@@ -47,7 +53,8 @@ type EntityFieldState struct {
 	Hash string `yaml:"hash"` // SHA-256 of the serialized field definition
 }
 
-// ComponentState records a component's version and SHA at apply time.
+// ComponentState records a component's version and legacy registry reference.
+// SHA can be a local label; RegistryContentSHA256 identifies captured content.
 type ComponentState struct {
 	Version string `yaml:"version"`
 	SHA     string `yaml:"sha,omitempty"`
@@ -102,6 +109,15 @@ func validateStatePaths(state *State) error {
 	}
 	if state.LastApplied == nil {
 		return nil
+	}
+	if digest := state.LastApplied.RegistryContentSHA256; digest != "" {
+		if len(digest) != sha256.Size*2 {
+			return fmt.Errorf("registry content hash must be a lowercase SHA-256 digest")
+		}
+		decoded, err := hex.DecodeString(digest)
+		if err != nil || len(decoded) != sha256.Size || digest != strings.ToLower(digest) {
+			return fmt.Errorf("registry content hash must be a lowercase SHA-256 digest")
+		}
 	}
 	for _, path := range sortedKeys(state.LastApplied.Files) {
 		if err := gen.ValidatePath(path); err != nil {

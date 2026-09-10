@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -364,14 +365,13 @@ func runFillCreate(args []string) error {
 			return fmt.Errorf("invalid component or slot path %q", name)
 		}
 	}
-	protoPath := filepath.Join(result.Dir, "components", ownerComp.Name, "slots", *slotName+".proto")
-	protoFile, err := os.Open(protoPath)
+	protoPath := filepath.ToSlash(filepath.Join("components", ownerComp.Name, "slots", *slotName+".proto"))
+	protoData, err := reg.ReadFile(protoPath)
 	if err != nil {
 		return fmt.Errorf("opening slot contract: %w", err)
 	}
-	proto, parseErr := slot.ParseProto(protoFile)
-	closeErr := protoFile.Close()
-	if err := errors.Join(parseErr, closeErr); err != nil {
+	proto, err := slot.ParseProto(bytes.NewReader(protoData))
+	if err != nil {
 		return fmt.Errorf("reading slot contract: %w", err)
 	}
 	moduleName, _, err := compiler.ProjectModuleSettings(projectDir, os.Getenv("STEGO_MODULE"), os.Getenv("STEGO_GO_VERSION"))
@@ -390,6 +390,9 @@ func runFillCreate(args []string) error {
 	fillData, err := yaml.Marshal(fill)
 	if err != nil {
 		return fmt.Errorf("encoding fill.yaml: %w", err)
+	}
+	if err := reg.Verify(); err != nil {
+		return err
 	}
 	if err := writeFillScaffold(projectDir, fillName, fillData, source); err != nil {
 		return err

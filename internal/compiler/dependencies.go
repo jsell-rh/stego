@@ -52,6 +52,9 @@ func resolveDependencies(ctx context.Context, input ReconcilerInput, run depende
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
 		return err
 	}
+	if err := plan.verifyRegistry(); err != nil {
+		return err
+	}
 	moduleData, _, err := readSnapshot(project, "go.mod", maxTrackedFileBytes, true)
 	if err != nil {
 		return err
@@ -124,6 +127,9 @@ func resolveDependencies(ctx context.Context, input ReconcilerInput, run depende
 		return fmt.Errorf("Go source or module inputs changed during dependency resolution; run 'stego deps' again")
 	}
 	if err := verifySnapshots(project, plan.snapshots); err != nil {
+		return err
+	}
+	if err := plan.verifyRegistry(); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {

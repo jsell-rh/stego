@@ -4,9 +4,9 @@ package registry
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"path"
 
+	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/types"
 )
@@ -14,6 +14,7 @@ import (
 // Registry holds indexed archetypes, components, and mixins loaded from a
 // registry directory.
 type Registry struct {
+	source     *registrySnapshot
 	archetypes map[string]*types.Archetype
 	components map[string]*types.Component
 	mixins     map[string]*types.Mixin
@@ -57,120 +58,76 @@ func (r *Registry) Mixin(name string) *types.Mixin {
 //	<dir>/components/<name>/slots/*.proto
 //	<dir>/mixins/<name>/mixin.yaml
 func Load(dir string) (*Registry, error) {
-	if _, err := os.Stat(dir); err != nil {
+	source, err := captureRegistry(dir, true)
+	if err != nil {
 		return nil, fmt.Errorf("registry directory: %w", err)
 	}
-
-	r := &Registry{
-		archetypes: make(map[string]*types.Archetype),
-		components: make(map[string]*types.Component),
-		mixins:     make(map[string]*types.Mixin),
+	r := &Registry{source: source, archetypes: make(map[string]*types.Archetype), components: make(map[string]*types.Component), mixins: make(map[string]*types.Mixin)}
+	for _, name := range r.childDirectories("archetypes") {
+		file := path.Join("archetypes", name, "archetype.yaml")
+		data, err := r.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		item, err := parser.ParseArchetypeFromBytes(data, file)
+		if err != nil {
+			return nil, err
+		}
+		if item.Name != name {
+			return nil, fmt.Errorf("archetype name mismatch: directory %q but YAML name %q in %s", name, item.Name, file)
+		}
+		r.archetypes[name] = item
 	}
-
-	if err := r.loadArchetypes(filepath.Join(dir, "archetypes")); err != nil {
-		return nil, err
+	for _, name := range r.childDirectories("components") {
+		file := path.Join("components", name, "component.yaml")
+		data, err := r.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		item, err := parser.ParseComponentFromBytes(data, file)
+		if err != nil {
+			return nil, err
+		}
+		if item.Name != name {
+			return nil, fmt.Errorf("component name mismatch: directory %q but YAML name %q in %s", name, item.Name, file)
+		}
+		if err := r.checkSlots("components", name, item.Slots); err != nil {
+			return nil, err
+		}
+		r.components[name] = item
 	}
-	if err := r.loadComponents(filepath.Join(dir, "components")); err != nil {
-		return nil, err
+	for _, name := range r.childDirectories("mixins") {
+		file := path.Join("mixins", name, "mixin.yaml")
+		data, err := r.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		item, err := parser.ParseMixinFromBytes(data, file)
+		if err != nil {
+			return nil, err
+		}
+		if item.Name != name {
+			return nil, fmt.Errorf("mixin name mismatch: directory %q but YAML name %q in %s", name, item.Name, file)
+		}
+		if err := r.checkSlots("mixins", name, item.AddsSlots); err != nil {
+			return nil, err
+		}
+		r.mixins[name] = item
 	}
-	if err := r.loadMixins(filepath.Join(dir, "mixins")); err != nil {
-		return nil, err
-	}
-
 	return r, nil
 }
 
-func (r *Registry) loadArchetypes(dir string) error {
-	entries, err := readDirIfExists(dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+func (r *Registry) checkSlots(category, name string, slots []types.SlotDefinition) error {
+	for _, slot := range slots {
+		file := category + "/" + name + "/slots/" + slot.Name + ".proto"
+		if err := gen.ValidatePath(file); err != nil {
+			return err
 		}
-		dirName := entry.Name()
-		path := filepath.Join(dir, dirName, "archetype.yaml")
-		a, err := parser.ParseArchetype(path)
-		if err != nil {
-			return fmt.Errorf("loading archetype %s: %w", dirName, err)
+		if _, present := r.source.files[file]; !present {
+			return fmt.Errorf("%s %s slot %q: proto file missing at %s", category, name, slot.Name, file)
 		}
-		if a.Name != dirName {
-			return fmt.Errorf("archetype name mismatch: directory %q but YAML name %q in %s", dirName, a.Name, path)
-		}
-		r.archetypes[a.Name] = a
 	}
 	return nil
-}
-
-func (r *Registry) loadComponents(dir string) error {
-	entries, err := readDirIfExists(dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dirName := entry.Name()
-		path := filepath.Join(dir, dirName, "component.yaml")
-		c, err := parser.ParseComponent(path)
-		if err != nil {
-			return fmt.Errorf("loading component %s: %w", dirName, err)
-		}
-		if c.Name != dirName {
-			return fmt.Errorf("component name mismatch: directory %q but YAML name %q in %s", dirName, c.Name, path)
-		}
-		// Verify that slot proto files exist on disk.
-		for _, slot := range c.Slots {
-			protoPath := filepath.Join(dir, dirName, "slots", slot.Name+".proto")
-			if _, err := os.Stat(protoPath); err != nil {
-				return fmt.Errorf("component %s slot %q: proto file missing at %s", dirName, slot.Name, protoPath)
-			}
-		}
-		r.components[c.Name] = c
-	}
-	return nil
-}
-
-func (r *Registry) loadMixins(dir string) error {
-	entries, err := readDirIfExists(dir)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		dirName := entry.Name()
-		path := filepath.Join(dir, dirName, "mixin.yaml")
-		m, err := parser.ParseMixin(path)
-		if err != nil {
-			return fmt.Errorf("loading mixin %s: %w", dirName, err)
-		}
-		if m.Name != dirName {
-			return fmt.Errorf("mixin name mismatch: directory %q but YAML name %q in %s", dirName, m.Name, path)
-		}
-		// Verify that adds_slots proto files exist on disk.
-		for _, slot := range m.AddsSlots {
-			protoPath := filepath.Join(dir, dirName, "slots", slot.Name+".proto")
-			if _, err := os.Stat(protoPath); err != nil {
-				return fmt.Errorf("mixin %s slot %q: proto file missing at %s", dirName, slot.Name, protoPath)
-			}
-		}
-		r.mixins[m.Name] = m
-	}
-	return nil
-}
-
-// readDirIfExists returns directory entries, or an empty slice if the directory
-// does not exist.
-func readDirIfExists(dir string) ([]os.DirEntry, error) {
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	return entries, err
 }
 
 // LoadConfig reads and parses a .stego/config.yaml file.
