@@ -123,6 +123,17 @@ func testGeneratedController(t *testing.T, telemetry bool) {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated controller: %v\n%s", err, output)
 	}
+	if os.Getenv("STEGO_STRESS_CONTROLLER") == "1" {
+		for _, procs := range []string{"1", "4"} {
+			stress := exec.Command("go", "test", "-race", "-count=100", "-timeout=30s", "-run=^TestKeyedWatchReconnectJoinsActionsAndRepeatsDiscovery$", "./controller")
+			stress.Dir = project
+			stress.Env = append(os.Environ(), "GOWORK=off", "GOMAXPROCS="+procs)
+			if output, err := stress.CombinedOutput(); err != nil {
+				t.Fatalf("reconnect stress with GOMAXPROCS=%s: %v\n%s", procs, err, output)
+			}
+			t.Logf("reconnect stress passed: GOMAXPROCS=%s, 100 runs", procs)
+		}
+	}
 	if os.Getenv("STEGO_BENCH_CONTROLLER") == "1" {
 		bench := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(KeyQueueWorkers|KeyAdmission|StreamScan|ControllerMetrics|KeyReconnect)$", "-benchtime=200ms", "-count=3", "./...")
 		bench.Dir = project

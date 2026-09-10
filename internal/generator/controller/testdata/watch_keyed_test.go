@@ -75,6 +75,7 @@ func TestKeyedWatchReconnectJoinsActionsAndRepeatsDiscovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	actionStarted := make(chan struct{})
+	secondScan := make(chan struct{})
 	var watches, scans, active atomic.Int32
 	var actionStopped atomic.Bool
 	source := Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
@@ -95,7 +96,9 @@ func TestKeyedWatchReconnectJoinsActionsAndRepeatsDiscovery(t *testing.T) {
 			return "", ctx.Err()
 		}, nil
 	}, Scan: func(ctx context.Context, emit func(string) error) error {
-		scans.Add(1)
+		if scans.Add(1) == 2 {
+			close(secondScan)
+		}
 		return emit("retained")
 	}}
 	err := RunKeyedWatch(ctx, source, func(ctx context.Context, _ string) error {
@@ -107,6 +110,14 @@ func TestKeyedWatchReconnectJoinsActionsAndRepeatsDiscovery(t *testing.T) {
 			close(actionStarted)
 			<-ctx.Done()
 			actionStopped.Store(true)
+			return ctx.Err()
+		}
+
+		// Retained actions may resume before discovery. Keep this test alive until
+		// it has observed the second scan, then test terminal action shutdown.
+		select {
+		case <-secondScan:
+		case <-ctx.Done():
 			return ctx.Err()
 		}
 		return denied

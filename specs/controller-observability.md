@@ -79,3 +79,18 @@ spans, process resource metrics, or domain event declarations. Existing loopback
 Prometheus diagnostics remain available. Cross-process trace continuation from
 API requests into reconciliation is not claimed. The full
 [observability requirement](shared-observability.md) remains open.
+
+Compiler CI run 34532475046 failed an existing reconnect test. A retained action
+returned its terminal error before the second scan started. The test assumed an
+order that the queue contract does not require. The corrected test waits for
+that scan before returning the terminal error. It still verifies that old
+callbacks stop before reconnect and that discovery repeats. Four hundred race
+runs passed across both generated forms and GOMAXPROCS values 1 and 4. Run
+`STEGO_STRESS_CONTROLLER=1 go test -v -count=1 ./internal/generator/controller`
+to repeat this check. Production runtime code did not change in this correction.
+The failed CI result is not a pass; the corrected revision needs its own CI.
+
+Resource identity currently contains only `service.name`. Separate replicas do
+not yet have a unique `service.instance.id` in their resource records. Metric
+attribution across replicas therefore remains open, as does the full production
+observability requirement.
