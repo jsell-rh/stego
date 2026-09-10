@@ -2321,3 +2321,19 @@ new compiler. All 74 generated and dependency file hashes are unchanged; contrac
 race tests, the build, and post-commit regeneration passed. Both repositories
 were pushed to `main`. This change does not close the remaining reconciliation
 or typed compiler contracts.
+
+[Identity reconciliation reads](identity-query-reads.md) now use the generated
+cursor contract without unused counts. The full query-change application race
+suite passed 116 acceptance tests. Local owner-state latency fell while allocated
+memory increased; the measurements and limits are recorded separately.
+
+The real Gateway gate exposed a [generated gRPC header defect](grpc-stream-headers.md).
+A nil header was copied into an empty map, which could hide a retryable RPC status
+behind a terminal capability error. Compiler `1fe838c21f891ec1ddd09e4df678c00ce126f95a`
+preserves the gRPC signal. Compiler race tests, static checks, and CI passed.
+Hypershell `2ddb2e4a1f9e8b65eda48d128060eb8d35519d9d` pins that fix and adds a
+regression through the generated TLS client. The fixed-compiler Gateway cluster
+gate passed in 209.690 seconds. Final controller, contract, query, and static
+checks passed; post-commit regeneration preserved all 74 generated and dependency
+hashes. Both repositories are on remote main. Durable retries, progress bounds,
+fencing, status ownership, and the broader enterprise requirements remain open.

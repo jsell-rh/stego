@@ -473,3 +473,19 @@ The preceding observation revision `354715a` passed all four CI jobs in run
 Other discovery paths, durable retry storage, complete queue saturation
 handling, cross-process fencing, field ownership, and production capacity remain
 open. The enterprise goal is not complete.
+
+Identity reconciliation now uses generated bounded reads for exact user and
+role lookups and grant existence. An owner-state read uses four queries instead
+of six; viewer and removed-role reads use six instead of nine. These paths run
+no count query. Access denial, retained user identity, role precedence, and
+missing-state errors have PostgreSQL checks. The full query-change race suite
+passed 116 acceptance tests. See [identity reads](identity-query-reads.md) for
+allocation cost and the remaining inventory and progress limits.
+
+The real Gateway gate then found a shared client defect: copying nil gRPC headers
+changed the signal used to receive a terminal status. The raw-client controller
+test had missed the generated wrapper. STEGO now preserves nil headers, and both
+the compiler and application test the generated client. The fixed-compiler
+Gateway gate passed, including the failed deletion-before-startup case. See
+[stream header evidence](grpc-stream-headers.md). This is another case where the
+application workflow determined the common infrastructure correction.

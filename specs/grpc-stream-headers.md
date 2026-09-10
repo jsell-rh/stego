@@ -43,3 +43,24 @@ server variants ran the regression. The original Kubernetes run completed with
 a failed deletion-before-startup test and a passing complete Gateway workflow
 (181.07 seconds). The gate as a whole failed in 339.638 seconds; it is not
 recorded as a pass.
+
+Hypershell now has a regression through its generated TLS client. With the old
+client, six server error codes became the same missing-capability error; the
+package failed in 0.083 seconds. With the fixed client, watch and replay status
+checks passed, and a clean stream without capability still failed. The complete
+database-controller unit package passed in 1.141 seconds.
+
+The fixed-compiler Gateway cluster gate passed in 209.690 seconds. Deletion
+before workload startup passed in 41.23 seconds, and the complete Gateway
+workflow passed in 167.41 seconds. Login, grants across REST and gRPC, restart,
+and concurrent-update checks also passed in 38.892 seconds. The final main
+checkout matched all 231 Go source and dependency files in the tested checkout.
+Final controller, contract, query, and static checks passed. The full query-change
+application suite preceded this client fix; the compiler regression and the
+separate application checks above tested the fixed client.
+
+Application commit `2ddb2e4a1f9e8b65eda48d128060eb8d35519d9d` is on remote main.
+It pins the fixed compiler and records local component version 1.6.1.
+Post-commit regeneration preserved all 74 generated and dependency file hashes.
+Compiler CI run 34489053980 passed. The new application revision requires its
+own CI result. See [the application record](https://github.com/jsell-rh/hypershell-stego/blob/2ddb2e4a1f9e8b65eda48d128060eb8d35519d9d/acceptance/grpc-stream-headers.md).
