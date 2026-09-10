@@ -52,4 +52,4 @@ PostgreSQL required on port 32901. The compiler package completed in 35.406
 seconds and the gRPC generator package in 33.649 seconds. Vet passed. The earlier
 controller command regression failed for all seven invalid namespace cases;
 the protobuf regression separately failed for all three invalid mappings before
-the checks were added. No browser automation was used.
+the checks were added.

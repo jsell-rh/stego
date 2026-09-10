@@ -2568,3 +2568,19 @@ paths. Command tests preserve existing output on failure. Independent build
 tests import nested controller and protobuf libraries. Hypershell probes also
 pass with unchanged output. See [Go package names](go-package-names.md).
 C1 and the broad goal remain active pending the complete acceptance audit.
+
+The package-name compiler change is committed at
+`021b2d1986adddeaace234feeae9feda5f72d8d1`. The full compiler race suite and vet
+passed with PostgreSQL required. Hypershell
+`6d9b6ea77ed8e2b518baf76b45b494ad6034b307` uses that pin. Only saved compiler
+state and the CLI compiler build record changed among its generated, state,
+and dependency files. Contracts and offline CLI version tests passed in 1.519
+and 1.644 seconds. Vet, repeated generation, and post-commit generation passed;
+all 90 hashes stayed stable on repeat. Both commits are on remote main.
+
+The prior preflight compiler CI run 34521081985 passed. Package-name compiler
+CI run 34521857221 is active, and application run 34521961193 is pending.
+GitHub replaced pending metadata run 34521193713; it preserved the active
+grant-condition run 34520447297. No success is claimed for these unfinished
+runs. The full application and Kubernetes gates were not repeated locally for
+this metadata update. C1 and the broad goal remain active.
