@@ -59,3 +59,7 @@ The [instance identity contract](telemetry-instance-identity.md) separates runti
 resources with random UUIDs. Request, controller, and local signals share their
 runtime identity. Replica aggregation can now retain separate OTLP streams;
 backend storage and production capacity remain separate gates.
+
+The [process failure policy](process-failure-privacy.md) adds safe local failure
+records before telemetry is available and removes GORM's raw query and error
+output. Bootstrap export and complete process and database telemetry remain open.

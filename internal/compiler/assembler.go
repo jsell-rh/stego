@@ -200,14 +200,19 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		consumedWirings[key.WiringIndex] = true
 	}
 
-	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, consumedWirings)
+	fallible := hasRoutes || hasTasks || hasDB || hasFallibleConstructor(input, consumed)
+	imports := writeMainImports(&buf, input, hasRoutes, hasDB, hasSlots, isGORM, fallible, consumedWirings)
 	if err := validateConstructorDependencies(input.Wirings, imports.PackageAliases); err != nil {
 		return gen.File{}, err
 	}
 
-	fallible := hasRoutes || hasTasks || hasDB || hasFallibleConstructor(input, consumed)
 	if fallible {
-		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tlog.Print(\"service failed: \", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() error {\n")
+		buf.WriteString("func main() {\n\tif err := run(); err != nil {\n\t\tstegoReportFailure(os.Stderr, err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc run() (stegoErr error) {\n\tstegoStage := \"startup\"\n")
+		buf.WriteString("\tdefer func() { if stegoErr != nil { stegoErr = &stegoServiceFailure{stage: stegoStage, cause: stegoErr")
+		if hasTasks {
+			buf.WriteString(", tasks: stegoTaskNames(stegoErr)")
+		}
+		buf.WriteString("} } }()\n")
 	} else {
 		buf.WriteString("func main() {\n")
 	}
@@ -249,6 +254,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		buf.WriteString("\treturn nil\n")
 	}
 	buf.WriteString("}\n")
+	if fallible {
+		buf.WriteString(serviceFailureSource)
+	}
 	if hasRoutes {
 		buf.WriteString(httpLifecycleSource)
 	}
@@ -295,7 +303,7 @@ type importResult struct {
 // constructor and route expressions to be updated when their component's import
 // alias is disambiguated. The alias set allows constructor variable
 // disambiguation to avoid shadowing import aliases.
-func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, isGORM bool, consumedWirings map[int]bool) importResult {
+func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB, hasSlots, isGORM, fallible bool, consumedWirings map[int]bool) importResult {
 	hasTasks := hasBackgroundTasks(input)
 	buf.WriteString("import (\n")
 
@@ -310,13 +318,22 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 
+	// Failure output also applies to services with only a fallible constructor.
+	if fallible {
+		for _, pkg := range []string{"encoding/json", "io", "os", "time"} {
+			extraStdlib[pkg] = true
+		}
+	}
+	if hasDB {
+		extraStdlib["errors"] = true
+	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
 	if hasDB && !isGORM {
 		stdlibNeeded["database/sql"] = true
 	}
-	// log is used in writeDBSetup and writeServerStart.
-	if hasDB || hasRoutes || hasTasks {
+	// log reports the HTTP listener.
+	if hasRoutes {
 		stdlibNeeded["log"] = true
 	}
 	if hasRoutes {
@@ -491,10 +508,12 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 }
 
 func writeDBSetup(buf *bytes.Buffer) {
+	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
 	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
+	buf.WriteString("\tstegoStage = \"database.open\"\n")
 	buf.WriteString("\tdb, err := sql.Open(\"pgx\", dsn)\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
@@ -503,14 +522,17 @@ func writeDBSetup(buf *bytes.Buffer) {
 }
 
 func writeGORMDBSetup(buf *bytes.Buffer) {
+	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
 	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
-	buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})\n")
+	buf.WriteString("\tstegoStage = \"database.open\"\n")
+	buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard})\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
+	buf.WriteString("\tstegoStage = \"database.handle\"\n")
 	buf.WriteString("\tsqlDB, err := db.DB()\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
@@ -528,7 +550,8 @@ func writePostDBCalls(buf *bytes.Buffer, input AssemblerInput, consumedWirings m
 		if !consumedWirings[i] || cw.Wiring == nil {
 			continue
 		}
-		for _, call := range cw.Wiring.PostDBCalls {
+		for callIndex, call := range cw.Wiring.PostDBCalls {
+			fmt.Fprintf(buf, "\tstegoStage = %q\n", fmt.Sprintf("component[%d].database[%d]", i, callIndex))
 			resolvedCall := call
 			if renames, ok := imports.Renames[i]; ok {
 				for oldBase, newAlias := range renames {
@@ -553,6 +576,7 @@ func gormImports() []gormImport {
 	return []gormImport{
 		{alias: "gorm", path: "gorm.io/gorm"},
 		{alias: "postgres", path: "gorm.io/driver/postgres"},
+		{alias: "gormlogger", path: "gorm.io/gorm/logger"},
 	}
 }
 
@@ -587,6 +611,9 @@ func collectAllSlotVarNames(bindings []types.SlotDeclaration, hasSlots bool) map
 // variable disambiguation must reserve all of these to prevent collisions.
 func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool) map[string]bool {
 	vars := make(map[string]bool)
+	for _, name := range []string{"stegoStage", "stegoErr", "stegoServiceFailure", "stegoReportFailure"} {
+		vars[name] = true
+	}
 	if hasDB {
 		vars["dsn"] = true
 		vars["db"] = true
@@ -1079,6 +1106,7 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 		}
 
 		if cw.Wiring.ConstructorReturnsError[entry.ConstructorIndex] {
+			fmt.Fprintf(buf, "\tstegoStage = %q\n", fmt.Sprintf("component[%d].constructor[%d]", entry.WiringIndex, entry.ConstructorIndex))
 			fmt.Fprintf(buf, "\t%s, err := %s\n", varName, expr)
 			buf.WriteString("\tif err != nil {\n\t\treturn err\n\t}\n")
 		} else {
@@ -1443,12 +1471,14 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		fmt.Fprintf(buf, "\ttopMux.Handle(\"/\", %s)\n", handlerExpr)
 		handlerExpr = "topMux"
 	}
+	buf.WriteString("\tstegoStage = \"http.listen\"\n")
 	buf.WriteString("\tlistener, err := net.Listen(\"tcp\", addr)\n\tif err != nil { return err }\n")
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", listener.Addr())\n")
 	if hasBackgroundTasks(input) {
 		buf.WriteString("\tdefer listener.Close()\n")
 		writeBackgroundStart(buf, input, wiringRenames, handlerExpr)
 	} else {
+		buf.WriteString("\tstegoStage = \"http.serve\"\n")
 		fmt.Fprintf(buf, "\treturn stegoServeHTTP(ctx, listener, stegoHTTPServer(%s), 10*time.Second)\n", handlerExpr)
 	}
 }

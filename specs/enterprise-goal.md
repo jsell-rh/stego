@@ -2725,3 +2725,9 @@ simultaneous API processes and one replacement first exposed indistinguishable
 resource identity. The shared runtime now creates one UUID per provider set.
 Full compiler race tests with PostgreSQL and static checks passed. Application
 adoption, backend aggregation, and the wider enterprise goal remain open.
+
+The [process failure policy](process-failure-privacy.md) addresses private data
+found by real Hypershell startup and failed Gateway creation probes. Generated
+process failures now report fixed stages and task names. GORM no longer prints
+raw query or driver data. Compiler race tests with PostgreSQL and static checks
+passed. Full process and database telemetry remain open.

@@ -124,3 +124,21 @@ func TestTaskSignal(t *testing.T) {
 		t.Fatal("signal shutdown did not finish")
 	}
 }
+
+func TestTaskFailureNamesExcludeCauses(t *testing.T) {
+	first := errors.New("private-task-cause")
+	err := stegoRunTasks(context.Background(), []stegoTask{
+		{name: "worker-b", run: func(context.Context) error { return first }},
+		{name: "worker-a", run: func(context.Context) error { return first }},
+	})
+	if !errors.Is(err, first) {
+		t.Fatal("lost task cause")
+	}
+	if strings.Contains(err.Error(), "private-task-cause") {
+		t.Fatal("task summary exposed its cause")
+	}
+	names := stegoTaskNames(err)
+	if len(names) != 2 || names[0] != "worker-a" || names[1] != "worker-b" {
+		t.Fatal("invalid task summary", names)
+	}
+}

@@ -31,3 +31,8 @@ Versioned entities with desired generations can declare condition owners and
 names. The generated condition writer requires the observed resource revision
 and a transaction. PostgreSQL supplies generation and transition time. Current
 views hide old-generation status. See [resource conditions](../../../specs/resource-conditions.md).
+
+The generated process uses a private GORM connection with raw logging disabled.
+Process failures report a fixed stage without driver or query text. See the
+[process failure policy](../../../specs/process-failure-privacy.md) for coverage
+and limits. Database telemetry remains an open requirement.
