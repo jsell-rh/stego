@@ -62,3 +62,16 @@ The full STEGO suite passed with race detection and required PostgreSQL. The
 independent generated Kubernetes tests and `go vet` passed. The discovery tests
 also cover token rotation, removal of API support, invalid requirements before
 network access, core API paths, and valid resource names with hyphens.
+
+The final variant commit is
+[`3fcc8eb85e4beac7046891e1caf690d540924a5e`](https://github.com/jsell-rh/hypershell-stego/commit/3fcc8eb85e4beac7046891e1caf690d540924a5e).
+It pins compiler `934bc01a0f199ae64001e9ccb0c9e80fd0ae96a4`. The complete
+fresh-cluster CNPG script passed with generated discovery: 83.19 seconds for the
+workflow and 84.247 seconds for the acceptance package. Five stable provider
+passes took 48.7 ms. The deployment workload and five related regression tests
+passed in 102.420 seconds. All these runs used race detection.
+
+[Compiler CI run 34501670691](https://github.com/jsell-rh/stego/actions/runs/34501670691)
+passed for that exact compiler commit. The variant also passed provider unit
+checks, all contract tests, CLI build-record checks, and `go vet`. Its new CNPG
+CI job runs the same fresh-cluster script and requires pinned regeneration.
