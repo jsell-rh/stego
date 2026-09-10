@@ -9,6 +9,18 @@ successful and denied reads, trace continuation, restart, and collector loss.
 The broader observability requirements remain active, including gRPC and
 database spans, metrics, controller spans, and browser-to-API evidence.
 
+Hypershell `ee56eaa1def29a5d6a8aaeda5bb4570e8671caba` adopts tracing compiler
+`164c7dc25d4bee5ecb794876f92e762edf6a0c44`. Seven selected application workflows
+passed under race detection with PostgreSQL required in 35.435 seconds. They
+cover tracing, health, REST and gRPC access, event delivery, restart, watch expiry,
+and watch-source failure. Internal and contract race tests, static checks, and
+the dependency vulnerability scan passed. Repeated pinned generation preserved
+92 output, state, and dependency hashes. Compiler CI run 34528123447 passed.
+The full application CI run remains pending behind the active health run.
+The previous action-retry run reached the old 18-minute aggregate limit; the
+active health run uses the later 25-minute limit. No full application result is
+claimed for the tracing revision yet.
+
 The [health probe contract](health-probes.md) adds the missing process and SQL
 readiness behavior for C6. Its Gateway test delays database traffic, checks
 readiness loss with independent liveness, and verifies recovery and API restart.
