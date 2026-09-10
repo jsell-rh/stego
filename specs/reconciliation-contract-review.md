@@ -514,3 +514,11 @@ original deletion time for a selected owner and retained target. The generated
 sampler runs independently of recovery scans and reports unavailable data after
 a failed read. This adds cleanup-age data without resource labels. It does not
 complete durable conditions, per-resource diagnosis, or safe history retirement.
+
+The [CNPG provider gate](cnpg-provider-evidence.md) extends the same generated
+runtime to a second database provider. It covers real encrypted SQL, restart,
+Cluster specification repair, and cleanup after a denied deletion. Common API
+discovery validation now belongs to the generated Kubernetes client. CNPG
+resources and readiness policy remain in Hypershell. CNPG's readiness condition
+lacks an observed generation, so this evidence does not certify every external
+setting at a specific generation. Gateway SQL resources on CNPG remain open.

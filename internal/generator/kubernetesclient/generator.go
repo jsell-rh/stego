@@ -18,6 +18,9 @@ var source string
 //go:embed observe.go.tmpl
 var observeSource string
 
+//go:embed discovery.go.tmpl
+var discoverySource string
+
 type Generator struct{}
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -30,7 +33,7 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	data := struct{ Package, Transport string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, peer, "client")}
 	files := []gen.File{}
-	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}} {
+	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err

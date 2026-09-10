@@ -481,3 +481,127 @@ func TestFailureSummaryOmitsPrivateDetails(t *testing.T) {
 		t.Fatal("nil error reported as failure")
 	}
 }
+
+func TestRequiredAPIsBeforeWidgetEffects(t *testing.T) {
+	requirement := APIResource{Name: "widgets", Kind: "Widget", Namespaced: true, Verbs: []string{"get", "create", "patch", "delete"}}
+	for _, mode := range []string{"valid", "core", "missing", "partial", "wrong-version", "wrong-kind", "wrong-scope", "missing-scope", "verbs", "duplicate", "malformed", "denied", "unavailable"} {
+		t.Run(mode, func(t *testing.T) {
+			groupVersion := "example.com/v1"
+			path := "/apis/" + groupVersion
+			if mode == "core" {
+				groupVersion = "v1"
+				path = "/api/v1"
+			}
+			calls := 0
+			client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.Method != "GET" || r.URL.Path != path || r.Header.Get("Authorization") != "Bearer one" {
+					t.Error("incorrect discovery request")
+				}
+				switch mode {
+				case "missing":
+					w.WriteHeader(404)
+					return
+				case "denied":
+					w.WriteHeader(403)
+					return
+				case "unavailable":
+					w.WriteHeader(503)
+					return
+				}
+				widget := Object{"name": "widgets", "kind": "Widget", "namespaced": true, "verbs": []string{"get", "create", "patch", "delete", "list"}}
+				result := Object{"kind": "APIResourceList", "groupVersion": groupVersion, "resources": []Object{widget}}
+				switch mode {
+				case "partial":
+					result["resources"] = []Object{{"name": "gadgets"}}
+				case "wrong-version":
+					result["groupVersion"] = "example.com/v2"
+				case "wrong-kind":
+					widget["kind"] = "Gadget"
+				case "wrong-scope":
+					widget["namespaced"] = false
+				case "missing-scope":
+					delete(widget, "namespaced")
+				case "verbs":
+					widget["verbs"] = []string{"get", "create"}
+				case "duplicate":
+					result["resources"] = []Object{widget, widget}
+				case "malformed":
+					result["resources"] = []any{true}
+				}
+				_ = json.NewEncoder(w).Encode(result)
+			})
+			err := client.RequireResources(context.Background(), groupVersion, requirement)
+			if calls != 1 {
+				t.Fatal("discovery made more than one request", calls)
+			}
+			switch mode {
+			case "valid", "core":
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "denied", "unavailable":
+				var api *APIError
+				if !errors.As(err, &api) {
+					t.Fatal("HTTP failure was lost", err)
+				}
+			default:
+				if !errors.Is(err, ErrDiscovery) {
+					t.Fatal("invalid discovery was accepted", err)
+				}
+			}
+		})
+	}
+}
+func TestDiscoveryRejectsInvalidRequirementsBeforeRequests(t *testing.T) {
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("invalid requirements reached API")
+		w.WriteHeader(500)
+	})
+	valid := APIResource{Name: "widgets", Kind: "Widget", Namespaced: true, Verbs: []string{"get"}}
+	for _, groupVersion := range []string{"", "../v1", "example.com/v1?x=1", "example.com/v1/extra", "https://api/v1", "example..com/v1", "example.com/"} {
+		if !errors.Is(client.RequireResources(context.Background(), groupVersion, valid), ErrDiscovery) {
+			t.Fatal("invalid group version accepted", groupVersion)
+		}
+	}
+	for _, requirements := range [][]APIResource{nil, {valid, valid}, {{Name: "widgets/status", Kind: "Widget", Verbs: []string{"get"}}}, {{Name: "widgets", Kind: "Widget"}}, {{Name: "widgets", Kind: "Widget", Verbs: []string{"get", "get"}}}, {{Name: "widgets", Kind: "Widget", Verbs: []string{"execute"}}}, make([]APIResource, 33)} {
+		if !errors.Is(client.RequireResources(context.Background(), "example.com/v1", requirements...), ErrDiscovery) {
+			t.Fatal("invalid requirement accepted")
+		}
+	}
+}
+func TestDiscoveryRechecksSupportAndToken(t *testing.T) {
+	allowed := true
+	expected := "one"
+	client, file := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+expected {
+			t.Error("old discovery token")
+		}
+		if !allowed {
+			w.WriteHeader(404)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Object{"kind": "APIResourceList", "groupVersion": "example.com/v1", "resources": []Object{{"name": "widgets", "kind": "Widget", "namespaced": false, "verbs": []string{"get"}}}})
+	})
+	resource := APIResource{Name: "widgets", Kind: "Widget", Verbs: []string{"get"}}
+	if err := client.RequireResources(context.Background(), "example.com/v1", resource); err != nil {
+		t.Fatal(err)
+	}
+	expected = "two"
+	if err := os.WriteFile(file, []byte(expected), 0600); err != nil {
+		t.Fatal(err)
+	}
+	allowed = false
+	if err := client.RequireResources(context.Background(), "example.com/v1", resource); !errors.Is(err, ErrDiscovery) {
+		t.Fatal("removed API support remained cached", err)
+	}
+}
+
+func TestDiscoveryAllowsResourceNamesWithHyphens(t *testing.T) {
+	client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(Object{"kind": "APIResourceList", "groupVersion": "example.com/v1", "resources": []Object{{"name": "widget-sets", "kind": "WidgetSet", "namespaced": true, "verbs": []string{"get"}}}})
+	})
+	if err := client.RequireResources(context.Background(), "example.com/v1", APIResource{Name: "widget-sets", Kind: "WidgetSet", Namespaced: true, Verbs: []string{"get"}}); err != nil {
+		t.Fatal(err)
+	}
+}
