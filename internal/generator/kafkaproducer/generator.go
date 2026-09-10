@@ -21,12 +21,29 @@ var runtimeSource string
 
 type Generator struct{}
 
-// Generate emits the publisher. With an outbox peer, it also wires a worker.
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	ns := ctx.OutputNamespace
-	if err := gen.ValidatePath(ns); err != nil {
+// ValidateContext checks the publisher path and the optional outbox runtime.
+func (*Generator) ValidateContext(ctx gen.Context) error {
+	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+		return err
+	}
+	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
+		if err := gen.ValidatePath(outbox); err != nil {
+			return err
+		}
+		if ctx.ModuleName == "" {
+			return fmt.Errorf("Kafka runtime requires a module name")
+		}
+	} else if ctx.StorageContract != "" {
+		return fmt.Errorf("Kafka service runtime requires the outbox component")
+	}
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
+	ns := ctx.OutputNamespace
 	source, err := format.Source([]byte(strings.Replace(publisherSource, "package publisher", "package "+path.Base(ns), 1)))
 	if err != nil {
 		return nil, nil, fmt.Errorf("formatting Kafka publisher: %w", err)
@@ -36,12 +53,6 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
 	}}
 	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		if err := gen.ValidatePath(outbox); err != nil {
-			return nil, nil, err
-		}
-		if ctx.ModuleName == "" {
-			return nil, nil, fmt.Errorf("Kafka runtime requires a module name")
-		}
 		data := struct{ Package, OutboxImport string }{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox)}
 		tmpl, err := template.New("runtime").Parse(runtimeSource)
 		if err != nil {
@@ -62,8 +73,6 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.ConstructorReturnsError = map[int]bool{0: true}
 		wiring.ConstructorDeferCalls = map[int]string{0: "Close()"}
 		wiring.BackgroundTasks = []int{0}
-	} else if ctx.StorageContract != "" {
-		return nil, nil, fmt.Errorf("Kafka service runtime requires the outbox component")
 	}
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err

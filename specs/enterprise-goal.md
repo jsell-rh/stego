@@ -67,9 +67,9 @@ commands, outcomes, and limits of each acceptance run. Ask the user when a choic
 changes application behavior, the deployment trust boundary, or migration
 compatibility. Routine implementation choices do not require approval.
 
-The [remaining command validation mismatch](compiler-preflight-gap.md) records
-a current C1 failure with the Hypershell declaration. Keep C1 active until
-component input checks also run before rendering.
+The [component preflight review](compiler-preflight-gap.md) records shared input
+checks before rendering and a remaining Go package-name mismatch. Keep C1 active
+until the full command consistency audit passes.
 
 Completed checks for C1: strict declaration and registry parsing rejects unknown
 fields, duplicate keys, multiple documents, anchors, aliases, and merge keys.
@@ -2539,3 +2539,11 @@ The grant-condition application commit is
 Final controller compatibility tests passed under race detection in 1.305
 seconds, and vet passed again. Pinned regeneration preserved all 90 output,
 state, and dependency file hashes. New remote CI results remain pending.
+
+The Hypershell factory probes drove a common component preflight stage. Twelve
+components now expose their existing input checks through one compiler contract.
+Reconciliation reuses resolved contexts and captured source bytes. The factory
+regressions now fail consistently through validate, plan, and apply. Invalid
+protobufs and a late source change also stop compilation without output changes.
+See [component preflight](compiler-preflight-gap.md) for tests, timing results,
+and the next proven namespace defect. C1 and the broad goal remain active.

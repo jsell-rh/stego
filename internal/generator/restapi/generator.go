@@ -19,35 +19,34 @@ import (
 // Generator produces the rest-api component's generated code.
 type Generator struct{}
 
-// Generate produces HTTP handler files (one per collection), a router file,
-// and an OpenAPI spec. It returns wiring instructions for main.go assembly.
-func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+// ValidateContext checks collection capabilities, fields, names, and routes.
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	for _, collection := range ctx.Collections {
 		for _, entity := range ctx.Entities {
 			if collection.Entity == entity.Name && len(entity.Observations) > 0 {
-				return nil, nil, fmt.Errorf("collection %s: rest-api does not yet enforce observation ownership and current-generation presentation; use an application policy", collection.Name)
+				return fmt.Errorf("collection %s: rest-api does not yet enforce observation ownership and current-generation presentation; use an application policy", collection.Name)
 			}
 		}
 	}
 	if len(ctx.Collections) == 0 {
-		return nil, nil, nil
+		return nil
 	}
 
 	// Validate base_path if provided.
 	if ctx.BasePath != "" && !strings.HasPrefix(ctx.BasePath, "/") {
-		return nil, nil, fmt.Errorf("base_path must start with '/', got %q", ctx.BasePath)
+		return fmt.Errorf("base_path must start with '/', got %q", ctx.BasePath)
 	}
 
 	// Validate collection names are unique. Collection names drive handler
 	// type names, file names, and wiring variable names.
 	if err := validateCollectionNameUniqueness(ctx.Collections); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Check for collection-derived identifier collisions with generator-internal
 	// identifiers, entity struct names, and cross-collection derived names.
 	if err := checkCollectionNameCollisions(ctx.Collections, ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Check for collections whose derived PascalCase identifiers collide.
@@ -55,7 +54,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// "OrgUsers", causing colliding handler types, file paths, and
 	// variable declarations.
 	if err := validateCollectionDerivedUniqueness(ctx.Collections); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Build entity lookup for field resolution.
@@ -78,7 +77,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// operations list produces unused imports and handler variables — Go
 	// compile errors.
 	if err := validateCollectionOperations(ctx.Collections); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that no collection contains duplicate operations. Duplicate
@@ -86,12 +85,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// duplicate route registrations (runtime panic), and duplicate OpenAPI
 	// operation entries (silent overwrite).
 	if err := validateOperationUniqueness(ctx.Collections); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that all parent cross-references resolve within the collections list.
 	if err := validateParentReferences(ctx.Collections, collectionMap); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that every entity with a parent declaration has exactly one
@@ -100,14 +99,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// are exposed. Lazy validation inside operation methods would miss
 	// read-only or delete-only entities.
 	if err := validateParentRefFields(ctx.Collections, entityMap); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that scope and upsert_key field-name references resolve to
 	// actual entity fields. The generator is the first consumer that knows
 	// both the collection and the entity's field definitions.
 	if err := validateFieldReferences(ctx.Collections, entityMap); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that when scope and parent are both set, the scope field is
@@ -115,15 +114,43 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// list handler extracts the parent ID from the URL and passes it as the
 	// filter for a different field — semantically wrong.
 	if err := validateScopeParentConsistency(ctx.Collections, entityMap); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that no two collections produce the same route path. Collisions
 	// cause runtime panics (Go 1.22 ServeMux) and OpenAPI path overwrites.
 	if err := validateRouteCollisions(ctx.Collections, collectionMap); err != nil {
-		return nil, nil, err
+		return err
 	}
 
+	for _, collection := range ctx.Collections {
+		if _, ok := entityMap[collection.Entity]; !ok {
+			return fmt.Errorf("collection %q references unknown entity %q", collection.Name, collection.Entity)
+		}
+		if _, err := collectionBasePath(collection, collectionMap); err != nil {
+			return fmt.Errorf("resolving path for collection %s: %w", collection.Name, err)
+		}
+	}
+
+	return nil
+}
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	if len(ctx.Collections) == 0 {
+		return nil, nil, nil
+	}
+	entityMap := make(map[string]types.Entity, len(ctx.Entities))
+	for _, entity := range ctx.Entities {
+		entityMap[entity.Name] = entity
+	}
+	collectionMap := make(map[string]types.Collection, len(ctx.Collections))
+	for _, collection := range ctx.Collections {
+		if _, exists := collectionMap[collection.Entity]; !exists {
+			collectionMap[collection.Entity] = collection
+		}
+	}
 	var files []gen.File
 	wiring := &gen.Wiring{}
 

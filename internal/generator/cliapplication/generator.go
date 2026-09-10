@@ -53,14 +53,23 @@ type Generator struct{}
 // MinimumGoVersion covers file operations and the OIDC dependency.
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil || ctx.ModuleName == "" || ctx.OutDirName == "" {
-		return nil, nil, fmt.Errorf("CLI requires a module and output namespace")
+		return fmt.Errorf("CLI requires a module and output namespace")
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
 	if !ok || factory == "" || gen.ValidatePath(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
-		return nil, nil, fmt.Errorf("CLI requires a factory outside generated output")
+		return fmt.Errorf("CLI requires a factory outside generated output")
 	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	factory := ctx.ComponentConfig["factory_package"].(string)
 	root := path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace)
 	record, err := json.Marshal(buildidentity.Current())
 	if err != nil {

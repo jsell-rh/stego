@@ -1,6 +1,6 @@
 kind: component
 name: postgres-adapter
-version: 3.13.0
+version: 3.13.1
 output_namespace: internal/storage
 
 config:

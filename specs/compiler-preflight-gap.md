@@ -1,9 +1,8 @@
-# Remaining command validation mismatch
+# Component checks before rendering
 
-C1 is not complete. The shared semantic gate rejects malformed declarations and
-many invalid combinations. Some component checks still run only in `Generate`.
-A successful `validate` result therefore does not yet prove that all component
-inputs satisfy their contracts.
+C1 is not complete. The shared semantic gate now calls component input checks
+before rendering. The factory mismatch below is fixed. A further namespace
+probe still exposes a command mismatch, recorded at the end of this document.
 
 A probe on 2026-09-10 used compiler
 `635dc4636f1d2ffa808b300a668c2eceaae52ad3` and a temporary copy of Hypershell
@@ -23,14 +22,67 @@ and dependency hashes before and after the commands. They were unchanged in all
 three copies. The temporary copies were removed. This is a command consistency
 defect, not evidence that invalid output was written.
 
-`compiler.Validate` calls `validateSource`. `Reconcile` calls the same function
-before generators run. However, `grpcapplication.Generator.Generate` checks the
-factory path and required peer contracts later. Registry type checks accept the
-factory as an ordinary string, so the earlier gate does not detect this case.
+The compiler now creates one resolved context for each active component after
+schema and port validation. It preserves archetype order and resolved overrides.
+The context includes default settings, peer namespaces, conventions, source
+entities, output paths, and captured declared input files. All component checks
+finish before any component renders output. Reconciliation uses those same
+contexts and retains input snapshots for the final commit check.
 
-The next C1 change must make these component input checks available before
-rendering. Validation and generation must share the same check and resolved
-context. The regression must require `validate`, `plan`, and `apply` to reject
-the input while preserving existing output. Other component-specific checks
-must be reviewed before C1 can be marked complete. A patch for this one example
-alone will not establish a complete common validation stage.
+`gen.ContextValidator` supplies the common check. It must not change its context,
+write files, or render output. Direct generator calls use the same checks.
+The following components now implement the contract:
+
+- CLI, HTTP, and gRPC application bridges: factory paths and required peers.
+- gRPC: declared protobuf inputs, imports, syntax, descriptors, and Go mapping.
+- PostgreSQL storage: names, fields, constraints, references, and migration mode.
+- REST: supported observation policy, collection names, references, and routes.
+- JWT authentication: mode, claim paths, and header syntax.
+- Kafka, outbox, Kubernetes, PostgreSQL clients, controllers, and search: their
+  existing path, dependency, setting, or metadata checks.
+
+This is 12 components. Health and tracing generators do not consume the context.
+The legacy SSO generator has no separate input rejection block to move. Its
+configuration and runtime behavior still need the broader security audit.
+Component patch versions advance for the changed input-check contract. Valid
+runtime source is intended to remain unchanged, apart from compiler build data.
+
+Regression tests verify the three command entry points, unchanged existing
+output and state, malformed protobufs, missing inputs, and a failure in a later
+component before any rendering. Another test changes a declared file during
+rendering. The next component still receives the bytes checked before rendering,
+and the changed filesystem input prevents a usable plan. Tests for individual
+components require direct generation and preflight to reject the same input.
+
+A probe with Hypershell `d0ad397d1d12fbfc99fffabb2bc2fdc280cbc8d5` repeats all
+three factory cases. All three commands now return exit 1. Output, state, and
+dependency hashes remain unchanged. Valid validation and planning also pass.
+
+A local timing check used ten calls per command after one warm-up call. The
+previous compiler was `635dc4636f1d2ffa808b300a668c2eceaae52ad3`. The new compiler
+was built from the working change with Go 1.26.8. The same temporary Hypershell
+copy was used for both. Other test processes were active. These figures include
+process startup and are a development comparison, not a capacity guarantee.
+
+| Command | Previous mean | New mean | New range |
+| --- | --- | --- | --- |
+| `validate` | 7.669 ms | 22.755 ms | 20.200–27.456 ms |
+| `plan` | 131.468 ms | 139.224 ms | 130.452–149.145 ms |
+
+Protobuf validation adds parsing to `validate`; `plan` also parses the captured
+bytes for generation. No input is reopened by the protobuf generator. A future
+prepared representation can remove repeated parsing if measurements justify it.
+
+The next C1 defect is explicit. In another temporary copy of that Hypershell
+commit, changing only the controller `output_namespace` from `controller` to
+`bad-name` made `validate` return exit 0. `plan` returned exit 1 while formatting
+the package declaration. A canonical filesystem path is not sufficient proof
+of a valid generated Go package name. This needs a common package-name contract,
+with checks for all applicable generators and valid nested output paths. The
+full component and assembly audit remains open. Do not mark C1 complete from the
+factory and preflight results alone.
+
+The full `go test -race -count=1 -mod=readonly ./...` run passed with PostgreSQL
+required on port 32900. The compiler package passed in 33.742 seconds and the
+storage generator package passed in 27.804 seconds. `go vet ./...` passed.
+The command and component regressions also passed separately under race detection.

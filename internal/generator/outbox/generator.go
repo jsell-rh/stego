@@ -27,13 +27,21 @@ var migration []byte
 
 type Generator struct{}
 
-// Generate emits queue code and an explicit migration. It does not start a
-// worker or apply the migration. The application must supply a transaction.
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+// ValidateContext checks the output namespace before queue code is rendered.
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	ns := ctx.OutputNamespace
 	if err := gen.ValidatePath(ns); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
+	ns := ctx.OutputNamespace
 	files := []gen.File{
 		{Path: path.Join(ns, "migrations/000001_outbox.sql"), Content: migration},
 	}

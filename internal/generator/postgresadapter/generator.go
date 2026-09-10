@@ -27,93 +27,91 @@ var validFieldNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 // Generator produces the postgres-adapter component's generated code.
 type Generator struct{}
 
-// Generate produces GORM-based model structs, a Store implementation, migration
-// code, SessionFactory, and GenericDao for all entities in the service declaration.
-// It returns wiring instructions for main.go assembly.
-func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+// ValidateContext checks storage names, constraints, and migration settings.
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if errs := types.ValidateVersioned(ctx.Entities, ctx.Collections); len(errs) > 0 {
-		return nil, nil, errs[0]
+		return errs[0]
 	}
 	if errs := types.ValidateLiveUnique(ctx.Entities, ctx.Collections); len(errs) > 0 {
-		return nil, nil, errs[0]
+		return errs[0]
 	}
 	migrations := "startup"
 	if value, present := ctx.ComponentConfig["migrations"]; present {
 		var ok bool
 		migrations, ok = value.(string)
 		if !ok || (migrations != "startup" && migrations != "external") {
-			return nil, nil, fmt.Errorf("migrations must be startup or external")
+			return fmt.Errorf("migrations must be startup or external")
 		}
 	}
 	if len(ctx.Entities) == 0 {
-		return nil, nil, nil
+		return nil
 	}
 
 	for _, entity := range ctx.Entities {
 		if tableName(entity.Name) == "stego_scan_checkpoints" {
-			return nil, nil, fmt.Errorf("entity name uses the internal checkpoint table")
+			return fmt.Errorf("entity name uses the internal checkpoint table")
 		}
 	}
 
 	// Validate no duplicate entity names.
 	if err := validateEntityUniqueness(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate no case-insensitive entity name collisions (would produce
 	// the same table name).
 	if err := validateCaseInsensitiveUniqueness(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate entity names don't collide with generator-internal identifiers.
 	if err := validateReservedNames(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that ref fields' "to" attributes reference existing entities.
 	if err := validateRefTargets(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate no duplicate field names within any entity.
 	if err := validateFieldUniqueness(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate entity names use a safe character set for all target systems.
 	if err := validateEntityNameCharset(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate field names use a safe character set for all target systems.
 	if err := validateFieldNameCharset(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate no field name collides with the implicit "id" primary key.
 	if err := validateNoImplicitIDCollision(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate derived PascalCase field names are unique within each entity.
 	if err := validateDerivedFieldUniqueness(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate derived entity names are valid, usable Go type names.
 	if err := validateDerivedEntityValidity(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate derived PascalCase field names are valid Go identifiers.
 	if err := validateDerivedFieldValidity(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	// Validate that enum fields have non-empty values.
 	if err := validateEnumValues(ctx.Entities); err != nil {
-		return nil, nil, err
+		return err
 	}
 
 	for _, entity := range ctx.Entities {
@@ -124,19 +122,33 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			switch field.Type {
 			case types.FieldTypeInt32, types.FieldTypeInt64, types.FieldTypeFloat, types.FieldTypeDouble:
 			default:
-				return nil, nil, fmt.Errorf("entity %s field %s: numeric bounds require a numeric type", entity.Name, field.Name)
+				return fmt.Errorf("entity %s field %s: numeric bounds require a numeric type", entity.Name, field.Name)
 			}
 			for _, bound := range []*float64{field.Min, field.Max} {
 				if bound != nil && (math.IsNaN(*bound) || math.IsInf(*bound, 0)) {
-					return nil, nil, fmt.Errorf("entity %s field %s: numeric bounds must be finite", entity.Name, field.Name)
+					return fmt.Errorf("entity %s field %s: numeric bounds must be finite", entity.Name, field.Name)
 				}
 			}
 			if field.Min != nil && field.Max != nil && *field.Min > *field.Max {
-				return nil, nil, fmt.Errorf("entity %s field %s: numeric range is empty", entity.Name, field.Name)
+				return fmt.Errorf("entity %s field %s: numeric range is empty", entity.Name, field.Name)
 			}
 		}
 	}
 
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	migrations := "startup"
+	if value, present := ctx.ComponentConfig["migrations"]; present {
+		migrations = value.(string)
+	}
+	if len(ctx.Entities) == 0 {
+		return nil, nil, nil
+	}
 	// Build upsert key lookup: entity name → list of upsert key field sets.
 	// Each collection with an upsert_key contributes a composite unique index.
 	upsertKeys := make(map[string][][]string)

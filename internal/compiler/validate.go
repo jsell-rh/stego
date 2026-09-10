@@ -35,8 +35,8 @@ func (r *ValidationResult) HasErrors() bool {
 }
 
 // Validate checks the service declaration against the registry and reports all
-// semantic validation errors without running generators. Infrastructure
-// failures (cannot read files, corrupt YAML) are returned as Go errors;
+// semantic validation errors without rendering output. Declaration and registry
+// loading failures are returned as Go errors. Component input failures and
 // semantic issues are collected in ValidationResult.Errors.
 func Validate(input ReconcilerInput) (*ValidationResult, error) {
 	source, err := loadCompilationSource(input)
@@ -68,8 +68,10 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Component and port validation require a valid archetype.
 	var components map[string]*types.Component
+	var baselineNames []string
 	if archetype != nil {
-		baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
+		names, err := collectComponentNames(archetype, svcDecl, reg)
+		baselineNames = names
 		if err != nil {
 			result.Errors = append(result.Errors, ValidationError{
 				Category: "component",
@@ -209,6 +211,14 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 	}
 	result.Errors = append(result.Errors, fillErrs...)
 
+	if !result.HasErrors() {
+		resolved, err := prepareComponents(input, source, baselineNames, components)
+		if err != nil {
+			result.Errors = append(result.Errors, ValidationError{Category: "generator", Message: err.Error()})
+		} else {
+			source.Resolved = resolved
+		}
+	}
 	return result, nil
 }
 

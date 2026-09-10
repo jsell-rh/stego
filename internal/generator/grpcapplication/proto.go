@@ -58,7 +58,7 @@ func (*Generator) InputFiles(config map[string]any) ([]string, error) {
 	return result, nil
 }
 
-func generateProto(ctx gen.Context) ([]gen.File, error) {
+func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 	items, err := sources(ctx.ComponentConfig)
 	if err != nil {
 		return nil, err
@@ -111,7 +111,11 @@ func generateProto(ctx gen.Context) ([]gen.File, error) {
 			return nil, err
 		}
 	}
-	plugin, err := (protogen.Options{}).New(request)
+	return (protogen.Options{}).New(request)
+}
+
+func generateProto(ctx gen.Context) ([]gen.File, error) {
+	plugin, err := prepareProto(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,6 @@
 kind: component
 name: rest-api
-version: 3.0.0
+version: 3.0.1
 output_namespace: internal/api
 
 config:

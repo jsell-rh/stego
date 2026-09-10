@@ -20,21 +20,30 @@ import (
 // Generator produces the tsl-search component's generated code.
 type Generator struct{}
 
-// Generate produces search helper files that wrap the TSL library for parsing
-// search expressions into parameterized SQL WHERE clauses. It generates
-// per-entity field mapping and validation.
-func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+// ValidateContext rejects fields that conflict with search metadata.
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if len(ctx.Entities) == 0 {
-		return nil, nil, nil
+		return nil
 	}
 
 	for _, entity := range ctx.Entities {
 		for _, field := range entity.Fields {
 			switch field.Name {
 			case "id", "created_time", "updated_time", "created_at", "updated_at":
-				return nil, nil, fmt.Errorf("search field %q conflicts with common metadata", field.Name)
+				return fmt.Errorf("search field %q conflicts with common metadata", field.Name)
 			}
 		}
+	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	if len(ctx.Entities) == 0 {
+		return nil, nil, nil
 	}
 	ns := ctx.OutputNamespace
 	if ns == "" {

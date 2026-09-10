@@ -26,32 +26,42 @@ var grantsTemplate string
 // Generator produces the jwt-auth component.
 type Generator struct{}
 
-func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	mode := setting(ctx, "mode", "middleware")
 	if mode != "middleware" && mode != "verifier" {
-		return nil, nil, fmt.Errorf("authentication mode must be middleware or verifier")
+		return fmt.Errorf("authentication mode must be middleware or verifier")
 	}
 	rolesClaim := ""
 	if value, present := ctx.ComponentConfig["roles_claim"]; present {
 		var ok bool
 		rolesClaim, ok = value.(string)
 		if !ok || !validRolesClaim(rolesClaim) {
-			return nil, nil, fmt.Errorf("roles_claim must be a dotted claim path or an empty string")
+			return fmt.Errorf("roles_claim must be a dotted claim path or an empty string")
 		}
 	}
+	header := setting(ctx, "header", "Authorization")
+	if textproto.CanonicalMIMEHeaderKey(header) == "" || strings.ContainsAny(header, " \t\r\n:") {
+		return fmt.Errorf("invalid authentication header %q", header)
+	}
+	for _, ch := range header {
+		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", ch)) {
+			return fmt.Errorf("invalid authentication header %q", header)
+		}
+	}
+
+	return nil
+}
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	mode := setting(ctx, "mode", "middleware")
+	rolesClaim, _ := ctx.ComponentConfig["roles_claim"].(string)
 	ns := ctx.OutputNamespace
 	if ns == "" {
 		ns = "internal/auth"
 	}
 	header := setting(ctx, "header", "Authorization")
-	if textproto.CanonicalMIMEHeaderKey(header) == "" || strings.ContainsAny(header, " \t\r\n:") {
-		return nil, nil, fmt.Errorf("invalid authentication header %q", header)
-	}
-	for _, ch := range header {
-		if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", ch)) {
-			return nil, nil, fmt.Errorf("invalid authentication header %q", header)
-		}
-	}
 	header = textproto.CanonicalMIMEHeaderKey(header)
 	errorType := "about:blank"
 	if ctx.ErrorTypeBase != "" {

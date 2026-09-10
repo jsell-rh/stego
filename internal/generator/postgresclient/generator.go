@@ -15,8 +15,16 @@ var source string
 
 type Generator struct{}
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
 	tmpl, err := template.New("postgres-client").Parse(source)

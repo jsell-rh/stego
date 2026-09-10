@@ -15,6 +15,7 @@ type compilationSource struct {
 	ServiceData []byte
 	Service     *types.ServiceDeclaration
 	Registry    *registry.Registry
+	Resolved    *resolvedCompilation
 }
 
 func loadCompilationSource(input ReconcilerInput) (*compilationSource, error) {

@@ -22,21 +22,30 @@ var fieldsSource string
 
 type Generator struct{}
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
-		return nil, nil, err
+		return err
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
 	if !ok || gen.ValidatePath(factory) != nil || factory == "" {
-		return nil, nil, fmt.Errorf("http-application requires a module-relative factory_package")
+		return fmt.Errorf("http-application requires a module-relative factory_package")
 	}
 	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
-		return nil, nil, fmt.Errorf("http-application requires public storage and JWT verifier contracts")
+		return fmt.Errorf("http-application requires public storage and JWT verifier contracts")
 	}
 	// A factory must remain outside generated output to prevent an import cycle.
 	if ctx.OutDirName != "" && (factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/")) {
-		return nil, nil, fmt.Errorf("application factory must be outside generated output")
+		return fmt.Errorf("application factory must be outside generated output")
 	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	factory := ctx.ComponentConfig["factory_package"].(string)
 	data := struct{ Package, Factory, Storage, Auth string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage}
 	bridge := `package {{.Package}}
 import (

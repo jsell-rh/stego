@@ -49,12 +49,20 @@ type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if ctx.OutputNamespace == "" || gen.ValidatePath(ctx.OutputNamespace) != nil {
-		return nil, nil, fmt.Errorf("controller requires a valid output namespace")
+		return fmt.Errorf("controller requires a valid output namespace")
 	}
 	if len(ctx.ComponentConfig) != 0 {
-		return nil, nil, fmt.Errorf("controller has no component settings")
+		return fmt.Errorf("controller has no component settings")
+	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
 	}
 	var files []gen.File
 	for _, entry := range []struct{ name, source string }{{"runtime.go", source}, {"keyed.go", keyedSource}, {"watch_keyed.go", watchKeyedSource}, {"sweep.go", sweepSource}, {"scan.go", scanSource}, {"stream.go", streamSource}, {"observation.go", observationSource}, {"metrics.go", metricsSource}, {"monitor.go", monitorSource}, {"checkpoint.go", checkpointSource}, {"cycle.go", cycleSource}} {

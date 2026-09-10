@@ -22,6 +22,13 @@ type Generator interface {
 	Generate(ctx Context) ([]File, *Wiring, error)
 }
 
+// ContextValidator checks resolved component inputs before any generator runs.
+// It must not change the context, write files, or render output. Generate must
+// use the same checks when called directly. The compiler supplies captured inputs.
+type ContextValidator interface {
+	ValidateContext(ctx Context) error
+}
+
 // GoVersionRequirement declares the minimum Go target for generated code.
 // The compiler checks this requirement before it runs any generator.
 // Use Go version syntax without the "go" prefix, for example "1.25".

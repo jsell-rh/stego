@@ -12,7 +12,6 @@ import (
 
 	"github.com/jsell-rh/stego/internal/buildidentity"
 	"github.com/jsell-rh/stego/internal/gen"
-	"github.com/jsell-rh/stego/internal/ports"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/slot"
 	"github.com/jsell-rh/stego/internal/types"
@@ -138,128 +137,14 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	archetype := reg.Archetype(svcDecl.Archetype)
-
-	// Collect baseline component names: archetype components + default_auth + mixin components.
-	baselineNames, err := collectComponentNames(archetype, svcDecl, reg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Look up baseline components from registry.
-	baselineComponents := make(map[string]*types.Component)
-	for _, name := range baselineNames {
-		comp := reg.Component(name)
-		if comp == nil {
-			return nil, fmt.Errorf("component %q not found in registry (referenced by archetype %q)", name, archetype.Name)
+	resolved := source.Resolved
+	components, componentNames := resolved.Components, resolved.Names
+	outDir, outDirName, slotsPackage := resolved.OutDir, resolved.OutDirName, resolved.SlotsPackage
+	for name, snapshot := range resolved.InputSnapshots {
+		if before, exists := inputSnapshots[name]; exists && before != snapshot {
+			return nil, fmt.Errorf("input %q changed during compilation", name)
 		}
-		baselineComponents[name] = comp
-	}
-
-	// Apply convention overrides from the service declaration (e.g.
-	// "cors: disabled" suppresses CORS middleware generation even when the
-	// archetype defaults to "cors: enabled").
-	conventions := applyConventionOverrides(archetype.Conventions, svcDecl.Overrides)
-
-	// Extract port binding overrides from service declaration.
-	// String-valued entries in Overrides represent port→component bindings;
-	// map-valued entries represent component config overrides (handled separately).
-	// Convention override keys (e.g. "cors") are excluded from port resolution.
-	servicePortOverrides := make(map[string]string)
-	for key, val := range svcDecl.Overrides {
-		if strVal, ok := val.(string); ok {
-			if isConventionOverrideKey(key) {
-				continue
-			}
-			servicePortOverrides[key] = strVal
-		}
-	}
-
-	// Resolve ports. The resolver loads override components from the registry
-	// and excludes replaced archetype defaults from the active component set.
-	resolution, err := ports.Resolve(ports.ResolveInput{
-		Components:        baselineComponents,
-		ArchetypeBindings: archetype.Bindings,
-		ServiceOverrides:  servicePortOverrides,
-		ComponentLoader:   reg.Component,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("resolving ports: %w", err)
-	}
-
-	// Use the resolver's active component set (post-override) for all
-	// downstream processing. Rebuild an ordered component name list:
-	// preserve baseline order (filtering out replaced defaults), then
-	// append newly loaded override components.
-	components := resolution.ActiveComponents
-	componentNames := make([]string, 0, len(components))
-	for _, name := range baselineNames {
-		if _, ok := components[name]; ok {
-			componentNames = append(componentNames, name)
-		}
-	}
-	// Append override components that were loaded by the resolver and are
-	// not already in the ordered list (i.e. they were not in the baseline).
-	// Sort for deterministic ordering.
-	baselineSet := make(map[string]bool, len(baselineNames))
-	for _, name := range baselineNames {
-		baselineSet[name] = true
-	}
-	var newOverrides []string
-	for name := range components {
-		if !baselineSet[name] {
-			newOverrides = append(newOverrides, name)
-		}
-	}
-	sort.Strings(newOverrides)
-	componentNames = append(componentNames, newOverrides...)
-
-	// Determine the slots package path. Slots are placed outside internal/
-	// so that fills (which live at the project root, outside out/) can import
-	// the generated slot interfaces.
-	slotsPackage := ""
-	if len(svcDecl.Slots) > 0 {
-		slotsPackage = "slots"
-	}
-
-	// Compute the output directory name relative to the project root.
-	// go.mod is placed at the project root so that both generated packages
-	// (under out/) and fill packages (under fills/) are within the module
-	// root. Import paths for generated packages must include this prefix.
-	outDir := input.OutDir
-	if outDir == "" {
-		outDir = filepath.Join(input.ProjectDir, "out")
-	}
-	outDirName, err := outputRelative(input.ProjectDir, outDir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve the auth package import path for generators that need to
-	// extract caller identity from the request context (e.g. rest-api
-	// populating Caller on slot requests via auth.IdentityFromContext).
-	authPackage := ""
-	for _, compName := range componentNames {
-		comp := components[compName]
-		for _, p := range comp.Provides {
-			if p.Name == "auth-provider" && comp.OutputNamespace != "" {
-				authPackage = input.ModuleName + "/" + outDirName + "/" + comp.OutputNamespace
-				break
-			}
-		}
-		if authPackage != "" {
-			break
-		}
-	}
-
-	// Build peer namespace map so generators can reference types from other
-	// components (e.g. storage adapter imports API package's ListOptions).
-	peerNamespaces := make(map[string]string, len(componentNames))
-	for _, compName := range componentNames {
-		comp := components[compName]
-		if comp.OutputNamespace != "" {
-			peerNamespaces[compName] = comp.OutputNamespace
-		}
+		inputSnapshots[name] = snapshot
 	}
 
 	// Run all component generators in archetype-declared order.
@@ -270,34 +155,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		comp := components[compName]
 		generator := input.Generators[compName]
 
-		ctx := gen.Context{
-			Conventions:     conventions,
-			Entities:        svcDecl.Entities,
-			Collections:     svcDecl.Collections,
-			SlotBindings:    svcDecl.Slots,
-			ModuleName:      input.ModuleName,
-			SlotsPackage:    slotsPackage,
-			ComponentConfig: resolveComponentConfig(comp, svcDecl),
-			OutputNamespace: comp.OutputNamespace,
-			OutDirName:      outDirName,
-			AuthPackage:     authPackage,
-			BasePath:        svcDecl.BasePath,
-			ServiceName:     svcDecl.Name,
-			ErrorTypeBase:   svcDecl.ErrorTypeBase,
-			PeerNamespaces:  peerNamespaces,
-			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
-			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
-		}
-		if provider, ok := generator.(gen.InputProvider); ok {
-			names, err := provider.InputFiles(ctx.ComponentConfig)
-			if err != nil {
-				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
-			}
-			ctx.Inputs, err = captureGeneratorInputs(input.ProjectDir, outDirName, names, inputSnapshots)
-			if err != nil {
-				return nil, fmt.Errorf("generator %q inputs: %w", compName, err)
-			}
-		}
+		ctx := resolved.Contexts[compName]
 
 		files, wiring, err := generator.Generate(ctx)
 		if err != nil {

@@ -23,14 +23,23 @@ var discoverySource string
 
 type Generator struct{}
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
-		return nil, nil, err
+		return err
 	}
 	peer := ctx.PeerNamespaces["http-application"]
 	if ctx.ModuleName == "" || peer == "" || gen.ValidatePath(peer) != nil {
-		return nil, nil, fmt.Errorf("kubernetes-client requires the generated HTTP application client")
+		return fmt.Errorf("kubernetes-client requires the generated HTTP application client")
 	}
+
+	return nil
+}
+
+func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.ValidateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	peer := ctx.PeerNamespaces["http-application"]
 	data := struct{ Package, Transport string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, peer, "client")}
 	files := []gen.File{}
 	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}} {

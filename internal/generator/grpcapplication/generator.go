@@ -24,28 +24,51 @@ var streamHeadersSource string
 
 type Generator struct{}
 
-func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+func (*Generator) ValidateContext(ctx gen.Context) error {
+	if err := validateContext(ctx); err != nil {
+		return err
+	}
+	_, err := prepareProto(ctx)
+	return err
+}
+func validateContext(ctx gen.Context) error {
 	if err := gen.ValidatePath(ctx.OutputNamespace); err != nil {
-		return nil, nil, err
+		return err
 	}
 	factory, ok := ctx.ComponentConfig["factory_package"].(string)
 	if !ok || factory == "" || gen.ValidatePath(factory) != nil || factory == ctx.OutDirName || strings.HasPrefix(factory, ctx.OutDirName+"/") {
-		return nil, nil, fmt.Errorf("grpc-application requires a factory_package outside generated output")
+		return fmt.Errorf("grpc-application requires a factory_package outside generated output")
 	}
 	if ctx.ModuleName == "" || ctx.StorageContract == "" || ctx.AuthPackage == "" || ctx.PeerNamespaces["jwt-auth"] == "" {
-		return nil, nil, fmt.Errorf("grpc-application requires public storage and JWT verifier contracts")
+		return fmt.Errorf("grpc-application requires public storage and JWT verifier contracts")
 	}
 	watch := false
 	if value, present := ctx.ComponentConfig["watch_events"]; present {
 		var ok bool
 		watch, ok = value.(bool)
 		if !ok {
-			return nil, nil, fmt.Errorf("watch_events must be a boolean")
+			return fmt.Errorf("watch_events must be a boolean")
 		}
 	}
 	if watch && (ctx.EventsContract == "" || ctx.PeerNamespaces["outbox"] == "") {
-		return nil, nil, fmt.Errorf("watch_events requires the outbox and public event contract")
+		return fmt.Errorf("watch_events requires the outbox and public event contract")
 	}
+
+	if watch {
+		if err := gen.ValidatePath(ctx.PeerNamespaces["outbox"]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := validateContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	factory := ctx.ComponentConfig["factory_package"].(string)
+	watch, _ := ctx.ComponentConfig["watch_events"].(bool)
 	files, err := generateProto(ctx)
 	if err != nil {
 		return nil, nil, err

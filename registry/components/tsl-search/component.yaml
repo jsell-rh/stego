@@ -1,6 +1,6 @@
 kind: component
 name: tsl-search
-version: 1.0.0
+version: 1.0.1
 output_namespace: internal/search
 
 requires:
