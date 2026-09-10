@@ -193,3 +193,8 @@ error behavior, tests, and application evidence.
 reserves time for a conditional save after work. Parent cancellation prevents
 the save. Completion resets the cursor so that the next pass scans all data.
 See [scan checkpoints](../../../specs/scan-checkpoints.md).
+
+`ScanCycle` retains action failures across bounded passes and process replacement.
+It uses versioned checkpoint callbacks and a bounded record with no provider error
+text. A completed cycle with an earlier failure returns `ErrCycleFailed`.
+See [scan-cycle outcomes](../../../specs/scan-cycles.md) for invalidation rules.
