@@ -37,6 +37,9 @@ var observationTests []byte
 //go:embed testdata/metrics_test.go
 var metricsTests []byte
 
+//go:embed testdata/checkpoint_test.go
+var checkpointTests []byte
+
 func TestGeneratedController(t *testing.T) {
 	files, _, err := new(Generator).Generate(gen.Context{OutputNamespace: "controller"})
 	if err != nil {
@@ -46,7 +49,7 @@ func TestGeneratedController(t *testing.T) {
 	files = append(files, gen.File{Path: "controller/admission_test.go", Content: admissionTests})
 	files = append(files, gen.File{Path: "controller/stream_test.go", Content: streamTests}, gen.File{Path: "controller/observation_test.go", Content: observationTests})
 	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests}, gen.File{Path: "controller/watch_keyed_test.go", Content: watchKeyedTests})
-	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests})
+	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests}, gen.File{Path: "controller/checkpoint_test.go", Content: checkpointTests})
 	project := t.TempDir()
 	for _, file := range files {
 		name := filepath.Join(project, file.Path)

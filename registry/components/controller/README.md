@@ -188,3 +188,8 @@ deadline. Both callbacks run synchronously and retain cancellation. The caller
 owns status values, access rules, revision checks, and atomic events. See the
 [observation budget contract](../../../specs/observation-budgets.md) for limits,
 error behavior, tests, and application evidence.
+
+`ScanCheckpointed` connects `ScanFrom` to durable checkpoint callbacks. It
+reserves time for a conditional save after work. Parent cancellation prevents
+the save. Completion resets the cursor so that the next pass scans all data.
+See [scan checkpoints](../../../specs/scan-checkpoints.md).

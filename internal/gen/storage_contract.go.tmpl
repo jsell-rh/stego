@@ -239,3 +239,18 @@ type Repository interface {
 	Transactor
 	ResourceLocker
 }
+
+// ScanCheckpoint is a durable cursor with an independent version. Version zero
+// means that the key has no stored row. An empty cursor starts a full scan.
+type ScanCheckpoint struct { After string; Version int64 }
+var ErrCheckpoint = errors.New("invalid scan checkpoint")
+var ErrCheckpointConflict = errors.New("scan checkpoint version changed")
+// CheckpointStore stores one cursor per entity, resource ID, and fixed scope.
+// Authorize the resource and scope before use. Save requires a transaction and
+// the version read before work. A conflict requires a new read and new work.
+// Do not remove completed rows: their versions reject late writes. The caller
+// must bound the set of scopes. This interface does not lock provider actions.
+type CheckpointStore interface {
+ LoadCheckpoint(context.Context,string,string,string)(ScanCheckpoint,error)
+ SaveCheckpoint(context.Context,string,string,string,int64,string)(ScanCheckpoint,error)
+}

@@ -43,14 +43,11 @@ func (n observedNamer) ColumnName(table, column string) string {
 }
 
 func TestStorePreparesRelatedSchemasBeforeConcurrentUse(t *testing.T) {
+	_, db := testStore(t)
 	for range 20 {
 		var started atomic.Bool
 		var late atomic.Int32
-		orm, err := gorm.Open(postgres.Open("host=127.0.0.1 port=1 user=test dbname=test sslmode=disable"), &gorm.Config{DryRun: true, DisableAutomaticPing: true, NamingStrategy: observedNamer{started: &started, late: &late}, Logger: logger.Default.LogMode(logger.Silent)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		db, err := orm.DB()
+		orm, err := gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{NamingStrategy: observedNamer{started: &started, late: &late}, Logger: logger.Default.LogMode(logger.Silent)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +65,6 @@ func TestStorePreparesRelatedSchemasBeforeConcurrentUse(t *testing.T) {
 			})
 		}
 		wait.Wait()
-		db.Close()
 		if late.Load() != 0 {
 			t.Fatal("store deferred schema initialization until concurrent queries")
 		}

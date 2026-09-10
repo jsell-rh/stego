@@ -556,3 +556,30 @@ connection lifetime, time and message limits, and safe SQL error metadata no
 longer reside in the provider. SQL queries and decisions about repair remain
 in Hypershell. The complete CNPG Gateway workflow passed with this boundary
 in 362.168 seconds under race detection.
+
+
+## Durable identity scan progress
+
+The Gateway identity controller now uses generated `ScanCheckpointed` and
+`CheckpointStore` contracts. This replaces the process-local cursor map described
+above. A page-budget regression with 10,100 references first failed after
+controller replacement: the new controller repeated the first 10,000 references.
+The saved PostgreSQL cursor now permits the next controller to reach the tail.
+
+The generated runtime reserves a commit budget after work. Parent cancellation
+prevents the commit. A failed save can repeat the unsaved prefix. A complete scan
+resets the cursor and retains its version to reject stale writers. PostgreSQL
+stores one row per permitted resource and fixed scope. Hypershell permits one
+identity-user scan scope for each Gateway. It owns access checks, source mapping,
+and provider actions; it has no cursor cache or checkpoint SQL.
+
+Application tests read 10,106 retained references across API restart. Another
+uses the actual identity controller with a recording provider, replaces both the
+controller and API, and checks current grant state before resumed provider work.
+The public Gateway revision does not change for a checkpoint save. See
+[scan checkpoints](scan-checkpoints.md) for the contract and limits.
+
+This closes the identity cursor's restart and process-memory gaps. Distributed
+provider ownership, durable retry scheduling and conditions, safe history
+retirement, and production capacity evidence remain open. A checkpoint version
+is not a provider lease and does not fence external actions.

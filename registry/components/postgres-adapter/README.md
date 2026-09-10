@@ -21,3 +21,8 @@ a total or offset. It shares List filters and current-observation projection.
 The caller must authorize access and select the required deletion visibility.
 See [the cursor contract](../../../specs/storage-cursors.md) for limits,
 continuation rules, tests, and application evidence.
+
+`CheckpointStore` stores scan progress with an independent version. It rejects
+stale saves, retains the version when a scan completes, and requires a store
+transaction for each save. The application must authorize each fixed scope.
+See [scan checkpoints](../../../specs/scan-checkpoints.md).

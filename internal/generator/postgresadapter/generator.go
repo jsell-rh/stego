@@ -49,6 +49,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, nil
 	}
 
+	for _, entity := range ctx.Entities {
+		if tableName(entity.Name) == "stego_scan_checkpoints" {
+			return nil, nil, fmt.Errorf("entity name uses the internal checkpoint table")
+		}
+	}
+
 	// Validate no duplicate entity names.
 	if err := validateEntityUniqueness(ctx.Entities); err != nil {
 		return nil, nil, err
@@ -176,6 +182,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, err
 		}
 		files = append(files, cursor)
+		checkpoints, err := generateCheckpoints(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, checkpoints...)
 		summary, err := generateCleanupSummary(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -233,6 +244,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
 	"ErrVersionConflict":       true,
+	"ScanCheckpointMigration":  true,
+	"verifyScanCheckpoints":    true,
+	"checkpointcontract":       true,
+	"checkpointText":           true,
+	"validCheckpointKey":       true,
+	"StegoScanCheckpoint":      true,
 	"ResourceVersionMigration": true,
 	"verifyResourceVersions":   true,
 	"migrateResourceVersions":  true,
@@ -699,6 +716,9 @@ func filterKeys[V any](values map[string]V) []string {
 	fmt.Fprintln(&buf, "}")
 	if hasVersioned(entities) {
 		fmt.Fprintln(&buf, "if err := verifyResourceVersions(db); err != nil { return nil, err }")
+	}
+	if ctx.StorageContract != "" {
+		fmt.Fprintln(&buf, "if err := verifyScanCheckpoints(db); err != nil { return nil, err }")
 	}
 	fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	fmt.Fprintf(&buf, "}\n\n")
