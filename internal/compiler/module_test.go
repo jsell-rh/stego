@@ -151,8 +151,8 @@ func TestReconcileRetainsApplicationModuleAcrossApplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.HasChanges() {
-		t.Fatalf("application dependency edit caused output changes: %s", FormatPlan(plan))
+	if plan.hasOutputChanges() || !plan.StateChanged {
+		t.Fatalf("application dependency edit did not update only input state: %s", FormatPlan(plan))
 	}
 	if err := Apply(plan, project, ""); err != nil {
 		t.Fatal(err)

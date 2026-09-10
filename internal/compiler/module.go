@@ -84,10 +84,6 @@ func moduleRequirements(wirings []ComponentWiring) (map[string]string, error) {
 // and comments. It changes only unmet compiler requirements. It does not resolve
 // dependencies or use the network.
 func mergeProjectModule(projectDir string, required gen.File) (gen.File, error) {
-	want, err := modfile.Parse("generated go.mod", required.Content, nil)
-	if err != nil {
-		return gen.File{}, fmt.Errorf("invalid generated module: %w", err)
-	}
 	root, err := os.OpenRoot(projectDir)
 	if err != nil {
 		return gen.File{}, err
@@ -97,11 +93,20 @@ func mergeProjectModule(projectDir string, required gen.File) (gen.File, error) 
 		return gen.File{}, err
 	}
 	data, err := readModule(root)
-	if errors.Is(err, os.ErrNotExist) {
-		return required, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return gen.File{}, fmt.Errorf("reading project module: %w", err)
+	}
+	return mergeCapturedModule(data, !errors.Is(err, os.ErrNotExist), required)
+}
+
+// mergeCapturedModule uses the same immutable bytes as the input manifest.
+func mergeCapturedModule(data []byte, exists bool, required gen.File) (gen.File, error) {
+	want, err := modfile.Parse("generated go.mod", required.Content, nil)
+	if err != nil {
+		return gen.File{}, fmt.Errorf("invalid generated module: %w", err)
+	}
+	if !exists {
+		return required, nil
 	}
 	current, err := modfile.Parse("go.mod", data, nil)
 	if err != nil {

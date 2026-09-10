@@ -307,20 +307,21 @@ func TestReconcile_SubsequentPlanNoChanges(t *testing.T) {
 		t.Fatalf("first Apply failed: %v", err)
 	}
 
-	// Second plan — no changes expected.
+	// The first apply created go.mod. The next plan records this new input.
 	plan2, err := Reconcile(reconcilerInput)
 	if err != nil {
 		t.Fatalf("second Reconcile failed: %v", err)
 	}
 
-	if plan2.HasChanges() {
-		var changes []string
-		for _, f := range plan2.Files {
-			if f.Action != ActionUnchanged {
-				changes = append(changes, f.Path+" ("+string(f.Action)+")")
-			}
-		}
-		t.Errorf("expected no changes on second plan, but got changes: %s", strings.Join(changes, ", "))
+	if plan2.hasOutputChanges() || !plan2.StateChanged || plan1.NewState.LastApplied.Inputs.Files["go.mod"].Exists || !plan2.NewState.LastApplied.Inputs.Files["go.mod"].Exists {
+		t.Fatal("bootstrap module input was not recorded")
+	}
+	if err := Apply(plan2, projectDir, outDir); err != nil {
+		t.Fatal(err)
+	}
+	plan2, err = Reconcile(reconcilerInput)
+	if err != nil || plan2.HasChanges() {
+		t.Fatal("identical inputs did not stabilize", err)
 	}
 
 	formatted := FormatPlan(plan2)
@@ -993,6 +994,7 @@ func TestComputePlan_UsesOutDir(t *testing.T) {
 		tmpDir,
 		"",
 		"",
+		nil,
 	)
 
 	if err != nil {

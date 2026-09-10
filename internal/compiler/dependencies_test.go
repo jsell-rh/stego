@@ -115,8 +115,15 @@ func TestDependencyResolutionUsesLocalReplacementsAndPreservesThem(t *testing.T)
 			t.Fatal(err)
 		}
 		plan, err := Reconcile(input)
-		if err != nil || plan.HasChanges() {
+		if err != nil || plan.hasOutputChanges() {
 			t.Fatalf("resolution changed compiler output: %v", err)
+		}
+		if err := Apply(plan, input.ProjectDir, ""); err != nil {
+			t.Fatal(err)
+		}
+		stable, err := Reconcile(input)
+		if err != nil || stable.HasChanges() {
+			t.Fatal("resolved inputs did not stabilize", err)
 		}
 	}
 	resolved, err := os.ReadFile(modulePath)

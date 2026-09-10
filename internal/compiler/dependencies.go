@@ -33,7 +33,7 @@ func resolveDependencies(ctx context.Context, input ReconcilerInput, run depende
 	if err != nil {
 		return err
 	}
-	if plan.HasChanges() {
+	if plan.hasOutputChanges() {
 		return fmt.Errorf("generated code is not current; run 'stego apply' before 'stego deps'")
 	}
 	project, err := os.OpenRoot(plan.projectDir)

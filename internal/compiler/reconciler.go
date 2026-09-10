@@ -60,11 +60,12 @@ type Plan struct {
 	// StateChanged includes input and ownership changes with unchanged output.
 	StateChanged bool
 
-	registry     *registry.Registry
-	requirements map[string]string
-	snapshots    map[string]fileSnapshot
-	projectDir   string
-	outDir       string
+	inputManifestSHA string
+	registry         *registry.Registry
+	requirements     map[string]string
+	snapshots        map[string]fileSnapshot
+	projectDir       string
+	outDir           string
 }
 
 // HasChanges returns true if the plan includes any generate, update, delete,
@@ -73,6 +74,10 @@ func (p *Plan) HasChanges() bool {
 	if p.StateChanged {
 		return true
 	}
+	return p.hasOutputChanges()
+}
+
+func (p *Plan) hasOutputChanges() bool {
 	if len(p.EntityChanges) > 0 {
 		return true
 	}
@@ -129,7 +134,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, fmt.Errorf("service validation failed:\n%s", FormatValidation(validation))
 	}
 	serviceData, svcDecl, reg := source.ServiceData, source.Service, source.Registry
-	existingState, inputSnapshots, err := captureProjectInputs(input.ProjectDir, serviceData)
+	existingState, inputSnapshots, moduleData, err := captureProjectInputs(input.ProjectDir, serviceData)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +350,7 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 	}
 	for i, file := range sharedFiles {
 		if file.Path == "go.mod" {
-			sharedFiles[i], err = mergeProjectModule(input.ProjectDir, file)
+			sharedFiles[i], err = mergeCapturedModule(moduleData, inputSnapshots["go.mod"].Exists, file)
 			if err != nil {
 				return nil, err
 			}
@@ -360,14 +365,19 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		return nil, err
 	}
 
+	manifest, err := newInputManifest(input, outDirName, inputSnapshots)
+	if err != nil {
+		return nil, err
+	}
 	// Compute plan by comparing generated files against existing state.
-	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA, reg.ContentHash())
+	plan, err := computePlan(allFiles, existingState, serviceData, svcDecl.Entities, components, outDir, input.ProjectDir, input.RegistrySHA, reg.ContentHash(), manifest)
 	if err != nil {
 		return nil, err
 	}
 	if err := bindPlanInputs(plan, input.ProjectDir, inputSnapshots); err != nil {
 		return nil, err
 	}
+	plan.inputManifestSHA = manifest.SHA256
 	plan.registry = reg
 	if err := plan.verifyRegistry(); err != nil {
 		return nil, err
@@ -694,6 +704,7 @@ func computePlan(
 	projectDir string,
 	registrySHA string,
 	registryContentHash string,
+	manifest *InputManifest,
 ) (*Plan, error) {
 	root, err := os.OpenRoot(projectDir)
 	if err != nil {
@@ -793,6 +804,7 @@ func computePlan(
 	compilerBuild := buildidentity.Current()
 	newState := &State{
 		LastApplied: &AppliedState{
+			Inputs:                manifest,
 			CompilerBuild:         &compilerBuild,
 			ServiceHash:           serviceHash,
 			RegistrySHA:           registrySHA,

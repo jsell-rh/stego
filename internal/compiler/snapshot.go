@@ -57,31 +57,35 @@ func readSnapshot(root *os.Root, name string, limit int64, keepData bool) ([]byt
 	return data.Bytes(), fileSnapshot{Exists: true, Hash: fmt.Sprintf("%x", hash.Sum(nil)), Mode: info.Mode()}, nil
 }
 
-func captureProjectInputs(projectDir string, serviceData []byte) (*State, map[string]fileSnapshot, error) {
+func captureProjectInputs(projectDir string, serviceData []byte) (*State, map[string]fileSnapshot, []byte, error) {
 	root, err := os.OpenRoot(projectDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer root.Close()
 	snapshots := make(map[string]fileSnapshot)
 	state := &State{}
+	var moduleData []byte
 	for _, name := range []string{"service.yaml", "go.mod", "go.sum", ".stego/state.yaml", ".stego/config.yaml"} {
-		data, snapshot, err := readSnapshot(root, name, parser.MaxDocumentBytes, name == ".stego/state.yaml")
+		data, snapshot, err := readSnapshot(root, name, parser.MaxDocumentBytes, name == ".stego/state.yaml" || name == "go.mod")
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		snapshots[name] = snapshot
+		if name == "go.mod" {
+			moduleData = data
+		}
 		if name == "service.yaml" && (!snapshot.Exists || snapshot.Hash != HashBytes(serviceData)) {
-			return nil, nil, fmt.Errorf("service.yaml changed during compilation; run plan again")
+			return nil, nil, nil, fmt.Errorf("service.yaml changed during compilation; run plan again")
 		}
 		if name == ".stego/state.yaml" && snapshot.Exists {
 			state, err = decodeState(data, name)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 		}
 	}
-	return state, snapshots, nil
+	return state, snapshots, moduleData, nil
 }
 
 func verifySnapshots(root *os.Root, snapshots map[string]fileSnapshot) error {
@@ -136,6 +140,10 @@ func (plan *Plan) verifyRegistry() error {
 	}
 	if plan.NewState.LastApplied.CompilerBuild == nil || *plan.NewState.LastApplied.CompilerBuild != buildidentity.Current() {
 		return fmt.Errorf("plan has no matching compiler build record; run plan again")
+	}
+	manifest := plan.NewState.LastApplied.Inputs
+	if manifest == nil || manifest.validate() != nil || manifest.SHA256 != plan.inputManifestSHA {
+		return fmt.Errorf("plan has no matching input manifest; run plan again")
 	}
 	return plan.registry.Verify()
 }

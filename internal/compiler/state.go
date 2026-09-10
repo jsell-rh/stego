@@ -24,6 +24,9 @@ type State struct {
 
 // AppliedState captures the details of a single apply operation.
 type AppliedState struct {
+	// Inputs records captured project files and supplied generation options.
+	Inputs *InputManifest `yaml:"inputs,omitempty"`
+
 	// CompilerBuild records selected metadata of the compiler executable.
 	// Old state can omit this record.
 	CompilerBuild *buildidentity.Record `yaml:"compiler_build,omitempty"`
@@ -102,6 +105,9 @@ func SaveState(path string, state *State) error {
 	if err != nil {
 		return fmt.Errorf("marshaling state: %w", err)
 	}
+	if len(data) > parser.MaxDocumentBytes {
+		return fmt.Errorf("state exceeds the %d-byte document limit", parser.MaxDocumentBytes)
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing state file: %w", err)
 	}
@@ -114,6 +120,14 @@ func validateStatePaths(state *State) error {
 	}
 	if state.LastApplied == nil {
 		return nil
+	}
+	if manifest := state.LastApplied.Inputs; manifest != nil {
+		if err := manifest.validate(); err != nil {
+			return err
+		}
+		if manifest.Files["service.yaml"].SHA256 != state.LastApplied.ServiceHash || manifest.Options.RegistryRef != state.LastApplied.RegistrySHA {
+			return fmt.Errorf("input manifest does not match the applied service or registry reference")
+		}
 	}
 	if record := state.LastApplied.CompilerBuild; record != nil {
 		if err := record.Validate(); err != nil {

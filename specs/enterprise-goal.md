@@ -2452,3 +2452,10 @@ The measured late inventory page improved from 3.632–3.876 ms with offsets to
 See the variant's `acceptance/identity-cursors.md` for benchmark conditions and
 limits. Durable progress, bounds for incomplete resource cursors, cross-process
 fencing, and production recovery targets remain open.
+
+The compiler now records [project input manifests](project-input-manifests.md).
+The manifest includes captured project files, declared generator inputs, and
+supplied generation options. Input changes remain visible when generated code
+is unchanged. Module merging uses the captured bytes. Artifact verification,
+external tool identities, undeclared generator reads, and complete application
+build inputs remain open C3 work.
