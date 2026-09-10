@@ -1,0 +1,91 @@
+package command
+
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "net/http"
+ "net/url"
+ "slices"
+ "sort"
+ "strings"
+ client {{printf "%q" .Client}}
+)
+
+func validateImmutableApply(r ApplyResource) error {
+ if len(r.ImmutableIdentity)==0{return nil}
+ if len(r.ImmutableIdentity)>8||len(r.PatchFields)!=0{return errors.New("invalid immutable apply definition")}
+ fields:=map[string]Field{};for _,f:=range r.CreateFields{fields[f.Key]=f}
+ seen:=map[string]bool{}
+ for _,key:=range r.ImmutableIdentity{
+  f,ok:=fields[key]
+  if !ok||seen[key]||f.Type!="string"||!f.Required||f.Nullable{return errors.New("immutable identity requires unique required string fields")}
+  seen[key]=true
+ }
+ return nil
+}
+func immutableIdentity(r ApplyResource,body map[string]json.RawMessage)(map[string]string,error){
+ if err:=applyFields(r.CreateFields,body,true);err!=nil{return nil,err}
+ values:=map[string]string{}
+ for _,key:=range r.ImmutableIdentity{
+  var value string
+  if json.Unmarshal(body[key],&value)!=nil||len(value)>256||strings.TrimSpace(value)==""{return nil,errors.New("invalid immutable apply identity")}
+  values[key]=value
+ }
+ return values,nil
+}
+func immutableMatches(p *applyPlan,row map[string]json.RawMessage)error{
+ fields:=map[string]Field{};for _,f:=range p.resource.CreateFields{fields[f.Key]=f}
+ for key,want:=range p.body{
+  got,ok:=row[key]
+  if !ok||!fieldValue(fields[key],got){return errors.New("immutable apply resource differs from the requested fields")}
+  if !equalApplyValue(fields[key],want,got){return errors.New("immutable apply resource differs from the requested fields")}
+ }
+ return nil
+}
+func equalApplyScalar[T comparable](left,right []byte)bool{
+ var a,b T
+ return json.Unmarshal(left,&a)==nil&&json.Unmarshal(right,&b)==nil&&a==b
+}
+func equalApplyValue(field Field,left,right []byte)bool{
+ leftNull:=bytes.Equal(bytes.TrimSpace(left),[]byte("null"));rightNull:=bytes.Equal(bytes.TrimSpace(right),[]byte("null"))
+ if leftNull||rightNull{return leftNull&&rightNull}
+ switch field.Type{
+ case "string":return equalApplyScalar[string](left,right)
+ case "integer":return equalApplyScalar[int64](left,right)
+ case "boolean":return equalApplyScalar[bool](left,right)
+ case "string-list":var a,b []string;return json.Unmarshal(left,&a)==nil&&json.Unmarshal(right,&b)==nil&&slices.Equal(a,b)
+ }
+ return false
+}
+
+func applyLookup(ctx context.Context,transport *client.Client,headers http.Header,p *applyPlan)(map[string]json.RawMessage,error){
+ route:=p.resource.Path
+ if p.id!=""{route+="/"+url.PathEscape(p.id)}else{
+  search:="name = '"+strings.ReplaceAll(p.name,"'","''")+"'"
+  if len(p.resource.ImmutableIdentity)>0{
+   values,err:=immutableIdentity(p.resource,p.body);if err!=nil{return nil,err}
+   keys:=append([]string(nil),p.resource.ImmutableIdentity...);sort.Strings(keys)
+   parts:=make([]string,0,len(keys));for _,key:=range keys{parts=append(parts,key+" = '"+strings.ReplaceAll(values[key],"'","''")+"'")};search=strings.Join(parts," and ")
+  }
+  route+="?"+url.Values{"page":{"1"},"size":{"2"},"search":{search}}.Encode()
+ }
+ response,err:=transport.Do(ctx,"GET",route,headers,nil);if err!=nil{return nil,err}
+ if response.StatusCode!=200{return nil,fmt.Errorf("apply lookup failed (HTTP %d)",response.StatusCode)}
+ row,err:=object(response.Body);if err!=nil{return nil,errors.New("invalid apply lookup response")}
+ if p.id==""{
+  var total int64;var items []json.RawMessage
+  if bytes.Equal(bytes.TrimSpace(row["total"]),[]byte("null"))||json.Unmarshal(row["total"],&total)!=nil||total<0||json.Unmarshal(row["items"],&items)!=nil||bytes.Equal(bytes.TrimSpace(row["items"]),[]byte("null")){return nil,errors.New("invalid apply list response")}
+  if total>1||len(items)>1{return nil,errors.New("apply identity is ambiguous; select metadata.id")}
+  if total!=int64(len(items)){return nil,errors.New("inconsistent apply list response")}
+  if total==0{return nil,nil}
+  row,err=object(items[0]);if err!=nil{return nil,errors.New("invalid apply resource response")}
+  if len(p.resource.ImmutableIdentity)==0{var name string;if json.Unmarshal(row["name"],&name)!=nil||name!=p.name{return nil,errors.New("invalid apply resource identity")}}
+ }
+ var id string
+ if json.Unmarshal(row["id"],&id)!=nil||!identifier.MatchString(id)||(p.id!=""&&p.id!=id){return nil,errors.New("invalid apply resource identity")}
+ if len(p.resource.ImmutableIdentity)>0{if err:=immutableMatches(p,row);err!=nil{return nil,err}}
+ return row,nil
+}

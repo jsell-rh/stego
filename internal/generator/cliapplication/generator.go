@@ -45,6 +45,9 @@ var applyInputSource string
 //go:embed version.go.tmpl
 var versionSource string
 
+//go:embed apply_immutable.go.tmpl
+var applyImmutableSource string
+
 type Generator struct{}
 
 // MinimumGoVersion covers file operations and the OIDC dependency.
@@ -79,7 +82,7 @@ func main(){
 }
 `
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"command/version.go", versionSource}, {"buildidentity/runtime.go", buildidentity.Source}, {"cmd/main.go", main}} {
+	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_immutable.go", applyImmutableSource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"command/version.go", versionSource}, {"buildidentity/runtime.go", buildidentity.Source}, {"cmd/main.go", main}} {
 		t, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err

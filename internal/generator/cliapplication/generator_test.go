@@ -45,7 +45,7 @@ func Commands()command.Application{return command.Application{VersionCommand:tru
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go", "apply_test.go", "relative_time_test.go", "identity_test.go", "version_test.go"} {
+	for _, name := range []string{"runtime_test.go", "output_test.go", "oauth_test.go", "apply_test.go", "apply_immutable_test.go", "relative_time_test.go", "identity_test.go", "version_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", name))
 		if err != nil {
 			t.Fatal(err)
@@ -65,6 +65,16 @@ func Commands()command.Application{return command.Application{VersionCommand:tru
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated CLI: %v\n%s", err, output)
+	}
+	if os.Getenv("STEGO_BENCH_IMMUTABLE_APPLY") == "1" {
+		bench := exec.Command("go", "test", "-run=^$", "-bench=^BenchmarkImmutableApplyComparison$", "-benchmem", "-benchtime=200ms", "-count=3", "./out/cli/command")
+		bench.Dir = project
+		bench.Env = append(os.Environ(), "GOWORK=off")
+		output, err := bench.CombinedOutput()
+		if err != nil {
+			t.Fatalf("immutable apply benchmark: %v\n%s", err, output)
+		}
+		t.Logf("immutable apply benchmark:\n%s", output)
 	}
 	testVersionBuilds(t, project)
 }

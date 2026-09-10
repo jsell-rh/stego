@@ -2459,3 +2459,9 @@ supplied generation options. Input changes remain visible when generated code
 is unchanged. Module merging uses the captured bytes. Artifact verification,
 external tool identities, undeclared generator reads, and complete application
 build inputs remain open C3 work.
+
+The role-binding apply gap requires immutable resource semantics. CLI 1.4.0
+adds [immutable apply](immutable-apply.md) with declared identity fields, exact
+comparison, and no automatic replacement. Named mutable resources retain their
+existing contract. Hypershell supplies the binding field mapping and keeps
+creation permissions and uniqueness in the API transaction.
