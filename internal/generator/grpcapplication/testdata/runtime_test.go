@@ -328,6 +328,56 @@ func TestRuntime(t *testing.T) {
 	if _, err := generatedStream.Recv(); err != io.EOF {
 		t.Fatalf("generated watch completion: %v", err)
 	}
+	// The wrapper must preserve the raw client's absent-header signal. A caller
+	// can then receive the terminal status instead of inventing a protocol error.
+	for _, code := range []codes.Code{codes.OK, codes.Aborted, codes.Unavailable, codes.PermissionDenied, codes.Unauthenticated, codes.InvalidArgument, codes.Unimplemented} {
+		t.Run("absent headers/"+code.String(), func(t *testing.T) {
+			for i, endpoint := range []pb.RecordsClient{client, outboundClient} {
+				requestContext := calls
+				if i == 0 {
+					requestContext = authorized
+				}
+				stream, err := endpoint.Watch(requestContext, &pb.Request{Text: "end/" + code.String()})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for range 2 {
+					header, err := stream.Header()
+					if err != nil || header != nil {
+						t.Errorf("absent headers changed: %#v %v", header, err)
+					}
+				}
+				_, err = stream.Recv()
+				if code == codes.OK {
+					if !errors.Is(err, io.EOF) {
+						t.Fatal("clean end changed", err)
+					}
+				} else if status.Code(err) != code {
+					t.Fatal("terminal status changed", code, err)
+				}
+			}
+		})
+	}
+	withHeader, err := outboundClient.Watch(calls, &pb.Request{Text: "headers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := withHeader.Header()
+	if err != nil || len(header.Get("sample-capability")) != 1 || header.Get("sample-capability")[0] != "v1" {
+		t.Fatal("missing declared header", header, err)
+	}
+	header["sample-capability"][0] = "changed"
+	header["extra"] = []string{"caller"}
+	again, err := withHeader.Header()
+	if err != nil || len(again.Get("sample-capability")) != 1 || again.Get("sample-capability")[0] != "v1" || len(again.Get("extra")) != 0 {
+		t.Fatal("caller changed cached headers", again, err)
+	}
+	if response, err := withHeader.Recv(); err != nil || response.GetText() != "event" {
+		t.Fatal("header read consumed a message", err)
+	}
+	if _, err := withHeader.Recv(); !errors.Is(err, io.EOF) {
+		t.Fatal("header stream did not finish", err)
+	}
 	streamContext, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
 	var clientStreams []grpc.ServerStreamingClient[pb.Response]

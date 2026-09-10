@@ -88,6 +88,17 @@ func (records) Watch(request *pb.Request, stream grpc.ServerStreamingServer[pb.R
 	if stream.Context().Value(identityKey{}) != "alice" {
 		return errors.New("identity was lost")
 	}
+	for _, code := range []codes.Code{codes.OK, codes.Aborted, codes.Unavailable, codes.PermissionDenied, codes.Unauthenticated, codes.InvalidArgument, codes.Unimplemented} {
+		if request.Text == "end/"+code.String() {
+			return status.Error(code, "stream ended before headers")
+		}
+	}
+	if request.Text == "headers" {
+		if err := stream.SendHeader(metadata.Pairs("sample-capability", "v1")); err != nil {
+			return err
+		}
+		return stream.Send(&pb.Response{Text: "event"})
+	}
 	if request.Text == "silent" {
 		<-stream.Context().Done()
 		return stream.Context().Err()
