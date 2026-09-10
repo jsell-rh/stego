@@ -223,3 +223,50 @@ func TestCommandsRejectNormalizedSlotCollisions(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandsRejectUnsupportedDependencyTarget(t *testing.T) {
+	registry, err := filepath.Abs("../../registry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("STEGO_REGISTRY", registry)
+	t.Setenv("STEGO_MODULE", "example.com/target")
+	t.Setenv("STEGO_GO_VERSION", "1.24.9")
+	files := map[string]string{
+		"service.yaml":      "kind: service\nname: target\narchetype: rest-crud\nlanguage: go\nentities:\n  - name: Record\n    fields: [{name: title, type: string}]\ncollections:\n  records: {entity: Record, operations: [create, read]}\n",
+		"go.mod":            "module example.com/target\ngo 1.24.9\n",
+		"go.sum":            "",
+		"out/retained.txt":  "retained output",
+		".stego/state.yaml": "last_applied: null\n",
+	}
+	for name, data := range files {
+		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, command := range []struct {
+		name string
+		run  func([]string) error
+	}{{"validate", runValidate}, {"plan", runPlan}, {"apply", runApply}} {
+		if err := command.run(nil); err == nil || !strings.Contains(err.Error(), "validation failed") {
+			t.Fatal(command.name, "accepted an unsupported dependency target", err)
+		}
+		for name, want := range files {
+			got, err := os.ReadFile(name)
+			if err != nil || string(got) != want {
+				t.Fatal(command.name, "changed", name, err)
+			}
+		}
+	}
+	t.Setenv("STEGO_GO_VERSION", "1.25.0")
+	if err := runValidate(nil); err != nil {
+		t.Fatal("supported target rejected", err)
+	}
+	if err := runPlan(nil); err != nil {
+		t.Fatal("supported target cannot produce a plan", err)
+	}
+}

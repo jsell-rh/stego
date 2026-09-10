@@ -21,6 +21,9 @@ var runtimeSource string
 
 type Generator struct{}
 
+// MinimumGoVersion covers the pinned Kafka dependency.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
+
 // ValidateContext checks the publisher path and the optional outbox runtime.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {

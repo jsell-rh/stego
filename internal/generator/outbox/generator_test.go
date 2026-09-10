@@ -45,13 +45,13 @@ func TestGeneratedOutbox(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	module := "module example.com/outbox-test\n\ngo 1.26.8\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n)\n"
+	module := "module example.com/outbox-test\n\ngo " + new(Generator).MinimumGoVersion() + "\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n)\n"
 	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests, "queue/source_test.go": sourceTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	commands := [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
+	commands := [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
 	if os.Getenv("STEGO_BENCH_OUTBOX") == "1" {
 		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=BenchmarkClaimAndAcknowledge", "-benchtime=100x", "-benchmem", "./..."})
 	}

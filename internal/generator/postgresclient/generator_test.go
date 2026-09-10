@@ -33,10 +33,10 @@ func TestGeneratedPostgresClient(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "postgres/client_test.go"), tests, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/sql-client\ngo 1.26.8\nrequire github.com/jackc/pgx/v5 v5.11.0\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/sql-client\ngo "+new(Generator).MinimumGoVersion()+"\nrequire github.com/jackc/pgx/v5 v5.11.0\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-timeout=60s", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=60s", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), "GOWORK=off")

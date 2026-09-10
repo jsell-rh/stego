@@ -2596,3 +2596,12 @@ Remote grant-condition run 34520447297 has now passed all six application jobs,
 including acceptance, database, Gateway, CNPG, and sandbox workflows. Compiler
 package-name run 34521857221 also passed. Application metadata run 34521961193
 is still active. These results do not close the remaining reconciliation gaps.
+
+The next compiler audit adds missing Go target requirements for PostgreSQL
+storage and clients, outbox, Kafka, and gRPC. Generated runtime tests fix their
+module target during dependency resolution and add static checks. This found
+that gRPC needs Go 1.26.0 because of the compiler's x/sys security minimum.
+The checks also found unreachable cleanup-reader code for services without
+cleanup owners; the template now handles that case directly. See
+[generator Go targets](generator-go-targets.md). The full target and wiring
+audit remains open. C1, C7, and the broad goal remain active.

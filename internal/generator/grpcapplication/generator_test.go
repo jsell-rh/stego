@@ -51,7 +51,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: item.name, Wiring: wiring})
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: wirings})
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: new(grpcapplication.Generator).MinimumGoVersion(), Wirings: wirings})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(grpcapplication.Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		cmd.Env = append(os.Environ(), "GOWORK=off")

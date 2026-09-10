@@ -44,7 +44,7 @@ func TestGeneratedKafkaPublisher(t *testing.T) {
 	}
 	module := `module example.com/kafka-test
 
-go 1.26.8
+go ` + new(Generator).MinimumGoVersion() + `
 
 require (
     github.com/google/uuid v1.6.0
@@ -58,7 +58,7 @@ require (
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		cmd.Env = append(os.Environ(), "GOWORK=off", "STEGO_TEST_POSTGRES_DSN="+postgresDSN, "STEGO_REQUIRE_POSTGRES="+requirePostgres)

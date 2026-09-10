@@ -151,7 +151,7 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 	}
 	module := `module example.com/transaction-test
 
-go 1.26.8
+go ` + new(Generator).MinimumGoVersion() + `
 
 require (
  github.com/google/uuid v1.6.0
@@ -166,7 +166,7 @@ require (
 			t.Fatal(err)
 		}
 	}
-	commands := [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
+	commands := [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
 	if os.Getenv("STEGO_BENCH_STORE") == "1" {
 		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=Benchmark(TransactionalCreateNotify|TargetCleanupObservation)", "-benchtime=100x", "-benchmem", "./storage"})
 	}

@@ -2,7 +2,7 @@ package {{.Package}}
 
 import (
  "context"
- "fmt"
+ {{if .Entities}}"fmt"{{end}}
  "strings"
  "unicode/utf8"
 
@@ -20,6 +20,7 @@ func(s *Store)ReadCleanupSummary(ctx context.Context,entity,owner,target,scopeFi
  validText:=func(value string)bool{return len(value)<=256&&utf8.ValidString(value)&&!strings.ContainsRune(value,0)}
  if ctx==nil||s==nil||s.db==nil||!validText(entity)||!validText(owner)||!validText(target)||!validText(scopeField)||!validText(scopeValue)||(scopeField=="")!=(scopeValue==""){return zero,contract.ErrCleanupSummary}
  if err:=ctx.Err();err!=nil{return zero,err}
+ {{if .Entities}}
  var table string
  var owners,targets,scopes map[string]bool
  switch entity{
@@ -42,4 +43,7 @@ func(s *Store)ReadCleanupSummary(ctx context.Context,entity,owner,target,scopeFi
  if err!=nil{return zero,err}
  if result.Pending<0||result.ObservedAt.IsZero()||(result.Pending==0)!=(result.OldestPending==nil){return zero,contract.ErrCleanupSummary}
  return result,nil
+ {{else}}
+ return zero,contract.ErrCleanupSummary
+ {{end}}
 }

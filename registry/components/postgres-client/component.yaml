@@ -1,6 +1,6 @@
 kind: component
 name: postgres-client
-version: 1.0.2
+version: 1.0.3
 output_namespace: postgres
 requires: []
 provides:

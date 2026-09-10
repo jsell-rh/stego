@@ -15,6 +15,9 @@ var source string
 
 type Generator struct{}
 
+// MinimumGoVersion covers the pinned pgx dependency.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
+
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err

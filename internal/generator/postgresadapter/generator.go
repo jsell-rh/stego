@@ -27,6 +27,9 @@ var validFieldNamePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 // Generator produces the postgres-adapter component's generated code.
 type Generator struct{}
 
+// MinimumGoVersion covers the compiler minimum for golang.org/x/text.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
+
 // ValidateContext checks storage names, constraints, and migration settings.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if errs := types.ValidateVersioned(ctx.Entities, ctx.Collections); len(errs) > 0 {

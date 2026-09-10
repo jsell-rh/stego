@@ -24,6 +24,9 @@ var streamHeadersSource string
 
 type Generator struct{}
 
+// MinimumGoVersion covers the compiler minimum for golang.org/x/sys.
+func (*Generator) MinimumGoVersion() string { return "1.26.0" }
+
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := validateContext(ctx); err != nil {
 		return err

@@ -1,6 +1,6 @@
 kind: component
 name: outbox
-version: 1.0.2
+version: 1.0.3
 output_namespace: internal/outbox
 
 config: {}

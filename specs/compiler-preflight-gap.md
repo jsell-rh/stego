@@ -104,9 +104,11 @@ source, output, state, or dependency files. Valid Go targets remain accepted.
 The full compiler race suite passed with PostgreSQL required on port 32902.
 Static checks passed. No generator output or component version changed.
 
-The target audit remains open. The pinned pgx, gRPC, and Kafka modules each
-declare Go 1.25.0 in their module files, but their generators do not all declare
-that minimum through `gen.GoVersionRequirement`. Shared dependency minimums
-also need review. Target syntax alone does not prove dependency compatibility.
+The next [dependency target audit](generator-go-targets.md) fixes five missing
+component minimums. Generated gRPC code requires Go 1.26.0 because of the shared
+security minimum for `golang.org/x/sys`; its direct dependency alone requires
+Go 1.25.0. The generated runtime tests now fix their declared target during
+dependency resolution and run static checks. The complete target audit remains
+open. Target syntax alone does not prove dependency compatibility.
 Wiring checks that need generated wiring still occur after rendering. These
 remaining checks must become part of the common compiler contract.

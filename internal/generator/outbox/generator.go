@@ -27,6 +27,9 @@ var migration []byte
 
 type Generator struct{}
 
+// MinimumGoVersion covers the pinned pgx dependency.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
+
 // ValidateContext checks the output namespace before queue code is rendered.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	ns := ctx.OutputNamespace
