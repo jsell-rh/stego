@@ -30,29 +30,50 @@ func scanError(message string) error { return fmt.Errorf("%w: %s", ErrScanContra
 // are not undone. A new scan starts again. Actions must tolerate repeated work.
 // Cursor progress is not an acknowledgment or a snapshot of mutable state.
 func Scan[T any](ctx context.Context, source CursorSource[T], emit func(T) error, options ScanOptions) error {
- if ctx == nil || source == nil || emit == nil { return scanError("context, source, and emitter are required") }
- if options.PageSize < 1 || options.PageSize > 1000 { return scanError("page size must be between 1 and 1000") }
- if options.MaxPages < 1 || options.MaxPages > 1000000 { return scanError("page count must be between 1 and 1000000") }
- if options.PageTimeout < time.Millisecond || options.PageTimeout > time.Minute { return scanError("page timeout is outside its limits") }
- after := ""
+ progress,err:=ScanFrom(ctx,"",source,emit,options)
+ if err!=nil{return err}
+ if !progress.Complete{return scanError("source exceeded its page limit")}
+ return nil
+}
+
+// ScanProgress identifies the last item whose emitter returned success.
+// Complete means the source reported its end. It does not prove convergence.
+type ScanProgress struct { After string; Complete bool }
+
+// ScanFrom resumes after an opaque cursor and reads at most MaxPages pages.
+// A page limit returns incomplete progress without an error. The caller must
+// arrange another pass. Progress is returned on errors and cancellation too.
+// A failed emitter keeps its item eligible. Success followed by cancellation
+// advances the cursor. The source must permit resumption after any item.
+//
+// The caller owns persistence and retry policy. Retained data, current-state
+// checks, repeat-safe effects, and later full scans remain required. This
+// function creates no durable acknowledgment and starts no background work.
+func ScanFrom[T any](ctx context.Context, after string, source CursorSource[T], emit func(T) error, options ScanOptions) (ScanProgress,error) {
+ progress:=ScanProgress{After:after}
+ if ctx == nil || source == nil || emit == nil { return progress,scanError("context, source, and emitter are required") }
+ if len(after)>1024 || !utf8.ValidString(after) {return progress,scanError("initial cursor is invalid")}
+ if options.PageSize < 1 || options.PageSize > 1000 { return progress,scanError("page size must be between 1 and 1000") }
+ if options.MaxPages < 1 || options.MaxPages > 1000000 { return progress,scanError("page count must be between 1 and 1000000") }
+ if options.PageTimeout < time.Millisecond || options.PageTimeout > time.Minute { return progress,scanError("page timeout is outside its limits") }
  for n := 0; n < options.MaxPages; n++ {
-  if err := ctx.Err(); err != nil { return err }
+  if err := ctx.Err(); err != nil { return progress,err }
   operation, cancel := context.WithTimeout(ctx, options.PageTimeout)
-  page, err := source(operation, after, options.PageSize)
+  page, err := source(operation, progress.After, options.PageSize)
   deadlineErr := operation.Err()
   cancel()
-  if err != nil { return err }
-  if deadlineErr != nil { return deadlineErr }
-  if err := validateCursorPage(page, after, options.PageSize); err != nil { return scanError(err.Error()) }
+  if err != nil { return progress,err }
+  if deadlineErr != nil { return progress,deadlineErr }
+  if err := validateCursorPage(page, progress.After, options.PageSize); err != nil { return progress,scanError(err.Error()) }
   for _, item := range page.Items {
-   if err := ctx.Err(); err != nil { return err }
-   if err := emit(item.Value); err != nil { return err }
+   if err := ctx.Err(); err != nil { return progress,err }
+   if err := emit(item.Value); err != nil { return progress,err }
+   progress.After=item.Cursor
   }
-  if err := ctx.Err(); err != nil { return err }
-  if !page.More { return nil }
-  after = page.Items[len(page.Items)-1].Cursor
+  if err := ctx.Err(); err != nil { return progress,err }
+  if !page.More { progress.Complete=true; return progress,nil }
  }
- return scanError("source exceeded its page limit")
+ return progress,nil
 }
 
 func validateCursorPage[T any](page CursorPage[T], after string, limit int) error {

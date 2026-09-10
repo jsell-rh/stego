@@ -170,3 +170,87 @@ func BenchmarkScanPage(b *testing.B) {
 		}
 	}
 }
+
+func TestScanFromResumesPartialPages(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(context.Background())
+		source := func(_ context.Context, after string, _ int) (CursorPage[int], error) {
+			// Opaque order deliberately differs from Go string order.
+			switch after {
+			case "":
+				return CursorPage[int]{Items: []CursorItem[int]{{Cursor: "z", Value: 1}, {Cursor: "A", Value: 2}}}, nil
+			case "z":
+				return CursorPage[int]{Items: []CursorItem[int]{{Cursor: "A", Value: 2}}}, nil
+			case "A":
+				return CursorPage[int]{}, nil
+			}
+			t.Fatal("wrong saved cursor", after)
+			return CursorPage[int]{}, nil
+		}
+		progress, err := ScanFrom(ctx, "", source, func(int) error {
+			cancel()
+			if fail {
+				return ctx.Err()
+			}
+			return nil
+		}, scanOptions())
+		want := "z"
+		if fail {
+			want = ""
+		}
+		if !errors.Is(err, context.Canceled) || progress.After != want || progress.Complete {
+			t.Fatal(progress, err)
+		}
+		var values []int
+		progress, err = ScanFrom(context.Background(), progress.After, source, func(v int) error { values = append(values, v); return nil }, scanOptions())
+		expected := []int{2}
+		if fail {
+			expected = []int{1, 2}
+		}
+		if err != nil || !progress.Complete || progress.After != "A" || !reflect.DeepEqual(values, expected) {
+			t.Fatal(progress, values, err)
+		}
+	}
+}
+
+func TestScanFromPageBudgetRetainsProgress(t *testing.T) {
+	source := func(_ context.Context, after string, _ int) (CursorPage[string], error) {
+		next := after + "x"
+		return CursorPage[string]{Items: []CursorItem[string]{{Cursor: next, Value: next}}, More: len(next) < 7}, nil
+	}
+	options := scanOptions()
+	options.MaxPages = 2
+	var progress ScanProgress
+	var values []string
+	for passes := 0; !progress.Complete; passes++ {
+		if passes >= 4 {
+			t.Fatal("scan did not finish")
+		}
+		var err error
+		progress, err = ScanFrom(context.Background(), progress.After, source, func(v string) error { values = append(values, v); return nil }, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(values) != 7 || progress.After != "xxxxxxx" {
+		t.Fatal(values, progress)
+	}
+}
+
+func TestScanFromRejectsInvalidContinuationBeforeEffects(t *testing.T) {
+	calls := 0
+	source := func(context.Context, string, int) (CursorPage[int], error) {
+		calls++
+		return CursorPage[int]{Items: []CursorItem[int]{{Cursor: "z"}, {Cursor: "saved"}}}, nil
+	}
+	for _, after := range []string{strings.Repeat("x", 1025), "\xff"} {
+		_, err := ScanFrom(context.Background(), after, source, func(int) error { t.Fatal("invalid scan caused effects"); return nil }, scanOptions())
+		if !errors.Is(err, ErrScanContract) || calls != 0 {
+			t.Fatal(err, calls)
+		}
+	}
+	progress, err := ScanFrom(context.Background(), "saved", source, func(int) error { t.Fatal("invalid page caused effects"); return nil }, scanOptions())
+	if !errors.Is(err, ErrScanContract) || progress.After != "saved" || progress.Complete {
+		t.Fatal(progress, err)
+	}
+}

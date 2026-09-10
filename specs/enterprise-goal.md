@@ -2423,3 +2423,9 @@ After the variant commit, pinned regeneration passed with all 78 generated,
 state, and dependency file hashes unchanged. STEGO feature CI run 34494759858
 passed. Build records remain diagnostic data: artifact digests, signatures,
 complete input manifests, and controlled release builds are still open work.
+
+The identity backlog regression exposed a fixed 10,000-reference recovery limit.
+Controller 1.8.0 adds [resumable cursor scans](resumable-scans.md). It returns
+completed progress across page budgets and cancellation. The existing full-scan
+API keeps its limit behavior. Durable progress storage and cross-process
+ownership remain open; this addition does not substitute for either contract.
