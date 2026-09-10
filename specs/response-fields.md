@@ -54,3 +54,33 @@ without encoding it. An explicit selector still uses all projector checks.
 Tests verify both branches, invalid selections, and invalid item-field names.
 The endpoint retains its normal response-size and encoding checks. Applications
 must supply authorized public response types even when projection is absent.
+
+With component 1.4.0, the same paired benchmark took 2.565–2.632 ms for normal
+replies, with 268750–271009 allocated bytes and 3395–3398 allocations. Selected
+replies took 3.026–3.427 ms, with 434054–435195 bytes and 8392–8395 allocations.
+Normal reply bodies were 9692–9708 bytes; selected bodies were 1244–1250 bytes.
+The full race suite again ran on the same host. Field selection reduces transfer
+size but adds server work. The normal path avoids that work. These samples do
+not establish a production latency target or include network transfer.
+
+The final focused application checks passed in 26.747 seconds. They cover field
+selection, grant discovery, role discovery, placement, Gateway networks, and
+access-filtered search. The selected Gateway workflow took 4.82 seconds,
+including setup. The first full suite found two old expectations that rejected
+valid field selection; those checks now reject an unknown field. That failed
+run is not counted as a pass.
+
+The final full PostgreSQL/Keycloak race suite passed on 2026-09-10. Its
+acceptance package took 673.013 seconds. Variant
+`71789814755b22c574c24539fdcef846ad126010` is on remote main and pins compiler
+`ee311a8853aa3b89b810794a45d6d8f8b0a265e0`. Regeneration after commit passed;
+all 72 generated and dependency file hashes stayed unchanged. Static checks
+and module verification passed. See the
+[application evidence](https://github.com/jsell-rh/hypershell-stego/blob/71789814755b22c574c24539fdcef846ad126010/acceptance/field-selection.md)
+for supported resources, transport checks, and benchmark details.
+
+Compiler revision `ee311a8` passed CI in run `34477137007`. The previous variant
+revision `87966df` passed all four CI jobs in run `34475851754`. The field-selection
+variant requires its own CI run. The separate Kubernetes workload gates were
+not repeated locally for this HTTP change. Reconciliation and the full enterprise
+goal remain open; response selection does not close those requirements.
