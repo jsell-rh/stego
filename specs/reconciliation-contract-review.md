@@ -322,3 +322,32 @@ workflow passed in 76.921 seconds, and the complete Gateway workflow passed in
 215.211 seconds. The preceding identity revision `6074a76` passed all four CI
 jobs in run `34419484600`. The database migration requires its own new CI run.
 The complete enterprise goal remains active.
+
+The database migration at variant revision `765985d` passed all four CI jobs in
+run `34420720619`. Its finite replay still had no receive limit. A new application
+check opened a real TLS gRPC replay after API restart, confirmed its capability,
+and held its first receive call until cancellation. The old controller did not
+cancel that call within 25 seconds, so no later recovery scan could complete.
+
+Controller component 1.6.0 now supplies `ScanStream`. STEGO owns separate setup
+and receive limits, item bounds, callback completion, and stream cancellation.
+No receive timer runs while queue admission waits for capacity. Hypershell
+retains protocol validation and sets 20-second limits. With this scanner, the
+same application check passed: a later replay completed cleanup and delivered
+its committed event. See the [finite stream contract](controller-stream.md).
+
+The compiler race suite and static checks passed. Compiler revision `9cf5a48`
+also passed CI in run `34421072103`. On 2026-09-10, the complete application
+PostgreSQL/Keycloak race suite passed with a 656.062-second acceptance package
+run. The real database Kubernetes gate passed in 86.616 seconds. It covered TLS
+access, persistence, foreign namespace denial, offline deletion, late effects,
+and replay under C and ICU ordering. Earlier interrupted attempts had no final
+results and are not counted as passes.
+
+The variant change is `2dcd5ce`. Pinned regeneration passed after its commit;
+all 71 generated and dependency file hashes remained unchanged. Module
+verification and application static checks also passed.
+
+Durable retries, complete queue saturation handling, cursor bounds, field
+ownership, cross-process fencing, and production capacity remain open. The
+enterprise goal is not complete.

@@ -36,10 +36,11 @@ The first application check uses Hypershell database deletion replay. It creates
 and deletes a database through REST, drains the events, and restarts the API.
 A test adapter permits the first TLS gRPC replay to open and confirm its header,
 then blocks its receive function until cancellation. Without a receive limit,
-the check failed after 29.32 seconds, including setup. The application must use
-the generated scanner and prove that a later replay completes cleanup and
-delivers its new event. This failure does not establish the cause of every
-possible transport stall.
+the check failed after 29.32 seconds, including setup. With the generated
+scanner, it passed in 25.96 seconds. A later replay completed provider cleanup,
+committed its observation through gRPC, and delivered the new event. The test
+also rejects provisioning for the deleted row and checks controller shutdown.
+This failure does not establish the cause of every possible transport stall.
 
 Durable retries, complete queue saturation handling, cursor storage, and
 cross-process fencing remain separate requirements. A callback that ignores
