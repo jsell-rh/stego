@@ -6,8 +6,9 @@ list. A passing build alone does not satisfy this goal.
 The [HTTP tracing contract](http-tracing.md) replaces the tracing stub with a
 bounded exporter and common request instrumentation. The Gateway test checks
 successful and denied reads, trace continuation, restart, and collector loss.
-The broader observability requirements remain active, including gRPC and
-database spans, metrics, controller spans, and browser-to-API evidence.
+The later [gRPC tracing contract](grpc-tracing.md) adds shared server and watch
+spans. The broader observability requirements remain active, including database
+spans, metrics, controller spans, and browser-to-API evidence.
 
 Hypershell `ee56eaa1def29a5d6a8aaeda5bb4570e8671caba` adopts tracing compiler
 `164c7dc25d4bee5ecb794876f92e762edf6a0c44`. Seven selected application workflows

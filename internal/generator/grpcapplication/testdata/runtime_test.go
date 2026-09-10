@@ -33,6 +33,7 @@ import (
 )
 
 type subjectKey struct{}
+type traceKey struct{}
 
 func TestRuntime(t *testing.T) {
 	optional := &pb.Request{Label: proto.String("")}
@@ -77,7 +78,15 @@ func TestRuntime(t *testing.T) {
 		t.Setenv(name, "")
 	}
 	testResourceCleanup(t)
+	type observation struct {
+		method string
+		code   codes.Code
+	}
+	observations := make(chan observation, 256)
 	authenticate := func(ctx context.Context, token string) (context.Context, error) {
+		if ctx.Value(traceKey{}) != true {
+			return nil, errors.New("trace did not precede authentication")
+		}
 		if token != "good" && !strings.HasPrefix(token, "user-") {
 			return nil, errors.New("private authentication error")
 		}
@@ -86,7 +95,9 @@ func TestRuntime(t *testing.T) {
 	t.Setenv("STEGO_GRPC_STREAM_IO_TIMEOUT", "1s")
 	var expiry atomic.Int64
 	expiry.Store(time.Now().Add(time.Hour).UnixNano())
-	runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r, nil) }, transport.Options{IdentityInfo: func(ctx context.Context) (string, time.Time) {
+	runtime, err := transport.New(authenticate, func(r grpc.ServiceRegistrar) error { return Register(r, nil) }, transport.Options{TraceRPC: func(ctx context.Context, method string) (context.Context, func(error)) {
+		return context.WithValue(ctx, traceKey{}, true), func(err error) { observations <- observation{method, status.Code(err)} }
+	}, IdentityInfo: func(ctx context.Context) (string, time.Time) {
 		return ctx.Value(subjectKey{}).(string), time.Unix(0, expiry.Load())
 	}})
 	if err != nil {
@@ -124,6 +135,16 @@ func TestRuntime(t *testing.T) {
 		}
 		if err == nil && result.Text != item.text {
 			t.Fatal("response changed")
+		}
+		if len(item.text) <= transport.MaxRequestBytes {
+			select {
+			case observed := <-observations:
+				if observed.method != "/sample.v1.Records/Echo" || observed.code != item.want {
+					t.Fatalf("wrong final observation: %v", observed)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("call trace did not end")
+			}
 		}
 		if err != nil && strings.Contains(err.Error(), "private") {
 			t.Fatalf("private error escaped: %v", err)

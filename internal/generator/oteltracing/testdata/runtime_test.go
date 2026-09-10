@@ -14,11 +14,16 @@ import (
 	"testing"
 	"time"
 
+	otelcodes "go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
+	grpccodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -358,6 +363,66 @@ func TestInvalidParentsStartRootSpans(t *testing.T) {
 			}
 		case <-deadline.C:
 			t.Fatal("missing root spans")
+		}
+	}
+}
+
+func TestRPCSpanLifetimeStatusAndPrivacy(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer provider.Shutdown(context.Background())
+	runtime := &Runtime{provider: provider}
+	for code := grpccodes.OK; code <= grpccodes.Unauthenticated; code++ {
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("traceparent", "00-11111111111111111111111111111111-2222222222222222-01", "authorization", "Bearer private-token", "baggage", "user=private-user", "tracestate", "vendor=private-state"))
+		ctx, finish := runtime.TraceRPC(ctx, "/sample.v1.Records/Watch")
+		parent := trace.SpanContextFromContext(ctx)
+		if !parent.IsValid() || len(recorder.Ended()) != int(code) {
+			t.Fatal("span missing or ended before call completion")
+		}
+		finish(status.Error(code, "private-error"))
+		spans := recorder.Ended()
+		span := spans[len(spans)-1]
+		if span.Name() != "sample.v1.Records/Watch" || span.SpanKind() != trace.SpanKindServer || span.Parent().SpanID().String() != "2222222222222222" || span.SpanContext().TraceID().String() != "11111111111111111111111111111111" || span.SpanContext().TraceState().Len() != 0 || len(span.Events()) != 0 || len(span.Links()) != 0 {
+			t.Fatal("invalid RPC span")
+		}
+		wantError := code == grpccodes.Unknown || code == grpccodes.DeadlineExceeded || code == grpccodes.Unimplemented || code == grpccodes.Internal || code == grpccodes.Unavailable || code == grpccodes.DataLoss
+		wantCount := 3
+		if wantError {
+			wantCount++
+		}
+		if len(span.Attributes()) != wantCount || (span.Status().Code == otelcodes.Error) != wantError || span.Status().Description != "" {
+			t.Fatal("incorrect RPC error status")
+		}
+		for _, attr := range span.Attributes() {
+			if strings.Contains(attr.Value.Emit(), "private") {
+				t.Fatal("private data in RPC trace")
+			}
+		}
+	}
+}
+func TestRPCParentValidationAndDisabledRuntime(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer provider.Shutdown(context.Background())
+	runtime := &Runtime{provider: provider}
+	parent := "00-11111111111111111111111111111111-2222222222222222-01"
+	for _, values := range [][]string{nil, {"invalid"}, {parent, parent}, {"00-00000000000000000000000000000000-2222222222222222-01"}} {
+		ctx := metadata.NewIncomingContext(context.Background(), metadata.MD{"traceparent": values})
+		_, finish := runtime.TraceRPC(ctx, "/private?bad/request")
+		finish(nil)
+		spans := recorder.Ended()
+		span := spans[len(spans)-1]
+		if span.Parent().IsValid() || span.Name() != "_OTHER" {
+			t.Fatal("invalid parent or method retained")
+		}
+	}
+	for _, disabled := range []*Runtime{{}, {provider: provider}} {
+		disabled.closed.Store(true)
+		ctx := context.Background()
+		got, finish := disabled.TraceRPC(ctx, "/sample.v1.Records/Echo")
+		finish(nil)
+		if got != ctx {
+			t.Fatal("disabled tracing changed context")
 		}
 	}
 }

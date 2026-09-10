@@ -12,6 +12,7 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
+	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 	"github.com/jsell-rh/stego/internal/types"
@@ -28,7 +29,10 @@ func TestGeneratedGRPCApplication(t *testing.T) {
 	}
 }
 func testGeneratedGRPCApplication(t *testing.T, watch bool) {
-	ctx := gen.Context{ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
+	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
+	if watch {
+		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
+	}
 	project := t.TempDir()
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
@@ -37,11 +41,15 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 		generator gen.Generator
 		config    map[string]any
 	}{
+		{"otel-tracing", new(oteltracing.Generator), nil},
 		{"postgres-adapter", new(postgresadapter.Generator), map[string]any{"migrations": "external"}},
 		{"outbox", new(outbox.Generator), nil},
 		{"jwt-auth", new(jwtauth.Generator), map[string]any{"mode": "verifier"}},
 		{"grpc-application", new(grpcapplication.Generator), map[string]any{"watch_events": watch, "factory_package": "sample", "proto_files": []any{map[string]any{"path": "api/records.proto", "import_path": "sample/v1/records.proto"}}}},
 	} {
+		if item.name == "otel-tracing" && !watch {
+			continue
+		}
 		ctx.OutputNamespace = ctx.PeerNamespaces[item.name]
 		ctx.ComponentConfig = item.config
 		generated, wiring, err := item.generator.Generate(ctx)

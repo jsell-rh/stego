@@ -63,6 +63,11 @@ func validateContext(ctx gen.Context) error {
 		}
 	}
 
+	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
+		if err := gen.ValidateGoPackageNamespace(tracing); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -77,9 +82,12 @@ func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	data := struct {
-		Package, Factory, Storage, Auth, Transport, Events string
-		Watch                                              bool
-	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), ctx.EventsContract, watch}
+		Package, Factory, Storage, Auth, Transport, Events, Tracing string
+		Watch                                                       bool
+	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, factory), ctx.StorageContract, ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), ctx.EventsContract, "", watch}
+	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
+		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, tracing)
+	}
 	bridge := `package {{.Package}}
 import (
  application {{printf "%q" .Factory}}
@@ -89,11 +97,12 @@ import (
  "google.golang.org/grpc"
  "context"
  "time"
+ {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
  {{if .Watch}}events {{printf "%q" .Events}}{{end}}
 )
 type Repository = storage.Repository
-func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},source events.Source{{end}})(*transport.Runtime,error){
- return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
+func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},source events.Source{{end}}{{if .Tracing}},tracingRuntime *tracing.Runtime{{end}})(*transport.Runtime,error){
+ return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{ {{if .Tracing}}TraceRPC:tracingRuntime.TraceRPC,{{end}}IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
 }
 `
 	for _, item := range []struct{ Name, Source string }{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}} {
@@ -125,6 +134,11 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
 		wiring.ConstructorReturnsError = map[int]bool{0: true, 1: true}
 		wiring.ConstructorDeferCalls = map[int]string{0: "Close()", 1: "Close()"}
 		wiring.BackgroundTasks = []int{0, 1}
+	}
+	if data.Tracing != "" {
+		index := len(wiring.Constructors) - 1
+		wiring.Constructors[index] = strings.TrimSuffix(wiring.Constructors[index], ")") + ", tracingRuntime)"
+		wiring.ConstructorDeps[index] = append(wiring.ConstructorDeps[index], "tracingRuntime")
 	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err

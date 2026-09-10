@@ -82,7 +82,12 @@ func cleanupOwnerName(owner string)bool{
 
 type Authenticate func(context.Context,string)(context.Context,error)
 // IdentityInfo reads only claims that Authenticate has verified.
-type Options struct { IdentityInfo func(context.Context)(string,time.Time) }
+type Options struct {
+ IdentityInfo func(context.Context)(string,time.Time)
+ // TraceRPC observes a registered call before authentication. It must preserve
+ // cancellation and return a completion function that does not block.
+ TraceRPC func(context.Context,string)(context.Context,func(error))
+}
 type Runtime struct {
  server *grpc.Server
  listener net.Listener
@@ -99,7 +104,9 @@ func(r *Runtime)Addr()net.Addr{return r.listener.Addr()}
 // New requires TLS and a verified identity for all application methods.
 func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error,options ...Options)(*Runtime,error){
  if authenticate==nil||register==nil||len(options)>1{return nil,errors.New("gRPC requires authentication and registration")}
- var info func(context.Context)(string,time.Time);if len(options)==1{info=options[0].IdentityInfo}
+ var info func(context.Context)(string,time.Time)
+ var traceRPC func(context.Context,string)(context.Context,func(error))
+ if len(options)==1{info=options[0].IdentityInfo;traceRPC=options[0].TraceRPC}
  streamTimeout,err:=durationSetting("STEGO_GRPC_STREAM_TIMEOUT",5*time.Minute,30*time.Minute);if err!=nil{return nil,err}
  sendTimeout,err:=durationSetting("STEGO_GRPC_STREAM_IO_TIMEOUT",RequestTimeout,RequestTimeout);if err!=nil{return nil,err}
  cert,err:=readTLSFile(os.Getenv("STEGO_GRPC_TLS_CERT"));if err!=nil{return nil,err}
@@ -124,7 +131,8 @@ func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error,opt
   grpc.Creds(credentials.NewTLS(&tls.Config{MinVersion:tls.VersionTLS13,Certificates:[]tls.Certificate{pair}})),
   grpc.MaxRecvMsgSize(MaxRequestBytes),grpc.MaxSendMsgSize(MaxResponseBytes),grpc.MaxHeaderListSize(32<<10),grpc.MaxConcurrentStreams(64),grpc.ConnectionTimeout(5*time.Second),
   grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle:60*time.Second,Time:2*time.Hour,Timeout:20*time.Second}),
-  grpc.ChainUnaryInterceptor(func(ctx context.Context,req any,_ *grpc.UnaryServerInfo,handler grpc.UnaryHandler)(result any,err error){
+  grpc.ChainUnaryInterceptor(func(ctx context.Context,req any,call *grpc.UnaryServerInfo,handler grpc.UnaryHandler)(result any,err error){
+   if traceRPC!=nil{var finish func(error);ctx,finish=traceRPC(ctx,call.FullMethod);defer func(){finish(err)}()}
    select{case unaryPermits<-struct{}{}:default:return nil,status.Error(codes.ResourceExhausted,"request capacity exceeded")}
    ctx,cancel:=context.WithTimeout(ctx,RequestTimeout);defer cancel();defer func(){<-unaryPermits}()
    defer func(){if recover()!=nil{result=nil;err=status.Error(codes.Internal,"request failed")}}()
@@ -134,7 +142,8 @@ func New(authenticate Authenticate,register func(grpc.ServiceRegistrar)error,opt
    if err!=nil&&status.Code(err)==codes.Unknown{return nil,status.Error(codes.Internal,"request failed")}
    return result,err
   }),
-  grpc.ChainStreamInterceptor(func(srv any,stream grpc.ServerStream,_ *grpc.StreamServerInfo,handler grpc.StreamHandler)(err error){
+  grpc.ChainStreamInterceptor(func(srv any,stream grpc.ServerStream,call *grpc.StreamServerInfo,handler grpc.StreamHandler)(err error){
+   if traceRPC!=nil{ctx,finish:=traceRPC(stream.Context(),call.FullMethod);stream=&traceStream{ServerStream:stream,ctx:ctx};defer func(){finish(err)}()}
    select{case streamPermits<-struct{}{}:default:return status.Error(codes.ResourceExhausted,"stream capacity exceeded")}
    transferred:=false
    defer func(){if !transferred{<-streamPermits};if recover()!=nil{err=status.Error(codes.Internal,"request failed")}}()
@@ -186,6 +195,8 @@ func durationSetting(name string,fallback,maximum time.Duration)(time.Duration,e
  raw:=os.Getenv(name);if raw==""{return fallback,nil}
  value,err:=time.ParseDuration(raw);if err!=nil||value<time.Second||value>maximum{return 0,fmt.Errorf("invalid %s",name)};return value,nil
 }
+type traceStream struct{grpc.ServerStream;ctx context.Context}
+func(s *traceStream)Context()context.Context{return s.ctx}
 type verifiedStream struct{
  grpc.ServerStream
  ctx context.Context

@@ -68,7 +68,8 @@ checks passed. The application dependency scan reported no vulnerabilities.
 Final pinned adoption is recorded in the application evidence.
 
 This is an HTTP tracing implementation, not completion of the upstream
-observability specifications. gRPC request spans, database spans, request metrics,
+observability specifications. The later [gRPC tracing contract](grpc-tracing.md)
+adds server calls and watch spans. Database spans, request metrics,
 controller spans, browser-to-API evidence, OTLP/HTTP transport, collector client
 authentication, and production capacity evidence remain open. Domain-specific
 span fields must have a separate reviewed data policy.

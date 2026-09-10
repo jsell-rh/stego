@@ -27,6 +27,9 @@ import (
  "go.opentelemetry.io/otel/trace"
  "google.golang.org/grpc"
  "google.golang.org/grpc/credentials"
+ grpccodes "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/metadata"
+ "google.golang.org/grpc/status"
 )
 const QueueSize=256
 const BatchSize=32
@@ -36,6 +39,8 @@ const defaultService={{printf "%q" .Service}}
 // Runtime owns its tracer provider and export connection. It does not change
 // global OpenTelemetry providers. Missing collector configuration disables it.
 type Runtime struct{provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures atomic.Uint64}
+// NewTracingRuntime gives compiler assembly a distinct dependency name.
+func NewTracingRuntime()(*Runtime,error){return NewRuntime()}
 func NewRuntime()(*Runtime,error){
  endpoint:=os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
  if endpoint==""{return &Runtime{},nil}
@@ -111,4 +116,27 @@ func recordRoute(span trace.Span,method,pattern string){
  if pattern==""||pattern=="/"||len(pattern)>256{return}
  _,route,hasMethod:=strings.Cut(pattern," ");if !hasMethod{route=pattern}
  if strings.HasPrefix(route,"/")&&strings.Trim(route,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-{}$")==""{span.SetName(method+" "+route);span.SetAttributes(attribute.String("http.route",route))}
+}
+
+// TraceRPC starts a span for a registered gRPC method. The generated transport
+// calls finish once, with its final status, after authentication and execution.
+// A stream span ends when the transport ends the stream, including expiry.
+func(r *Runtime)TraceRPC(ctx context.Context,fullMethod string)(context.Context,func(error)){
+ if r.provider==nil||r.closed.Load(){return ctx,func(error){}}
+ md,_:=metadata.FromIncomingContext(ctx)
+ values:=md.Get("traceparent")
+ if len(values)==1&&len(values[0])==55{ctx=(propagation.TraceContext{}).Extract(ctx,propagation.MapCarrier{"traceparent":values[0]})}
+ method:=strings.TrimPrefix(fullMethod,"/")
+ service,name,found:=strings.Cut(method,"/")
+ if !strings.HasPrefix(fullMethod,"/")||!found||service==""||name==""||len(method)>256||strings.Contains(name,"/")||strings.Trim(service,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._")!=""||strings.Trim(name,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")!=""{method="_OTHER"}
+ ctx,span:=r.provider.Tracer("stego/grpc").Start(ctx,method,trace.WithSpanKind(trace.SpanKindServer),trace.WithAttributes(attribute.String("rpc.system.name","grpc"),attribute.String("rpc.method",method)))
+ return ctx,func(err error){
+  code:=status.Code(err)
+  names:=[...]string{"OK","CANCELLED","UNKNOWN","INVALID_ARGUMENT","DEADLINE_EXCEEDED","NOT_FOUND","ALREADY_EXISTS","PERMISSION_DENIED","RESOURCE_EXHAUSTED","FAILED_PRECONDITION","ABORTED","OUT_OF_RANGE","UNIMPLEMENTED","INTERNAL","UNAVAILABLE","DATA_LOSS","UNAUTHENTICATED"}
+  if int64(code)>=int64(len(names)){code=grpccodes.Unknown}
+  value:=names[code]
+  span.SetAttributes(attribute.String("rpc.response.status_code",value))
+  switch code{case grpccodes.Unknown,grpccodes.DeadlineExceeded,grpccodes.Unimplemented,grpccodes.Internal,grpccodes.Unavailable,grpccodes.DataLoss:span.SetStatus(codes.Error,"");span.SetAttributes(attribute.String("error.type",value))}
+  span.End()
+ }
 }

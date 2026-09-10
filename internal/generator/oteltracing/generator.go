@@ -1,4 +1,4 @@
-// Package oteltracing generates bounded HTTP tracing and OTLP export.
+// Package oteltracing generates bounded HTTP and gRPC tracing and OTLP export.
 package oteltracing
 
 import (
@@ -50,7 +50,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewRuntime()"}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, Middlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Route(%s)"}}, OuterMiddlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Handler(%s)"}}, GoModRequires: map[string]string{
+	return files, &gen.Wiring{Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewTracingRuntime()"}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, Middlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Route(%s)"}}, OuterMiddlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Handler(%s)"}}, GoModRequires: map[string]string{
 		"go.opentelemetry.io/otel": "v1.46.0", "go.opentelemetry.io/otel/trace": "v1.46.0", "go.opentelemetry.io/otel/sdk": "v1.46.0", "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc": "v1.46.0", "google.golang.org/grpc": "v1.83.1", "github.com/felixge/httpsnoop": "v1.0.4",
 	}}, nil
 }
