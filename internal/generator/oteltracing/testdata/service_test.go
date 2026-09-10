@@ -88,7 +88,7 @@ func TestServiceLogsLocalAndOTLP(t *testing.T) {
 						t.Fatal("log exposed a context value")
 					}
 					for _, resource := range batch.ResourceLogs {
-						if len(resource.Resource.Attributes) != 1 || value(resource.Resource.Attributes, "service.name").GetStringValue() != "records-test" {
+						if len(resource.Resource.Attributes) != 2 || value(resource.Resource.Attributes, "service.instance.id").GetStringValue() != runtime.instance || value(resource.Resource.Attributes, "service.name").GetStringValue() != "records-test" {
 							t.Fatal("incorrect service identity")
 						}
 						for _, scope := range resource.ScopeLogs {

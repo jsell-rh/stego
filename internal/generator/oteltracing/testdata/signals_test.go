@@ -121,7 +121,7 @@ func TestRequestSignalsWithAndWithoutSampledSpans(t *testing.T) {
 			{
 				count := 0
 				for _, resource := range logRequest.ResourceLogs {
-					if len(resource.Resource.Attributes) != 1 || value(resource.Resource.Attributes, "service.name").GetStringValue() != "records" {
+					if len(resource.Resource.Attributes) != 2 || value(resource.Resource.Attributes, "service.instance.id").GetStringValue() != runtime.instance || value(resource.Resource.Attributes, "service.name").GetStringValue() != "records" {
 						t.Fatal("log service identity lost")
 					}
 					for _, scope := range resource.ScopeLogs {

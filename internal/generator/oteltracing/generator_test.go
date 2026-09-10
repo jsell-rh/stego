@@ -25,12 +25,15 @@ var serviceTests []byte
 //go:embed testdata/controller_test.go
 var controllerTests []byte
 
+//go:embed testdata/identity_test.go
+var identityTests []byte
+
 func TestGeneratedTracing(t *testing.T) {
 	files, wiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "records"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests})
+	files = append(files, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")
 	var names []string

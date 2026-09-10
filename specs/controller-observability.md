@@ -90,7 +90,10 @@ runs passed across both generated forms and GOMAXPROCS values 1 and 4. Run
 to repeat this check. Production runtime code did not change in this correction.
 The failed CI result is not a pass; the corrected revision needs its own CI.
 
-Resource identity currently contains only `service.name`. Separate replicas do
-not yet have a unique `service.instance.id` in their resource records. Metric
-attribution across replicas therefore remains open, as does the full production
-observability requirement.
+The later [instance identity contract](telemetry-instance-identity.md) adds
+`service.instance.id` to all signals and local logs. It distinguishes separate
+replicas and runtime replacements. Full production observability remains open.
+
+The [corrected compiler run 34532926692](https://github.com/jsell-rh/stego/actions/runs/34532926692)
+passed for `86b436c27bd31817733dd0356d3aea5ca10c8a77`. This resolves the CI test
+ordering failure at that revision. Later changes need their own CI results.

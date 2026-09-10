@@ -54,3 +54,8 @@ The [controller observability contract](controller-observability.md) adds common
 keyed-work logs, metrics, spans, and aggregate queue gauges. Consumers no longer
 need common event-to-log callbacks for these boundaries. Non-keyed work and the
 remaining telemetry requirements stay open.
+
+The [instance identity contract](telemetry-instance-identity.md) separates runtime
+resources with random UUIDs. Request, controller, and local signals share their
+runtime identity. Replica aggregation can now retain separate OTLP streams;
+backend storage and production capacity remain separate gates.

@@ -1,6 +1,7 @@
 package {{.Package}}
 import (
  "context"
+ "crypto/rand"
  "crypto/tls"
  "crypto/x509"
  "errors"
@@ -38,7 +39,7 @@ const defaultService={{printf "%q" .Service}}
 // Runtime owns its tracer provider and export connection. It does not change
 // global OpenTelemetry providers. Missing collector configuration disables export.
 // Local service logging remains enabled.
-type Runtime struct{controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
+type Runtime struct{instance string;resource *resource.Resource;controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
 // NewTracingRuntime gives compiler assembly a distinct dependency name.
 func NewTracingRuntime()(*Runtime,error){
  runtime,err:=NewRuntime();if err!=nil{return nil,err}
@@ -50,8 +51,10 @@ func NewRuntime()(*Runtime,error){return newRuntime(os.Stderr)}
 func newRuntime(localOutput io.Writer)(*Runtime,error){
  service:=os.Getenv("OTEL_SERVICE_NAME");if service==""{service=defaultService}
  if len(service)==0||len(service)>128||strings.Trim(service,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")!=""{return nil,errors.New("invalid telemetry service name")}
+ instance,err:=newInstanceID(rand.Reader);if err!=nil{return nil,err}
+ runtime:=&Runtime{instance:instance,resource:serviceResource(service,instance)}
  endpoint:=os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
- if endpoint==""{runtime:=&Runtime{};runtime.initServiceLogs(service,localOutput);return runtime,nil}
+ if endpoint==""{runtime.initServiceLogs(service,localOutput);return runtime,nil}
  allowed:=map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT":true,"OTEL_EXPORTER_OTLP_PROTOCOL":true,"OTEL_EXPORTER_OTLP_CERTIFICATE":true,"OTEL_SERVICE_NAME":true,"OTEL_TRACES_SAMPLER_ARG":true,"OTEL_METRICS_EXPORTER":true,"OTEL_LOGS_EXPORTER":true,"OTEL_METRIC_EXPORT_INTERVAL":true}
  for _,entry:=range os.Environ(){name,value,_:=strings.Cut(entry,"=");if value!=""&&strings.HasPrefix(name,"OTEL_")&&!allowed[name]{return nil,errors.New("unsupported OpenTelemetry setting")}}
  if len(endpoint)>2048{return nil,errors.New("invalid trace collector endpoint")}
@@ -66,11 +69,11 @@ func newRuntime(localOutput io.Writer)(*Runtime,error){
  if err!=nil{return nil,errors.New("cannot create trace exporter connection")}
  exporter,err:=otlptracegrpc.New(context.Background(),otlptracegrpc.WithGRPCConn(connection),otlptracegrpc.WithHeaders(map[string]string{}),otlptracegrpc.WithTimeout(ExportTimeout),otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{Enabled:false}),otlptracegrpc.WithMaxRequestSize(1<<20))
  if err!=nil{connection.Close();return nil,errors.New("cannot create trace exporter")}
- runtime:=&Runtime{connection:connection}
- runtime.provider=sdktrace.NewTracerProvider(sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name",service))),sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit:256,AttributeCountLimit:8}),sdktrace.WithBatcher(&safeExporter{SpanExporter:exporter,runtime:runtime},sdktrace.WithMaxQueueSize(QueueSize),sdktrace.WithMaxExportBatchSize(BatchSize),sdktrace.WithBatchTimeout(200*time.Millisecond),sdktrace.WithExportTimeout(ExportTimeout)))
+ runtime.connection=connection
+ runtime.provider=sdktrace.NewTracerProvider(sdktrace.WithResource(runtime.resource),sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit:256,AttributeCountLimit:8}),sdktrace.WithBatcher(&safeExporter{SpanExporter:exporter,runtime:runtime},sdktrace.WithMaxQueueSize(QueueSize),sdktrace.WithMaxExportBatchSize(BatchSize),sdktrace.WithBatchTimeout(200*time.Millisecond),sdktrace.WithExportTimeout(ExportTimeout)))
  runtime.tracer=runtime.provider.Tracer("stego/http")
  runtime.grpcTracer=runtime.provider.Tracer("stego/grpc")
- if err:=runtime.initSignals(service,interval);err!=nil{runtime.Close();return nil,err}
+ if err:=runtime.initSignals(interval);err!=nil{runtime.Close();return nil,err}
  runtime.initServiceLogs(service,localOutput)
  return runtime,nil
 }
@@ -101,7 +104,7 @@ func(r *Runtime)Close(){r.once.Do(func(){
  if r.signals.logs!=nil{closeProvider(r.signals.logs.Shutdown)}
  group.Wait()
  if r.service.local!=nil{
-  if r.shutdownFailures.Load()>0{r.service.local.enqueue(localRecord{Time:time.Now(),Severity:"WARN",Service:r.service.service,Event:"telemetry.shutdown.incomplete",Message:"Telemetry shutdown did not complete"})}
+  if r.shutdownFailures.Load()>0{r.service.local.enqueue(localRecord{Time:time.Now(),Severity:"WARN",Service:r.service.service,Instance:r.instance,Event:"telemetry.shutdown.incomplete",Message:"Telemetry shutdown did not complete"})}
   close(r.service.local.queue)
   select{case <-r.service.local.done:case <-ctx.Done():r.shutdownFailures.Add(1)}
  }

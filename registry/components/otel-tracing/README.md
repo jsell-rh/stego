@@ -21,3 +21,7 @@ event API, queue limits, shutdown behavior, and remaining process logging work.
 [Shared controller telemetry](../../../specs/controller-observability.md) now
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.
+
+Version 1.5.0 adds a random `service.instance.id` shared by all signals and local
+logs in one runtime. Replacements get a new identity. See the
+[instance identity contract](../../../specs/telemetry-instance-identity.md).

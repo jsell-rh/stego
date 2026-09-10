@@ -2718,3 +2718,10 @@ compiler race tests with PostgreSQL and static checks passed. The Gateway probe
 first reproduced missing telemetry after a real API creation and a controlled
 provider failure. Application adoption and full observability remain separate
 gates. The enterprise goal remains active.
+
+The [telemetry instance identity contract](telemetry-instance-identity.md) adds
+opaque runtime IDs to all three signals and local logs. A Gateway probe with two
+simultaneous API processes and one replacement first exposed indistinguishable
+resource identity. The shared runtime now creates one UUID per provider set.
+Full compiler race tests with PostgreSQL and static checks passed. Application
+adoption, backend aggregation, and the wider enterprise goal remain open.
