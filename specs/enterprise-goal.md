@@ -2304,3 +2304,13 @@ output. Generated startup tests cover component and fill calls, HTTP and task
 wiring, collisions, and repeated assembly. The compiler race suite and static
 checks passed. See [symbol bindings](symbol-bindings.md) for measured cost and
 limits. Complete typed constructor bindings remain open under C7.
+
+Constructor metadata now has one index-validation step before unused constructors
+are removed. A regression test found that invalid middleware indexes could be
+ignored, so a declared authentication layer was omitted from handler assembly.
+Invalid cleanup, dependency, and collection indexes were also ignored. The
+compiler now rejects these records without output, checks all constructor-indexed
+fields, and requires one unambiguous primary middleware selection. Tests use valid
+control fixtures and check stable diagnostics. An older task-index test now
+reaches the intended validation check. See [constructor metadata](constructor-metadata.md).
+Complete typed dependency binding and Go type checking remain open.

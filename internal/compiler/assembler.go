@@ -174,48 +174,8 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		return gen.File{}, err
 	}
 
-	// Validate middleware wiring: if MiddlewareConstructor is set,
-	// MiddlewareWrapExpr must also be set so the assembler knows how
-	// to invoke the middleware (per checklist item 113).
-	for _, cw := range input.Wirings {
-		if cw.Wiring == nil {
-			continue
-		}
-		for index, resources := range cw.Wiring.ConstructorResources {
-			if index < 0 || index >= len(cw.Wiring.Constructors) {
-				return gen.File{}, fmt.Errorf("component %q has invalid resource constructor index %d", cw.Name, index)
-			}
-			for _, resource := range resources {
-				if resource != gen.ServiceContext && resource != gen.SQLDatabase {
-					return gen.File{}, fmt.Errorf("component %q requests unsupported resource %q", cw.Name, resource)
-				}
-			}
-		}
-		seenTasks := make(map[int]bool)
-		for _, index := range cw.Wiring.BackgroundTasks {
-			if index < 0 || index >= len(cw.Wiring.Constructors) || seenTasks[index] {
-				return gen.File{}, fmt.Errorf("component %q has an invalid or duplicate background task index %d", cw.Name, index)
-			}
-			seenTasks[index] = true
-		}
-		for index := range cw.Wiring.ConstructorReturnsError {
-			if index < 0 || index >= len(cw.Wiring.Constructors) {
-				return gen.File{}, fmt.Errorf("component %q has an invalid error-returning constructor index %d", cw.Name, index)
-			}
-		}
-		if cw.Wiring.MiddlewareConstructor != nil && cw.Wiring.MiddlewareWrapExpr == "" {
-			return gen.File{}, fmt.Errorf("component %q declares MiddlewareConstructor but no MiddlewareWrapExpr — generators must specify how the middleware wraps the handler (e.g. \"%%s(%%s)\" for function-type middleware)", cw.Name)
-		}
-		for k, ms := range cw.Wiring.Middlewares {
-			if ms.WrapExpr == "" {
-				return gen.File{}, fmt.Errorf("component %q declares Middlewares[%d] but no WrapExpr — generators must specify how the middleware wraps the handler", cw.Name, k)
-			}
-		}
-		for k, ms := range cw.Wiring.OuterMiddlewares {
-			if ms.WrapExpr == "" {
-				return gen.File{}, fmt.Errorf("component %q declares OuterMiddlewares[%d] but no WrapExpr — generators must specify how the middleware wraps the handler", cw.Name, k)
-			}
-		}
+	if err := validateConstructorMetadata(input.Wirings); err != nil {
+		return gen.File{}, err
 	}
 
 	// Compute which constructor entries are consumed (transitively reachable

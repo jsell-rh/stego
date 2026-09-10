@@ -139,7 +139,9 @@ func (f File) Bytes() []byte {
 }
 
 // Wiring captures what a component needs wired into shared generated files
-// (e.g. cmd/main.go, go.mod).
+// (e.g. cmd/main.go, go.mod). Every constructor index must identify an entry
+// in Constructors, including metadata for an unused constructor. At most one
+// component can declare primary MiddlewareConstructor wiring.
 type Wiring struct {
 	// Contracts lists the shared interface versions that this component uses.
 	// The compiler emits each version once and adds its module requirements.

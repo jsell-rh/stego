@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -105,9 +106,9 @@ func TestGeneratedBackgroundLifecycle(t *testing.T) {
 
 func TestBackgroundTaskIndexes(t *testing.T) {
 	for _, indexes := range [][]int{{-1}, {1}, {0, 0}} {
-		_, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
-		if err == nil {
-			t.Fatalf("accepted invalid indexes %v", indexes)
+		_, err := Assemble(AssemblerInput{ModuleName: "example.com/tasks", GoVersion: "1.26.8", Wirings: []ComponentWiring{{Name: "tasks", Wiring: &gen.Wiring{Constructors: []string{"tasks.NewWorker()"}, BackgroundTasks: indexes}}}})
+		if err == nil || !strings.Contains(err.Error(), "background task index") {
+			t.Fatalf("invalid indexes %v did not reach task validation: %v", indexes, err)
 		}
 	}
 }
