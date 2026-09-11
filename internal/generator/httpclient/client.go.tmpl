@@ -114,7 +114,8 @@ func(c *Client)exchange(ctx context.Context,method,relative string,headers http.
  if err!=nil{return fail("transport",errors.New("HTTP service request failed"))}
  {{if .Tracing}}status=response.StatusCode{{end}}
  defer response.Body.Close()
- if response.StatusCode>=300 && response.StatusCode<400{return fail("redirect",errors.New("HTTP service redirect is forbidden"))}
+ if response.StatusCode==http.StatusNotModified && method!=http.MethodGet && method!=http.MethodHead{return fail("response",errors.New("unexpected HTTP cache response"))}
+ if response.StatusCode>=300 && response.StatusCode<400 && response.StatusCode!=http.StatusNotModified{return fail("redirect",errors.New("HTTP service redirect is forbidden"))}
  if consume!=nil && response.StatusCode==http.StatusOK{
    limited:=&io.LimitedReader{R:response.Body,N:MaxStreamBytes+1}
    scanner:=bufio.NewScanner(limited);scanner.Buffer(make([]byte,4096),MaxResponseBytes+2)
