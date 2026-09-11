@@ -70,8 +70,10 @@ from 1 through 65535. The monitor permits eight connections and has one-second
 read, write, and idle limits. It does not expose metrics or application data.
 
 Run the executable with `--stego-probe=live` or `--stego-probe=ready` for an exit
-status. A probe has a one-second limit. It does not open domain resources, start
-telemetry, use a proxy, or follow redirects. It requires status 200 and the exact
+status. A probe has a one-second limit. It does not call `Open`, start STEGO
+telemetry, use a proxy, or follow redirects. Go package initializers still run
+before `Main`, including for probe commands. Keep domain resource setup in
+`Open`; do not put it in package initializers. The probe requires status 200 and the exact
 body `ok\n`. Unknown arguments fail. The health server permits only GET.
 
 Liveness is available during initialization. Readiness requires completed
@@ -122,3 +124,22 @@ The corrected commands each have their own saved logs and exit result. No
 passing Job status is claimed for this checker. The namespace was removed after
 evidence collection. Full compiler CI and the Hypershell application gate are
 separate checks.
+
+The health and deployment extension passed its bounded jshell checks on
+2026-09-11. The first source is `/tmp/stego-rpc-health-38hk1v7s/source.tar`.
+Its full RPC generator suite passed in 219.747 seconds. Kubernetes generator
+checks passed in 2.582 seconds, registry checks in 2.179 seconds, and the
+command-level RPC project check in 6.970 seconds.
+
+The final source, `/tmp/stego-rpc-health-final-vhc0ue8l/source.tar`, adds an
+explicit dependency pin for the connection limiter. The generated process check
+passed in 32.82 seconds, with race detection, real probes, verified RPC calls,
+restart, and OTEL checks. The command-level project test passed in 5.41 seconds.
+Compiler input-snapshot and Go-version checks passed. Each source has separate
+logs. Both command sequences exited zero. The Job reached `Complete` and its
+namespace was removed. Full compiler CI passed for `00b270d`.
+
+Hypershell then passed the rendered Gateway and account workflow with a separate
+generated provisioner Deployment. It replaced the provisioner after account
+creation, then verified token issuance, revoke, and delete. See the
+[application deployment record](https://github.com/jsell-rh/hypershell-stego/blob/863d8a9/acceptance/rpc-deployment.md).

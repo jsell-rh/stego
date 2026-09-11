@@ -3228,8 +3228,45 @@ passed. Its cause is not established. Hypershell `f39b723` adds bounded resource
 counters before browser cleanup; it is a diagnostic change, not a verified fix.
 New full application CI remains required.
 
-The broader goal remains active. The next common process work is a generated
-RPC Deployment and health probes. The current provisioner runs in the test Job,
-while the API and console run as generated Deployments. Complete Gateway
-provisioning through the console, production certificate rotation, capacity,
-accessibility, and the remaining C1–C7 requirements remain open.
+At that stage, the provisioner still ran in the test Job. The next check moved
+it into a generated Deployment, as described below.
+
+## RPC Deployment and application restart evidence
+
+STEGO `00b270d` supplies loopback RPC health probes and separate deployment
+targets. The compiler checks process references against resolved declarations.
+It rejects missing source directories, unknown targets, invalid ingress ports,
+and name collisions with workers. Each target uses the common restricted Pod,
+image build, Secrets references, network policy, and deployment renderer. The
+runtime handles probe commands without calling the domain factory. Readiness
+requires registration and listener setup, and ends when shutdown starts.
+
+Full compiler CI passed. Bounded jshell checks passed the RPC generator suite,
+deployment renderer, registry, standalone RPC project, process probes, startup
+and shutdown bounds, verified identity, restart, and OTEL checks. The final
+source and command results are in `/tmp/stego-rpc-health-final-vhc0ue8l`.
+See [RPC processes](grpc-processes.md) for exact scope and results.
+
+Hypershell `863d8a9` uses this target for its account provisioner. The browser
+workflow passed in 156.37 seconds; its race-enabled package passed in
+157.421 seconds. It created an account, replaced the provisioner Pod, verified
+the real token, revoked the account, and deleted it. Both provisioner instances
+passed allowed, denied, and invalid-token RPC checks over verified TLS. The
+Gateway, owner grant, REST, gRPC, event, API and console restart, session rotation,
+renewal, and confirmed sign-out checks also passed.
+
+All 225 generated, state, and dependency hashes match two generation passes,
+the post-test output, and the checkout. The Job reached `Complete` with exit
+zero. The screenshot after account deletion was reviewed. Both test namespaces
+were removed and their absence was verified. The API and console images stayed
+unchanged. The new provisioner image is
+`sha256:f49e52e079840a26118114f048439166a109ecae103a38d5cafc5eb10311ed8e`.
+The [application record](https://github.com/jsell-rh/hypershell-stego/blob/863d8a9/acceptance/rpc-deployment.md)
+contains the source, images, limits, and evidence. Full application CI remains
+separate from this passed cluster gate.
+
+The broader goal remains active. The next application gate is complete Gateway
+workload provisioning through the console, which still uses a readiness fixture.
+RPC-only project deployment, production certificate rotation, capacity,
+accessibility, and the remaining C1–C7 requirements remain open. The prior CI
+browser crash is not considered fixed without evidence for its cause.
