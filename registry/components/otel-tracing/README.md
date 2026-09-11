@@ -4,6 +4,10 @@ request logs through one shared runtime. Export is enabled when
 must be trusted. Configuration errors prevent startup; collector failure does
 not prevent application requests.
 
+Version 1.10.0 adds fixed PostgreSQL driver signals through the same runtime.
+The storage peer supplies the driver callbacks. SQL and connection data do not
+enter the signal API. See the [database telemetry contract](../../../specs/database-observability.md).
+
 The runtime records methods, registered routes when available, status, duration,
 and active requests. Request logs correlate with spans. Metrics and logs also
 cover unsampled requests. Raw URLs, bodies, credentials, and identity fields are

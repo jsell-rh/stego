@@ -268,6 +268,11 @@ type Wiring struct {
 	// component can provide it. The constructor is consumed when HTTP routes exist.
 	HTTPErrorLogger *int
 
+	// DatabaseOpener selects a generated function with signature
+	// func(string) (*sql.DB, error). The argument is DATABASE_URL. The
+	// generated main owns the returned pool. Only one component can supply it.
+	DatabaseOpener *DatabaseOpenerSpec
+
 	// DiscoveryRoutes lists route registration expressions for main.go
 	// assembly that must be registered OUTSIDE the auth middleware chain.
 	// These are unauthenticated documentation/discovery endpoints (e.g.
@@ -283,6 +288,12 @@ type Wiring struct {
 	// os.Getenv() should list "os". The assembler adds these to the stdlib
 	// import block and seeds their aliases into the disambiguation maps.
 	StdlibImports []string
+}
+
+// DatabaseOpenerSpec names a generated SQL pool factory.
+type DatabaseOpenerSpec struct {
+	Namespace string
+	Function  string
 }
 
 // MiddlewareSpec describes a middleware constructor and how it wraps the

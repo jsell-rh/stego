@@ -222,10 +222,11 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	if hasDB {
+		opener := databaseOpenExpression(input, imports, consumedWirings)
 		if isGORM {
-			writeGORMDBSetup(&buf)
+			writeGORMDBSetup(&buf, opener)
 		} else {
-			writeDBSetup(&buf)
+			writeDBSetup(&buf, opener)
 		}
 
 		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
@@ -329,7 +330,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
-	if hasDB && !isGORM {
+	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}, consumedWirings) == "" {
 		stdlibNeeded["database/sql"] = true
 	}
 	// log reports the HTTP listener.
@@ -367,7 +368,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// All non-stdlib imports share a SINGLE disambiguation namespace so that
 	// component, fill, and slots aliases cannot collide with each other.
 	var compImports []string
-	if hasDB && !isGORM {
+	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}, consumedWirings) == "" {
 		compImports = append(compImports, "\t_ \"github.com/jackc/pgx/v5/stdlib\"")
 	}
 	seen := make(map[string]bool)   // full import path → already added
@@ -507,32 +508,43 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 }
 
-func writeDBSetup(buf *bytes.Buffer) {
+func writeDBSetup(buf *bytes.Buffer, opener string) {
 	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
 	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tstegoStage = \"database.open\"\n")
-	buf.WriteString("\tdb, err := sql.Open(\"pgx\", dsn)\n")
+	if opener == "" {
+		opener = "sql.Open(\"pgx\", dsn)"
+	}
+	fmt.Fprintf(buf, "\tdb, err := %s\n", opener)
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdefer db.Close()\n\n")
 }
 
-func writeGORMDBSetup(buf *bytes.Buffer) {
+func writeGORMDBSetup(buf *bytes.Buffer, opener string) {
 	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
 	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tstegoStage = \"database.open\"\n")
-	buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard})\n")
+	if opener != "" {
+		fmt.Fprintf(buf, "\tsqlDB, err := %s\n\tif err != nil { return err }\n\tdefer sqlDB.Close()\n", opener)
+		buf.WriteString("\tdb, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard})\n")
+	} else {
+		buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard})\n")
+	}
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tstegoStage = \"database.handle\"\n")
+	if opener != "" {
+		return
+	}
 	buf.WriteString("\tsqlDB, err := db.DB()\n")
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")

@@ -2772,3 +2772,11 @@ first found no common completion record after login on compiler `f87dfaf`.
 Application adoption and full CI require their own results. The host restart
 during local measurement caused a test-policy change: performance and heavy
 tests now run in CI or the approved cluster. All goal milestones remain active.
+
+The [database driver contract](database-observability.md) adds a typed pool
+factory and shared PostgreSQL logs, metrics, and spans through the current
+runtime context. The Gateway probe first found missing signals after creation,
+rollback, access checks, and event delivery. Compiler, registry, generated
+telemetry, storage transaction, and driver checks passed in the cluster.
+Application adoption and full CI are separate gates. Pool statistics, startup
+work, independent database connections, and the wider goal remain open.

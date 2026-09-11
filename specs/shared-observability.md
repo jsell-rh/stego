@@ -89,3 +89,8 @@ other independent worker entry-point integration remain open.
 The [CLI entry-point contract](cli-observability.md) supplies command logs,
 metrics, spans, and outbound context. The generated main owns and closes the
 runtime. Command stdout and diagnostic stderr remain separate.
+
+The [database driver contract](database-observability.md) defines common pool
+ownership and context-bound PostgreSQL call signals. SQL text, arguments, and
+connection details are excluded. Pool statistics, startup work, the separate
+PostgreSQL read client, and unbound workers remain open requirements.

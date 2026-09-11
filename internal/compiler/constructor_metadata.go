@@ -11,6 +11,9 @@ import (
 // A bad reference must not silently remove middleware, cleanup, or dependency
 // metadata. Map indexes are checked in order for stable diagnostics.
 func validateConstructorMetadata(wirings []ComponentWiring) error {
+	if err := validateDatabaseOpener(wirings); err != nil {
+		return err
+	}
 	primarySeen := false
 	primaryName := ""
 	loggerSeen, loggerName := false, ""

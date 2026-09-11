@@ -32,6 +32,11 @@ func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 // ValidateContext checks storage names, constraints, and migration settings.
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		if err := gen.ValidateGoPackageNamespace(peer); err != nil {
+			return err
+		}
+	}
 	if errs := types.ValidateVersioned(ctx.Entities, ctx.Collections); len(errs) > 0 {
 		return errs[0]
 	}
@@ -235,6 +240,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
+	if ctx.PeerNamespaces["otel-tracing"] != "" {
+		file, err := generateDatabaseOpener(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, file)
+		wiring.DatabaseOpener = &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}
+		wiring.GoModRequires["github.com/jackc/pgx/v5"] = "v5.11.0"
+	}
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}
 	}
@@ -298,6 +312,7 @@ var reservedTypeNames = map[string]bool{
 	"ErrNotificationsUnavailable": true,
 	"sync":                        true,
 	"NewStore":                    true,
+	"OpenDatabase":                true,
 	"Meta":                        true,
 	"GenericDao":                  true,
 	"NewGenericDao":               true,

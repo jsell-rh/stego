@@ -33,6 +33,10 @@ and a transaction. PostgreSQL supplies generation and transition time. Current
 views hide old-generation status. See [resource conditions](../../../specs/resource-conditions.md).
 
 The generated process uses a private GORM connection with raw logging disabled.
+With `otel-tracing`, version 3.14.0 also generates an instrumented PostgreSQL
+pool factory. The generated main owns the pool. Request contexts supply the
+telemetry runtime; domain code needs no wrapper. See the
+[database telemetry contract](../../../specs/database-observability.md).
 Process failures report a fixed stage without driver or query text. See the
 [process failure policy](../../../specs/process-failure-privacy.md) for coverage
 and limits. Database telemetry remains an open requirement.
