@@ -133,4 +133,14 @@ The fixture now waits for a health sample within five seconds and accepts a
 fixed return from a provider whose session has already ended. These failed
 results remain in the test records. The later workflow passed in the same Pod
 after the private identity realm was reset. This does not change the failed
-status of the original Job. A fresh check with the published compiler is next.
+status of the original Job. A fresh check with the published compiler is recorded below.
+
+Hypershell `a29934b` adopts compiler `e7febe3` and selects provider sign-out.
+The fresh Gateway browser workflow passed in 23.15 seconds (24.198 seconds for
+the package). The input-manifest race test passed in 1.059 seconds. All 152
+generated, state, and dependency hashes matched both generation passes and the
+checkout. The tested application source matches the checkout. The fresh Job
+completed. Its records are in `/tmp/stego-browser-logout-pin-n9t00fim`. Both
+test namespaces were removed, and removal was verified through the cluster API.
+Full compiler CI passed for `e7febe3`. Full application CI remains a separate
+check. The complete UI and production browser requirements remain open.

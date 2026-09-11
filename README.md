@@ -40,6 +40,13 @@ The [Go SDK component](registry/components/go-sdk/README.md) generates typed
 HTTPS clients from captured OpenAPI contracts. Its transport and optional
 telemetry come from STEGO.
 
+The [browser backend](registry/components/browser-backend/README.md) generates a
+separate Go service for login, encrypted sessions, token renewal, sign-out,
+static assets, and the API proxy. It uses the shared health and telemetry code.
+Applications supply their pages and domain API. The real Hypershell protocol
+check covers Gateway access and session recovery; a complete UI and production
+browser deployment remain open.
+
 The [CLI component](registry/components/cli-application/README.md) generates a
 separate executable, command parsing, private configuration, and an HTTPS
 client. Application code declares command names, paths, and fields. Common

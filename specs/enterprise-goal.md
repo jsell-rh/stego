@@ -2942,3 +2942,10 @@ correction of a request compatibility error and two fixture assumptions. The
 [browser record](browser-backend.md) preserves the failures and test scope.
 The reference UI, TypeScript SDK, CSRF transport, and browser telemetry still
 need migration. The broader goal remains active.
+
+Hypershell `a29934b` adopts compiler `e7febe3` for these browser contracts. The
+fresh real Keycloak Gateway workflow passed in 23.15 seconds. It also requires
+a password after provider sign-out. All 152 hashes matched two pinned generation
+passes and the checkout. The input-manifest race test passed, the Job completed,
+and both test namespaces were removed. Full compiler CI passed. Full application
+CI and the remaining UI, SDK, telemetry, and production work stay open.
