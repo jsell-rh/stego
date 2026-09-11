@@ -259,6 +259,9 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 		buf.WriteString("\treturn nil\n")
 	}
 	buf.WriteString("}\n")
+	if hasDB {
+		buf.WriteString(databaseConfigSource)
+	}
 	if fallible {
 		buf.WriteString(serviceFailureSource)
 	}
@@ -330,9 +333,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 	if hasDB {
-		extraStdlib["errors"] = true
-		extraStdlib["context"] = true
-		extraStdlib["time"] = true
+		for _, pkg := range []string{"errors", "context", "time", "io", "path/filepath", "strings", "syscall"} {
+			extraStdlib[pkg] = true
+		}
 	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
@@ -515,11 +518,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 }
 
 func writeDBSetup(buf *bytes.Buffer, opener, parent string) {
-	buf.WriteString("\tstegoStage = \"database.configure\"\n")
-	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
-	buf.WriteString("\tif dsn == \"\" {\n")
-	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
-	buf.WriteString("\t}\n")
+	writeDatabaseConfiguration(buf)
 	buf.WriteString("\tstegoStage = \"database.open\"\n")
 	if opener == "" {
 		opener = "sql.Open(\"pgx\", dsn)"
@@ -540,11 +539,7 @@ func writeDatabasePing(buf *bytes.Buffer, handle, parent string) {
 }
 
 func writeGORMDBSetup(buf *bytes.Buffer, opener, parent string) {
-	buf.WriteString("\tstegoStage = \"database.configure\"\n")
-	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
-	buf.WriteString("\tif dsn == \"\" {\n")
-	buf.WriteString("\t\treturn errors.New(\"DATABASE_URL environment variable is required\")\n")
-	buf.WriteString("\t}\n")
+	writeDatabaseConfiguration(buf)
 	buf.WriteString("\tstegoStage = \"database.open\"\n")
 	if opener != "" {
 		fmt.Fprintf(buf, "\tsqlDB, err := %s\n\tif err != nil { return err }\n\tdefer sqlDB.Close()\n", opener)

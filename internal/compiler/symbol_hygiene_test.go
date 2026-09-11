@@ -26,7 +26,7 @@ func TestGeneratedImportsPreserveLanguageAndStartupNames(t *testing.T) {
 	names := append(types.Universe.Names(), "init", "main", "run", "error2", "main2", "run2", "nil2", "handler0", "handler02")
 	// Derive template declarations independently so new startup helpers must
 	// also be protected by the allocator.
-	file, err := parser.ParseFile(token.NewFileSet(), "startup.go", "package main\n"+httpLifecycleSource+taskLifecycleSource, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), "startup.go", "package main\n"+httpLifecycleSource+taskLifecycleSource+databaseConfigSource, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +34,9 @@ func TestGeneratedImportsPreserveLanguageAndStartupNames(t *testing.T) {
 		switch declaration := declaration.(type) {
 		case *ast.FuncDecl:
 			if declaration.Recv == nil {
+				if !reservedImportNames()[declaration.Name.Name] {
+					t.Fatal("startup function name is not reserved", declaration.Name.Name)
+				}
 				names = append(names, declaration.Name.Name)
 			}
 		case *ast.GenDecl:

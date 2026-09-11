@@ -2814,3 +2814,9 @@ permits plaintext only to literal loopback IP addresses. Hypershell verifies
 Gateway creation, the owner grant, event delivery, access, and restart against
 native PostgreSQL TLS. Strict DSN controls and the wider runtime gate remain
 open. The compiler and application require separate test results.
+
+The [database secret source contract](database-secret-source.md) adds shared
+file input for mounted credentials. The Hypershell workflow checks Gateway
+creation, events, REST and gRPC access, and credential changes across restart.
+Source conflicts and unsafe files must fail before the pool opens. Full
+deployment packaging and the wider enterprise requirements remain open.

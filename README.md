@@ -122,6 +122,11 @@ Adapter version 4 requires verified database TLS by default. Configure
 [database TLS contract](specs/database-tls.md) describes private trust roots,
 host fallbacks, and the explicit loopback test exception.
 
+Set `DATABASE_URL` or `DATABASE_URL_FILE` for the service database. The file
+setting supports mounted secrets with bounded reads and private file permissions.
+See [database secret sources](specs/database-secret-source.md) for the source
+rules and restart behavior.
+
 The PostgreSQL adapter prepares model metadata before concurrent work starts.
 This step does not read or change database tables. It also runs when migrations
 are external. Adapter version 3 changes `NewStore(db)` to return `(*Store, error)`.

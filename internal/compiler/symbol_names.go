@@ -7,6 +7,7 @@ import "go/types"
 // add declarations. Each assembly receives its own mutable allocation state.
 func reservedImportNames() map[string]bool {
 	names := make(map[string]bool)
+	names["stegoDatabaseURL"] = true
 	for _, name := range types.Universe.Names() {
 		names[name] = true
 	}

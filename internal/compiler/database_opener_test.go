@@ -99,7 +99,7 @@ import("context";"database/sql";"database/sql/driver";"errors";"net/http";"os";"
 type Store struct{}
 func NewStore(*gorm.DB)*Store{return &Store{}}
 func(*Store)ServeHTTP(http.ResponseWriter,*http.Request){}
-func OpenDatabase(string)(*sql.DB,error){return sql.OpenDB(connector{}),nil}
+func OpenDatabase(dsn string)(*sql.DB,error){if dsn!="private-database-url"{return nil,errors.New("wrong configuration source")};return sql.OpenDB(connector{}),nil}
 type connector struct{}
 func(connector)Connect(context.Context)(driver.Conn,error){return connection{},nil}
 func(connector)Driver()driver.Driver{return drv{}}
@@ -139,23 +139,34 @@ func(connection)Close()error{return os.WriteFile(os.Getenv("POOL_CLOSED"),[]byte
 			t.Fatalf("pool assembly: %v %s", err, output)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	marker := filepath.Join(project, "closed")
-	deadlineMarker := filepath.Join(project, "ping-deadline")
-	command := exec.CommandContext(ctx, binary)
-	command.Env = append(os.Environ(), "DATABASE_URL=private-database-url", "POOL_CLOSED="+marker, "POOL_PING_DEADLINE="+deadlineMarker, "GORACE=atexit_sleep_ms=0")
-	output, err := command.CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || ctx.Err() != nil {
-		t.Fatal("database failure did not stop the process", err)
-	}
-	if strings.Contains(string(output), "private-") || !strings.Contains(string(output), "database.ping") {
-		t.Fatal("database failure record is unsafe or missing")
-	}
-	if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
-		t.Fatal("database pool was not closed", err)
-	}
-	if data, err := os.ReadFile(deadlineMarker); err != nil || string(data) != "bounded" {
-		t.Fatal("database startup ping had no deadline", err)
+	for _, source := range []string{"environment", "file"} {
+		t.Run(source, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			marker := filepath.Join(t.TempDir(), "closed")
+			deadlineMarker := filepath.Join(t.TempDir(), "ping-deadline")
+			command := exec.CommandContext(ctx, binary)
+			command.Env = append(os.Environ(), "DATABASE_URL=private-database-url", "DATABASE_URL_FILE=", "POOL_CLOSED="+marker, "POOL_PING_DEADLINE="+deadlineMarker, "GORACE=atexit_sleep_ms=0")
+			if source == "file" {
+				name := filepath.Join(t.TempDir(), "private-database-url")
+				if err := os.WriteFile(name, []byte("private-database-url\n"), 0440); err != nil {
+					t.Fatal(err)
+				}
+				command.Env = append(command.Env, "DATABASE_URL=", "DATABASE_URL_FILE="+name)
+			}
+			output, err := command.CombinedOutput()
+			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || ctx.Err() != nil {
+				t.Fatal("database failure did not stop the process", err)
+			}
+			if strings.Contains(string(output), "private-") || !strings.Contains(string(output), "database.ping") {
+				t.Fatal("database failure record is unsafe or missing")
+			}
+			if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
+				t.Fatal("database pool was not closed", err)
+			}
+			if data, err := os.ReadFile(deadlineMarker); err != nil || string(data) != "bounded" {
+				t.Fatal("database startup ping had no deadline", err)
+			}
+		})
 	}
 }
