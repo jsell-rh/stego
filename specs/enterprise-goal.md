@@ -2965,3 +2965,17 @@ Additional common cancellation and deadline tests also passed. The application
 still needs the reference React UI integration, browser telemetry, and complete
 production checks. Full application CI is a separate gate. The broader goal
 remains active.
+
+Compiler `440fbbc` adds explicit SDK login, declared public error codes, and
+bounded browser asset capture with exact script hashes. Common runtime tests
+passed with PostgreSQL, and full compiler CI passed. Hypershell adopts this
+compiler in `6e36ff3`. The fresh Gateway protocol workflow passed in 24.08
+seconds, including provider sign-out. All 155 hashes match two generation
+passes and the checkout. The pinned cluster Job completed.
+
+The reference React source port passed 238 domain and UI tests, type checks,
+import rules, lint, and its production build. It also built with the final
+published SDK files. Its generated Go backend still serves the scaffold.
+Common browser telemetry and the rendered Gateway workflow remain required
+before UI activation. The broader goal remains active. See the
+[browser asset contract](browser-assets.md) for the new compiler boundary.
