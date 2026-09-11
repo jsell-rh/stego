@@ -3131,3 +3131,50 @@ Production capacity and aggregate per-key encryption budgets still need work.
 The runtime does not enforce the AES-GCM lifetime write limit across instances.
 These limits must remain visible while the next application tests guide common
 STEGO changes.
+
+Hypershell `f8b65f5` adds rendered service-account evidence with compiler
+`0f52bab`. The generated API and console run as separate restricted Deployments.
+The console creates an admin account through the generated RPC transport and
+real Keycloak. The test verifies one-time secret delivery, signed token issuer,
+audience, subject, and role, reload, cancelled and confirmed revocation, and
+deletion. A different Gateway audience rejects the token. Revoked credentials
+cannot issue new tokens. Account reads, durable application data, outbox data,
+and runtime logs omit the secret.
+
+The full deployed browser workflow passed in 157.92 seconds; its race-enabled
+package passed in 158.967 seconds. The prior Gateway creation, atomic grant,
+access, event, REST, gRPC, restart, key rotation, telemetry, renewal, and confirmed
+sign-out checks still passed. All 219 generated, state, and dependency hashes
+match two generations, the post-test output, and the checkout. Repeated builds
+produced the same API and console image digests. The Job reached `Complete`.
+The screenshot after deletion shows an empty account list. All four run
+namespaces and the isolated write-probe namespace were removed; their absence
+was verified. See the [application record](https://github.com/jsell-rh/hypershell-stego/blob/f8b65f5/acceptance/browser-service-accounts.md)
+for source identity, images, results, limits, and failed attempts.
+
+This test uses a separate Gateway with a known readiness observation. It does
+not prove full Gateway workload provisioning through the console. The existing
+common runtime needed no change to pass this account workflow. Its remaining
+handwritten provisioner entry point is now a concrete common-generation gap:
+Hypershell still assembles process signals, telemetry, authentication, and RPC
+shutdown. STEGO must own that assembly. Hypershell must keep the account rules,
+caller policy, and Keycloak operations. The next common change must support an
+independent small RPC service and this workflow, without requiring a database
+for a process that does not use one.
+
+The failed account attempt exposed a test error: required public
+`credential_type: client_secret` metadata was mistaken for a secret field.
+The corrected check rejects the secret property and actual secret value while
+preserving the contract. An earlier Secret write failed before the account UI;
+its cause remains unknown. Fixed error categories now preserve private output,
+and their regression check passed. An isolated five-write probe and subsequent
+application runs did not reproduce the write failure.
+
+CI for application revision `82c445a` found a separate completion-test fault.
+The service-image Job timed out before building images because GNU `timeout`
+could not execute its fake shell-function command. Hypershell `4ca15ce` uses an
+executable Bash fixture. All five completion cases passed. CI now bounds that
+small test to 15 seconds. New full application CI remains a separate check.
+STEGO CI for `b4f4c13` passed. The broader compiler and enterprise goal remains
+active, including complete provisioning, production rotation and capacity,
+accessibility, and the remaining C1–C7 requirements.
