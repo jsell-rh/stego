@@ -8,7 +8,6 @@ import (
  telemetry {{printf "%q" .Telemetry}}
  "database/sql"
  "embed"
- "encoding/base64"
  "encoding/json"
  "errors"
  "net/http"
@@ -45,8 +44,8 @@ func newBackend(ctx context.Context,db *sql.DB,o options)(*Backend,error){
  origin,err:=httpsURL(o.Origin);if err!=nil||origin.Path!=""||origin.RawQuery!=""||origin.ForceQuery{return nil,errors.New("browser backend requires an HTTPS origin")}
  upstreamURL,err:=httpsURL(o.Upstream);if err!=nil||upstreamURL.Path!=""||upstreamURL.RawQuery!=""||upstreamURL.ForceQuery||cookieHost(upstreamURL)==cookieHost(origin){return nil,errors.New("browser API requires a separate HTTPS cookie host")}
  issuer,err:=httpsURL(o.Issuer);if err!=nil||cookieHost(issuer)==cookieHost(origin){return nil,errors.New("browser issuer requires a separate HTTPS cookie host")}
- raw,err:=client.ReadPrivateFile(o.KeyFile);if err!=nil{return nil,errSession};key,err:=base64.StdEncoding.DecodeString(strings.TrimSpace(string(raw)));if err!=nil||len(key)!=32{return nil,errors.New("browser session key must contain 32 base64-encoded bytes")}
- store,err:=newStore(ctx,db,key);clear(key);if err!=nil{return nil,err}
+ raw,err:=client.ReadPrivateFile(o.KeyFile);if err!=nil{return nil,errSession};keys,err:=sessionKeys(raw);clear(raw);if err!=nil{return nil,err}
+ store,err:=newStore(ctx,db,keys...);for _,key:=range keys{clear(key)};if err!=nil{return nil,err}
  upstream,err:=client.New(client.Options{BaseURL:o.Upstream,CAFile:o.UpstreamCA});if err!=nil{return nil,err}
  provider,err:=discover(ctx,o);if err!=nil{upstream.Close();return nil,err}
  authorization,_:=httpsURL(provider.metadata.Authorization);if cookieHost(authorization)==cookieHost(origin){provider.close();upstream.Close();return nil,errors.New("browser authorization requires a separate HTTPS cookie host")}

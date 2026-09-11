@@ -1,0 +1,33 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "encoding/base64"
+ "encoding/json"
+ "errors"
+)
+
+const maxSessionKeys=3
+var errSessionKeys=errors.New("browser session keys require one to three distinct 256-bit keys")
+
+// The first key encrypts new records. All keys can decrypt stored records.
+// Read the key file at startup. Keep its contents out of error messages.
+func sessionKeys(raw []byte)(keys [][]byte,err error){
+ defer func(){if err!=nil{for _,key:=range keys{clear(key)};keys=nil}}()
+ if len(raw)>1024{return nil,errSessionKeys};raw=bytes.TrimSpace(raw);if len(raw)==0{return nil,errSessionKeys}
+ encoded:=[]string{string(raw)}
+ if raw[0]=='{'{
+  if !validJSON(raw){return nil,errSessionKeys}
+  var fields map[string]json.RawMessage
+  if json.Unmarshal(raw,&fields)!=nil||len(fields)!=2||string(fields["version"])!="1"{return nil,errSessionKeys}
+  if json.Unmarshal(fields["keys"],&encoded)!=nil{return nil,errSessionKeys}
+ }
+ if len(encoded)<1||len(encoded)>maxSessionKeys{return nil,errSessionKeys}
+ seen:=map[[32]byte]bool{}
+ for _,text:=range encoded{
+  key,decodeErr:=base64.StdEncoding.Strict().DecodeString(text)
+  if decodeErr!=nil||len(key)!=32||base64.StdEncoding.EncodeToString(key)!=text{clear(key);return keys,errSessionKeys}
+  identity:=[32]byte(key);if seen[identity]{clear(key);return keys,errSessionKeys};seen[identity]=true;keys=append(keys,key)
+ }
+ return keys,nil
+}

@@ -25,6 +25,61 @@ The active session cookie uses SameSite=Strict. Tokens stay in encrypted
 PostgreSQL records. AES-256-GCM binds each record to the hash of its cookie ID.
 The database does not store the raw cookie ID.
 
+Version 1.5.0 adds session-key rotation. `STEGO_BROWSER_SESSION_KEY_FILE` keeps
+the same name and private-file access rules. It accepts a single key as padded
+standard base64, or this JSON shape:
+
+```json
+{"version":1,"keys":["BASE64_WRITE_KEY","BASE64_RETAINED_KEY"]}
+```
+
+Replace each placeholder with a random 32-byte key encoded as base64. Do not use
+a password as a key. The first key encrypts new records. Every listed key can
+decrypt records. The file must contain one to three distinct keys and at most
+1,024 bytes. Duplicate fields, unknown fields, other versions, invalid JSON,
+and noncanonical base64 fail at startup. Error messages omit key values.
+The single-key format permits surrounding white space. Each key inside JSON
+must contain only canonical base64. The runtime reads the file at startup;
+a file update does not change keys in a running process.
+
+Use these steps for a planned rotation:
+
+1. Deploy the new runtime to all instances with `[old, new]`. Keep the old key
+   first until every instance can read the new key.
+2. Deploy `[new, old]` to all instances. Both instance groups can read each
+   other's records during this change. New sessions and completed token
+   refreshes use the first key. Read-only access does not rewrite records.
+3. Stop all writers that use the old key first. Retain the old read key until
+   all sessions written by those instances have expired. Active sessions have
+   a fixed one-hour life; refresh does not extend it. Pending logins last five
+   minutes. Include clock uncertainty in the retention period. Then deploy
+   `[new]`. Do not remove the old key early on the assumption that every user
+   has made a request.
+
+The JSON file is not compatible with runtimes before 1.5.0. First update those
+runtimes with the existing single-key file. A rollback after the write-key
+switch must retain both read keys. Removal of a compromised key can end sessions
+that still require that key; this is different from a planned rotation.
+
+The encrypted record format stays unchanged. Each read makes at most three
+AES-GCM attempts. Every attempt checks the same authenticated cookie hash.
+A retained key cannot bypass expiry, refresh ownership, or logout checks.
+The design uses the standard library's
+[authenticated encryption contract](https://pkg.go.dev/crypto/cipher#AEAD) and
+[strict base64 decoder](https://pkg.go.dev/encoding/base64#Encoding.Strict).
+It also checks canonical encoding, because the base64 decoder permits line
+breaks even in strict mode.
+
+The bounded PostgreSQL cluster check passed on 2026-09-11. The generated
+runtime suite passed under race detection in 6.935 seconds. It checked old
+ciphertext, mixed write keys, the third read key, key removal, cookie binding,
+tampered records, expiry, logout during refresh, and backend replacement with
+an existing browser session. Invalid key files failed before database or
+provider access. The generator, shared HTTP client, and registry checks passed
+in 62.817, 2.577, and 2.218 seconds. The runtime source matches the frozen archive
+in `/tmp/stego-browser-runtime-8j7qeiye`. The Job reached `Complete`.
+The Hypershell deployment check is a separate acceptance gate.
+
 Mutations require an exact Origin match and a session-bound CSRF token.
 Requests cannot supply API bearer credentials. The proxy sends a fixed set of
 headers to one API origin. It does not send browser cookies or return upstream
