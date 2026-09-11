@@ -77,7 +77,7 @@ components:
 `
 
 func fixture() gen.Context {
-	return gen.Context{ModuleName: "example.com/records", OutDirName: "out", OutputNamespace: "sdk", ComponentConfig: map[string]any{"document": "api.yaml"}, Inputs: map[string][]byte{"api.yaml": []byte(sample)}}
+	return gen.Context{ModuleName: "example.com/records", OutDirName: "out", OutputNamespace: "sdk", ComponentConfig: map[string]any{"document": "api.yaml", "error_codes": []any{"record_name_exists"}}, Inputs: map[string][]byte{"api.yaml": []byte(sample)}}
 }
 func TestGeneration(t *testing.T) {
 	ctx := fixture()
@@ -93,7 +93,7 @@ func TestGeneration(t *testing.T) {
 	if len(files) != 3 {
 		t.Fatal("unexpected output")
 	}
-	for _, change := range []struct{ old, new string }{{"type: string, minLength: 1, maxLength: 200", "type: string, pattern: '(a+)+$'"}, {"operationId: createRecord", "operationId: session"}, {"in: path", "in: cookie"}, {"format: date-time", "format: unknown"}, {"minLength: 1", "minLenght: 1"}, {"type: string, minLength: 1, maxLength: 200", "minLength: 1"}, {"schema: {type: string}", "schema: {type: string, nullable: true}"}} {
+	for _, change := range []struct{ old, new string }{{"type: string, minLength: 1, maxLength: 200", "type: string, pattern: '(a+)+$'"}, {"operationId: createRecord", "operationId: session"}, {"operationId: createRecord", "operationId: login"}, {"in: path", "in: cookie"}, {"format: date-time", "format: unknown"}, {"minLength: 1", "minLenght: 1"}, {"type: string, minLength: 1, maxLength: 200", "minLength: 1"}, {"schema: {type: string}", "schema: {type: string, nullable: true}"}} {
 		c := fixture()
 		c.Inputs["api.yaml"] = []byte(strings.ReplaceAll(sample, change.old, change.new))
 		if g.ValidateContext(c) == nil {
@@ -158,4 +158,20 @@ func TestGeneratedRuntime(t *testing.T) {
 		return
 	}
 	run(tsc, "--strict", "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "usage.mts")
+}
+
+func TestErrorCodeConfiguration(t *testing.T) {
+	g := new(Generator)
+	for _, value := range []any{"wrong", []any{""}, []any{"Bad-Code"}, []any{"same", "same"}, []any{1}, []any{strings.Repeat("a", 129)}, make([]any, 65)} {
+		ctx := fixture()
+		ctx.ComponentConfig["error_codes"] = value
+		if g.ValidateContext(ctx) == nil {
+			t.Fatalf("invalid error_codes accepted: %v", value)
+		}
+	}
+	ctx := fixture()
+	delete(ctx.ComponentConfig, "error_codes")
+	if _, _, err := g.Generate(ctx); err != nil {
+		t.Fatal(err)
+	}
 }

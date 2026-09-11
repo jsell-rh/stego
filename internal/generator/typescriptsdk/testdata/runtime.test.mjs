@@ -93,3 +93,28 @@ test('in-flight cancellation and the whole-operation deadline release capacity',
   const next = client(async () => json(record));
   assert.equal((await next.getRecord({id: 'r1'})).status, 200);
 });
+
+
+test('only declared API error codes leave the transport', async () => {
+  for (const code of ['record_name_exists', 'private_provider_failure']) {
+    const sdk = client(async () => json({code, reason: 'private', operation_id: 'private'}, 409));
+    await assert.rejects(sdk.getRecord({id: 'r1'}), e => {
+      assert.ok(error('http_error', 409)(e));
+      assert.equal(e.apiCode, code === 'record_name_exists' ? code : undefined);
+      assert.equal(e.operationId, undefined);
+      assert.equal(e.reason, undefined);
+      return true;
+    });
+  }
+});
+test('login uses a fixed same-origin path and bounds the return address', () => {
+  const sdk = client(async () => json(record));
+  let destination;
+  globalThis.location = {origin, pathname: '/records/r1', search: '?tab=info', hash: '#heading', assign: value => { destination = value; }};
+  sdk.login();
+  const target = new URL(destination);
+  assert.equal(target.origin, origin); assert.equal(target.pathname, '/auth/login');
+  assert.equal(target.searchParams.get('return_to'), '/records/r1?tab=info#heading');
+  globalThis.location.pathname = '//other.example/';
+  sdk.login(); assert.equal(new URL(destination).searchParams.get('return_to'), '/');
+});

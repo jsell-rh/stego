@@ -5,11 +5,12 @@ const maxRequest = 1 << 20;
 const maxResponse = 4 << 20;
 let activeRequests = 0;
 export class SDKError extends Error {
-  constructor(code, status = 0) {
+  constructor(code, status = 0, apiCode) {
     super("SDK request failed: " + code);
     this.name = "SDKError";
     this.code = code;
     this.status = status;
+    this.apiCode = contract.errorCodes.includes(apiCode) ? apiCode : undefined;
   }
 }
 function fail(code, status = 0) { throw new SDKError(code, status); }
@@ -168,7 +169,13 @@ export function createBrowserClient() {
     const reader = response.body?.getReader(); let data = "", length = 0;
     const decoder = new TextDecoder("utf-8", { fatal: true });
     if (reader) { try { while (true) { const chunk = await reader.read(); if (chunk.done) break; length += chunk.value.byteLength; if (length > maxResponse) fail("response_limit"); data += decoder.decode(chunk.value, { stream: true }); } data += decoder.decode(); } finally { try { await reader.cancel(); } finally { reader.releaseLock(); } } }
-    if (!response.ok) fail(response.status === 401 ? "reauth_required" : "http_error", response.status);
+    if (!response.ok) {
+      let apiCode;
+      if (response.status !== 401 && (response.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase() === "application/json") {
+        try { const value = parseJSON(data); if (value && typeof value === "object" && own(value, "code") && contract.errorCodes.includes(value.code)) apiCode = value.code; } catch {}
+      }
+      throw new SDKError(response.status === 401 ? "reauth_required" : "http_error", response.status, apiCode);
+    }
     let result;
     if (data !== "") { if ((response.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase() !== "application/json") fail("invalid_response"); try { result = parseJSON(data); } catch { fail("invalid_response"); } }
     return { status: response.status, body: result, etag: response.headers.get("ETag") };
@@ -186,6 +193,18 @@ export function createBrowserClient() {
     return value;
   };
   const client = Object.create(null);
+  client.login = () => {
+    let returnTo = "/";
+    try {
+      const location = globalThis.location;
+      const candidate = String(location.pathname ?? "/") + String(location.search ?? "") + String(location.hash ?? "");
+      const target = new URL(candidate, origin);
+      if (candidate.startsWith("/") && !candidate.startsWith("//") && !/[\\\r\n\x00]/.test(candidate) && candidate.length <= 2048 && target.origin === origin) returnTo = candidate;
+      const login = new URL("/auth/login", origin);
+      login.searchParams.set("return_to", returnTo);
+      location.assign(login.href);
+    } catch { fail("navigation_failed"); }
+  };
   client.session = options => run(options, async signal => { const value = await session(signal); const { csrf_token, ...publicValue } = value; return publicValue; });
   client.logout = options => run(options, async signal => { const value = await session(signal); if (!value.authenticated) return; const result = await request("POST", "/auth/logout", undefined, value.csrf_token, signal); if (result.status !== 204) fail("invalid_response"); });
   for (const [name, op] of Object.entries(contract.operations)) {

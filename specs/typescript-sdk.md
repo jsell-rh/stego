@@ -30,7 +30,8 @@ JSON parsing rejects duplicate keys, malformed Unicode, non-finite numbers,
 and unsafe integers. Integer-valued JSON numbers must fit the JavaScript safe
 integer range, including `int64` fields and unknown fields. Decimal values that
 round to an integer also fail. This client does not supply BigInt wire support.
-Errors contain fixed codes and status numbers. They exclude response bodies,
+Errors contain fixed transport codes, status numbers, and an optional declared
+public API code. They exclude response bodies,
 credentials, URLs, and underlying exception messages. The runtime emits no logs.
 
 Supported input is a bounded subset of OpenAPI 3.0. It includes JSON operations,
@@ -85,3 +86,15 @@ whole-operation deadline tests passed in the cluster, with ten Node runtime
 tests and the TypeScript check. The package completed in 3.383 seconds. These
 tests are in `4213d3b` and do not change generated output. Full application CI
 and the remaining UI and production requirements remain separate gates.
+
+Version 1.1 adds explicit login navigation and declared public API error codes.
+The compiler bounds and validates `error_codes`. The runtime exposes a code
+only when it matches this declaration. It never exposes the reason, operation
+ID, or an unknown code from an error response. Login uses the captured HTTPS
+origin and `/auth/login`, with a bounded local return path. Applications decide
+when to call it. Provider sign-out still uses the confirmation page.
+
+The Hypershell React UI passed its application and test type checks against
+this version. All 67 console tests and 164 domain UI tests passed in a bounded
+jshell Job. These checks do not prove browser rendering or the production
+Content Security Policy. Those application gates remain open.

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ type Generator struct{}
 var runtimeSource string
 
 func (*Generator) InputFiles(config map[string]any) ([]string, error) {
-	return openapicontract.InputFiles(config)
+	return openapicontract.InputFiles(openAPIConfig(config))
 }
 func (*Generator) MinimumGoVersion() string { return "1.26.8" }
 func (*Generator) ValidateContext(ctx gen.Context) error {
@@ -71,10 +72,43 @@ type operation struct {
 	Responses  map[string]schema `json:"responses"`
 }
 type compiled struct {
+	ErrorCodes []string             `json:"errorCodes"`
 	Models     map[string]schema    `json:"models"`
 	Operations map[string]operation `json:"operations"`
 }
 
+func openAPIConfig(config map[string]any) map[string]any {
+	result := make(map[string]any, len(config))
+	for key, value := range config {
+		if key != "error_codes" {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+var errorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+func errorCodes(config map[string]any) ([]string, error) {
+	codes := []string{}
+	if raw, present := config["error_codes"]; present {
+		list, ok := raw.([]any)
+		if !ok || len(list) > 64 {
+			return nil, fmt.Errorf("SDK error_codes requires at most 64 strings")
+		}
+		seen := map[string]bool{}
+		for _, raw := range list {
+			code, ok := raw.(string)
+			if !ok || len(code) > 128 || !errorCodePattern.MatchString(code) || seen[code] {
+				return nil, fmt.Errorf("invalid or duplicate SDK error code")
+			}
+			seen[code] = true
+			codes = append(codes, code)
+		}
+	}
+	sort.Strings(codes)
+	return codes, nil
+}
 func raw(v any) (schema, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -89,7 +123,14 @@ func compile(ctx gen.Context) (compiled, error) {
 	if gen.ValidateGoPackageNamespace(ctx.OutputNamespace) != nil {
 		return c, fmt.Errorf("TypeScript SDK requires an output namespace")
 	}
-	doc, err := openapicontract.Load(ctx)
+	codes, err := errorCodes(ctx.ComponentConfig)
+	if err != nil {
+		return c, err
+	}
+	c.ErrorCodes = codes
+	contractContext := ctx
+	contractContext.ComponentConfig = openAPIConfig(ctx.ComponentConfig)
+	doc, err := openapicontract.Load(contractContext)
 	if err != nil {
 		return c, err
 	}
@@ -110,7 +151,7 @@ func compile(ctx gen.Context) (compiled, error) {
 			return c, fmt.Errorf("SDK paths must be canonical relative paths")
 		}
 		for method, op := range item.Operations() {
-			if op.OperationID == "then" || op.OperationID == "session" || op.OperationID == "logout" {
+			if op.OperationID == "login" || op.OperationID == "then" || op.OperationID == "session" || op.OperationID == "logout" {
 				return c, fmt.Errorf("reserved TypeScript operation ID")
 			}
 			if _, ok := c.Operations[op.OperationID]; ok {
@@ -436,7 +477,7 @@ func declare(c compiled) (string, error) {
 	for _, name := range keys(c.Models) {
 		fmt.Fprintf(&out, "%s: %s;\n", quoted(name), ts(c.Models[name], "response", c.Models))
 	}
-	out.WriteString("}\nexport interface RequestOptions { signal?: AbortSignal }\nexport interface Result<T> { readonly status: number; readonly body: T; readonly etag: string | null }\nexport interface Session { authenticated: boolean; roles: string[]; user?: { [key: string]: string }; expires_at?: number }\nexport class SDKError extends Error { constructor(code: string, status?: number); readonly code: string; readonly status: number }\nexport interface Client {\nsession(options?: RequestOptions): Promise<Session>;\nlogout(options?: RequestOptions): Promise<void>;\n")
+	out.WriteString("}\nexport interface RequestOptions { signal?: AbortSignal }\nexport interface Result<T> { readonly status: number; readonly body: T; readonly etag: string | null }\nexport interface Session { authenticated: boolean; roles: string[]; user?: { [key: string]: string }; expires_at?: number }\nexport class SDKError extends Error { constructor(code: string, status?: number, apiCode?: string); readonly code: string; readonly status: number; readonly apiCode: string | undefined }\nexport interface Client {\nlogin(): void;\nsession(options?: RequestOptions): Promise<Session>;\nlogout(options?: RequestOptions): Promise<void>;\n")
 	for _, name := range keys(c.Operations) {
 		o := c.Operations[name]
 		fields := []string{}

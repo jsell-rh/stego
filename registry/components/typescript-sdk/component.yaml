@@ -1,11 +1,15 @@
 kind: component
 name: typescript-sdk
-version: 1.0.0
+version: 1.1.0
 output_namespace: tssdk
 config:
   document:
     type: string
   references:
+    type: list
+    items:
+      type: string
+  error_codes:
     type: list
     items:
       type: string
