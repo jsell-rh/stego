@@ -105,3 +105,12 @@ This is application protocol evidence. The page remains a scaffold. A complete
 Gateway UI, real browser cookie enforcement, production deployment, key rotation,
 and measured capacity still need tests. The browser archetype does not yet
 generate Kubernetes deployment resources.
+
+Hypershell commit `beeea2a` adopts compiler `a6e7656` and the separate console
+module. Two runs of the pinned generation script produced the same 152 output,
+state, and dependency hashes across both services. Those hashes also match the
+application checkout. The input-manifest race test passed in 1.060 seconds.
+The console runtime files match the protocol-tested files; only the compiler
+state changed during adoption. The cluster Job completed. Its namespace was
+removed, and the cluster API confirmed removal. Full CI for the new revisions
+remains a separate check.

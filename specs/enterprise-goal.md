@@ -2927,3 +2927,9 @@ Repeated console generation retained all 23 hashes. The
 [browser backend record](browser-backend.md) gives the test scope and results.
 A complete UI, browser telemetry export checks, deployment, key rotation, and
 capacity remain open. The broader goal remains active.
+
+Hypershell `beeea2a` adopts this backend with compiler `a6e7656`. All 152 output,
+state, and dependency hashes match two pinned generation passes and the
+checkout. The input-manifest race test passed. The cluster Job completed, and
+namespace removal was verified. Both repositories are pushed to main. Full CI
+for these revisions and the remaining application requirements stay open.
