@@ -50,6 +50,9 @@ var cycleTests []byte
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
+//go:embed testdata/process_test.go
+var processTests []byte
+
 func TestGeneratedController(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
@@ -69,7 +72,7 @@ func testGeneratedController(t *testing.T, telemetry bool) {
 	files = append(files, gen.File{Path: "controller/stream_test.go", Content: streamTests}, gen.File{Path: "controller/observation_test.go", Content: observationTests})
 	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests}, gen.File{Path: "controller/watch_keyed_test.go", Content: watchKeyedTests})
 	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests}, gen.File{Path: "controller/checkpoint_test.go", Content: checkpointTests})
-	files = append(files, gen.File{Path: "controller/cycle_test.go", Content: cycleTests})
+	files = append(files, gen.File{Path: "controller/cycle_test.go", Content: cycleTests}, gen.File{Path: "controller/process_test.go", Content: processTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\n")
 	if telemetry {

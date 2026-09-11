@@ -215,3 +215,22 @@ domain values from common logs, metrics, and spans.
 [Shared controller telemetry](../../../specs/controller-observability.md) now
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.
+
+`Main(run)` supplies a controller process entry point. The callback has signature
+`func(context.Context, *Metrics) error`. It must stop its work and close its
+resources when the context ends. Main handles SIGINT and SIGTERM. A callback
+failure exits with code 1 and a fixed error record. Domain error text is not
+logged. A blocked error-log write has a 100 ms limit before process exit.
+
+The process listens on `STEGO_CONTROLLER_MONITOR_ADDR`, which defaults to
+`127.0.0.1:9081`. Only literal loopback IP addresses and explicit nonzero ports
+are accepted. `/livez` checks the process context. `/readyz` requires an attached
+queue that permits work. It does not claim that all domain resources are ready
+or that a scan has completed. `/metrics` retains the existing local diagnostics.
+
+`--stego-probe=live` and `--stego-probe=ready` perform a bounded local probe and
+exit. They do not start the application callback or its providers. Probes use
+no proxy, do not follow redirects, and require the exact successful response.
+The generated Kubernetes worker resources use these commands. Common telemetry
+still uses the configured OTLP exporter; the local endpoint is not exposed as
+a Kubernetes Service.
