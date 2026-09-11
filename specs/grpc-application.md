@@ -66,7 +66,9 @@ The generated `grpcapi/client` package supplies unary and server-streaming RPCs.
 configuration supplies a host and port, trusted CA file, and private bearer-token
 file. The client requires TLS 1.3 and checks the server identity. It reads the
 token for each call to support replacement of expiring credentials. Token files
-must be regular files with no group or other permissions. File sizes are bounded.
+must be regular files. Private projected files can have read-only group access.
+Modes `0400`, `0600`, `0440`, and `0640` are permitted. Execute bits, group-write
+access, and other access are rejected. File sizes are bounded.
 
 Each client permits 32 calls, with a five-second deadline and 64 KiB request and
 response limits. Call options cannot raise these limits. Each client also permits

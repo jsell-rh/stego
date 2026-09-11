@@ -2846,3 +2846,21 @@ The repository deployment test command also passed from a fresh namespace. It
 reproduced all 112 file hashes and the same image digest, then completed its Job
 and removed its namespace. The generated Containerfile CI build also passed.
 The full application CI run for this revision is still in progress.
+
+The generated worker extension closes another C6/H3 application check. STEGO
+now owns the controller main, signal handling, loopback health probes, image,
+and restricted Deployment. Hypershell supplies a provider callback and its
+existing domain controller. The compiler records the callback declaration file
+and rejects invalid function signatures before generation.
+
+The cluster Gateway workflow passed with compiler `cb0326d`. It ran the API,
+identity worker, and real Keycloak provider in separate Pods. It verified
+identity repair after worker and API Pod replacement. Both instances of each
+application process exported correlated logs, traces, and metrics. The complete
+Gateway test took 108.26 seconds. All 117 generated, state, and dependency hashes
+matched before and after the test. The Job completed, and namespace cleanup was
+verified. See the [deployment record](kubernetes-service.md).
+
+Compiler CI passed for that revision. Full variant CI remains a separate check.
+This result does not close distributed worker exclusion, other domain controller
+deployments, production operations, or capacity. The broader goal remains open.

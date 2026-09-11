@@ -68,3 +68,10 @@ entry points, and production capacity evidence remain open.
 The full compiler race suite passed with PostgreSQL 18.6 required on port 32919.
 `go vet ./...` passed. These checks include generation with and without a
 telemetry peer. The Hypershell application records its own acceptance result.
+
+The shared HTTP private-file reader permits private projected files with
+read-only group access. Modes `0400`, `0600`, `0440`, and `0640` are permitted.
+Execute bits, group-write access, and other access are rejected. The reader
+checks the open descriptor and requires a regular file. Reads are bounded.
+The gRPC bearer-token reader uses the same mode rule. This lets generated
+workers use their mounted credentials without copying or changing file modes.

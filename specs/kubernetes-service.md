@@ -130,9 +130,9 @@ test metrics interval. It checks both local ports. The successful run required
 two HTTPS requests before the Service was ready. HTTPS was open; HTTP was closed.
 The Job completed, and all four test namespaces were deleted.
 
-No compiler or domain runtime change was needed for this extension. A generated
-controller image, health probes, and separate controller deployment resources
-remain open work. See the
+No compiler or domain runtime change was needed for that extension. Generated
+controller images, health probes, and deployment resources were added after that
+run. See the
 [application check](https://github.com/jsell-rh/hypershell-stego/blob/6fe35d41fc58dfd38dfcc0204785ce270cdee06b/acceptance/kubernetes_identity_test.go)
 and the [test record](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/kubernetes-service.md).
 The earlier full application CI run 34619444307 passed. The new revision's CI
@@ -167,3 +167,32 @@ It does not supply a cross-process lease or fence a process on an unreachable
 node. Distributed exclusion remains open work. A worker callback must retain
 safe repeated effects and authoritative state checks. The generated network
 policy is emitted before each Deployment.
+
+The separate generated worker passed the Hypershell cluster gate on 2026-09-11.
+Compiler `cb0326dd659e3904ed17654e09778564b8660fa7` generated the worker main,
+probes, Containerfile, and Deployment. Application commit `56759c4` records the
+provider callback and test changes. The Gateway test took 108.26 seconds; its
+race-enabled package took 109.305 seconds. It retained the REST, gRPC, owner-grant,
+rollback, access-filter, and event checks. It also checked identity repair after
+worker Pod replacement and API Pod replacement against real Keycloak.
+
+Both API instances and both worker instances supplied correlated logs and
+traces, plus metrics. Selected private values were absent. Both generation
+passes, the post-test check, and the local application checkout matched all
+117 generated, state, and dependency hashes. The Job completed. Its namespace
+and private fixture files were removed. The
+[application record](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/kubernetes-service.md)
+includes image digests and the named scale-subresource fixture amendment made
+before the application tests started.
+
+This worker integration required common credential readers to accept private
+projected files with read-only group access. HTTP and gRPC readers still reject
+execute bits, group-write access, and other access. It also required qualified
+Kubernetes label keys in declared network peers. These fixes belong in STEGO.
+Hypershell keeps provider setup and domain rules.
+
+[Compiler CI](https://github.com/jsell-rh/stego/actions/runs/34624175055) passed
+for the pinned revision, including race tests and the vulnerability check.
+Full application CI is separate from the cluster result. The generated worker
+still uses one replica. Distributed exclusion and production capacity remain
+open work.
