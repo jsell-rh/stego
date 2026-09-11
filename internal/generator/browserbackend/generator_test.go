@@ -52,13 +52,15 @@ func TestGeneration(t *testing.T) {
 }
 func TestInvalidConfig(t *testing.T) {
 	cases := map[string]func(*gen.Context){
-		"logout scope":    func(c *gen.Context) { c.ComponentConfig["logout_scope"] = "all" },
-		"unknown":         func(c *gen.Context) { c.ComponentConfig["tokens_in_cookie"] = true },
-		"no database":     func(c *gen.Context) { delete(c.PeerNamespaces, "postgres-adapter") },
-		"no telemetry":    func(c *gen.Context) { delete(c.PeerNamespaces, "otel-tracing") },
-		"mixed API":       func(c *gen.Context) { c.PeerNamespaces["jwt-auth"] = "auth" },
-		"asset missing":   func(c *gen.Context) { delete(c.Inputs, "ui/main.js") },
-		"asset too large": func(c *gen.Context) { c.Inputs["ui/main.js"] = make([]byte, (4<<20)+1) },
+		"telemetry service":  func(c *gen.Context) { c.ComponentConfig["telemetry_service_name"] = "invalid service" },
+		"reserved telemetry": func(c *gen.Context) { c.ComponentConfig["routes"] = []any{"/", "/telemetry/v1/traces"} },
+		"logout scope":       func(c *gen.Context) { c.ComponentConfig["logout_scope"] = "all" },
+		"unknown":            func(c *gen.Context) { c.ComponentConfig["tokens_in_cookie"] = true },
+		"no database":        func(c *gen.Context) { delete(c.PeerNamespaces, "postgres-adapter") },
+		"no telemetry":       func(c *gen.Context) { delete(c.PeerNamespaces, "otel-tracing") },
+		"mixed API":          func(c *gen.Context) { c.PeerNamespaces["jwt-auth"] = "auth" },
+		"asset missing":      func(c *gen.Context) { delete(c.Inputs, "ui/main.js") },
+		"asset too large":    func(c *gen.Context) { c.Inputs["ui/main.js"] = make([]byte, (4<<20)+1) },
 		"generated input": func(c *gen.Context) {
 			c.ComponentConfig["assets"].([]any)[0].(map[string]any)["source"] = "out/input.html"
 		},

@@ -19,6 +19,7 @@ import (
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/browserbackend"
+	"github.com/jsell-rh/stego/internal/generator/browsertelemetry"
 	"github.com/jsell-rh/stego/internal/generator/cliapplication"
 	"github.com/jsell-rh/stego/internal/generator/controller"
 	"github.com/jsell-rh/stego/internal/generator/gosdk"
@@ -794,6 +795,7 @@ func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
 		"rest-api":           &restapi.Generator{},
 		"browser-backend":    &browserbackend.Generator{},
+		"browser-telemetry":  &browsertelemetry.Generator{},
 		"http-application":   &httpapplication.Generator{},
 		"go-sdk":             &gosdk.Generator{},
 		"typescript-sdk":     &typescriptsdk.Generator{},

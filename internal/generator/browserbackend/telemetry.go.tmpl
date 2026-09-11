@@ -1,0 +1,41 @@
+package {{.Package}}
+
+import (
+ "errors"
+ "io"
+ "net/http"
+ "strings"
+ "time"
+ telemetry {{printf "%q" .Telemetry}}
+)
+type telemetryBucket struct{tokens float64;updated time.Time}
+func(b *Backend)allowTelemetry(id string)bool{
+ b.telemetryMu.Lock();defer b.telemetryMu.Unlock()
+ now:=time.Now();if b.telemetryLimits==nil{b.telemetryLimits=map[string]telemetryBucket{}}
+ bucket,found:=b.telemetryLimits[id]
+ if !found{
+  for key,value:=range b.telemetryLimits{if now.Sub(value.updated)>time.Minute{delete(b.telemetryLimits,key)}}
+  if len(b.telemetryLimits)>=512{return false};bucket=telemetryBucket{tokens:6,updated:now}
+ }
+ bucket.tokens=min(6,bucket.tokens+now.Sub(bucket.updated).Seconds());bucket.updated=now
+ allowed:=bucket.tokens>=1;if allowed{bucket.tokens--};b.telemetryLimits[id]=bucket
+ return allowed
+}
+func(b *Backend)telemetry(w http.ResponseWriter,r *http.Request){
+ if b.config.TelemetryService==""{failure(w,404);return}
+ signal:=strings.TrimPrefix(r.URL.Path,"/telemetry/v1/")
+ if signal!="traces"&&signal!="logs"&&signal!="metrics"{failure(w,404);return}
+ if r.Method!="POST"{w.Header().Set("Allow","POST");failure(w,405);return}
+ if r.URL.RawQuery!=""||len(r.Header.Values("Authorization"))!=0||len(r.Header.Values("Content-Encoding"))!=0||len(r.Header.Values("Content-Type"))!=1||r.Header.Get("Content-Type")!="application/x-protobuf"{failure(w,400);return}
+ if !b.sameOrigin(r){failure(w,403);return}
+ id:=cookieID(r,SessionCookie);value,_,_,err:=b.store.read(r.Context(),id);if err!=nil{sessionError(w,err);return}
+ if value.Kind!="active"||!b.csrf(r,value){failure(w,403);return}
+ if _,err=b.active(r.Context(),id);err!=nil{sessionError(w,err);return}
+ if !b.allowTelemetry(id){w.Header().Set("Retry-After","1");failure(w,429);return}
+ if r.ContentLength>telemetry.BrowserTelemetryMaxBytes{failure(w,413);return}
+ body,err:=io.ReadAll(io.LimitReader(r.Body,telemetry.BrowserTelemetryMaxBytes+1));if err!=nil{failure(w,400);return};if len(body)>telemetry.BrowserTelemetryMaxBytes{failure(w,413);return}
+ if err:=telemetry.RelayBrowserTelemetry(r.Context(),signal,body,b.config.TelemetryService);err!=nil{
+  if errors.Is(err,telemetry.ErrBrowserTelemetryInput){failure(w,400)}else{failure(w,503)};return
+ }
+ w.Header().Set("Content-Type","application/x-protobuf");w.WriteHeader(200)
+}

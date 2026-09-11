@@ -43,6 +43,7 @@ jobs:
         with:
           node-version: '24.18.1'
       - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
       - run: go mod verify
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
       - run: go test -race -count=1 -mod=readonly ./...

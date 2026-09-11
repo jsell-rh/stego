@@ -26,11 +26,11 @@ var sources embed.FS
 type Generator struct{}
 type asset struct{ Source, Path, Hash string }
 type settings struct {
-	Prefix, RolesClaim, LogoutScope string
-	Routes                          []string
-	Assets                          []asset
-	Bundle                          string `json:"-"`
-	ScriptHashes                    []string
+	Prefix, RolesClaim, LogoutScope, TelemetryService string
+	Routes                                            []string
+	Assets                                            []asset
+	Bundle                                            string `json:"-"`
+	ScriptHashes                                      []string
 }
 
 var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
@@ -38,8 +38,15 @@ var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
 func config(values map[string]any) (settings, error) {
 	var s settings
 	for key := range values {
-		if key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
+		if key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
+		}
+	}
+	if value, present := values["telemetry_service_name"]; present {
+		var ok bool
+		s.TelemetryService, ok = value.(string)
+		if !ok || !regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`).MatchString(s.TelemetryService) {
+			return s, fmt.Errorf("invalid browser telemetry service name")
 		}
 	}
 	s.Prefix, _ = values["api_prefix"].(string)
@@ -134,7 +141,7 @@ func config(values map[string]any) (settings, error) {
 }
 
 func reservedPath(value string) bool {
-	for _, prefix := range []string{"/auth", "/assets", "/index.html", "/livez", "/readyz"} {
+	for _, prefix := range []string{"/telemetry", "/auth", "/assets", "/index.html", "/livez", "/readyz"} {
 		if value == prefix || strings.HasPrefix(value, prefix+"/") {
 			return true
 		}
@@ -241,7 +248,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "public", strings.TrimPrefix(a.Path, "/")), Content: append([]byte(nil), content...)})
 	}
 	configuration, _ := json.Marshal(s)
-	data := struct{ Package, Client, Config, UnicodeValidation string }{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation}
+	data := struct{ Package, Client, Config, UnicodeValidation, Telemetry string }{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"])}
 	entries, _ := sources.ReadDir(".")
 	for _, entry := range entries {
 		source, err := sources.ReadFile(entry.Name())

@@ -1,0 +1,11 @@
+kind: component
+name: browser-telemetry
+version: 1.0.0
+output_namespace: browsertelemetry
+config:
+  service_name:
+    type: string
+requires: []
+provides:
+  - browser-telemetry
+slots: []

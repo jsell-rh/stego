@@ -1,0 +1,90 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "math"
+ "regexp"
+ "time"
+
+ logcollector "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+ metriccollector "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+ tracecollector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+ commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+ metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
+ resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+ "google.golang.org/grpc/metadata"
+ "google.golang.org/protobuf/proto"
+ "google.golang.org/protobuf/reflect/protoreflect"
+)
+
+var ErrBrowserTelemetryInput=errors.New("invalid browser telemetry")
+var ErrBrowserTelemetryUnavailable=errors.New("browser telemetry unavailable")
+var browserServiceName=regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+const BrowserTelemetryMaxBytes=256<<10
+
+// RelayBrowserTelemetry uses the existing verified collector connection. The
+// caller must check the browser session and CSRF token before this call.
+// Browser data cannot set resource identity, scope identity, or RPC metadata.
+func RelayBrowserTelemetry(ctx context.Context,signal string,data []byte,service string)error{
+ if len(data)==0||len(data)>BrowserTelemetryMaxBytes||!browserServiceName.MatchString(service){return ErrBrowserTelemetryInput}
+ runtime,_:=ctx.Value(runtimeContextKey{}).(*Runtime)
+ if runtime==nil||runtime.closed.Load()||runtime.connection==nil{return ErrBrowserTelemetryUnavailable}
+ runtime.browserOnce.Do(func(){runtime.browserPermits=make(chan struct{},3)})
+ select{case runtime.browserPermits<-struct{}{}:defer func(){<-runtime.browserPermits}();default:return ErrBrowserTelemetryUnavailable}
+ ctx,cancel:=context.WithTimeout(metadata.NewOutgoingContext(ctx,metadata.MD{}),ExportTimeout);defer cancel()
+ resource:=func()*resourcepb.Resource{return &resourcepb.Resource{Attributes:[]*commonpb.KeyValue{ {Key:"service.name",Value:&commonpb.AnyValue{Value:&commonpb.AnyValue_StringValue{StringValue:service}}}}}}
+ scope:=func()*commonpb.InstrumentationScope{return &commonpb.InstrumentationScope{Name:"stego.browser",Version:"1.0.0"}}
+ decode:=func(message proto.Message)bool{
+  if (proto.UnmarshalOptions{RecursionLimit:16}).Unmarshal(data,message)!=nil{return false}
+  budget:=8192;return boundedBrowserMessage(message.ProtoReflect(),&budget)
+ }
+ switch signal {
+ case "traces":
+  var request tracecollector.ExportTraceServiceRequest
+  if !decode(&request)||len(request.ResourceSpans)!=1{return ErrBrowserTelemetryInput}
+  r:=request.ResourceSpans[0];if len(r.ScopeSpans)!=1{return ErrBrowserTelemetryInput};r.Resource=resource();r.SchemaUrl=""
+  s:=r.ScopeSpans[0];if len(s.Spans)==0||len(s.Spans)>16{return ErrBrowserTelemetryInput};s.Scope=scope();s.SchemaUrl=""
+  for _,span:=range s.Spans{if !browserID(span.TraceId,16,false)||!browserID(span.SpanId,8,false)||!browserID(span.ParentSpanId,8,true)||span.Name==""||len(span.Name)>128||span.EndTimeUnixNano<span.StartTimeUnixNano||!browserTime(span.StartTimeUnixNano)||!browserTime(span.EndTimeUnixNano)||len(span.Attributes)>16||len(span.Events)>2||len(span.Links)>2{return ErrBrowserTelemetryInput};span.TraceState="";for _,link:=range span.Links{link.TraceState=""}}
+  response,err:=tracecollector.NewTraceServiceClient(runtime.connection).Export(ctx,&request)
+  if err!=nil||response.GetPartialSuccess().GetRejectedSpans()!=0||response.GetPartialSuccess().GetErrorMessage()!=""{return ErrBrowserTelemetryUnavailable}
+ case "logs":
+  if runtime.signals.logs==nil{return ErrBrowserTelemetryUnavailable}
+  var request logcollector.ExportLogsServiceRequest
+  if !decode(&request)||len(request.ResourceLogs)!=1{return ErrBrowserTelemetryInput}
+  r:=request.ResourceLogs[0];if len(r.ScopeLogs)!=1{return ErrBrowserTelemetryInput};r.Resource=resource();r.SchemaUrl=""
+  s:=r.ScopeLogs[0];if len(s.LogRecords)==0||len(s.LogRecords)>16{return ErrBrowserTelemetryInput};s.Scope=scope();s.SchemaUrl=""
+  for _,record:=range s.LogRecords{if !browserID(record.TraceId,16,true)||!browserID(record.SpanId,8,true)||!browserTime(record.TimeUnixNano)||len(record.Attributes)>16||record.SeverityNumber<0||record.SeverityNumber>24{return ErrBrowserTelemetryInput};if record.Body!=nil{if _,ok:=record.Body.Value.(*commonpb.AnyValue_StringValue);!ok{return ErrBrowserTelemetryInput}}}
+  response,err:=logcollector.NewLogsServiceClient(runtime.connection).Export(ctx,&request)
+  if err!=nil||response.GetPartialSuccess().GetRejectedLogRecords()!=0||response.GetPartialSuccess().GetErrorMessage()!=""{return ErrBrowserTelemetryUnavailable}
+ case "metrics":
+  if runtime.signals.meter==nil{return ErrBrowserTelemetryUnavailable}
+  var request metriccollector.ExportMetricsServiceRequest
+  if !decode(&request)||len(request.ResourceMetrics)!=1{return ErrBrowserTelemetryInput}
+  r:=request.ResourceMetrics[0];if len(r.ScopeMetrics)!=1{return ErrBrowserTelemetryInput};r.Resource=resource();r.SchemaUrl=""
+  s:=r.ScopeMetrics[0];if len(s.Metrics)==0||len(s.Metrics)>32{return ErrBrowserTelemetryInput};s.Scope=scope();s.SchemaUrl=""
+  points:=0
+  for _,metric:=range s.Metrics{if metric.Name==""||len(metric.Name)>128{return ErrBrowserTelemetryInput};switch value:=metric.Data.(type){case *metricpb.Metric_Gauge:points+=len(value.Gauge.DataPoints);case *metricpb.Metric_Sum:points+=len(value.Sum.DataPoints);case *metricpb.Metric_Histogram:points+=len(value.Histogram.DataPoints);default:return ErrBrowserTelemetryInput}}
+  if points==0||points>256{return ErrBrowserTelemetryInput}
+  response,err:=metriccollector.NewMetricsServiceClient(runtime.connection).Export(ctx,&request)
+  if err!=nil||response.GetPartialSuccess().GetRejectedDataPoints()!=0||response.GetPartialSuccess().GetErrorMessage()!=""{return ErrBrowserTelemetryUnavailable}
+ default:return ErrBrowserTelemetryInput
+ }
+ return nil
+}
+func browserID(value []byte,size int,optional bool)bool{if optional&&len(value)==0{return true};if len(value)!=size{return false};for _,b:=range value{if b!=0{return true}};return false}
+func browserTime(value uint64)bool{now:=time.Now();return value>=uint64(now.Add(-24*time.Hour).UnixNano())&&value<=uint64(now.Add(5*time.Minute).UnixNano())}
+func boundedBrowserMessage(message protoreflect.Message,budget *int)bool{
+ *budget--;if *budget<0||!message.IsValid()||len(message.GetUnknown())!=0{return false}
+ valid:=true
+ message.Range(func(field protoreflect.FieldDescriptor,value protoreflect.Value)bool{
+  if field.IsMap(){valid=false;return false}
+  check:=func(v protoreflect.Value)bool{
+   *budget--;if *budget<0{return false}
+   switch field.Kind(){case protoreflect.EnumKind:return field.Enum().Values().ByNumber(v.Enum())!=nil;case protoreflect.MessageKind:return boundedBrowserMessage(v.Message(),budget);case protoreflect.StringKind:return len(v.String())<=512;case protoreflect.BytesKind:return len(v.Bytes())<=16;case protoreflect.DoubleKind,protoreflect.FloatKind:return !math.IsNaN(v.Float())&&!math.IsInf(v.Float(),0)}
+   return true
+  }
+  if field.IsList(){list:=value.List();if list.Len()>256{valid=false;return false};for i:=0;i<list.Len();i++{if !check(list.Get(i)){valid=false;return false}}}else{valid=check(value)}
+  return valid
+ });return valid
+}

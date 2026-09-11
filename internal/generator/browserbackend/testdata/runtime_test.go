@@ -477,3 +477,57 @@ func TestProviderLogoutTarget(t *testing.T) {
 	u, _ := url.Parse(target)
 	require(t, u.Query().Get("client_id") == clientID && u.Query().Get("post_logout_redirect_uri") == origin+"/auth/logout" && len(u.Query()) == 2, "provider logout parameters changed")
 }
+
+func TestTelemetryRequiresSessionAndCSRF(t *testing.T) {
+	f := setup(t)
+	f.backend.config.TelemetryService = "example-browser"
+	active, csrf := login(t, f)
+	valid := func() http.Header {
+		h := mutationHeaders(csrf)
+		h.Set("Content-Type", "application/x-protobuf")
+		return h
+	}
+	cases := []struct {
+		name, method, path, body string
+		cookies                  []*http.Cookie
+		headers                  http.Header
+		status                   int
+	}{
+		{"session", "POST", "/telemetry/v1/traces", "payload", nil, valid(), 401},
+		{"csrf", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{"Origin": {origin}, "Content-Type": {"application/x-protobuf"}}, 403},
+		{"origin", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, http.Header{CSRFHeader: {csrf}, "Content-Type": {"application/x-protobuf"}}, 403},
+		{"media", "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, mutationHeaders(csrf), 400},
+		{"method", "GET", "/telemetry/v1/traces", "", []*http.Cookie{active}, nil, 405},
+		{"path", "POST", "/telemetry/v1/private", "payload", []*http.Cookie{active}, valid(), 404},
+		{"size", "POST", "/telemetry/v1/traces", strings.Repeat("x", (256<<10)+1), []*http.Cookie{active}, valid(), 413},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			w := send(f.backend, test.method, test.path, test.body, test.cookies, test.headers)
+			require(t, w.Code == test.status, "telemetry access status differs")
+		})
+	}
+	h := valid()
+	h.Set("Authorization", "Bearer private")
+	w := send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
+	require(t, w.Code == 400, "browser bearer accepted for telemetry")
+	h = valid()
+	h.Set("Content-Encoding", "gzip")
+	w = send(f.backend, "POST", "/telemetry/v1/traces", "payload", []*http.Cookie{active}, h)
+	require(t, w.Code == 400, "compressed browser telemetry accepted")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require(t, len(f.requests) == 0, "telemetry reached the API")
+}
+func TestTelemetryAdmissionLimit(t *testing.T) {
+	b := &Backend{}
+	for i := 0; i < 6; i++ {
+		require(t, b.allowTelemetry("session"), "initial telemetry budget denied")
+	}
+	require(t, !b.allowTelemetry("session"), "telemetry burst is not bounded")
+	for i := 0; i < 511; i++ {
+		require(t, b.allowTelemetry(string(rune(i))+"other"), "session budget is too small")
+	}
+	require(t, !b.allowTelemetry("overflow"), "telemetry session map is not bounded")
+	require(t, len(b.telemetryLimits) == 512, "telemetry session map exceeded its bound")
+}

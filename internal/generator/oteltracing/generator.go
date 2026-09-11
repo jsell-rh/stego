@@ -39,6 +39,9 @@ var commandSource string
 //go:embed database.go.tmpl
 var databaseSource string
 
+//go:embed browser.go.tmpl
+var browserSource string
+
 type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.26.0" }
@@ -59,7 +62,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"runtime.go", source}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}, {"client.go", clientSource}, {"http_client.go", httpClientSource}, {"command.go", commandSource}, {"database.go", databaseSource}} {
+	for _, item := range []struct{ name, source string }{{"runtime.go", source}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}, {"client.go", clientSource}, {"http_client.go", httpClientSource}, {"command.go", commandSource}, {"database.go", databaseSource}, {"browser.go", browserSource}} {
 		tmpl, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err
@@ -81,6 +84,6 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return files, &gen.Wiring{HTTPErrorLogger: &loggerIndex, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewTracingRuntime()"}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, Middlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Route(%s)"}}, OuterMiddlewares: []gen.MiddlewareSpec{{ConstructorIndex: 0, WrapExpr: "%s.Handler(%s)"}}, GoModRequires: map[string]string{
 		"go.opentelemetry.io/otel/metric": "v1.46.0", "go.opentelemetry.io/otel/sdk/metric": "v1.46.0", "go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc": "v1.46.0",
 		"go.opentelemetry.io/otel/log": "v0.22.0", "go.opentelemetry.io/otel/sdk/log": "v0.22.0", "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc": "v0.22.0",
-		"go.opentelemetry.io/otel": "v1.46.0", "go.opentelemetry.io/otel/trace": "v1.46.0", "go.opentelemetry.io/otel/sdk": "v1.46.0", "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc": "v1.46.0", "google.golang.org/grpc": "v1.83.1", "github.com/felixge/httpsnoop": "v1.0.4",
+		"go.opentelemetry.io/otel": "v1.46.0", "go.opentelemetry.io/otel/trace": "v1.46.0", "go.opentelemetry.io/otel/sdk": "v1.46.0", "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc": "v1.46.0", "google.golang.org/grpc": "v1.83.1", "github.com/felixge/httpsnoop": "v1.0.4", "go.opentelemetry.io/proto/otlp": "v1.11.0", "google.golang.org/protobuf": "v1.36.12",
 	}}, nil
 }
