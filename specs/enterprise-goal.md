@@ -2833,3 +2833,15 @@ The deployment workflow exposed a Kafka Secret file mismatch. The shared
 projected keys and passwords. Private files still prohibit execute, group-write,
 and other access. Generated publisher tests passed with race detection and
 PostgreSQL required. The complete deployed application gate remains separate.
+
+The first generated Kubernetes Gateway workflow passed with compiler
+`ae4f1a28226a726bb637faa5e3325c94ed443818`. It checked HTTPS and gRPC access,
+filtered lists, atomic owner grants, event-write rollback, event delivery,
+Pod replacement, and telemetry from both API instances. Repeated generation
+preserved 112 output, state, and dependency hashes. Full compiler CI passed.
+The [deployment record](kubernetes-service.md) separates this result from
+production broker, ingress, certificate, migration, and capacity work.
+
+The repository deployment test command also passed from a fresh namespace. It
+reproduced all 112 file hashes and the same image digest, then completed its Job
+and removed its namespace. The Containerfile CI build remains a separate check.

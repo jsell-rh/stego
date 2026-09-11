@@ -76,3 +76,30 @@ External CIDR peers, public ingress, autoscaling, disruption budgets, image
 signing, deployment migrations, and certificate renewal remain separate work.
 The component does not install databases, brokers, or domain controllers.
 The Hypershell test bed supplies its domain sources and test peer settings.
+
+The first deployed Gateway gate passed on jshell on 2026-09-11 with compiler
+`ae4f1a28226a726bb637faa5e3325c94ed443818`. The test used Go 1.26.8, PostgreSQL
+18.6 with SCRAM and verified TLS, and the TLS Kafka protocol fixture. The
+application test took 10.71 seconds; its race-enabled test package took 11.757
+seconds. The service image used a static binary and public CA roots. The API
+Pod used the generated resource limits and a namespace-assigned file group.
+
+The gate checked REST and gRPC reads and filtered lists, the atomic owner grant,
+rollback after a rejected event write, event delivery, and Pod replacement.
+Both API instances exported correlated request logs and traces, plus request
+metrics. The test checked that private input and credential data was absent.
+Repeated generation and the post-test check preserved 112 output, state, and
+dependency hashes. The test Job completed, and namespace deletion was verified.
+
+The run exposed the [Kafka file-group gap](kafka-secret-files.md). Two earlier
+test images also failed before the application gate: the first upload lacked
+public CA roots in the custom registry trust bundle, and the first image
+metadata omitted the entry point. The test publisher now checks the image
+configuration before deployment. These failed runs remain in the local test
+records. Full compiler CI passed for the deployment and Kafka revisions. The
+Containerfile CI build requires a separate result.
+
+The repository test command then passed from a fresh namespace. The Gateway
+test took 11.57 seconds; its race-enabled package took 12.621 seconds. The fresh
+compiler build reproduced all 112 file hashes and the same service image digest.
+The Job reached `Complete`, and namespace deletion was verified.
