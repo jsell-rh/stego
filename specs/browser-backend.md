@@ -144,3 +144,9 @@ completed. Its records are in `/tmp/stego-browser-logout-pin-n9t00fim`. Both
 test namespaces were removed, and removal was verified through the cluster API.
 Full compiler CI passed for `e7febe3`. Full application CI remains a separate
 check. The complete UI and production browser requirements remain open.
+
+The user confirmed on 2026-09-11 that console sign-out must end both the console
+and identity-provider sessions, with a confirmation page. This is now an
+explicit requirement. The existing `identity_provider` setting and Keycloak
+acceptance test implement this choice. Opening the confirmation page must not
+end either session.
