@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -114,6 +115,18 @@ func TestProcessChild(t *testing.T) {
 	}
 	os.Args = []string{os.Args[0]}
 	Main(func(ctx context.Context, m *Metrics) error {
+		defer os.WriteFile(os.Getenv("STEGO_TEST_PROCESS_MARKER"), []byte("closed"), 0600)
+		switch mode {
+		case "panic":
+			panic("private-domain-credential")
+		case "nil-panic", "legacy-nil-panic":
+			panic(nil)
+		case "goexit":
+			runtime.Goexit()
+		case "defer-panic":
+			defer func() { panic("private-domain-credential") }()
+			return nil
+		}
 		if mode == "failure" {
 			return errors.New("private-domain-credential")
 		}
@@ -130,7 +143,7 @@ func TestProcessSignalAndErrorPrivacy(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("SIGTERM process check")
 	}
-	for _, mode := range []string{"signal", "failure"} {
+	for _, mode := range []string{"signal", "failure", "panic", "nil-panic", "legacy-nil-panic", "goexit", "defer-panic"} {
 		t.Run(mode, func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -143,10 +156,17 @@ func TestProcessSignalAndErrorPrivacy(t *testing.T) {
 			defer cancel()
 			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestProcessChild$")
 			command.Env = append(os.Environ(), "STEGO_TEST_PROCESS_CHILD="+mode, "STEGO_CONTROLLER_MONITOR_ADDR="+address, "STEGO_TEST_PROCESS_MARKER="+marker, "OTEL_EXPORTER_OTLP_ENDPOINT=")
-			if mode == "failure" {
+			if mode == "legacy-nil-panic" {
+				command.Env = append(command.Env, "GODEBUG=panicnil=1")
+			}
+			if mode != "signal" {
 				output, err := command.CombinedOutput()
-				if err == nil || !strings.Contains(string(output), "controller.process.failed") || strings.Contains(string(output), "private-domain-credential") {
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 1 || strings.Count(string(output), "controller.process.failed") != 1 || strings.Contains(string(output), "private-domain-credential") || strings.Contains(string(output), "goroutine ") {
 					t.Fatal("process error contract failed", err)
+				}
+				if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
+					t.Fatal("callback cleanup did not finish", err)
 				}
 				return
 			}
@@ -178,5 +198,66 @@ func TestProcessSignalAndErrorPrivacy(t *testing.T) {
 				t.Fatal("callback cleanup did not finish", err)
 			}
 		})
+	}
+}
+
+func TestMonitorAbortClosesListenerAndPreservesErrors(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		for _, mode := range []string{"panic", "goexit", "error"} {
+			t.Run(fmt.Sprintf("%t/%s", enabled, mode), func(t *testing.T) {
+				sentinel := errors.New("ordinary error")
+				var cleaned atomic.Bool
+				var address string
+				var listener net.Listener
+				if enabled {
+					var err error
+					listener, err = net.Listen("tcp", "127.0.0.1:0")
+					if err != nil {
+						t.Fatal(err)
+					}
+					address = listener.Addr().String()
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				done := make(chan error, 1)
+				run := func(context.Context, *Metrics) error {
+					defer cleaned.Store(true)
+					switch mode {
+					case "panic":
+						panic("private value")
+					case "goexit":
+						runtime.Goexit()
+					}
+					return sentinel
+				}
+				go func() {
+					if enabled {
+						done <- monitorListener(ctx, listener, run)
+					} else {
+						done <- Monitor(ctx, "", run)
+					}
+				}()
+				var err error
+				select {
+				case err = <-done:
+				case <-ctx.Done():
+					t.Fatal("monitor lost the callback result")
+				}
+				want := ErrRunAborted
+				if mode == "error" {
+					want = sentinel
+				}
+				if !errors.Is(err, want) || !cleaned.Load() {
+					t.Fatal("monitor lost failure or cleanup", err)
+				}
+				if enabled {
+					connection, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+					if err == nil {
+						connection.Close()
+						t.Fatal("monitor retained its listener")
+					}
+				}
+			})
+		}
 	}
 }

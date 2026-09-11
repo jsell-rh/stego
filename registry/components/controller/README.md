@@ -219,8 +219,10 @@ The generated runtime owns logging, metrics, spans, and provider lifetime.
 `Main(run)` supplies a controller process entry point. The callback has signature
 `func(context.Context, *Metrics) error`. It must stop its work and close its
 resources when the context ends. Main handles SIGINT and SIGTERM. A callback
-failure exits with code 1 and a fixed error record. Domain error text is not
-logged. A blocked error-log write has a 100 ms limit before process exit.
+failure exits with code 1 and a fixed error record. A panic or
+`runtime.Goexit` in the Run callback returns `ErrRunAborted` after callback defers
+finish. The monitor closes its listener. Domain error text and panic values are
+not logged. A blocked error-log write has a 100 ms limit before process exit.
 
 The process listens on `STEGO_CONTROLLER_MONITOR_ADDR`, which defaults to
 `127.0.0.1:9081`. Only literal loopback IP addresses and explicit nonzero ports
@@ -234,3 +236,8 @@ no proxy, do not follow redirects, and require the exact successful response.
 The generated Kubernetes worker resources use these commands. Common telemetry
 still uses the configured OTLP exporter; the local endpoint is not exposed as
 a Kubernetes Service.
+
+[Run callback abort handling](../../../specs/controller-process-abort.md) covers
+the goroutine that calls Run, with or without the local monitor. Goroutines
+started by the callback, fatal runtime faults, and callbacks that do not stop
+on cancellation remain outside this boundary.
