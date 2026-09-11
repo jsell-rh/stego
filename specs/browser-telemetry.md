@@ -42,3 +42,8 @@ rendered browser acceptance, collector-failure behavior through the complete
 application, and deployment remain required. The served UI is still the
 scaffold until the rendered Gateway gate passes. Browser exit can lose queued
 telemetry; these bounded SDK queues do not provide durable delivery.
+
+UI lint found that the lifecycle declaration did not state that its callbacks
+are independent of `this`. The declarations now state this contract. The UI's
+application and test types, import checks, and lint passed with the correction.
+This change does not change JavaScript output.

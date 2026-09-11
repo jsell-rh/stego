@@ -13,9 +13,9 @@ export interface BrowserTelemetry {
  readonly tracer: Tracer;
  readonly meter: Meter;
  readonly logger: Logger;
- beginTrace(traceId: string): void;
- forceFlush(): Promise<void>;
- shutdown(): Promise<void>;
+ beginTrace(this: void, traceId: string): void;
+ forceFlush(this: void): Promise<void>;
+ shutdown(this: void): Promise<void>;
 }
 export function createBrowserTelemetry(options?: Options): BrowserTelemetry;
 export class RootTraceIdGenerator {
