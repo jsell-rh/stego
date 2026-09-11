@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.3.0
+version: 1.4.0
 output_namespace: deploy
 config:
   source_directories:
@@ -39,6 +39,28 @@ config:
         optional: true
         items:
           direction: {type: string, enum: [egress]}
+          namespace: {type: string}
+          pod_label: {type: string}
+          pod_value: {type: string}
+          port: {type: int}
+          protocol: {type: string, enum: [TCP, UDP]}
+  rpc_processes:
+    type: list
+    items:
+      name: {type: string}
+      component: {type: string, enum: [grpc-application, grpc-processes]}
+      process: {type: string}
+      env_secret: {type: string, optional: true}
+      files_secret: {type: string, optional: true}
+      external_endpoints:
+        type: list
+        optional: true
+        items: {type: string}
+      network_peers:
+        type: list
+        optional: true
+        items:
+          direction: {type: string, enum: [ingress, egress]}
           namespace: {type: string}
           pod_label: {type: string}
           pod_value: {type: string}

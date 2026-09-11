@@ -266,3 +266,49 @@ The bounded jshell checks passed deployment tests under race detection in
 byte-identical restricted deployment output to the equivalent API declaration
 and rejects undeclared gRPC ingress. Application deployment and production key
 rotation remain separate gates.
+
+## Separate RPC processes
+
+A service can deploy its declared RPC processes with `rpc_processes`:
+
+```yaml
+  kubernetes-service:
+    source_directories: [internal]
+    rpc_processes:
+      - name: provisioner
+        component: grpc-application
+        process: provisioner
+        network_peers:
+          - {direction: ingress, namespace: self, pod_label: app.kubernetes.io/name, pod_value: example, port: 9090, protocol: TCP}
+```
+
+`component` selects `grpc-application` or `grpc-processes`. `process` must select
+exactly one process in that resolved component. Its factory must be in an
+allowed source directory. The deployment `name` must be a DNS label. The full
+service name, `SERVICE-NAME`, must have at most 50 bytes. Names must be distinct
+from other RPC deployments and controller workers. The compiler supplies the
+resolved peer declarations for these checks before it writes output.
+
+Build with `out/deploy/rpc/NAME/Containerfile` from the project root. This image
+builds the declared generated entry point. Render it with `--rpc-process NAME`
+and the normal image digest, namespace, and file group arguments. Do not combine
+`--worker` and `--rpc-process`. Unknown targets fail without output.
+
+Each RPC target has its own ServiceAccount, Secrets, Deployment, Service, and
+NetworkPolicy. It uses the same resource and container restrictions as the API.
+The Service exposes only TLS on port 9090. Ingress peers can select only that
+port. Declare egress peers separately. `env_secret`, `files_secret`, and
+`external_endpoints` work as they do for workers. Parent network peers and
+Secrets are not inherited. DNS settings are inherited.
+
+The generated explicit environment binds the RPC listener on 9090, selects
+`tls.crt` and `tls.key`, and sets a loopback monitor on `127.0.0.1:9082`.
+It sets the process OTEL service name and disables the database plaintext
+exception. Startup and readiness run `/rpc --stego-probe=ready`. Liveness runs
+`/rpc --stego-probe=live`. A monitor endpoint is never exposed by the Service.
+These probes do not check external dependencies. A separate application test
+must check verified TLS, authorization, and real provider operations.
+
+This component still requires a primary HTTP service and its health component.
+It can add RPC deployments to that project. RPC-only project deployment remains
+separate work.

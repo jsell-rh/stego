@@ -124,6 +124,10 @@ type Context struct {
 	// imports the API package's ListOptions/ListResult types to satisfy
 	// the Storage interface).
 	PeerNamespaces map[string]string
+
+	// PeerConfigs contains resolved declarations for cross-component checks.
+	// Generators must not change these maps or their nested values.
+	PeerConfigs map[string]map[string]any
 }
 
 // File represents a single generated output file.

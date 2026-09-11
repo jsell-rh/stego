@@ -111,7 +111,7 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
 		return nil, nil, err
 	}
 	files = append(files, runtimeFiles...)
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: rpcDependencies()}
+	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: rpcDependencies(ctx)}
 	if watch {
 		outbox := ctx.PeerNamespaces["outbox"]
 		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
@@ -163,6 +163,10 @@ func renderFiles(ctx gen.Context, data any, sources []templateSource) ([]gen.Fil
 	}
 	return files, nil
 }
-func rpcDependencies() map[string]string {
-	return map[string]string{"google.golang.org/grpc": "v1.82.1", "google.golang.org/protobuf": "v1.36.11"}
+func rpcDependencies(ctx gen.Context) map[string]string {
+	dependencies := map[string]string{"google.golang.org/grpc": "v1.82.1", "google.golang.org/protobuf": "v1.36.11"}
+	if declared, _ := processes(ctx.ComponentConfig); len(declared) != 0 {
+		dependencies["golang.org/x/net"] = "v0.58.0"
+	}
+	return dependencies
 }

@@ -88,8 +88,10 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 	// Build peer namespace map so generators can reference types from other
 	// components (e.g. storage adapter imports API package's ListOptions).
 	peerNamespaces := make(map[string]string, len(componentNames))
+	peerConfigs := make(map[string]map[string]any, len(componentNames))
 	for _, compName := range componentNames {
 		comp := components[compName]
+		peerConfigs[compName] = resolveComponentConfig(comp, svcDecl)
 		if comp.OutputNamespace != "" {
 			peerNamespaces[compName] = comp.OutputNamespace
 		}
@@ -107,7 +109,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			ModuleName:      input.ModuleName,
 			GoVersion:       input.GoVersion,
 			SlotsPackage:    slotsPackage,
-			ComponentConfig: resolveComponentConfig(comp, svcDecl),
+			ComponentConfig: peerConfigs[compName],
 			OutputNamespace: comp.OutputNamespace,
 			OutDirName:      outDirName,
 			AuthPackage:     authPackage,
@@ -115,6 +117,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			ServiceName:     svcDecl.Name,
 			ErrorTypeBase:   svcDecl.ErrorTypeBase,
 			PeerNamespaces:  peerNamespaces,
+			PeerConfigs:     peerConfigs,
 			StorageContract: generatedImportPath(input.ModuleName, outDirName, gen.StorageContractNamespace),
 			EventsContract:  generatedImportPath(input.ModuleName, outDirName, gen.EventsContractNamespace),
 		}

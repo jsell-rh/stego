@@ -64,10 +64,22 @@ private values. Failed startup, serving, or cleanup produces a fixed failure
 event and a nonzero exit. A blocked stderr writer has at most 100 milliseconds
 to emit that final event. Domain code must not log credentials itself.
 
-This declaration generates the executable and common runtime. A separate RPC
-Deployment, its health probes, and production certificate rotation remain
-required work. The existing API and worker Deployment targets do not yet deploy
-these additional RPC processes.
+The process supplies loopback health probes. `STEGO_RPC_MONITOR_ADDR` defaults
+to `127.0.0.1:9082`. It accepts only a literal loopback IP and a canonical port
+from 1 through 65535. The monitor permits eight connections and has one-second
+read, write, and idle limits. It does not expose metrics or application data.
+
+Run the executable with `--stego-probe=live` or `--stego-probe=ready` for an exit
+status. A probe has a one-second limit. It does not open domain resources, start
+telemetry, use a proxy, or follow redirects. It requires status 200 and the exact
+body `ok\n`. Unknown arguments fail. The health server permits only GET.
+
+Liveness is available during initialization. Readiness requires completed
+registration and a bound TLS listener. Both fail when shutdown starts. Neither
+checks an external dependency. The process exits if its monitor cannot bind or
+stops unexpectedly. `kubernetes-service.rpc_processes` supplies separate
+Deployment targets with these probes. See [Kubernetes deployment](kubernetes-service.md).
+Production certificate rotation remains required work.
 
 The independent Records fixture uses `grpc-processes` without a storage contract.
 It checks compiler rejection, repeated generation,

@@ -135,7 +135,7 @@ func TestGeneratedGRPCProcesses(t *testing.T) {
 		}
 		write(name, file.Bytes())
 	}
-	for source, target := range map[string]string{"process_factory.go": "factory/rpc.go", "process_runtime_test.go": "out/grpcapi/process/runtime_test.go", "process_integration_test.go": "integration/process_test.go", "process_telemetry_test.go": "integration/telemetry_test.go"} {
+	for source, target := range map[string]string{"process_factory.go": "factory/rpc.go", "process_runtime_test.go": "out/grpcapi/process/runtime_test.go", "process_health_test.go": "out/grpcapi/process/health_test.go", "process_integration_test.go": "integration/process_test.go", "process_telemetry_test.go": "integration/telemetry_test.go"} {
 		data, err := os.ReadFile(filepath.Join("testdata", source))
 		if err != nil {
 			t.Fatal(err)

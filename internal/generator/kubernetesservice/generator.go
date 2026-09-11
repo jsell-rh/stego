@@ -111,7 +111,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	for key, value := range ctx.ComponentConfig {
 		switch key {
-		case "source_directories", "network_peers", "workers", "external_endpoints":
+		case "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints":
 		case "env_secret", "files_secret", "dns_namespace":
 			s, ok := value.(string)
 			if !ok || !label.MatchString(s) {
@@ -132,11 +132,22 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if _, err := networkRules(ctx); err != nil {
 		return err
 	}
-	_, err := workers(ctx)
+	if _, err := workers(ctx); err != nil {
+		return err
+	}
+	_, err := rpcProcesses(ctx)
 	return err
 }
 
 func networkRules(ctx gen.Context) (object, error) {
+	ports := map[int]bool{8443: true}
+	if ctx.PeerNamespaces["grpc-application"] != "" {
+		ports[9090] = true
+	}
+	return networkRulesForPorts(ctx, ports)
+}
+
+func networkRulesForPorts(ctx gen.Context, ports map[int]bool) (object, error) {
 	peers, err := configList(ctx, "network_peers")
 	if err != nil {
 		return nil, err
@@ -160,7 +171,7 @@ func networkRules(ctx gen.Context) (object, error) {
 		if (direction != "ingress" && direction != "egress") || (!label.MatchString(namespace) && namespace != "self") || !validLabelKey(key) || !labelValue.MatchString(value) || !ok || port < 1 || port > 65535 || (protocol != "TCP" && protocol != "UDP") {
 			return nil, fmt.Errorf("invalid network peer")
 		}
-		if direction == "ingress" && (protocol != "TCP" || (port != 8443 && (port != 9090 || ctx.PeerNamespaces["grpc-application"] == ""))) {
+		if direction == "ingress" && (protocol != "TCP" || !ports[port]) {
 			return nil, fmt.Errorf("ingress peer must select an enabled service port")
 		}
 		if namespace == "self" {
@@ -232,6 +243,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, extra...)
+	rpcFiles, err := rpcProcessFiles(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, rpcFiles...)
 	return files, nil, gen.ValidateNamespace(ctx.OutputNamespace, files)
 }
 

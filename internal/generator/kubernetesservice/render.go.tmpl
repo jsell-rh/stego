@@ -25,6 +25,7 @@ func render(args []string, output io.Writer) error {
  image:=flags.String("image","","Image with an explicit registry and SHA-256 digest")
  namespace:=flags.String("namespace","","Existing target namespace")
  worker:=flags.String("worker","","Declared controller worker")
+ rpc:=flags.String("rpc-process","","Declared RPC process deployment")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
  var external endpointFlags
  flags.Var(&external,"egress","Declared external endpoint: NAME=IP:PORT; use brackets for IPv6")
@@ -36,9 +37,11 @@ func render(args []string, output io.Writer) error {
  if len(host)>253 || (host!="localhost"&&!strings.Contains(host,".")&&!hasPort){return fmt.Errorf("image requires an explicit registry")}
  for _,part:=range strings.Split(host,"."){if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(part){return fmt.Errorf("invalid image registry")}}
  if hasPort{number,err:=strconv.Atoi(port);if err!=nil||number<1||number>65535{return fmt.Errorf("invalid registry port")}}
+ if *worker!=""&&*rpc!=""{return fmt.Errorf("select one workload")}
  name:="manifest.json.tmpl"
  if *worker!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*worker){return fmt.Errorf("invalid worker")};name="worker-"+*worker+".json.tmpl"}
- manifest,err:=manifests.ReadFile(name);if err!=nil{return fmt.Errorf("unknown worker")}
+ if *rpc!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*rpc){return fmt.Errorf("invalid RPC process")};name="rpc-"+*rpc+".json.tmpl"}
+ manifest,err:=manifests.ReadFile(name);if err!=nil{return fmt.Errorf("unknown workload")}
  tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}

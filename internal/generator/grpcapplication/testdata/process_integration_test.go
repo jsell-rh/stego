@@ -94,10 +94,16 @@ func TestGeneratedProcess(t *testing.T) {
 			}
 			address := listener.Addr().String()
 			listener.Close()
+			monitor, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			monitorAddress := monitor.Addr().String()
+			monitor.Close()
 			closed := filepath.Join(dir, "closed-"+mode)
 			var logs output
 			command := exec.Command(binary)
-			command.Env = append(os.Environ(), "PROCESS_TEST_MODE="+mode, "PROCESS_TEST_CLOSED="+closed, "STEGO_AUTH_PUBLIC_KEY_FILE="+filepath.Join(dir, "auth.pem"), "STEGO_AUTH_ISSUER=https://issuer.example", "STEGO_AUTH_AUDIENCE=records", "STEGO_GRPC_ADDR="+address, "STEGO_GRPC_TLS_CERT="+filepath.Join(dir, "tls.pem"), "STEGO_GRPC_TLS_KEY="+filepath.Join(dir, "tls.key"), "OTEL_SERVICE_NAME=records-rpc", "DATABASE_URL=invalid-no-database-required")
+			command.Env = append(os.Environ(), "STEGO_RPC_MONITOR_ADDR="+monitorAddress, "PROCESS_TEST_MODE="+mode, "PROCESS_TEST_CLOSED="+closed, "STEGO_AUTH_PUBLIC_KEY_FILE="+filepath.Join(dir, "auth.pem"), "STEGO_AUTH_ISSUER=https://issuer.example", "STEGO_AUTH_AUDIENCE=records", "STEGO_GRPC_ADDR="+address, "STEGO_GRPC_TLS_CERT="+filepath.Join(dir, "tls.pem"), "STEGO_GRPC_TLS_KEY="+filepath.Join(dir, "tls.key"), "OTEL_SERVICE_NAME=records-rpc", "DATABASE_URL=invalid-no-database-required")
 			command.Env = append(command.Env, telemetry...)
 			command.Stdout = &logs
 			command.Stderr = &logs
@@ -140,6 +146,13 @@ func TestGeneratedProcess(t *testing.T) {
 						t.Fatal("RPC process did not serve", status.Code(err))
 					}
 					time.Sleep(50 * time.Millisecond)
+				}
+				for _, probe := range []string{"live", "ready"} {
+					check := exec.Command(binary, "--stego-probe="+probe)
+					check.Env = []string{"STEGO_RPC_MONITOR_ADDR=" + monitorAddress}
+					if data, err := check.CombinedOutput(); err != nil {
+						t.Fatalf("probe failed: %v %s", err, data)
+					}
 				}
 				if _, err := call("bob", "records"); status.Code(err) != codes.PermissionDenied {
 					t.Fatal("domain policy bypassed", status.Code(err))

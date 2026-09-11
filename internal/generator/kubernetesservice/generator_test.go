@@ -57,7 +57,7 @@ func TestDeploymentValidation(t *testing.T) {
 }
 
 func TestGeneratedDeploymentRenderer(t *testing.T) {
-	ctx := workerContext()
+	ctx := rpcContext()
 	ctx.ComponentConfig["workers"] = append(ctx.ComponentConfig["workers"].([]any), map[string]any{"name": "remote", "package": "internal/task", "function": "Run", "external_endpoints": []any{"provider"}})
 	files, _, err := (&Generator{}).Generate(ctx)
 	if err != nil {
@@ -121,7 +121,15 @@ func TestRenderedPolicy(t *testing.T){
   command:=c["readinessProbe"].(map[string]any)["exec"].(map[string]any)["command"].([]any);if len(command)!=2||command[0]!="/worker"||command[1]!="--stego-probe=ready"{t.Fatal("wrong worker probe")}
  case "NetworkPolicy":if len(item["spec"].(map[string]any)["ingress"].([]any))!=0{t.Fatal("worker ingress permitted")}
  }}
- for _,args:=range [][]string{append(args,"--worker","missing"),append(args,"--worker","../queue"),nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
+ output.Reset();if err:=render(append(args,"--rpc-process","records"),&output);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(output.Bytes(),&doc);err!=nil{t.Fatal(err)}
+ for _,item:=range doc.Items{switch item["kind"]{
+ case "Deployment":pod:=item["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any);c:=pod["containers"].([]any)[0].(map[string]any)
+ command:=c["readinessProbe"].(map[string]any)["exec"].(map[string]any)["command"].([]any);if command[0]!="/rpc"||command[1]!="--stego-probe=ready"{t.Fatal("wrong RPC probe")}
+ if pod["serviceAccountName"]!="widget-records"{t.Fatal("shared RPC identity")}
+ case "Service":ports:=item["spec"].(map[string]any)["ports"].([]any);if len(ports)!=1||ports[0].(map[string]any)["port"]!=float64(9090){t.Fatal("RPC service exposes a wrong port")}
+ }}
+ for _,args:=range [][]string{append(args,"--rpc-process","missing"),append(args,"--rpc-process","../records"),append(args,"--rpc-process","records","--worker","queue"),append(args,"--worker","missing"),append(args,"--worker","../queue"),nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {

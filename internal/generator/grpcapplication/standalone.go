@@ -68,5 +68,5 @@ func (*ProcessGenerator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, err
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: rpcDependencies()}, nil
+	return files, &gen.Wiring{GoModRequires: rpcDependencies(ctx)}, nil
 }
