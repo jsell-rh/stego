@@ -117,6 +117,14 @@ func testRecord() Record {
 
 func TestMutualTLSPublishRequiresAllReplicaAcknowledgements(t *testing.T) {
 	cluster, config := broker(t, identity(t, "localhost"))
+	if err := os.Chmod(config.ClientKeyFile, 0440); err != nil {
+		t.Fatal(err)
+	}
+	projected := filepath.Join(t.TempDir(), "projected-key")
+	if err := os.Symlink(config.ClientKeyFile, projected); err != nil {
+		t.Fatal(err)
+	}
+	config.ClientKeyFile = projected
 	var allAcks atomic.Bool
 	cluster.ControlKey(0, func(request kmsg.Request) (kmsg.Response, error, bool) {
 		allAcks.Store(request.(*kmsg.ProduceRequest).Acks == -1)
@@ -343,11 +351,21 @@ func TestInvalidConfigurationAndRecordFailBeforeNetwork(t *testing.T) {
 			t.Fatal("invalid Kafka configuration was accepted")
 		}
 	}
-	if err := os.Chmod(id.config.ClientKeyFile, 0644); err != nil {
-		t.Fatal(err)
+	for _, mode := range []os.FileMode{0644, 0460, 0500, 0610} {
+		if err := os.Chmod(id.config.ClientKeyFile, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := clientOptions(id.config); err == nil {
+			t.Fatalf("unsafe secret mode accepted: %o", mode)
+		}
 	}
-	if _, err := clientOptions(id.config); err == nil {
-		t.Fatal("world-readable secret was accepted")
+	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
+		if err := os.Chmod(id.config.ClientKeyFile, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := clientOptions(id.config); err != nil {
+			t.Fatalf("private secret mode rejected: %o: %v", mode, err)
+		}
 	}
 	if err := os.Chmod(id.config.ClientKeyFile, 0600); err != nil {
 		t.Fatal(err)

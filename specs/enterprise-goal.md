@@ -2827,3 +2827,9 @@ lets the generated deployment serve verified HTTPS directly. The next C6/H3
 check runs the generated Hypershell image in a separate Pod and tests Gateway
 access, owner grants, rollback, event delivery, and Pod replacement. Keep the
 broader deployment and enterprise requirements open.
+
+The deployment workflow exposed a Kafka Secret file mismatch. The shared
+[Kafka file policy](kafka-secret-files.md) now permits read-only group access for
+projected keys and passwords. Private files still prohibit execute, group-write,
+and other access. Generated publisher tests passed with race detection and
+PostgreSQL required. The complete deployed application gate remains separate.
