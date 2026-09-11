@@ -37,9 +37,9 @@ browser identity. It also retained the required grant, access, REST, gRPC,
 event, restart, renewal, and sign-out behavior. This check is in
 `/tmp/stego-browser-relay-1orkdb7y`.
 
-This is protocol evidence. Final pinned adoption, UI type and build checks,
-rendered browser acceptance, collector-failure behavior through the complete
-application, and deployment remain required. The served UI is still the
+This is protocol evidence. Rendered browser acceptance, common deployment
+configuration, collector-failure behavior through the complete application,
+and deployment remain required. The served UI is still the
 scaffold until the rendered Gateway gate passes. Browser exit can lose queued
 telemetry; these bounded SDK queues do not provide durable delivery.
 
@@ -47,3 +47,14 @@ UI lint found that the lifecycle declaration did not state that its callbacks
 are independent of `this`. The declarations now state this contract. The UI's
 application and test types, import checks, and lint passed with the correction.
 This change does not change JavaScript output.
+
+Hypershell `910a8ab` adopts compiler `e4ca4dc`. The final pinned Gateway workflow
+passed in 12.03 seconds, with the browser root span, log, and metric at the
+collector. The input-manifest race check passed. All 162 hashes match both
+generation passes and the checkout, including the Node acceptance lockfile.
+The UI passed 233 tests, types, import checks, lint, and its production build.
+Both generated browser packages match the UI check byte for byte. The final UI
+check is `check2` in `/tmp/stego-browser-otel-ui-codwet_4`; its first lint check
+failed and remains recorded. The 54-file build was captured in an 852,377-byte
+archive. It is not yet the served UI. Full compiler CI passed. Full application
+CI is pending. The result files were saved before test namespace removal.

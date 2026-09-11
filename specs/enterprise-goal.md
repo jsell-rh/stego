@@ -2996,3 +2996,20 @@ common browser provider, logs and metrics, authenticated export relay, or
 rendered Gateway gates. The reference telemetry runtime still needs to move
 from Hypershell into STEGO. The broader goal remains active. The
 [SDK test record](typescript-sdk.md) states the exact scope.
+
+Compiler `e4ca4dc` now generates browser providers for traces, logs, and metrics,
+with bounded authenticated OTLP delivery through the Go browser backend.
+Hypershell `910a8ab` uses this runtime and keeps Gateway probe mapping in its
+domain adapter. The final pinned Gateway workflow passed in 12.03 seconds.
+The collector received the browser root span, backend and API parent chain,
+a browser log with the same trace ID, and a browser metric. Access, grants,
+REST, gRPC, event delivery, restart, and sign-out also passed.
+
+The UI passed 233 tests and its type, lint, import, and production build checks.
+Ten common browser runtime tests and the Go collector and access tests passed.
+All 162 verification hashes match two generation passes and the checkout.
+Full compiler CI passed; full CI for the new application revision is pending.
+The [browser telemetry record](browser-telemetry.md) preserves failed attempts
+and the exact evidence. Common browser deployment configuration, application
+collector-failure checks, and the rendered Gateway workflow remain required.
+The served console is still the scaffold. The broader goal remains active.
