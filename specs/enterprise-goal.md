@@ -2979,3 +2979,20 @@ published SDK files. Its generated Go backend still serves the scaffold.
 Common browser telemetry and the rendered Gateway workflow remain required
 before UI activation. The broader goal remains active. See the
 [browser asset contract](browser-assets.md) for the new compiler boundary.
+
+Compiler `1d7ae40` adds bounded trace context to each browser SDK request.
+Hypershell `583fef8` adopts it and passes the current Gateway dependency context
+through the generated client. The fresh pinned Gateway workflow passed in
+13.81 seconds. A TLS OTLP collector checks the parent chain through the browser
+backend, its HTTP client, and the API. The workflow still proves atomic owner
+grants, access rules, REST and gRPC, event delivery, restart, and sign-out.
+All 155 generation hashes match both runs and the checkout. The UI passed 239
+tests, types, import checks, lint, and its production build with the same SDK.
+Full compiler CI passed. Full CI for the new application revision is pending.
+
+Both bounded cluster Jobs completed, and their result files were saved. This
+step closes a propagation gap found in the application. It does not close the
+common browser provider, logs and metrics, authenticated export relay, or
+rendered Gateway gates. The reference telemetry runtime still needs to move
+from Hypershell into STEGO. The broader goal remains active. The
+[SDK test record](typescript-sdk.md) states the exact scope.
