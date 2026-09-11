@@ -31,3 +31,29 @@ the read-only `/tmp` directory. A second command in the same bounded Pod set
 `TMPDIR=/work/tmp` and passed. The initial Job still records that first failure;
 the successful command has a separate exit result and log. Evidence is retained
 in `/tmp/stego-controller-abort-b9182a`. Application adoption is a separate check.
+
+The Hypershell cluster probe reproduced the defect with compiler `cb0326d`.
+Normal Gateway deployment and identity repair completed. The callback panic
+then exited with code 2 and exposed its private value. The test failed after
+108.05 seconds and did not reach its Goexit case. The failed Job and cleanup
+record are in `/tmp/stego-service-results.484Kcd04`. Its namespace and private
+fixture files were removed. The fixed-pin application run is a separate check.
+
+The fixed compiler, `bbfacd13a018261b5c9e11041ec55e62fd60cbc3`, passed the full
+Kubernetes Gateway workflow on 2026-09-11. The test took 114.76 seconds; its
+race-enabled package took 115.801 seconds. Both callback abort modes passed,
+including cleanup, private-value exclusion, and repair by a healthy worker.
+The test also passed HTTPS and gRPC access, atomic owner grants, filtered
+lists, rollback, event delivery, and API and worker Pod replacement.
+
+The runner used a frozen source copy. All 117 output, state, and dependency
+hashes matched across two generation passes, the post-test check, and the
+application checkout. The Job reached `Complete`. Namespace deletion and
+removal of private fixture files were verified. Evidence is retained in
+`/tmp/stego-service-results.b23OdptE`. The application record describes two
+earlier runs with incomplete evidence; neither is used for this result.
+
+[Compiler CI](https://github.com/jsell-rh/stego/actions/runs/34625915955) passed,
+including race tests and the vulnerability check. This result covers the Run
+callback boundary. It does not close failure handling in other goroutines or
+the broader production requirements.

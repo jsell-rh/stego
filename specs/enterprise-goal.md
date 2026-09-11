@@ -2864,3 +2864,13 @@ verified. See the [deployment record](kubernetes-service.md).
 Compiler CI passed for that revision. Full variant CI remains a separate check.
 This result does not close distributed worker exclusion, other domain controller
 deployments, production operations, or capacity. The broader goal remains open.
+
+The [controller callback abort contract](controller-process-abort.md) now has
+application evidence. The previous compiler failed the real identity worker
+probe with exit code 2 and private panic output. Compiler `bbfacd1` passed both
+panic and Goexit cases, deferred cleanup, and repair by a healthy replacement.
+The full cluster Gateway workflow passed in 114.76 seconds. All 117 hashes
+matched before and after the test and in the application checkout. The Job
+completed, and cleanup was verified. Full compiler CI passed. Full variant CI
+is a separate check. Failure handling in other controller goroutines, browser
+workflows, distributed worker exclusion, and capacity remain open.
