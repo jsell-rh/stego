@@ -317,7 +317,11 @@ func TestRuntime(t *testing.T) {
 	if err := os.WriteFile(tokenFile, []byte("good\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	opts := rpcclient.Options{Address: runtime.Addr().String(), CAFile: filepath.Join(dir, "cert.pem"), TokenFile: tokenFile}
+	projectedToken := filepath.Join(dir, "projected-token")
+	if err := os.Symlink(tokenFile, projectedToken); err != nil {
+		t.Fatal(err)
+	}
+	opts := rpcclient.Options{Address: runtime.Addr().String(), CAFile: filepath.Join(dir, "cert.pem"), TokenFile: projectedToken}
 	outbound, err := rpcclient.New(opts)
 	if err != nil {
 		t.Fatal(err)
@@ -504,6 +508,22 @@ func TestRuntime(t *testing.T) {
 	cancelIdle()
 	if _, err := idle.Recv(); status.Code(err) != codes.Canceled {
 		t.Fatalf("idle watch cancellation: %v", err)
+	}
+	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
+		if err := os.Chmod(tokenFile, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := outboundClient.Echo(context.Background(), &pb.Request{}); err != nil {
+			t.Fatal("projected private token rejected", mode, err)
+		}
+	}
+	for _, mode := range []os.FileMode{0460, 0500, 0610} {
+		if err := os.Chmod(tokenFile, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rpcclient.New(opts); err == nil {
+			t.Fatal("unsafe token permissions accepted", mode)
+		}
 	}
 	if err := os.Chmod(tokenFile, 0644); err != nil {
 		t.Fatal(err)

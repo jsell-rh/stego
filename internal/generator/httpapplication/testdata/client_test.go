@@ -145,12 +145,25 @@ func TestHTTPSCredentials(t *testing.T) {
 	if err := os.WriteFile(path, []byte("secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.ReadPrivateFile(path); err != nil {
+	projected := filepath.Join(t.TempDir(), "projected")
+	if err := os.Symlink(path, projected); err != nil {
 		t.Fatal(err)
 	}
-	os.Chmod(path, 0644)
-	if _, err := client.ReadPrivateFile(path); err == nil {
-		t.Fatal("accepted public secret")
+	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		if data, err := client.ReadPrivateFile(projected); err != nil || string(data) != "secret" {
+			t.Fatal("private projected file rejected", mode, err)
+		}
+	}
+	for _, mode := range []os.FileMode{0644, 0460, 0500, 0610} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.ReadPrivateFile(projected); err == nil {
+			t.Fatal("unsafe private file accepted", mode)
+		}
 	}
 	for _, base := range []string{"http://example.test", "https://user:secret@example.test", "https://example.test?query", "https://example.test/#fragment", "https://example.test/../"} {
 		if _, err := client.New(client.Options{BaseURL: base, CAFile: path}); err == nil {

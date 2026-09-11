@@ -178,7 +178,7 @@ func(t fileToken)read()(string,error){
 func readFile(path string,maximum int64,private bool)([]byte,error){
  if path==""{return nil,errors.New("RPC credential file is required")}
  file,err:=os.OpenFile(path,os.O_RDONLY|syscall.O_NONBLOCK,0);if err!=nil{return nil,errors.New("cannot read RPC credential file")};defer file.Close()
- info,err:=file.Stat();if err!=nil||!info.Mode().IsRegular()||private&&info.Mode().Perm()&0077!=0{return nil,errors.New("RPC credential file has invalid type or permissions")}
+ info,err:=file.Stat();if err!=nil||!info.Mode().IsRegular()||private&&info.Mode().Perm()&0137!=0{return nil,errors.New("RPC credential file has invalid type or permissions")}
  data,err:=io.ReadAll(io.LimitReader(file,maximum+1));if err!=nil||int64(len(data))>maximum{return nil,errors.New("RPC credential file exceeds its limit")};return data,nil
 }
 var _ grpc.ClientConnInterface=(*Client)(nil)
