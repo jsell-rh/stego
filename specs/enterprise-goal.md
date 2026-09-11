@@ -3032,3 +3032,24 @@ The broader goal remains active. The next deployment work must include the
 browser backend, its secrets, and the shared telemetry settings. Production
 credential rotation, a full accessibility check, remaining console workflows,
 and bounded capacity measurements remain required.
+
+The next deployment gap was the missing browser service target in the common
+Kubernetes generator. Compiler `b3f6908` now accepts `browser-backend`, and the
+common browser archetype includes restricted deployment output. Hypershell
+`551a74f` adopts it. The application declares its peers; STEGO owns the image,
+Pod controls, TLS settings, probes, ServiceAccount, and Secret mounts.
+
+The generated console and its static binary built in a bounded jshell Job.
+The application isolation and input-manifest race checks passed in 1.055 seconds.
+All 218 output, state, and Go dependency hashes match two pinned generation
+passes and the checkout. The cluster accepted the four resources in a server
+dry run. Full compiler CI passed. The Job completed, results were saved, and
+namespace deletion was verified. New application CI remains a separate check.
+
+This closes the generation gap. It does not prove a live console deployment.
+The next application gate must run the browser backend as its generated
+Deployment with projected files, network policy, and Pod replacement. Public
+ingress and production credential rotation remain required. The console still
+reads one session key at startup; concurrent instances must share that key.
+The broader goal and the other production requirements remain active. See the
+[application deployment record](https://github.com/jsell-rh/hypershell-stego/blob/551a74f/acceptance/console-deployment.md).
