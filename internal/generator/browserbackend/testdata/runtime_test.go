@@ -3,6 +3,8 @@ package browser
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -291,9 +293,14 @@ func TestStorageEncryptionAndMigration(t *testing.T) {
 }
 func TestStaticRoutesAndBoundaries(t *testing.T) {
 	f := setup(t)
+	sum := sha256.Sum256([]byte("window.ready=true;"))
+	hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 	for _, path := range []string{"/", "/records/record-1", "/assets/main.js"} {
 		w := send(f.backend, "GET", path, "", nil, nil)
 		require(t, w.Code == 200, "declared asset route failed")
+		policy := w.Header().Get("Content-Security-Policy")
+		require(t, !strings.Contains(policy, "unsafe-inline") && !strings.Contains(policy, "unsafe-eval"), "broad script policy accepted")
+		require(t, strings.Contains(policy, hash) == (path != "/assets/main.js"), "script hash has incorrect route scope")
 		require(t, w.Header().Get("Content-Security-Policy") != "" && w.Header().Get("X-Content-Type-Options") == "nosniff", "missing response controls")
 	}
 	for _, path := range []string{"/unknown", "/records/a/b", "/assets/secret.pem"} {

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
@@ -19,7 +20,7 @@ import (
 )
 
 func fixture() gen.Context {
-	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><body><script src="/assets/main.js"></script></body></html>`), "ui/main.js": []byte(`"use strict";`)}}
+	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><body><script src="/assets/main.js"></script><script>window.ready=true;</script></body></html>`), "ui/main.js": []byte(`"use strict";`)}}
 }
 
 func TestGeneration(t *testing.T) {
@@ -157,5 +158,38 @@ func TestGeneratedRuntime(t *testing.T) {
 			t.Fatalf("generated runtime %v: %v\n%s", args, err, out)
 		}
 		t.Logf("%s", out)
+	}
+}
+
+func TestAssetBundle(t *testing.T) {
+	ctx := fixture()
+	g := new(Generator)
+	bundle, err := browserassets.Encode([]browserassets.Asset{{Path: "index.html", Data: []byte(`<html><script>window.ready=true;</script></html>`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(ctx.ComponentConfig, "assets")
+	ctx.ComponentConfig["asset_bundle"] = "ui/assets.zip"
+	ctx.Inputs = map[string][]byte{"ui/assets.zip": bundle}
+	names, err := g.InputFiles(ctx.ComponentConfig)
+	if err != nil || !reflect.DeepEqual(names, []string{"ui/assets.zip"}) {
+		t.Fatal("bundle is not captured", names, err)
+	}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		if file.Path == "browser/backend.go" {
+			found = bytes.Contains(file.Bytes(), []byte("sha256-"))
+		}
+	}
+	if !found {
+		t.Fatal("captured inline script has no CSP hash")
+	}
+	ctx.ComponentConfig["assets"] = []any{}
+	if g.ValidateContext(ctx) == nil {
+		t.Fatal("ambiguous asset source accepted")
 	}
 }

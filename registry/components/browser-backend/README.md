@@ -72,3 +72,26 @@ An invalid or rejected API session returns HTTP 401 with `error: reauth_required
 `login_url: /auth/login`, and `statusCode: 401`. The browser can restart login
 and set a permitted `return_to` route. Storage failure remains HTTP 503. API
 permission denial remains HTTP 403 and does not remove a valid session.
+
+For a production browser build, run this command from the service project:
+
+```sh
+stego assets --directory build/client --output ui/assets.zip
+```
+
+Declare `asset_bundle: ui/assets.zip` instead of `assets`. Keep the bundle
+outside generated output.
+The command accepts `index.html` and supported files below `assets/`. It rejects
+symbolic links, invalid paths, and files that exceed the limits. The archive
+has stable file order and metadata. An invalid input cannot replace an existing
+bundle.
+
+Limits are 128 files, 4 MiB per expanded file, 16 MiB in total, and 1 MiB for
+the captured ZIP. The compiler reads only captured input bytes. It does not
+read a build directory during generation. The generated server permits exact
+SHA-256 hashes for inline scripts in `index.html`. Other responses do not get
+these script permissions. It does not permit `unsafe-inline` or `unsafe-eval`.
+
+HTML and JavaScript inputs are trusted application code. The HTML checks find
+unsupported constructs. They are not an HTML sanitizer. The application must
+check its dependencies, rendered pages, accessibility, and browser behavior.

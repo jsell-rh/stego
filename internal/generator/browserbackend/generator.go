@@ -15,6 +15,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
 )
@@ -28,6 +29,8 @@ type settings struct {
 	Prefix, RolesClaim, LogoutScope string
 	Routes                          []string
 	Assets                          []asset
+	Bundle                          string `json:"-"`
+	ScriptHashes                    []string
 }
 
 var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
@@ -35,7 +38,7 @@ var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
 func config(values map[string]any) (settings, error) {
 	var s settings
 	for key := range values {
-		if key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
+		if key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
 		}
 	}
@@ -79,6 +82,18 @@ func config(values map[string]any) (settings, error) {
 	}
 	if !seen["/"] {
 		return s, fmt.Errorf("browser routes must include /")
+	}
+	if raw, present := values["asset_bundle"]; present {
+		bundle, ok := raw.(string)
+		if !ok || gen.ValidatePath(bundle) != nil || bundle == "" || path.Ext(bundle) != ".zip" {
+			return s, fmt.Errorf("browser asset_bundle requires a relative ZIP path")
+		}
+		if _, present := values["assets"]; present {
+			return s, fmt.Errorf("browser assets and asset_bundle are mutually exclusive")
+		}
+		s.Bundle = bundle
+		sort.Strings(s.Routes)
+		return s, nil
 	}
 	entries, ok := values["assets"].([]any)
 	if !ok || len(entries) == 0 || len(entries) > 128 {
@@ -135,6 +150,9 @@ func (*Generator) InputFiles(values map[string]any) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.Bundle != "" {
+		return []string{s.Bundle}, nil
+	}
 	seen := map[string]bool{}
 	var names []string
 	for _, a := range s.Assets {
@@ -158,32 +176,66 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 			return fmt.Errorf("browser-backend must run separately from bearer-token APIs")
 		}
 	}
+	_, _, err := resolveAssets(ctx)
+	return err
+}
+func resolveAssets(ctx gen.Context) (settings, map[string][]byte, error) {
 	s, err := config(ctx.ComponentConfig)
 	if err != nil {
-		return err
+		return s, nil, err
+	}
+	content := ctx.Inputs
+	sources, err := new(Generator).InputFiles(ctx.ComponentConfig)
+	if err != nil {
+		return s, nil, err
+	}
+	for _, source := range sources {
+		if source == ctx.OutDirName || strings.HasPrefix(source, ctx.OutDirName+"/") {
+			return s, nil, fmt.Errorf("browser asset sources must be outside generated output")
+		}
+	}
+	if s.Bundle != "" {
+		bundle, err := browserassets.Decode(ctx.Inputs[s.Bundle])
+		if err != nil {
+			return s, nil, err
+		}
+		content = map[string][]byte{}
+		for _, item := range bundle {
+			source := "@bundle/" + item.Path
+			s.Assets = append(s.Assets, asset{Source: source, Path: "/" + item.Path})
+			content[source] = item.Data
+		}
 	}
 	total := 0
+	names := map[string]bool{}
+	var index []byte
 	for _, a := range s.Assets {
-		if a.Source == ctx.OutDirName || strings.HasPrefix(a.Source, ctx.OutDirName+"/") {
-			return fmt.Errorf("browser asset sources must be outside generated output")
-		}
-		data, ok := ctx.Inputs[a.Source]
+		data, ok := content[a.Source]
 		total += len(data)
-		if !ok || len(data) == 0 || len(data) > 4<<20 || total > 16<<20 {
-			return fmt.Errorf("browser asset input is missing or exceeds its limit")
+		if !ok || len(data) == 0 || len(data) > browserassets.MaxFile || total > browserassets.MaxTotal {
+			return s, nil, fmt.Errorf("browser asset input is missing or exceeds its limit")
+		}
+		names[strings.TrimPrefix(a.Path, "/")] = true
+		if a.Path == "/index.html" {
+			index = data
 		}
 	}
-	return nil
+	s.ScriptHashes, err = browserassets.ScriptHashes(index, names)
+	return s, content, err
 }
+
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	s, _ := config(ctx.ComponentConfig)
+	s, contentBySource, err := resolveAssets(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 	root := path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace)
 	var files []gen.File
 	for i, a := range s.Assets {
-		content := ctx.Inputs[a.Source]
+		content := contentBySource[a.Source]
 		sum := sha256.Sum256(content)
 		s.Assets[i].Hash = hex.EncodeToString(sum[:])
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "public", strings.TrimPrefix(a.Path, "/")), Content: append([]byte(nil), content...)})

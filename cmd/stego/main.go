@@ -62,6 +62,8 @@ func main() {
 
 	var err error
 	switch cmd {
+	case "assets":
+		err = runAssets(os.Args[2:])
 	case "version":
 		err = runVersion(os.Args[2:], os.Stdout)
 	case "init":
@@ -110,6 +112,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  plan            Diff desired vs current, show changeset")
 	fmt.Fprintln(os.Stderr, "  apply           Generate/update code")
 	fmt.Fprintln(os.Stderr, "  recover         Complete an interrupted apply")
+	fmt.Fprintln(os.Stderr, "  assets          Pack a checked browser asset bundle")
 	fmt.Fprintln(os.Stderr, "  deps            Resolve and check project dependencies")
 	fmt.Fprintln(os.Stderr, "  drift           Detect hand-edits to generated files")
 	fmt.Fprintln(os.Stderr, "")
