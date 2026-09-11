@@ -197,7 +197,7 @@ export function createBrowserClient() {
     let returnTo = "/";
     try {
       const location = globalThis.location;
-      const candidate = String(location.pathname ?? "/") + String(location.search ?? "") + String(location.hash ?? "");
+      const candidate = String(location.pathname ?? "/") + String(location.search ?? "");
       const target = new URL(candidate, origin);
       if (candidate.startsWith("/") && !candidate.startsWith("//") && !/[\\\r\n\x00]/.test(candidate) && candidate.length <= 2048 && target.origin === origin) returnTo = candidate;
       const login = new URL("/auth/login", origin);

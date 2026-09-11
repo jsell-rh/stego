@@ -114,7 +114,7 @@ test('login uses a fixed same-origin path and bounds the return address', () => 
   sdk.login();
   const target = new URL(destination);
   assert.equal(target.origin, origin); assert.equal(target.pathname, '/auth/login');
-  assert.equal(target.searchParams.get('return_to'), '/records/r1?tab=info#heading');
+  assert.equal(target.searchParams.get('return_to'), '/records/r1?tab=info');
   globalThis.location.pathname = '//other.example/';
   sdk.login(); assert.equal(new URL(destination).searchParams.get('return_to'), '/');
 });

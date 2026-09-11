@@ -91,7 +91,8 @@ Version 1.1 adds explicit login navigation and declared public API error codes.
 The compiler bounds and validates `error_codes`. The runtime exposes a code
 only when it matches this declaration. It never exposes the reason, operation
 ID, or an unknown code from an error response. Login uses the captured HTTPS
-origin and `/auth/login`, with a bounded local return path. Applications decide
+origin and `/auth/login`, with a bounded local path and query. URL fragments
+are omitted because the backend rejects them. Applications decide
 when to call it. Provider sign-out still uses the confirmation page.
 
 The Hypershell React UI passed its application and test type checks against
