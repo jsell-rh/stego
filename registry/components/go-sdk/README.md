@@ -11,3 +11,8 @@ request timeout. Call `Close` to release the client.
 
 See the [input and runtime contract](../../../specs/go-sdk.md) for limits,
 unsupported features, response handling, and acceptance requirements.
+
+Version 2 preserves omitted fields, explicit JSON null, and values for nullable
+properties. Nullable model fields use `nullable.Nullable[T]`. Use `Set`,
+`SetNull`, and `SetUnspecified` to select the state. This replaces pointer
+fields from version 1 and requires caller source changes.

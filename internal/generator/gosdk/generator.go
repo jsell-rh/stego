@@ -59,7 +59,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 				err = fmt.Errorf("OpenAPI backend failed")
 			}
 		}()
-		return codegen.Generate(doc, codegen.Configuration{PackageName: "wire", Generate: codegen.GenerateOptions{Models: true, Client: true}, OutputOptions: codegen.OutputOptions{SkipPrune: true}, NoVCSVersionOverride: &version})
+		return codegen.Generate(doc, codegen.Configuration{PackageName: "wire", Generate: codegen.GenerateOptions{Models: true, Client: true}, OutputOptions: codegen.OutputOptions{SkipPrune: true, NullableType: true}, NoVCSVersionOverride: &version})
 	}()
 	backendMu.Unlock()
 	if err != nil {
@@ -105,7 +105,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err = gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/oapi-codegen/runtime": "v1.7.0", "github.com/google/uuid": "v1.6.0"}}, nil
+	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/oapi-codegen/runtime": "v1.7.0", "github.com/oapi-codegen/nullable": "v1.1.0", "github.com/google/uuid": "v1.6.0"}}, nil
 }
 
 func publicAPI(source string, expected int, pkg, wireImport string) (string, error) {

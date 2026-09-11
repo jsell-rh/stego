@@ -18,6 +18,21 @@ const sample = `openapi: 3.0.3
 info: {title: Sample, version: '1'}
 paths:
   /widgets/{id}:
+    patch:
+      operationId: patchWidget
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Widget'}
+      responses:
+        '200':
+          description: Widget
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Widget'}
     get:
       operationId: getWidget
       parameters:
@@ -45,6 +60,11 @@ components:
       properties:
         id: {type: string}
         name: {type: string}
+        description: {type: string, nullable: true}
+        enabled: {type: boolean, nullable: true}
+        count: {type: integer, nullable: true}
+        updated: {type: string, format: date-time, nullable: true}
+        tags: {type: array, nullable: true, items: {type: string}}
 `
 
 func fixture() gen.Context {
@@ -127,6 +147,7 @@ func testGeneratedSDK(t *testing.T, traced bool) {
 		}
 	}
 	files = append(files, gen.File{Path: "sdk/client_test.go", Content: []byte(runtimeTest)})
+	files = append(files, gen.File{Path: "sdk/nullable_test.go", Content: []byte(nullableRuntimeTest)})
 	root := t.TempDir()
 	for _, file := range files {
 		target := filepath.Join(root, file.Path)

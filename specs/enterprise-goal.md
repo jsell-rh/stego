@@ -2791,3 +2791,11 @@ The [Go SDK contract](go-sdk.md) adds typed client generation from captured
 OpenAPI files. Hypershell supplies its contract; STEGO supplies the HTTPS client
 and shared telemetry. Source compatibility with the old fluent SDK, automatic
 pagination, TypeScript clients, and browser workflows remain open.
+
+The Go SDK contract also requires nullable field states to survive generation.
+Hypershell service-account descriptions permit both omission and explicit null.
+Component version 2 uses a common nullable model type and preserves these states
+through the HTTPS client. Account lifecycle tests must prove creation, later
+reads without secrets, denied access, restart, revocation time, and deletion.
+The application supplies no nullable-field serializer. The broader SDK and
+enterprise requirements remain open.

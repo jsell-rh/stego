@@ -35,6 +35,21 @@ input is at most 1 MiB. At most 64 files, 256 paths, and 512 operations are allo
 Schema depth and expansion have separate limits. The generated wire file is at
 most 8 MiB. Reference names and Go field names must not conflict.
 
+Nullable properties preserve three states: omitted, explicit JSON `null`, and a
+value. This includes zero values such as an empty string, `false`, and zero.
+The generated model uses the pinned `github.com/oapi-codegen/nullable` v1.1.0
+type. Use `field.Set(value)`, `field.SetNull()`, or `field.SetUnspecified()`.
+Use `IsSpecified`, `IsNull`, and `Get` to read the state. Responses retain the
+state supplied by the server. A caller must still supply required properties
+and obey the API constraints.
+
+Component version 2 changes nullable fields from pointers to this type. Callers
+that assign pointers must change their source. The version 1 representation
+could not preserve an explicit null in an optional property. Hypershell account
+descriptions exposed this gap. The common generator now enables the backend's
+[nullable type option](https://github.com/oapi-codegen/oapi-codegen/tree/v2.8.0#generating-nullable-types).
+No application-specific serialization code is required.
+
 The SDK uses the [shared HTTP transport](http-client-observability.md). It requires verified
 TLS 1.3, one origin and path prefix, and a bearer token. It does not expose a raw
 client constructor or request editors. Redirects and environment proxy settings
@@ -84,3 +99,23 @@ The captured compiler source archive was
 The job resolved and tested the dependency lock files before they were copied
 back to the repository. Full remote CI and the pinned Hypershell workflow are
 separate checks.
+
+## Nullable field acceptance
+
+On 2026-09-11, an unchanged Hypershell SDK failed the description test: an
+explicit null became an omitted field. The initial application archive was
+`a0a318e011376afc1afaf293e1a7a952d4d45591c006787344c09cfcc47c123d`.
+The correction ran in the bounded `stego-nullable-20260911` jshell job with the
+same Go 1.26.8 and PostgreSQL 18.6 images and resource limits stated above.
+
+The generated SDK race package passed in 76.898 seconds. Plain and traced
+clients preserved nullable string, boolean, integer, timestamp, and array
+fields through HTTPS requests and responses. The tests also checked explicit
+state changes through the model methods. Compiler regressions passed in 55.890
+seconds, registry tests passed in 2.235 seconds, and SDK static checks passed.
+The tested compiler archive was
+`bea62bedb6e313724997b060f4307469ad83a725ee1c21edff03207e22c05dc5`.
+Later compiler edits changed documentation and component version metadata only.
+Pinned Hypershell generation, account lifecycle evidence, and full CI remain
+separate checks. These package times include test setup and generated builds;
+they do not measure SDK request performance.
