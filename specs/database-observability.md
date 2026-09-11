@@ -1,6 +1,6 @@
 The `postgres-adapter` and `otel-tracing` components supply shared PostgreSQL
-driver signals. The adapter generates a pool factory when the tracing peer is
-present. A typed wiring record selects that factory. The compiler rejects an
+driver signals. The adapter always generates a bounded pool factory. The
+tracing peer adds operation signals. A typed wiring record selects that factory. The compiler rejects an
 invalid namespace, an undeclared import, an invalid function name, an unsupported
 database resource, or more than one factory. The generated main owns the pool
 and closes it if GORM initialization fails or the process returns.
@@ -93,3 +93,6 @@ The focused name and driver tests passed with the race detector in 2.847
 seconds. Registry tests and static analysis also passed in the same bounded
 cluster job. The source archive hash was
 `61e72348f052a5b85b74410d44ac52297120c1934b5cabd6f579cff9b9208ba6`.
+
+The [pool contract](database-pool-bounds.md) defines deployment connection bounds
+with or without telemetry. Pool wait metrics and startup coverage remain open.

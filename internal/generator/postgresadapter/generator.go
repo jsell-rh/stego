@@ -240,15 +240,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
-	if ctx.PeerNamespaces["otel-tracing"] != "" {
-		file, err := generateDatabaseOpener(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, file)
-		wiring.DatabaseOpener = &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}
-		wiring.GoModRequires["github.com/jackc/pgx/v5"] = "v5.11.0"
+	file, err := generateDatabaseOpener(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
+	files = append(files, file)
+	wiring.DatabaseOpener = &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}
+	wiring.GoModRequires["github.com/jackc/pgx/v5"] = "v5.11.0"
+
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}
 	}
@@ -313,6 +312,12 @@ var reservedTypeNames = map[string]bool{
 	"sync":                        true,
 	"NewStore":                    true,
 	"OpenDatabase":                true,
+	"databasePoolSettings":        true,
+	"readDatabasePoolSettings":    true,
+	"databasePoolInteger":         true,
+	"databasePoolDuration":        true,
+	"os":                          true,
+	"strconv":                     true,
 	"databaseConfiguration":       true,
 	"databaseTracer":              true,
 	"databaseCallKey":             true,

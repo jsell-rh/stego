@@ -44,3 +44,9 @@ and limits. Database telemetry remains an open requirement.
 Version 3.14.1 rejects entity names that conflict with database helpers or
 import aliases before generation. A source-based regression checks every
 package declaration and import in the generated database helper.
+
+Version 3.15.0 always generates the pool factory, including without telemetry.
+It limits open and idle connections and sets finite connection lifetime and
+idle time. Deployment settings can change these bounds. Invalid settings stop
+pool creation. See the [pool contract](../../../specs/database-pool-bounds.md)
+for defaults, limits, ownership, and acceptance requirements.

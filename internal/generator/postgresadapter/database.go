@@ -18,7 +18,11 @@ func generateDatabaseOpener(ctx gen.Context) (gen.File, error) {
 		return gen.File{}, err
 	}
 	var output bytes.Buffer
-	err = t.Execute(&output, struct{ Package, Tracing string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"])})
+	tracing := ""
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
+	}
+	err = t.Execute(&output, struct{ Package, Tracing string }{path.Base(ctx.OutputNamespace), tracing})
 	if err != nil {
 		return gen.File{}, err
 	}

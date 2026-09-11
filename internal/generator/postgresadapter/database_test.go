@@ -21,25 +21,42 @@ import (
 //go:embed testdata/database_test.go
 var databaseTests []byte
 
-func TestGeneratedDatabaseDriver(t *testing.T) {
+//go:embed testdata/database_pool_test.go
+var databasePoolTests []byte
+
+func TestGeneratedDatabaseDriver(t *testing.T)               { testDatabaseModule(t, true) }
+func TestGeneratedDatabasePoolWithoutTelemetry(t *testing.T) { testDatabaseModule(t, false) }
+
+func testDatabaseModule(t *testing.T, traced bool) {
+	t.Helper()
 	ctx := basicContext()
 	ctx.ModuleName, ctx.OutputNamespace = "example.com/dbprobe", "storage"
-	ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+	if traced {
+		ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	for _, f := range []gen.File{file, {Path: "storage/database_test.go", Content: databaseTests}, {Path: "tracing/tracing.go", Content: []byte(`package tracing
+	files := []gen.File{file, {Path: "storage/database_pool_test.go", Content: databasePoolTests}, {Path: "tracing/tracing.go", Content: []byte(`package tracing
 import("context";"sync")
 type Key struct{}
 type Record struct { Call, Outcome string; Value any }
 var Events=make(chan Record,128)
 func TraceDatabase(ctx context.Context,call string)(context.Context,func(string)){
+ if ctx.Value(Key{})==nil{return ctx,func(string){}}
  var once sync.Once
  return ctx,func(outcome string){once.Do(func(){Events<-Record{call,outcome,ctx.Value(Key{})}})}
 }
-`)}, {Path: "go.mod", Content: []byte("module example.com/dbprobe\ngo 1.25.0\nrequire github.com/jackc/pgx/v5 v5.11.0\n")}} {
+`)}, {Path: "go.mod", Content: []byte("module example.com/dbprobe\ngo 1.25.0\nrequire github.com/jackc/pgx/v5 v5.11.0\n")}}
+	if traced {
+		files = append(files, gen.File{Path: "storage/database_test.go", Content: databaseTests})
+	}
+	for _, f := range files {
+		if !traced && f.Path == "tracing/tracing.go" {
+			continue
+		}
 		name := filepath.Join(project, f.Path)
 		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
 			t.Fatal(err)
@@ -130,5 +147,26 @@ func TestDatabaseReservedNames(t *testing.T) {
 				t.Fatalf("name %q must fail before output: files=%d err=%v", name, len(files), err)
 			}
 		})
+	}
+}
+
+func TestDatabasePoolWiring(t *testing.T) {
+	for _, traced := range []bool{false, true} {
+		ctx := basicContext()
+		ctx.ModuleName = "example.com/pool"
+		if traced {
+			ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+		}
+		files, wiring, err := new(Generator).Generate(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if wiring.DatabaseOpener == nil || wiring.DatabaseOpener.Function != "OpenDatabase" || wiring.DatabaseOpener.Namespace != ctx.OutputNamespace {
+			t.Fatal("pool factory missing from wiring")
+		}
+		source := findFile(t, files, ctx.OutputNamespace+"/database.go")
+		if strings.Contains(string(source.Bytes()), "example.com/pool/tracing") != traced {
+			t.Fatal("optional telemetry import differs")
+		}
 	}
 }

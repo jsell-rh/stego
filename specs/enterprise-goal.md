@@ -2780,3 +2780,9 @@ rollback, access checks, and event delivery. Compiler, registry, generated
 telemetry, storage transaction, and driver checks passed in the cluster.
 Application adoption and full CI are separate gates. Pool statistics, startup
 work, independent database connections, and the wider goal remain open.
+
+The [database pool contract](database-pool-bounds.md) addresses a resource gap in
+the Gateway workflow. The generated pool must bound connections, permit caller
+cancellation while waiting, and recover without changes to access or event
+behavior. The policy must also work without telemetry. Separate generated-code
+and application evidence is required; the wider runtime goal remains open.
