@@ -2874,3 +2874,15 @@ matched before and after the test and in the application checkout. The Job
 completed, and cleanup was verified. Full compiler CI passed. Full variant CI
 is a separate check. Failure handling in other controller goroutines, browser
 workflows, distributed worker exclusion, and capacity remain open.
+
+Hypershell `609d8b5` removes the remaining hand-written main functions for the
+database, Gateway workload, and sandbox-count controllers. The existing STEGO
+worker declaration generates all three processes without a compiler change.
+Their domain provider setup remains in the application. Focused startup privacy
+and input-manifest checks passed under race detection in a bounded cluster Job.
+All 129 generated, state, and dependency hashes matched repeated generation,
+the post-test output, and the checkout. The real database, Gateway, and sandbox
+workflow tests now build these generated commands and check their probes and
+signal shutdown. Their new CI results remain a separate requirement. This is
+application adoption of the common runtime, not proof of complete deployment
+operations or the broader enterprise goal.

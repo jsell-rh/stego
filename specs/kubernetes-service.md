@@ -77,6 +77,17 @@ signing, deployment migrations, and certificate renewal remain separate work.
 The component does not install databases, brokers, or domain controllers.
 The Hypershell test bed supplies its domain sources and test peer settings.
 
+Hypershell commit `609d8b5` also adopts the existing worker contract for its
+database, Gateway workload, and sandbox-count processes. Provider setup stays
+in the application; STEGO supplies their main functions, signals, probes,
+monitor, safe failure output, images, and Deployment templates. This adoption
+needs no compiler change. Its focused startup and input-manifest checks passed
+under race detection on jshell. Two generation passes and the post-test check
+preserved all 129 output, state, and dependency hashes. The Job completed and
+its namespace was deleted. The real provider workflows require their own CI
+results. Kubernetes API egress, provider credentials, and RBAC still require
+site configuration. See the [application record](https://github.com/jsell-rh/hypershell-stego/blob/609d8b5/acceptance/generated-workload-workers.md).
+
 The first deployed Gateway gate passed on jshell on 2026-09-11 with compiler
 `ae4f1a28226a726bb637faa5e3325c94ed443818`. The test used Go 1.26.8, PostgreSQL
 18.6 with SCRAM and verified TLS, and the TLS Kafka protocol fixture. The
