@@ -151,18 +151,21 @@ export function createBrowserClient() {
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 20000);
     const abort = () => controller.abort();
     try {
-      if (options !== undefined && (options === null || typeof options !== "object" || Object.keys(options).some(k => k !== "signal"))) fail("invalid_input");
+      if (options !== undefined && (options === null || typeof options !== "object" || Array.isArray(options) || Object.getOwnPropertyNames(options).some(k => k !== "signal" && k !== "traceparent"))) fail("invalid_input");
+      const traceparent = options && own(options, "traceparent") ? options.traceparent : undefined;
+      if (traceparent !== undefined && (typeof traceparent !== "string" || traceparent.length !== 55 || !/^00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$/.test(traceparent) || traceparent.slice(3, 35) === "0".repeat(32) || traceparent.slice(36, 52) === "0".repeat(16))) fail("invalid_input");
       supplied = options?.signal;
       if (supplied !== undefined) { if (!(supplied instanceof AbortSignal)) fail("invalid_input"); supplied.addEventListener("abort", abort, { once: true }); if (supplied.aborted) controller.abort(); }
       if (controller.signal.aborted) fail("cancelled");
-      return await action(controller.signal);
+      return await action(controller.signal, traceparent);
     } catch (error) { if (error instanceof SDKError) throw error; fail(timedOut ? "timeout" : controller.signal.aborted ? "cancelled" : "request_failed"); }
     finally { clearTimeout(timer); activeRequests--; try { supplied?.removeEventListener("abort", abort); } catch {} }
   };
-  const request = async (method, path, body, csrf, signal) => {
+  const request = async (method, path, body, csrf, signal, traceparent) => {
     const target = new URL(path, origin);
     if (target.origin !== origin || target.username || target.password || target.hash || target.href.length > 8192) fail("invalid_input");
     const headers = { Accept: "application/json" };
+    if (traceparent !== undefined) headers.traceparent = traceparent;
     if (body !== undefined) { headers["Content-Type"] = "application/json"; if (encoder.encode(body).length > maxRequest) fail("invalid_input"); }
     if (csrf !== undefined) headers["X-CSRF-Token"] = csrf;
     const response = await fetcher(target.href, { method, headers, body, signal, credentials: "same-origin", mode: "same-origin", cache: "no-store", redirect: "error", referrerPolicy: "no-referrer" });
@@ -180,8 +183,8 @@ export function createBrowserClient() {
     if (data !== "") { if ((response.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase() !== "application/json") fail("invalid_response"); try { result = parseJSON(data); } catch { fail("invalid_response"); } }
     return { status: response.status, body: result, etag: response.headers.get("ETag") };
   };
-  const session = async signal => {
-    const result = await request("GET", "/auth/session", undefined, undefined, signal);
+  const session = async (signal, traceparent) => {
+    const result = await request("GET", "/auth/session", undefined, undefined, signal, traceparent);
     const value = result.body;
     if (result.status !== 200 || !value || typeof value.authenticated !== "boolean" || !Array.isArray(value.roles) || value.roles.length > 64 || value.roles.some(r => typeof r !== "string" || r.length > 128)) fail("invalid_response");
     if (value.authenticated && (typeof value.csrf_token !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.csrf_token))) fail("invalid_response");
@@ -205,10 +208,10 @@ export function createBrowserClient() {
       location.assign(login.href);
     } catch { fail("navigation_failed"); }
   };
-  client.session = options => run(options, async signal => { const value = await session(signal); const { csrf_token, ...publicValue } = value; return publicValue; });
-  client.logout = options => run(options, async signal => { const value = await session(signal); if (!value.authenticated) return; const result = await request("POST", "/auth/logout", undefined, value.csrf_token, signal); if (result.status !== 204) fail("invalid_response"); });
+  client.session = options => run(options, async (signal, traceparent) => { const value = await session(signal, traceparent); const { csrf_token, ...publicValue } = value; return publicValue; });
+  client.logout = options => run(options, async (signal, traceparent) => { const value = await session(signal, traceparent); if (!value.authenticated) return; const result = await request("POST", "/auth/logout", undefined, value.csrf_token, signal, traceparent); if (result.status !== 204) fail("invalid_response"); });
   for (const [name, op] of Object.entries(contract.operations)) {
-    client[name] = (input = {}, options) => run(options, async signal => {
+    client[name] = (input = {}, options) => run(options, async (signal, traceparent) => {
       boundedInput(input);
       if (input === null || typeof input !== "object" || Array.isArray(input)) fail("invalid_input");
       const allowed = new Set(op.parameters.map(p => p.name)); if (op.body) allowed.add("body");
@@ -226,8 +229,8 @@ export function createBrowserClient() {
       const target = new URL(path, origin); if (target.origin !== origin || target.href.length > 8192) fail("invalid_input");
       const body = own(input, "body") ? JSON.stringify(input.body) : undefined; if (body !== undefined && encoder.encode(body).length > maxRequest) fail("invalid_input");
       let csrf;
-      if (op.method !== "GET" && op.method !== "HEAD") { const value = await session(signal); if (!value.authenticated) fail("reauth_required", 401); csrf = value.csrf_token; }
-      const result = await request(op.method, path, body, csrf, signal);
+      if (op.method !== "GET" && op.method !== "HEAD") { const value = await session(signal, traceparent); if (!value.authenticated) fail("reauth_required", 401); csrf = value.csrf_token; }
+      const result = await request(op.method, path, body, csrf, signal, traceparent);
       if (!own(op.responses, String(result.status))) fail("invalid_response");
       const schema = op.responses[String(result.status)];
       if (schema === null ? result.body !== undefined : !validate(schema, result.body, "response")) fail("invalid_response");

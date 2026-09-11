@@ -477,7 +477,7 @@ func declare(c compiled) (string, error) {
 	for _, name := range keys(c.Models) {
 		fmt.Fprintf(&out, "%s: %s;\n", quoted(name), ts(c.Models[name], "response", c.Models))
 	}
-	out.WriteString("}\nexport interface RequestOptions { signal?: AbortSignal }\nexport interface Result<T> { readonly status: number; readonly body: T; readonly etag: string | null }\nexport interface Session { authenticated: boolean; roles: string[]; user?: { [key: string]: string }; expires_at?: number }\nexport class SDKError extends Error { constructor(code: string, status?: number, apiCode?: string); readonly code: string; readonly status: number; readonly apiCode: string | undefined }\nexport interface Client {\nlogin(): void;\nsession(options?: RequestOptions): Promise<Session>;\nlogout(options?: RequestOptions): Promise<void>;\n")
+	out.WriteString("}\nexport interface RequestOptions { signal?: AbortSignal; traceparent?: string }\nexport interface Result<T> { readonly status: number; readonly body: T; readonly etag: string | null }\nexport interface Session { authenticated: boolean; roles: string[]; user?: { [key: string]: string }; expires_at?: number }\nexport class SDKError extends Error { constructor(code: string, status?: number, apiCode?: string); readonly code: string; readonly status: number; readonly apiCode: string | undefined }\nexport interface Client {\nlogin(): void;\nsession(options?: RequestOptions): Promise<Session>;\nlogout(options?: RequestOptions): Promise<void>;\n")
 	for _, name := range keys(c.Operations) {
 		o := c.Operations[name]
 		fields := []string{}

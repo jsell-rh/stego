@@ -11,7 +11,8 @@ The browser supplies cookies. Application code does not supply OAuth tokens.
 
 Methods use the contract's `operationId`. Each method accepts an input object
 with path and query fields and, where declared, `body`. The optional second
-argument supplies an abort signal. Results contain `status`, `body`, and `etag`.
+argument supplies an abort signal and trace context. Results contain `status`,
+`body`, and `etag`.
 `RequestSchemas` contains request models. `Schemas` contains response models.
 Runtime checks enforce the supported schema constraints in each direction.
 
@@ -30,3 +31,11 @@ only a declared code. Error bodies and private diagnostic fields stay hidden.
 See the [contract and test record](../../../specs/typescript-sdk.md) for limits
 and open work. Browser telemetry and the full Hypershell UI migration remain
 open. The generated Go backend supplies its existing server telemetry.
+
+For a traced operation, pass `{traceparent}` in the method's request options.
+The client captures it before the operation starts. It also applies to the
+operation's CSRF session request. Reused clients do not retain trace context.
+The value must use W3C version `00`, nonzero lowercase trace and span IDs, and
+flags `00` or `01`. Invalid values fail before a network request. The client
+does not accept arbitrary headers, `tracestate`, or `baggage`. A trace context
+does not grant API access.

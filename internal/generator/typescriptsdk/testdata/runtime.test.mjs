@@ -118,3 +118,29 @@ test('login uses a fixed same-origin path and bounds the return address', () => 
   globalThis.location.pathname = '//other.example/';
   sdk.login(); assert.equal(new URL(destination).searchParams.get('return_to'), '/');
 });
+
+
+test('trace context stays with one operation and cannot supply other headers', async () => {
+  const parent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+  const calls = [];
+  client(async (url, options) => { calls.push(options.headers); return new URL(url).pathname === '/auth/session' ? session() : json(record, options.method === 'POST' ? 201 : 200); });
+  const config = {traceparent: parent};
+  const traced = createBrowserClient();
+  const pending = traced.getRecord({id: 'r1'}, config);
+  config.traceparent = undefined;
+  await pending;
+  assert.equal(calls.at(-1).traceparent, parent);
+  assert.equal(calls.at(-1).tracestate, undefined);
+  assert.equal(calls.at(-1).baggage, undefined);
+  await traced.createRecord({body: requestRecord}, {traceparent: parent});
+  assert.equal(calls.at(-2).traceparent, parent);
+  assert.equal(calls.at(-1).traceparent, parent);
+  assert.equal(calls.at(-1)['X-CSRF-Token'], csrf);
+  await traced.getRecord({id: 'r1'});
+  assert.equal(calls.at(-1).traceparent, undefined);
+  const count = calls.length;
+  for (const bad of [null, [], {headers: {}}, {traceparent: ''}, {traceparent: parent.toUpperCase()}, {traceparent: parent + '\r\nX-Private: x'}, {traceparent: parent + '\n'}, {traceparent: parent.replace('b7ad6b7169203331','0000000000000000')}, {traceparent: parent.replace('0af7651916cd43dd8448eb211c80319c','0'.repeat(32))}, {traceparent: parent.replace('-01','-ff')}, {tracestate: 'private'}, {baggage: 'private'}]) {
+    await assert.rejects(traced.getRecord({id: 'r1'}, bad), error('invalid_input'));
+  }
+  assert.equal(calls.length, count);
+});

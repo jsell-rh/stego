@@ -99,3 +99,25 @@ The Hypershell React UI passed its application and test type checks against
 this version. All 67 console tests and 164 domain UI tests passed in a bounded
 jshell Job. These checks do not prove browser rendering or the production
 Content Security Policy. Those application gates remain open.
+
+Version 1.2 adds a typed `RequestOptions.traceparent` value. Each operation
+captures one context before its first asynchronous step. The context applies
+to session and API requests at the fixed browser origin. Reused clients do not
+retain it. The supported format is W3C version `00`, with nonzero lowercase
+trace and span IDs and sampled flags `00` or `01`. Invalid values fail before
+fetch. Vendor state, baggage, OAuth credentials, and arbitrary headers are not
+accepted. See [W3C Trace Context](https://www.w3.org/TR/trace-context/) for the
+wire format and its privacy and security rules. This option propagates a
+context; it does not create spans or export browser telemetry.
+
+The version 1.2 checks passed in a bounded jshell Job. The compiler package
+passed with race detection in 3.405 seconds, including 13 Node runtime tests
+and the strict TypeScript check. The generated Hypershell Gateway workflow
+passed in 13.04 seconds. A TLS OTLP collector received the browser backend
+server span, its HTTP client span, and the API server span with the expected
+parent IDs in one trace. The SDK test also checks context capture, CSRF
+requests, client reuse without context, and rejection of invalid headers.
+The final request-option check is `check2` in
+`/tmp/stego-browser-trace-t39scx2c`. The first check used a constructor option;
+that draft is not the published interface. Browser span export and rendered
+UI acceptance remain open.
