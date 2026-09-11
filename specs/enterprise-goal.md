@@ -3053,3 +3053,38 @@ ingress and production credential rotation remain required. The console still
 reads one session key at startup; concurrent instances must share that key.
 The broader goal and the other production requirements remain active. See the
 [application deployment record](https://github.com/jsell-rh/hypershell-stego/blob/551a74f/acceptance/console-deployment.md).
+
+Hypershell `590dc9b` now proves the rendered Gateway workflow through separate
+generated API and console Deployments on jshell. Compiler `b3f6908` needed no
+runtime change for this gate. The application test passed in 125.63 seconds;
+its race-enabled package passed in 126.693 seconds. The contract and input
+manifest checks passed in 1.062 seconds.
+
+The test created a Gateway through Chromium, checked its owner grant and event,
+and checked REST and gRPC access before and after replacement of both Pods.
+The existing browser session survived. Both runtime database connections used
+TLS. Separate database roles could not change the schema, and the console role
+had no Gateway table read permission. Browser traces, logs, and metrics reached
+the TLS collector through the session backend. The UI remained usable during
+collector failure. Renewal and confirmed console and provider sign-out passed.
+
+All 218 output, state, and Go dependency hashes match both generation passes,
+the post-test check, and the checkout. The API and console image digests match
+repeated builds. The Job reached `Complete`, its evidence and screenshot were
+saved, and all five test namespaces were removed. The
+[application record](https://github.com/jsell-rh/hypershell-stego/blob/590dc9b/acceptance/console-deployment.md)
+contains the exact images, checks, limits, and failed attempts.
+
+The failed attempts exposed test setup errors: an unwritable npm cache, a
+nested Go module invocation, a collector listen address used across Pods, and
+a CA key pin used in place of the provider's server key pin. The last error
+also failed the earlier application CI run. Hypershell `727fe70` fixes that
+browser pin without disabling other certificate checks. CI for that fix and
+the final application change remains separate from the passed cluster gate.
+
+The broader goal remains active. Public ingress, certificate and session-key
+rotation, complete console workflows, accessibility, and bounded capacity
+measurements remain required. This gate proves Gateway creation and retrieval;
+it does not prove that the Gateway workload has finished provisioning. Common
+production controls must remain in STEGO and must be checked through the same
+application workflow as they are added.
