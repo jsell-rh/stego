@@ -2956,3 +2956,12 @@ Gateway protocol test passed with this client. The shared OpenAPI loader also
 passed the existing Go SDK checks. The [SDK record](typescript-sdk.md) states
 the test scope and limits. Final pinned adoption, React UI integration, browser
 telemetry, and the broader production requirements remain open.
+
+Hypershell `f322996` now adopts the browser client from compiler `cc35051`.
+The fresh cluster Gateway workflow and input-manifest race test passed. All
+155 output, state, and dependency hashes matched two pinned generation passes
+and the checkout. Both test namespaces were removed. Full compiler CI passed.
+Additional common cancellation and deadline tests also passed. The application
+still needs the reference React UI integration, browser telemetry, and complete
+production checks. Full application CI is a separate gate. The broader goal
+remains active.

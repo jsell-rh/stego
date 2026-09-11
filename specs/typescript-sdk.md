@@ -70,3 +70,18 @@ seconds. The final pinned application check is recorded with adoption.
 This is not the complete web console. Integration with the reference React UI,
 asset builds, browser telemetry, rendered browser acceptance, production
 deployment, credential rotation, and capacity measurements remain open.
+
+Hypershell `f322996` adopts compiler `cc35051`. The fresh pinned Gateway workflow
+passed in 20.79 seconds (21.831 seconds for the package). The input-manifest
+race test passed in 1.057 seconds. All 155 generated, state, and dependency
+hashes match both generation passes and the checkout. Both input manifests and
+the tested application source match the checkout. The Job completed. Source
+and result records are in `/tmp/stego-ts-sdk-pin-iw1a51yw`. The initial records
+are in `/tmp/stego-ts-sdk-_cqhke3j`. Both namespaces were removed, and the
+cluster API confirmed removal.
+
+Full compiler CI passed for `cc35051`. The added in-flight cancellation and
+whole-operation deadline tests passed in the cluster, with ten Node runtime
+tests and the TypeScript check. The package completed in 3.383 seconds. These
+tests are in `4213d3b` and do not change generated output. Full application CI
+and the remaining UI and production requirements remain separate gates.

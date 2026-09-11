@@ -33,8 +33,8 @@ the fills is essential complexity.
 3. Write application code for domain rules. **Fills** implement typed slot
    contracts. **Factories** supply application handlers and CLI command
    definitions. Test this code with the generated runtime.
-4. Run `stego apply` for deterministic code generation. Plain Go output.
-   No runtime dependency on STEGO.
+4. Run `stego apply` for deterministic Go and browser code generation.
+   The output has no runtime dependency on STEGO.
 
 The [Go SDK component](registry/components/go-sdk/README.md) generates typed
 HTTPS clients from captured OpenAPI contracts. Its transport and optional
