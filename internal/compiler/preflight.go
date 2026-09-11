@@ -105,6 +105,7 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 			Collections:     svcDecl.Collections,
 			SlotBindings:    svcDecl.Slots,
 			ModuleName:      input.ModuleName,
+			GoVersion:       input.GoVersion,
 			SlotsPackage:    slotsPackage,
 			ComponentConfig: resolveComponentConfig(comp, svcDecl),
 			OutputNamespace: comp.OutputNamespace,

@@ -66,6 +66,9 @@ type Context struct {
 	// references (e.g. importing the slots package from handler code).
 	ModuleName string
 
+	// GoVersion is the resolved Go target for generated code.
+	GoVersion string
+
 	// SlotsPackage is the relative import path (under ModuleName) for the
 	// generated slot operators package (e.g. "internal/slots"). Empty if
 	// no slots are configured.

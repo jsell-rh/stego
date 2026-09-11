@@ -8,6 +8,8 @@ Application fills and factories supply domain rules. The
 [enterprise goal](specs/enterprise-goal.md) records verified workflows and open
 work. Production use requires validation for the selected application and
 deployment.
+The [Kubernetes service component](specs/kubernetes-service.md) supplies common
+container build files, restricted Pod settings, network policy, and HTTPS probes.
 
 ## Why
 

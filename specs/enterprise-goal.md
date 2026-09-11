@@ -2820,3 +2820,10 @@ file input for mounted credentials. The Hypershell workflow checks Gateway
 creation, events, REST and gRPC access, and credential changes across restart.
 Source conflicts and unsafe files must fail before the pool opens. Full
 deployment packaging and the wider enterprise requirements remain open.
+
+The [Kubernetes service component](kubernetes-service.md) supplies common image
+build files and resource rendering. The [HTTP TLS contract](http-server-tls.md)
+lets the generated deployment serve verified HTTPS directly. The next C6/H3
+check runs the generated Hypershell image in a separate Pod and tests Gateway
+access, owner grants, rollback, event delivery, and Pod replacement. Keep the
+broader deployment and enterprise requirements open.

@@ -1,0 +1,26 @@
+kind: component
+name: kubernetes-service
+version: 1.0.0
+output_namespace: deploy
+config:
+  source_directories:
+    type: list
+    items: {type: string}
+  env_secret: {type: string}
+  files_secret: {type: string}
+  dns_namespace: {type: string}
+  dns_port: {type: int}
+  network_peers:
+    type: list
+    items:
+      direction: {type: string, enum: [ingress, egress]}
+      namespace: {type: string}
+      pod_label: {type: string}
+      pod_value: {type: string}
+      port: {type: int}
+      protocol: {type: string, enum: [TCP, UDP]}
+requires:
+  - health-endpoint
+provides:
+  - kubernetes-service-deployment
+slots: []

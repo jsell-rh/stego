@@ -27,6 +27,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
+	"github.com/jsell-rh/stego/internal/generator/kubernetesservice"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
@@ -786,22 +787,23 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 
 func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
-		"rest-api":          &restapi.Generator{},
-		"http-application":  &httpapplication.Generator{},
-		"go-sdk":            &gosdk.Generator{},
-		"cli-application":   &cliapplication.Generator{},
-		"kubernetes-client": &kubernetesclient.Generator{},
-		"postgres-client":   &postgresclient.Generator{},
-		"controller":        &controller.Generator{},
-		"grpc-application":  &grpcapplication.Generator{},
-		"outbox":            &outbox.Generator{},
-		"kafka-producer":    &kafkaproducer.Generator{},
-		"postgres-adapter":  &postgresadapter.Generator{},
-		"tsl-search":        &tslsearch.Generator{},
-		"jwt-auth":          &jwtauth.Generator{},
-		"rh-sso-auth":       &rhssoauth.Generator{},
-		"otel-tracing":      &oteltracing.Generator{},
-		"health-check":      &healthcheck.Generator{},
+		"rest-api":           &restapi.Generator{},
+		"http-application":   &httpapplication.Generator{},
+		"go-sdk":             &gosdk.Generator{},
+		"cli-application":    &cliapplication.Generator{},
+		"kubernetes-client":  &kubernetesclient.Generator{},
+		"kubernetes-service": &kubernetesservice.Generator{},
+		"postgres-client":    &postgresclient.Generator{},
+		"controller":         &controller.Generator{},
+		"grpc-application":   &grpcapplication.Generator{},
+		"outbox":             &outbox.Generator{},
+		"kafka-producer":     &kafkaproducer.Generator{},
+		"postgres-adapter":   &postgresadapter.Generator{},
+		"tsl-search":         &tslsearch.Generator{},
+		"jwt-auth":           &jwtauth.Generator{},
+		"rh-sso-auth":        &rhssoauth.Generator{},
+		"otel-tracing":       &oteltracing.Generator{},
+		"health-check":       &healthcheck.Generator{},
 	}
 }
 

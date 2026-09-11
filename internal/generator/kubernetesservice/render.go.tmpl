@@ -1,0 +1,39 @@
+package main
+
+import (
+ "bytes"
+ _ "embed"
+ "flag"
+ "fmt"
+ "io"
+ "os"
+ "regexp"
+ "strconv"
+ "strings"
+ "text/template"
+)
+
+//go:embed manifest.json.tmpl
+var manifest string
+
+func render(args []string, output io.Writer) error {
+ flags:=flag.NewFlagSet("render",flag.ContinueOnError)
+ flags.SetOutput(io.Discard)
+ image:=flags.String("image","","Image with an explicit registry and SHA-256 digest")
+ namespace:=flags.String("namespace","","Existing target namespace")
+ group:=flags.Uint64("fs-group",65532,"Group for mounted files")
+ if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
+ imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
+ if flags.NArg()!=0||len(*image)>2048||!imagePattern.MatchString(*image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*namespace)||*group==0||*group>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
+ registry,_,_:=strings.Cut(*image,"/")
+ host,port,hasPort:=strings.Cut(registry,":")
+ if len(host)>253 || (host!="localhost"&&!strings.Contains(host,".")&&!hasPort){return fmt.Errorf("image requires an explicit registry")}
+ for _,part:=range strings.Split(host,"."){if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(part){return fmt.Errorf("invalid image registry")}}
+ if hasPort{number,err:=strconv.Atoi(port);if err!=nil||number<1||number>65535{return fmt.Errorf("invalid registry port")}}
+ tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(manifest);if err!=nil{return fmt.Errorf("invalid generated deployment")}
+ var result bytes.Buffer
+ if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
+ _,err=output.Write(append(result.Bytes(),'\n'));return err
+}
+
+func main(){if err:=render(os.Args[1:],os.Stdout);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}
