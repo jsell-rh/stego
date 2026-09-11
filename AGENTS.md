@@ -12,3 +12,6 @@ with CPU, memory, and time limits. Do not use privileged containers.
 Keep ordinary local checks small. Run heavy test suites in CI or the cluster.
 If a test is interrupted, inspect its process or job before starting another run.
 A missing result is not a pass. Preserve unrelated files and workloads.
+
+Do not edit a shell script while it is running. Use a frozen source copy if
+source edits must continue during a check.
