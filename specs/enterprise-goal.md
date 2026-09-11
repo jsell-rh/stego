@@ -3270,3 +3270,12 @@ workload provisioning through the console, which still uses a readiness fixture.
 RPC-only project deployment, production certificate rotation, capacity,
 accessibility, and the remaining C1–C7 requirements remain open. The prior CI
 browser crash is not considered fixed without evidence for its cause.
+
+
+The full application CI run for diagnostic revision `f39b723` passed all eight
+jobs: [run 34657858563](https://github.com/jsell-rh/hypershell-stego/actions/runs/34657858563).
+The saved browser counters show no memory-limit or process-limit event. Peak
+browser memory was 487,137,280 bytes under the 1,610,612,736-byte limit. This
+passed run does not establish the cause of the earlier Chromium crash. The
+resource record is `/tmp/stego-ci-f39-browser/browser-resources.txt`. Full STEGO
+CI also passed for documentation revision `5fd35b5`.
