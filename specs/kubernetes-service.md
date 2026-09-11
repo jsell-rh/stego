@@ -72,7 +72,30 @@ port. Egress can use explicit TCP or UDP ports. DNS is permitted to
 the cluster's actual DNS namespace and port. A NetworkPolicy-capable network
 plugin is required.
 
-External CIDR peers, public ingress, autoscaling, disruption budgets, image
+Declare `external_endpoints` for TCP services outside Pod-label selection. The
+list contains at most 32 distinct DNS label names. It is available on the
+service and on each worker. Supply each selected workload's values at render
+time, for example `--egress kubernetes=192.0.2.10:6443`. Use brackets for IPv6:
+`--egress kubernetes=[2001:db8::1]:443`. Repeat the flag for multiple addresses.
+The complete render command permits at most 32 address and port pairs.
+
+Each pair produces a separate egress rule with a single `/32` or `/128` IP
+prefix and one TCP port. The renderer does not combine addresses and ports
+into a wider set. Missing, unknown, duplicate, or invalid bindings fail before
+output. Hostnames, CIDR ranges, zero ports, unspecified addresses, loopback,
+link-local addresses, multicast, IPv4-mapped IPv6, and interface zones are
+rejected. Binding order does not change the output. Values apply only to the
+selected workload. Unrendered endpoint placeholders are invalid Kubernetes
+CIDRs and cannot become empty rules that permit all traffic.
+
+The operator must supply the IP addresses visible to the network plugin at
+its policy boundary. TLS must still verify the configured server identity.
+DNS resolution is not a policy update mechanism. Address changes require a new
+render and rollout. Network translation and policy enforcement need a test on
+the target cluster. An IP rule does not authenticate a remote service or grant
+Kubernetes permissions.
+
+Public ingress, autoscaling, disruption budgets, image
 signing, deployment migrations, and certificate renewal remain separate work.
 The component does not install databases, brokers, or domain controllers.
 The Hypershell test bed supplies its domain sources and test peer settings.

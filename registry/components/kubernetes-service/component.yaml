@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.1.1
+version: 1.2.0
 output_namespace: deploy
 config:
   source_directories:
@@ -10,6 +10,9 @@ config:
   files_secret: {type: string}
   dns_namespace: {type: string}
   dns_port: {type: int}
+  external_endpoints:
+    type: list
+    items: {type: string}
   network_peers:
     type: list
     items:
@@ -27,6 +30,10 @@ config:
       function: {type: string}
       env_secret: {type: string, optional: true}
       files_secret: {type: string, optional: true}
+      external_endpoints:
+        type: list
+        optional: true
+        items: {type: string}
       network_peers:
         type: list
         optional: true

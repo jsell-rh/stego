@@ -111,7 +111,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	for key, value := range ctx.ComponentConfig {
 		switch key {
-		case "source_directories", "network_peers", "workers":
+		case "source_directories", "network_peers", "workers", "external_endpoints":
 		case "env_secret", "files_secret", "dns_namespace":
 			s, ok := value.(string)
 			if !ok || !label.MatchString(s) {
@@ -138,6 +138,10 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 
 func networkRules(ctx gen.Context) (object, error) {
 	peers, err := configList(ctx, "network_peers")
+	if err != nil {
+		return nil, err
+	}
+	external, err := externalEndpoints(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,6 +175,11 @@ func networkRules(ctx gen.Context) (object, error) {
 			rule["to"] = []any{selector}
 			egress = append(egress, rule)
 		}
+	}
+	for _, name := range external {
+		// The placeholder is invalid as a Kubernetes CIDR. Direct application
+		// of an unrendered template must not permit unrestricted egress.
+		egress = append(egress, object{"to": []any{object{"ipBlock": object{"cidr": "stego-external:" + name}}}, "ports": []any{object{"protocol": "TCP", "port": 0}}})
 	}
 	dnsPort := 53
 	if v, ok := ctx.ComponentConfig["dns_port"].(int); ok {

@@ -3,11 +3,14 @@ package main
 import (
  "bytes"
  "embed"
+ "encoding/json"
  "flag"
  "fmt"
  "io"
+ "net/netip"
  "os"
  "regexp"
+ "sort"
  "strconv"
  "strings"
  "text/template"
@@ -23,6 +26,8 @@ func render(args []string, output io.Writer) error {
  namespace:=flags.String("namespace","","Existing target namespace")
  worker:=flags.String("worker","","Declared controller worker")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
+ var external endpointFlags
+ flags.Var(&external,"egress","Declared external endpoint: NAME=IP:PORT; use brackets for IPv6")
  if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
  imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
  if flags.NArg()!=0||len(*image)>2048||!imagePattern.MatchString(*image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*namespace)||*group==0||*group>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
@@ -37,7 +42,56 @@ func render(args []string, output io.Writer) error {
  tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
- _,err=output.Write(append(result.Bytes(),'\n'));return err
+ completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}
+ _,err=output.Write(append(completed,'\n'));return err
+}
+
+type endpointFlags []string
+func(f *endpointFlags)String()string{return ""}
+func(f *endpointFlags)Set(value string)error{if len(*f)>=32||len(value)>160{return fmt.Errorf("external endpoint limit exceeded")};*f=append(*f,value);return nil}
+
+func completeExternalPeers(input []byte, values endpointFlags)([]byte,error){
+ bindings:=map[string][]netip.AddrPort{}
+ seen:=map[string]bool{}
+ for _,value:=range values{
+  name,address,ok:=strings.Cut(value,"=")
+  endpoint,err:=netip.ParseAddrPort(address)
+  if !ok||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(name)||err!=nil||endpoint.Port()==0{return nil,fmt.Errorf("invalid external endpoint")}
+  ip:=endpoint.Addr()
+  if !ip.IsGlobalUnicast()||ip.IsLoopback()||ip.IsLinkLocalUnicast()||ip.Is4In6()||ip.Zone()!=""{return nil,fmt.Errorf("external endpoint requires a unicast IP address")}
+  key:=name+"="+endpoint.String();if seen[key]{return nil,fmt.Errorf("duplicate external endpoint")};seen[key]=true
+  bindings[name]=append(bindings[name],endpoint)
+ }
+ for name:=range bindings{sort.Slice(bindings[name],func(i,j int)bool{return bindings[name][i].String()<bindings[name][j].String()})}
+ var document map[string]json.RawMessage
+ if json.Unmarshal(input,&document)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
+ var items []map[string]json.RawMessage
+ if json.Unmarshal(document["items"],&items)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
+ used:=map[string]bool{}
+ for _,item:=range items{
+  var kind string;if json.Unmarshal(item["kind"],&kind)!=nil{return nil,fmt.Errorf("invalid generated deployment")};if kind!="NetworkPolicy"{continue}
+  var spec map[string]json.RawMessage;if json.Unmarshal(item["spec"],&spec)!=nil{return nil,fmt.Errorf("invalid generated network policy")}
+  var rules []map[string]json.RawMessage;if json.Unmarshal(spec["egress"],&rules)!=nil{return nil,fmt.Errorf("invalid generated network policy")}
+  expanded:=make([]map[string]json.RawMessage,0,len(rules))
+  for _,rule:=range rules{
+   var peers []struct{IPBlock struct{CIDR string `json:"cidr"`} `json:"ipBlock"`}
+   if json.Unmarshal(rule["to"],&peers)!=nil{return nil,fmt.Errorf("invalid generated network peer")}
+   if len(peers)!=1||!strings.HasPrefix(peers[0].IPBlock.CIDR,"stego-external:"){expanded=append(expanded,rule);continue}
+   name:=strings.TrimPrefix(peers[0].IPBlock.CIDR,"stego-external:")
+   if len(bindings[name])==0{return nil,fmt.Errorf("missing declared external endpoint")};used[name]=true
+   for _,endpoint:=range bindings[name]{
+    cidr:=netip.PrefixFrom(endpoint.Addr(),endpoint.Addr().BitLen()).String()
+    target,_:=json.Marshal([]any{map[string]any{"ipBlock":map[string]any{"cidr":cidr}}})
+    ports,_:=json.Marshal([]any{map[string]any{"protocol":"TCP","port":endpoint.Port()}})
+    expanded=append(expanded,map[string]json.RawMessage{"to":target,"ports":ports})
+   }
+  }
+  spec["egress"],_=json.Marshal(expanded);item["spec"],_=json.Marshal(spec)
+ }
+ for name:=range bindings{if !used[name]{return nil,fmt.Errorf("external endpoint was not declared for this workload")}}
+ if len(used)==0{return input,nil}
+ document["items"],_=json.Marshal(items)
+ result,err:=json.MarshalIndent(document,"","  ");if err!=nil{return nil,fmt.Errorf("cannot render network policy")};return result,nil
 }
 
 func main(){if err:=render(os.Args[1:],os.Stdout);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}

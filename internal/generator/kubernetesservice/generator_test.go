@@ -25,6 +25,10 @@ func TestDeploymentValidation(t *testing.T) {
 		"source wildcard":  func(c *gen.Context) { c.ComponentConfig["source_directories"] = []any{"*"} },
 		"source duplicate": func(c *gen.Context) { c.ComponentConfig["source_directories"] = []any{"out"} },
 		"source type":      func(c *gen.Context) { c.ComponentConfig["source_directories"] = []any{42} },
+		"external type":    func(c *gen.Context) { c.ComponentConfig["external_endpoints"] = []any{42} },
+		"external name":    func(c *gen.Context) { c.ComponentConfig["external_endpoints"] = []any{"../api"} },
+		"external repeat":  func(c *gen.Context) { c.ComponentConfig["external_endpoints"] = []any{"api", "api"} },
+		"external count":   func(c *gen.Context) { c.ComponentConfig["external_endpoints"] = make([]any, 33) },
 		"unknown":          func(c *gen.Context) { c.ComponentConfig["privileged"] = true },
 		"secret":           func(c *gen.Context) { c.ComponentConfig["files_secret"] = "bad\nvalue" },
 		"dns":              func(c *gen.Context) { c.ComponentConfig["dns_port"] = 0 },
@@ -53,6 +57,7 @@ func TestDeploymentValidation(t *testing.T) {
 
 func TestGeneratedDeploymentRenderer(t *testing.T) {
 	ctx := workerContext()
+	ctx.ComponentConfig["workers"] = append(ctx.ComponentConfig["workers"].([]any), map[string]any{"name": "remote", "package": "internal/task", "function": "Run", "external_endpoints": []any{"provider"}})
 	files, _, err := (&Generator{}).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +126,7 @@ func TestRenderedPolicy(t *testing.T){
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check+externalRendererTests), 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")
