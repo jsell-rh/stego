@@ -148,9 +148,24 @@ function boundedLogger(inner, report) {
   }};
 }
 
+function browserSettings(override) {
+  const off = {traces:false,logs:false,metrics:false,sampleRatio:0};
+  const nodes = globalThis.document?.querySelectorAll?.('meta[name="stego-runtime-config"]');
+  if (!nodes?.length) return override === undefined ? off : {traces:true,logs:true,metrics:true,sampleRatio:override};
+  if (nodes.length !== 1) return off;
+  const content = nodes[0].getAttribute('content');
+  if (typeof content !== 'string' || content.length > 256) return off;
+  try {
+    const data = JSON.parse(content);
+    if (!data || Object.keys(data).length !== 5 || Object.keys(data).some(key=>!['version','traces','logs','metrics','sampleRatio'].includes(key)) || data.version !== 1 || ['traces','logs','metrics'].some(key=>typeof data[key] !== 'boolean') || !Number.isFinite(data.sampleRatio) || data.sampleRatio < 0 || data.sampleRatio > 1) return off;
+    return {...data, sampleRatio:data.traces ? Math.min(data.sampleRatio,override ?? data.sampleRatio) : 0};
+  } catch { return off; }
+}
+
 export function createBrowserTelemetry(options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(k => k !== 'sampleRatio' && k !== 'reportDeliveryFailure')) throw new TypeError('invalid telemetry options');
-  const ratio = options.sampleRatio ?? 0;
+  const override = options.sampleRatio;
+  const ratio = override ?? 0;
   const callback = options.reportDeliveryFailure;
   if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1 || (callback !== undefined && typeof callback !== 'function')) throw new TypeError('invalid telemetry options');
   if (typeof globalThis.location === 'undefined') {
@@ -159,6 +174,7 @@ export function createBrowserTelemetry(options = {}) {
   }
   const url = new URL(globalThis.location?.href);
   if (url.protocol !== 'https:' || url.username || url.password || typeof globalThis.fetch !== 'function' || !globalThis.crypto?.getRandomValues || instances >= 4) throw new TypeError('browser telemetry requires a bounded HTTPS runtime');
+  const settings = browserSettings(override);
   const origin = url.origin;
   const fetcher = globalThis.fetch.bind(globalThis);
   const report = (signal, reason) => { try { callback?.(Object.freeze({signal, reason})); } catch {} };
@@ -170,14 +186,14 @@ export function createBrowserTelemetry(options = {}) {
   // The exporter reports transport loss. The processor meter reports queue loss.
   const queueReport = (signal, reason) => { if (reason === 'queue_full') report(signal, reason); };
   const traceProvider = new BasicTracerProvider({resource, idGenerator,
-    sampler:new ParentBasedSampler({root:new TraceIdRatioBasedSampler(ratio)}),
+    sampler:new ParentBasedSampler({root:new TraceIdRatioBasedSampler(settings.sampleRatio)}),
     spanLimits:{attributeCountLimit:16, attributeValueLengthLimit:256, eventCountLimit:2, linkCountLimit:2, attributePerEventCountLimit:8, attributePerLinkCountLimit:8},
-    spanProcessors:[new BatchSpanProcessor(traces, {disableAutoFlushOnDocumentHide:true, maxQueueSize:256, maxExportBatchSize:16, scheduledDelayMillis:1000, exportTimeoutMillis:6000, selfObsMeterProvider:healthMeter('traces',queueReport)})],
+    spanProcessors:settings.traces ? [new BatchSpanProcessor(traces, {disableAutoFlushOnDocumentHide:true, maxQueueSize:256, maxExportBatchSize:16, scheduledDelayMillis:1000, exportTimeoutMillis:6000, selfObsMeterProvider:healthMeter('traces',queueReport)})] : [],
   });
   const logProvider = new LoggerProvider({resource, logRecordLimits:{attributeCountLimit:16,attributeValueLengthLimit:256},
-    processors:[new BatchLogRecordProcessor({exporter:logs,selfObsMeterProvider:healthMeter('logs',queueReport),disableAutoFlushOnDocumentHide:true,maxQueueSize:256,maxExportBatchSize:16,scheduledDelayMillis:1000,exportTimeoutMillis:6000})],
+    processors:settings.logs ? [new BatchLogRecordProcessor({exporter:logs,selfObsMeterProvider:healthMeter('logs',queueReport),disableAutoFlushOnDocumentHide:true,maxQueueSize:256,maxExportBatchSize:16,scheduledDelayMillis:1000,exportTimeoutMillis:6000})] : [],
   });
-  const meterProvider = new MeterProvider({resource, views:[{instrumentName:'*',aggregationCardinalityLimit:32}], readers:[new PeriodicExportingMetricReader({exporter:metrics,exportIntervalMillis:30000,exportTimeoutMillis:6000})]});
+  const meterProvider = new MeterProvider({resource, views:[{instrumentName:'*',aggregationCardinalityLimit:32}], readers:settings.metrics ? [new PeriodicExportingMetricReader({exporter:metrics,exportIntervalMillis:30000,exportTimeoutMillis:6000})] : []});
   const providers = [traceProvider, logProvider, meterProvider];
   let shutdownTask; let flushTask;
   const forceFlush = () => {

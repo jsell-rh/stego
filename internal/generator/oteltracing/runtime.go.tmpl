@@ -39,7 +39,7 @@ const defaultService={{printf "%q" .Service}}
 // Runtime owns its tracer provider and export connection. It does not change
 // global OpenTelemetry providers. Missing collector configuration disables export.
 // Local service logging remains enabled.
-type Runtime struct{browserOnce sync.Once;browserPermits chan struct{};database databaseSignals;command commandSignals;httpClient clientSignals;client clientSignals;instance string;resource *resource.Resource;controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
+type Runtime struct{browserSampleRatio float64;browserOnce sync.Once;browserPermits chan struct{};database databaseSignals;command commandSignals;httpClient clientSignals;client clientSignals;instance string;resource *resource.Resource;controllerOnce sync.Once;controller *ControllerTelemetry;controllerError error;service serviceLogs;signals requestSignals;grpcTracer trace.Tracer;provider *sdktrace.TracerProvider;tracer trace.Tracer;connection *grpc.ClientConn;once sync.Once;closed atomic.Bool;failures,shutdownFailures atomic.Uint64}
 // NewTracingRuntime gives compiler assembly a distinct dependency name.
 func NewTracingRuntime()(*Runtime,error){
  runtime,err:=NewRuntime();if err!=nil{return nil,err}
@@ -69,6 +69,7 @@ func newRuntime(localOutput io.Writer)(*Runtime,error){
  if err!=nil{return nil,errors.New("cannot create trace exporter connection")}
  exporter,err:=otlptracegrpc.New(context.Background(),otlptracegrpc.WithGRPCConn(connection),otlptracegrpc.WithHeaders(map[string]string{}),otlptracegrpc.WithTimeout(ExportTimeout),otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{Enabled:false}),otlptracegrpc.WithMaxRequestSize(1<<20))
  if err!=nil{connection.Close();return nil,errors.New("cannot create trace exporter")}
+ runtime.browserSampleRatio=ratio
  runtime.connection=connection
  runtime.provider=sdktrace.NewTracerProvider(sdktrace.WithResource(runtime.resource),sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)),sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit:256,AttributeCountLimit:8}),sdktrace.WithBatcher(&safeExporter{SpanExporter:exporter,runtime:runtime},sdktrace.WithMaxQueueSize(QueueSize),sdktrace.WithMaxExportBatchSize(BatchSize),sdktrace.WithBatchTimeout(200*time.Millisecond),sdktrace.WithExportTimeout(ExportTimeout)))
  runtime.tracer=runtime.provider.Tracer("stego/http")

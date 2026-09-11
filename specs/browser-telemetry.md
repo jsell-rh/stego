@@ -58,3 +58,15 @@ check is `check2` in `/tmp/stego-browser-otel-ui-codwet_4`; its first lint check
 failed and remains recorded. The 54-file build was captured in an 852,377-byte
 archive. It is not yet the served UI. Full compiler CI passed. Full application
 CI is pending. The result files were saved before test namespace removal.
+
+The next common change adds public deployment metadata. The backend derives
+signal enablement and trace sampling from its active runtime. It inserts
+escaped JSON in the HTML head and includes that data in the ETag. The browser
+rejects invalid metadata and cannot increase a deployment's sample ratio.
+Hypershell no longer needs its own metadata parser.
+
+The bounded cluster check in `/tmp/stego-rendered-8ff4d600` passed all eleven
+Node runtime tests and the strict TypeScript check (package: 8.713 seconds).
+The generated PostgreSQL browser backend checks passed (65.328 seconds), as
+did the generated Go telemetry checks with the race detector (101.211 seconds).
+The rendered application gate is still open.

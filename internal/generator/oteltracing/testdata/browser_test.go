@@ -103,3 +103,27 @@ func TestBrowserRelayCollectorDeadline(t *testing.T) {
 		t.Fatal("relay ran without a runtime")
 	}
 }
+
+func TestBrowserSettingsFollowRuntime(t *testing.T) {
+	if settings := BrowserSettings(context.Background()); settings.Version != 1 || settings.Traces || settings.Logs || settings.Metrics || settings.SampleRatio != 0 {
+		t.Fatal("missing runtime enabled browser exports")
+	}
+	collectorFixture(t, false)
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.25")
+	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	runtime, err := NewRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	ctx := runtime.Context(context.Background())
+	settings := BrowserSettings(ctx)
+	if !settings.Traces || settings.Logs || settings.Metrics || settings.SampleRatio != 0.25 {
+		t.Fatal("browser settings differ from runtime")
+	}
+	runtime.Close()
+	if BrowserSettings(ctx).Traces {
+		t.Fatal("closed runtime enabled browser export")
+	}
+}

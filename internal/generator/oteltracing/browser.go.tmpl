@@ -88,3 +88,19 @@ func boundedBrowserMessage(message protoreflect.Message,budget *int)bool{
   return valid
  });return valid
 }
+
+// BrowserConfiguration contains public settings for this service instance.
+type BrowserConfiguration struct {
+ Version int `json:"version"`
+ Traces bool `json:"traces"`
+ Logs bool `json:"logs"`
+ Metrics bool `json:"metrics"`
+ SampleRatio float64 `json:"sampleRatio"`
+}
+func BrowserSettings(ctx context.Context)BrowserConfiguration{
+ settings:=BrowserConfiguration{Version:1}
+ runtime,_:=ctx.Value(runtimeContextKey{}).(*Runtime)
+ if runtime==nil||runtime.closed.Load()||runtime.connection==nil{return settings}
+ settings.Traces=runtime.provider!=nil;settings.Logs=runtime.signals.logs!=nil;settings.Metrics=runtime.signals.meter!=nil;settings.SampleRatio=runtime.browserSampleRatio
+ return settings
+}

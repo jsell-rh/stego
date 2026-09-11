@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/format"
+	htmlparser "golang.org/x/net/html"
+	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -26,6 +28,7 @@ var sources embed.FS
 type Generator struct{}
 type asset struct{ Source, Path, Hash string }
 type settings struct {
+	RuntimeConfigOffset                               int
 	Prefix, RolesClaim, LogoutScope, TelemetryService string
 	Routes                                            []string
 	Assets                                            []asset
@@ -227,6 +230,12 @@ func resolveAssets(ctx gen.Context) (settings, map[string][]byte, error) {
 			index = data
 		}
 	}
+	if s.TelemetryService != "" {
+		s.RuntimeConfigOffset, err = runtimeConfigOffset(index)
+		if err != nil {
+			return s, nil, err
+		}
+	}
 	s.ScriptHashes, err = browserassets.ScriptHashes(index, names)
 	return s, content, err
 }
@@ -283,4 +292,38 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewBrowserBackend()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{`mux.Handle("/", browserBackend)`}, GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}
 	return files, wiring, nil
+}
+
+func runtimeConfigOffset(data []byte) (int, error) {
+	tokenizer := htmlparser.NewTokenizer(bytes.NewReader(data))
+	offset, head, heads := 0, 0, 0
+	for {
+		kind := tokenizer.Next()
+		offset += len(tokenizer.Raw())
+		if kind == htmlparser.ErrorToken {
+			if tokenizer.Err() != io.EOF {
+				return 0, fmt.Errorf("invalid browser HTML")
+			}
+			break
+		}
+		if kind != htmlparser.StartTagToken && kind != htmlparser.SelfClosingTagToken {
+			continue
+		}
+		token := tokenizer.Token()
+		if token.Data == "head" {
+			heads++
+			head = offset
+		}
+		if token.Data == "meta" {
+			for _, attr := range token.Attr {
+				if strings.EqualFold(attr.Key, "name") && strings.EqualFold(attr.Val, "stego-runtime-config") {
+					return 0, fmt.Errorf("browser runtime configuration is compiler-owned")
+				}
+			}
+		}
+	}
+	if heads != 1 {
+		return 0, fmt.Errorf("browser telemetry requires one explicit HTML head element")
+	}
+	return head, nil
 }

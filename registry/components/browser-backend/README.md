@@ -95,3 +95,10 @@ these script permissions. It does not permit `unsafe-inline` or `unsafe-eval`.
 HTML and JavaScript inputs are trusted application code. The HTML checks find
 unsupported constructs. They are not an HTML sanitizer. The application must
 check its dependencies, rendered pages, accessibility, and browser behavior.
+
+When `telemetry_service_name` is set, the compiler requires one explicit HTML
+head element. It rejects an existing `stego-runtime-config` metadata element.
+The backend inserts this metadata with the active runtime's public signal
+settings. Collector addresses and credentials are not included. The metadata
+is HTML-escaped data. It does not require an inline script or a change to the
+script policy. The response ETag includes the settings.

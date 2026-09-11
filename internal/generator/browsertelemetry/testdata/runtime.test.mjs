@@ -67,7 +67,7 @@ test('a stalled fetch has a terminal result',async()=>{
 });
 
 test('log bodies, metric instruments, and attributes have finite limits',async()=>{
- const calls=setup();const failures=[];const t=createBrowserTelemetry({reportDeliveryFailure:f=>failures.push(f)});
+ const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
  t.logger.emit({body:'x'.repeat(513)});t.logger.emit({body:{secret:'not exported'}});
  for(let i=0;i<33;i++)t.meter.createCounter('counter.'+i).add(1);
  t.meter.createCounter('counter.0').add(1,{large:'x'.repeat(257)});
@@ -100,4 +100,14 @@ test('server rendering creates no browser transport or timers',async()=>{
  let calls=0;globalThis.fetch=()=>{calls++;throw new Error('unexpected SSR export');};
  try {const t=createBrowserTelemetry({sampleRatio:1});t.tracer.startSpan('render').end();t.logger.emit({body:'render'});t.meter.createCounter('render').add(1);await t.forceFlush();await t.shutdown();assert.equal(calls,0);}
  finally {globalThis.location=location;}
+});
+
+test('public deployment settings control each exporter and reject invalid metadata',async()=>{
+ for(const settings of [undefined, {version:1,traces:false,logs:false,metrics:false,sampleRatio:0}, {version:1,traces:true,logs:false,metrics:true,sampleRatio:1}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:2}, {version:1,traces:true,logs:true,metrics:true,sampleRatio:1,secret:'invalid'}]){
+  const calls=setup();document.querySelectorAll=()=>settings===undefined?[]:[{getAttribute:()=>JSON.stringify(settings)}];
+  const t=createBrowserTelemetry();t.tracer.startSpan('deployment').end();t.logger.emit({body:'deployment'});t.meter.createCounter('deployment').add(1);await t.forceFlush();await t.shutdown();
+  const actual=[...new Set(calls.filter(c=>c.options.method==='POST').map(c=>new URL(c.url).pathname))].sort();
+  const expected=settings?.sampleRatio===1&&settings.logs===false?['/telemetry/v1/metrics','/telemetry/v1/traces']:[];
+  assert.deepEqual(actual,expected);
+ }
 });

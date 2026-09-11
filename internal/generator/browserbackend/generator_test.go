@@ -20,7 +20,7 @@ import (
 )
 
 func fixture() gen.Context {
-	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><body><script src="/assets/main.js"></script><script>window.ready=true;</script></body></html>`), "ui/main.js": []byte(`"use strict";`)}}
+	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><head></head><body><script src="/assets/main.js"></script><script>window.ready=true;</script></body></html>`), "ui/main.js": []byte(`"use strict";`)}}
 }
 
 func TestGeneration(t *testing.T) {
@@ -193,5 +193,21 @@ func TestAssetBundle(t *testing.T) {
 	ctx.ComponentConfig["assets"] = []any{}
 	if g.ValidateContext(ctx) == nil {
 		t.Fatal("ambiguous asset source accepted")
+	}
+}
+
+func TestRuntimeConfigBoundary(t *testing.T) {
+	for _, html := range []string{`<html><body>none</body></html>`, `<html><head></head><head></head></html>`, `<html><head><meta name="stego-runtime-config" content="private"></head></html>`} {
+		ctx := fixture()
+		ctx.ComponentConfig["telemetry_service_name"] = "example-browser"
+		ctx.Inputs["ui/index.html"] = []byte(html)
+		if new(Generator).ValidateContext(ctx) == nil {
+			t.Fatal("ambiguous runtime configuration accepted")
+		}
+	}
+	ctx := fixture()
+	ctx.ComponentConfig["telemetry_service_name"] = "example-browser"
+	if err := new(Generator).ValidateContext(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

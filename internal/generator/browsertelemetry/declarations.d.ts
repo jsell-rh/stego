@@ -6,6 +6,7 @@ export interface DeliveryFailure {
  readonly reason: 'queue_full' | 'export_failed' | 'invalid_record';
 }
 export interface Options {
+ // Optional limit for the deployment ratio. Without metadata, enables export.
  sampleRatio?: number;
  reportDeliveryFailure?: (failure: Readonly<DeliveryFailure>) => void;
 }

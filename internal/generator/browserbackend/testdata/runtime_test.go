@@ -531,3 +531,19 @@ func TestTelemetryAdmissionLimit(t *testing.T) {
 	require(t, !b.allowTelemetry("overflow"), "telemetry session map is not bounded")
 	require(t, len(b.telemetryLimits) == 512, "telemetry session map exceeded its bound")
 }
+
+func TestPublicRuntimeMetadata(t *testing.T) {
+	f := setup(t)
+	before := send(f.backend, "GET", "/", "", nil, nil)
+	f.backend.config.TelemetryService = "example-browser"
+	body, err := assets.ReadFile("public/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.backend.config.RuntimeConfigOffset = bytes.Index(body, []byte("<head>")) + len("<head>")
+	after := send(f.backend, "GET", "/", "", nil, http.Header{"If-None-Match": {before.Header().Get("ETag")}})
+	require(t, after.Code == 200, "runtime configuration kept a stale ETag")
+	require(t, strings.Contains(after.Body.String(), `name="stego-runtime-config"`), "runtime metadata missing")
+	require(t, strings.Contains(after.Body.String(), `&#34;traces&#34;:false`), "missing collector did not disable browser export")
+	require(t, after.Header().Get("Content-Security-Policy") == before.Header().Get("Content-Security-Policy"), "metadata changed script policy")
+}
