@@ -40,3 +40,7 @@ telemetry runtime; domain code needs no wrapper. See the
 Process failures report a fixed stage without driver or query text. See the
 [process failure policy](../../../specs/process-failure-privacy.md) for coverage
 and limits. Database telemetry remains an open requirement.
+
+Version 3.14.1 rejects entity names that conflict with database helpers or
+import aliases before generation. A source-based regression checks every
+package declaration and import in the generated database helper.

@@ -82,3 +82,14 @@ microseconds, 2,728–2,739 bytes, and 21 allocations. It dropped 92.38%–93.72
 local records. OTLP queue drops were not measured. The writer discarded JSON.
 These measurements exclude the driver callback, pool waits, SQL, network work,
 and process startup. They do not establish delivered throughput or capacity.
+
+Compiler commit `9cabca7` passed full CI in run `34603291206`.
+A further validation check found that entity names could conflict with private
+database helpers or import aliases. Adapter version 3.14.1 reserves these names
+before generation. A regression test reads declarations and imports from the
+generated database source, then requires preflight and generation to reject
+each name without output. This also detects new helpers that lack validation.
+The focused name and driver tests passed with the race detector in 2.847
+seconds. Registry tests and static analysis also passed in the same bounded
+cluster job. The source archive hash was
+`61e72348f052a5b85b74410d44ac52297120c1934b5cabd6f579cff9b9208ba6`.

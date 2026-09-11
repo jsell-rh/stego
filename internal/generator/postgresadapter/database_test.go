@@ -2,12 +2,20 @@ package postgresadapter
 
 import (
 	_ "embed"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 //go:embed testdata/database_test.go
@@ -55,5 +63,72 @@ func TestDatabasePeerValidation(t *testing.T) {
 	ctx.PeerNamespaces = map[string]string{"otel-tracing": "../invalid"}
 	if err := new(Generator).ValidateContext(ctx); err == nil {
 		t.Fatal("invalid telemetry namespace accepted")
+	}
+}
+
+// Check the emitted source so new helper names also require validation.
+func TestDatabaseReservedNames(t *testing.T) {
+	ctx := basicContext()
+	ctx.ModuleName = "example.com/dbprobe"
+	ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+	generated, err := generateDatabaseOpener(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), generated.Path, generated.Bytes(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, declaration := range file.Decls {
+		switch declaration := declaration.(type) {
+		case *ast.FuncDecl:
+			if declaration.Recv == nil {
+				names = append(names, declaration.Name.Name)
+			}
+		case *ast.GenDecl:
+			for _, spec := range declaration.Specs {
+				switch spec := spec.(type) {
+				case *ast.ImportSpec:
+					name := ""
+					if spec.Name != nil {
+						name = spec.Name.Name
+					} else {
+						imported, err := strconv.Unquote(spec.Path.Value)
+						if err != nil {
+							t.Fatal(err)
+						}
+						name = path.Base(imported)
+					}
+					if name != "_" && name != "." {
+						names = append(names, name)
+					}
+				case *ast.TypeSpec:
+					names = append(names, spec.Name.Name)
+				case *ast.ValueSpec:
+					for _, name := range spec.Names {
+						names = append(names, name.Name)
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		t.Fatal("no database names found")
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			candidate := ctx
+			candidate.Entities = []types.Entity{{Name: name, Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}
+			generator := new(Generator)
+			if err := generator.ValidateContext(candidate); err == nil || !strings.Contains(err.Error(), "collides") {
+				t.Fatalf("name %q must fail preflight: %v", name, err)
+			}
+			files, _, err := generator.Generate(candidate)
+			if err == nil || !strings.Contains(err.Error(), "collides") || len(files) != 0 {
+				t.Fatalf("name %q must fail before output: files=%d err=%v", name, len(files), err)
+			}
+		})
 	}
 }
