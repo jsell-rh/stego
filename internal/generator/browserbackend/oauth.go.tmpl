@@ -24,7 +24,7 @@ type oauthMetadata struct{Authorization string `json:"authorization_endpoint"`;T
 type oauthProvider struct{provider *oidc.Provider;metadata oauthMetadata;transport *oauthTransport;options options}
 type oauthTransport struct{mu sync.Mutex;ca string;clients map[string]*client.Client;closed bool}
 type oauthTokens struct{Access string `json:"access_token"`;Refresh string `json:"refresh_token"`;ID string `json:"id_token"`;Type string `json:"token_type"`;Expires int64 `json:"expires_in"`}
-func httpsURL(value string)(*url.URL,error){u,err:=url.Parse(value);if err!=nil||len(value)>4096||u.Scheme!="https"||u.Host==""||u.User!=nil||u.Fragment!=""||u.Opaque!=""||strings.ContainsAny(value,"\r\n\x00"){return nil,errors.New("browser OAuth requires an HTTPS URL")};return u,nil}
+func httpsURL(value string)(*url.URL,error){u,err:=url.Parse(value);if err!=nil||len(value)>4096||u.Scheme!="https"||u.Host==""||u.User!=nil||u.Fragment!=""||u.Opaque!=""||strings.ContainsAny(value,"\r\n\x00"){return nil,errors.New("browser OAuth requires an HTTPS URL")};for _,r:=range u.Hostname(){if r>127{return nil,errors.New("browser HTTPS URLs require ASCII host names")}};return u,nil}
 func(t *oauthTransport)call(ctx context.Context,method,address string,headers http.Header,body []byte)(client.Response,error){
  u,err:=httpsURL(address);if err!=nil{return client.Response{},err};origin:=u.Scheme+"://"+u.Host
  t.mu.Lock();if t.closed{t.mu.Unlock();return client.Response{},errSession};c:=t.clients[origin]

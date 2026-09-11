@@ -2917,3 +2917,13 @@ the bounded cluster Job completed. This adopts a transport correction. The
 browser component still needs the real application acceptance gate.
 Both browser test namespaces were removed, and cleanup was verified. Full CI
 for the new compiler and application revisions remains a separate check.
+
+The user selected a separate Go browser backend with compatible browser HTTP
+contracts. The common browser-backend component and browser-service archetype
+now have a real Hypershell protocol acceptance test. It passed login, Gateway
+creation with an owner grant, REST and gRPC access, filtered lists, denied
+requests, event delivery, console process restart, token renewal, and logout.
+Repeated console generation retained all 23 hashes. The
+[browser backend record](browser-backend.md) gives the test scope and results.
+A complete UI, browser telemetry export checks, deployment, key rotation, and
+capacity remain open. The broader goal remains active.

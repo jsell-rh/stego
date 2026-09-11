@@ -18,6 +18,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/browserbackend"
 	"github.com/jsell-rh/stego/internal/generator/cliapplication"
 	"github.com/jsell-rh/stego/internal/generator/controller"
 	"github.com/jsell-rh/stego/internal/generator/gosdk"
@@ -788,6 +789,7 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
 		"rest-api":           &restapi.Generator{},
+		"browser-backend":    &browserbackend.Generator{},
 		"http-application":   &httpapplication.Generator{},
 		"go-sdk":             &gosdk.Generator{},
 		"cli-application":    &cliapplication.Generator{},

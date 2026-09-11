@@ -325,7 +325,7 @@ func TestStrictJSON(t *testing.T) {
 }
 func TestBackendConfiguration(t *testing.T) {
 	f := setup(t)
-	for _, upstream := range []string{origin, origin + ":443", origin + "/api", "http://api.example.test", "https://api.example.test/path", "https://api.example.test?query=x"} {
+	for _, upstream := range []string{origin, origin + ":8443", "https://CONSOLE.example.test.:9443", origin + ":443", origin + "/api", "http://api.example.test", "https://api.example.test/path", "https://api.example.test?query=x"} {
 		o := f.options
 		o.Upstream = upstream
 		if b, err := newBackend(context.Background(), f.db, o); err == nil {
@@ -385,5 +385,20 @@ func TestCrossSiteLandingDoesNotExposeSession(t *testing.T) {
 			w = send(f.backend, "GET", path, "", []*http.Cookie{active}, headers)
 			require(t, w.Code == 403, "cross-origin request obtained a private response")
 		}
+	}
+}
+
+func TestCookieHostIsolation(t *testing.T) {
+	f := setup(t)
+	o := f.options
+	o.Issuer = origin + ":8443/realm"
+	if b, err := newBackend(context.Background(), f.db, o); err == nil {
+		b.Close()
+		t.Fatal("same-host identity provider accepted")
+	}
+	f.oidc.setMode("cookie-host")
+	if b, err := newBackend(context.Background(), f.db, f.options); err == nil {
+		b.Close()
+		t.Fatal("authorization endpoint on cookie host accepted")
 	}
 }

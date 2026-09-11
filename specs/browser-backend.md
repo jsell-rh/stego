@@ -1,7 +1,6 @@
-The browser backend is under development. It is not in the component registry
-or the command-line generator map. Applications cannot select it yet. The
-working design uses a separate Go service. This is a working assumption while
-the browser process decision is open.
+The browser-backend component and browser-service archetype generate a separate
+Go browser backend. The user accepted Go and a separate process. The browser
+HTTP contracts must stay compatible. The bearer-token API keeps its own process.
 
 STEGO owns login, server-side sessions, token refresh, logout, static asset
 serving, and the API proxy. The application owns its pages, domain rules, and
@@ -65,9 +64,8 @@ results are in `/tmp/stego-browser-runtime-gn_86o_n`. The final source archive
 SHA-256 is `77ae069d8124e8544aa33ed739c2c1e2b1a8c08d448c747945f32085fda96cc5`.
 The backend files in the checkout match that source archive.
 
-Registry activation, a real Hypershell browser workflow, real Keycloak
-integration, exported telemetry evidence, session key rotation, ingress
-deployment, browser-enforced cookie checks, and measured capacity remain open.
+Exported browser telemetry evidence, session key rotation, ingress deployment,
+browser-enforced cookie checks, and measured capacity remain open.
 Static assets currently require cache revalidation. Streaming API responses
 and a complete browser UI are not delivered by this prototype. No Playwright
 or workstation load test is used.
@@ -80,3 +78,30 @@ correction. It does not select this browser component. Backend instance
 replacement in these tests is not an operating-system process restart test.
 Both test namespaces were removed. Cleanup was verified through the cluster
 API. No test workload from these checks remains in the cluster.
+
+The real Hypershell browser protocol test passed under race detection in
+21.98 seconds (23.027 seconds for the acceptance package). It used a real
+Keycloak provider, PostgreSQL, and separate generated API and console processes.
+It checked login, Gateway creation with its owner grant, IDs and API shapes,
+filtered lists, denied requests, REST and gRPC retrieval, and event delivery.
+It stopped and restarted the console process, then checked the stored session,
+actual token renewal, and logout. All 23 console output, state, and dependency
+hashes matched before and after the test. The generator and registry race
+checks passed in 63.284 and 2.268 seconds. The frozen sources and results are in
+`/tmp/stego-browser-workflow-pwsizhdc`.
+
+The application test exposed a missing tracing binding in the new archetype.
+The next attempt exposed a nil header map in the test client. Both were fixed
+before the final fresh test. A review also found that different ports do not
+isolate cookies. The runtime now requires distinct cookie hosts for the console,
+API, issuer, and discovered authorization endpoint relative to the console.
+Case and a final DNS dot do not bypass this check. HTTPS host names must use
+ASCII; international names can use punycode. This follows the
+[cookie port isolation limit](https://www.rfc-editor.org/rfc/rfc6265#section-8.5).
+The final test used separate loopback IP addresses and checked that console
+cookies were absent from API and identity-provider requests.
+
+This is application protocol evidence. The page remains a scaffold. A complete
+Gateway UI, real browser cookie enforcement, production deployment, key rotation,
+and measured capacity still need tests. The browser archetype does not yet
+generate Kubernetes deployment resources.

@@ -144,7 +144,14 @@ func (f *fakeOIDC) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.URL.Path {
 	case "/.well-known/openid-configuration":
-		json.NewEncoder(w).Encode(map[string]any{"issuer": f.server.URL, "authorization_endpoint": f.server.URL + "/authorize", "token_endpoint": f.server.URL + "/token", "jwks_uri": f.server.URL + "/keys", "revocation_endpoint": f.server.URL + "/revoke", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"ES256"}, "code_challenge_methods_supported": []string{"S256"}})
+		f.mu.Lock()
+		mode := f.mode
+		f.mu.Unlock()
+		authorizationEndpoint := f.server.URL + "/authorize"
+		if mode == "cookie-host" {
+			authorizationEndpoint = origin + ":8443/authorize"
+		}
+		json.NewEncoder(w).Encode(map[string]any{"issuer": f.server.URL, "authorization_endpoint": authorizationEndpoint, "token_endpoint": f.server.URL + "/token", "jwks_uri": f.server.URL + "/keys", "revocation_endpoint": f.server.URL + "/revoke", "response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"}, "id_token_signing_alg_values_supported": []string{"ES256"}, "code_challenge_methods_supported": []string{"S256"}})
 	case "/keys":
 		json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]string{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "key-1", "x": base64.RawURLEncoding.EncodeToString(f.key.X.FillBytes(make([]byte, 32))), "y": base64.RawURLEncoding.EncodeToString(f.key.Y.FillBytes(make([]byte, 32)))}}})
 	case "/authorize":

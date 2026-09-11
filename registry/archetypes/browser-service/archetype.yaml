@@ -1,0 +1,18 @@
+kind: archetype
+name: browser-service
+language: go
+version: 1.0.0
+components:
+  - postgres-adapter
+  - otel-tracing
+  - health-check
+  - browser-backend
+conventions:
+  layout: flat
+  logging: structured-json
+  cors: disabled
+bindings:
+  tracing: otel-tracing
+  storage-adapter: postgres-adapter
+  health-endpoint: health-check
+  browser-session-http: browser-backend

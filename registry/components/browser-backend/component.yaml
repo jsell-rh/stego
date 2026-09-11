@@ -1,0 +1,28 @@
+kind: component
+name: browser-backend
+version: 1.0.0
+output_namespace: browser
+config:
+  api_prefix:
+    type: string
+  roles_claim:
+    type: string
+    optional: true
+  routes:
+    type: list
+    items:
+      type: string
+  assets:
+    type: list
+    items:
+      source:
+        type: string
+      path:
+        type: string
+requires:
+  - storage-adapter
+  - tracing
+  - health-endpoint
+provides:
+  - browser-session-http
+slots: []
