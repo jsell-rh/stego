@@ -1,6 +1,6 @@
 kind: component
 name: browser-backend
-version: 1.4.1
+version: 1.4.2
 output_namespace: browser
 config:
   telemetry_service_name:

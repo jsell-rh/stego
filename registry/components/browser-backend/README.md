@@ -108,3 +108,6 @@ The wait has a two-second deadline and uses the caller's cancellation signal.
 Only the request that claims the stored session can renew its token. A stalled
 renewal returns temporary unavailability and keeps the session cookie. A lost
 or uncertain renewal still requires a new login. Sign-out takes precedence.
+A cancelled renewal releases its stored claim with a separate five-second
+cleanup deadline. Known tokens that were not saved are revoked within that
+budget. The cancelled request cannot prevent this cleanup.

@@ -52,19 +52,25 @@ func(b *Backend)active(ctx context.Context,id string)(session,error){
  }
  for{
  value,state,changed,err:=b.store.read(waitCtx,id);if err!=nil{return session{},err};if value.Kind!="active"{return session{},errSession}
- if state=="refreshing"{if time.Since(changed)>30*time.Second{_ = b.store.remove(ctx,id);return session{},errSession};if err:=wait();err!=nil{return session{},err};continue}
+ if state=="refreshing"{if time.Since(changed)>30*time.Second{b.abandonRefresh(ctx,id,nil);return session{},errSession};if err:=wait();err!=nil{return session{},err};continue}
  if state!="active"{return session{},errSession};if value.AccessExpires>time.Now().Add(15*time.Second).Unix(){return value,nil}
  value,err=b.store.claimRefresh(waitCtx,id);if errors.Is(err,errBusy){if err:=wait();err!=nil{return session{},err};continue};if err!=nil{return session{},err}
  // A previous caller can finish between read and claim. Do not rotate twice.
- if value.AccessExpires>time.Now().Add(15*time.Second).Unix(){if err:=b.store.finishRefresh(ctx,id,value);err!=nil{return session{},err};return value,nil}
- if value.Refresh==""{_ = b.store.remove(ctx,id);return session{},errSession}
+ if value.AccessExpires>time.Now().Add(15*time.Second).Unix(){if err:=b.store.finishRefresh(ctx,id,value);err!=nil{b.abandonRefresh(ctx,id,nil);return session{},err};return value,nil}
+ if value.Refresh==""{b.abandonRefresh(ctx,id,nil);return session{},errSession}
  token,err:=b.provider.tokens(ctx,url.Values{"grant_type":{"refresh_token"},"refresh_token":{value.Refresh}})
- if err!=nil{_ = b.store.remove(ctx,id);return session{},errSession}
+ if err!=nil{b.abandonRefresh(ctx,id,nil);return session{},errSession}
  updated,err:=b.provider.accept(ctx,token,"",b.config.RolesClaim,&value)
- if err!=nil{_ = b.store.remove(ctx,id);_ = b.provider.revoke(ctx,session{Access:token.Access,Refresh:token.Refresh});return session{},errSession}
- if err:=b.store.finishRefresh(ctx,id,updated);err!=nil{_ = b.provider.revoke(ctx,updated);return session{},errSession}
+ if err!=nil{b.abandonRefresh(ctx,id,&session{Access:token.Access,Refresh:token.Refresh});return session{},errSession}
+ if err:=b.store.finishRefresh(ctx,id,updated);err!=nil{b.abandonRefresh(ctx,id,&updated);return session{},errSession}
  return updated,nil
  }
+}
+// A cancelled request must not retain a refresh claim or an unpublished token.
+func(b *Backend)abandonRefresh(ctx context.Context,id string,value *session){
+ cleanup,cancel:=context.WithTimeout(context.WithoutCancel(ctx),5*time.Second);defer cancel()
+ _ = b.store.remove(cleanup,id)
+ if value!=nil{_ = b.provider.revoke(cleanup,*value)}
 }
 func sessionError(w http.ResponseWriter,err error){if errors.Is(err,errBusy)||errors.Is(err,errStore){w.Header().Set("Retry-After","1");failure(w,503);return};clearCookie(w,SessionCookie);reauthenticate(w)}
 func reauthenticate(w http.ResponseWriter){w.Header().Set("WWW-Authenticate",`Bearer error="invalid_token"`);response(w,401,map[string]any{"error":"reauth_required","login_url":"/auth/login","statusCode":401})}

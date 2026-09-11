@@ -582,3 +582,29 @@ func TestRefreshWaitHasDeadlineAndCancellation(t *testing.T) {
 	_, refreshes, _ := f.oidc.counts()
 	require(t, refreshes == 0, "waiter used a refresh token")
 }
+
+func TestCancelledRefreshDoesNotLeaveAnOwnedSession(t *testing.T) {
+	f := setup(t)
+	active, _ := login(t, f)
+	expireAccess(t, f, active)
+	entered, release := f.oidc.pauseRefresh()
+	defer close(release)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { _, err := f.backend.active(ctx, active.Value); result <- err }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("refresh did not start")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		require(t, err != nil, "cancelled refresh succeeded")
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancelled refresh did not finish")
+	}
+	_, _, _, err := f.backend.store.read(context.Background(), active.Value)
+	require(t, errors.Is(err, errSession), "cancelled refresh left a retained refresh claim")
+}

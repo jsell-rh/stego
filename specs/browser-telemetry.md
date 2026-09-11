@@ -78,3 +78,11 @@ It keeps the single-owner refresh claim and does not repeat an uncertain token
 exchange. The PostgreSQL race checks passed across two backend instances,
 including the deadline, cancellation, and sign-out cases. The check is
 `check5` in `/tmp/stego-rendered-8ff4d600` (generated runtime: 10.41 seconds).
+
+A cancellation test then reproduced a retained refresh claim. Cleanup used the
+cancelled request context, so the database could not remove that claim. Cleanup
+now has a separate five-second deadline. It removes the claim and revokes known
+tokens that were not saved. The test failed before this change (`check8`) and
+passed after it (`check9`). All generated browser backend race tests passed in
+11.760 seconds. A rendered run passed before this final fix (`check7`, 25.37
+seconds), but earlier runs failed. Repeated rendered checks remain required.
