@@ -8,6 +8,9 @@ import "go/types"
 func reservedImportNames() map[string]bool {
 	names := make(map[string]bool)
 	names["stegoDatabaseURL"] = true
+	for _, name := range []string{"stegoHTTPTransport", "stegoHTTPReadTLSFile", "stegoHTTPOpenTLSFile"} {
+		names[name] = true
+	}
 	for _, name := range types.Universe.Names() {
 		names[name] = true
 	}

@@ -19,6 +19,9 @@ var serviceFailureTests []byte
 //go:embed testdata/http_lifecycle_test.go
 var httpLifecycleTests []byte
 
+//go:embed testdata/http_tls_test.go
+var httpTLSTests []byte
+
 func TestGeneratedHTTPLifecycle(t *testing.T) {
 	files, err := Assemble(AssemblerInput{
 		ModuleName: "example.com/http-lifecycle", GoVersion: "1.26.8",
@@ -42,6 +45,9 @@ func TestGeneratedHTTPLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(project, "diagnostics_test.go"), httpDiagnosticsTests, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "tls_test.go"), httpTLSTests, 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")

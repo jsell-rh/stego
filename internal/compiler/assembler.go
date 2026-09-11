@@ -71,6 +71,9 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	}
 
 	files := []gen.File{mainGo, goMod}
+	if hasAnyRoutes(input) {
+		files = append(files, httpTLSFiles()...)
+	}
 	seenContracts := make(map[gen.Contract]bool)
 	for _, component := range input.Wirings {
 		if component.Wiring == nil {
@@ -267,6 +270,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 	if hasRoutes {
 		buf.WriteString(httpLifecycleSource)
+		buf.WriteString(httpTLSSource)
 	}
 
 	if hasTasks {
@@ -345,6 +349,9 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// log reports the HTTP listener.
 	if hasRoutes {
 		stdlibNeeded["log"] = true
+		for _, pkg := range []string{"crypto/tls", "path/filepath", "io"} {
+			extraStdlib[pkg] = true
+		}
 	}
 	if hasRoutes {
 		for _, pkg := range httpLifecycleImports {
@@ -659,6 +666,8 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool
 			vars[path.Base(pkg)] = true
 		}
 		vars["mux"] = true
+		vars["httpTLS"] = true
+		vars["tls"] = true
 		vars["addr"] = true
 		vars["port"] = true
 		// stdlib import aliases used in writeRouteRegistration and
@@ -1037,6 +1046,13 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 	for name := range imports.NonStdlibAliases {
 		varNames[name]++
 		varUsed[name] = true
+	}
+	// This helper is called by run. A component can use the same derived
+	// constructor name, but its route references must follow the new name.
+	// It is not an assembler route variable such as mux.
+	if hasRoutes {
+		varNames["stegoHTTPTransport"]++
+		varUsed["stegoHTTPTransport"] = true
 	}
 
 	// Flatten all constructors into a single list with dependency metadata.
@@ -1498,8 +1514,11 @@ func writeServerStart(buf *bytes.Buffer, input AssemblerInput, wiringRenames map
 		fmt.Fprintf(buf, "\ttopMux.Handle(\"/\", %s)\n", handlerExpr)
 		handlerExpr = "topMux"
 	}
+	buf.WriteString("\tstegoStage = \"http.configure\"\n")
+	buf.WriteString("\thttpTLS, err := stegoHTTPTransport()\n\tif err != nil { return err }\n")
 	buf.WriteString("\tstegoStage = \"http.listen\"\n")
 	buf.WriteString("\tlistener, err := net.Listen(\"tcp\", addr)\n\tif err != nil { return err }\n")
+	buf.WriteString("\tif httpTLS != nil { listener = tls.NewListener(listener, httpTLS) }\n")
 	buf.WriteString("\tlog.Printf(\"starting server on %s\", listener.Addr())\n")
 	if hasBackgroundTasks(input) {
 		buf.WriteString("\tdefer listener.Close()\n")

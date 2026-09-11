@@ -26,7 +26,7 @@ func TestGeneratedImportsPreserveLanguageAndStartupNames(t *testing.T) {
 	names := append(types.Universe.Names(), "init", "main", "run", "error2", "main2", "run2", "nil2", "handler0", "handler02")
 	// Derive template declarations independently so new startup helpers must
 	// also be protected by the allocator.
-	file, err := parser.ParseFile(token.NewFileSet(), "startup.go", "package main\n"+httpLifecycleSource+taskLifecycleSource+databaseConfigSource, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), "startup.go", "package main\n"+httpLifecycleSource+httpTLSSource+taskLifecycleSource+databaseConfigSource, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +72,16 @@ func (*Handler) Run(ctx context.Context) error { <-ctx.Done(); return ctx.Err() 
 		fmt.Fprintf(&imports, "fixture%d %q\n", i, module+"/out/"+componentPath)
 		fmt.Fprintf(&checks, "if !fixture%d.Called { t.Fatal(%q) }\n", i, "constructor was not called: "+name)
 	}
+	input.Wirings = append(input.Wirings, ComponentWiring{Name: "tls-transport-name", Wiring: &gen.Wiring{
+		Imports: []string{"internal/tlsfixture"}, Constructors: []string{"tlsfixture.NewStegoHTTPTransport()"},
+		Routes: []string{`mux.HandleFunc("GET /tls-name", stegoHTTPTransport.ServeHTTP)`},
+	}})
+	sources["out/internal/tlsfixture/fixture.go"] = `package tlsfixture
+import "net/http"
+type Handler struct{}
+func NewStegoHTTPTransport() *Handler { return &Handler{} }
+func (*Handler) ServeHTTP(http.ResponseWriter, *http.Request) {}
+`
 	input.Wirings[0].Wiring.BackgroundTasks = []int{0}
 	input.SlotsPackage = "internal/slots"
 	fillNames := []string{"error", "error2", "nil", "main", "run"}

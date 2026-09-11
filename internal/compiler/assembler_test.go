@@ -45,8 +45,8 @@ func TestAssemble_MinimalService(t *testing.T) {
 		t.Fatalf("Assemble: %v", err)
 	}
 
-	if len(files) != 2 {
-		t.Fatalf("expected 2 files (main.go, go.mod), got %d", len(files))
+	if len(files) != 4 {
+		t.Fatalf("expected main.go, go.mod, and two platform TLS files, got %d files", len(files))
 	}
 
 	// Find main.go and go.mod.
