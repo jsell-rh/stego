@@ -95,6 +95,22 @@ render and rollout. Network translation and policy enforcement need a test on
 the target cluster. An IP rule does not authenticate a remote service or grant
 Kubernetes permissions.
 
+The external endpoint extension passed a live jshell check on 2026-09-11.
+Hypershell commit `939937b` used compiler `77e2133` to render its database-worker
+policy. A restricted probe could read only its own Pod through verified HTTPS.
+Default denial blocked the request. The correct generated IP and port rule
+restored access. The wrong port and wrong IP each blocked three requests.
+Restoring the correct rule restored access. The test namespace was deleted.
+See the [application evidence](https://github.com/jsell-rh/hypershell-stego/blob/939937b/acceptance/external-egress.md).
+
+Deployment and registry package checks passed under race detection in 3.803 and
+2.123 seconds. Hypershell's input-manifest check passed in 1.055 seconds. All
+129 generated, state, and dependency hashes matched both generation passes,
+the post-test check, and the checkout. The build Job completed and was removed
+with its namespace. This evidence covers direct IPv4 endpoint enforcement.
+Service-address translation, IPv6 enforcement, and production operations remain
+separate checks. Full CI results are tracked separately.
+
 Public ingress, autoscaling, disruption budgets, image
 signing, deployment migrations, and certificate renewal remain separate work.
 The component does not install databases, brokers, or domain controllers.

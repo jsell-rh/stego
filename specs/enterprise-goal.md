@@ -2886,3 +2886,14 @@ workflow tests now build these generated commands and check their probes and
 signal shutdown. Their new CI results remain a separate requirement. This is
 application adoption of the common runtime, not proof of complete deployment
 operations or the broader enterprise goal.
+
+The generated worker deployment exposed a missing common network contract.
+Compiler `77e2133` adds declared external endpoint names and requires exact IP
+and TCP port bindings during rendering. Hypershell `939937b` uses that contract
+for its Kubernetes workers. A live cluster probe verified default denial,
+allowed access, wrong-port denial, wrong-address denial, and recovery through
+verified HTTPS. The generated renderer and registry passed race checks. All
+129 application hashes matched repeated generation and post-test output.
+Both test namespaces were removed. The [deployment record](kubernetes-service.md)
+states the direct-endpoint test scope. Full CI, complete worker deployment,
+browser workflows, and the broader production requirements remain open.
