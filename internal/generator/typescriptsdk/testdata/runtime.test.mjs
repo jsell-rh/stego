@@ -35,7 +35,7 @@ test('invalid input performs no request', async () => {
   assert.equal(calls, 0);
 });
 test('invalid responses and unsafe numbers are rejected', async () => {
-  for (const body of ['{"id":"r1","id":"r2","name":"One","count":0,"enabled":false}', '{"id":"r1","name":"\\ud800","count":0,"enabled":false}', JSON.stringify({...record, secret: 'private'}), JSON.stringify({...record, count: -1}), JSON.stringify({...record, mode: null}), JSON.stringify({...record, endpoint: "https://invalid.example/%zz"}), JSON.stringify({...record, created_at: '2026-02-31T00:00:00Z'}), JSON.stringify({...record, count: Number.MAX_SAFE_INTEGER + 1}), '{"id":"r1","name":"One","count":1.0000000000000001,"enabled":false}', '{}', JSON.stringify({...record, private: 'value'})]) {
+  for (const body of ['{"server_id":"server","id":"r1","id":"r2","name":"One","count":0,"enabled":false}', '{"server_id":"server","id":"r1","name":"\\ud800","count":0,"enabled":false}', JSON.stringify({...record, secret: 'private'}), JSON.stringify({...record, count: -1}), JSON.stringify({...record, mode: null}), JSON.stringify({...record, endpoint: "https://invalid.example/%zz"}), JSON.stringify({...record, created_at: '2026-02-31T00:00:00Z'}), JSON.stringify({...record, count: Number.MAX_SAFE_INTEGER + 1}), '{"server_id":"server","id":"r1","name":"One","count":1.0000000000000001,"enabled":false}', '{}', JSON.stringify({...record, private: 'value'})]) {
     const sdk = client(async () => new Response(body, {headers: {'Content-Type': 'application/json'}}));
     await assert.rejects(sdk.getRecord({id: 'r1'}), error('invalid_response'));
   }
@@ -66,4 +66,30 @@ test('operation names do not alter object prototypes', async () => {
  assert.equal(Object.getPrototypeOf(sdk),null);
  assert.equal((await sdk['__proto__']()).body.id,'r1');
  assert.equal(Object.prototype.id,undefined);
+});
+
+
+test('in-flight cancellation and the whole-operation deadline release capacity', async () => {
+  const sdk = client((url, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new Error('private')), {once: true});
+  }));
+  const controller = new AbortController();
+  const cancelled = sdk.getRecord({id: 'r1'}, {signal: controller.signal});
+  controller.abort();
+  await assert.rejects(cancelled, error('cancelled'));
+
+  const originalTimer = globalThis.setTimeout;
+  let expire;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (delay === 20000) { expire = callback; return originalTimer(() => {}, 90000); }
+    return originalTimer(callback, delay, ...args);
+  };
+  try {
+    const timedOut = sdk.getRecord({id: 'r1'});
+    assert.equal(typeof expire, 'function');
+    expire();
+    await assert.rejects(timedOut, error('timeout'));
+  } finally { globalThis.setTimeout = originalTimer; }
+  const next = client(async () => json(record));
+  assert.equal((await next.getRecord({id: 'r1'})).status, 200);
 });
