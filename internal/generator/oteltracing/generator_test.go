@@ -41,6 +41,9 @@ var httpClientTests []byte
 //go:embed testdata/http_client_transport_test.go
 var httpClientTransportTests []byte
 
+//go:embed testdata/command_test.go
+var commandTests []byte
+
 func TestGeneratedTracing(t *testing.T) {
 	files, wiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "records"})
 	if err != nil {
@@ -50,7 +53,7 @@ func TestGeneratedTracing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
+	files = append(files, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
 	files = append(files, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")
@@ -83,7 +86,7 @@ func TestGeneratedTracing(t *testing.T) {
 		}
 	}
 	if os.Getenv("STEGO_BENCH_CLIENT") == "1" {
-		command := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(ClientSignals|HTTPClientSignals|HTTPTracing)$", "-benchtime=200ms", "-count=3", "./...")
+		command := exec.Command("go", "test", "-run=^$", "-bench=^Benchmark(ClientSignals|HTTPClientSignals|HTTPTracing|CommandSignals)$", "-benchtime=200ms", "-count=3", "./...")
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")
 		output, err := command.CombinedOutput()

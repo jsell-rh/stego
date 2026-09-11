@@ -80,20 +80,37 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	data := struct{ Client, Runtime, Factory, BuildIdentity, CompilerBuild string }{root + "/client", root + "/command", path.Join(ctx.ModuleName, factory), root + "/buildidentity", string(record)}
+	data := struct{ Client, Runtime, Factory, BuildIdentity, CompilerBuild, Tracing string }{root + "/client", root + "/command", path.Join(ctx.ModuleName, factory), root + "/buildidentity", string(record), ""}
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
+	}
 	main := `package main
 import (
  "context"
  "fmt"
  "os"
  "os/signal"
+ "syscall"
+ {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
  app {{printf "%q" .Factory}}
  command {{printf "%q" .Runtime}}
 )
 func main(){
- ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt);defer stop()
- if err:=command.Run(ctx,app.Commands(),os.Args[1:],os.Stdout);err!=nil {fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ if err:=run();err!=nil {fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }
+func run()error{
+ ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer stop()
+ {{if .Tracing}}
+ telemetry,err:=tracing.NewRuntime();if err!=nil{return err};defer telemetry.Close()
+ ctx,finish:=telemetry.TraceCommand(ctx)
+ outcome:="aborted";defer func(){finish(outcome)}()
+ result:=command.Run(ctx,app.Commands(),os.Args[1:],os.Stdout)
+ outcome="success";if result!=nil{outcome="failure"}
+ if ctx.Err()==context.DeadlineExceeded{outcome="deadline"}else if ctx.Err()==context.Canceled{outcome="canceled"}
+ return result
+ {{else}}return command.Run(ctx,app.Commands(),os.Args[1:],os.Stdout){{end}}
+}
+
 `
 	var files []gen.File
 	for _, item := range []struct{ name, source string }{{"command/runtime.go", runtimeSource + gen.UnicodeEscapeValidation}, {"command/apply.go", applySource}, {"command/apply_immutable.go", applyImmutableSource}, {"command/apply_input.go", applyInputSource}, {"command/config.go", configSource}, {"command/output.go", outputSource}, {"command/oauth.go", oauthSource}, {"command/browser.go", browserSource}, {"command/session.go", sessionSource}, {"command/identity.go", identitySource}, {"command/version.go", versionSource}, {"buildidentity/runtime.go", buildidentity.Source}, {"cmd/main.go", main}} {
@@ -111,11 +128,7 @@ func main(){
 		}
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.name), Content: code})
 	}
-	tracing := ""
-	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
-		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
-	}
-	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), tracing)
+	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), data.Tracing)
 	if err != nil {
 		return nil, nil, err
 	}

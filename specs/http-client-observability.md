@@ -2,7 +2,8 @@
 add shared outbound HTTP signals. The generated HTTPS client uses the runtime
 in its context. It does not create a provider, queue, connection, or global
 logger. Request and controller boundaries supply this context. Independent
-processes must connect their runtime at entry. CLI startup remains open.
+processes must connect their runtime at entry. The generated
+[CLI entry point](cli-observability.md) now supplies this boundary.
 
 Each call produces a CLIENT span, an `http.client.request.completed` log, and
 an `http.client.request.duration` histogram measurement in seconds.
@@ -61,7 +62,7 @@ transport and header injection. They are not application latency or delivered
 capacity. Repeat with `STEGO_BENCH_CLIENT=1 go test -v -count=1
 ./internal/generator/oteltracing`.
 
-Database signals, full process lifecycle export, independent CLI and worker
+Database signals, full process lifecycle export, other independent worker
 entry points, and production capacity evidence remain open.
 
 The full compiler race suite passed with PostgreSQL 18.6 required on port 32919.

@@ -122,5 +122,5 @@ The standard device flow is also tested without a PKCE advertisement.
 
 Generated HTTPS clients use the telemetry runtime in their call context.
 The [HTTP client contract](../../../specs/http-client-observability.md) defines
-completion, propagation, privacy, and resource bounds. Independent CLI entry
-points still need runtime integration.
+completion, propagation, privacy, and resource bounds. The generated CLI now owns its runtime; see the
+[CLI contract](../../../specs/cli-observability.md).

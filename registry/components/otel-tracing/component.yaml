@@ -1,6 +1,6 @@
 kind: component
 name: otel-tracing
-version: 1.8.0
+version: 1.9.0
 output_namespace: tracing
 
 config: {}

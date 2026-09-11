@@ -1,0 +1,64 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "sync"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ "go.opentelemetry.io/otel/codes"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/trace"
+)
+
+type commandSignals struct{tracer trace.Tracer;logger otellog.Logger;duration metric.Float64Histogram;active metric.Int64UpDownCounter}
+func(r *Runtime)initCommandSignals()error{
+ if r.provider!=nil{r.command.tracer=r.provider.Tracer("stego/cli")}
+ if r.signals.logs!=nil{r.command.logger=r.signals.logs.Logger("stego/cli")}
+ if r.signals.meter!=nil{
+  meter:=r.signals.meter.Meter("stego/cli")
+  var err error
+  r.command.duration,err=meter.Float64Histogram("stego.cli.command.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60,300));if err!=nil{return errors.New("cannot create CLI command metric")}
+  r.command.active,err=meter.Int64UpDownCounter("stego.cli.active_commands",metric.WithUnit("{command}"));if err!=nil{return errors.New("cannot create CLI command metric")}
+ }
+ return nil
+}
+// TraceCommand supplies a common boundary for a generated CLI invocation.
+// Arguments, configuration, output, and error text are never recorded.
+// Finish accepts success, failure, canceled, deadline, or aborted. Unknown
+// outcomes become failure. Finish is idempotent and must precede runtime close.
+func(r *Runtime)TraceCommand(ctx context.Context)(context.Context,func(string)){
+ if ctx==nil||r==nil||r.closed.Load(){return ctx,func(string){}}
+ ctx=r.Context(ctx)
+ start:=time.Now()
+ var span trace.Span
+ if r.command.tracer!=nil{ctx,span=r.command.tracer.Start(ctx,"cli.command",trace.WithSpanKind(trace.SpanKindInternal),trace.WithTimestamp(start))}
+ if r.command.active!=nil{r.command.active.Add(ctx,1)}
+ var once sync.Once
+ return ctx,func(outcome string){once.Do(func(){
+  end:=time.Now()
+  switch outcome{case "success","failure","canceled","deadline","aborted":default:outcome="failure"}
+  attrs:=[]attribute.KeyValue{attribute.String("outcome",outcome)}
+  failed:=outcome!="success"&&outcome!="canceled"
+  severity:=otellog.SeverityInfo;text:="INFO"
+  if failed{attrs=append(attrs,attribute.String("error.type",outcome));severity=otellog.SeverityError;text="ERROR"}
+  duration:=end.Sub(start).Seconds()
+  if r.command.duration!=nil{r.command.duration.Record(ctx,duration,metric.WithAttributes(attrs...));r.command.active.Add(ctx,-1)}
+  r.service.mu.Lock()
+  if !r.closed.Load(){
+   sc:=trace.SpanContextFromContext(ctx)
+   local:=localRecord{Time:end,Service:r.service.service,Instance:r.instance,Severity:text,Event:"cli.command.completed",Message:"CLI command completed",Outcome:outcome,DurationSeconds:&duration}
+   if failed{local.ErrorType=outcome}
+   if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+   if r.service.local!=nil{r.service.local.enqueue(local)}
+   if r.command.logger!=nil{
+    var record otellog.Record
+    record.SetTimestamp(end);record.SetEventName(local.Event);record.SetBody(attribute.StringValue(local.Message));record.SetSeverity(severity);record.SetSeverityText(text);record.AddAttributes(attrs...);record.AddAttributes(attribute.Float64("duration_seconds",duration));r.command.logger.Emit(ctx,record)
+   }
+  }
+  r.service.mu.Unlock()
+  if span!=nil{span.SetAttributes(attrs...);if failed{span.SetStatus(codes.Error,"")};span.End(trace.WithTimestamp(end))}
+ })}
+}

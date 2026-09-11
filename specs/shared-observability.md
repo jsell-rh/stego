@@ -84,4 +84,8 @@ bound labels and exclude dynamic names.
 The [HTTP client contract](http-client-observability.md) adds common HTTPS call
 signals, including response bodies and stream callbacks. The Keycloak workflow
 checks the full API, provider RPC, and HTTP trace. Database client coverage and
-independent CLI and worker entry-point integration remain open.
+other independent worker entry-point integration remain open.
+
+The [CLI entry-point contract](cli-observability.md) supplies command logs,
+metrics, spans, and outbound context. The generated main owns and closes the
+runtime. Command stdout and diagnostic stderr remain separate.

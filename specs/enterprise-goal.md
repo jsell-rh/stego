@@ -2764,3 +2764,11 @@ private-data exclusion. The real Keycloak probe first failed on `d771730` with
 no HTTP client signals after successful account creation. Provider entry-point
 wiring and restart correlation are part of the Hypershell acceptance test.
 All enterprise and application milestones remain active.
+
+The [CLI observability contract](cli-observability.md) adds a common command
+boundary and connects generated clients to it. Generated process tests and
+telemetry tests passed in a bounded `jshell` cluster job. The Hypershell probe
+first found no common completion record after login on compiler `f87dfaf`.
+Application adoption and full CI require their own results. The host restart
+during local measurement caused a test-policy change: performance and heavy
+tests now run in CI or the approved cluster. All goal milestones remain active.
