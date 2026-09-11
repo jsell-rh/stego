@@ -97,7 +97,9 @@ public CA roots in the custom registry trust bundle, and the first image
 metadata omitted the entry point. The test publisher now checks the image
 configuration before deployment. These failed runs remain in the local test
 records. Full compiler CI passed for the deployment and Kafka revisions. The
-Containerfile CI build requires a separate result.
+[Containerfile CI job](https://github.com/jsell-rh/hypershell-stego/actions/runs/34619444307/job/103329456378)
+also passed. It built the generated Containerfile and checked the image user
+and entry point.
 
 The repository test command then passed from a fresh namespace. The Gateway
 test took 11.57 seconds; its race-enabled package took 12.621 seconds. The fresh

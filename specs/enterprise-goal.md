@@ -2844,4 +2844,5 @@ production broker, ingress, certificate, migration, and capacity work.
 
 The repository deployment test command also passed from a fresh namespace. It
 reproduced all 112 file hashes and the same image digest, then completed its Job
-and removed its namespace. The Containerfile CI build remains a separate check.
+and removed its namespace. The generated Containerfile CI build also passed.
+The full application CI run for this revision is still in progress.
