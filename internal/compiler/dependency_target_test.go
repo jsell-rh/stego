@@ -24,6 +24,7 @@ func TestPinnedDependenciesGateGoTarget(t *testing.T) {
 		{"outbox", "1.25.0", "1.24.9", new(outbox.Generator)},
 		{"kafka-producer", "1.25.0", "1.24.9", new(kafkaproducer.Generator)},
 		{"grpc-application", "1.26.0", "1.25.9", new(grpcapplication.Generator)},
+		{"grpc-processes", "1.26.0", "1.25.9", new(grpcapplication.ProcessGenerator)},
 	} {
 		t.Run(component.name, func(t *testing.T) {
 			input := snapshotTestInput(t)

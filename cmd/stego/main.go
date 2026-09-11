@@ -805,6 +805,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"postgres-client":    &postgresclient.Generator{},
 		"controller":         &controller.Generator{},
 		"grpc-application":   &grpcapplication.Generator{},
+		"grpc-processes":     &grpcapplication.ProcessGenerator{},
 		"outbox":             &outbox.Generator{},
 		"kafka-producer":     &kafkaproducer.Generator{},
 		"postgres-adapter":   &postgresadapter.Generator{},

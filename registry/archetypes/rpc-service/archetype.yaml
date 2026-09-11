@@ -1,0 +1,16 @@
+kind: archetype
+name: rpc-service
+language: go
+version: 1.0.0
+components:
+  - otel-tracing
+  - grpc-processes
+default_auth: jwt-auth
+conventions:
+  layout: flat
+  logging: structured-json
+  cors: disabled
+bindings:
+  auth-provider: jwt-auth
+  tracing: otel-tracing
+  application-grpc-processes: grpc-processes

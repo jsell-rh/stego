@@ -18,3 +18,8 @@ panic, and listener failure.
 [RPC client observability](../../../specs/rpc-client-observability.md) adds
 common outbound signals through the active runtime. Generated clients select
 method names from compiled contracts and preserve the complete stream lifetime.
+
+The optional `processes` declarations generate separate RPC entry points with
+common authentication, telemetry, signals, and cleanup. Domain factories supply
+only their services and dependencies. See [RPC processes](../../../specs/grpc-processes.md)
+for the source contract and process bounds.

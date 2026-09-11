@@ -1,0 +1,159 @@
+package grpcapplication
+
+import (
+	"bytes"
+	_ "embed"
+	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
+	"path"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"text/template"
+
+	"github.com/jsell-rh/stego/internal/gen"
+)
+
+//go:embed process.go.tmpl
+var processSource string
+
+type process struct{ Name, Factory string }
+
+var processName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+func processes(config map[string]any) ([]process, error) {
+	raw, present := config["processes"]
+	if !present {
+		return nil, nil
+	}
+	entries, ok := raw.([]any)
+	if !ok || len(entries) < 1 || len(entries) > 16 {
+		return nil, fmt.Errorf("processes requires 1 to 16 declarations")
+	}
+	result := make([]process, 0, len(entries))
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		item, ok := entry.(map[string]any)
+		if !ok || len(item) != 2 {
+			return nil, fmt.Errorf("RPC process requires name and factory_package")
+		}
+		name, nok := item["name"].(string)
+		factory, fok := item["factory_package"].(string)
+		if !nok || !processName.MatchString(name) || seen[name] || !fok || factory == "" || len(factory) > 256 || gen.ValidateGoPackageNamespace(factory) != nil {
+			return nil, fmt.Errorf("invalid or duplicate RPC process declaration")
+		}
+		seen[name] = true
+		result = append(result, process{name, factory})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result, nil
+}
+func validateProcesses(ctx gen.Context) error {
+	entries, err := processes(ctx.ComponentConfig)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if ctx.PeerNamespaces["otel-tracing"] == "" {
+		return fmt.Errorf("RPC processes require otel-tracing")
+	}
+	for _, p := range entries {
+		if p.Factory == ctx.OutDirName || strings.HasPrefix(p.Factory, ctx.OutDirName+"/") {
+			return fmt.Errorf("RPC factory must be outside generated output")
+		}
+		name := path.Join(p.Factory, "rpc.go")
+		source, ok := ctx.Inputs[name]
+		if !ok {
+			return fmt.Errorf("RPC factory source was not supplied by the compiler: %s", name)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, source, parser.ParseComments)
+		if err != nil || file.Name.Name == "main" {
+			return fmt.Errorf("RPC factory must be an importable Go package")
+		}
+		for _, group := range file.Comments {
+			for _, comment := range group.List {
+				if strings.HasPrefix(comment.Text, "//go:build") || strings.HasPrefix(comment.Text, "// +build") {
+					return fmt.Errorf("RPC factory declaration cannot have a build constraint")
+				}
+			}
+		}
+		imports := map[string]string{}
+		for _, item := range file.Imports {
+			value, err := strconv.Unquote(item.Path.Value)
+			if err != nil {
+				return fmt.Errorf("invalid RPC factory import")
+			}
+			alias := path.Base(value)
+			if item.Name != nil {
+				alias = item.Name.Name
+			}
+			imports[alias] = value
+		}
+		matches := func(expr ast.Expr, pkg, name string) bool {
+			selector, ok := expr.(*ast.SelectorExpr)
+			if !ok || selector.Sel.Name != name {
+				return false
+			}
+			qualifier, ok := selector.X.(*ast.Ident)
+			return ok && imports[qualifier.Name] == pkg
+		}
+		count := 0
+		for _, decl := range file.Decls {
+			f, ok := decl.(*ast.FuncDecl)
+			if !ok || f.Recv != nil || f.Name.Name != "Open" {
+				continue
+			}
+			count++
+			valid := f.Body != nil && f.Type.TypeParams.NumFields() == 0 && f.Type.Params.NumFields() == 1 && len(f.Type.Params.List) == 1 && f.Type.Results.NumFields() == 2 && len(f.Type.Results.List) == 2
+			if valid {
+				e, ok := f.Type.Results.List[1].Type.(*ast.Ident)
+				valid = matches(f.Type.Params.List[0].Type, "context", "Context") && matches(f.Type.Results.List[0].Type, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "process"), "Application") && ok && e.Name == "error"
+			}
+			if !valid {
+				return fmt.Errorf("RPC Open must accept context.Context and return process.Application and error")
+			}
+		}
+		if count != 1 {
+			return fmt.Errorf("RPC factory must declare Open exactly once")
+		}
+	}
+	return nil
+}
+func processFiles(ctx gen.Context) ([]gen.File, error) {
+	if err := validateProcesses(ctx); err != nil {
+		return nil, err
+	}
+	entries, _ := processes(ctx.ComponentConfig)
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	data := struct{ Auth, Transport, Tracing string }{ctx.AuthPackage, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"])}
+	tmpl, err := template.New("process").Parse(processSource)
+	if err != nil {
+		return nil, err
+	}
+	var b bytes.Buffer
+	if err := tmpl.Execute(&b, data); err != nil {
+		return nil, err
+	}
+	code, err := format.Source(b.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	result := []gen.File{{Path: path.Join(ctx.OutputNamespace, "process/runtime.go"), Content: code}}
+	for _, p := range entries {
+		source := fmt.Sprintf("// Code generated by STEGO. DO NOT EDIT.\npackage main\nimport(application %q; process %q)\nfunc main(){process.Main(application.Open)}\n", path.Join(ctx.ModuleName, p.Factory), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "process"))
+		code, err := format.Source([]byte(source))
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "processes", p.Name, "main.go"), Content: code})
+	}
+	return result, nil
+}

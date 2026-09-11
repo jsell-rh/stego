@@ -68,7 +68,7 @@ func validateContext(ctx gen.Context) error {
 			return err
 		}
 	}
-	return nil
+	return validateProcesses(ctx)
 }
 
 func (*Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -106,22 +106,12 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
  return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{ {{if .Tracing}}TraceRPC:tracingRuntime.TraceRPC,{{end}}IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
 }
 `
-	for _, item := range []struct{ Name, Source string }{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}} {
-		tmpl, err := template.New(item.Name).Parse(item.Source)
-		if err != nil {
-			return nil, nil, err
-		}
-		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, data); err != nil {
-			return nil, nil, err
-		}
-		code, err := format.Source(buf.Bytes())
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.Name), Content: code})
+	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
+	if err != nil {
+		return nil, nil, err
 	}
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: map[string]string{"google.golang.org/grpc": "v1.82.1", "google.golang.org/protobuf": "v1.36.11"}}
+	files = append(files, runtimeFiles...)
+	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewGRPCRuntime(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, GoModRequires: rpcDependencies()}
 	if watch {
 		outbox := ctx.PeerNamespaces["outbox"]
 		if err := gen.ValidateGoPackageNamespace(outbox); err != nil {
@@ -141,8 +131,38 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
 		wiring.Constructors[index] = strings.TrimSuffix(wiring.Constructors[index], ")") + ", tracingRuntime)"
 		wiring.ConstructorDeps[index] = append(wiring.ConstructorDeps[index], "tracingRuntime")
 	}
+	processes, err := processFiles(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, processes...)
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
 	return files, wiring, nil
+}
+
+type templateSource struct{ Name, Source string }
+
+func renderFiles(ctx gen.Context, data any, sources []templateSource) ([]gen.File, error) {
+	var files []gen.File
+	for _, item := range sources {
+		tmpl, err := template.New(item.Name).Parse(item.Source)
+		if err != nil {
+			return nil, err
+		}
+		var buffer bytes.Buffer
+		if err := tmpl.Execute(&buffer, data); err != nil {
+			return nil, err
+		}
+		code, err := format.Source(buffer.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, item.Name), Content: code})
+	}
+	return files, nil
+}
+func rpcDependencies() map[string]string {
+	return map[string]string{"google.golang.org/grpc": "v1.82.1", "google.golang.org/protobuf": "v1.36.11"}
 }

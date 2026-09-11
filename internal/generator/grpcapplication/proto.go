@@ -55,6 +55,22 @@ func (*Generator) InputFiles(config map[string]any) ([]string, error) {
 	for i, item := range items {
 		result[i] = item.File
 	}
+	declared, err := processes(config)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, name := range result {
+		seen[name] = true
+	}
+	for _, p := range declared {
+		name := path.Join(p.Factory, "rpc.go")
+		if !seen[name] {
+			result = append(result, name)
+			seen[name] = true
+		}
+	}
+	sort.Strings(result)
 	return result, nil
 }
 

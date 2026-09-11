@@ -1,6 +1,6 @@
 kind: component
-name: grpc-application
-version: 1.10.0
+name: grpc-processes
+version: 1.0.0
 output_namespace: grpcapi
 config:
   processes:
@@ -10,10 +10,6 @@ config:
         type: string
       factory_package:
         type: string
-  watch_events:
-    type: bool
-  factory_package:
-    type: string
   proto_files:
     type: list
     items:
@@ -22,8 +18,8 @@ config:
       import_path:
         type: string
 requires:
-  - storage-adapter
   - auth-provider
+  - tracing
 provides:
-  - application-grpc
+  - application-grpc-processes
 slots: []
