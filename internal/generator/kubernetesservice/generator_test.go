@@ -12,7 +12,7 @@ import (
 )
 
 func serviceContext() gen.Context {
-	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.8", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
+	return gen.Context{ModuleName: "example.com/widget", GoVersion: "1.26.8", ServiceName: "widget", OutDirName: "out", OutputNamespace: "deploy", PeerNamespaces: map[string]string{"rest-api": "api", "health-check": "health"}, ComponentConfig: map[string]any{"source_directories": []any{"internal"}, "network_peers": []any{map[string]any{"direction": "ingress", "namespace": "self", "pod_label": "app.kubernetes.io/name", "pod_value": "client", "port": 8443, "protocol": "TCP"}}}}
 }
 
 func TestDeploymentValidation(t *testing.T) {
@@ -29,6 +29,12 @@ func TestDeploymentValidation(t *testing.T) {
 		"secret":           func(c *gen.Context) { c.ComponentConfig["files_secret"] = "bad\nvalue" },
 		"dns":              func(c *gen.Context) { c.ComponentConfig["dns_port"] = 0 },
 		"peer extra":       func(c *gen.Context) { c.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["extra"] = true },
+		"invalid label prefix": func(c *gen.Context) {
+			c.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["pod_label"] = "Bad..prefix/name"
+		},
+		"invalid label path": func(c *gen.Context) {
+			c.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["pod_label"] = "example.test/name/extra"
+		},
 		"peer wildcard": func(c *gen.Context) {
 			c.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["pod_value"] = "*"
 		},

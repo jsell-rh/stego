@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/jsell-rh/stego/internal/gen"
 )
@@ -24,6 +25,25 @@ type object = map[string]any
 var label = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 var directory = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,62}$`)
 var labelValue = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$`)
+
+func validLabelKey(key string) bool {
+	parts := strings.Split(key, "/")
+	if len(parts) > 2 || !labelValue.MatchString(parts[len(parts)-1]) {
+		return false
+	}
+	if len(parts) == 1 {
+		return true
+	}
+	if len(parts[0]) > 253 {
+		return false
+	}
+	for _, part := range strings.Split(parts[0], ".") {
+		if !label.MatchString(part) {
+			return false
+		}
+	}
+	return true
+}
 
 func (*Generator) MinimumGoVersion() string { return "1.26.8" }
 
@@ -133,7 +153,7 @@ func networkRules(ctx gen.Context) (object, error) {
 		value, _ := peer["pod_value"].(string)
 		protocol, _ := peer["protocol"].(string)
 		port, ok := peer["port"].(int)
-		if (direction != "ingress" && direction != "egress") || (!label.MatchString(namespace) && namespace != "self") || !labelValue.MatchString(key) || !labelValue.MatchString(value) || !ok || port < 1 || port > 65535 || (protocol != "TCP" && protocol != "UDP") {
+		if (direction != "ingress" && direction != "egress") || (!label.MatchString(namespace) && namespace != "self") || !validLabelKey(key) || !labelValue.MatchString(value) || !ok || port < 1 || port > 65535 || (protocol != "TCP" && protocol != "UDP") {
 			return nil, fmt.Errorf("invalid network peer")
 		}
 		if direction == "ingress" && (protocol != "TCP" || (port != 8443 && (port != 9090 || ctx.PeerNamespaces["grpc-application"] == ""))) {

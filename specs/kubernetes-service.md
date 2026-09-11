@@ -66,7 +66,7 @@ The network policy denies traffic unless a rule permits it. `network_peers`
 permits at most 32 entries. Each entry requires `direction`, `namespace`,
 `pod_label`, `pod_value`, `port`, and `protocol`. The namespace `self` means the
 rendered namespace. Each rule selects both the namespace and a Pod label.
-This version accepts unqualified label keys. Ingress must use an enabled API
+Label keys can have a valid DNS prefix. Ingress must use an enabled API
 port. Egress can use explicit TCP or UDP ports. DNS is permitted to
 `dns_namespace` on `dns_port`, which default to `kube-system` and 53. Select
 the cluster's actual DNS namespace and port. A NetworkPolicy-capable network

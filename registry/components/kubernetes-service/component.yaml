@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.1.0
+version: 1.1.1
 output_namespace: deploy
 config:
   source_directories:
