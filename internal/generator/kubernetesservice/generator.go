@@ -106,7 +106,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if ctx.GoVersion != "1.26.8" {
 		return fmt.Errorf("kubernetes-service supports Go 1.26.8 with its pinned builder")
 	}
-	if ctx.PeerNamespaces["health-check"] == "" || (ctx.PeerNamespaces["http-application"] == "" && ctx.PeerNamespaces["rest-api"] == "") {
+	if ctx.PeerNamespaces["health-check"] == "" || (ctx.PeerNamespaces["http-application"] == "" && ctx.PeerNamespaces["rest-api"] == "" && ctx.PeerNamespaces["browser-backend"] == "") {
 		return fmt.Errorf("kubernetes-service requires health-check and an HTTP component")
 	}
 	for key, value := range ctx.ComponentConfig {

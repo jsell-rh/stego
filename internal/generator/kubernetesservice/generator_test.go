@@ -20,6 +20,7 @@ func TestDeploymentValidation(t *testing.T) {
 		"service name":     func(c *gen.Context) { c.ServiceName = "../bad" },
 		"output":           func(c *gen.Context) { c.OutDirName = "foo/bar" },
 		"Go target":        func(c *gen.Context) { c.GoVersion = "1.27.0" },
+		"missing HTTP":     func(c *gen.Context) { delete(c.PeerNamespaces, "rest-api") },
 		"missing probes":   func(c *gen.Context) { delete(c.PeerNamespaces, "health-check") },
 		"source traversal": func(c *gen.Context) { c.ComponentConfig["source_directories"] = []any{"../secret"} },
 		"source wildcard":  func(c *gen.Context) { c.ComponentConfig["source_directories"] = []any{"*"} },
@@ -186,5 +187,35 @@ func TestWorkerValidation(t *testing.T) {
 	names, err := new(Generator).InputFiles(c.ComponentConfig)
 	if err != nil || len(names) != 1 || names[0] != "internal/task/worker.go" {
 		t.Fatal("wrong compiler input", names, err)
+	}
+}
+
+// Browser services use the same TLS listener and health routes as API services.
+// Their deployment must retain all API isolation and resource limits.
+func TestBrowserDeployment(t *testing.T) {
+	api := serviceContext()
+	apiFiles, _, err := new(Generator).Generate(api)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := serviceContext()
+	delete(browser.PeerNamespaces, "rest-api")
+	browser.PeerNamespaces["browser-backend"] = "browser"
+	browserFiles, _, err := new(Generator).Generate(browser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(apiFiles) != len(browserFiles) {
+		t.Fatal("browser deployment file set differs")
+	}
+	for i, file := range apiFiles {
+		if file.Path != browserFiles[i].Path || !bytes.Equal(file.Bytes(), browserFiles[i].Bytes()) {
+			t.Fatalf("browser deployment differs from the restricted API deployment: %s", file.Path)
+		}
+	}
+	// Browser sessions do not require a gRPC listener.
+	browser.ComponentConfig["network_peers"].([]any)[0].(map[string]any)["port"] = 9090
+	if _, _, err := new(Generator).Generate(browser); err == nil {
+		t.Fatal("browser gRPC ingress accepted")
 	}
 }

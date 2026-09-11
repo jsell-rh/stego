@@ -1,7 +1,8 @@
 # Kubernetes service deployment
 
 The `kubernetes-service` component supplies common service deployment files.
-It requires `health-check` and either `rest-api` or `http-application`. Bind
+It requires `health-check` and one of `rest-api`, `http-application`, or
+`browser-backend`. Bind
 `health-endpoint` to `health-check` in the archetype. Add
 `grpc-application` to expose its TLS listener. This version uses Go 1.26.8 and
 a pinned builder image. A different Go target fails validation.
@@ -246,3 +247,22 @@ for the pinned revision, including race tests and the vulnerability check.
 Full application CI is separate from the cluster result. The generated worker
 still uses one replica. Distributed exclusion and production capacity remain
 open work.
+
+Version 1.3.0 also accepts `browser-backend`. The common `browser-service`
+archetype includes this deployment component from version 1.1.0. It uses the
+same generated TLS listener, health routes, image, resource bounds, and Pod
+restrictions as an API service. It adds no gRPC listener. The browser service's
+name supplies separate ServiceAccount and Secret names.
+
+The application must declare browser ingress and the API, identity provider,
+session database, and telemetry collector peers. The API must also permit the
+browser backend's HTTPS traffic. A URL setting does not add a network rule.
+Browser OAuth and session key files use the existing file Secret mount. The
+common telemetry settings remain in the server environment; only public signal
+flags and a sample ratio are sent to the browser.
+
+The bounded jshell checks passed deployment tests under race detection in
+3.883 seconds and registry tests in 2.173 seconds. The browser test requires
+byte-identical restricted deployment output to the equivalent API declaration
+and rejects undeclared gRPC ingress. Application deployment and production key
+rotation remain separate gates.
