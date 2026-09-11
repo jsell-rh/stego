@@ -3013,3 +3013,22 @@ The [browser telemetry record](browser-telemetry.md) preserves failed attempts
 and the exact evidence. Common browser deployment configuration, application
 collector-failure checks, and the rendered Gateway workflow remain required.
 The served console is still the scaffold. The broader goal remains active.
+
+The rendered Gateway gate now passes. Hypershell `142b1d2` serves the real UI
+through the generated Go backend with compiler `a1a2ad9`. Three consecutive
+bounded cluster runs passed creation, grants, access, event delivery, REST,
+gRPC, reload, API and backend restart, renewal, sign-out, and collector failure.
+The UI's trace, log, and metric reach the collector. All 216 generation hashes
+match the checkout and a second generation pass. The UI passed 229 tests and
+its build checks. Full STEGO CI passed; the new Hypershell CI run is pending.
+
+The application exposed missing domain defaults and common renewal behavior.
+Hypershell owns explicit default catalog IDs. STEGO owns concurrent renewal
+waits and cleanup after cancellation. The failed and passing checks are in the
+[browser telemetry record](browser-telemetry.md). CI now requires the rendered
+workflow and compares the built UI with the served bundle.
+
+The broader goal remains active. The next deployment work must include the
+browser backend, its secrets, and the shared telemetry settings. Production
+credential rotation, a full accessibility check, remaining console workflows,
+and bounded capacity measurements remain required.

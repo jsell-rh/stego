@@ -86,3 +86,21 @@ tokens that were not saved. The test failed before this change (`check8`) and
 passed after it (`check9`). All generated browser backend race tests passed in
 11.760 seconds. A rendered run passed before this final fix (`check7`, 25.37
 seconds), but earlier runs failed. Repeated rendered checks remain required.
+
+Hypershell `142b1d2` now serves the captured React UI with compiler `a1a2ad9`.
+Three consecutive rendered Gateway runs passed in the jshell cluster: 27.02,
+25.27, and 24.88 seconds. The same workflow proves the creation IDs, atomic
+owner grant, access rules, event delivery, REST, gRPC, reload, API and browser
+backend restart, renewal, and provider sign-out. The UI's workflow and
+server spans form one trace. Its log and metric reach the TLS collector.
+During collector failure, all three browser exports fail within their bounds
+while Gateway access continues.
+
+All 216 hashes match two generation passes and the checkout. The input-manifest
+race check passed in 1.053 seconds. The pinned asset command reproduced the
+54-file, 852,497-byte bundle exactly. The generated browser packages match the
+UI build, which passed 229 tests, types, import rules, lint, and production
+build. Hypershell CI now requires the rendered workflow and bundle comparison.
+Full STEGO CI passed. The new Hypershell CI run is pending. The application
+record is `acceptance/web-console-port.md` in hypershell-stego. The broader
+production and enterprise goals remain open.
