@@ -51,7 +51,7 @@ The first bounded cluster check passed with race detection. Generated runtime
 tests took 2.546 seconds. The generator package took 58.511 seconds, including
 dependency setup and compilation. The check used PostgreSQL and an HTTPS OIDC
 fixture with signed tokens. It checked login, code replay, rejected identity
-claims, encrypted storage, denied API requests, restart, refresh across two
+claims, encrypted storage, denied API requests, backend instance replacement, refresh across two
 backend instances, and logout during refresh. Its Job completed. The source
 and result records are in `/tmp/stego-browser-runtime-73kjo8cp` on the test
 workstation. These results apply to that frozen source snapshot.
@@ -71,3 +71,12 @@ deployment, browser-enforced cookie checks, and measured capacity remain open.
 Static assets currently require cache revalidation. Streaming API responses
 and a complete browser UI are not delivered by this prototype. No Playwright
 or workstation load test is used.
+
+The second cluster Job also completed. Its application adoption check generated
+Hypershell twice and verified all 129 generated, state, and dependency hashes
+against the post-test output and checkout. The input-manifest race test passed
+in 1.053 seconds. Hypershell commit `cf21ebd` adopts the common transport
+correction. It does not select this browser component. Backend instance
+replacement in these tests is not an operating-system process restart test.
+Both test namespaces were removed. Cleanup was verified through the cluster
+API. No test workload from these checks remains in the cluster.

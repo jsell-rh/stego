@@ -2901,7 +2901,7 @@ browser workflows, and the broader production requirements remain open.
 The browser workflow has a common server-side session runtime under test in
 STEGO. The [browser backend record](browser-backend.md) states its current
 scope. Generated runtime tests passed with PostgreSQL and a signed-token HTTPS
-identity fixture. They cover restart, cross-instance refresh, logout races,
+identity fixture. They cover backend instance replacement, cross-instance refresh, logout races,
 request denial, encrypted storage, and public route handling. Service assembly
 with the common database, health, and telemetry code also compiles. The
 component remains outside the registry until it has real Hypershell workflow
@@ -2909,3 +2909,11 @@ evidence. The test work exposed a shared HTTP cache response error, corrected
 in the [HTTP client contract](http-cache-response.md). A complete browser UI,
 real Keycloak application acceptance, deployment, and production measurements
 remain open. The broader goal remains active.
+
+Hypershell `cf21ebd` adopts compiler `79c006c` for the common HTTP cache
+response correction. Two generation passes, the post-test output, and the
+checkout have the same 129 hashes. The input-manifest race test passed, and
+the bounded cluster Job completed. This adopts a transport correction. The
+browser component still needs the real application acceptance gate.
+Both browser test namespaces were removed, and cleanup was verified. Full CI
+for the new compiler and application revisions remains a separate check.

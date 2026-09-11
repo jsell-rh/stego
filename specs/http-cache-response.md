@@ -18,5 +18,11 @@ The bounded cluster check passed under race detection. The generated client
 package took 2.584 seconds. The generated browser runtime passed its proxy
 check as part of a 3.130-second runtime suite. Registry checks took 2.212
 seconds. Source and results are in `/tmp/stego-browser-runtime-gn_86o_n` on
-the test workstation. Application regeneration remains a separate check.
+the test workstation.
+
+Hypershell commit `cf21ebd` pins compiler `79c006c` and adopts the three
+component versions. Two cluster generation passes and the post-test output
+had the same 129 generated, state, and dependency hashes. The checkout
+matched them. The input-manifest race test passed in 1.053 seconds. The Job
+completed. Full CI for the new revisions remains a separate check.
 This change does not add automatic response caching.
