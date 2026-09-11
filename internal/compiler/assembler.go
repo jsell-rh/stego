@@ -223,10 +223,14 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 
 	if hasDB {
 		opener := databaseOpenExpression(input, imports, consumedWirings)
+		parent := "context.Background()"
+		if hasRoutes || hasTasks {
+			parent = "ctx"
+		}
 		if isGORM {
-			writeGORMDBSetup(&buf, opener)
+			writeGORMDBSetup(&buf, opener, parent)
 		} else {
-			writeDBSetup(&buf, opener)
+			writeDBSetup(&buf, opener, parent)
 		}
 
 		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
@@ -327,6 +331,8 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 	if hasDB {
 		extraStdlib["errors"] = true
+		extraStdlib["context"] = true
+		extraStdlib["time"] = true
 	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
@@ -508,7 +514,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 }
 
-func writeDBSetup(buf *bytes.Buffer, opener string) {
+func writeDBSetup(buf *bytes.Buffer, opener, parent string) {
 	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
@@ -523,9 +529,17 @@ func writeDBSetup(buf *bytes.Buffer, opener string) {
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdefer db.Close()\n\n")
+	writeDatabasePing(buf, "db", parent)
 }
 
-func writeGORMDBSetup(buf *bytes.Buffer, opener string) {
+func writeDatabasePing(buf *bytes.Buffer, handle, parent string) {
+	buf.WriteString("\tstegoStage = \"database.ping\"\n")
+	fmt.Fprintf(buf, "\t{\n\t\tctx, cancel := context.WithTimeout(%s, 5*time.Second)\n", parent)
+	fmt.Fprintf(buf, "\t\terr := %s.PingContext(ctx)\n", handle)
+	buf.WriteString("\t\tcancel()\n\t\tif err != nil { return err }\n\t}\n")
+}
+
+func writeGORMDBSetup(buf *bytes.Buffer, opener, parent string) {
 	buf.WriteString("\tstegoStage = \"database.configure\"\n")
 	buf.WriteString("\tdsn := os.Getenv(\"DATABASE_URL\")\n")
 	buf.WriteString("\tif dsn == \"\" {\n")
@@ -534,15 +548,16 @@ func writeGORMDBSetup(buf *bytes.Buffer, opener string) {
 	buf.WriteString("\tstegoStage = \"database.open\"\n")
 	if opener != "" {
 		fmt.Fprintf(buf, "\tsqlDB, err := %s\n\tif err != nil { return err }\n\tdefer sqlDB.Close()\n", opener)
-		buf.WriteString("\tdb, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard})\n")
+		buf.WriteString("\tdb, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})\n")
 	} else {
-		buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard})\n")
+		buf.WriteString("\tdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})\n")
 	}
 	buf.WriteString("\tif err != nil {\n")
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tstegoStage = \"database.handle\"\n")
 	if opener != "" {
+		writeDatabasePing(buf, "sqlDB", parent)
 		return
 	}
 	buf.WriteString("\tsqlDB, err := db.DB()\n")
@@ -550,6 +565,7 @@ func writeGORMDBSetup(buf *bytes.Buffer, opener string) {
 	buf.WriteString("\t\treturn err\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\tdefer sqlDB.Close()\n\n")
+	writeDatabasePing(buf, "sqlDB", parent)
 }
 
 // writePostDBCalls emits post-database-setup calls from consumed component
@@ -1771,6 +1787,9 @@ func validateSlotBindingUniqueness(bindings []types.SlotDeclaration) error {
 // "database/sql").
 func stdlibAliases(hasRoutes, hasTasks, hasDB, isGORM bool, extraStdlib map[string]bool) []string {
 	var names []string
+	if hasDB {
+		names = append(names, "context", "time")
+	}
 	if hasDB && !isGORM {
 		names = append(names, "sql")
 	}

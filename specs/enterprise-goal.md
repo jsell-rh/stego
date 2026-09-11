@@ -2799,3 +2799,9 @@ through the HTTPS client. Account lifecycle tests must prove creation, later
 reads without secrets, denied access, restart, revocation time, and deletion.
 The application supplies no nullable-field serializer. The broader SDK and
 enterprise requirements remain open.
+
+The [database startup contract](database-startup.md) requires bounded pool
+connections and a bounded generated startup ping. The Gateway test supplies
+stalled authentication and stalled query endpoints, then checks recovery against
+the real database. Shared behavior belongs to the adapter and assembler.
+Database TLS policy and the wider production runtime gate remain open.

@@ -2,12 +2,121 @@ package storage
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
+	"net"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+type connectionProbe struct {
+	connect func(context.Context) (driver.Conn, error)
+}
+
+func (p connectionProbe) Connect(ctx context.Context) (driver.Conn, error) { return p.connect(ctx) }
+func (connectionProbe) Driver() driver.Driver                              { return nil }
+
+type lateConnection struct{ closed bool }
+
+func (c *lateConnection) Close() error                      { c.closed = true; return nil }
+func (*lateConnection) Prepare(string) (driver.Stmt, error) { return nil, errors.New("unused") }
+func (*lateConnection) Begin() (driver.Tx, error)           { return nil, errors.New("unused") }
+
+func TestConnectionBudgetKeepsCallerContext(t *testing.T) {
+	type key struct{}
+	parent := context.WithValue(context.Background(), key{}, "caller")
+	probe := databaseConnector{Connector: connectionProbe{connect: func(ctx context.Context) (driver.Conn, error) {
+		deadline, ok := ctx.Deadline()
+		left := time.Until(deadline)
+		if !ok || left <= 0 || left > 5*time.Second || ctx.Value(key{}) != "caller" {
+			t.Fatal("connection lost its bounded caller context")
+		}
+		return nil, errors.New("test connection failure")
+	}}}
+	probe.Connect(parent)
+	short, cancel := context.WithTimeout(parent, 30*time.Millisecond)
+	defer cancel()
+	probe.Connector = connectionProbe{connect: func(ctx context.Context) (driver.Conn, error) {
+		deadline, _ := ctx.Deadline()
+		want, _ := short.Deadline()
+		if !deadline.Equal(want) {
+			t.Fatal("connection extended the caller deadline")
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	if _, err := probe.Connect(short); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("connection lost the caller deadline error", err)
+	}
+	canceled, stop := context.WithCancel(parent)
+	stop()
+	late := new(lateConnection)
+	probe.Connector = connectionProbe{connect: func(context.Context) (driver.Conn, error) { return late, nil }}
+	if conn, err := probe.Connect(canceled); conn != nil || !errors.Is(err, context.Canceled) || !late.closed {
+		t.Fatal("connection completed after cancellation without being closed", err)
+	}
+}
+
+func TestConnectionDeadlineStopsStalledAuthentication(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	defer func() {
+		listener.Close()
+		<-done
+		select {
+		case conn := <-accepted:
+			conn.Close()
+		default:
+		}
+	}()
+	pool, err := OpenDatabase("postgres://test:test@" + listener.Addr().String() + "/test?sslmode=disable&connect_timeout=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	started := time.Now()
+	err = pool.PingContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil || time.Since(started) > 7*time.Second {
+		t.Fatal("stalled authentication exceeded the common connection budget", err)
+	}
+}
+
+func TestConnectionBudgetDoesNotExpireTheSession(t *testing.T) {
+	pool, err := OpenDatabase(poolTestDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SELECT pg_sleep(5.1)"); err != nil {
+		t.Fatal("connection budget limited an established session", err)
+	}
+	if err := conn.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
 
 var poolVariables = []string{"STEGO_DATABASE_MAX_OPEN_CONNECTIONS", "STEGO_DATABASE_MAX_IDLE_CONNECTIONS", "STEGO_DATABASE_CONNECTION_MAX_LIFETIME", "STEGO_DATABASE_CONNECTION_MAX_IDLE_TIME"}
 

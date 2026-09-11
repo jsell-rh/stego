@@ -312,6 +312,8 @@ var reservedTypeNames = map[string]bool{
 	"sync":                        true,
 	"NewStore":                    true,
 	"OpenDatabase":                true,
+	"databaseConnector":           true,
+	"driver":                      true,
 	"databasePoolSettings":        true,
 	"readDatabasePoolSettings":    true,
 	"databasePoolInteger":         true,

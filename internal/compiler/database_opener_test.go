@@ -74,9 +74,17 @@ func TestDatabaseOpenerUsesRenamedImport(t *testing.T) {
 	}
 }
 
-func TestDatabasePoolClosesOnGORMStartupFailure(t *testing.T) {
+func TestDatabasePoolClosesOnStartupFailure(t *testing.T) {
+	for _, backend := range []string{"sql", "gorm"} {
+		t.Run(backend, func(t *testing.T) { testDatabaseStartupFailure(t, backend) })
+	}
+}
+
+func testDatabaseStartupFailure(t *testing.T, backend string) {
 	w := databaseOpenerFixture()
-	w.DBBackend = "gorm"
+	if backend == "gorm" {
+		w.DBBackend = "gorm"
+	}
 	w.Imports = []string{"internal/postgres"}
 	w.Constructors = []string{"postgres.NewStore(db)"}
 	w.DatabaseOpener.Namespace = "internal/postgres"
@@ -86,8 +94,8 @@ func TestDatabasePoolClosesOnGORMStartupFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, gen.File{Path: "internal/postgres/store.go", Content: []byte(`package postgres
-import("context";"database/sql";"database/sql/driver";"errors";"net/http";"os";"gorm.io/gorm")
+	storeSource := `package postgres
+import("context";"database/sql";"database/sql/driver";"errors";"net/http";"os";"time";"gorm.io/gorm")
 type Store struct{}
 func NewStore(*gorm.DB)*Store{return &Store{}}
 func(*Store)ServeHTTP(http.ResponseWriter,*http.Request){}
@@ -100,9 +108,18 @@ func(drv)Open(string)(driver.Conn,error){return connection{},nil}
 type connection struct{}
 func(connection)Prepare(string)(driver.Stmt,error){return nil,errors.New("unused")}
 func(connection)Begin()(driver.Tx,error){return nil,errors.New("unused")}
-func(connection)Ping(context.Context)error{return errors.New("private-ping-failure")}
+func(connection)Ping(ctx context.Context)error{
+ deadline,ok:=ctx.Deadline()
+ if ok&&time.Until(deadline)>0&&time.Until(deadline)<=5*time.Second{os.WriteFile(os.Getenv("POOL_PING_DEADLINE"),[]byte("bounded"),0600)}
+ return errors.New("private-ping-failure")
+}
 func(connection)Close()error{return os.WriteFile(os.Getenv("POOL_CLOSED"),[]byte("closed"),0600)}
-`)})
+`
+	if backend == "sql" {
+		storeSource = strings.ReplaceAll(storeSource, `;"gorm.io/gorm"`, "")
+		storeSource = strings.ReplaceAll(storeSource, "*gorm.DB", "*sql.DB")
+	}
+	files = append(files, gen.File{Path: "internal/postgres/store.go", Content: []byte(storeSource)})
 	project := t.TempDir()
 	for _, file := range files {
 		name := filepath.Join(project, file.Path)
@@ -125,16 +142,20 @@ func(connection)Close()error{return os.WriteFile(os.Getenv("POOL_CLOSED"),[]byte
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	marker := filepath.Join(project, "closed")
+	deadlineMarker := filepath.Join(project, "ping-deadline")
 	command := exec.CommandContext(ctx, binary)
-	command.Env = append(os.Environ(), "DATABASE_URL=private-database-url", "POOL_CLOSED="+marker, "GORACE=atexit_sleep_ms=0")
+	command.Env = append(os.Environ(), "DATABASE_URL=private-database-url", "POOL_CLOSED="+marker, "POOL_PING_DEADLINE="+deadlineMarker, "GORACE=atexit_sleep_ms=0")
 	output, err := command.CombinedOutput()
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || ctx.Err() != nil {
 		t.Fatal("database failure did not stop the process", err)
 	}
-	if strings.Contains(string(output), "private-") || !strings.Contains(string(output), "database.open") {
+	if strings.Contains(string(output), "private-") || !strings.Contains(string(output), "database.ping") {
 		t.Fatal("database failure record is unsafe or missing")
 	}
 	if data, err := os.ReadFile(marker); err != nil || string(data) != "closed" {
 		t.Fatal("database pool was not closed", err)
+	}
+	if data, err := os.ReadFile(deadlineMarker); err != nil || string(data) != "bounded" {
+		t.Fatal("database startup ping had no deadline", err)
 	}
 }

@@ -9,7 +9,8 @@ The process boundary now writes one JSON record to stderr with these fields:
 - `tasks`: sorted generated task names, when background tasks failed.
 - `aborted_tasks`: sorted task names for callbacks that did not return, when present.
 
-Database stages are `database.configure`, `database.open`, and `database.handle`.
+Database stages are `database.configure`, `database.open`, `database.handle`, and `database.ping`.
+The ping stage has a five-second deadline and inherits process cancellation.
 Component stages use `component[i].constructor[j]` or `component[i].database[j]`.
 The indices refer to the assembly order and the constructor or database call in
 that component. The generated main file shows the exact call after each stage

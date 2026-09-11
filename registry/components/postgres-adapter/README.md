@@ -50,3 +50,9 @@ It limits open and idle connections and sets finite connection lifetime and
 idle time. Deployment settings can change these bounds. Invalid settings stop
 pool creation. See the [pool contract](../../../specs/database-pool-bounds.md)
 for defaults, limits, ownership, and acceptance requirements.
+
+Version 3.16.0 bounds each pool connection operation to five seconds. The limit
+includes host fallbacks and preserves a shorter caller deadline. It does not
+limit an established session. Generated startup also uses a five-second ping
+before migrations, constructors, tasks, or listeners. See the
+[database startup contract](../../../specs/database-startup.md).
