@@ -3178,3 +3178,58 @@ small test to 15 seconds. New full application CI remains a separate check.
 STEGO CI for `b4f4c13` passed. The broader compiler and enterprise goal remains
 active, including complete provisioning, production rotation and capacity,
 accessibility, and the remaining C1–C7 requirements.
+
+Compiler `08fb8f9` now generates common RPC process assembly. Applications supply
+an `Open` factory and a domain service with registration and cleanup methods.
+STEGO owns signals, JWT verification, TLS transport, stream identity expiry,
+telemetry, startup bounds, and shutdown bounds. Private callback errors and panic
+values do not enter the final failure event. The factory declaration is a
+captured compiler input, with signature and package checks before output changes.
+
+The standalone `grpc-processes` component and `rpc-service` archetype have no
+storage-adapter requirement. They share the protobuf compiler and runtime with
+`grpc-application`. The independent Records service proved TLS and JWT requests,
+denied access, stream expiry, restart, cleanup, and correlated OTEL logs, traces,
+and metrics. It started no database. Callback error, panic, `runtime.Goexit`,
+startup timeout, and cleanup timeout checks passed. Its command-level test
+passed validate, apply, dependency resolution, repeated apply, drift, and a full
+project build. Invalid factory code preserved existing output and state.
+
+That command-level check exposed a real extension gap: a domain package could
+not import the built-in verifier's Go internal package. The public
+`process.IdentityFromContext` contract now supplies verified claims without that
+package-layout dependency. The final generated-process check passed in 21.91
+seconds, including the 11.31-second subprocess test. The command check passed
+in 5.55 seconds. Full compiler CI passed for `08fb8f9`. See
+[RPC processes](grpc-processes.md) for the bounds, source snapshots, and results.
+
+Hypershell `61f0bbc` removes its handwritten provisioner entry point and uses
+`out/grpcapi/processes/provisioner`. It retains Keycloak configuration, account
+rules, caller policy, and service registration. The generated process passed
+the complete rendered Gateway and account workflow in 148.48 seconds. Its
+race-enabled package passed in 149.530 seconds. Contract checks passed in
+1.055 seconds. All 221 generated, state, and dependency hashes match two
+generations, the post-test output, and the checkout. The factory source is one
+of 28 recorded project inputs. API and console image digests stayed unchanged.
+The Job reached `Complete`, and the screenshot after account deletion was
+reviewed. All test namespaces were removed and their absence was verified.
+The [application record](https://github.com/jsell-rh/hypershell-stego/blob/61f0bbc/acceptance/rpc-process.md)
+contains the exact scope, images, source, limits, and failed attempts.
+
+The first application attempt found a stale copied component schema. The second
+found that the input-inventory test did not include declared RPC factories.
+Both checks failed before an application runtime pass was claimed. The local
+schema now matches the compiler. The inventory test still requires an exact
+match and verifies all input hashes and modes.
+
+The prior application CI run for `f8b65f5` failed when a Chromium tab crashed
+during the Gateway check. It did not reach the account steps. All other jobs
+passed. Its cause is not established. Hypershell `f39b723` adds bounded resource
+counters before browser cleanup; it is a diagnostic change, not a verified fix.
+New full application CI remains required.
+
+The broader goal remains active. The next common process work is a generated
+RPC Deployment and health probes. The current provisioner runs in the test Job,
+while the API and console run as generated Deployments. Complete Gateway
+provisioning through the console, production certificate rotation, capacity,
+accessibility, and the remaining C1–C7 requirements remain open.
