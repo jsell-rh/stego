@@ -71,10 +71,13 @@ collector, local HTTP completion logs remain active. An unavailable collector
 must not prevent an API call. HTTP telemetry covers the exchange and body read;
 it does not yet measure the complete SDK serialization and decoding operation.
 
-The generated API follows the supplied OpenAPI contract. It does not promise
-source compatibility with another SDK generator. Fluent builders, resource
-groups, automatic pagination, token refresh, streaming APIs, and TypeScript SDK
-output remain outside this first component. Server validation remains required.
+The generated API follows the supplied OpenAPI contract. On 2026-09-11, the
+user selected the new typed API with explicit contexts and a bounded HTTPS
+client. Preserve HTTP contracts and behavior. Compatibility with the old SDK's
+fluent builder API is not required. Existing callers must adopt the typed API.
+Resource groups, automatic pagination, token refresh, streaming APIs, and
+TypeScript SDK output remain outside this first component. Server validation
+remains required.
 The Hypershell variant must test typed Gateway operations, access rules, atomic
 writes, events, restart, and trace correlation before this slice is accepted.
 

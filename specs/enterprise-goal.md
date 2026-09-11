@@ -2789,8 +2789,10 @@ and application evidence is required; the wider runtime goal remains open.
 
 The [Go SDK contract](go-sdk.md) adds typed client generation from captured
 OpenAPI files. Hypershell supplies its contract; STEGO supplies the HTTPS client
-and shared telemetry. Source compatibility with the old fluent SDK, automatic
-pagination, TypeScript clients, and browser workflows remain open.
+and shared telemetry. The user selected the new typed API on 2026-09-11.
+Preserve HTTP contracts and behavior; compatibility with the old fluent SDK is
+not required. Automatic pagination, TypeScript clients, and browser workflows
+remain open.
 
 The Go SDK contract also requires nullable field states to survive generation.
 Hypershell service-account descriptions permit both omission and explicit null.
