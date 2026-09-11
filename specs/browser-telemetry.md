@@ -70,3 +70,11 @@ Node runtime tests and the strict TypeScript check (package: 8.713 seconds).
 The generated PostgreSQL browser backend checks passed (65.328 seconds), as
 did the generated Go telemetry checks with the race detector (101.211 seconds).
 The rendered application gate is still open.
+
+The rendered application found a session-renewal race. A page request could
+receive `503` while a concurrent session read renewed the token. The backend
+now waits for that renewal, with a two-second deadline and caller cancellation.
+It keeps the single-owner refresh claim and does not repeat an uncertain token
+exchange. The PostgreSQL race checks passed across two backend instances,
+including the deadline, cancellation, and sign-out cases. The check is
+`check5` in `/tmp/stego-rendered-8ff4d600` (generated runtime: 10.41 seconds).

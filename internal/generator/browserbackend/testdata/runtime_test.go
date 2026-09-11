@@ -172,14 +172,26 @@ func TestRefreshAcrossInstances(t *testing.T) {
 		close(release)
 		t.Fatal("refresh did not start")
 	}
-	w := send(b2, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
-	require(t, w.Code == 503 && w.Header().Get("Retry-After") == "1", "second instance did not wait for refresh")
+	second := make(chan *httptest.ResponseRecorder, 1)
+	go func() { second <- send(b2, "GET", "/auth/session", "", []*http.Cookie{active}, nil) }()
+	select {
+	case <-second:
+		t.Fatal("second instance did not wait for refresh")
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(release)
+	var w *httptest.ResponseRecorder
 	select {
 	case w = <-result:
 		require(t, w.Code == 200, "refresh failed")
 	case <-time.After(5 * time.Second):
 		t.Fatal("refresh did not finish")
+	}
+	select {
+	case w = <-second:
+		require(t, w.Code == 200, "waiting instance lost its session")
+	case <-time.After(3 * time.Second):
+		t.Fatal("waiting instance did not finish")
 	}
 	w = send(b2, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
 	require(t, w.Code == 201, "refreshed session unavailable to second instance")
@@ -546,4 +558,27 @@ func TestPublicRuntimeMetadata(t *testing.T) {
 	require(t, strings.Contains(after.Body.String(), `name="stego-runtime-config"`), "runtime metadata missing")
 	require(t, strings.Contains(after.Body.String(), `&#34;traces&#34;:false`), "missing collector did not disable browser export")
 	require(t, after.Header().Get("Content-Security-Policy") == before.Header().Get("Content-Security-Policy"), "metadata changed script policy")
+}
+
+func TestRefreshWaitHasDeadlineAndCancellation(t *testing.T) {
+	f := setup(t)
+	active, _ := login(t, f)
+	expireAccess(t, f, active)
+	if _, err := f.backend.store.claimRefresh(context.Background(), active.Value); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	response := send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)
+	require(t, response.Code == 503 && response.Header().Get("Retry-After") == "1", "stalled refresh did not report temporary unavailability")
+	require(t, time.Since(started) < 3*time.Second, "refresh wait exceeded its deadline")
+	require(t, len(response.Result().Cookies()) == 0, "refresh wait removed the session cookie")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	started = time.Now()
+	if _, err := f.backend.active(ctx, active.Value); err == nil {
+		t.Fatal("cancelled waiter succeeded")
+	}
+	require(t, time.Since(started) < time.Second, "cancelled waiter remained active")
+	_, refreshes, _ := f.oidc.counts()
+	require(t, refreshes == 0, "waiter used a refresh token")
 }

@@ -102,3 +102,9 @@ The backend inserts this metadata with the active runtime's public signal
 settings. Collector addresses and credentials are not included. The metadata
 is HTML-escaped data. It does not require an inline script or a change to the
 script policy. The response ETag includes the settings.
+
+Concurrent requests wait for an active token renewal across backend instances.
+The wait has a two-second deadline and uses the caller's cancellation signal.
+Only the request that claims the stored session can renew its token. A stalled
+renewal returns temporary unavailability and keeps the session cookie. A lost
+or uncertain renewal still requires a new login. Sign-out takes precedence.
