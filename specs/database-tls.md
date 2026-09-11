@@ -2,6 +2,9 @@ The generated PostgreSQL adapter requires verified TLS by default. This policy
 belongs to STEGO. Applications supply the database address and trust roots.
 They do not supply a transport wrapper.
 
+On 2026-09-11, the user approved verified TLS by default with the explicit
+loopback test exception below. This is the accepted transport policy.
+
 Set `sslmode=verify-full` in the connection string. Supply `sslrootcert` when the
 database uses a private certificate authority. The client checks the trust chain
 and server name. It requires TLS 1.2 or later. The policy checks every configured
