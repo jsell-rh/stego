@@ -3088,3 +3088,46 @@ measurements remain required. This gate proves Gateway creation and retrieval;
 it does not prove that the Gateway workload has finished provisioning. Common
 production controls must remain in STEGO and must be checked through the same
 application workflow as they are added.
+
+Compiler `0f52bab` adds common browser session-key rotation. The existing
+single-key file remains valid. A strict key ring accepts one to three distinct
+256-bit keys. The first key encrypts new records; retained keys read existing
+records. The ciphertext format and cookie binding stay unchanged. The runtime
+reads keys at startup. Planned rotation first adds the next read key to every
+instance, then changes the write key. Key removal must account for the fixed
+session lifetime. See [the runtime contract](browser-backend.md).
+
+The common generated runtime tests passed under race detection in 6.935 seconds.
+They covered old ciphertext, mixed writers, a third read key, key removal,
+invalid files, tampering, expiry, backend replacement, and logout during refresh.
+Compiler CI passed for `0f52bab`. The earlier application CI run for browser
+certificate fix `727fe70` also passed.
+
+Hypershell `82c445a` adopts this compiler and proves the key changes through the
+rendered Gateway workflow. The final application test passed in 137.02 seconds;
+its race-enabled package passed in 138.061 seconds. The contract and input
+manifest checks passed in 1.056 seconds. The API Pod was replaced once and the
+console Pod was replaced at both key stages. Existing sessions, Gateway access,
+renewal, collector failure, and confirmed console and provider sign-out passed.
+All 219 generated, state, and dependency hashes match two generation passes,
+the post-test check, and the checkout. Three builds produced the same images.
+The [application record](https://github.com/jsell-rh/hypershell-stego/blob/82c445a/acceptance/console-deployment.md)
+contains the image digests, screenshots, limits, and failed attempts.
+
+The first attempt failed at a Kubernetes write during API replacement. Its
+exact cause was not retained and remains unknown. Safe resource diagnostics
+were added; the failure did not recur in the next two runs. The second attempt
+found an error in the added test: it expected collector failure while the
+collector was healthy. The corrected step checks a normal page reload.
+Hung read-only oc observation streams also led to an explicit process timeout.
+No test result was inferred from a lost observation connection. The final Job
+reached `Complete`. All four test namespaces were removed, and removal was
+verified. Full CI for the new application revision is a separate check.
+
+The broader goal remains active. This gate does not prove uninterrupted service
+through replacement, live removal of a key after the one-hour retention period,
+public ingress, TLS certificate rotation, or complete Gateway provisioning.
+Production capacity and aggregate per-key encryption budgets still need work.
+The runtime does not enforce the AES-GCM lifetime write limit across instances.
+These limits must remain visible while the next application tests guide common
+STEGO changes.

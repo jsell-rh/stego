@@ -42,6 +42,14 @@ The single-key format permits surrounding white space. Each key inside JSON
 must contain only canonical base64. The runtime reads the file at startup;
 a file update does not change keys in a running process.
 
+Rotate each write key before it encrypts 2^32 records across all instances.
+Count login records, session creation, and completed refresh writes together.
+This is the standard AES-GCM random-nonce limit; the record capacity limit does
+not count writes over time. The runtime does not enforce a shared lifetime
+write count. Set the rotation interval from the total write rate and include
+an operating margin. A measured capacity and key-use budget remain required
+for production operation.
+
 Use these steps for a planned rotation:
 
 1. Deploy the new runtime to all instances with `[old, new]`. Keep the old key
