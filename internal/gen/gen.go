@@ -269,7 +269,8 @@ type Wiring struct {
 	HTTPErrorLogger *int
 
 	// DatabaseOpener selects a generated function with signature
-	// func(string) (*sql.DB, error). The argument is DATABASE_URL. The
+	// func(string) (*sql.DB, error). The argument is the resolved database URL.
+	// The process reads DATABASE_URL or DATABASE_URL_FILE before this call. The
 	// generated main owns the returned pool. Only one component can supply it.
 	DatabaseOpener *DatabaseOpenerSpec
 

@@ -79,3 +79,10 @@ in 63.512 seconds. This also checked real TLS connections and credential handlin
 with SCRAM authentication. Compiler `b58fcafc659ab8baa3a4c92a0e9c1c3ed1b4d26d`
 passed [full CI run 34614908829](https://github.com/jsell-rh/stego/actions/runs/34614908829).
 The later CI fixture change requires its own full run.
+
+Compiler `97343088ab72743bbc8fd8a6695e379d16c6e183` subsequently passed
+[full CI run 34615392503](https://github.com/jsell-rh/stego/actions/runs/34615392503)
+with SCRAM authentication. Two fresh compiler builds produced identical
+Hypershell output. All ten pinned application race checks passed in 63.032
+seconds, including the mounted-file workflow and credential change. The wider
+deployment and enterprise requirements remain open.
