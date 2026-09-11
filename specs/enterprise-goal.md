@@ -2805,3 +2805,10 @@ connections and a bounded generated startup ping. The Gateway test supplies
 stalled authentication and stalled query endpoints, then checks recovery against
 the real database. Shared behavior belongs to the adapter and assembler.
 Database TLS policy and the wider production runtime gate remain open.
+
+The [database TLS contract](database-tls.md) requires verified server identity
+for the generated service pool and its event listener. An explicit test setting
+permits plaintext only to literal loopback IP addresses. Hypershell verifies
+Gateway creation, the owner grant, event delivery, access, and restart against
+native PostgreSQL TLS. Strict DSN controls and the wider runtime gate remain
+open. The compiler and application require separate test results.

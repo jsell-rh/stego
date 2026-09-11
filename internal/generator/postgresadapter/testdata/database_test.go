@@ -13,11 +13,12 @@ import (
 )
 
 func TestDatabaseConfigurationDoesNotReadSettingsFromCredentials(t *testing.T) {
+	t.Setenv("STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK", "1")
 	t.Setenv("PGTZ", "")
 	t.Setenv("PGSERVICE", "")
 	for _, dsn := range []string{
-		"postgres://user:TimeZone%3DEurope%2FParis@localhost/db?sslmode=disable",
-		"host=localhost user=user password='TimeZone=Europe/Paris' dbname=db sslmode=disable",
+		"postgres://user:TimeZone%3DEurope%2FParis@127.0.0.1/db?sslmode=disable",
+		"host=127.0.0.1 user=user password='TimeZone=Europe/Paris' dbname=db sslmode=disable",
 	} {
 		config, err := databaseConfiguration(dsn)
 		if err != nil || config.Password != "TimeZone=Europe/Paris" {
@@ -29,7 +30,7 @@ func TestDatabaseConfigurationDoesNotReadSettingsFromCredentials(t *testing.T) {
 			}
 		}
 	}
-	config, err := databaseConfiguration("postgres://user:secret@localhost/db?sslmode=disable&TimeZone=UTC")
+	config, err := databaseConfiguration("postgres://user:secret@127.0.0.1/db?sslmode=disable&TimeZone=UTC")
 	if err != nil || config.RuntimeParams["TimeZone"] != "UTC" {
 		t.Fatal("explicit database setting was lost", err)
 	}

@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+env:
+  # CI uses the runner's loopback address for its database fixture.
+  STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+
 permissions:
   contents: read
 

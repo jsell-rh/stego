@@ -117,6 +117,11 @@ Other Go environment settings, including private module and proxy settings,
 remain in effect. Plan and apply do not resolve or download dependencies.
 These checks do not replace application tests or dependency security review.
 
+Adapter version 4 requires verified database TLS by default. Configure
+`sslmode=verify-full` and a trusted server certificate. The
+[database TLS contract](specs/database-tls.md) describes private trust roots,
+host fallbacks, and the explicit loopback test exception.
+
 The PostgreSQL adapter prepares model metadata before concurrent work starts.
 This step does not read or change database tables. It also runs when migrations
 are external. Adapter version 3 changes `NewStore(db)` to return `(*Store, error)`.

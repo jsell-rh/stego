@@ -24,6 +24,9 @@ var databaseTests []byte
 //go:embed testdata/database_pool_test.go
 var databasePoolTests []byte
 
+//go:embed testdata/database_tls_test.go
+var databaseTLSTests []byte
+
 func TestGeneratedDatabaseDriver(t *testing.T)               { testDatabaseModule(t, true) }
 func TestGeneratedDatabasePoolWithoutTelemetry(t *testing.T) { testDatabaseModule(t, false) }
 
@@ -39,7 +42,7 @@ func testDatabaseModule(t *testing.T, traced bool) {
 		t.Fatal(err)
 	}
 	project := t.TempDir()
-	files := []gen.File{file, {Path: "storage/database_pool_test.go", Content: databasePoolTests}, {Path: "tracing/tracing.go", Content: []byte(`package tracing
+	files := []gen.File{file, {Path: "storage/database_tls_test.go", Content: databaseTLSTests}, {Path: "storage/database_pool_test.go", Content: databasePoolTests}, {Path: "tracing/tracing.go", Content: []byte(`package tracing
 import("context";"sync")
 type Key struct{}
 type Record struct { Call, Outcome string; Value any }
@@ -68,7 +71,7 @@ func TraceDatabase(ctx context.Context,call string)(context.Context,func(string)
 	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-timeout=60s", "./..."}} {
 		command := exec.Command("go", args...)
 		command.Dir = project
-		command.Env = append(os.Environ(), "GOWORK=off")
+		command.Env = append(os.Environ(), "GOWORK=off", "STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK=1")
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("database driver: %v %s", err, output)
 		}
