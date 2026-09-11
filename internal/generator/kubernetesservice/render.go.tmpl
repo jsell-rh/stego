@@ -2,7 +2,7 @@ package main
 
 import (
  "bytes"
- _ "embed"
+ "embed"
  "flag"
  "fmt"
  "io"
@@ -13,14 +13,15 @@ import (
  "text/template"
 )
 
-//go:embed manifest.json.tmpl
-var manifest string
+//go:embed *.json.tmpl
+var manifests embed.FS
 
 func render(args []string, output io.Writer) error {
  flags:=flag.NewFlagSet("render",flag.ContinueOnError)
  flags.SetOutput(io.Discard)
  image:=flags.String("image","","Image with an explicit registry and SHA-256 digest")
  namespace:=flags.String("namespace","","Existing target namespace")
+ worker:=flags.String("worker","","Declared controller worker")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
  if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
  imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
@@ -30,7 +31,10 @@ func render(args []string, output io.Writer) error {
  if len(host)>253 || (host!="localhost"&&!strings.Contains(host,".")&&!hasPort){return fmt.Errorf("image requires an explicit registry")}
  for _,part:=range strings.Split(host,"."){if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(part){return fmt.Errorf("invalid image registry")}}
  if hasPort{number,err:=strconv.Atoi(port);if err!=nil||number<1||number>65535{return fmt.Errorf("invalid registry port")}}
- tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(manifest);if err!=nil{return fmt.Errorf("invalid generated deployment")}
+ name:="manifest.json.tmpl"
+ if *worker!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*worker){return fmt.Errorf("invalid worker")};name="worker-"+*worker+".json.tmpl"}
+ manifest,err:=manifests.ReadFile(name);if err!=nil{return fmt.Errorf("unknown worker")}
+ tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
  _,err=output.Write(append(result.Bytes(),'\n'));return err

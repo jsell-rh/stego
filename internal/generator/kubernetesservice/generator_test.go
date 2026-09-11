@@ -46,7 +46,7 @@ func TestDeploymentValidation(t *testing.T) {
 }
 
 func TestGeneratedDeploymentRenderer(t *testing.T) {
-	ctx := serviceContext()
+	ctx := workerContext()
 	files, _, err := (&Generator{}).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -71,20 +71,48 @@ func TestGeneratedDeploymentRenderer(t *testing.T) {
 			t.Fatal("unbounded build context")
 		}
 	}
+	for name, source := range ctx.Inputs {
+		target := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(target, source, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtimePath := filepath.Join(dir, "out/controller")
+	if err := os.MkdirAll(runtimePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimePath, "process.go"), []byte("package controller\nimport \"context\"\ntype Metrics struct{}\nfunc Main(func(context.Context,*Metrics)error){}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	check := `package main
 import("bytes";"encoding/json";"strings";"testing")
 func TestRenderedPolicy(t *testing.T){
  args:=[]string{"--image","registry.example.test/team/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","10001"}
  var output bytes.Buffer;if err:=render(args,&output);err!=nil{t.Fatal(err)}
  var doc struct{Items []map[string]any};if err:=json.Unmarshal(output.Bytes(),&doc);err!=nil{t.Fatal(err)};if len(doc.Items)!=4{t.Fatal("resource set differs")}
- deployment:=doc.Items[1];spec:=deployment["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+ var deployment map[string]any;for _,item:=range doc.Items{if item["kind"]=="Deployment"{deployment=item}}
+ if doc.Items[1]["kind"]!="NetworkPolicy"{t.Fatal("policy must precede deployment")}
+ spec:=deployment["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
  if spec["automountServiceAccountToken"]!=false{t.Fatal("token mounted")};security:=spec["securityContext"].(map[string]any);if security["runAsNonRoot"]!=true||security["fsGroup"]!=float64(10001){t.Fatal("pod security differs")}
  c:=spec["containers"].([]any)[0].(map[string]any);if c["securityContext"].(map[string]any)["readOnlyRootFilesystem"]!=true{t.Fatal("writable root")}
  for _,name:=range []string{"startupProbe","livenessProbe","readinessProbe"}{if c[name].(map[string]any)["httpGet"].(map[string]any)["scheme"]!="HTTPS"{t.Fatal("plaintext probe")}}
- for _,args:=range [][]string{nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
+ output.Reset();if err:=render(append(args,"--worker","queue"),&output);err!=nil{t.Fatal(err)}
+ if err:=json.Unmarshal(output.Bytes(),&doc);err!=nil{t.Fatal(err)};if len(doc.Items)!=3{t.Fatal("worker resource set differs")}
+ for _,item:=range doc.Items{switch item["kind"]{
+ case "Deployment":
+  spec:=item["spec"].(map[string]any);if spec["replicas"]!=float64(1)||spec["strategy"].(map[string]any)["type"]!="Recreate"{t.Fatal("worker overlap")}
+  pod:=spec["template"].(map[string]any)["spec"].(map[string]any);if pod["automountServiceAccountToken"]!=false{t.Fatal("worker token mount")}
+  c:=pod["containers"].([]any)[0].(map[string]any);if _,exists:=c["ports"];exists{t.Fatal("worker has an ingress port")}
+  command:=c["readinessProbe"].(map[string]any)["exec"].(map[string]any)["command"].([]any);if len(command)!=2||command[0]!="/worker"||command[1]!="--stego-probe=ready"{t.Fatal("wrong worker probe")}
+ case "NetworkPolicy":if len(item["spec"].(map[string]any)["ingress"].([]any))!=0{t.Fatal("worker ingress permitted")}
+ }}
+ for _,args:=range [][]string{append(args,"--worker","missing"),append(args,"--worker","../queue"),nil,{"--image","widget:latest","--namespace","test"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","../bad"},{"--image","registry.test/widget@sha256:"+strings.Repeat("a",64),"--namespace","test","--fs-group","0"}}{output.Reset();if err:=render(args,&output);err==nil||output.Len()!=0{t.Fatal("invalid input emitted output")}}
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/deployment\n\ngo 1.26.8\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check), 0644); err != nil {
@@ -95,5 +123,57 @@ func TestRenderedPolicy(t *testing.T){
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("generated deployment: %v\n%s", err, output)
+	}
+}
+
+func workerContext() gen.Context {
+	c := serviceContext()
+	c.PeerNamespaces["controller"] = "controller"
+	c.ComponentConfig["workers"] = []any{map[string]any{"name": "queue", "package": "internal/task", "function": "Run"}}
+	c.Inputs = map[string][]byte{"internal/task/worker.go": []byte(`package task
+import("context"; engine "example.com/widget/out/controller")
+func Run(ctx context.Context, metrics *engine.Metrics) error { return nil }
+`)}
+	return c
+}
+
+func TestWorkerValidation(t *testing.T) {
+	cases := map[string]func(*gen.Context, map[string]any){
+		"missing source":    func(c *gen.Context, w map[string]any) { c.Inputs = nil },
+		"missing component": func(c *gen.Context, w map[string]any) { delete(c.PeerNamespaces, "controller") },
+		"name collision":    func(c *gen.Context, w map[string]any) { c.ComponentConfig["workers"] = []any{w, w} },
+		"long name":         func(c *gen.Context, w map[string]any) { w["name"] = strings.Repeat("a", 50) },
+		"traversal":         func(c *gen.Context, w map[string]any) { w["package"] = "internal/../escape" },
+		"generated source":  func(c *gen.Context, w map[string]any) { w["package"] = "out/source" },
+		"undeclared source": func(c *gen.Context, w map[string]any) { w["package"] = "outside/task" },
+		"unexported":        func(c *gen.Context, w map[string]any) { w["function"] = "run" },
+		"missing function":  func(c *gen.Context, w map[string]any) { w["function"] = "Missing" },
+		"wrong metrics": func(c *gen.Context, w map[string]any) {
+			c.Inputs["internal/task/worker.go"] = []byte(strings.Replace(string(c.Inputs["internal/task/worker.go"]), "*engine.Metrics", "string", 1))
+		},
+		"wrong package": func(c *gen.Context, w map[string]any) {
+			c.Inputs["internal/task/worker.go"] = []byte(strings.Replace(string(c.Inputs["internal/task/worker.go"]), "package task", "package main", 1))
+		},
+		"build constraint": func(c *gen.Context, w map[string]any) {
+			c.Inputs["internal/task/worker.go"] = append([]byte("//go:build ignore\n\n"), c.Inputs["internal/task/worker.go"]...)
+		},
+		"unknown field":  func(c *gen.Context, w map[string]any) { w["command"] = "unsafe" },
+		"invalid secret": func(c *gen.Context, w map[string]any) { w["files_secret"] = "../outside" },
+		"ingress":        func(c *gen.Context, w map[string]any) { w["network_peers"] = c.ComponentConfig["network_peers"] },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := workerContext()
+			w := c.ComponentConfig["workers"].([]any)[0].(map[string]any)
+			mutate(&c, w)
+			if _, _, err := new(Generator).Generate(c); err == nil {
+				t.Fatal("invalid worker accepted")
+			}
+		})
+	}
+	c := workerContext()
+	names, err := new(Generator).InputFiles(c.ComponentConfig)
+	if err != nil || len(names) != 1 || names[0] != "internal/task/worker.go" {
+		t.Fatal("wrong compiler input", names, err)
 	}
 }

@@ -137,3 +137,33 @@ remain open work. See the
 and the [test record](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/kubernetes-service.md).
 The earlier full application CI run 34619444307 passed. The new revision's CI
 is separate from the recorded cluster result.
+
+Worker declarations add generated controller entry points and images. Each
+`workers` item has `name`, `package`, and `function`. The optional settings are
+`env_secret`, `files_secret`, and `network_peers`. A worker requires the
+`controller` component. Its source package must be inside a declared human
+source directory. The compiler reads and records `PACKAGE/worker.go`. That file
+must declare the exported function with signature
+`func(context.Context, *controller.Metrics) error`. The metrics import must name
+the generated controller package. Build constraints on this declaration file
+are rejected. The Go build still checks the callback body and its dependencies.
+
+The generated main calls `controller.Main`. Provider construction and domain
+rules stay in the callback. Worker files are under `deploy/workers/NAME`.
+Build that directory's Containerfile from the project root. Render its resources
+with `--worker NAME`, the worker image digest, namespace, and file group.
+Unknown worker names fail before output is written.
+
+Each worker gets its own ServiceAccount, network policy, and Deployment. It has
+no service-account token or ingress rule. Only declared egress peers and DNS
+are permitted. File and environment Secret names default to
+`SERVICE-NAME-files` and `SERVICE-NAME-runtime`. The resource and filesystem
+limits match the API. Probes run the worker binary against its loopback endpoint;
+they do not start domain actions. The generated OTEL service name identifies the
+worker. No probe port or Kubernetes Service is exposed.
+
+Workers use one replica and `Recreate`. This avoids intentional rollout overlap.
+It does not supply a cross-process lease or fence a process on an unreachable
+node. Distributed exclusion remains open work. A worker callback must retain
+safe repeated effects and authoritative state checks. The generated network
+policy is emitted before each Deployment.
