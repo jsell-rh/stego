@@ -40,6 +40,10 @@ The [Go SDK component](registry/components/go-sdk/README.md) generates typed
 HTTPS clients from captured OpenAPI contracts. Its transport and optional
 telemetry come from STEGO.
 
+The [TypeScript SDK](registry/components/typescript-sdk/README.md) generates
+same-origin browser clients, typed models, CSRF transport, and runtime contract
+checks. Application code supplies its domain UI.
+
 The [browser backend](registry/components/browser-backend/README.md) generates a
 separate Go service for login, encrypted sessions, token renewal, sign-out,
 static assets, and the API proxy. It uses the shared health and telemetry code.

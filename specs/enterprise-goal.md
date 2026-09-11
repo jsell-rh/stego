@@ -2949,3 +2949,10 @@ a password after provider sign-out. All 152 hashes matched two pinned generation
 passes and the checkout. The input-manifest race test passed, the Job completed,
 and both test namespaces were removed. Full compiler CI passed. Full application
 CI and the remaining UI, SDK, telemetry, and production work stay open.
+
+The common TypeScript browser SDK now generates methods, models, CSRF transport,
+and runtime checks from captured OpenAPI contracts. The first real Hypershell
+Gateway protocol test passed with this client. The shared OpenAPI loader also
+passed the existing Go SDK checks. The [SDK record](typescript-sdk.md) states
+the test scope and limits. Final pinned adoption, React UI integration, browser
+telemetry, and the broader production requirements remain open.

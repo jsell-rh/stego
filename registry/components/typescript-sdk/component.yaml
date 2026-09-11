@@ -1,0 +1,15 @@
+kind: component
+name: typescript-sdk
+version: 1.0.0
+output_namespace: tssdk
+config:
+  document:
+    type: string
+  references:
+    type: list
+    items:
+      type: string
+requires: []
+provides:
+  - application-typescript-sdk
+slots: []

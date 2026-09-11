@@ -36,6 +36,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
+	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 	"github.com/jsell-rh/stego/internal/parser"
 	"github.com/jsell-rh/stego/internal/registry"
 	"github.com/jsell-rh/stego/internal/slot"
@@ -792,6 +793,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"browser-backend":    &browserbackend.Generator{},
 		"http-application":   &httpapplication.Generator{},
 		"go-sdk":             &gosdk.Generator{},
+		"typescript-sdk":     &typescriptsdk.Generator{},
 		"cli-application":    &cliapplication.Generator{},
 		"kubernetes-client":  &kubernetesclient.Generator{},
 		"kubernetes-service": &kubernetesservice.Generator{},

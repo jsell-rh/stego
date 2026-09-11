@@ -22,3 +22,6 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Locked compiler test dependencies
+/internal/generator/typescriptsdk/testdata/node_modules/
