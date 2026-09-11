@@ -105,3 +105,35 @@ The repository test command then passed from a fresh namespace. The Gateway
 test took 11.57 seconds; its race-enabled package took 12.621 seconds. The fresh
 compiler build reproduced all 112 file hashes and the same service image digest.
 The Job reached `Complete`, and namespace deletion was verified.
+
+The test bed then added real Gateway identity reconciliation to the same
+cluster gate. Application commit `6fe35d41fc58dfd38dfcc0204785ce270cdee06b`
+passed on jshell on 2026-09-11 with the same compiler and service image. The
+application test took 100.05 seconds; its race-enabled package took 101.094
+seconds. All 112 generated, state, and dependency hashes matched across two
+generation passes, the post-test check, and the local application checkout.
+
+The generated API and real Keycloak provider ran in separate Pods. The identity
+controller ran as a separate process inside the bounded test Pod. It used the
+generated gRPC client, reconciliation runtime, recovery scan, and condition
+writes. The gate checked identity creation, recovery after a controller restart,
+and recovery after API Pod replacement. It retained the owner-grant, access,
+rollback, event, and telemetry checks. A Kafka offset boundary prevents an old
+identity event from satisfying the final image-update event check.
+
+The extension exposed test-fixture faults: an invalid Deployment deadline,
+insufficient collector buffer space at the test export rate, and a race between
+Pod and Service readiness. It also showed that Keycloak development mode opened
+an HTTP listener despite the supplied setting. The fixture now uses a bounded
+Pod, standard server mode, a verified Service readiness loop, and a ten-second
+test metrics interval. It checks both local ports. The successful run required
+two HTTPS requests before the Service was ready. HTTPS was open; HTTP was closed.
+The Job completed, and all four test namespaces were deleted.
+
+No compiler or domain runtime change was needed for this extension. A generated
+controller image, health probes, and separate controller deployment resources
+remain open work. See the
+[application check](https://github.com/jsell-rh/hypershell-stego/blob/6fe35d41fc58dfd38dfcc0204785ce270cdee06b/acceptance/kubernetes_identity_test.go)
+and the [test record](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/kubernetes-service.md).
+The earlier full application CI run 34619444307 passed. The new revision's CI
+is separate from the recorded cluster result.
