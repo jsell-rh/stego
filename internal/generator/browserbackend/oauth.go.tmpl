@@ -1,0 +1,104 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "context"
+ "crypto/subtle"
+ "encoding/base64"
+ "encoding/json"
+ "errors"
+ "io"
+ "net/http"
+ "net/url"
+ "strings"
+ "strconv"
+ "sync"
+ "time"
+ "unicode/utf8"
+
+ "github.com/coreos/go-oidc/v3/oidc"
+ client {{printf "%q" .Client}}
+)
+
+type oauthMetadata struct{Authorization string `json:"authorization_endpoint"`;Token string `json:"token_endpoint"`;Keys string `json:"jwks_uri"`;Revoke string `json:"revocation_endpoint"`;PKCE []string `json:"code_challenge_methods_supported"`}
+type oauthProvider struct{provider *oidc.Provider;metadata oauthMetadata;transport *oauthTransport;options options}
+type oauthTransport struct{mu sync.Mutex;ca string;clients map[string]*client.Client;closed bool}
+type oauthTokens struct{Access string `json:"access_token"`;Refresh string `json:"refresh_token"`;ID string `json:"id_token"`;Type string `json:"token_type"`;Expires int64 `json:"expires_in"`}
+func httpsURL(value string)(*url.URL,error){u,err:=url.Parse(value);if err!=nil||len(value)>4096||u.Scheme!="https"||u.Host==""||u.User!=nil||u.Fragment!=""||u.Opaque!=""||strings.ContainsAny(value,"\r\n\x00"){return nil,errors.New("browser OAuth requires an HTTPS URL")};return u,nil}
+func(t *oauthTransport)call(ctx context.Context,method,address string,headers http.Header,body []byte)(client.Response,error){
+ u,err:=httpsURL(address);if err!=nil{return client.Response{},err};origin:=u.Scheme+"://"+u.Host
+ t.mu.Lock();if t.closed{t.mu.Unlock();return client.Response{},errSession};c:=t.clients[origin]
+ if c==nil{if len(t.clients)>=8{t.mu.Unlock();return client.Response{},errors.New("OIDC endpoint limit exceeded")};c,err=client.New(client.Options{BaseURL:origin,CAFile:t.ca,Timeout:15*time.Second});if err!=nil{t.mu.Unlock();return client.Response{},err};t.clients[origin]=c};t.mu.Unlock()
+ return c.Do(ctx,method,u.RequestURI(),headers,body)
+}
+func(t *oauthTransport)RoundTrip(r *http.Request)(*http.Response,error){
+ if r.Method!="GET"||r.Body!=nil{return nil,errors.New("invalid OIDC verification request")}
+ result,err:=t.call(r.Context(),r.Method,r.URL.String(),r.Header,nil);if err!=nil{return nil,err};if len(result.Body)>65536||!validJSON(result.Body){return nil,errors.New("invalid OIDC document")}
+ return &http.Response{StatusCode:result.StatusCode,Header:result.Header,Body:io.NopCloser(bytes.NewReader(result.Body)),Request:r},nil
+}
+func(t *oauthTransport)close(){t.mu.Lock();defer t.mu.Unlock();t.closed=true;for _,c:=range t.clients{c.Close()}}
+func discover(ctx context.Context,o options)(*oauthProvider,error){
+ u,err:=httpsURL(o.Issuer);if err!=nil||u.RawQuery!=""||u.ForceQuery||!plainText(o.ClientID,256)||o.ClientID==""||strings.ContainsAny(o.ClientID," \t"){return nil,errors.New("invalid OIDC issuer or client ID")}
+ if _,err:=clientSecret(o.SecretFile);err!=nil{return nil,err}
+ transport:=&oauthTransport{ca:o.IssuerCA,clients:map[string]*client.Client{}}
+ httpClient:=&http.Client{Transport:transport,Timeout:15*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
+ ctx,cancel:=context.WithTimeout(ctx,15*time.Second);defer cancel()
+ provider,err:=oidc.NewProvider(oidc.ClientContext(ctx,httpClient),o.Issuer);if err!=nil{transport.close();return nil,errors.New("OIDC discovery failed")}
+ p:=&oauthProvider{provider:provider,transport:transport,options:o}
+ if provider.Claims(&p.metadata)!=nil{p.close();return nil,errors.New("invalid OIDC metadata")}
+ for _,value:=range []string{p.metadata.Authorization,p.metadata.Token,p.metadata.Keys,p.metadata.Revoke}{if _,err:=httpsURL(value);err!=nil{p.close();return nil,errors.New("OIDC requires verified authorization, token, key, and revocation endpoints")}}
+ pkce:=false;for _,method:=range p.metadata.PKCE{if method=="S256"{pkce=true}};if !pkce{p.close();return nil,errors.New("OIDC requires S256 PKCE")}
+ return p,nil
+}
+func(p *oauthProvider)close(){p.transport.close()}
+func plainText(value string,limit int)bool{if len(value)>limit{return false};for _,r:=range value{if r<32||r>126{return false}};return true}
+func clientSecret(file string)(string,error){data,err:=client.ReadPrivateFile(file);if err!=nil{return "",errors.New("cannot read browser OAuth client secret")};value:=strings.TrimSpace(string(data));if len(value)<16||!plainText(value,16384){return "",errors.New("invalid browser OAuth client secret")};return value,nil}
+func bearer(value string)bool{if value==""||len(value)>16384{return false};for _,r:=range value{if !((r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||strings.ContainsRune("-._~+/=",r)){return false}};return true}
+func(p *oauthProvider)post(ctx context.Context,endpoint string,values url.Values)(client.Response,error){
+ secret,err:=clientSecret(p.options.SecretFile);if err!=nil{return client.Response{},err}
+ authorization:="Basic "+base64.StdEncoding.EncodeToString([]byte(url.QueryEscape(p.options.ClientID)+":"+url.QueryEscape(secret)))
+ body:=[]byte(values.Encode());if len(body)>65536{return client.Response{},errors.New("OIDC request exceeds its limit")}
+ return p.transport.call(ctx,"POST",endpoint,http.Header{"Authorization":{authorization},"Content-Type":{"application/x-www-form-urlencoded"},"Accept":{"application/json"}},body)
+}
+func(p *oauthProvider)tokens(ctx context.Context,values url.Values)(oauthTokens,error){
+ result,err:=p.post(ctx,p.metadata.Token,values);if err!=nil{return oauthTokens{},errSession};var token oauthTokens
+ if result.StatusCode!=200||len(result.Body)>65536||!validJSON(result.Body)||json.Unmarshal(result.Body,&token)!=nil||!bearer(token.Access)||!strings.EqualFold(token.Type,"Bearer")||token.Expires<1||token.Expires>86400||!plainText(token.Refresh,16384){return oauthTokens{},errSession}
+ return token,nil
+}
+func(p *oauthProvider)accept(ctx context.Context,token oauthTokens,nonce,rolesClaim string,previous *session)(session,error){
+ value:=session{Kind:"active",Expires:time.Now().Add(time.Hour).Unix(),User:map[string]string{},Roles:[]string{}}
+ if previous!=nil{value=*previous}
+ if previous==nil||token.ID!=""{
+  parts:=strings.Split(token.ID,".");if len(token.ID)>32768||len(parts)!=3{return session{},errSession}
+  for _,part:=range parts[:2]{data,err:=base64.RawURLEncoding.DecodeString(part);if err!=nil||!validJSON(data){return session{},errSession}}
+  id,err:=p.provider.Verifier(&oidc.Config{ClientID:p.options.ClientID,SupportedSigningAlgs:[]string{"RS256","ES256","PS256"}}).Verify(ctx,token.ID)
+  if err!=nil||id.Issuer!=p.options.Issuer||id.Subject==""||len(id.Subject)>1024||len(id.Audience)!=1||id.IssuedAt.IsZero()||id.IssuedAt.After(time.Now().Add(30*time.Second))||id.IssuedAt.Before(time.Now().Add(-5*time.Minute)){return session{},errSession}
+  var claims map[string]any;if id.Claims(&claims)!=nil{return session{},errSession}
+  if azp,ok:=claims["azp"];ok&&azp!=p.options.ClientID{return session{},errSession}
+  authTime:=int64(0);if raw,present:=claims["auth_time"];present{number,ok:=raw.(float64);if !ok||number<0||number>float64(time.Now().Add(30*time.Second).Unix())||number!=float64(int64(number)){return session{},errSession};authTime=int64(number)}
+  if previous==nil{if nonce==""||subtle.ConstantTimeCompare([]byte(id.Nonce),[]byte(nonce))!=1{return session{},errSession};value.Subject,value.Nonce,value.AuthTime=id.Subject,nonce,authTime
+  }else if id.Subject!=value.Subject||(id.Nonce!=""&&subtle.ConstantTimeCompare([]byte(id.Nonce),[]byte(value.Nonce))!=1)||(authTime!=0&&authTime!=value.AuthTime){return session{},errSession}
+  if id.AccessTokenHash!=""&&id.VerifyAccessToken(token.Access)!=nil{return session{},errSession}
+  value.User=map[string]string{"sub":id.Subject};for _,key:=range []string{"email","name","preferred_username"}{if raw,ok:=claims[key];ok{field,ok:=raw.(string);if !ok||len(field)>512||!utf8.ValidString(field){return session{},errSession};value.User[key]=field}}
+  var raw any=claims;for _,key:=range strings.Split(rolesClaim,"."){object,ok:=raw.(map[string]any);if !ok{raw=nil;break};raw=object[key]}
+  value.Roles=[]string{};if raw!=nil{roles,ok:=raw.([]any);if !ok||len(roles)>64{return session{},errSession};for _,role:=range roles{item,ok:=role.(string);if !ok||item==""||!plainText(item,128){return session{},errSession};value.Roles=append(value.Roles,item)}}
+ }
+ value.Access=token.Access;value.AccessExpires=time.Now().Add(time.Duration(token.Expires)*time.Second).Unix();if token.Refresh!=""{value.Refresh=token.Refresh}
+ return value,nil
+}
+func(p *oauthProvider)revoke(ctx context.Context,value session)error{
+ token,hint:=value.Refresh,"refresh_token";if token==""{token,hint=value.Access,"access_token"};if token==""{return nil}
+ result,err:=p.post(ctx,p.metadata.Revoke,url.Values{"token":{token},"token_type_hint":{hint}})
+ if err!=nil||(result.StatusCode!=200&&result.StatusCode!=204){return errSession};return nil
+}
+func validJSON(data []byte)bool{
+ if !utf8.Valid(data)||!json.Valid(data)||!validUnicodeEscapes(data){return false};decoder:=json.NewDecoder(bytes.NewReader(data));decoder.UseNumber();nodes:=0
+ var walk func(int)bool
+ walk=func(depth int)bool{nodes++;if depth>32||nodes>10000{return false};token,err:=decoder.Token();if err!=nil{return false};delimiter,ok:=token.(json.Delim);if !ok{return true};switch delimiter{
+ case '{':seen:=map[string]bool{};for decoder.More(){key,err:=decoder.Token();name,ok:=key.(string);if err!=nil||!ok||seen[name]{return false};seen[name]=true;if !walk(depth+1){return false}};end,err:=decoder.Token();return err==nil&&end==json.Delim('}')
+ case '[':for decoder.More(){if !walk(depth+1){return false}};end,err:=decoder.Token();return err==nil&&end==json.Delim(']')
+ };return false}
+ if !walk(0){return false};_,err:=decoder.Token();return err==io.EOF
+}
+
+{{.UnicodeValidation}}

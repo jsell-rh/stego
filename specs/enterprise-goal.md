@@ -2897,3 +2897,15 @@ verified HTTPS. The generated renderer and registry passed race checks. All
 Both test namespaces were removed. The [deployment record](kubernetes-service.md)
 states the direct-endpoint test scope. Full CI, complete worker deployment,
 browser workflows, and the broader production requirements remain open.
+
+The browser workflow has a common server-side session runtime under test in
+STEGO. The [browser backend record](browser-backend.md) states its current
+scope. Generated runtime tests passed with PostgreSQL and a signed-token HTTPS
+identity fixture. They cover restart, cross-instance refresh, logout races,
+request denial, encrypted storage, and public route handling. Service assembly
+with the common database, health, and telemetry code also compiles. The
+component remains outside the registry until it has real Hypershell workflow
+evidence. The test work exposed a shared HTTP cache response error, corrected
+in the [HTTP client contract](http-cache-response.md). A complete browser UI,
+real Keycloak application acceptance, deployment, and production measurements
+remain open. The broader goal remains active.

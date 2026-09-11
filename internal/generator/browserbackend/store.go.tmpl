@@ -1,0 +1,92 @@
+package {{.Package}}
+
+import (
+ "context"
+ "crypto/aes"
+ "crypto/cipher"
+ "crypto/rand"
+ "crypto/sha256"
+ "database/sql"
+ "encoding/base64"
+ "encoding/json"
+ "errors"
+ "io"
+ "time"
+)
+
+var errSession=errors.New("browser session is unavailable")
+var errBusy=errors.New("browser session refresh is in progress")
+var errStore=errors.New("browser session storage is unavailable")
+
+type session struct {
+ Kind string
+ Expires int64
+ State,Verifier,Nonce,ReturnTo,Previous string
+ Access,Refresh,Subject,CSRF string
+ AccessExpires,AuthTime int64
+ User map[string]string
+ Roles []string
+}
+type sessionStore struct{db *sql.DB; aead cipher.AEAD}
+func newStore(ctx context.Context,db *sql.DB,key []byte)(*sessionStore,error){
+ if db==nil||len(key)!=32{return nil,errors.New("browser sessions require a database and a 256-bit key")}
+ block,err:=aes.NewCipher(key);if err!=nil{return nil,errSession};aead,err:=cipher.NewGCM(block);if err!=nil{return nil,errSession}
+ ctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
+ rows,err:=db.QueryContext(ctx,"SELECT id_hash,payload,state,expires_at,changed_at FROM stego_browser_sessions WHERE false")
+ if err!=nil{return nil,errors.New("browser session migration is required")};if err:=rows.Close();err!=nil{return nil,errSession}
+ return &sessionStore{db:db,aead:aead},nil
+}
+func randomValue()(string,error){b:=make([]byte,32);if _,err:=io.ReadFull(rand.Reader,b);err!=nil{return "",errSession};return base64.RawURLEncoding.EncodeToString(b),nil}
+func sessionHash(id string)([]byte,error){b,err:=base64.RawURLEncoding.DecodeString(id);if err!=nil||len(b)!=32||base64.RawURLEncoding.EncodeToString(b)!=id{return nil,errSession};hash:=sha256.Sum256(b);return hash[:],nil}
+func(s *sessionStore)seal(id string,value session)([]byte,error){hash,err:=sessionHash(id);if err!=nil{return nil,err};plain,err:=json.Marshal(value);if err!=nil||len(plain)>60000{return nil,errSession};nonce:=make([]byte,s.aead.NonceSize());if _,err:=io.ReadFull(rand.Reader,nonce);err!=nil{return nil,errSession};return s.aead.Seal(nonce,nonce,plain,hash),nil}
+func(s *sessionStore)open(id string,payload []byte)(session,error){
+ var value session;hash,err:=sessionHash(id);size:=s.aead.NonceSize();if err!=nil||len(payload)<size+s.aead.Overhead()||len(payload)>65536{return value,errSession}
+ plain,err:=s.aead.Open(nil,payload[:size],payload[size:],hash);if err!=nil||json.Unmarshal(plain,&value)!=nil||value.Expires<=time.Now().Unix(){return session{},errSession}
+ return value,nil
+}
+func(s *sessionStore)create(ctx context.Context,id string,value session)error{
+ hash,err:=sessionHash(id);if err!=nil{return err};payload,err:=s.seal(id,value);if err!=nil{return err}
+ tx,err:=s.db.BeginTx(ctx,nil);if err!=nil{return errStore};defer tx.Rollback()
+ if err:=sessionCapacity(ctx,tx,true);err!=nil{return err}
+ _,err=tx.ExecContext(ctx,"INSERT INTO stego_browser_sessions(id_hash,payload,state,expires_at) VALUES($1,$2,$3,$4)",hash,payload,value.Kind,time.Unix(value.Expires,0));if err!=nil{return errStore};if tx.Commit()!=nil{return errStore};return nil
+}
+func sessionCapacity(ctx context.Context,tx *sql.Tx,login bool)error{
+ if _,err:=tx.ExecContext(ctx,"SELECT pg_advisory_xact_lock(1937007983,1651666807)");err!=nil{return errStore}
+ var count int
+ if tx.QueryRowContext(ctx,"SELECT count(*) FROM (SELECT 1 FROM stego_browser_sessions LIMIT 10000) AS retained").Scan(&count)!=nil||count>=10000{return errStore}
+ if login{if tx.QueryRowContext(ctx,"SELECT count(*) FROM (SELECT 1 FROM stego_browser_sessions WHERE state='login' LIMIT 1000) AS retained").Scan(&count)!=nil||count>=1000{return errStore}}
+ return nil
+}
+func(s *sessionStore)read(ctx context.Context,id string)(session,string,time.Time,error){
+ hash,err:=sessionHash(id);if err!=nil{return session{},"",time.Time{},err};var payload []byte;var state string;var changed time.Time
+ err=s.db.QueryRowContext(ctx,"SELECT payload,state,changed_at FROM stego_browser_sessions WHERE id_hash=$1 AND expires_at>CURRENT_TIMESTAMP",hash).Scan(&payload,&state,&changed)
+ if errors.Is(err,sql.ErrNoRows){return session{},"",time.Time{},errSession};if err!=nil{return session{},"",time.Time{},errStore};value,err:=s.open(id,payload);return value,state,changed,err
+}
+func(s *sessionStore)remove(ctx context.Context,id string)error{hash,err:=sessionHash(id);if err!=nil{return err};_,err=s.db.ExecContext(ctx,"DELETE FROM stego_browser_sessions WHERE id_hash=$1",hash);if err!=nil{return errStore};return nil}
+func(s *sessionStore)consumeLogin(ctx context.Context,id string)(session,error){
+ hash,err:=sessionHash(id);if err!=nil{return session{},err};var payload []byte
+ err=s.db.QueryRowContext(ctx,"DELETE FROM stego_browser_sessions WHERE id_hash=$1 AND state='login' AND expires_at>CURRENT_TIMESTAMP RETURNING payload",hash).Scan(&payload)
+ if errors.Is(err,sql.ErrNoRows){return session{},errSession};if err!=nil{return session{},errStore};value,err:=s.open(id,payload);if err!=nil||value.Kind!="login"{return session{},errSession};return value,nil
+}
+func(s *sessionStore)activate(ctx context.Context,id string,value session,previous string)error{
+ hash,err:=sessionHash(id);if err!=nil{return err};payload,err:=s.seal(id,value);if err!=nil{return err}
+ tx,err:=s.db.BeginTx(ctx,nil);if err!=nil{return errSession};defer tx.Rollback()
+ if previous!=""{old,err:=sessionHash(previous);if err!=nil{return errSession};if _,err:=tx.ExecContext(ctx,"DELETE FROM stego_browser_sessions WHERE id_hash=$1",old);err!=nil{return errSession}}
+ if err:=sessionCapacity(ctx,tx,false);err!=nil{return err}
+ if _,err:=tx.ExecContext(ctx,"INSERT INTO stego_browser_sessions(id_hash,payload,state,expires_at) VALUES($1,$2,'active',$3)",hash,payload,time.Unix(value.Expires,0));err!=nil{return errSession}
+ if tx.Commit()!=nil{return errSession};return nil
+}
+func(s *sessionStore)claimRefresh(ctx context.Context,id string)(session,error){
+ hash,err:=sessionHash(id);if err!=nil{return session{},err};var payload []byte
+ err=s.db.QueryRowContext(ctx,"UPDATE stego_browser_sessions SET state='refreshing',changed_at=CURRENT_TIMESTAMP WHERE id_hash=$1 AND state='active' AND expires_at>CURRENT_TIMESTAMP RETURNING payload",hash).Scan(&payload)
+ if errors.Is(err,sql.ErrNoRows){return session{},errBusy};if err!=nil{return session{},errStore};return s.open(id,payload)
+}
+func(s *sessionStore)finishRefresh(ctx context.Context,id string,value session)error{
+ hash,err:=sessionHash(id);if err!=nil{return err};payload,err:=s.seal(id,value);if err!=nil{return err}
+ result,err:=s.db.ExecContext(ctx,"UPDATE stego_browser_sessions SET payload=$2,state='active',changed_at=CURRENT_TIMESTAMP WHERE id_hash=$1 AND state='refreshing' AND expires_at>CURRENT_TIMESTAMP",hash,payload)
+ if err!=nil{return errSession};count,err:=result.RowsAffected();if err!=nil||count!=1{return errSession};return nil
+}
+func(s *sessionStore)sweep(ctx context.Context)error{
+ _,err:=s.db.ExecContext(ctx,"WITH expired AS (SELECT id_hash FROM stego_browser_sessions WHERE expires_at<=CURRENT_TIMESTAMP ORDER BY expires_at LIMIT 1000 FOR UPDATE SKIP LOCKED) DELETE FROM stego_browser_sessions WHERE id_hash IN (SELECT id_hash FROM expired)")
+ if err!=nil{return errSession};return nil
+}

@@ -1,0 +1,87 @@
+package {{.Package}}
+
+import (
+ "context"
+ "crypto/sha256"
+ "crypto/subtle"
+ "encoding/base64"
+ "errors"
+ "io"
+ "net/http"
+ "net/url"
+ "strings"
+ "time"
+ client {{printf "%q" .Client}}
+)
+
+func(b *Backend)login(w http.ResponseWriter,r *http.Request){
+ if !b.sameOrigin(r)&&r.Header.Get("Sec-Fetch-Site")!="same-origin"&&r.Header.Get("Sec-Fetch-Site")!="none"{failure(w,403);return}
+ query,err:=url.ParseQuery(r.URL.RawQuery);if err!=nil||len(query)>1||len(query["return_to"])>1{failure(w,400);return};for key:=range query{if key!="return_to"{failure(w,400);return}}
+ id,err:=randomValue();if err!=nil{failure(w,503);return};state,err:=randomValue();if err!=nil{failure(w,503);return};verifier,err:=randomValue();if err!=nil{failure(w,503);return};nonce,err:=randomValue();if err!=nil{failure(w,503);return}
+ value:=session{Kind:"login",Expires:time.Now().Add(5*time.Minute).Unix(),State:state,Verifier:verifier,Nonce:nonce,ReturnTo:b.returnPath(query.Get("return_to")),Previous:cookieID(r,SessionCookie)}
+ if old:=cookieID(r,LoginCookie);old!=""{if err:=b.store.remove(r.Context(),old);err!=nil{failure(w,503);return}}
+ if err:=b.store.create(r.Context(),id,value);err!=nil{failure(w,503);return}
+ target,err:=url.Parse(b.provider.metadata.Authorization);if err!=nil{failure(w,503);return};values:=target.Query();challenge:=sha256.Sum256([]byte(verifier))
+ for key,value:=range map[string]string{"client_id":b.provider.options.ClientID,"redirect_uri":b.origin.String()+"/auth/callback","response_type":"code","scope":"openid profile email","state":state,"nonce":nonce,"code_challenge_method":"S256","code_challenge":base64.RawURLEncoding.EncodeToString(challenge[:])}{values.Set(key,value)}
+ target.RawQuery=values.Encode();setCookie(w,LoginCookie,id,300);http.Redirect(w,r,target.String(),302)
+}
+func(b *Backend)callback(w http.ResponseWriter,r *http.Request){
+ query,err:=url.ParseQuery(r.URL.RawQuery);if err!=nil{failure(w,400);return};for key,values:=range query{if len(values)!=1{failure(w,400);return};switch key{case "code","state","session_state","iss","error","error_description","error_uri":default:failure(w,400);return}}
+ if query.Get("error")!=""||query.Get("code")==""||len(query.Get("code"))>4096||query.Get("state")==""||(query.Get("iss")!=""&&query.Get("iss")!=b.provider.options.Issuer){failure(w,400);return}
+ id:=cookieID(r,LoginCookie);value,state,_,err:=b.store.read(r.Context(),id)
+ if errors.Is(err,errStore){failure(w,503);return};if err!=nil||state!="login"||value.Kind!="login"||subtle.ConstantTimeCompare([]byte(value.State),[]byte(query.Get("state")))!=1{failure(w,400);return}
+ value,err=b.store.consumeLogin(r.Context(),id);if errors.Is(err,errStore){failure(w,503);return};if err!=nil{failure(w,400);return};clearCookie(w,LoginCookie)
+ token,err:=b.provider.tokens(r.Context(),url.Values{"grant_type":{"authorization_code"},"code":{query.Get("code")},"code_verifier":{value.Verifier},"redirect_uri":{b.origin.String()+"/auth/callback"}})
+ if err!=nil{failure(w,502);return}
+ published:=false;defer func(){if !published{_ = b.provider.revoke(r.Context(),session{Access:token.Access,Refresh:token.Refresh})}}()
+ active,err:=b.provider.accept(r.Context(),token,value.Nonce,b.config.RolesClaim,nil);if err!=nil{failure(w,502);return}
+ sessionID,err:=randomValue();if err!=nil{failure(w,503);return};active.CSRF,err=randomValue();if err!=nil{failure(w,503);return}
+ if err:=b.store.activate(r.Context(),sessionID,active,value.Previous);err!=nil{failure(w,503);return};published=true
+ setCookie(w,SessionCookie,sessionID,int(active.Expires-time.Now().Unix()));http.Redirect(w,r,value.ReturnTo,303)
+}
+func(b *Backend)active(ctx context.Context,id string)(session,error){
+ value,state,changed,err:=b.store.read(ctx,id);if err!=nil{return session{},err};if value.Kind!="active"{return session{},errSession}
+ if state=="refreshing"{if time.Since(changed)>30*time.Second{_ = b.store.remove(ctx,id);return session{},errSession};return session{},errBusy}
+ if state!="active"{return session{},errSession};if value.AccessExpires>time.Now().Add(15*time.Second).Unix(){return value,nil}
+ value,err=b.store.claimRefresh(ctx,id);if err!=nil{return session{},err}
+ // A previous caller can finish between read and claim. Do not rotate twice.
+ if value.AccessExpires>time.Now().Add(15*time.Second).Unix(){if err:=b.store.finishRefresh(ctx,id,value);err!=nil{return session{},err};return value,nil}
+ if value.Refresh==""{_ = b.store.remove(ctx,id);return session{},errSession}
+ token,err:=b.provider.tokens(ctx,url.Values{"grant_type":{"refresh_token"},"refresh_token":{value.Refresh}})
+ if err!=nil{_ = b.store.remove(ctx,id);return session{},errSession}
+ updated,err:=b.provider.accept(ctx,token,"",b.config.RolesClaim,&value)
+ if err!=nil{_ = b.store.remove(ctx,id);_ = b.provider.revoke(ctx,session{Access:token.Access,Refresh:token.Refresh});return session{},errSession}
+ if err:=b.store.finishRefresh(ctx,id,updated);err!=nil{_ = b.provider.revoke(ctx,updated);return session{},errSession}
+ return updated,nil
+}
+func sessionError(w http.ResponseWriter,err error){if errors.Is(err,errBusy)||errors.Is(err,errStore){w.Header().Set("Retry-After","1");failure(w,503);return};clearCookie(w,SessionCookie);failure(w,401)}
+func(b *Backend)session(w http.ResponseWriter,r *http.Request){
+ value,err:=b.active(r.Context(),cookieID(r,SessionCookie))
+ if err!=nil{if errors.Is(err,errBusy)||errors.Is(err,errStore){sessionError(w,err);return};clearCookie(w,SessionCookie);response(w,200,map[string]any{"authenticated":false,"roles":[]string{}});return}
+ response(w,200,map[string]any{"authenticated":true,"expires_at":value.Expires*1000,"roles":value.Roles,"user":value.User,"csrf_token":value.CSRF})
+}
+func(b *Backend)csrf(r *http.Request,value session)bool{return b.sameOrigin(r)&&len(r.Header.Values(CSRFHeader))==1&&value.CSRF!=""&&subtle.ConstantTimeCompare([]byte(r.Header.Get(CSRFHeader)),[]byte(value.CSRF))==1}
+func(b *Backend)logout(w http.ResponseWriter,r *http.Request){
+ if !b.sameOrigin(r){failure(w,403);return};id:=cookieID(r,SessionCookie);value,state,_,err:=b.store.read(r.Context(),id)
+ if errors.Is(err,errStore){sessionError(w,err);return};if err!=nil{clearCookie(w,SessionCookie);w.WriteHeader(204);return}
+ if value.Kind!="active"||(state!="active"&&state!="refreshing")||!b.csrf(r,value){failure(w,403);return}
+ if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie)
+ if b.provider.revoke(r.Context(),value)!=nil{failure(w,502);return};w.WriteHeader(204)
+}
+func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
+ switch r.Method{case "GET","HEAD","POST","PUT","PATCH","DELETE":default:w.Header().Set("Allow","GET, HEAD, POST, PUT, PATCH, DELETE");failure(w,405);return}
+ if len(r.Header.Values("Authorization"))!=0{failure(w,400);return}
+ id:=cookieID(r,SessionCookie)
+ if r.Method!="GET"&&r.Method!="HEAD"{value,_,_,err:=b.store.read(r.Context(),id);if err!=nil{sessionError(w,err);return};if value.Kind!="active"||!b.csrf(r,value){failure(w,403);return}}
+ value,err:=b.active(r.Context(),id);if err!=nil{sessionError(w,err);return}
+ if r.ContentLength>client.MaxRequestBytes{failure(w,413);return}
+ body,err:=io.ReadAll(io.LimitReader(r.Body,client.MaxRequestBytes+1));if err!=nil{failure(w,400);return};if len(body)>client.MaxRequestBytes{failure(w,413);return}
+ if (r.Method=="GET"||r.Method=="HEAD")&&len(body)!=0{failure(w,400);return}
+ headers:=http.Header{"Authorization":{"Bearer "+value.Access}}
+ for _,name:=range []string{"Accept","Content-Type","If-Match","If-None-Match"}{values:=r.Header.Values(name);if len(values)>1{failure(w,400);return};if len(values)==1{headers.Set(name,values[0])}}
+ upstream,err:=b.upstream.Do(r.Context(),r.Method,r.URL.RequestURI(),headers,body);if err!=nil{failure(w,502);return}
+ if upstream.StatusCode==401{if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie)}
+ for _,name:=range []string{"Content-Type","ETag","Retry-After"}{if value:=upstream.Header.Get(name);value!=""{w.Header().Set(name,value)}}
+ if location:=upstream.Header.Get("Location");location!=""{target,err:=url.Parse(location);if err!=nil||target.IsAbs()||target.Host!=""||!strings.HasPrefix(target.Path,b.config.Prefix+"/")||strings.ContainsAny(location,"\\\r\n\x00"){failure(w,502);return};w.Header().Set("Location",location)}
+ w.WriteHeader(upstream.StatusCode);if r.Method!="HEAD"{_,_=w.Write(upstream.Body)}
+}
