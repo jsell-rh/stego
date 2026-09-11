@@ -2786,3 +2786,8 @@ the Gateway workflow. The generated pool must bound connections, permit caller
 cancellation while waiting, and recover without changes to access or event
 behavior. The policy must also work without telemetry. Separate generated-code
 and application evidence is required; the wider runtime goal remains open.
+
+The [Go SDK contract](go-sdk.md) adds typed client generation from captured
+OpenAPI files. Hypershell supplies its contract; STEGO supplies the HTTPS client
+and shared telemetry. Source compatibility with the old fluent SDK, automatic
+pagination, TypeScript clients, and browser workflows remain open.

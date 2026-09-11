@@ -1,0 +1,15 @@
+kind: component
+name: go-sdk
+version: 1.0.0
+output_namespace: sdk
+config:
+  document:
+    type: string
+  references:
+    type: list
+    items:
+      type: string
+requires: []
+provides:
+  - application-go-sdk
+slots: []

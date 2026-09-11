@@ -34,6 +34,10 @@ the fills is essential complexity.
 4. Run `stego apply` for deterministic code generation. Plain Go output.
    No runtime dependency on STEGO.
 
+The [Go SDK component](registry/components/go-sdk/README.md) generates typed
+HTTPS clients from captured OpenAPI contracts. Its transport and optional
+telemetry come from STEGO.
+
 The [CLI component](registry/components/cli-application/README.md) generates a
 separate executable, command parsing, private configuration, and an HTTPS
 client. Application code declares command names, paths, and fields. Common
