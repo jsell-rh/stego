@@ -64,3 +64,18 @@ the compiler build passed. The tested compiler archive SHA-256 was
 `670e2fc7eda047dcc9460a4e3a72ca2e49b688e4178bd9c5e8310a2d1c43a542`.
 Later compiler edits changed documentation only. Full CI and pinned application
 checks require separate results. These times do not measure request capacity.
+
+The first application candidate created a Gateway through the file-configured
+pool and passed its owner, event, REST, gRPC, and TLS session checks. It then
+failed to reject the old password. The cluster fixture had `trust` rules for
+loopback TCP connections. The fixture was corrected to require SCRAM password
+authentication for TCP. CI uses `--auth-host=scram-sha-256 --auth-local=trust`
+when it initializes PostgreSQL. The application test now requires an explicit
+invalid-password rejection before it starts its workflow. The first failed
+application result remains part of the evidence.
+
+After the fixture correction, the complete PostgreSQL adapter race suite passed
+in 63.512 seconds. This also checked real TLS connections and credential handling
+with SCRAM authentication. Compiler `b58fcafc659ab8baa3a4c92a0e9c1c3ed1b4d26d`
+passed [full CI run 34614908829](https://github.com/jsell-rh/stego/actions/runs/34614908829).
+The later CI fixture change requires its own full run.
