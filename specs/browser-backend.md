@@ -114,3 +114,23 @@ The console runtime files match the protocol-tested files; only the compiler
 state changed during adoption. The cluster Job completed. Its namespace was
 removed, and the cluster API confirmed removal. Full CI for the new revisions
 remains a separate check.
+
+Reference UI inspection found two missing host contracts: the fixed API
+reauthentication response and a usable GET sign-out link. The next change adds
+the 401 response and a GET confirmation page with a CSRF-protected POST form.
+It adds an explicit identity-provider sign-out scope. The common runtime checks passed under race detection in 8.978 seconds;
+the registry checks passed in 2.347 seconds. The extended Gateway test passed
+in 15.41 seconds (16.459 seconds for the package). It verified the 401 response,
+access before sign-out confirmation, provider sign-out, and a password prompt
+on the next login. All 23 console hashes matched repeated generation.
+The records are in `/tmp/stego-browser-logout-zw9kt6cp`. The existing UI still needs migration; these corrections
+do not establish complete browser compatibility.
+
+The first check rejected an existing empty JSON logout request. The parser was
+corrected. The application check then exposed a readiness race in its fixture
+and an incorrect assumption that the provider always shows a confirmation form.
+The fixture now waits for a health sample within five seconds and accepts a
+fixed return from a provider whose session has already ended. These failed
+results remain in the test records. The later workflow passed in the same Pod
+after the private identity realm was reset. This does not change the failed
+status of the original Job. A fresh check with the published compiler is next.

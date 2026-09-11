@@ -7,6 +7,8 @@ import (
  "encoding/base64"
  "errors"
  "io"
+ "html/template"
+ "mime"
  "net/http"
  "net/url"
  "strings"
@@ -54,19 +56,37 @@ func(b *Backend)active(ctx context.Context,id string)(session,error){
  if err:=b.store.finishRefresh(ctx,id,updated);err!=nil{_ = b.provider.revoke(ctx,updated);return session{},errSession}
  return updated,nil
 }
-func sessionError(w http.ResponseWriter,err error){if errors.Is(err,errBusy)||errors.Is(err,errStore){w.Header().Set("Retry-After","1");failure(w,503);return};clearCookie(w,SessionCookie);failure(w,401)}
+func sessionError(w http.ResponseWriter,err error){if errors.Is(err,errBusy)||errors.Is(err,errStore){w.Header().Set("Retry-After","1");failure(w,503);return};clearCookie(w,SessionCookie);reauthenticate(w)}
+func reauthenticate(w http.ResponseWriter){w.Header().Set("WWW-Authenticate",`Bearer error="invalid_token"`);response(w,401,map[string]any{"error":"reauth_required","login_url":"/auth/login","statusCode":401})}
 func(b *Backend)session(w http.ResponseWriter,r *http.Request){
  value,err:=b.active(r.Context(),cookieID(r,SessionCookie))
  if err!=nil{if errors.Is(err,errBusy)||errors.Is(err,errStore){sessionError(w,err);return};clearCookie(w,SessionCookie);response(w,200,map[string]any{"authenticated":false,"roles":[]string{}});return}
  response(w,200,map[string]any{"authenticated":true,"expires_at":value.Expires*1000,"roles":value.Roles,"user":value.User,"csrf_token":value.CSRF})
 }
 func(b *Backend)csrf(r *http.Request,value session)bool{return b.sameOrigin(r)&&len(r.Header.Values(CSRFHeader))==1&&value.CSRF!=""&&subtle.ConstantTimeCompare([]byte(r.Header.Get(CSRFHeader)),[]byte(value.CSRF))==1}
+var logoutPage=template.Must(template.New("logout").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign out</title></head><body><main><h1>Sign out</h1>{{"{{if .CSRF}}"}}<p>Confirm sign-out.{{"{{if .Provider}}"}} This also starts sign-out at the identity provider.{{"{{end}}"}}</p><form method="post" action="/auth/logout"><input type="hidden" name="csrf_token" value="{{"{{.CSRF}}"}}"><button type="submit">Sign out</button></form><p><a href="/">Cancel</a></p>{{"{{else}}"}}<p>This console session has ended.</p><p><a href="/">Return to the console</a></p>{{"{{end}}"}}</main></body></html>`))
+func(b *Backend)confirmLogout(w http.ResponseWriter,r *http.Request){
+ value,state,_,err:=b.store.read(r.Context(),cookieID(r,SessionCookie))
+ if errors.Is(err,errStore){sessionError(w,err);return}
+ csrf:="";if err==nil&&value.Kind=="active"&&(state=="active"||state=="refreshing"){csrf=value.CSRF}
+ if b.logoutOrigin!=""{w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"form-action 'self'","form-action 'self' "+b.logoutOrigin,1))}
+ w.Header().Set("Content-Type","text/html; charset=utf-8");_ = logoutPage.Execute(w,struct{CSRF string;Provider bool}{csrf,b.logoutTarget!=""})
+}
+func logoutForm(r *http.Request)(string,bool,error){
+ data,err:=io.ReadAll(io.LimitReader(r.Body,4097));if err!=nil||len(data)>4096{return "",false,errSession}
+ if len(r.Header.Values("Content-Type"))>1{return "",false,errSession}
+ media:="";if raw:=r.Header.Get("Content-Type");raw!=""{media,_,err=mime.ParseMediaType(raw);if err!=nil{return "",false,errSession}}
+ if media==""||media=="application/json"{if len(data)!=0{return "",false,errSession};return "",false,nil}
+ if media!="application/x-www-form-urlencoded"||len(r.Header.Values(CSRFHeader))!=0{return "",false,errSession}
+ values,err:=url.ParseQuery(string(data));if err!=nil||len(values)!=1||len(values["csrf_token"])!=1{return "",false,errSession};return values.Get("csrf_token"),true,nil
+}
 func(b *Backend)logout(w http.ResponseWriter,r *http.Request){
- if !b.sameOrigin(r){failure(w,403);return};id:=cookieID(r,SessionCookie);value,state,_,err:=b.store.read(r.Context(),id)
- if errors.Is(err,errStore){sessionError(w,err);return};if err!=nil{clearCookie(w,SessionCookie);w.WriteHeader(204);return}
- if value.Kind!="active"||(state!="active"&&state!="refreshing")||!b.csrf(r,value){failure(w,403);return}
+ if !b.sameOrigin(r){failure(w,403);return};formCSRF,form,formErr:=logoutForm(r);if formErr!=nil{failure(w,400);return};id:=cookieID(r,SessionCookie);value,state,_,err:=b.store.read(r.Context(),id)
+ if errors.Is(err,errStore){sessionError(w,err);return};if err!=nil{clearCookie(w,SessionCookie);if form{http.Redirect(w,r,"/auth/logout",303)}else{w.WriteHeader(204)};return}
+ csrfOK:=b.csrf(r,value);if form{csrfOK=value.CSRF!=""&&subtle.ConstantTimeCompare([]byte(formCSRF),[]byte(value.CSRF))==1}
+ if value.Kind!="active"||(state!="active"&&state!="refreshing")||!csrfOK{failure(w,403);return}
  if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie)
- if b.provider.revoke(r.Context(),value)!=nil{failure(w,502);return};w.WriteHeader(204)
+ if b.provider.revoke(r.Context(),value)!=nil{failure(w,502);return};if form{target:="/auth/logout";if b.logoutTarget!=""{target=b.logoutTarget;w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"form-action 'self'","form-action 'self' "+b.logoutOrigin,1))};http.Redirect(w,r,target,303)}else{w.WriteHeader(204)}
 }
 func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
  switch r.Method{case "GET","HEAD","POST","PUT","PATCH","DELETE":default:w.Header().Set("Allow","GET, HEAD, POST, PUT, PATCH, DELETE");failure(w,405);return}
@@ -80,7 +100,7 @@ func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
  headers:=http.Header{"Authorization":{"Bearer "+value.Access}}
  for _,name:=range []string{"Accept","Content-Type","If-Match","If-None-Match"}{values:=r.Header.Values(name);if len(values)>1{failure(w,400);return};if len(values)==1{headers.Set(name,values[0])}}
  upstream,err:=b.upstream.Do(r.Context(),r.Method,r.URL.RequestURI(),headers,body);if err!=nil{failure(w,502);return}
- if upstream.StatusCode==401{if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie)}
+ if upstream.StatusCode==401{if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie);reauthenticate(w);return}
  for _,name:=range []string{"Content-Type","ETag","Retry-After"}{if value:=upstream.Header.Get(name);value!=""{w.Header().Set(name,value)}}
  if location:=upstream.Header.Get("Location");location!=""{target,err:=url.Parse(location);if err!=nil||target.IsAbs()||target.Host!=""||!strings.HasPrefix(target.Path,b.config.Prefix+"/")||strings.ContainsAny(location,"\\\r\n\x00"){failure(w,502);return};w.Header().Set("Location",location)}
  w.WriteHeader(upstream.StatusCode);if r.Method!="HEAD"{_,_=w.Write(upstream.Body)}

@@ -3,6 +3,7 @@ package browser
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,7 @@ func TestDeniedRequestsDoNotReachAPI(t *testing.T) {
 		{name: "duplicate cookie", method: "GET", path: apiPrefix + "/records", cookies: []*http.Cookie{active, active}, status: 401},
 		{name: "duplicate origin", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin, origin}, CSRFHeader: {csrf}}, status: 403},
 		{name: "duplicate csrf", method: "POST", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, headers: http.Header{"Origin": {origin}, CSRFHeader: {csrf, csrf}}, status: 403},
-		{name: "get logout", method: "GET", path: "/auth/logout", cookies: []*http.Cookie{active}, status: 405},
+		{name: "get logout", method: "GET", path: "/auth/logout", cookies: []*http.Cookie{active}, status: 200},
 		{name: "bad method", method: "TRACE", path: apiPrefix + "/records", cookies: []*http.Cookie{active}, status: 405},
 		{name: "request body limit", method: "POST", path: apiPrefix + "/records", body: strings.Repeat("x", (1<<20)+1), cookies: []*http.Cookie{active}, headers: mutationHeaders(csrf), status: 413},
 		{name: "GET body", method: "GET", path: apiPrefix + "/records", body: "data", cookies: []*http.Cookie{active}, status: 400},
@@ -401,4 +402,71 @@ func TestCookieHostIsolation(t *testing.T) {
 		b.Close()
 		t.Fatal("authorization endpoint on cookie host accepted")
 	}
+}
+
+func assertReauthentication(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	var body struct {
+		Error  string `json:"error"`
+		Login  string `json:"login_url"`
+		Status int    `json:"statusCode"`
+	}
+	require(t, w.Code == 401 && json.Unmarshal(w.Body.Bytes(), &body) == nil, "missing reauthentication response")
+	require(t, body.Error == "reauth_required" && body.Login == "/auth/login" && body.Status == 401, "browser reauthentication contract changed")
+	require(t, w.Header().Get("WWW-Authenticate") == `Bearer error="invalid_token"` && w.Header().Get("Cache-Control") == "no-store", "unsafe reauthentication headers")
+	require(t, w.Header().Get("Location") == "" && w.Header().Get("ETag") == "", "reauthentication forwarded upstream headers")
+}
+func TestBrowserReauthenticationContract(t *testing.T) {
+	f := setup(t)
+	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", nil, nil))
+	active, _ := login(t, f)
+	f.mu.Lock()
+	f.status = 401
+	f.mu.Unlock()
+	w := send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil)
+	assertReauthentication(t, w)
+	require(t, !strings.Contains(w.Body.String(), "record-1"), "upstream rejection body reached browser")
+	require(t, cookie(t, w, SessionCookie).MaxAge == -1, "rejected session cookie remains")
+	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
+	f.mu.Lock()
+	count := len(f.requests)
+	f.mu.Unlock()
+	require(t, count == 1, "rejected session reached API again")
+}
+
+func TestLogoutConfirmation(t *testing.T) {
+	f := setup(t)
+	active, csrf := login(t, f)
+	w := send(f.backend, "GET", "/auth/logout", "", []*http.Cookie{active}, nil)
+	require(t, w.Code == 200 && strings.Contains(w.Body.String(), `method="post"`) && strings.Contains(w.Body.String(), `name="csrf_token" value="`+csrf+`"`), "logout confirmation is unavailable")
+	require(t, !strings.Contains(w.Body.String(), "access-value") && !strings.Contains(w.Body.String(), "refresh-value"), "logout page contains tokens")
+	_, _, revokes := f.oidc.counts()
+	require(t, revokes == 0, "GET revoked a session")
+	require(t, send(f.backend, "GET", "/auth/logout", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}}).Code == 200, "provider return was rejected")
+	require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "GET removed access")
+	headers := http.Header{"Origin": {origin}, "Content-Type": {"application/x-www-form-urlencoded"}}
+	for _, body := range []string{"csrf_token=wrong", "csrf_token=" + csrf + "&csrf_token=" + csrf, "csrf_token=" + csrf + "&return_to=https://other.example", strings.Repeat("x", 4097)} {
+		w = send(f.backend, "POST", "/auth/logout", body, []*http.Cookie{active}, headers)
+		require(t, w.Code == 400 || w.Code == 403, "invalid logout form was accepted")
+	}
+	require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "invalid form removed access")
+	w = send(f.backend, "POST", "/auth/logout", "csrf_token="+csrf, []*http.Cookie{active}, headers)
+	require(t, w.Code == 303 && w.Header().Get("Location") == "/auth/logout", "logout form did not return to confirmation route")
+	assertReauthentication(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil))
+	require(t, send(f.backend, "GET", "/auth/logout?return_to=https://other.example", "", nil, nil).Code == 400, "logout accepted a redirect input")
+}
+
+func TestProviderLogoutTarget(t *testing.T) {
+	originURL, _ := url.Parse(origin)
+	p := &oauthProvider{options: options{ClientID: clientID}}
+	for _, endpoint := range []string{"", "http://identity.example/logout", origin + ":8443/logout", "https://identity.example/logout?next=other", "https://identity.example/logout#other", "https://identity.example;invalid/logout"} {
+		p.metadata.EndSession = endpoint
+		_, _, err := p.logoutTarget(originURL)
+		require(t, err != nil, "unsafe provider logout endpoint was accepted")
+	}
+	p.metadata.EndSession = "https://identity.example/logout"
+	target, host, err := p.logoutTarget(originURL)
+	require(t, err == nil && host == "https://identity.example", "valid provider logout endpoint was rejected")
+	u, _ := url.Parse(target)
+	require(t, u.Query().Get("client_id") == clientID && u.Query().Get("post_logout_redirect_uri") == origin+"/auth/logout" && len(u.Query()) == 2, "provider logout parameters changed")
 }

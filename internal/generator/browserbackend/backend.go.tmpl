@@ -26,9 +26,9 @@ const LoginCookie="__Host-Http-stego_login"
 const CSRFHeader="X-CSRF-Token"
 
 type asset struct{Source,Path,Hash string}
-type configuration struct{Prefix,RolesClaim string;Routes []string;Assets []asset}
+type configuration struct{Prefix,RolesClaim,LogoutScope string;Routes []string;Assets []asset}
 type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFile,KeyFile string}
-type Backend struct{store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
+type Backend struct{store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 
 // NewBrowserBackend uses compiler-owned database, HTTP, and telemetry resources.
 // Apply schema.sql before startup. OAuth tokens remain in encrypted server state.
@@ -48,6 +48,7 @@ func newBackend(ctx context.Context,db *sql.DB,o options)(*Backend,error){
  authorization,_:=httpsURL(provider.metadata.Authorization);if cookieHost(authorization)==cookieHost(origin){provider.close();upstream.Close();return nil,errors.New("browser authorization requires a separate HTTPS cookie host")}
  b:=&Backend{store:store,provider:provider,upstream:upstream,origin:origin,permits:make(chan struct{},client.MaxConcurrentRequests)}
  if json.Unmarshal([]byte(generatedConfiguration),&b.config)!=nil{b.Close();return nil,errors.New("invalid generated browser configuration")}
+ if b.config.LogoutScope=="identity_provider"{b.logoutTarget,b.logoutOrigin,err=provider.logoutTarget(origin);if err!=nil{b.Close();return nil,err}}
  for _,route:=range b.config.Routes{pattern:=regexp.QuoteMeta(route);pattern=strings.ReplaceAll(pattern,`\{id\}`,`[^/]+`);compiled,err:=regexp.Compile("^"+pattern+"$");if err!=nil{b.Close();return nil,errors.New("invalid generated browser route")};b.routes=append(b.routes,compiled)}
  return b,nil
 }
@@ -77,14 +78,14 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
  if len(r.Header.Values("Sec-Fetch-Site"))>1{failure(w,400);return}
  if site:=r.Header.Get("Sec-Fetch-Site");site=="cross-site"||site=="same-site"{
   publicNavigation:=(r.Method=="GET"||r.Method=="HEAD")&&!strings.HasPrefix(r.URL.Path,"/auth/")&&r.URL.Path!=b.config.Prefix&&!strings.HasPrefix(r.URL.Path,b.config.Prefix+"/")
-  if r.URL.Path!="/auth/callback"&&!publicNavigation{failure(w,403);return}
+  if r.URL.Path!="/auth/callback"&&!(r.Method=="GET"&&r.URL.Path=="/auth/logout")&&!publicNavigation{failure(w,403);return}
  }
  if len(r.Header.Values("Origin"))!=0&&!b.sameOrigin(r){failure(w,403);return}
  switch r.URL.Path{
  case "/auth/login":r.Pattern="/auth/login";if r.Method!="GET"{w.Header().Set("Allow","GET");failure(w,405);return};b.login(w,r);return
  case "/auth/callback":r.Pattern="/auth/callback";if r.Method!="GET"{w.Header().Set("Allow","GET");failure(w,405);return};b.callback(w,r);return
  case "/auth/session":r.Pattern="/auth/session";if r.Method!="GET"{w.Header().Set("Allow","GET");failure(w,405);return};b.session(w,r);return
- case "/auth/logout":r.Pattern="/auth/logout";if r.Method!="POST"{w.Header().Set("Allow","POST");failure(w,405);return};b.logout(w,r);return
+ case "/auth/logout":r.Pattern="/auth/logout";if r.URL.RawQuery!=""{failure(w,400);return};if r.Method=="GET"{b.confirmLogout(w,r);return};if r.Method!="POST"{w.Header().Set("Allow","GET, POST");failure(w,405);return};b.logout(w,r);return
  }
  if r.URL.Path==b.config.Prefix||strings.HasPrefix(r.URL.Path,b.config.Prefix+"/"){r.Pattern=b.config.Prefix+"/{resource}";b.proxy(w,r);return}
  if r.Method!="GET"&&r.Method!="HEAD"{failure(w,405);return}

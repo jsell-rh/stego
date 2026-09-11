@@ -20,7 +20,7 @@ import (
  client {{printf "%q" .Client}}
 )
 
-type oauthMetadata struct{Authorization string `json:"authorization_endpoint"`;Token string `json:"token_endpoint"`;Keys string `json:"jwks_uri"`;Revoke string `json:"revocation_endpoint"`;PKCE []string `json:"code_challenge_methods_supported"`}
+type oauthMetadata struct{EndSession string `json:"end_session_endpoint"`;Authorization string `json:"authorization_endpoint"`;Token string `json:"token_endpoint"`;Keys string `json:"jwks_uri"`;Revoke string `json:"revocation_endpoint"`;PKCE []string `json:"code_challenge_methods_supported"`}
 type oauthProvider struct{provider *oidc.Provider;metadata oauthMetadata;transport *oauthTransport;options options}
 type oauthTransport struct{mu sync.Mutex;ca string;clients map[string]*client.Client;closed bool}
 type oauthTokens struct{Access string `json:"access_token"`;Refresh string `json:"refresh_token"`;ID string `json:"id_token"`;Type string `json:"token_type"`;Expires int64 `json:"expires_in"`}
@@ -49,6 +49,12 @@ func discover(ctx context.Context,o options)(*oauthProvider,error){
  for _,value:=range []string{p.metadata.Authorization,p.metadata.Token,p.metadata.Keys,p.metadata.Revoke}{if _,err:=httpsURL(value);err!=nil{p.close();return nil,errors.New("OIDC requires verified authorization, token, key, and revocation endpoints")}}
  pkce:=false;for _,method:=range p.metadata.PKCE{if method=="S256"{pkce=true}};if !pkce{p.close();return nil,errors.New("OIDC requires S256 PKCE")}
  return p,nil
+}
+func(p *oauthProvider)logoutTarget(origin *url.URL)(string,string,error){
+ target,err:=httpsURL(p.metadata.EndSession);if err!=nil||target.RawQuery!=""||target.ForceQuery||cookieHost(target)==cookieHost(origin){return "","",errors.New("provider logout requires a separate HTTPS endpoint without query parameters")}
+ for _,r:=range target.Host{if !((r>='a'&&r<='z')||(r>='A'&&r<='Z')||(r>='0'&&r<='9')||strings.ContainsRune(".-:[]",r)){return "","",errors.New("invalid provider logout host")}}
+ target.RawQuery=url.Values{"client_id":{p.options.ClientID},"post_logout_redirect_uri":{origin.String()+"/auth/logout"}}.Encode()
+ return target.String(),target.Scheme+"://"+target.Host,nil
 }
 func(p *oauthProvider)close(){p.transport.close()}
 func plainText(value string,limit int)bool{if len(value)>limit{return false};for _,r:=range value{if r<32||r>126{return false}};return true}

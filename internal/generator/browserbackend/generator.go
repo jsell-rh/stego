@@ -25,9 +25,9 @@ var sources embed.FS
 type Generator struct{}
 type asset struct{ Source, Path, Hash string }
 type settings struct {
-	Prefix, RolesClaim string
-	Routes             []string
-	Assets             []asset
+	Prefix, RolesClaim, LogoutScope string
+	Routes                          []string
+	Assets                          []asset
 }
 
 var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
@@ -35,11 +35,19 @@ var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
 func config(values map[string]any) (settings, error) {
 	var s settings
 	for key := range values {
-		if key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" {
+		if key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
 		}
 	}
 	s.Prefix, _ = values["api_prefix"].(string)
+	s.LogoutScope = "console"
+	if value, present := values["logout_scope"]; present {
+		var ok bool
+		s.LogoutScope, ok = value.(string)
+		if !ok || (s.LogoutScope != "console" && s.LogoutScope != "identity_provider") {
+			return s, fmt.Errorf("browser logout_scope must be console or identity_provider")
+		}
+	}
 	s.RolesClaim = "roles"
 	if value, present := values["roles_claim"]; present {
 		var ok bool

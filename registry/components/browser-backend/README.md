@@ -37,7 +37,7 @@ PKCE, and token revocation. Grant the access token the audience and roles
 required by the domain API. ID tokens must identify the browser client.
 
 The service exposes GET `/auth/login`, GET `/auth/callback`, GET
-`/auth/session`, and POST `/auth/logout`. The session response includes
+`/auth/session`, and GET and POST `/auth/logout`. The session response includes
 `authenticated`, `expires_at`, `roles`, `user`, and `csrf_token` when signed
 in. It does not include OAuth tokens. Mutations require the exact Origin and
 `X-CSRF-Token` headers. The API prefix forwards the user's server-held access
@@ -48,3 +48,27 @@ provider administration, ingress certificates, or production database setup.
 See [the runtime contract](../../../specs/browser-backend.md) for limits and
 acceptance evidence. A browser user interface and deployment still need their
 own application checks.
+
+GET `/auth/logout` displays a confirmation form. It does not remove the session
+or revoke a token. The form requires the session CSRF value and an exact Origin
+match. POST without a form still uses `X-CSRF-Token` and returns 204 after local
+session removal and token revocation. Failed revocation returns an error; the
+local session stays removed.
+
+Set `logout_scope: identity_provider` to send a confirmed browser form to the
+identity provider's discovered logout endpoint after local sign-out. The default
+is `console`. Provider sign-out requires a separate HTTPS cookie host and an
+endpoint without query parameters. Register the exact console origin plus
+`/auth/logout` as a permitted post-logout redirect URI. The generated request
+uses `client_id` and `post_logout_redirect_uri`. It does not send an ID token
+through browser HTML or a URL. The provider must ask for confirmation without
+an ID token hint, as specified by
+[OpenID Connect RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout).
+The console confirmation page permits form navigation to this provider origin.
+Other pages retain the same-origin form policy. A return to the console confirms
+only local sign-out; it does not assert that the provider completed sign-out.
+
+An invalid or rejected API session returns HTTP 401 with `error: reauth_required`,
+`login_url: /auth/login`, and `statusCode: 401`. The browser can restart login
+and set a permitted `return_to` route. Storage failure remains HTTP 503. API
+permission denial remains HTTP 403 and does not remove a valid session.

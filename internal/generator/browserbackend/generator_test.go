@@ -51,6 +51,7 @@ func TestGeneration(t *testing.T) {
 }
 func TestInvalidConfig(t *testing.T) {
 	cases := map[string]func(*gen.Context){
+		"logout scope":    func(c *gen.Context) { c.ComponentConfig["logout_scope"] = "all" },
 		"unknown":         func(c *gen.Context) { c.ComponentConfig["tokens_in_cookie"] = true },
 		"no database":     func(c *gen.Context) { delete(c.PeerNamespaces, "postgres-adapter") },
 		"no telemetry":    func(c *gen.Context) { delete(c.PeerNamespaces, "otel-tracing") },

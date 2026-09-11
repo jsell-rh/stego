@@ -2933,3 +2933,12 @@ state, and dependency hashes match two pinned generation passes and the
 checkout. The input-manifest race test passed. The cluster Job completed, and
 namespace removal was verified. Both repositories are pushed to main. Full CI
 for these revisions and the remaining application requirements stay open.
+
+Reference UI inspection found missing reauthentication and GET sign-out
+contracts in the generated browser backend. Browser-backend 1.1.0 adds the fixed
+401 response, a confirmation form, and an explicit provider sign-out scope.
+The common race tests and extended real Keycloak Gateway workflow passed after
+correction of a request compatibility error and two fixture assumptions. The
+[browser record](browser-backend.md) preserves the failures and test scope.
+The reference UI, TypeScript SDK, CSRF transport, and browser telemetry still
+need migration. The broader goal remains active.
