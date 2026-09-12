@@ -344,3 +344,98 @@ func TestScanScheduleRetainsFailureAndResetsAfterSuccess(t *testing.T) {
 		t.Fatal("cancellation did not stop the scan wait")
 	}
 }
+
+func TestMultipleKeyedWatchesOpenBeforeDiscoveryAndJoin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var opened, stopped atomic.Int32
+	sources := []Source[string]{}
+	for _, prefix := range []string{"gateway:", "database:"} {
+		sources = append(sources, Source[string]{Watch: func(ctx context.Context) (func() (string, error), error) {
+			opened.Add(1)
+			first := true
+			return func() (string, error) {
+				if first {
+					first = false
+					return prefix + "watch", nil
+				}
+				<-ctx.Done()
+				stopped.Add(1)
+				return "", ctx.Err()
+			}, nil
+		}, Scan: func(ctx context.Context, emit func(string) error) error {
+			if opened.Load() != 2 {
+				t.Error("scan preceded subscription setup")
+			}
+			return emit(prefix + "scan")
+		}})
+	}
+	seen := map[string]bool{}
+	o := watchKeyOptions()
+	o.Workers = 1
+	err := RunKeyedWatches(ctx, sources, func(ctx context.Context, key string) error {
+		if opened.Load() != 2 {
+			t.Error("action preceded subscription setup")
+		}
+		seen[key] = true
+		if len(seen) == 4 {
+			cancel()
+		}
+		return nil
+	}, o)
+	if err != nil || len(seen) != 4 || stopped.Load() != 2 {
+		t.Fatal("multiple source lifecycle failed", err, seen, stopped.Load())
+	}
+}
+func TestMultipleKeyedWatchesPreserveFailureAndJoinReceivers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := make(chan struct{})
+	var joined atomic.Bool
+	scan := func(context.Context, func(string) error) error { return nil }
+	sources := []Source[string]{
+		{Watch: func(ctx context.Context) (func() (string, error), error) {
+			return func() (string, error) {
+				select {
+				case <-started:
+					return "", denied
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			}, nil
+		}, Scan: scan},
+		{Watch: func(ctx context.Context) (func() (string, error), error) {
+			return func() (string, error) { close(started); <-ctx.Done(); joined.Store(true); return "", ctx.Err() }, nil
+		}, Scan: scan},
+	}
+	err := RunKeyedWatches(ctx, sources, func(context.Context, string) error { t.Error("unexpected action"); return nil }, watchKeyOptions())
+	if !errors.Is(err, denied) || !joined.Load() {
+		t.Fatal("source failure lost or receiver not joined", err)
+	}
+}
+func TestMultipleKeyedWatchSetupFailureCancelsOpenedSources(t *testing.T) {
+	var opened context.Context
+	scan := func(context.Context, func(string) error) error { t.Error("scan followed failed setup"); return nil }
+	sources := []Source[string]{
+		{Watch: func(ctx context.Context) (func() (string, error), error) {
+			opened = ctx
+			return func() (string, error) { t.Error("receive followed failed setup"); return "", nil }, nil
+		}, Scan: scan},
+		{Watch: func(context.Context) (func() (string, error), error) { return nil, denied }, Scan: scan},
+	}
+	err := RunKeyedWatches(context.Background(), sources, func(context.Context, string) error { t.Error("unexpected action"); return nil }, watchKeyOptions())
+	if !errors.Is(err, denied) || opened == nil || opened.Err() != context.Canceled {
+		t.Fatal("setup did not cancel earlier source", err)
+	}
+}
+func TestMultipleKeyedWatchesValidateBeforeOpening(t *testing.T) {
+	valid := Source[string]{Watch: func(context.Context) (func() (string, error), error) {
+		t.Error("invalid sources opened a watch")
+		return nil, nil
+	}, Scan: func(context.Context, func(string) error) error { return nil }}
+	for _, sources := range [][]Source[string]{nil, make([]Source[string], 17), {valid, {}}, {valid, {Watch: valid.Watch}}} {
+		if err := RunKeyedWatches(context.Background(), sources, func(context.Context, string) error { return nil }, watchKeyOptions()); err == nil {
+			t.Fatal("invalid sources accepted")
+		}
+	}
+}

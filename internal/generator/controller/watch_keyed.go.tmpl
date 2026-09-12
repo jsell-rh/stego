@@ -4,6 +4,7 @@ package {{.Package}}
 import (
  "context"
  "errors"
+ "sync"
  "time"
 )
 
@@ -27,7 +28,19 @@ type KeyedWatchOptions struct {
 // A process restart still loses the queue and its retry history.
 // This function supplies process-local exclusion, not distributed fencing.
 func RunKeyedWatch[K ~string](ctx context.Context, source Source[K], reconcile func(context.Context,K)error, options KeyedWatchOptions)error {
- if ctx==nil||source.Watch==nil||source.Scan==nil||reconcile==nil{return errors.New("keyed watch requires context, source, and action")}
+ return RunKeyedWatches(ctx,[]Source[K]{source},reconcile,options)
+}
+
+// RunKeyedWatches shares one bounded queue across 1..16 subscriptions. All
+// subscriptions open before scans or actions start. Each receiver can retain
+// one pending key. A failed subscription cancels and joins all receivers before
+// reconnecting. Every source must scan its retained obligations. Scans run in
+// source order and share the scan deadline. Keys must identify their resource
+// kind when different sources can emit the same resource ID.
+func RunKeyedWatches[K ~string](ctx context.Context,sources []Source[K],reconcile func(context.Context,K)error,options KeyedWatchOptions)error {
+ if ctx==nil||reconcile==nil||len(sources)<1||len(sources)>16{return errors.New("keyed watches require context, action, and 1..16 sources")}
+ sources=append([]Source[K](nil),sources...)
+ for _,source:=range sources{if source.Watch==nil||source.Scan==nil{return errors.New("keyed watch requires a source and scan")}}
  if err:=options.KeyedOptions.validate();err!=nil{return err}
  if options.ReconnectDelay<time.Millisecond||options.ReconnectDelay>time.Minute{return errors.New("controller reconnect delay is outside its limits")}
  if ctx.Err()!=nil{return nil}
@@ -35,7 +48,7 @@ func RunKeyedWatch[K ~string](ctx context.Context, source Source[K], reconcile f
  q:=newKeyQueue[K](options.Capacity)
  detach,err:=attachControllerQueue(ctx,q.metrics);if err!=nil{return err};defer detach()
  for ctx.Err()==nil {
-  err,finish:=controllerWork(ctx,"watch",func(operation context.Context)error{return keyedWatchSession(operation,source,reconcile,options,q)})
+  err,finish:=controllerWork(ctx,"watch",func(operation context.Context)error{return keyedWatchSession(operation,sources,reconcile,options,q)})
   if ctx.Err()!=nil{finish(false);return nil}
   terminal:=err!=nil&&(errors.Is(err,ErrWatch)||errors.Is(err,ErrKey)||errors.Is(err,ErrTelemetryInUse)||errors.Is(err,ErrMetricsInUse)||errors.Is(err,ErrMetricsContract)||options.Terminal(err))
   finish(ctx.Err()==nil&&!terminal)
@@ -50,30 +63,49 @@ func RunKeyedWatch[K ~string](ctx context.Context, source Source[K], reconcile f
  return nil
 }
 
-func keyedWatchSession[K ~string](parent context.Context,source Source[K],reconcile func(context.Context,K)error,options KeyedWatchOptions,q *keyQueue[K])error{
+func keyedWatchSession[K ~string](parent context.Context,sources []Source[K],reconcile func(context.Context,K)error,options KeyedWatchOptions,q *keyQueue[K])error{
  ctx,cancel:=context.WithCancel(parent)
  defer cancel()
  setup:=time.AfterFunc(options.Timeout,cancel)
- receive,err:=source.Watch(ctx)
+ receives:=make([]func()(K,error),0,len(sources))
+ for _,source:=range sources{
+  receive,err:=source.Watch(ctx)
+  if err!=nil{setup.Stop();return err}
+  if ctx.Err()!=nil{setup.Stop();return ctx.Err()}
+  if receive==nil{setup.Stop();return ErrWatch}
+  receives=append(receives,receive)
+ }
  setup.Stop()
- if err!=nil{return err}
- if ctx.Err()!=nil{return ctx.Err()}
- if receive==nil{return ErrWatch}
  controllerNotice(ctx,"watch_started")
  if options.Observe!=nil{options.Observe(Event{Phase:"watch_started"})}
  return runKeyed(parent,KeyedSource[K]{
-  Observe:func(ctx context.Context,sink *KeySink[K])error{
-   stop:=context.AfterFunc(ctx,cancel)
+  Observe:func(operation context.Context,sink *KeySink[K])error{
+   stop:=context.AfterFunc(operation,cancel)
    defer stop()
+   var readers sync.WaitGroup
+   failures:=make(chan error,len(receives))
+   defer func(){cancel();readers.Wait()}()
    sink.SetReady(true)
-   for ctx.Err()==nil{
-    key,err:=receive()
-    if err!=nil{return err}
-    if ctx.Err()!=nil{return ctx.Err()}
-    if err:=sink.AddWait(ctx,key);err!=nil{return err}
+   for _,receive:=range receives{
+    readers.Go(func(){
+     for ctx.Err()==nil{
+      key,err:=receive()
+      if err==nil&&ctx.Err()==nil{err=sink.AddWait(ctx,key)}
+      if err!=nil{failures<-err;cancel();return}
+     }
+    })
    }
-   return ctx.Err()
+   <-ctx.Done()
+   readers.Wait()
+   if operation.Err()!=nil{return operation.Err()}
+   select{case err:=<-failures:return err;default:return ctx.Err()}
   },
-  Scan:source.Scan,
+  Scan:func(ctx context.Context,emit func(K)error)error{
+   for _,source:=range sources{
+    if err:=ctx.Err();err!=nil{return err}
+    if err:=source.Scan(ctx,emit);err!=nil{return err}
+   }
+   return nil
+  },
  },reconcile,options.KeyedOptions,q)
 }
