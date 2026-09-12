@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.5.0
+version: 1.6.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -20,6 +20,47 @@ config:
         type: list
         optional: true
         items: {type: string}
+  allocation_roles:
+    type: list
+    optional: true
+    items:
+      name: {type: string}
+      scope: {type: string, enum: [namespace, cluster]}
+      rules:
+        type: list
+        items:
+          api_group: {type: string}
+          resources:
+            type: list
+            items: {type: string}
+          verbs:
+            type: list
+            items: {type: string, enum: [get, list, watch, create, update, patch, delete]}
+          resource_names:
+            type: list
+            optional: true
+            items: {type: string}
+  allocation_profiles:
+    type: list
+    optional: true
+    items:
+      name: {type: string}
+      namespace_prefix: {type: string}
+      suffix_length: {type: int}
+      owner_label: {type: string}
+      manager: {type: string}
+      quota:
+        type: list
+        items:
+          resource: {type: string}
+          value: {type: string}
+      bindings:
+        type: list
+        items:
+          role: {type: string, optional: true}
+          external_role: {type: string, optional: true}
+          service_account: {type: string}
+          namespace: {type: string, enum: [control, allocated]}
   source_directories:
     type: list
     items: {type: string}
@@ -45,6 +86,7 @@ config:
       name: {type: string}
       package: {type: string}
       function: {type: string}
+      namespace_allocator: {type: bool, optional: true}
       kubernetes_api: {type: bool, optional: true}
       kubernetes_permissions:
         type: list

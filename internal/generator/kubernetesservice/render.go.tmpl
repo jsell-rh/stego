@@ -2,6 +2,8 @@ package main
 
 import (
  "bytes"
+ "crypto/sha256"
+ "encoding/hex"
  "embed"
  "encoding/json"
  "flag"
@@ -42,7 +44,7 @@ func render(args []string, output io.Writer) error {
  if *worker!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*worker){return fmt.Errorf("invalid worker")};name="worker-"+*worker+".json.tmpl"}
  if *rpc!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*rpc){return fmt.Errorf("invalid RPC process")};name="rpc-"+*rpc+".json.tmpl"}
  manifest,err:=manifests.ReadFile(name);if err!=nil{return fmt.Errorf("unknown workload")}
- tmpl,err:=template.New("deployment").Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
+ tmpl,err:=template.New("deployment").Funcs(template.FuncMap{"allocationID":func(namespace, service string)string{value:=sha256.Sum256([]byte(namespace+"."+service));return hex.EncodeToString(value[:16])}}).Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
  completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}

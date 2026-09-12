@@ -3394,3 +3394,37 @@ The next security step is the shared-cluster allocator and namespace permission
 boundary. Workload network isolation, full Sandbox provisioning through the
 console, production rotation, capacity, accessibility, and remaining C1–C7
 requirements remain open. The goal remains active.
+
+STEGO now has a common namespace allocator in `kubernetes-service` 1.6.0.
+Profiles declare fixed namespace patterns, owner labels, quotas, roles, and
+service accounts. The allocator has no Secret access. Three generated admission
+policies protect namespace ownership, declared bindings, and resource limits.
+The runtime removes stale bindings after regeneration and removes cluster
+bindings before namespace deletion. It does not adopt foreign resources.
+
+The final bounded jshell check passed with a projected allocator token. The
+live lifecycle test took 9.16 seconds; its race-enabled package took 10.264
+seconds. Generator checks took 26.612 seconds and registry checks took 2.160
+seconds. The Job reached `Complete` with exit zero. The source and results are
+in `/tmp/stego-allocation-b903k6xx`. Seventeen compiler and registry files match
+the fixed source copy. The separate live-check script has a recorded hash.
+Thirty-one live admission checks passed, including old-worker access removal,
+replacement-worker access, denied foreign Secret reads, protected quotas,
+collection deletion, and orphan binding cleanup under the regenerated policy.
+
+The live checks found and corrected three API details. List entries can omit
+type fields; binding comparisons now use ownership, role, and subjects.
+Namespace data was unavailable during match-condition evaluation on the tested
+server; the namespace checks now run during validation. Namespace cleanup uses
+collection-delete requests with no resource name; the guard handles these
+requests explicitly. The test setup also required a missing JWT peer to be
+added. Failed and intermediate runs remain recorded in the local result
+folders. None of those failed runs is counted as a pass.
+
+This is a common runtime and admission boundary check. Hypershell still uses
+its earlier worker permissions. The next application gate must add a domain
+adapter for current Gateway and database state, remove cluster-wide data access
+from those workers, and run the real Gateway workflow with the allocator.
+Do not claim production shared-cluster isolation before that application check.
+The broader enterprise goal remains active. See
+[Namespace allocation](namespace-allocation.md) for the contract and limits.

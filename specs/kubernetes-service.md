@@ -312,3 +312,7 @@ must check verified TLS, authorization, and real provider operations.
 This component still requires a primary HTTP service and its health component.
 It can add RPC deployments to that project. RPC-only project deployment remains
 separate work.
+
+Services can also declare a separate namespace allocator worker. See
+[Namespace allocation](namespace-allocation.md) for profiles, permissions,
+admission checks, lifecycle behavior, and cluster test requirements.

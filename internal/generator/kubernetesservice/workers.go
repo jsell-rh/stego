@@ -78,6 +78,10 @@ func workers(ctx gen.Context) ([]worker, error) {
 		for key, value := range values {
 			switch key {
 			case "name", "package", "function":
+			case "namespace_allocator":
+				if _, ok := value.(bool); !ok {
+					return nil, fmt.Errorf("namespace_allocator must be a boolean")
+				}
 			case "env_secret", "files_secret":
 				s, ok := value.(string)
 				if !ok || !label.MatchString(s) {
@@ -166,6 +170,17 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 		}
 		access, _ := kubernetesAccess(w.Context)
 		items = append(access, items...)
+		allocation, err := allocationConfig(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if allocation.Allocator == w.Context.ServiceName {
+			protected, err := allocationObjects(allocation)
+			if err != nil {
+				return nil, err
+			}
+			items = append(protected, items...)
+		}
 		manifest, err := json.MarshalIndent(object{"apiVersion": "v1", "kind": "List", "items": items}, "", "  ")
 		if err != nil {
 			return nil, err
