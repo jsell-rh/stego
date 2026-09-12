@@ -30,7 +30,8 @@ has at most 32 rules, with at most 32 entries in each list.
 
 Namespace rules produce a Role and RoleBinding in the target namespace.
 Cluster rules produce a ClusterRole and ClusterRoleBinding. Cluster object
-names include the namespace and service name to separate installations.
+names join the namespace and service name with a dot. Neither input permits
+a dot, so distinct pairs cannot produce the same cluster object name.
 Bindings select only this target's ServiceAccount. No permissions are inferred
 from source code or network access. Without the option, no token is projected.
 

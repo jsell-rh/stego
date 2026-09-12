@@ -126,7 +126,7 @@ func kubernetesAccess(ctx gen.Context) ([]any, error) {
 		meta := object{"name": name, "namespace": "{{.Namespace}}"}
 		if scope == "cluster" {
 			kind = "ClusterRole"
-			name = "{{.Namespace}}-" + ctx.ServiceName
+			name = "{{.Namespace}}." + ctx.ServiceName
 			meta = object{"name": name}
 		}
 		objects = append(objects, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": kind, "metadata": meta, "rules": rules[scope]}, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": kind + "Binding", "metadata": meta, "roleRef": object{"apiGroup": "rbac.authorization.k8s.io", "kind": kind, "name": name}, "subjects": []any{object{"kind": "ServiceAccount", "name": ctx.ServiceName, "namespace": "{{.Namespace}}"}}})

@@ -95,7 +95,7 @@ func TestGeneratedKubernetesIdentity(t *testing.T) {
 							t.Fatal("binding escaped namespace")
 						}
 						role := item["roleRef"].(map[string]any)
-						if kind == "ClusterRoleBinding" && !strings.HasPrefix(role["name"].(string), "tenant-a-") {
+						if kind == "ClusterRoleBinding" && !strings.HasPrefix(role["name"].(string), "tenant-a.") {
 							t.Fatal("cluster name can collide across installs")
 						}
 					}
@@ -140,5 +140,22 @@ func TestGeneratedKubernetesIdentity(t *testing.T) {
 				t.Fatal("target manifest missing")
 			}
 		})
+	}
+}
+
+func TestKubernetesClusterNamesDoNotCollide(t *testing.T) {
+	names := map[string]bool{}
+	for _, pair := range [][2]string{{"team-one", "api"}, {"team", "one-api"}} {
+		config := accessConfig()
+		config["kubernetes_permissions"].([]any)[0].(map[string]any)["scope"] = "cluster"
+		objects, err := kubernetesAccess(gen.Context{ServiceName: pair[1], ComponentConfig: config})
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := strings.ReplaceAll(objects[0].(object)["metadata"].(object)["name"].(string), "{{.Namespace}}", pair[0])
+		if names[name] {
+			t.Fatal("separate installations share cluster RBAC")
+		}
+		names[name] = true
 	}
 }
