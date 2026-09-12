@@ -58,6 +58,37 @@ until its allocations are removed. An application that moves a resource must
 retain its old cleanup target. Removing a profile first makes that target
 unavailable to the generated allocator.
 
+## Public identity records
+
+Version 1.7.0 can retain public identity values on an allocated Namespace.
+Declare `identity_config_map` and one or both of `identity_labels` and
+`identity_annotations`. Each entry maps a ConfigMap data `field` to a metadata
+`key`. A profile can map at most eight fields. The compiler rejects reserved
+ownership and Pod security keys.
+
+The resource worker creates an immutable ConfigMap with the full allocation
+owner labels. The allocator can read that exact ConfigMap name in allocated
+namespaces. It cannot create the record or read Secrets. `Ensure` copies the
+declared values to the Namespace with observed UID and resource version checks.
+An existing value must match. Admission rules prevent a change or removal of a
+stored value. Loss of the ConfigMap does not remove the Namespace values.
+
+This mechanism can retain a public key fingerprint. The application must wait
+until the Namespace contains the expected fingerprint before it uses the key.
+The application must reject a lost or changed key after that point. STEGO does
+not derive or verify application fingerprints. Do not place credentials in the
+public record. Namespace deletion removes the retained identity.
+
+`RequireNamespace` and `NamespaceGone` let a resource worker observe allocation
+and cleanup with read-only Namespace access. Both reject a foreign allocation
+identity. A missing or deleting namespace makes `RequireNamespace` return
+`ErrPending`; only an absent namespace makes `NamespaceGone` return true.
+
+The bounded jshell Job passed generated runtime race tests and a real allocation
+lifecycle test. The live admission check passed 37 access and mutation checks,
+including public record access, immutable metadata, and permission changes after
+regeneration. Application adoption is a separate gate.
+
 ## Admission checks
 
 The generated worker manifest installs three fail-closed ValidatingAdmissionPolicies

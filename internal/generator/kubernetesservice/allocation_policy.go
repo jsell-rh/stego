@@ -58,9 +58,22 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		bindNames = append(bindNames, name)
 		items = append(items, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": object{"name": name}, "rules": r.Rules})
 	}
+	identityMaps := []string{}
+	seenIdentityMaps := map[string]bool{}
+	for _, p := range config.Profiles {
+		if p.IdentityConfigMap != "" && !seenIdentityMaps[p.IdentityConfigMap] {
+			seenIdentityMaps[p.IdentityConfigMap] = true
+			identityMaps = append(identityMaps, p.IdentityConfigMap)
+		}
+	}
+	sort.Strings(identityMaps)
 	// This role gives no write access. Its binding is the authorization proof
 	// for a namespace before the allocator can make a cluster binding for it.
 	items = append(items, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": object{"name": base + ".proof"}, "rules": []any{object{"apiGroups": []string{"coordination.k8s.io"}, "resources": []string{"leases"}, "verbs": []string{"get"}, "resourceNames": []string{marker}}}})
+	if len(identityMaps) > 0 {
+		proof := items[len(items)-1].(object)
+		proof["rules"] = append(proof["rules"].([]any), object{"apiGroups": []string{""}, "resources": []string{"configmaps"}, "verbs": []string{"get"}, "resourceNames": identityMaps})
+	}
 	binding := func(role, sa, ns, name string) string {
 		return "(has(variables.o.roleRef) && variables.o.roleRef.apiGroup == 'rbac.authorization.k8s.io' && variables.o.roleRef.kind == 'ClusterRole' && variables.o.roleRef.name == " + celString(role) + " && has(variables.o.subjects) && size(variables.o.subjects) == 1 && variables.o.subjects[0].kind == 'ServiceAccount' && (!has(variables.o.subjects[0].apiGroup) || variables.o.subjects[0].apiGroup == '') && variables.o.subjects[0].name == " + celString(sa) + " && variables.o.subjects[0].namespace == " + ns + " && variables.o.metadata.name == " + name + ")"
 	}
@@ -131,6 +144,21 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	for _, p := range config.Profiles {
 		unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || object.metadata.labels["+celString(p.OwnerLabel)+"] == oldObject.metadata.labels["+celString(p.OwnerLabel)+"])")
 	}
+	for _, p := range config.Profiles {
+		for _, group := range []struct {
+			name   string
+			fields []allocationIdentityField
+		}{{"labels", p.IdentityLabels}, {"annotations", p.IdentityAnnotations}} {
+			for _, field := range group.fields {
+				old := "oldObject.metadata." + group.name
+				next := "object.metadata." + group.name
+				key := celString(field.Key)
+				oldHas := "(has(" + old + ") && " + key + " in " + old + ")"
+				newHas := "(has(" + next + ") && " + key + " in " + next + ")"
+				unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || ("+oldHas+" ? ("+newHas+" && "+next+"["+key+"] == "+old+"["+key+"]) : (!"+newHas+" || "+isAllocator+")))")
+			}
+		}
+	}
 	immutable := "request.operation == 'DELETE' || (request.operation == 'CREATE' ? (" + isAllocator + " && " + join(namespaceCases) + ") : (" + marked("oldObject") + " && " + marked("object") + " && " + strings.Join(unchanged, " && ") + "))"
 	guarded = append(guarded, allocationPolicy(base+".ownership", []any{allocationRule("", "namespaces")}, marked("object")+" || "+marked("oldObject"), variables, []any{validate(immutable, "Allocation identity and restricted Pod security are immutable")})...)
 	// A namespace worker must not remove the quota or change reserved bindings,
@@ -152,6 +180,9 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		object{"apiGroups": []string{""}, "resources": []string{"resourcequotas"}, "verbs": []string{"get", "create", "patch"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"rolebindings", "clusterrolebindings"}, "verbs": []string{"get", "list", "create", "patch", "delete"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"clusterroles"}, "resourceNames": unique, "verbs": []string{"bind"}},
+	}
+	if len(identityMaps) > 0 {
+		rules[0].(object)["verbs"] = []string{"get", "list", "create", "patch", "delete"}
 	}
 	items = append(items, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": object{"name": base}, "rules": rules}, object{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": object{"name": base}, "roleRef": object{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": base}, "subjects": []any{object{"kind": "ServiceAccount", "name": config.Allocator, "namespace": "{{.Namespace}}"}}})
 	// Keep the policy source below the API server object limit.

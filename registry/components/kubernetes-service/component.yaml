@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.6.0
+version: 1.7.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -49,6 +49,19 @@ config:
       suffix_length: {type: int}
       owner_label: {type: string}
       manager: {type: string}
+      identity_config_map: {type: string, optional: true}
+      identity_labels:
+        type: list
+        optional: true
+        items:
+          field: {type: string}
+          key: {type: string}
+      identity_annotations:
+        type: list
+        optional: true
+        items:
+          field: {type: string}
+          key: {type: string}
       quota:
         type: list
         items:

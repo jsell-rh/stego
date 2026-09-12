@@ -34,7 +34,7 @@ func allocationContext() gen.Context {
 	for _, pair := range [][2]string{{"pods", "1"}, {"limits.cpu", "1"}, {"limits.memory", "256Mi"}, {"limits.ephemeral-storage", "128Mi"}, {"requests.storage", "1Gi"}} {
 		quota = append(quota, object{"resource": pair[0], "value": pair[1]})
 	}
-	c.ComponentConfig["allocation_profiles"] = []any{object{"name": "tenant", "namespace_prefix": "tenant-", "suffix_length": 8, "owner_label": "example.test/owner", "manager": "widget", "quota": quota, "bindings": []any{object{"role": "data", "service_account": "widget-data", "namespace": "control"}, object{"role": "review", "service_account": "gateway", "namespace": "allocated"}}}}
+	c.ComponentConfig["allocation_profiles"] = []any{object{"identity_config_map": "key-identity", "identity_labels": []any{object{"field": "linked_id", "key": "example.test/linked-id"}}, "identity_annotations": []any{object{"field": "fingerprint", "key": "example.test/fingerprint"}}, "name": "tenant", "namespace_prefix": "tenant-", "suffix_length": 8, "owner_label": "example.test/owner", "manager": "widget", "quota": quota, "bindings": []any{object{"role": "data", "service_account": "widget-data", "namespace": "control"}, object{"role": "review", "service_account": "gateway", "namespace": "allocated"}}}}
 	return c
 }
 func TestAllocationValidation(t *testing.T) {
@@ -51,6 +51,17 @@ func TestAllocationValidation(t *testing.T) {
 		"short prefix":                func(c *gen.Context, p, w object) { p["namespace_prefix"] = "-" },
 		"invalid suffix":              func(c *gen.Context, p, w object) { p["suffix_length"] = 0 },
 		"large suffix":                func(c *gen.Context, p, w object) { p["suffix_length"] = 64 },
+		"identity without source":     func(c *gen.Context, p, w object) { delete(p, "identity_config_map") },
+		"identity reserved label": func(c *gen.Context, p, w object) {
+			p["identity_labels"].([]any)[0].(object)["key"] = "stego.dev/allocator"
+		},
+		"identity repeated field": func(c *gen.Context, p, w object) {
+			p["identity_annotations"].([]any)[0].(object)["field"] = "linked_id"
+		},
+		"identity owner overwrite": func(c *gen.Context, p, w object) {
+			p["identity_labels"].([]any)[0].(object)["key"] = "example.test/owner"
+		},
+		"identity no fields": func(c *gen.Context, p, w object) { delete(p, "identity_labels"); delete(p, "identity_annotations") },
 		"owner exceeds client limit": func(c *gen.Context, p, w object) {
 			p["owner_label"] = strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 61) + "/id"
 		},

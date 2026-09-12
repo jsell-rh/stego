@@ -19,11 +19,14 @@ type allocationRole struct {
 	Rules       []any
 }
 type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace string }
+type allocationIdentityField struct{ Field, Key string }
 type allocationProfile struct {
-	Name, Prefix, OwnerLabel, Manager string
-	SuffixLength                      int
-	Bindings                          []allocationBinding
-	Quota                             map[string]string
+	IdentityConfigMap                   string
+	IdentityLabels, IdentityAnnotations []allocationIdentityField
+	Name, Prefix, OwnerLabel, Manager   string
+	SuffixLength                        int
+	Bindings                            []allocationBinding
+	Quota                               map[string]string
 }
 type allocationConfiguration struct {
 	Service, Allocator string
@@ -128,7 +131,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}
@@ -148,6 +151,46 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		names[name] = true
 		p := allocationProfile{Name: name, Prefix: prefix, SuffixLength: length, OwnerLabel: owner, Manager: manager, Quota: map[string]string{}}
+		if value, exists := values["identity_config_map"]; exists {
+			var ok bool
+			p.IdentityConfigMap, ok = value.(string)
+			if !ok || !label.MatchString(p.IdentityConfigMap) {
+				return result, fmt.Errorf("identity_config_map must be a DNS label")
+			}
+		}
+		fields := map[string]bool{}
+		for _, setting := range []string{"identity_labels", "identity_annotations"} {
+			raw, exists := values[setting]
+			if !exists {
+				continue
+			}
+			entries, ok := raw.([]any)
+			if !ok || len(entries) == 0 || len(entries) > 8 || p.IdentityConfigMap == "" {
+				return result, fmt.Errorf("identity fields require a ConfigMap and 1..8 entries")
+			}
+			seen := map[string]bool{}
+			for _, entry := range entries {
+				m, ok := entry.(map[string]any)
+				if !ok || len(m) != 2 {
+					return result, fmt.Errorf("invalid namespace identity field")
+				}
+				field, _ := m["field"].(string)
+				key, _ := m["key"].(string)
+				if !labelValue.MatchString(field) || !validLabelKey(key) || len(key) > 253 || fields[field] || seen[key] || key == owner || key == "app.kubernetes.io/managed-by" || key == "kubernetes.io/metadata.name" || strings.HasPrefix(key, "stego.dev/") || strings.HasPrefix(key, "pod-security.kubernetes.io/") {
+					return result, fmt.Errorf("invalid or reserved namespace identity field")
+				}
+				fields[field] = true
+				seen[key] = true
+				if setting == "identity_labels" {
+					p.IdentityLabels = append(p.IdentityLabels, allocationIdentityField{field, key})
+				} else {
+					p.IdentityAnnotations = append(p.IdentityAnnotations, allocationIdentityField{field, key})
+				}
+			}
+		}
+		if (p.IdentityConfigMap != "" && len(fields) == 0) || len(fields) > 8 {
+			return result, fmt.Errorf("namespace identity requires 1..8 fields")
+		}
 		quota, ok := values["quota"].([]any)
 		if !ok || len(quota) != 5 {
 			return result, fmt.Errorf("allocation requires all five resource bounds")

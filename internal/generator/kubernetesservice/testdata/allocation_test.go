@@ -108,6 +108,25 @@ func fixture(t *testing.T) (*Allocator, *api) {
 			meta["resourceVersion"] = "1"
 			state.objects[key] = body
 			_ = json.NewEncoder(w).Encode(body)
+		case "PATCH":
+			if !exists || kube.String(body, "metadata", "uid") != kube.String(current, "metadata", "uid") || kube.String(body, "metadata", "resourceVersion") != kube.String(current, "metadata", "resourceVersion") {
+				w.WriteHeader(409)
+				return
+			}
+			meta := current["metadata"].(map[string]any)
+			for _, field := range []string{"labels", "annotations"} {
+				if values, ok := kube.Nested(body, "metadata", field).(map[string]any); ok {
+					old, ok := meta[field].(map[string]any)
+					if !ok {
+						old = map[string]any{}
+						meta[field] = old
+					}
+					for key, value := range values {
+						old[key] = value
+					}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(current)
 		case "DELETE":
 			if !exists {
 				w.WriteHeader(404)
@@ -397,5 +416,52 @@ func TestAllocationDoesNotPruneAnIncompleteSnapshot(t *testing.T) {
 	defer s.mu.Unlock()
 	if len(s.writes) != count {
 		t.Fatal("incomplete snapshot caused a write")
+	}
+}
+
+func TestNamespaceIdentityIsSealedWithoutSecretAccess(t *testing.T) {
+	a, s := fixture(t)
+	ctx := context.Background()
+	name := "tenant-12345678"
+	if err := a.RequireNamespace(ctx, "tenant", name, "owner-1"); !errors.Is(err, ErrPending) {
+		t.Fatal("missing allocation was not pending", err)
+	}
+	if err := a.Ensure(ctx, "tenant", name, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.RequireNamespace(ctx, "tenant", name, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	ns := s.objects["/api/v1/namespaces/"+name]
+	record := kube.Object{"apiVersion": "v1", "kind": "ConfigMap", "immutable": true, "metadata": map[string]any{"name": "key-identity", "uid": "record", "resourceVersion": "1", "labels": kube.Nested(ns, "metadata", "labels")}, "data": map[string]any{"linked_id": "gateway-1", "fingerprint": "gateway-1:public-hash"}}
+	s.objects["/api/v1/namespaces/"+name+"/configmaps/key-identity"] = record
+	s.mu.Unlock()
+	if err := a.Ensure(ctx, "tenant", name, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	if kube.String(ns, "metadata", "annotations", "example.test/fingerprint") != "gateway-1:public-hash" {
+		t.Fatal("identity was not sealed")
+	}
+	count := len(s.writes)
+	record["data"].(map[string]any)["fingerprint"] = "replacement"
+	s.mu.Unlock()
+	if err := a.Ensure(ctx, "tenant", name, "owner-1"); err == nil {
+		t.Fatal("sealed identity changed")
+	}
+	s.mu.Lock()
+	if len(s.writes) != count {
+		t.Fatal("conflicting record caused a write")
+	}
+	delete(s.objects, "/api/v1/namespaces/"+name+"/configmaps/key-identity")
+	s.mu.Unlock()
+	if err := a.Ensure(ctx, "tenant", name, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if kube.String(ns, "metadata", "annotations", "example.test/fingerprint") != "gateway-1:public-hash" {
+		t.Fatal("lost record removed the seal")
 	}
 }

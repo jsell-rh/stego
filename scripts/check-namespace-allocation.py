@@ -294,6 +294,63 @@ try:
         ],
         as_user=None,
     )
+    record = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": "key-identity",
+            "namespace": owned,
+            "labels": {
+                k: v for k, v in labels.items() if not k.startswith("pod-security.")
+            },
+        },
+        "immutable": True,
+        "data": {"linked_id": "gateway-1", "fingerprint": "gateway-1:public-hash"},
+    }
+    run(["create", "-f", "-"], record)
+    record["metadata"]["namespace"] = foreign
+    run(["create", "-f", "-"], record)
+    check(
+        "allocator public identity read",
+        ["get", "configmap", "key-identity", "-n", owned, "-o", "name"],
+        good=True,
+    )
+    check(
+        "allocator foreign identity read",
+        ["get", "configmap", "key-identity", "-n", foreign, "-o", "name"],
+    )
+    record["metadata"]["namespace"] = owned
+    check(
+        "allocator identity record create",
+        ["create", "--dry-run=server", "-f", "-"],
+        record,
+    )
+    seal = json.dumps(
+        {
+            "metadata": {
+                "labels": {"example.test/linked-id": "gateway-1"},
+                "annotations": {"example.test/fingerprint": "gateway-1:public-hash"},
+            }
+        }
+    )
+    check(
+        "allocator namespace identity seal",
+        ["patch", "namespace", owned, "--type=merge", "-p", seal],
+        good=True,
+    )
+    change = json.dumps(
+        {"metadata": {"annotations": {"example.test/fingerprint": "replacement"}}}
+    )
+    check(
+        "sealed fingerprint change",
+        ["patch", "namespace", owned, "--type=merge", "-p", change, "--dry-run=server"],
+    )
+    change = json.dumps({"metadata": {"labels": {"example.test/linked-id": None}}})
+    check(
+        "sealed label removal",
+        ["patch", "namespace", owned, "--type=merge", "-p", change, "--dry-run=server"],
+        as_user=None,
+    )
     if args.next_manifest:
         next_doc = json.loads(args.next_manifest.read_text())
         policies = [

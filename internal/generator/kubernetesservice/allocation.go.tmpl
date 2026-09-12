@@ -19,7 +19,8 @@ import (
 
 type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace string }
-type profile struct { Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
+type identityField struct { Field, Key string }
+type profile struct { IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
 // Allocator applies the fixed namespace profiles in the service declaration.
@@ -150,7 +151,7 @@ func (a *Allocator) Ensure(ctx context.Context, profileName, name, ownerID strin
   collection, desired := a.bindingObject(p, name, i, owner)
   if _, err = a.client.Ensure(ctx, collection, desired, owner); err != nil { return err }
  }
- return nil
+ return a.sealIdentity(ctx,p,name,owner)
 }
 
 // Delete removes cluster bindings first. It returns true only after all owned
@@ -171,4 +172,57 @@ func (a *Allocator) Delete(ctx context.Context, profileName, name, ownerID strin
  }
  if !ready { return false, nil }
  return a.client.DeleteOwned(ctx, "/api/v1/namespaces/"+name, owner)
+}
+
+// sealIdentity copies only declared public fields from an immutable record.
+// Values on the Namespace can be set once. Loss of the source record cannot
+// remove those values. Consumers must observe the seal before they use keys.
+func (a *Allocator) sealIdentity(ctx context.Context,p profile,name string,owner kube.Owner)error{
+ if p.IdentityConfigMap==""{return nil}
+ record,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name+"/configmaps/"+p.IdentityConfigMap,nil)
+ if err!=nil{return err};if code==404{return nil}
+ if !owner.Matches(record)||record["immutable"]!=true||kube.String(record,"metadata","uid")==""||kube.String(record,"metadata","resourceVersion")==""||kube.String(record,"metadata","deletionTimestamp")!=""{return errors.New("namespace identity record is not owned and immutable")}
+ fields:=map[string]kube.Object{"labels":{},"annotations":{}}
+ for _,group:=range []struct{name string;fields []identityField}{ {"labels",p.IdentityLabels},{"annotations",p.IdentityAnnotations}}{
+  for _,field:=range group.fields{
+   value:=kube.String(record,"data",field.Field)
+   if len(value)==0||len(value)>256{return errors.New("invalid namespace identity value")}
+   if group.name=="labels"&&!ownerValue.MatchString(value){return errors.New("invalid namespace identity label")}
+   for _,c:=range value{if c<32||c>126{return errors.New("namespace identity requires printable ASCII")}}
+   fields[group.name][field.Key]=value
+  }
+ }
+ current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
+ if err!=nil{return err};if code==404{return ErrPending}
+ if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""||kube.String(current,"metadata","deletionTimestamp")!=""{return errors.New("namespace identity target is not owned and active")}
+ changes:=kube.Object{"uid":kube.String(current,"metadata","uid"),"resourceVersion":kube.String(current,"metadata","resourceVersion")}
+ missing:=false
+ for group,values:=range fields{if len(values)==0{continue};for key,value:=range values{
+  old:=kube.Nested(current,"metadata",group,key)
+  if old!=nil&&old!=value{return errors.New("namespace identity differs from its seal")}
+  missing=missing||old==nil
+ };changes[group]=values}
+ if !missing{return nil}
+ _,_,err=a.client.Request(ctx,http.MethodPatch,"/api/v1/namespaces/"+name,kube.Object{"metadata":changes})
+ return err
+}
+
+// RequireNamespace checks allocation identity without creating or changing it.
+// A resource worker can use its own client, with read-only Namespace access.
+func (a *Allocator) RequireNamespace(ctx context.Context,profileName,name,ownerID string)error{
+ _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return err}
+ current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
+ if err!=nil{return err};if code==404{return ErrPending}
+ if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return errors.New("namespace allocation has a different identity")}
+ if kube.String(current,"metadata","deletionTimestamp")!=""{return ErrPending};return nil
+}
+
+// NamespaceGone observes cleanup without performing it. A foreign namespace
+// with the same name is an error, not evidence that cleanup has completed.
+func (a *Allocator) NamespaceGone(ctx context.Context,profileName,name,ownerID string)(bool,error){
+ _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return false,err}
+ current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
+ if err!=nil{return false,err};if code==404{return true,nil}
+ if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return false,errors.New("namespace allocation has a different identity")}
+ return false,nil
 }
