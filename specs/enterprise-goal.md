@@ -3279,3 +3279,42 @@ browser memory was 487,137,280 bytes under the 1,610,612,736-byte limit. This
 passed run does not establish the cause of the earlier Chromium crash. The
 resource record is `/tmp/stego-ci-f39-browser/browser-resources.txt`. Full STEGO
 CI also passed for documentation revision `5fd35b5`.
+
+## Browser-created Gateway workload evidence
+
+Hypershell `099c580` passed the complete browser Gateway workload check with
+STEGO `00b270d` on 2026-09-12 UTC. The browser creates the actual Gateway.
+Generated database, identity, and workload workers supply its observations.
+The account test no longer uses a readiness fixture in this cluster profile.
+The Gateway has a real PostgreSQL volume, verified TLS, an identity client,
+and a ready OpenShell Deployment.
+
+Verified Gateway RPC, denied callers, provider creation and retrieval, and
+provider data after Gateway Pod replacement passed. The browser then created
+a service account for that Gateway. After the generated account provisioner
+Pod was replaced, its credential obtained a token and called the actual
+OpenShell service. Account reload, revoke, delete, and credential privacy
+checks passed. REST, gRPC, filtered lists, owner grants, generated event
+delivery, API and console replacement, session rotation, renewal, telemetry,
+and confirmed sign-out checks also passed.
+
+The browser test passed in 304.14 seconds; its race-enabled package passed in
+305.184 seconds. Contract checks passed in 1.056 seconds. The Job reached
+`Complete` with exit zero. All 225 generated, state, and dependency hashes
+match both generation passes, the post-test output, and the checkout. All
+changed test source matches the fixed source copy. The final screenshot was
+reviewed. All five owned namespaces and the owned cluster RBAC resources
+were removed, and their absence was verified.
+
+The source is `/tmp/stego-browser-workload-xgzyjohu/application`; results are
+in `/tmp/stego-service-results.LRNjwUmR`. The
+[application record](https://github.com/jsell-rh/hypershell-stego/blob/099c580/acceptance/browser-gateway-workload.md)
+contains the test command, images, resource bounds, and exact scope. The three
+application image digests are unchanged. No compiler runtime change was
+needed for this test. New full application CI remains a separate check.
+
+This profile runs the generated workers inside the bounded test container.
+Separate worker Deployments and production workload network isolation are
+the next application deployment checks. Full Sandbox provisioning through
+the console, production certificate rotation, capacity, accessibility, and
+the remaining C1–C7 requirements remain open. The broader goal remains active.
