@@ -3318,3 +3318,47 @@ Separate worker Deployments and production workload network isolation are
 the next application deployment checks. Full Sandbox provisioning through
 the console, production certificate rotation, capacity, accessibility, and
 the remaining C1–C7 requirements remain open. The broader goal remains active.
+
+## Separate worker deployment work
+
+Full application CI passed for `863d8a9` in
+[run 34659176892](https://github.com/jsell-rh/hypershell-stego/actions/runs/34659176892).
+The browser-created workload revision `099c580` remains a separate CI run.
+
+STEGO `9e23b9d` adds explicit Kubernetes API identity and RBAC declarations
+for services, workers, and RPC processes. Each selected target receives its
+own projected ServiceAccount token and CA, with automatic mounting still off.
+The rules require explicit scope and reject wildcards and escalation verbs.
+The bounded deployment generator and registry suites passed, then full CI
+passed in [run 34660688590](https://github.com/jsell-rh/stego/actions/runs/34660688590).
+
+STEGO `5affc10` fixes a naming ambiguity between namespace and service names.
+A dot now separates the two DNS labels in cluster RBAC names. Its regression
+check and full CI passed in
+[run 34660866379](https://github.com/jsell-rh/stego/actions/runs/34660866379).
+See [Kubernetes identity](kubernetes-identity.md) for configuration and limits.
+
+The first Hypershell attempt with three separate generated worker Deployments
+failed. The database worker declaration lacked ConfigMap access. The worker
+received `403`, and the Gateway did not become ready. The test collector also
+filled while provisioning waited. These results require a permission correction
+and bounded worker telemetry collection, not broader default access.
+The failed source is `/tmp/stego-worker-deployments-yp_3ko0y/application`;
+results are `/tmp/stego-service-results.pdoEQiNp`. The failed test took
+358.06 seconds. All owned namespaces and cluster RBAC resources were removed.
+Five live RBAC checks passed independently, including denied Node and Secret
+reads and denied escalation. Their record is
+`/tmp/stego-worker-permissions-first.json`. This is not an application pass.
+
+The corrected test uses compiler `5affc10`, adds only the missing ConfigMap
+permission, and checks metrics and correlated logs and traces for both worker
+instances. Its fixed source is
+`/tmp/stego-worker-deployments-final-e9qiwj06/application`. It is running in a
+bounded jshell Job; completion remains unproven until its results are checked.
+
+Shared managed clusters are the current design assumption for the next
+isolation work. The user was asked whether dedicated clusters are acceptable.
+Cluster RBAC cannot limit Secret reads by an owner label. A separate namespace
+allocator and permissions limited to allocated namespaces remain necessary
+for the shared-cluster design. No production isolation claim follows from
+the temporary test controller roles. The full enterprise goal remains active.
