@@ -3362,3 +3362,35 @@ Cluster RBAC cannot limit Secret reads by an owner label. A separate namespace
 allocator and permissions limited to allocated namespaces remain necessary
 for the shared-cluster design. No production isolation claim follows from
 the temporary test controller roles. The full enterprise goal remains active.
+
+The corrected worker deployment check passed. Hypershell `f755dae` uses STEGO
+`5affc10` for all six application Deployments. The test passed in 306.36
+seconds, its race-enabled package in 307.409 seconds, and contract checks in
+1.060 seconds. The Job reached `Complete` with exit zero. All 225 generated,
+state, and dependency hashes match both generation passes, the post-test
+output, and the checkout. All implementation and test source matches the
+fixed source copy. The final console screenshot was reviewed.
+
+The three workers each passed Pod replacement with a new UID. All six worker
+process instances exported controller metrics and correlated logs and traces.
+The actual browser-created Gateway passed provisioning, verified RPC, denied
+calls, and provider data recovery after its own Pod replacement. API, console,
+and account provisioner replacement also passed. The browser-issued service
+credential called OpenShell, then account revoke and delete checks passed.
+REST and gRPC access, grants, events, session rotation, renewal, and confirmed
+sign-out remain in this application check.
+
+The live worker token projections matched the generated restrictions. Six
+RBAC checks passed, including denied Node and Secret reads and denied role
+escalation. All five test namespaces and the owned test, worker, and Gateway
+cluster RBAC resources were removed. Their absence was verified. Results are
+in `/tmp/stego-service-results.zpGnDwPS`; public permission and projection
+records are included there. The
+[application record](https://github.com/jsell-rh/hypershell-stego/blob/f755dae/acceptance/worker-deployment.md)
+contains exact images, bounds, and failed-attempt evidence. New full application
+CI remains separate from this passed cluster check.
+
+The next security step is the shared-cluster allocator and namespace permission
+boundary. Workload network isolation, full Sandbox provisioning through the
+console, production rotation, capacity, accessibility, and remaining C1–C7
+requirements remain open. The goal remains active.

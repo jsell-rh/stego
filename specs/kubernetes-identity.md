@@ -60,3 +60,11 @@ in 2.234 seconds. It covers all three deployment targets, token permissions,
 scoped binding names, invalid permissions, and generated renderer execution.
 The source is `source.tar`; results are `test.log`. Runtime worker adoption is
 a separate application check.
+
+Hypershell now uses the generated identity and permission rules for its
+database and Gateway workers. The full browser workflow passed with all
+three workers in separate Deployments, including worker replacement and
+correlated telemetry from both instances. See the
+[application evidence](https://github.com/jsell-rh/hypershell-stego/blob/f755dae/acceptance/worker-deployment.md).
+Full compiler CI also passed for the RBAC name-collision correction in
+[run 34660866379](https://github.com/jsell-rh/stego/actions/runs/34660866379).
