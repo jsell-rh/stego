@@ -68,3 +68,52 @@ correlated telemetry from both instances. See the
 [application evidence](https://github.com/jsell-rh/hypershell-stego/blob/f755dae/acceptance/worker-deployment.md).
 Full compiler CI also passed for the RBAC name-collision correction in
 [run 34660866379](https://github.com/jsell-rh/stego/actions/runs/34660866379).
+
+## Live token rotation check
+
+Run `scripts/check-kubernetes-token-rotation.py` with Python 3, an explicit
+`--context`, and `--source` set to the STEGO checkout. Stage new test files
+first; the source archive contains files from `git ls-files`. The script creates
+a dedicated namespace and one Job. It adds no RBAC permissions. It leaves the
+Job in place if an observation fails, so inspect that Job before another run.
+
+The Job has a twenty-minute deadline, one CPU, 3 GiB of memory, and 6 GiB of
+temporary storage. It uses a read-only token projection with a requested
+lifetime of 600 seconds and file mode 0440. The normal generated deployment
+still requests 3600 seconds. The test is not a capacity or performance test.
+
+`TestLiveProjectedTokenRotation` uses one generated client for the full check.
+It requests a
+[SelfSubjectReview](https://kubernetes.io/docs/reference/kubernetes-api/definitions/self-subject-review-v1-authentication/)
+every five seconds for at most twelve minutes. Each response must confirm the
+ServiceAccount and Pod identity. The API server's credential identifier must
+match the projected JWT identifier. Kubernetes includes this identifier in the
+[authenticated ServiceAccount attributes](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/).
+The local claims do not grant authority; the server must authenticate them.
+
+A successful result requires the server to confirm two different credentials
+through the same client. A changed file alone is not a pass. Secret access must
+remain denied after rotation. This check proves use of the new token; it does
+not claim that the old token has expired or been revoked.
+
+The normal generated-client suite runs with and without the OTEL transport.
+The live check enables OTEL and exports logs, metrics, and traces through a
+verified TLS collector. The collector keeps counters and rejects selected
+private values. It does not retain export batches while rotation is pending.
+The result files contain counts, durations, and test outcomes. They contain no
+token or credential identifier.
+
+The jshell check passed on 2026-09-12 UTC. The live OTEL case took 410.03
+seconds. It made 83 identity requests, confirmed two credentials, used no
+client restart, and received `403` for Secret access after rotation. The
+race-enabled runtime suite took 414.174 seconds. The full generator check,
+including the case without OTEL, took 488.421 seconds.
+
+Results are in `/tmp/stego-token-rotation-4af00kxw`. The Job reached `Complete`.
+All 402 archived compiler and check source files match the checked source.
+The three generated Kubernetes files and the generated HTTP client match
+Hypershell at `31242f5`, after module-path substitution and Go formatting.
+The test namespace is absent. An earlier check without OTEL also passed in
+465.01 seconds; its results are `/tmp/stego-token-rotation-z1zcaa0n`, and its
+namespace is absent. These results prove the shared generated client behavior.
+They do not prove token rotation in a deployed Hypershell worker.
