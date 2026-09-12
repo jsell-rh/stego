@@ -84,11 +84,14 @@ func workers(ctx gen.Context) ([]worker, error) {
 					return nil, fmt.Errorf("worker %s must be a DNS label", key)
 				}
 				child.ComponentConfig[key] = s
-			case "network_peers", "external_endpoints":
+			case "network_peers", "external_endpoints", "kubernetes_api", "kubernetes_permissions":
 				child.ComponentConfig[key] = value
 			default:
 				return nil, fmt.Errorf("unknown worker setting %q", key)
 			}
+		}
+		if _, err := kubernetesAccess(child); err != nil {
+			return nil, err
 		}
 		peers, err := configList(child, "network_peers")
 		if err != nil {
@@ -161,6 +164,8 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 			object{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": metadata, "spec": rules},
 			object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": object{"type": "Recreate"}, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
 		}
+		access, _ := kubernetesAccess(w.Context)
+		items = append(access, items...)
 		manifest, err := json.MarshalIndent(object{"apiVersion": "v1", "kind": "List", "items": items}, "", "  ")
 		if err != nil {
 			return nil, err

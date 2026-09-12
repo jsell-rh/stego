@@ -99,11 +99,14 @@ func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
 					return nil, fmt.Errorf("RPC %s must be a DNS label", key)
 				}
 				child.ComponentConfig[key] = s
-			case "network_peers", "external_endpoints":
+			case "network_peers", "external_endpoints", "kubernetes_api", "kubernetes_permissions":
 				child.ComponentConfig[key] = value
 			default:
 				return nil, fmt.Errorf("unknown RPC deployment setting %q", key)
 			}
+		}
+		if _, err := kubernetesAccess(child); err != nil {
+			return nil, err
 		}
 		if _, err := networkRulesForPorts(child, map[int]bool{9090: true}); err != nil {
 			return nil, err
@@ -140,6 +143,8 @@ func rpcProcessFiles(ctx gen.Context) ([]gen.File, error) {
 			object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": object{"type": "RollingUpdate", "rollingUpdate": object{"maxUnavailable": 0, "maxSurge": 1}}, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
 			object{"apiVersion": "v1", "kind": "Service", "metadata": metadata, "spec": object{"type": "ClusterIP", "selector": labels, "ports": []any{object{"name": "grpc", "port": 9090, "targetPort": "grpc"}}}},
 		}
+		access, _ := kubernetesAccess(p.Context)
+		items = append(access, items...)
 		manifest, err := json.MarshalIndent(object{"apiVersion": "v1", "kind": "List", "items": items}, "", "  ")
 		if err != nil {
 			return nil, err

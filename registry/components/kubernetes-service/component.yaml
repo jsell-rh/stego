@@ -1,8 +1,25 @@
 kind: component
 name: kubernetes-service
-version: 1.4.0
+version: 1.5.0
 output_namespace: deploy
 config:
+  kubernetes_api: {type: bool, optional: true}
+  kubernetes_permissions:
+    type: list
+    optional: true
+    items:
+      scope: {type: string, enum: [namespace, cluster]}
+      api_group: {type: string}
+      resources:
+        type: list
+        items: {type: string}
+      verbs:
+        type: list
+        items: {type: string, enum: [get, list, watch, create, update, patch, delete]}
+      resource_names:
+        type: list
+        optional: true
+        items: {type: string}
   source_directories:
     type: list
     items: {type: string}
@@ -28,6 +45,23 @@ config:
       name: {type: string}
       package: {type: string}
       function: {type: string}
+      kubernetes_api: {type: bool, optional: true}
+      kubernetes_permissions:
+        type: list
+        optional: true
+        items:
+          scope: {type: string, enum: [namespace, cluster]}
+          api_group: {type: string}
+          resources:
+            type: list
+            items: {type: string}
+          verbs:
+            type: list
+            items: {type: string, enum: [get, list, watch, create, update, patch, delete]}
+          resource_names:
+            type: list
+            optional: true
+            items: {type: string}
       env_secret: {type: string, optional: true}
       files_secret: {type: string, optional: true}
       external_endpoints:
@@ -50,6 +84,23 @@ config:
       name: {type: string}
       component: {type: string, enum: [grpc-application, grpc-processes]}
       process: {type: string}
+      kubernetes_api: {type: bool, optional: true}
+      kubernetes_permissions:
+        type: list
+        optional: true
+        items:
+          scope: {type: string, enum: [namespace, cluster]}
+          api_group: {type: string}
+          resources:
+            type: list
+            items: {type: string}
+          verbs:
+            type: list
+            items: {type: string, enum: [get, list, watch, create, update, patch, delete]}
+          resource_names:
+            type: list
+            optional: true
+            items: {type: string}
       env_secret: {type: string, optional: true}
       files_secret: {type: string, optional: true}
       external_endpoints:

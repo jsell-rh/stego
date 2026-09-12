@@ -111,7 +111,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	for key, value := range ctx.ComponentConfig {
 		switch key {
-		case "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints":
+		case "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints", "kubernetes_api", "kubernetes_permissions":
 		case "env_secret", "files_secret", "dns_namespace":
 			s, ok := value.(string)
 			if !ok || !label.MatchString(s) {
@@ -125,6 +125,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		default:
 			return fmt.Errorf("unknown kubernetes-service setting %q", key)
 		}
+	}
+	if _, err := kubernetesAccess(ctx); err != nil {
+		return err
 	}
 	if _, err := sources(ctx); err != nil {
 		return err
@@ -228,6 +231,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata(ctx.ServiceName), "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": object{"type": "RollingUpdate", "rollingUpdate": object{"maxUnavailable": 0, "maxSurge": 1}}, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
 		object{"apiVersion": "v1", "kind": "Service", "metadata": metadata(ctx.ServiceName), "spec": object{"type": "ClusterIP", "selector": labels, "ports": servicePorts}},
 	}
+	access, _ := kubernetesAccess(ctx)
+	items = append(access, items...)
 	manifest, err := json.MarshalIndent(object{"apiVersion": "v1", "kind": "List", "items": items}, "", "  ")
 	if err != nil {
 		return nil, nil, err
@@ -259,5 +264,7 @@ func workloadPod(ctx gen.Context, env []any) (object, object) {
 		"volumeMounts":    []any{object{"name": "files", "mountPath": "/var/run/stego", "readOnly": true}, object{"name": "tmp", "mountPath": "/tmp"}},
 	}}, "volumes": []any{object{"name": "files", "secret": object{"secretName": setting(ctx, "files_secret", ctx.ServiceName+"-files"), "defaultMode": 288}}, object{"name": "tmp", "emptyDir": object{"sizeLimit": "64Mi"}}}}
 
-	return pod, pod["containers"].([]any)[0].(object)
+	container := pod["containers"].([]any)[0].(object)
+	kubernetesIdentity(ctx, pod, container)
+	return pod, container
 }
