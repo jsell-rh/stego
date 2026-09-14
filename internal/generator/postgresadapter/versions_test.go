@@ -15,3 +15,12 @@ func TestVersionMetadataCannotBeDeclaredAsDomainFields(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateMultipleCleanupTargetOwners(t *testing.T) {
+	for _, field := range []string{"region", "archive_region"} {
+		ctx := gen.Context{ModuleName: "example.com/multi", OutputNamespace: "storage", StorageContract: "example.com/multi/contracts/storage", Entities: []types.Entity{{Name: "Asset", Versioned: true, CleanupOwners: []string{"compute", "archive"}, CleanupTargets: map[string]string{"compute": "region", "archive": field}, Fields: []types.Field{{Name: "region", Type: types.FieldTypeString}, {Name: "archive_region", Type: types.FieldTypeString}}}}}
+		if _, _, err := new(Generator).Generate(ctx); err != nil {
+			t.Fatal("multiple target owners did not generate valid source", field, err)
+		}
+	}
+}

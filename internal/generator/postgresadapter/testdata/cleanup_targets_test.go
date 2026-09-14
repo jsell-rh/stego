@@ -341,3 +341,48 @@ func TestOpaqueTargetValuesStayBoundParameters(t *testing.T) {
 		t.Fatal("opaque target did not complete")
 	}
 }
+
+func TestMultipleCleanupOwnersRemainIndependent(t *testing.T) {
+	store, db := database(t, true)
+	ctx := context.Background()
+	if err := store.Create(ctx, "Asset", Asset{Meta: Meta{ID: "separate-owners"}, Region: "site-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(ctx, "Asset", "separate-owners"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ObserveTargetCleanupIfVersion(ctx, "Asset", "separate-owners", 2, "archive", "site-a", true); err != nil {
+		t.Fatal(err)
+	}
+	orm, err := gorm.Open(postgres.New(postgres.Config{Conn: db}), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewStore(orm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := restarted.GetRetained(ctx, "Asset", "separate-owners")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := value.(Asset)
+	targets, err := row.CleanupTargets()
+	if err != nil || len(targets) != 2 || !targets["archive"]["site-a"] || targets["compute"]["site-a"] || !row.CleanupComplete("archive") || row.CleanupComplete("compute") {
+		t.Fatal("cleanup owners lost their separate state", targets, err)
+	}
+	if err := restarted.ObserveTargetCleanupIfVersion(ctx, "Asset", row.ID, 2, "compute", "site-a", true); !errors.Is(err, contract.ErrVersionConflict) {
+		t.Fatal("stale owner observation accepted", err)
+	}
+	if err := restarted.ObserveTargetCleanupIfVersion(ctx, "Asset", row.ID, row.ResourceVersion, "compute", "site-a", true); err != nil {
+		t.Fatal(err)
+	}
+	value, err = restarted.GetRetained(ctx, "Asset", row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row = value.(Asset)
+	if !row.CleanupComplete("archive") || !row.CleanupComplete("compute") {
+		t.Fatal("cleanup completion changed another owner")
+	}
+}

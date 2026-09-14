@@ -282,7 +282,8 @@ func(row {{.Name}})CleanupTargets()(map[string]map[string]bool,error){
    states[target]=string(value)=="true";total++
   }
   result[{{printf "%q" .Owner}}]=states
- }{{end}}
+ }
+ {{end}}
  if total>128{return nil,errors.New("cleanup target history exceeds its limit")}
  return result,nil
 }
