@@ -35,7 +35,7 @@ type allocationConfiguration struct {
 }
 
 var allocationPrefix = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*-$`)
-var allocationQuantity = regexp.MustCompile(`^[1-9][0-9]{0,8}(m|Ki|Mi|Gi|Ti)?$`)
+var allocationQuantity = regexp.MustCompile(`^(0|[1-9][0-9]{0,8}(m|Ki|Mi|Gi|Ti)?)$`)
 
 func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 	result := allocationConfiguration{Service: ctx.ServiceName}

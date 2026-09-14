@@ -68,7 +68,7 @@ func TestAllocationValidation(t *testing.T) {
 		"reserved owner":             func(c *gen.Context, p, w object) { p["owner_label"] = "stego.dev/allocator" },
 		"security owner":             func(c *gen.Context, p, w object) { p["owner_label"] = "pod-security.kubernetes.io/warn" },
 		"missing bounds":             func(c *gen.Context, p, w object) { p["quota"] = []any{} },
-		"zero bound":                 func(c *gen.Context, p, w object) { p["quota"].([]any)[0].(object)["value"] = "0" },
+		"negative bound":             func(c *gen.Context, p, w object) { p["quota"].([]any)[0].(object)["value"] = "-1" },
 		"repeated bound":             func(c *gen.Context, p, w object) { p["quota"].([]any)[1] = p["quota"].([]any)[0] },
 		"wrong role":                 func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["role"] = "unknown" },
 		"wrong namespace":            func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["namespace"] = "other" },
@@ -275,5 +275,29 @@ func TestGeneratedAllocationRuntime(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatalf("generated allocation: %v\n%s", err, output)
+	}
+}
+
+func TestAllocationCanDenyPodsAndStorage(t *testing.T) {
+	c := allocationContext()
+	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+	for _, raw := range p["quota"].([]any) {
+		q := raw.(object)
+		if q["resource"] == "pods" || q["resource"] == "requests.storage" {
+			q["value"] = "0"
+		}
+	}
+	files, _, err := new(Generator).Generate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		if strings.HasSuffix(file.Path, "allocation.go") && bytes.Contains(file.Bytes(), []byte(`"pods":"0"`)) && bytes.Contains(file.Bytes(), []byte(`"requests.storage":"0"`)) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("generated allocation lost zero resource bounds")
 	}
 }
