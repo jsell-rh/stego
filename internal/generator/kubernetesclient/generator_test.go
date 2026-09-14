@@ -24,6 +24,9 @@ var rotationTests []byte
 //go:embed testdata/watch_capacity_test.go
 var watchCapacityTests []byte
 
+//go:embed testdata/watch_set_test.go
+var watchSetTests []byte
+
 //go:embed testdata/rotation_telemetry_test.go
 var rotationTelemetryTests []byte
 
@@ -54,6 +57,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 	files = append(files, gen.File{Path: "kubernetes/client_test.go", Content: runtimeTests})
 	files = append(files, gen.File{Path: "kubernetes/rotation_test.go", Content: rotationTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
+	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
 	var module strings.Builder
 	module.WriteString("module example.com/widget\ngo 1.26.8\n")
 	if telemetry {

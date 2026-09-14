@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.7.0
+version: 1.8.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}

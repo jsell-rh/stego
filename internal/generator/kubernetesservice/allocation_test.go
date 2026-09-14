@@ -217,6 +217,9 @@ func TestAllocationManifests(t *testing.T) {
 //go:embed testdata/allocation_test.go
 var allocationRuntimeTests []byte
 
+//go:embed testdata/allocation_uid_test.go
+var allocationUIDTests []byte
+
 func TestGeneratedAllocationRuntime(t *testing.T) {
 	c := allocationContext()
 	files, err := allocationFiles(c)
@@ -244,6 +247,7 @@ func TestGeneratedAllocationRuntime(t *testing.T) {
 		}
 	}
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_test.go", Content: allocationRuntimeTests})
+	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
 	dir := t.TempDir()
 	for _, f := range files {
 		name := filepath.Join(dir, "out", f.Path)

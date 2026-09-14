@@ -211,11 +211,16 @@ func (a *Allocator) sealIdentity(ctx context.Context,p profile,name string,owner
 // RequireNamespace checks allocation identity without creating or changing it.
 // A resource worker can use its own client, with read-only Namespace access.
 func (a *Allocator) RequireNamespace(ctx context.Context,profileName,name,ownerID string)error{
- _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return err}
+ _,err:=a.NamespaceUID(ctx,profileName,name,ownerID);return err
+}
+// NamespaceUID returns the identity of the verified, live allocation. It does
+// not prove that every role binding is ready or that a worker has Pod access.
+func (a *Allocator) NamespaceUID(ctx context.Context,profileName,name,ownerID string)(string,error){
+ _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return "",err}
  current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
- if err!=nil{return err};if code==404{return ErrPending}
- if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return errors.New("namespace allocation has a different identity")}
- if kube.String(current,"metadata","deletionTimestamp")!=""{return ErrPending};return nil
+ if err!=nil{return "",err};if code==404{return "",ErrPending}
+ if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return "",errors.New("namespace allocation has a different identity")}
+ if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending};return kube.String(current,"metadata","uid"),nil
 }
 
 // NamespaceGone observes cleanup without performing it. A foreign namespace
