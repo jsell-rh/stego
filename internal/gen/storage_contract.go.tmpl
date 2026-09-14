@@ -37,6 +37,19 @@ type CleanupWriter interface {
 type CleanupSummaryReader interface {
  ReadCleanupSummary(context.Context, string, string, string, string, string) (CleanupSummary, error)
 }
+// CleanupScope selects a declared text field with exact equality.
+// Field and Value must be nonempty, valid UTF-8, at most 256 bytes, and contain
+// no zero byte. An observation field cannot select a cleanup scope.
+type CleanupScope struct {
+ Field string
+ Value string
+}
+// ScopedCleanupSummaryReader combines up to eight distinct scope fields with
+// AND. No scopes selects all pending rows for the owner and retained target.
+// Authorize the complete scope before use. Values are bound SQL parameters.
+type ScopedCleanupSummaryReader interface {
+ ReadScopedCleanupSummary(context.Context, string, string, string, ...CleanupScope) (CleanupSummary, error)
+}
 var ErrCleanupSummary = errors.New("invalid cleanup summary request or result")
 // ObservedAt is the database statement time. OldestPending is nil only when
 // Pending is zero. It is the original deletion time, including reopened work.

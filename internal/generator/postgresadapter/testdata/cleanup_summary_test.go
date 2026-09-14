@@ -177,3 +177,86 @@ func BenchmarkCleanupSummary(b *testing.B) {
 		})
 	}
 }
+
+func TestCleanupSummaryCombinesExactScopes(t *testing.T) {
+	store, db := database(t, true)
+	ctx := context.Background()
+	if _, err := db.Exec(`CREATE COLLATION cleanup_scope_ci (provider=icu, locale='und-u-ks-level2', deterministic=false);
+ALTER TABLE placements ALTER COLUMN name TYPE text COLLATE cleanup_scope_ci`); err != nil {
+		t.Fatal(err)
+	}
+	for i, fields := range [][2]string{{"north", "alpha"}, {"south", "alpha"}, {"north", "beta"}, {"north", "quoted' OR true --"}, {"north", "ALPHA"}, {"south", "quoted' OR true --"}} {
+		id := fmt.Sprint(i)
+		if err := store.Create(ctx, "Placement", Placement{Meta: Meta{ID: id}, Target: fields[0], Name: fields[1]}); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Delete(ctx, "Placement", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		name    string
+		filters []contract.CleanupScope
+		pending int64
+	}{
+		{"all", nil, 6},
+		{"target", []contract.CleanupScope{{Field: "target", Value: "north"}}, 4},
+		{"name", []contract.CleanupScope{{Field: "name", Value: "alpha"}}, 2},
+		{"intersection", []contract.CleanupScope{{Field: "target", Value: "north"}, {Field: "name", Value: "alpha"}}, 1},
+		{"reverse-order", []contract.CleanupScope{{Field: "name", Value: "alpha"}, {Field: "target", Value: "north"}}, 1},
+		{"quoted-value", []contract.CleanupScope{{Field: "target", Value: "north"}, {Field: "name", Value: "quoted' OR true --"}}, 1},
+		{"empty-result", []contract.CleanupScope{{Field: "target", Value: "south"}, {Field: "name", Value: "beta"}}, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := store.ReadScopedCleanupSummary(ctx, "Placement", "identity", "", test.filters...)
+			if err != nil || result.Pending != test.pending || result.ObservedAt.IsZero() || (result.OldestPending == nil) != (test.pending == 0) {
+				t.Fatal("combined summary scope", result, err)
+			}
+		})
+	}
+	row := placement(t, store, "0")
+	if err := store.ObserveTargetCleanupIfVersion(ctx, "Placement", row.ID, row.ResourceVersion, "worker", "north", true); err != nil {
+		t.Fatal(err)
+	}
+	filters := []contract.CleanupScope{{Field: "target", Value: "north"}, {Field: "name", Value: "alpha"}}
+	for owner, pending := range map[string]int64{"identity": 1, "worker": 0} {
+		target := ""
+		if owner == "worker" {
+			target = "north"
+		}
+		result, err := store.ReadScopedCleanupSummary(ctx, "Placement", owner, target, filters...)
+		if err != nil || result.Pending != pending {
+			t.Fatal("combined scope lost owner or retained target", result, err)
+		}
+	}
+}
+
+func TestCleanupSummaryRejectsInvalidCombinedScopes(t *testing.T) {
+	store, _ := database(t, true)
+	for _, filters := range [][]contract.CleanupScope{
+		{{Field: "name", Value: "first"}, {Field: "name", Value: "second"}},
+		{{Field: "", Value: "first"}}, {{Field: "name", Value: ""}},
+		{{Field: "value", Value: "1"}}, {{Field: "health", Value: "Pending"}},
+		{{Field: "name' OR true --", Value: "first"}},
+		{{Field: "name", Value: "bad\x00value"}}, {{Field: "name", Value: "\xff"}},
+		{{Field: "name", Value: strings.Repeat("x", 257)}},
+		{{Field: strings.Repeat("x", 257), Value: "first"}},
+		make([]contract.CleanupScope, 9),
+	} {
+		if _, err := store.ReadScopedCleanupSummary(context.Background(), "Record", "workload", "", filters...); !errors.Is(err, contract.ErrCleanupSummary) {
+			t.Fatal("invalid combined scope accepted", err)
+		}
+	}
+	if _, err := store.ReadScopedCleanupSummary(nil, "Record", "workload", ""); !errors.Is(err, contract.ErrCleanupSummary) {
+		t.Fatal(err)
+	}
+	var absent *Store
+	if _, err := absent.ReadScopedCleanupSummary(context.Background(), "Record", "workload", ""); !errors.Is(err, contract.ErrCleanupSummary) {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.ReadScopedCleanupSummary(ctx, "Record", "workload", "", contract.CleanupScope{Field: "name", Value: "first"}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}

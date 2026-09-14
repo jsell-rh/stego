@@ -109,3 +109,22 @@ The generated Measurement test checks inclusive bounds, optional values,
 fractional limits, integer limits, non-finite values, failed replacements, and
 direct SQL writes. Existing databases require an explicit migration before the
 new model constraints take effect. A constraint does not repair invalid data.
+
+`ScopedCleanupSummaryReader` reads pending cleanup with up to eight distinct
+`CleanupScope` filters. Each filter selects one declared text field with exact
+C-collation equality. All filters use AND. The query also requires deleted
+state, the declared cleanup owner, and that owner's retained target when needed.
+An empty filter list selects all pending rows for that owner and target.
+
+Field names and values must be nonempty valid UTF-8, contain no zero byte, and
+use at most 256 bytes each. Unknown fields, observation fields, duplicate fields,
+and excessive filter counts fail before SQL execution. Values remain SQL
+parameters. One bounded aggregate returns the count, oldest pending deletion,
+and database statement time. The caller must authorize the full scope first.
+The existing single-filter `CleanupSummaryReader` delegates to the same query.
+
+The generated PostgreSQL test uses records with overlapping field values. It
+checks AND behavior, exact equality under a case-insensitive database collation,
+quoted values, empty results, owner and retained-target isolation, invalid
+filters, and cancellation. Hypershell uses this contract to select both provider
+and cluster; those domain field names are not part of the generator.

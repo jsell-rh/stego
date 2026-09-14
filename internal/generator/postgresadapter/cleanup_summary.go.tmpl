@@ -10,15 +10,29 @@ import (
 )
 
 var _ contract.CleanupSummaryReader = (*Store)(nil)
+var _ contract.ScopedCleanupSummaryReader = (*Store)(nil)
 
 // ReadCleanupSummary reads pending deleted rows for one declared owner and,
 // when required, one retained target. Scope values use exact text equality.
 // This is one aggregate statement, with no resource payloads or row paging.
 // The caller must authorize the complete selected scope before this call.
 func(s *Store)ReadCleanupSummary(ctx context.Context,entity,owner,target,scopeField,scopeValue string)(contract.CleanupSummary,error){
+ if (scopeField=="")!=(scopeValue==""){return contract.CleanupSummary{},contract.ErrCleanupSummary}
+ if scopeField==""{return s.ReadScopedCleanupSummary(ctx,entity,owner,target)}
+ return s.ReadScopedCleanupSummary(ctx,entity,owner,target,contract.CleanupScope{Field:scopeField,Value:scopeValue})
+}
+
+// ReadScopedCleanupSummary combines exact scope filters in one bounded query.
+// The caller must authorize every selected field and value before this call.
+func(s *Store)ReadScopedCleanupSummary(ctx context.Context,entity,owner,target string,filters ...contract.CleanupScope)(contract.CleanupSummary,error){
  var zero contract.CleanupSummary
  validText:=func(value string)bool{return len(value)<=256&&utf8.ValidString(value)&&!strings.ContainsRune(value,0)}
- if ctx==nil||s==nil||s.db==nil||!validText(entity)||!validText(owner)||!validText(target)||!validText(scopeField)||!validText(scopeValue)||(scopeField=="")!=(scopeValue==""){return zero,contract.ErrCleanupSummary}
+ if ctx==nil||s==nil||s.db==nil||!validText(entity)||!validText(owner)||!validText(target)||len(filters)>8{return zero,contract.ErrCleanupSummary}
+ seen:=make(map[string]bool,len(filters))
+ for _,filter:=range filters{
+  if filter.Field==""||filter.Value==""||!validText(filter.Field)||!validText(filter.Value)||seen[filter.Field]{return zero,contract.ErrCleanupSummary}
+  seen[filter.Field]=true
+ }
  if err:=ctx.Err();err!=nil{return zero,err}
  {{if .Entities}}
  var table string
@@ -31,13 +45,14 @@ func(s *Store)ReadCleanupSummary(ctx context.Context,entity,owner,target,scopeFi
  scopes=map[string]bool{ {{range .Scopes}}{{printf "%q" .}}:true,{{end}} }
  {{end}}default:return zero,contract.ErrCleanupSummary
  }
- if !owners[owner]||targets[owner]!=(target!="")||(scopeField!=""&&!scopes[scopeField]){return zero,contract.ErrCleanupSummary}
+ if !owners[owner]||targets[owner]!=(target!=""){return zero,contract.ErrCleanupSummary}
+ for _,filter:=range filters{if !scopes[filter.Field]{return zero,contract.ErrCleanupSummary}}
  operation,cancel:=context.WithTimeout(ctx,transactionTimeout);defer cancel()
  query:=s.db.WithContext(operation).Table(table).Where("deleted_at IS NOT NULL")
  if targets[owner]{
   query=query.Where("jsonb_exists(stego_cleanup_targets -> ?, ?)",owner,target).Where("stego_cleanup_targets -> ? -> ? IS DISTINCT FROM 'true'::jsonb",owner,target)
  }else{query=query.Where("stego_cleanup -> ? IS DISTINCT FROM 'true'::jsonb",owner)}
- if scopeField!=""{query=query.Where(fmt.Sprintf("%q COLLATE \"C\" = ?",scopeField),scopeValue)}
+ for _,filter:=range filters{query=query.Where(fmt.Sprintf("%q COLLATE \"C\" = ?",filter.Field),filter.Value)}
  var result contract.CleanupSummary
  err:=query.Select("count(*) AS pending, min(deleted_at) AS oldest_pending, statement_timestamp() AS observed_at").Scan(&result).Error
  if err!=nil{return zero,err}
