@@ -65,13 +65,33 @@ func TestAllocationValidation(t *testing.T) {
 		"owner exceeds client limit": func(c *gen.Context, p, w object) {
 			p["owner_label"] = strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", 61) + "/id"
 		},
-		"reserved owner":  func(c *gen.Context, p, w object) { p["owner_label"] = "stego.dev/allocator" },
-		"security owner":  func(c *gen.Context, p, w object) { p["owner_label"] = "pod-security.kubernetes.io/warn" },
-		"missing bounds":  func(c *gen.Context, p, w object) { p["quota"] = []any{} },
-		"zero bound":      func(c *gen.Context, p, w object) { p["quota"].([]any)[0].(object)["value"] = "0" },
-		"repeated bound":  func(c *gen.Context, p, w object) { p["quota"].([]any)[1] = p["quota"].([]any)[0] },
-		"wrong role":      func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["role"] = "unknown" },
-		"wrong namespace": func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["namespace"] = "other" },
+		"reserved owner":             func(c *gen.Context, p, w object) { p["owner_label"] = "stego.dev/allocator" },
+		"security owner":             func(c *gen.Context, p, w object) { p["owner_label"] = "pod-security.kubernetes.io/warn" },
+		"missing bounds":             func(c *gen.Context, p, w object) { p["quota"] = []any{} },
+		"zero bound":                 func(c *gen.Context, p, w object) { p["quota"].([]any)[0].(object)["value"] = "0" },
+		"repeated bound":             func(c *gen.Context, p, w object) { p["quota"].([]any)[1] = p["quota"].([]any)[0] },
+		"wrong role":                 func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["role"] = "unknown" },
+		"wrong namespace":            func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["namespace"] = "other" },
+		"external missing namespace": func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["namespace"] = "external" },
+		"external namespace on control": func(c *gen.Context, p, w object) {
+			p["bindings"].([]any)[0].(object)["external_namespace"] = "operator-system"
+		},
+		"external templated namespace": func(c *gen.Context, p, w object) {
+			b := p["bindings"].([]any)[0].(object)
+			b["namespace"] = "external"
+			b["external_namespace"] = "{{.Namespace}}"
+		},
+		"external cluster access": func(c *gen.Context, p, w object) {
+			b := p["bindings"].([]any)[1].(object)
+			b["namespace"] = "external"
+			b["external_namespace"] = "operator-system"
+		},
+		"external allocator alias": func(c *gen.Context, p, w object) {
+			b := p["bindings"].([]any)[0].(object)
+			b["namespace"] = "external"
+			b["external_namespace"] = "operator-system"
+			b["service_account"] = "widget-queue"
+		},
 		"both role types": func(c *gen.Context, p, w object) { p["bindings"].([]any)[0].(object)["external_role"] = "external" },
 		"allocator data access": func(c *gen.Context, p, w object) {
 			p["bindings"].([]any)[0].(object)["service_account"] = "widget-queue"

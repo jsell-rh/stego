@@ -92,3 +92,47 @@ func TestAllocationNetworkPeerRejectsInvalidSelectors(t *testing.T) {
 		})
 	}
 }
+
+func TestExternalSubjectAdmission(t *testing.T) {
+	c := allocationContext()
+	b := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["bindings"].([]any)[0].(object)
+	b["namespace"] = "external"
+	b["external_namespace"] = "operator-system"
+	files, _, err := new(Generator).Generate(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range files {
+		if f.Path == "deploy/render/worker-queue.json.tmpl" {
+			tmpl, err := template.New("manifest").Funcs(template.FuncMap{"allocationID": func(namespace, allocator string) string { return strings.Repeat("a", 32) }}).Parse(string(f.Content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rendered bytes.Buffer
+			if err := tmpl.Execute(&rendered, struct {
+				Namespace, Image string
+				FSGroup          int
+			}{"control", "registry.test/widget@sha256:" + strings.Repeat("a", 64), 10001}); err != nil {
+				t.Fatal(err)
+			}
+			var doc struct{ Items []object }
+			if err := json.Unmarshal(rendered.Bytes(), &doc); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range doc.Items {
+				if item["kind"] == "ValidatingAdmissionPolicy" {
+					for _, v := range item["spec"].(object)["validations"].([]any) {
+						expression := v.(object)["expression"].(string)
+						if strings.Contains(expression, `variables.o.subjects[0].namespace == "operator-system"`) && strings.Contains(expression, `variables.o.subjects[0].name == "widget-data"`) {
+							found = true
+						}
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("admission does not enforce the external subject namespace")
+	}
+}

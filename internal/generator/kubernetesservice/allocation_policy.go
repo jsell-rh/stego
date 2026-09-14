@@ -103,6 +103,9 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 				bindNames = append(bindNames, roleName)
 			}
 			subjectNamespace := "'{{.Namespace}}'"
+			if b.Namespace == "external" {
+				subjectNamespace = celString(b.ExternalNamespace)
+			}
 			if b.Namespace == "allocated" {
 				subjectNamespace = "namespaceObject.metadata.name"
 			}

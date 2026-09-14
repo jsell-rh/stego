@@ -39,13 +39,19 @@ A profile sets these values:
 - An application owner label and manager value.
 - Quotas for Pods, CPU, memory, temporary storage, and persistent storage.
 - Fixed roles and service-account subjects. A subject belongs to the control
-  namespace or to the allocated namespace.
+  namespace, the allocated namespace, or one explicit external namespace.
 
 Namespaced roles become unbound ClusterRoles. The allocator grants them through
 RoleBindings in allocated namespaces. A declared cluster role can only read
 Node or Namespace metadata, or create TokenReviews or SubjectAccessReviews.
 Wildcards, role escalation, impersonation, and unrestricted role binding are
 rejected. The allocator cannot receive an application role.
+
+Use `namespace: external` with `external_namespace: operator-system` to select
+an operator account in a separate namespace. The compiler requires a literal
+DNS label. The generated RoleBinding and admission policy use that exact value.
+External subjects cannot receive cluster permissions or use the allocator's
+account name. Omit `external_namespace` for `control` and `allocated` subjects.
 
 An `external_role` is an explicit reference to an operator-managed ClusterRole.
 It can receive a namespaced binding only. The operator must control that role

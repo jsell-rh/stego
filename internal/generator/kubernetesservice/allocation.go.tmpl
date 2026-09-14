@@ -18,7 +18,7 @@ import (
 )
 
 type role struct { Name, Scope string }
-type binding struct { Role, ExternalRole, ServiceAccount, Namespace string }
+type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type identityField struct { Field, Key string }
 type profile struct { IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
@@ -78,6 +78,7 @@ func (a *Allocator) bindingObject(p profile, name string, index int, owner kube.
  }
  ns := a.namespace
  if b.Namespace == "allocated" { ns = name }
+ if b.Namespace == "external" { ns = b.ExternalNamespace }
  kind, collection, bindingName := "RoleBinding", "/apis/rbac.authorization.k8s.io/v1/namespaces/"+name+"/rolebindings", fmt.Sprintf("stego-%s-%d", a.marker, index)
  if scope == "cluster" {
   kind, collection, bindingName = "ClusterRoleBinding", "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", fmt.Sprintf("%s.%s.%s.%d", a.namespace, a.config.Allocator, name, index)

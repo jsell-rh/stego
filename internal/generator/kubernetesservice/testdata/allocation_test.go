@@ -465,3 +465,24 @@ func TestNamespaceIdentityIsSealedWithoutSecretAccess(t *testing.T) {
 		t.Fatal("lost record removed the seal")
 	}
 }
+
+func TestExternalSubjectNamespace(t *testing.T) {
+	a, s := fixture(t)
+	b := &a.config.Profiles[0].Bindings[0]
+	b.Namespace = "external"
+	b.ExternalNamespace = "operator-system"
+	if err := a.Ensure(context.Background(), "tenant", "tenant-12345678", "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	object := s.objects["/apis/rbac.authorization.k8s.io/v1/namespaces/tenant-12345678/rolebindings/stego-"+a.marker+"-0"]
+	subjects, ok := object["subjects"].([]any)
+	if !ok || len(subjects) != 1 {
+		t.Fatal("subject missing")
+	}
+	subject := subjects[0].(map[string]any)
+	if kube.String(subject, "namespace") != "operator-system" || kube.String(subject, "name") != "widget-data" {
+		t.Fatal("external subject was rebound to control or allocated namespace")
+	}
+}

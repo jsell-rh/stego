@@ -18,7 +18,7 @@ type allocationRole struct {
 	Name, Scope string
 	Rules       []any
 }
-type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace string }
+type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type allocationIdentityField struct{ Field, Key string }
 type allocationProfile struct {
 	IdentityConfigMap                   string
@@ -230,7 +230,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			}
 			for key := range b {
 				switch key {
-				case "role", "external_role", "service_account", "namespace":
+				case "role", "external_role", "service_account", "namespace", "external_namespace":
 				default:
 					return result, fmt.Errorf("unknown allocation binding field")
 				}
@@ -239,18 +239,23 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			external, _ := b["external_role"].(string)
 			sa, _ := b["service_account"].(string)
 			ns, _ := b["namespace"].(string)
-			if !label.MatchString(sa) || (ns != "control" && ns != "allocated") || (role == "") == (external == "") || (role != "" && roles[role] == "") || (external != "" && !resourceName.MatchString(external)) {
+			externalNS, _ := b["external_namespace"].(string)
+			_, hasExternalNS := b["external_namespace"]
+			if (ns == "external") != hasExternalNS || (hasExternalNS && !label.MatchString(externalNS)) {
+				return result, fmt.Errorf("external allocation subject requires one literal namespace")
+			}
+			if !label.MatchString(sa) || (ns != "control" && ns != "allocated" && ns != "external") || (role == "") == (external == "") || (role != "" && roles[role] == "") || (external != "" && !resourceName.MatchString(external)) {
 				return result, fmt.Errorf("invalid allocation binding target")
 			}
 			if role != "" && roles[role] == "cluster" && ns != "allocated" {
 				return result, fmt.Errorf("allocated cluster permissions require an allocated ServiceAccount")
 			}
-			key := role + "/" + external + "/" + sa + "/" + ns
+			key := role + "/" + external + "/" + sa + "/" + ns + "/" + externalNS
 			if seen[key] {
 				return result, fmt.Errorf("duplicate allocation binding")
 			}
 			seen[key] = true
-			p.Bindings = append(p.Bindings, allocationBinding{role, external, sa, ns})
+			p.Bindings = append(p.Bindings, allocationBinding{Role: role, ExternalRole: external, ServiceAccount: sa, Namespace: ns, ExternalNamespace: externalNS})
 		}
 		result.Profiles = append(result.Profiles, p)
 	}
@@ -295,7 +300,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 	for _, p := range result.Profiles {
 		for _, b := range p.Bindings {
 			totalBindings++
-			if b.Namespace == "control" && b.ServiceAccount == result.Allocator {
+			if b.Namespace != "allocated" && b.ServiceAccount == result.Allocator {
 				return result, fmt.Errorf("allocator cannot receive an allocated role")
 			}
 		}
