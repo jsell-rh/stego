@@ -435,6 +435,11 @@ func TestRuntime(t *testing.T) {
 	if _, err := withHeader.Recv(); !errors.Is(err, io.EOF) {
 		t.Fatal("header stream did not finish", err)
 	}
+	// Use a separate identity so that completion of earlier server streams
+	// cannot consume this test's per-identity capacity.
+	if err := os.WriteFile(tokenFile, []byte("user-client-capacity"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	streamContext, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
 	var clientStreams []grpc.ServerStreamingClient[pb.Response]
@@ -443,8 +448,13 @@ func TestRuntime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := stream.Header(); err != nil {
+		header, err := stream.Header()
+		if err != nil {
 			t.Fatal(err)
+		}
+		if header == nil {
+			_, terminal := stream.Recv()
+			t.Fatal("capacity fixture did not start its holding stream", terminal)
 		}
 		deadline, ok := stream.Context().Deadline()
 		if !ok || time.Until(deadline) > rpcclient.StreamTimeout {
@@ -463,6 +473,9 @@ func TestRuntime(t *testing.T) {
 		if _, err := stream.Recv(); status.Code(err) != codes.Canceled {
 			t.Fatalf("cancel stream: %v", err)
 		}
+	}
+	if err := os.WriteFile(tokenFile, []byte("good"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	for _, request := range []string{strings.Repeat("x", rpcclient.MaxRequestBytes+1), "flood"} {
 		stream, err := outboundClient.Watch(calls, &pb.Request{Text: request}, grpc.MaxCallSendMsgSize(2<<20), grpc.MaxCallRecvMsgSize(2<<20))
