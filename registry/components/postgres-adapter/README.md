@@ -56,3 +56,7 @@ includes host fallbacks and preserves a shorter caller deadline. It does not
 limit an established session. Generated startup also uses a five-second ping
 before migrations, constructors, tasks, or listeners. See the
 [database startup contract](../../../specs/database-startup.md).
+
+Version 4.3 adds an optional [fresh schema generation gate](schema-generation.md).
+It rejects old or unknown schemas before initialization writes and before the
+store can serve requests. Applications must select this breaking release policy.

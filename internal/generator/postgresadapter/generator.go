@@ -32,6 +32,9 @@ func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
 // ValidateContext checks storage names, constraints, and migration settings.
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if _, err := schemaGeneration(ctx); err != nil {
+		return err
+	}
 	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
 		if err := gen.ValidateGoPackageNamespace(peer); err != nil {
 			return err
@@ -176,7 +179,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating store: %w", err)
 	}
 
-	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities)
+	migrateFile, err := generateMigrate(ctx.OutputNamespace, ctx.Entities, ctx.ComponentConfig["schema_generation"] != nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generating migrate: %w", err)
 	}
@@ -196,6 +199,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, fmt.Errorf("generating transaction: %w", err)
 	}
 	files := []gen.File{modelsFile, storeFile, migrateFile, sessionFactoryFile, genericDaoFile, transactionFile}
+	if ctx.ComponentConfig["schema_generation"] != nil {
+		file, err := generateSchemaGeneration(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, file)
+	}
 	if ctx.StorageContract != "" {
 		cursor, err := generateCursor(ctx)
 		if err != nil {
@@ -276,6 +286,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
+	"SchemaGeneration": true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
 	"conditioncontract":        true,
 	"ResourceCondition":        true,
 	"ConditionUpdate":          true,
@@ -772,6 +783,9 @@ func filterKeys[V any](values map[string]V) []string {
 	fmt.Fprintln(&buf, `if db == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
 	fmt.Fprintln(&buf, "if db.Error != nil { return nil, db.Error }")
 	fmt.Fprintln(&buf, `if db.Config == nil || db.Statement == nil || db.NamingStrategy == nil { return nil, errors.New("storage requires an initialized GORM database") }`)
+	if ctx.ComponentConfig["schema_generation"] != nil {
+		fmt.Fprintln(&buf, "if err:=VerifySchema(db);err!=nil{return nil,err}")
+	}
 	fmt.Fprintln(&buf, "schemaInitialization.Lock(); defer schemaInitialization.Unlock()")
 	fmt.Fprintln(&buf, "for _, model := range []any{")
 	for _, entity := range entities {
@@ -1358,7 +1372,7 @@ func emitHelpers(buf *bytes.Buffer) {
 
 // generateMigrate produces migrate.go with migration infrastructure and the
 // initial migration using GORM AutoMigrate.
-func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
+func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File, error) {
 	var buf bytes.Buffer
 
 	// Sort entities by ref dependencies so referenced tables are created first.
@@ -1393,9 +1407,13 @@ func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
 
 	fmt.Fprintf(&buf, "// Migrate runs all registered migrations in order.\n")
 	fmt.Fprintf(&buf, "func Migrate(db *gorm.DB) error {\n")
-	if hasVersioned(entities) {
+	if hasVersioned(entities) || guarded {
 		fmt.Fprintln(&buf, `if db==nil || db.Config==nil || db.Statement==nil {return fmt.Errorf("migration requires an initialized database")}`)
-		fmt.Fprintln(&buf, `return db.Transaction(func(db *gorm.DB) error {`)
+		if guarded {
+			fmt.Fprintln(&buf, `return BootstrapSchema(db,func(db *gorm.DB) error {`)
+		} else {
+			fmt.Fprintln(&buf, `return db.Transaction(func(db *gorm.DB) error {`)
+		}
 	}
 	fmt.Fprintf(&buf, "\tfor _, m := range migrations {\n")
 	fmt.Fprintf(&buf, "\t\tif err := m.Func(db); err != nil {\n")
@@ -1403,7 +1421,7 @@ func generateMigrate(ns string, entities []types.Entity) (gen.File, error) {
 	fmt.Fprintf(&buf, "\t\t}\n")
 	fmt.Fprintf(&buf, "\t}\n")
 	fmt.Fprintf(&buf, "\treturn nil\n")
-	if hasVersioned(entities) {
+	if hasVersioned(entities) || guarded {
 		fmt.Fprintln(&buf, "})")
 	}
 	fmt.Fprintf(&buf, "}\n\n")

@@ -76,3 +76,12 @@ dependencies, resumed deletion, replaced role OIDs, and deletion tombstones.
 The signal test checks span parentage, a duration metric, a structured log event,
 and exclusion of private values. Full compiler CI and its separate PostgreSQL
 job passed in [run 34885672242](https://github.com/jsell-rh/stego/actions/runs/34885672242).
+
+
+`postgres-adapter` 4.3 now supplies the optional
+[fresh schema generation gate](../registry/components/postgres-adapter/schema-generation.md).
+Eight generated PostgreSQL tests passed in jshell. They cover rejection before
+initialization, restart, concurrent calls, interrupted connections, marker
+permissions, and bounded lock waits. Hypershell has not adopted the gate yet.
+Its application setup must commit with the generated schema before the new
+catalog-free API can use this mechanism as its release boundary.

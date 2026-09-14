@@ -1,0 +1,51 @@
+{
+  "date": "2026-09-14",
+  "source_base_commit": "9a33f7e9de32b4c36b6ff44240881504d206b78e",
+  "source_manifest_sha256": "2069f730b6e0b7de53bbd1b36b04045bac6117b89c63297790a71845f8ea3a3e",
+  "source_archive_sha256": "2fe1674cb5d34df3cf1871c0a3c8240f7d07075adaa3a0023bd9939f2313e2bc",
+  "source_files": 813,
+  "tested_sources_match": true,
+  "job": "schema-generation-f7d37cfd56e5",
+  "namespace": "stego-ci",
+  "context": "jshell-ci",
+  "finished_at": "2026-09-14T22:56:50Z",
+  "verification": {
+    "required": [
+      "TestSchemaGenerationValidationAndWiring",
+      "TestGeneratedSchemaGeneration"
+    ],
+    "passed": [
+      "TestGeneratedSchemaGeneration",
+      "TestSchemaGenerationValidationAndWiring"
+    ],
+    "failed": [],
+    "missing": [],
+    "exit_code": 0
+  },
+  "generated_tests": [
+    "TestFreshSchemaAndStableRestart",
+    "TestLegacyAndUnknownSchemasRemainUnchanged",
+    "TestGenerationAndDefinitionMismatch",
+    "TestConcurrentSchemaBootstrap",
+    "TestInterruptedSchemaBootstrapCanRetry",
+    "TestUnknownMarkerCannotExecuteView",
+    "TestSchemaMarkerShapeAndPrivileges",
+    "TestSchemaBootstrapHonorsShortDeadline"
+  ],
+  "generated_package_result": "ok  \texample.com/schema-gate/storage\t2.771s",
+  "cleanup": {
+    "job_absent": "schema-generation-f7d37cfd56e5",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "local_results": "/tmp/stego-schema-generation-v2",
+  "earlier_result": {
+    "local_results": "/tmp/stego-schema-generation-v1",
+    "result": "Passed six generated tests before marker-permission and deadline checks were added."
+  },
+  "limits": [
+    "Hypershell has not adopted this component yet.",
+    "The marker covers only initialization work in its transaction.",
+    "Full compiler CI is still required."
+  ]
+}
