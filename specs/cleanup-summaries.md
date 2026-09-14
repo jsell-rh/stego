@@ -69,3 +69,15 @@ volume. Query limits and production capacity still require deployment evidence.
 The full compiler race suite passed with PostgreSQL required. Static checks
 also passed. The first full run found an old registry-version assertion; that
 assertion now matches the new adapter version.
+
+PostgreSQL adapter 4.1.0 adds `ScopedCleanupSummaryReader`. Up to eight distinct
+text-field filters use AND in the same aggregate statement. The existing method
+delegates to it. The [shared storage contract](shared-storage-contract.md)
+defines the filter limits and validation rules.
+
+On 2026-09-14, bounded jshell Job `stego-placement-3a677869/check` passed the
+generated storage transaction suite with the race detector. The generated
+package took 13.506 seconds. Combined filters excluded rows that matched only
+one field. Exact case, quoted values, owner and retained-target isolation,
+invalid inputs, and cancellation passed. The Job completed, and its namespace
+was removed. Local evidence is in `/tmp/stego-cleanup-scopes-vanukzvh`.
