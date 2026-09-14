@@ -1,5 +1,25 @@
 # Namespace allocation
 
+## Shared-cluster requirement
+
+The user confirmed on 2026-09-14 that Hypershell must support managed clusters
+with unrelated workloads and strict namespace isolation. This is a required
+application gate. A dedicated cluster is not a substitute for this support.
+
+STEGO supplies the common allocator, fixed role bindings, admission rules,
+ownership checks, and bounded controller runtime. The application supplies
+authorized placement and lifecycle decisions. Resource workers must not receive
+write access to unrelated namespaces or cluster-wide access to namespaced
+workloads. The allocator must not receive application Secret access.
+
+Before shared-cluster deployment, prove both allowed operations and denied
+operations with the deployed identities. Prove cleanup, restart, and permission
+changes after regeneration. Network and storage isolation, active admission
+policies, and allocation capacity limits remain required checks; the allocator
+alone does not prove complete shared-cluster isolation.
+
+## Generated allocation
+
 STEGO generates a separate namespace allocator worker when a service declares
 `allocation_roles`, `allocation_profiles`, and one worker with
 `namespace_allocator: true`. The worker must also declare `kubernetes_api: true`
