@@ -260,3 +260,122 @@ func TestCleanupSummaryRejectsInvalidCombinedScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCleanupReferencesKeepAllUnfinishedTargets(t *testing.T) {
+	store, db := database(t, true)
+	ctx := context.Background()
+	parent := "parent' OR true --"
+	other := "other"
+	for _, id := range []string{parent, other} {
+		if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: id}, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(id, owner string) bool {
+		t.Helper()
+		pending, err := store.HasUnfinishedReferences(ctx, contract.CleanupReference{Entity: "Placement", Field: "parent_id", ID: id, Owner: owner})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pending
+	}
+	if read(parent, "worker") {
+		t.Fatal("absent child blocked deletion")
+	}
+	if err := store.Create(ctx, "Placement", Placement{Meta: Meta{ID: "child"}, Name: "child", ParentID: &parent, Target: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if !read(parent, "worker") || read(other, "worker") {
+		t.Fatal("live reference scope was lost")
+	}
+	if _, err := db.Exec("UPDATE placements SET target='new' WHERE id='child'"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Delete(ctx, "Placement", "child"); err != nil {
+		t.Fatal(err)
+	}
+	if !read(parent, "worker") {
+		t.Fatal("unobserved deletion did not block its parent")
+	}
+	observe := func(target string, complete bool) {
+		t.Helper()
+		row := placement(t, store, "child")
+		if err := store.ObserveTargetCleanupIfVersion(ctx, "Placement", row.ID, row.ResourceVersion, "worker", target, complete); err != nil {
+			t.Fatal(err)
+		}
+	}
+	observe("new", true)
+	if !read(parent, "worker") {
+		t.Fatal("unfinished former target was ignored")
+	}
+	observe("old", true)
+	if read(parent, "worker") || !read(parent, "identity") {
+		t.Fatal("cleanup owner isolation was lost")
+	}
+	observe("old", false)
+	if !read(parent, "worker") {
+		t.Fatal("reopened work did not block its parent")
+	}
+	rollback := errors.New("rollback dependency observation")
+	err := store.WithTransaction(ctx, func(ctx context.Context, tx contract.Transaction) error {
+		value, err := tx.(contract.RetainedReader).GetRetained(ctx, "Placement", "child")
+		if err != nil {
+			return err
+		}
+		row := value.(Placement)
+		if err := tx.(contract.TargetCleanupWriter).ObserveTargetCleanupIfVersion(ctx, "Placement", row.ID, row.ResourceVersion, "worker", "old", true); err != nil {
+			return err
+		}
+		pending, err := tx.(contract.CleanupReferenceReader).HasUnfinishedReferences(ctx, contract.CleanupReference{Entity: "Placement", Field: "parent_id", ID: parent, Owner: "worker"})
+		if err != nil {
+			return err
+		}
+		if pending {
+			t.Fatal("transaction ignored its cleanup observation")
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) || !read(parent, "worker") {
+		t.Fatal("dependency transaction did not roll back", err)
+	}
+	observe("old", true)
+	if read(parent, "worker") {
+		t.Fatal("finished child kept blocking its parent")
+	}
+	if err := store.Create(ctx, "Placement", Placement{Meta: Meta{ID: "unrelated"}, Name: "unrelated", ParentID: &other, Target: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if read(parent, "worker") || !read(other, "worker") {
+		t.Fatal("unrelated child changed the dependency result")
+	}
+}
+
+func TestCleanupReferencesRejectInvalidQueries(t *testing.T) {
+	store, _ := database(t, true)
+	valid := contract.CleanupReference{Entity: "Placement", Field: "parent_id", ID: "parent", Owner: "worker"}
+	for _, change := range []func(*contract.CleanupReference){
+		func(r *contract.CleanupReference) { r.Entity = "unknown" },
+		func(r *contract.CleanupReference) { r.Entity = "Measurement" },
+		func(r *contract.CleanupReference) { r.Field = "name" },
+		func(r *contract.CleanupReference) { r.Field = "parent_id' OR true --" },
+		func(r *contract.CleanupReference) { r.ID = "" },
+		func(r *contract.CleanupReference) { r.ID = "bad\x00value" },
+		func(r *contract.CleanupReference) { r.ID = "\xff" },
+		func(r *contract.CleanupReference) { r.ID = strings.Repeat("x", 257) },
+		func(r *contract.CleanupReference) { r.Owner = "unknown" },
+	} {
+		query := valid
+		change(&query)
+		if _, err := store.HasUnfinishedReferences(context.Background(), query); !errors.Is(err, contract.ErrCleanupReference) {
+			t.Fatal("invalid dependency query accepted", err)
+		}
+	}
+	if _, err := store.HasUnfinishedReferences(nil, valid); !errors.Is(err, contract.ErrCleanupReference) {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.HasUnfinishedReferences(ctx, valid); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}

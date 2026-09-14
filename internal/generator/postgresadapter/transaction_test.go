@@ -55,7 +55,7 @@ func TestGeneratedStoreTransactions(t *testing.T) {
 		{Name: "floor", Type: types.FieldTypeDouble, Optional: true, Min: &zero},
 		{Name: "ceiling", Type: types.FieldTypeDouble, Optional: true, Max: &hundred},
 	}})
-	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Placement", Versioned: true, CleanupOwners: []string{"worker", "identity"}, CleanupTargets: map[string]string{"worker": "target"}, Fields: []types.Field{{Name: "target", Type: types.FieldTypeString}, {Name: "name", Type: types.FieldTypeString}}})
+	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Placement", Versioned: true, CleanupOwners: []string{"worker", "identity"}, CleanupTargets: map[string]string{"worker": "target"}, Fields: []types.Field{{Name: "target", Type: types.FieldTypeString}, {Name: "name", Type: types.FieldTypeString}, {Name: "parent_id", Type: types.FieldTypeRef, To: "Record", Optional: true}}})
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)

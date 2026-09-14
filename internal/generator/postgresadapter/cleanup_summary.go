@@ -18,8 +18,8 @@ var cleanupSummarySource string
 
 func generateCleanupSummary(ctx gen.Context) (gen.File, error) {
 	type entity struct {
-		Name, Table             string
-		Owners, Targets, Scopes []string
+		Name, Table                         string
+		Owners, Targets, Scopes, References []string
 	}
 	data := struct {
 		Package, StorageImport string
@@ -36,11 +36,15 @@ func generateCleanupSummary(ctx gen.Context) (gen.File, error) {
 		slices.Sort(item.Owners)
 		slices.Sort(item.Targets)
 		for _, field := range e.Fields {
+			if field.Type == types.FieldTypeRef {
+				item.References = append(item.References, field.Name)
+			}
 			if !e.IsObservationField(field.Name) && (field.Type == types.FieldTypeString || field.Type == types.FieldTypeEnum || field.Type == types.FieldTypeRef) {
 				item.Scopes = append(item.Scopes, field.Name)
 			}
 		}
 		slices.Sort(item.Scopes)
+		slices.Sort(item.References)
 		data.Entities = append(data.Entities, item)
 	}
 	tmpl, err := template.New("cleanup-summary").Parse(cleanupSummarySource)

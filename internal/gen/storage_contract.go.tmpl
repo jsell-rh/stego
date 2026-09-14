@@ -50,6 +50,19 @@ type CleanupScope struct {
 type ScopedCleanupSummaryReader interface {
  ReadScopedCleanupSummary(context.Context, string, string, string, ...CleanupScope) (CleanupSummary, error)
 }
+// CleanupReference selects children through a declared reference field.
+// Owner identifies the cleanup work that must finish before the parent can go.
+// A target owner's completion includes all retained targets.
+type CleanupReference struct {
+ Entity, Field, ID, Owner string
+}
+// CleanupReferenceReader checks live children and unfinished deleted children.
+// Call it in the same transaction as the parent deletion. Authorize that parent
+// operation first. This check does not grant access or prove external absence.
+type CleanupReferenceReader interface {
+ HasUnfinishedReferences(context.Context, CleanupReference) (bool, error)
+}
+var ErrCleanupReference = errors.New("invalid cleanup reference query")
 var ErrCleanupSummary = errors.New("invalid cleanup summary request or result")
 // ObservedAt is the database statement time. OldestPending is nil only when
 // Pending is zero. It is the original deletion time, including reopened work.

@@ -128,3 +128,17 @@ checks AND behavior, exact equality under a case-insensitive database collation,
 quoted values, empty results, owner and retained-target isolation, invalid
 filters, and cancellation. Hypershell uses this contract to select both provider
 and cluster; those domain field names are not part of the generator.
+
+`CleanupReferenceReader.HasUnfinishedReferences` checks whether a parent still
+has live children or deleted children with unfinished work for a declared cleanup
+owner. `CleanupReference` selects the child entity, a declared reference field,
+the parent ID, and the owner. A target owner's aggregate completion covers all
+retained targets, including a former target. Other owners remain independent.
+
+Call this read in the same transaction as the parent deletion, after access
+checks. The generated query uses EXISTS and stops at the first matching child.
+It reads no child IDs or payloads. Field names come from the schema; parent IDs
+and owners remain parameters. Inputs require nonempty valid UTF-8, no zero byte,
+and at most 256 bytes each. Unknown entities, fields, and owners fail. An ordinary
+string field cannot serve as a reference. The storage request deadline applies.
+This checks stored observations; it does not fence concurrent external work.
