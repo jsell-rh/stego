@@ -293,7 +293,7 @@ func TestAllocationCanDenyPodsAndStorage(t *testing.T) {
 	}
 	found := false
 	for _, file := range files {
-		if strings.HasSuffix(file.Path, "allocation.go") && bytes.Contains(file.Bytes(), []byte(`"pods":"0"`)) && bytes.Contains(file.Bytes(), []byte(`"requests.storage":"0"`)) {
+		if strings.HasSuffix(file.Path, "allocation.go") && bytes.Contains(file.Bytes(), []byte(`\"pods\":\"0\"`)) && bytes.Contains(file.Bytes(), []byte(`\"requests.storage\":\"0\"`)) {
 			found = true
 		}
 	}
