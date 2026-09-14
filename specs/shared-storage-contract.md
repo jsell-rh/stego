@@ -134,6 +134,11 @@ has live children or deleted children with unfinished work for a declared cleanu
 owner. `CleanupReference` selects the child entity, a declared reference field,
 the parent ID, and the owner. A target owner's aggregate completion covers all
 retained targets, including a former target. Other owners remain independent.
+If the reference field is also the owner's declared target field, unfinished
+cleanup for a former parent also blocks that parent. A completed former target
+does not block its former parent. The current parent stays blocked until the
+child is deleted and all targets for that owner are complete. Target history
+does not affect a different reference field, even when its values are the same.
 
 Call this read in the same transaction as the parent deletion, after access
 checks. The generated query uses EXISTS and stops at the first matching child.

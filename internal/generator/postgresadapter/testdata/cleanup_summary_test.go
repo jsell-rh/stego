@@ -288,7 +288,7 @@ func TestCleanupReferencesKeepAllUnfinishedTargets(t *testing.T) {
 	if !read(parent, "worker") || read(other, "worker") {
 		t.Fatal("live reference scope was lost")
 	}
-	if _, err := db.Exec("UPDATE placements SET target='new' WHERE id='child'"); err != nil {
+	if _, err := db.Exec("UPDATE placements SET target=$1 WHERE id='child'", other); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Delete(ctx, "Placement", "child"); err != nil {
@@ -304,7 +304,10 @@ func TestCleanupReferencesKeepAllUnfinishedTargets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	observe("new", true)
+	if read(other, "worker") {
+		t.Fatal("target history was used for a different reference field")
+	}
+	observe(other, true)
 	if !read(parent, "worker") {
 		t.Fatal("unfinished former target was ignored")
 	}
@@ -347,6 +350,70 @@ func TestCleanupReferencesKeepAllUnfinishedTargets(t *testing.T) {
 	}
 	if read(parent, "worker") || !read(other, "worker") {
 		t.Fatal("unrelated child changed the dependency result")
+	}
+}
+
+func TestCleanupReferencesKeepFormerParents(t *testing.T) {
+	store, db := database(t, true)
+	ctx := context.Background()
+	first, second, other := "parent' OR true --", "second", "other"
+	for _, id := range []string{first, second, other} {
+		if err := store.Create(ctx, "Record", Record{Meta: Meta{ID: id}, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(id string) bool {
+		t.Helper()
+		pending, err := store.HasUnfinishedReferences(ctx, contract.CleanupReference{Entity: "Relocation", Field: "parent_id", ID: id, Owner: "worker"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pending
+	}
+	if err := store.Create(ctx, "Relocation", Relocation{Meta: Meta{ID: "child"}, ParentID: first, Name: "child"}); err != nil {
+		t.Fatal(err)
+	}
+	if !read(first) || read(second) || read(other) {
+		t.Fatal("live reference scope was lost")
+	}
+	if _, err := db.Exec("UPDATE relocations SET parent_id=$1 WHERE id='child'", second); err != nil {
+		t.Fatal(err)
+	}
+	if !read(first) {
+		t.Fatal("unfinished former parent reference was ignored")
+	}
+	if !read(second) || read(other) {
+		t.Fatal("move changed an unrelated reference")
+	}
+	if err := store.Delete(ctx, "Relocation", "child"); err != nil {
+		t.Fatal(err)
+	}
+	observe := func(target string, complete bool) {
+		t.Helper()
+		value, err := store.GetRetained(ctx, "Relocation", "child")
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := value.(Relocation)
+		if err := store.ObserveTargetCleanupIfVersion(ctx, "Relocation", row.ID, row.ResourceVersion, "worker", target, complete); err != nil {
+			t.Fatal(err)
+		}
+	}
+	observe(first, true)
+	if read(first) || !read(second) || read(other) {
+		t.Fatal("former target completion changed another parent")
+	}
+	observe(second, true)
+	if read(first) || read(second) || read(other) {
+		t.Fatal("finished targets blocked a parent")
+	}
+	observe(first, false)
+	if !read(first) || !read(second) || read(other) {
+		t.Fatal("reopened former work lost its references")
+	}
+	observe(first, true)
+	if read(first) || read(second) || read(other) {
+		t.Fatal("finished reopened work blocked a parent")
 	}
 }
 

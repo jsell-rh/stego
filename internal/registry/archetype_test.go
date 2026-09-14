@@ -124,8 +124,8 @@ func TestLiveRegistryLoadsAllArchetypeComponents(t *testing.T) {
 	if pg == nil {
 		t.Fatal("Component(postgres-adapter) returned nil")
 	}
-	if pg.Version != "4.2.0" {
-		t.Errorf("postgres-adapter Version = %q, want %q", pg.Version, "4.2.0")
+	if pg.Version != "4.2.1" {
+		t.Errorf("postgres-adapter Version = %q, want %q", pg.Version, "4.2.1")
 	}
 
 	otel := reg.Component("otel-tracing")

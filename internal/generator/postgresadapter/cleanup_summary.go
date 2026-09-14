@@ -20,6 +20,7 @@ func generateCleanupSummary(ctx gen.Context) (gen.File, error) {
 	type entity struct {
 		Name, Table                         string
 		Owners, Targets, Scopes, References []string
+		TargetFields                        map[string]string
 	}
 	data := struct {
 		Package, StorageImport string
@@ -29,7 +30,7 @@ func generateCleanupSummary(ctx gen.Context) (gen.File, error) {
 		if len(e.CleanupOwners) == 0 {
 			continue
 		}
-		item := entity{Name: e.Name, Table: tableName(e.Name), Owners: slices.Clone(e.CleanupOwners), Scopes: []string{"id"}}
+		item := entity{Name: e.Name, Table: tableName(e.Name), Owners: slices.Clone(e.CleanupOwners), Scopes: []string{"id"}, TargetFields: e.CleanupTargets}
 		for owner := range e.CleanupTargets {
 			item.Targets = append(item.Targets, owner)
 		}
