@@ -102,8 +102,10 @@ commits after their checks pass. Do not wait for pull request merges.
 The user confirmed that STEGO must provide common infrastructure. Keep unique
 domain behavior in application modules or fills. Do not add Hypershell-specific
 rules to STEGO. Test new common capabilities with a separate small service as
-well as Hypershell. Whether the variant must upgrade an existing database in
-place remains pending user input. Compiler correctness work can proceed.
+well as Hypershell. The 2026-09-14 controller-local database decision requires
+fresh installation or explicit teardown and recreation. In-place upgrade is
+outside this transition. See [the database target](database-provisioning.md).
+Reject old or unknown schemas before writes; do not perform automatic teardown.
 
 Security and performance claims require evidence. Record the environment,
 commands, outcomes, and limits of each acceptance run. Ask the user when a choice

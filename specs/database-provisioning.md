@@ -7,10 +7,17 @@ for each Gateway. Support for existing connections alone does not satisfy this
 requirement.
 
 STEGO must supply reusable database provisioning and verification mechanisms.
-Hypershell supplies Gateway identity, database selection, and locality. Gateway
-databases belong beside their Gateways; the database reconciler belongs beside
-the database it manages. CNPG uses the Gateway's managed cluster. External
-PostgreSQL needs an explicit operator-supplied association with that cluster.
+Hypershell supplies Gateway identity, assigned-controller ownership, and locality.
+On 2026-09-14, the user selected the controller-local database model in
+[Hypershell PR 272](https://github.com/openshift-online/hypershell/pull/272),
+reviewed at `d61f1dffe639f1de6e67cd82d89282fedb0d15e6`.
+This supersedes the API database registration and selection model.
+The Gateway API must have no `database_id`, including an empty placeholder,
+and no `ManagedDatabase` entity. The installation supplies each execution
+controller with its local PostgreSQL connection and administrative credential
+reference. Gateway databases belong beside their Gateways and controller.
+The installation owns RDS or CNPG server infrastructure. The application
+controller owns only Gateway SQL resources and credentials.
 
 Required evidence includes creation, current ownership checks, concurrent
 reconciliation, restart after partial creation, credential loss, cleanup, verified
@@ -34,14 +41,24 @@ ownership records, separate owner and login roles, verified TLS, connection
 isolation, bounded calls, recovery, and deletion. It has no Gateway or cluster
 selection logic. Logs, metrics, and traces exclude private SQL inputs.
 
-The Hypershell external provider remains an open application gate. The operator
-can create an RDS server with Terraform before cluster or installation creation.
-Hypershell must register the server with its managed cluster and manage only the
-Gateway logical databases and logins. It must never delete the external server.
-Support must include one server shared by an installation's component databases
-and separate servers for those components. A server is not shared between
-installations. Actual RDS acceptance is still required; local PostgreSQL evidence
-does not prove RDS permissions or operation.
+The Hypershell controller integration remains an open application gate. The
+operator can create an RDS server with Terraform before cluster or installation
+creation. CNPG is another installation choice and supplies the same SQL
+connection contract. Neither requires a database registration API call.
+The controller must never delete the supplied server or its storage. It must
+preserve durable Gateway cleanup intent and reject a changed database destination
+before it creates replacement data, changes credentials, or deletes objects.
+Actual RDS acceptance is still required; local PostgreSQL evidence does not
+prove RDS permissions or operation.
+
+The transition requires matching API, controller, SDK, CLI, and console releases.
+Retired protobuf field numbers and names remain reserved. Fresh schemas must
+contain no database catalog or Gateway database reference. Old or unknown
+schemas must be rejected before writes. Shared schema checks and serialized
+bootstrap mechanisms belong in STEGO; Hypershell declares its schema generation
+and application compatibility policy. Teardown is a separate operator action.
+The new runtime must not migrate or remove existing installations implicitly.
+These are target requirements, not claims of completed implementation.
 
 The final focused jshell check passed on 2026-09-14 with a non-superuser
 provisioning account. Seven generated tests passed with race detection. The
