@@ -150,10 +150,10 @@ func networkRules(ctx gen.Context) (object, error) {
 	if ctx.PeerNamespaces["grpc-application"] != "" {
 		ports[9090] = true
 	}
-	return networkRulesForPorts(ctx, ports)
+	return networkRulesForPorts(ctx, ports, ctx)
 }
 
-func networkRulesForPorts(ctx gen.Context, ports map[int]bool) (object, error) {
+func networkRulesForPorts(ctx gen.Context, ports map[int]bool, installation gen.Context) (object, error) {
 	peers, err := configList(ctx, "network_peers")
 	if err != nil {
 		return nil, err
@@ -166,15 +166,21 @@ func networkRulesForPorts(ctx gen.Context, ports map[int]bool) (object, error) {
 	for _, entry := range peers {
 		peer, ok := entry.(map[string]any)
 		if !ok || len(peer) != 6 {
-			return nil, fmt.Errorf("network peer requires direction, namespace, pod_label, pod_value, port, and protocol")
+			return nil, fmt.Errorf("network peer requires direction, namespace or allocation_profile, pod_label, pod_value, port, and protocol")
 		}
 		direction, _ := peer["direction"].(string)
 		namespace, _ := peer["namespace"].(string)
+		profile, _ := peer["allocation_profile"].(string)
+		_, fixed := peer["namespace"]
+		_, allocated := peer["allocation_profile"]
+		if fixed == allocated {
+			return nil, fmt.Errorf("network peer requires exactly one namespace selector")
+		}
 		key, _ := peer["pod_label"].(string)
 		value, _ := peer["pod_value"].(string)
 		protocol, _ := peer["protocol"].(string)
 		port, ok := peer["port"].(int)
-		if (direction != "ingress" && direction != "egress") || (!label.MatchString(namespace) && namespace != "self") || !validLabelKey(key) || !labelValue.MatchString(value) || !ok || port < 1 || port > 65535 || (protocol != "TCP" && protocol != "UDP") {
+		if (direction != "ingress" && direction != "egress") || (fixed && !label.MatchString(namespace)) || (allocated && !label.MatchString(profile)) || !validLabelKey(key) || !labelValue.MatchString(value) || !ok || port < 1 || port > 65535 || (protocol != "TCP" && protocol != "UDP") {
 			return nil, fmt.Errorf("invalid network peer")
 		}
 		if direction == "ingress" && (protocol != "TCP" || !ports[port]) {
@@ -183,7 +189,24 @@ func networkRulesForPorts(ctx gen.Context, ports map[int]bool) (object, error) {
 		if namespace == "self" {
 			namespace = "{{.Namespace}}"
 		}
-		selector := object{"namespaceSelector": object{"matchLabels": object{"kubernetes.io/metadata.name": namespace}}, "podSelector": object{"matchLabels": object{key: value}}}
+		namespaceLabels := object{"kubernetes.io/metadata.name": namespace}
+		if allocated {
+			config, err := allocationConfig(installation)
+			if err != nil {
+				return nil, err
+			}
+			found := false
+			for _, p := range config.Profiles {
+				if p.Name == profile {
+					found = true
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("network peer requires a declared allocation profile")
+			}
+			namespaceLabels = object{"stego.dev/allocator": allocationMarker(config), "stego.dev/allocation-profile": profile}
+		}
+		selector := object{"namespaceSelector": object{"matchLabels": namespaceLabels}, "podSelector": object{"matchLabels": object{key: value}}}
 		rule := object{"ports": []any{object{"protocol": protocol, "port": port}}}
 		if direction == "ingress" {
 			rule["from"] = []any{selector}

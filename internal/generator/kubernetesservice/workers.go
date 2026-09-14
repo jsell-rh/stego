@@ -107,7 +107,7 @@ func workers(ctx gen.Context) ([]worker, error) {
 				return nil, fmt.Errorf("workers permit only egress network peers")
 			}
 		}
-		if _, err := networkRules(child); err != nil {
+		if _, err := networkRulesForPorts(child, map[int]bool{}, ctx); err != nil {
 			return nil, err
 		}
 		declaration := worker{Name: name, Package: pkg, Function: function, Context: child}
@@ -162,7 +162,7 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 		container["startupProbe"], container["readinessProbe"], container["livenessProbe"] = probe("live", 2, 30), probe("ready", 3, 2), probe("live", 10, 3)
 		metadata := object{"name": w.Context.ServiceName, "namespace": "{{.Namespace}}"}
 		labels := object{"app.kubernetes.io/name": w.Context.ServiceName}
-		rules, _ := networkRules(w.Context)
+		rules, _ := networkRulesForPorts(w.Context, map[int]bool{}, ctx)
 		items := []any{
 			object{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": metadata, "automountServiceAccountToken": false},
 			object{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": metadata, "spec": rules},

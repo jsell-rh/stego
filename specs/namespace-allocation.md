@@ -142,6 +142,14 @@ storage isolation, a cluster-wide allocation count limit, or an application
 adapter. These remain separate acceptance requirements. Hypershell adoption must
 pass the real Gateway workflow before its existing worker permissions are removed.
 
+A service, worker, or RPC process can select an allocation profile in
+`network_peers`. Use `allocation_profile` instead of `namespace`. The generated
+namespace selector requires both the declared profile and this installation's
+allocator marker. The peer must still specify its Pod label, port, and protocol.
+An unknown profile, two namespace selectors, or an empty selector is an error.
+This grants network access to matching Pods in that profile. It does not grant
+Kubernetes API access or isolate one tenant from another within the profile.
+
 ## Checks
 
 `TestAllocationValidation` checks unsafe declarations. `TestAllocationManifests`

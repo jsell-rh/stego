@@ -108,7 +108,7 @@ func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
 		if _, err := kubernetesAccess(child); err != nil {
 			return nil, err
 		}
-		if _, err := networkRulesForPorts(child, map[int]bool{9090: true}); err != nil {
+		if _, err := networkRulesForPorts(child, map[int]bool{9090: true}, ctx); err != nil {
 			return nil, err
 		}
 		result = append(result, rpcProcess{name, namespace, process, child})
@@ -136,7 +136,7 @@ func rpcProcessFiles(ctx gen.Context) ([]gen.File, error) {
 		container["startupProbe"], container["readinessProbe"], container["livenessProbe"] = probe("ready", 2, 15), probe("ready", 3, 2), probe("live", 10, 3)
 		metadata := object{"name": p.Context.ServiceName, "namespace": "{{.Namespace}}"}
 		labels := object{"app.kubernetes.io/name": p.Context.ServiceName}
-		rules, _ := networkRulesForPorts(p.Context, map[int]bool{9090: true})
+		rules, _ := networkRulesForPorts(p.Context, map[int]bool{9090: true}, ctx)
 		items := []any{
 			object{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": metadata, "automountServiceAccountToken": false},
 			object{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": metadata, "spec": rules},
