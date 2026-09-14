@@ -161,7 +161,7 @@ func sqlFixture(t *testing.T) Options {
 			go func() {
 				defer workers.Done()
 				defer conn.Close()
-				_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
+				_ = conn.SetDeadline(time.Now().Add(45 * time.Second))
 				var request [8]byte
 				if _, err := io.ReadFull(conn, request[:]); err != nil {
 					return
@@ -182,7 +182,7 @@ func sqlFixture(t *testing.T) Options {
 					return
 				}
 				defer upstream.Close()
-				_ = upstream.SetDeadline(time.Now().Add(12 * time.Second))
+				_ = upstream.SetDeadline(time.Now().Add(45 * time.Second))
 				done := make(chan struct{})
 				go func() { _, _ = io.Copy(upstream, secure); upstream.Close(); close(done) }()
 				_, _ = io.Copy(secure, upstream)

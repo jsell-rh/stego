@@ -28,5 +28,17 @@ change access for unrelated workloads. See the PostgreSQL
 handle partial provisioning and verify ownership before further effects. See
 [CREATE DATABASE](https://www.postgresql.org/docs/18/sql-createdatabase.html).
 
-This is an open implementation and application gate. The existing read-only
-PostgreSQL client and CNPG checks do not prove external database provisioning.
+`postgres-client` 1.1.0 adds the common SQL lifecycle API. Its
+[contract](../registry/components/postgres-client/provisioning.md) specifies
+ownership records, separate owner and login roles, verified TLS, connection
+isolation, bounded calls, recovery, and deletion. It has no Gateway or cluster
+selection logic. Logs, metrics, and traces exclude private SQL inputs.
+
+The Hypershell external provider remains an open application gate. The operator
+can create an RDS server with Terraform before cluster or installation creation.
+Hypershell must register the server with its managed cluster and manage only the
+Gateway logical databases and logins. It must never delete the external server.
+Support must include one server shared by an installation's component databases
+and separate servers for those components. A server is not shared between
+installations. Actual RDS acceptance is still required; local PostgreSQL evidence
+does not prove RDS permissions or operation.

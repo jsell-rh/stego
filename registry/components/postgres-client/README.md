@@ -1,10 +1,12 @@
-This component generates explicit PostgreSQL reads for external state checks.
+This component generates explicit PostgreSQL reads and logical database lifecycle
+operations. See [database provisioning](provisioning.md) for ownership, access,
+recovery, and deletion requirements.
 Add `postgres-client` to the service archetype. It has no entity, storage-adapter,
 controller, or Hypershell dependency. The application supplies `Options`, trusted
 SQL, bound scalar arguments, and scan destinations to `ReadRow`.
 
-The client opens one connection per call and closes it before return. It has no
-pool or background worker. A call has a six-second limit, or the caller's shorter
+`ReadRow` opens one connection per call and closes it before return. It has no
+pool or background worker. A read has a six-second limit, or the caller's shorter
 limit. The session uses a five-second statement limit, a one-second lock limit,
 `pg_catalog` as its search path, and read-only defaults. The application still
 needs database permissions that match its task. Read-only defaults do not make
@@ -40,3 +42,6 @@ and recovery after rejected reads. They also test configuration under unrelated
 PostgreSQL environment settings. The Hypershell workflow supplies the separate
 operator and application evidence. Production throughput and pool management
 are outside this component's current contract.
+
+Reads also emit OTEL spans, duration metrics, and structured logs. Their attributes
+exclude queries, bound values, connection identities, and credentials.
