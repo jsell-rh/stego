@@ -137,6 +137,35 @@ func fixture(t *testing.T) (*Allocator, *api) {
 				w.WriteHeader(409)
 				return
 			}
+			// The allocation policy blocks other actors from updating a live
+			// namespace's bindings. The garbage collector cannot clear this
+			// finalizer. This behavior was reproduced against Kubernetes.
+			if strings.Contains(r.URL.Path, "/rolebindings/") && kube.String(body, "propagationPolicy") == "Foreground" {
+				meta := current["metadata"].(map[string]any)
+				meta["deletionTimestamp"] = "2026-09-14T00:00:00Z"
+				meta["finalizers"] = []any{"foregroundDeletion"}
+				w.WriteHeader(http.StatusAccepted)
+				_ = json.NewEncoder(w).Encode(current)
+				return
+			}
+			if kube.String(body, "propagationPolicy") == "Background" {
+				meta := current["metadata"].(map[string]any)
+				remaining := []any{}
+				if values, ok := meta["finalizers"].([]any); ok {
+					for _, value := range values {
+						if value != "foregroundDeletion" {
+							remaining = append(remaining, value)
+						}
+					}
+				}
+				if len(remaining) > 0 {
+					meta["finalizers"] = remaining
+					meta["deletionTimestamp"] = "2026-09-14T00:00:00Z"
+					w.WriteHeader(http.StatusAccepted)
+					_ = json.NewEncoder(w).Encode(current)
+					return
+				}
+			}
 			delete(state.objects, r.URL.Path)
 			_ = json.NewEncoder(w).Encode(kube.Object{"kind": "Status"})
 		default:
@@ -396,6 +425,88 @@ func TestAllocationRemovesOldBindingsAfterRegeneration(t *testing.T) {
 				t.Fatal("old data subject survived regeneration")
 			}
 		}
+	}
+}
+
+func TestAllocationRecoversForegroundBindingDeletion(t *testing.T) {
+	for _, mode := range []string{"changed", "same", "proof"} {
+		t.Run(mode, func(t *testing.T) {
+			a, s := fixture(t)
+			ctx := context.Background()
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			suffix := "0"
+			if mode == "proof" {
+				suffix = "proof"
+			}
+			path := "/apis/rbac.authorization.k8s.io/v1/namespaces/tenant-12345678/rolebindings/stego-" + a.marker + "-" + suffix
+			s.mu.Lock()
+			oldUID := kube.String(s.objects[path], "metadata", "uid")
+			expectedSubject := s.objects[path]["subjects"].([]any)[0].(map[string]any)["name"]
+			meta := s.objects[path]["metadata"].(map[string]any)
+			meta["deletionTimestamp"] = "2026-09-14T00:00:00Z"
+			meta["finalizers"] = []any{"foregroundDeletion"}
+			s.mu.Unlock()
+			if mode == "changed" {
+				a.config.Profiles[0].Bindings[0].ServiceAccount = "replacement"
+				expectedSubject = "replacement"
+			}
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); !errors.Is(err, ErrPending) {
+				t.Fatal("binding removal must be observed", err)
+			}
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+				t.Fatal("foreground binding did not recover", err)
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if kube.String(s.objects[path], "metadata", "uid") == oldUID || kube.String(s.objects[path], "metadata", "deletionTimestamp") != "" {
+				t.Fatal("old binding still exists")
+			}
+			if subjects := s.objects[path]["subjects"].([]any); subjects[0].(map[string]any)["name"] != expectedSubject {
+				t.Fatal("replacement binding missing")
+			}
+		})
+	}
+}
+
+func TestAllocationPreservesCustomBindingFinalizer(t *testing.T) {
+	for _, foreground := range []bool{false, true} {
+		t.Run(fmt.Sprint(foreground), func(t *testing.T) {
+			a, s := fixture(t)
+			ctx := context.Background()
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			path := "/apis/rbac.authorization.k8s.io/v1/namespaces/tenant-12345678/rolebindings/stego-" + a.marker + "-0"
+			s.mu.Lock()
+			meta := s.objects[path]["metadata"].(map[string]any)
+			meta["deletionTimestamp"] = "2026-09-14T00:00:00Z"
+			meta["finalizers"] = []any{"example.test/cleanup"}
+			if foreground {
+				meta["finalizers"] = []any{"foregroundDeletion", "example.test/cleanup"}
+			}
+			before := len(s.writes)
+			s.mu.Unlock()
+			a.config.Profiles[0].Bindings[0].ServiceAccount = "replacement"
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); !errors.Is(err, ErrPending) {
+				t.Fatal("custom cleanup must remain pending", err)
+			}
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); !errors.Is(err, ErrPending) {
+				t.Fatal("custom cleanup must remain pending on another pass", err)
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if foreground {
+				before++
+			}
+			if len(s.writes) != before {
+				t.Fatal("allocator tried to bypass custom cleanup")
+			}
+			if values := kube.Nested(s.objects[path], "metadata", "finalizers").([]any); len(values) != 1 || values[0] != "example.test/cleanup" {
+				t.Fatal("custom finalizer changed")
+			}
+		})
 	}
 }
 func TestAllocationDoesNotPruneAnIncompleteSnapshot(t *testing.T) {

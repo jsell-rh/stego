@@ -180,3 +180,43 @@ binding cleanup and access changes after regeneration. Run this check after the
 runtime Job; it changes the fixture policies. It removes its own fixtures. The caller must remove the test policies, roles,
 and control namespace after all checks. Do not run these tests in a namespace
 that contains application workloads.
+
+## Protected binding deletion
+
+Version 1.8.1 uses background deletion for owned RoleBindings and
+ClusterRoleBindings. The allocator still supplies UID and resource-version
+preconditions and waits for observed absence before it reports completion.
+Namespace deletion still waits for owned cluster bindings to be absent.
+
+The live Hypershell count check exposed a conflict between foreground deletion
+and the binding policy. Foreground deletion adds a garbage-collection finalizer.
+The policy allows only the allocator to change a binding in a live allocated
+namespace. Thus, the garbage collector cannot remove that finalizer. The
+Kubernetes deletion modes are described in the
+[garbage-collection contract](https://kubernetes.io/docs/concepts/architecture/garbage-collection/).
+
+An allocator can recover an old foreground binding deletion with a conditional
+background DELETE. Kubernetes changes its own deletion finalizer. STEGO does not
+patch finalizers, allow another actor to change bindings, or remove application
+cleanup finalizers. A custom finalizer keeps cleanup pending.
+
+The isolated API probe in `/tmp/stego-binding-proof-gubl46tr` used rendered
+Hypershell permissions. It observed `foregroundDeletion`, a denied finalizer
+update, recovery through background DELETE, and immediate removal of a new
+binding through background DELETE. It created no Pods. Both namespaces and
+the generated permission resources were removed.
+
+The old generated runtime failed the binding-regeneration and foreground
+recovery regressions in `/tmp/stego-binding-regression-7t44lsa1`. Its Job reported
+failure, and its namespace was removed. The regression preserves the existing
+ownership and conditional-delete checks.
+
+The final fixed check is in `/tmp/stego-binding-final-pq5u819s`. The generated
+runtime passed in 15.22 seconds with race detection. Declaration, manifest,
+and registry checks also passed. Recovery checks cover changed bindings,
+unchanged bindings, and the allocator proof binding. Custom finalizers remain
+pending, including after recovery removes a foreground-deletion finalizer.
+All 804 frozen source files matched the files after testing and the checkout
+before this result was added. The Job completed, and its namespace was removed.
+The optional full live allocator lifecycle was not enabled in this Job; the
+separate API probe above supplies the live policy evidence.
