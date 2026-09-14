@@ -14,6 +14,21 @@ an error before cancellation is a service failure. Errors include the component
 name and constructor index. A plain cancellation error during shutdown is normal.
 Errors that include other failures remain errors.
 
+The runner checks both the signal context and its task context when it classifies
+a task return. Parent cancellation can be visible before cancellation reaches
+the child. A normal return in that interval is part of shutdown. A plain
+`context.Canceled` result is also normal. Other errors, joined cleanup errors,
+panics, and abnormal exits remain failures. The generated regression test delays
+child cancellation explicitly; it does not depend on a timing loop.
+
+On 2026-09-14, bounded jshell Job `stego-placement-90694ac2/check` reproduced
+the parent-cancellation failure with the previous compiler. The corrected
+compiler passed `TestGeneratedBackgroundLifecycle` for worker-only and HTTP
+services in 8.908 seconds. Those generated tests use the race detector and retain
+the cleanup-error, abnormal-exit, and process-signal checks. The Job completed;
+its namespace and local private launch files were removed. Local evidence is in
+`/tmp/stego-cancel-order-569yo7r5`.
+
 The service waits for every task before it returns. Deferred cleanup therefore
 runs after task use of the resources ends. HTTP shutdown retains its ten-second
 request drain limit. A worker failure also starts this drain. A listener is
@@ -22,8 +37,9 @@ closed even if cancellation occurs before the HTTP task starts.
 Every task must honor cancellation. A task that does not return can prevent
 shutdown. The service does not detach such a task and close its resources while
 it can still use them. Task implementations must bound external operations.
-Constructor deadlines, forced process termination policy, and readiness remain
-open work. This contract does not recover from a panic in application code.
+Constructor deadlines and forced process termination policy remain open work.
+The task boundary treats panics and abnormal exits as service failures. It does
+not resume a failed task. See `health-probes.md` for readiness behavior.
 
 Generated tests check task errors, unexpected return, cancellation, delayed
 cleanup, preserved cleanup errors, shared dependencies, name collisions, and

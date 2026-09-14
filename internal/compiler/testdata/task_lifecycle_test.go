@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -203,6 +205,67 @@ func TestAbnormalTaskExitStopsAndJoinsPeers(t *testing.T) {
 				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("supervisor did not join tasks")
+			}
+		})
+	}
+}
+
+// Delay the parent's AfterFunc callback to make cancellation propagation order
+// explicit. A task can observe the parent before the runner's child is canceled.
+type delayedCancellation struct {
+	context.Context
+	done, release chan struct{}
+	canceled      atomic.Bool
+	callbacks     sync.WaitGroup
+}
+
+func (p *delayedCancellation) Done() <-chan struct{} { return p.done }
+func (p *delayedCancellation) Err() error {
+	if p.canceled.Load() {
+		return context.Canceled
+	}
+	return nil
+}
+func (p *delayedCancellation) AfterFunc(f func()) func() bool {
+	var stopped atomic.Bool
+	p.callbacks.Add(1)
+	go func() {
+		defer p.callbacks.Done()
+		<-p.done
+		<-p.release
+		if stopped.CompareAndSwap(false, true) {
+			f()
+		}
+	}()
+	return func() bool { return stopped.CompareAndSwap(false, true) }
+}
+func TestParentCancellationBeforeChildPropagation(t *testing.T) {
+	failure := errors.New("cleanup failed")
+	for _, outcome := range []struct {
+		name   string
+		result error
+		failed bool
+	}{
+		{"normal", nil, false}, {"canceled", context.Canceled, false},
+		{"cleanup error", failure, true}, {"joined error", errors.Join(context.Canceled, failure), true},
+	} {
+		t.Run(outcome.name, func(t *testing.T) {
+			parent := &delayedCancellation{Context: context.Background(), done: make(chan struct{}), release: make(chan struct{})}
+			defer func() { close(parent.release); parent.callbacks.Wait() }()
+			err := stegoRunTasks(parent, []stegoTask{{name: "health", run: func(child context.Context) error {
+				parent.canceled.Store(true)
+				close(parent.done)
+				if child.Err() != nil {
+					t.Error("test did not delay child cancellation")
+				}
+				return outcome.result
+			}}})
+			if outcome.failed {
+				if !errors.Is(err, failure) {
+					t.Fatal("parent cancellation hid a cleanup failure", err)
+				}
+			} else if err != nil {
+				t.Fatal("parent cancellation was treated as an early task exit", err)
 			}
 		})
 	}
