@@ -73,7 +73,8 @@ config:
           role: {type: string, optional: true}
           external_role: {type: string, optional: true}
           service_account: {type: string}
-          namespace: {type: string, enum: [control, allocated]}
+          namespace: {type: string, enum: [control, allocated, external]}
+          external_namespace: {type: string, optional: true}
   source_directories:
     type: list
     items: {type: string}
@@ -88,7 +89,8 @@ config:
     type: list
     items:
       direction: {type: string, enum: [ingress, egress]}
-      namespace: {type: string}
+      namespace: {type: string, optional: true}
+      allocation_profile: {type: string, optional: true}
       pod_label: {type: string}
       pod_value: {type: string}
       port: {type: int}
@@ -128,7 +130,8 @@ config:
         optional: true
         items:
           direction: {type: string, enum: [egress]}
-          namespace: {type: string}
+          namespace: {type: string, optional: true}
+          allocation_profile: {type: string, optional: true}
           pod_label: {type: string}
           pod_value: {type: string}
           port: {type: int}
@@ -167,7 +170,8 @@ config:
         optional: true
         items:
           direction: {type: string, enum: [ingress, egress]}
-          namespace: {type: string}
+          namespace: {type: string, optional: true}
+          allocation_profile: {type: string, optional: true}
           pod_label: {type: string}
           pod_value: {type: string}
           port: {type: int}
