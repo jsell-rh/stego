@@ -113,6 +113,35 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	provisioner := o
 	provisioner.User, provisioner.Database, provisioner.Password = admin, ledger, password
 	adminConn := connect(provisioner)
+
+	server, err := DatabaseServerIdentity(ctx, provisioner)
+	if err != nil || len(server) != 64 {
+		t.Fatal("server identity", err)
+	}
+	provisioner.ServerIdentity = server
+	if again, err := DatabaseServerIdentity(ctx, provisioner); err != nil || again != server {
+		t.Fatal("server identity changed", err)
+	}
+	wrong := provisioner
+	wrong.ServerIdentity = strings.Repeat("0", 64)
+	if _, err := DatabaseServerIdentity(ctx, wrong); !errors.Is(err, ErrDatabaseServer) {
+		t.Fatal("changed server accepted", err)
+	}
+	// A restored server without its identity cannot create or delete resources.
+	exec(adminConn, "ALTER TABLE stego_provisioning.server_identity RENAME TO saved_server_identity")
+	candidatePassword, _ := NewDatabasePassword()
+	candidate := DatabaseSpec{Key: DatabaseKey{"binding-test", "missing"}, Password: candidatePassword, ConnectionLimit: 8}
+	if _, err := EnsureDatabase(ctx, provisioner, candidate); !errors.Is(err, ErrDatabaseServer) {
+		t.Fatal("missing server marker allowed creation", err)
+	}
+	if err := DeleteDatabase(ctx, provisioner, candidate.Key); !errors.Is(err, ErrDatabaseServer) {
+		t.Fatal("missing server marker allowed deletion", err)
+	}
+	var bindingRows int
+	if err := adminConn.QueryRow(ctx, "SELECT count(*) FROM stego_provisioning.resources").Scan(&bindingRows); err != nil || bindingRows != 0 {
+		t.Fatal("server mismatch changed the ledger", err)
+	}
+	exec(adminConn, "ALTER TABLE stego_provisioning.saved_server_identity RENAME TO server_identity")
 	var super bool
 	if err = adminConn.QueryRow(ctx, "SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname=current_user").Scan(&super); err != nil || super {
 		t.Fatal("provisioning account is a superuser", err)

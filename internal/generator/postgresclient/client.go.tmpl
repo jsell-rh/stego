@@ -32,6 +32,8 @@ type Options struct {
  User, Database, Password string
  CA []byte
  DialAddress string
+ // ServerIdentity pins the durable server record. Empty permits initial setup.
+ ServerIdentity string
 }
 
 // Error carries safe operation metadata. It never wraps a database message,

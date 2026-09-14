@@ -26,6 +26,8 @@ import (
 
 const ProvisionTimeout = 30 * time.Second
 
+var ErrDatabaseServer = errors.New("PostgreSQL server identity differs or is missing")
+
 var ErrDatabaseBusy = errors.New("PostgreSQL database operation is already active")
 var ErrDatabaseOwnership = errors.New("PostgreSQL database ownership differs")
 var ErrDatabaseIsolation = errors.New("PostgreSQL database isolation is not established")
@@ -94,6 +96,7 @@ type provisionSession struct {
 	ctx   context.Context
 	names DatabaseIdentity
 	key   DatabaseKey
+	serverIdentity string
 }
 
 func (s *provisionSession) exec(stage, sql string, args ...any) error {
@@ -103,6 +106,10 @@ func (s *provisionSession) exec(stage, sql string, args ...any) error {
 	return nil
 }
 func openProvision(ctx context.Context, o Options, key DatabaseKey) (*provisionSession, error) {
+ if o.ServerIdentity != "" {
+  decoded, err := hex.DecodeString(o.ServerIdentity)
+  if err != nil || len(decoded) != 32 || len(o.ServerIdentity) != 64 { return nil, ErrDatabaseServer }
+ }
 	names, err := DatabaseNames(key)
 	if err != nil {
 		return nil, err
@@ -142,13 +149,13 @@ func openProvision(ctx context.Context, o Options, key DatabaseKey) (*provisionS
 	if !locked {
 		return nil, ErrDatabaseBusy
 	}
-	if err := s.bootstrap(); err != nil {
+	if err := s.bootstrap(o.ServerIdentity); err != nil {
 		return nil, err
 	}
 	failed = false
 	return s, nil
 }
-func (s *provisionSession) bootstrap() error {
+func (s *provisionSession) bootstrap(expected string) error {
 	tx, err := s.conn.Begin(s.ctx)
 	if err != nil {
 		return safeError(s.ctx, "ledger", err)
@@ -160,6 +167,7 @@ func (s *provisionSession) bootstrap() error {
 	var owner uint32
 	err = tx.QueryRow(s.ctx, "SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='stego_provisioning'").Scan(&owner)
 	if errors.Is(err, pgx.ErrNoRows) {
+        if expected != "" { return ErrDatabaseServer }
 		if _, err = tx.Exec(s.ctx, "CREATE SCHEMA stego_provisioning AUTHORIZATION CURRENT_USER; REVOKE ALL ON SCHEMA stego_provisioning FROM PUBLIC"); err != nil {
 			return safeError(s.ctx, "ledger", err)
 		}
@@ -174,6 +182,25 @@ func (s *provisionSession) bootstrap() error {
 	if !safe {
 		return ErrDatabaseOwnership
 	}
+
+ // Check the pinned server before any resource DDL or ledger repair.
+ var marker bool
+ if err = tx.QueryRow(s.ctx, "SELECT pg_catalog.to_regclass('stego_provisioning.server_identity') IS NOT NULL").Scan(&marker); err != nil { return safeError(s.ctx,"server-identity",err) }
+ if !marker {
+  if expected != "" { return ErrDatabaseServer }
+  identity, err := NewDatabasePassword()
+  if err != nil { return err }
+  if _, err = tx.Exec(s.ctx, "CREATE TABLE stego_provisioning.server_identity(singleton boolean PRIMARY KEY CHECK(singleton),identity text NOT NULL); REVOKE ALL ON TABLE stego_provisioning.server_identity FROM PUBLIC"); err != nil { return safeError(s.ctx,"server-identity",err) }
+  if _, err = tx.Exec(s.ctx, "INSERT INTO stego_provisioning.server_identity VALUES(true,$1)",identity); err != nil { return safeError(s.ctx,"server-identity",err) }
+ }
+ if _, err = tx.Exec(s.ctx, "LOCK TABLE stego_provisioning.server_identity IN ACCESS SHARE MODE"); err != nil { return safeError(s.ctx,"server-identity",err) }
+ err = tx.QueryRow(s.ctx, `SELECT c.relowner=r.oid AND c.relkind='r' AND NOT c.relrowsecurity AND NOT c.relispartition AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_inherits WHERE inhrelid=c.oid OR inhparent=c.oid) AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(c.relacl) a WHERE a.grantee<>r.oid) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON c.relnamespace=n.oid JOIN pg_catalog.pg_roles r ON r.rolname=current_user WHERE n.nspname='stego_provisioning' AND c.relname='server_identity'`).Scan(&safe)
+ if err != nil { return safeError(s.ctx,"server-identity",err) }
+ if !safe { return ErrDatabaseServer }
+ var count int
+ if err = tx.QueryRow(s.ctx,"SELECT count(*),COALESCE(min(identity),'') FROM stego_provisioning.server_identity").Scan(&count,&s.serverIdentity); err != nil { return safeError(s.ctx,"server-identity",err) }
+ raw, decodeErr := hex.DecodeString(s.serverIdentity)
+ if count != 1 || decodeErr != nil || len(raw) != 32 || len(s.serverIdentity) != 64 || expected != "" && subtle.ConstantTimeCompare([]byte(expected),[]byte(s.serverIdentity)) != 1 { return ErrDatabaseServer }
 	var exists bool
 	if err = tx.QueryRow(s.ctx, "SELECT pg_catalog.to_regclass('stego_provisioning.resources') IS NOT NULL").Scan(&exists); err != nil {
 		return safeError(s.ctx, "ledger", err)
@@ -194,6 +221,19 @@ func (s *provisionSession) bootstrap() error {
 		return safeError(s.ctx, "ledger", err)
 	}
 	return nil
+}
+
+// DatabaseServerIdentity creates or reads a private server marker. Save it
+// durably before provisioning. Pass it in Options for every later operation.
+// Restore the marker with the ledger and application databases after a backup.
+func DatabaseServerIdentity(ctx context.Context, o Options) (identity string, err error) {
+ if ctx == nil { return "", errors.New("PostgreSQL server identity needs a context") }
+ ctx, done := databaseSignal(ctx,"server-identity"); defer func(){ done(err) }()
+ ctx, cancel := context.WithTimeout(ctx,ProvisionTimeout); defer cancel()
+ s, err := openProvision(ctx,o,DatabaseKey{Scope:"stego-server-identity",Resource:"server"})
+ if err != nil { return "",err }
+ defer func(){ _ = s.conn.Close(ctx) }()
+ return s.serverIdentity,nil
 }
 
 type databaseRecord struct {

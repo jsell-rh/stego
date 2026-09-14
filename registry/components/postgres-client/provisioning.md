@@ -103,3 +103,17 @@ provisioning account has no superuser rights. The general compiler test server
 must not run that test: the fixture changes CONNECT grants on its own template
 and maintenance databases. The dedicated CI job requires this test explicitly.
 The Hypershell external provider and actual RDS workflow remain separate work.
+
+## Durable server binding
+
+Call `DatabaseServerIdentity` during initial setup. Save its result with the
+resource credentials before `EnsureDatabase`. Set `Options.ServerIdentity` to
+that saved value on each later ensure or delete operation. A missing or different
+server marker returns `ErrDatabaseServer` before resource changes. This detects
+an empty replacement server even when its host name is unchanged.
+
+Keep the private server marker, provisioning ledger, and application databases
+in the same backup and restore plan. Do not generate a new marker to bypass a
+failed check. Administrator credentials and TLS trust can change while the
+server marker remains unchanged. An empty option permits initial setup and is
+only suitable before a durable resource binding exists.
