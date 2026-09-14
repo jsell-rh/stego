@@ -1,0 +1,126 @@
+{
+  "date": "2026-09-14",
+  "source_commit": "d5598c7",
+  "context": "jshell-ci",
+  "namespace": "stego-ci",
+  "job": "postgres-provision-743078a3d67b",
+  "job_complete": true,
+  "finished_at": "2026-09-14T19:14:02Z",
+  "required_parent_test": {
+    "required": [
+      "TestGeneratedPostgresClient"
+    ],
+    "passed": [
+      "TestGeneratedPostgresClient"
+    ],
+    "failed": [],
+    "missing": [],
+    "exit_code": 0
+  },
+  "generated_tests": [
+    [
+      "TestConfigurationIgnoresEnvironment",
+      "0.00"
+    ],
+    [
+      "TestInvalidIdentityAndCertificateAreRejected",
+      "0.00"
+    ],
+    [
+      "TestInvalidReadDoesNotConnect",
+      "0.00"
+    ],
+    [
+      "TestVerifiedReadAgainstPostgres",
+      "0.21"
+    ],
+    [
+      "TestDatabaseNamesAndValidation",
+      "0.00"
+    ],
+    [
+      "TestDatabaseProvisioningLifecycle",
+      "2.07"
+    ],
+    [
+      "TestDatabaseProvisionSignalsExcludePrivateValues",
+      "0.00"
+    ],
+    [
+      "TestGeneratedPostgresClient",
+      "77.27"
+    ]
+  ],
+  "generation": "Two generator calls produced identical paths and bytes.",
+  "generated_checks": [
+    "go vet -mod=readonly ./...",
+    "go test -v -race -count=1 -mod=readonly -timeout=120s ./..."
+  ],
+  "postgresql_account": "NOSUPERUSER CREATEDB CREATEROLE",
+  "source_files": {
+    "internal/generator/postgresclient/client.go.tmpl": "da77da440ded2ebcd051f78536307e12611f7ebc596f24dd9d0bb50aa47da878",
+    "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+    "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+    "internal/generator/postgresclient/provision.go.tmpl": "3fe17af63b405f996ba031b23ae26ea55dd7be73bf76d7797db626686cda9561",
+    "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+    "internal/generator/postgresclient/testdata/provision_test.go": "ea8616a0b04f175a2766661a59999884da6708f17a98a66348740935ba69ecf7"
+  },
+  "source_manifest_sha256": "ce0b8150b34dd7600a0b2880f53718fa05696a158694ffb3e1b1c0b575f66ea6",
+  "job_deadline_seconds": 1200,
+  "container_limits": {
+    "test": {
+      "cpu": "1",
+      "ephemeral-storage": "6Gi",
+      "memory": "3Gi"
+    },
+    "postgres": {
+      "cpu": "500m",
+      "ephemeral-storage": "2Gi",
+      "memory": "512Mi"
+    }
+  },
+  "cleanup": {
+    "job_absent": "postgres-provision-743078a3d67b",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "shared_lease_released": true,
+  "local_results": "/tmp/stego-postgres-provision-v5",
+  "not_proven": [
+    "Hypershell external provider workflow",
+    "Actual RDS operation",
+    "Production load",
+    "Recovery after server or ledger restore"
+  ],
+  "earlier_attempts": [
+    {
+      "results": "/tmp/stego-postgres-provision-v1",
+      "result": "failed",
+      "reason": "Go template parse error; SQL tests did not run."
+    },
+    {
+      "results": "/tmp/stego-postgres-provision-v2",
+      "result": "failed",
+      "reason": "Role reservation failed; the redundant self ADMIN grant was removed."
+    },
+    {
+      "results": "/tmp/stego-postgres-provision-v3",
+      "result": "passed",
+      "scope": "Initial lifecycle and telemetry checks."
+    },
+    {
+      "results": "/tmp/stego-postgres-provision-v4",
+      "result": "passed",
+      "scope": "Credential changes, foreign dependencies, and replaced role OIDs."
+    }
+  ],
+  "compiler_ci": {
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34885672242",
+    "source_commit": "d5598c7ee7bc70294b3f8e0d96357f928ed56e4f",
+    "result": "success",
+    "jobs": [
+      "compiler",
+      "postgres-provisioning"
+    ]
+  }
+}

@@ -3428,3 +3428,30 @@ from those workers, and run the real Gateway workflow with the allocator.
 Do not claim production shared-cluster isolation before that application check.
 The broader enterprise goal remains active. See
 [Namespace allocation](namespace-allocation.md) for the contract and limits.
+
+
+### External logical databases and restricted CI, 2026-09-14
+
+STEGO `d5598c7` adds common PostgreSQL database creation, verification, repair,
+and deletion. The generated runtime uses separate owner and login roles, a
+persistent ownership ledger, per-resource session locks, and deletion records.
+It verifies TLS and denies unsafe connection grants. Logs, metrics, and traces
+exclude private SQL inputs. It has no Gateway or cloud-provider dependency.
+The [database contract and focused evidence](database-provisioning.md) define
+its limits. The final bounded jshell race check passed with a non-superuser
+provisioning account. The Job and its resources were removed.
+
+Hypershell still needs an external-provider adapter that selects the registered
+server, retains the Gateway credential, and calls this common runtime. Actual
+Terraform-created RDS operation remains unproven. The installation can share one
+server between its component databases or use separate component servers.
+Neither shape permits Hypershell to delete the external server.
+
+The restricted jshell CI identity and shared Lease now support a real GitHub
+Gateway API gate. Its
+[13-test application run](https://github.com/jsell-rh/hypershell-stego/actions/runs/34883281239)
+passed. It covers REST, gRPC, ownership, access, events, restart, and repeat
+generation. This does not complete the conversion of the old Kubernetes CI
+jobs. Those unconverted jobs fail explicitly. Credential renewal, remaining
+workload checks, the external database application gate, and the full enterprise
+goal remain open.

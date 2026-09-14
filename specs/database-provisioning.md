@@ -42,3 +42,20 @@ Support must include one server shared by an installation's component databases
 and separate servers for those components. A server is not shared between
 installations. Actual RDS acceptance is still required; local PostgreSQL evidence
 does not prove RDS permissions or operation.
+
+The final focused jshell check passed on 2026-09-14 with a non-superuser
+provisioning account. Seven generated tests passed with race detection. The
+SQL lifecycle test took 2.07 seconds; the generated package took 3.300 seconds.
+Two generation calls produced identical paths and bytes. All six generator and
+test source files match the fixed source copy. The Job completed, its resources
+were removed, and the shared live-test Lease was released. The
+[evidence record](postgres-provisioning-evidence.json) includes failed attempts
+and exact source hashes. These durations are test results, not benchmarks.
+
+The lifecycle check covers separate database access, stable repeat calls,
+credential repair, failed activation, new foreign grants, an interrupted create,
+concurrent-call exclusion, deletion with an active login, retained foreign
+dependencies, resumed deletion, replaced role OIDs, and deletion tombstones.
+The signal test checks span parentage, a duration metric, a structured log event,
+and exclusion of private values. Full compiler CI and its separate PostgreSQL
+job passed in [run 34885672242](https://github.com/jsell-rh/stego/actions/runs/34885672242).
