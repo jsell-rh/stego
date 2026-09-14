@@ -23,10 +23,14 @@ const MaxRequestBytes = 1 << 20
 const MaxResponseBytes = 4 << 20
 const RequestTimeout = 5 * time.Second
 const MaxConcurrentRequests = 16
+const DefaultStreamLimit = 16
+const MaxStreamLimit = 128
 const StreamTimeout = 5 * time.Minute
 const MaxStreamBytes = 64 << 20
 
-type Options struct { BaseURL, CAFile string; Timeout time.Duration }
+// StreamLimit is the maximum number of concurrent streams. Zero selects 16.
+// Streams have a separate limit so they cannot use ordinary request slots.
+type Options struct { BaseURL, CAFile string; Timeout time.Duration; StreamLimit int }
 // Client sends bounded requests to one configured HTTPS origin and path prefix.
 // It does not follow redirects or use proxy settings from the environment.
 type Client struct {
@@ -35,12 +39,14 @@ type Client struct {
  http *http.Client
  transport *http.Transport
  permits chan struct{}
+ streamPermits chan struct{}
  closed atomic.Bool
  lifetime context.Context
  stop context.CancelFunc
 }
 
 func New(options Options)(*Client,error){
+ streamLimit:=options.StreamLimit;if streamLimit==0{streamLimit=DefaultStreamLimit};if streamLimit<1||streamLimit>MaxStreamLimit{return nil,errors.New("HTTP stream limit must be one through 128")}
  timeout:=options.Timeout;if timeout==0{timeout=RequestTimeout};if timeout<time.Second||timeout>30*time.Second{return nil,errors.New("HTTP request timeout must be one through thirty seconds")}
  base,err:=url.Parse(options.BaseURL)
  if err!=nil || base.Scheme!="https" || base.Host=="" || base.User!=nil || base.RawQuery!="" || base.ForceQuery || base.Fragment!="" || !safePath(base.EscapedPath()) {return nil,errors.New("HTTP client requires a canonical HTTPS base URL")}
@@ -53,13 +59,15 @@ func New(options Options)(*Client,error){
    Proxy:nil, DialContext:(&net.Dialer{Timeout:RequestTimeout,KeepAlive:30*time.Second}).DialContext,
    TLSClientConfig:&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots},
    TLSHandshakeTimeout:RequestTimeout,ResponseHeaderTimeout:timeout,
-   MaxResponseHeaderBytes:32<<10,MaxConnsPerHost:MaxConcurrentRequests,
-   MaxIdleConns:MaxConcurrentRequests,MaxIdleConnsPerHost:MaxConcurrentRequests,
+   MaxResponseHeaderBytes:32<<10,MaxConnsPerHost:MaxConcurrentRequests+streamLimit,
+   MaxIdleConns:MaxConcurrentRequests+streamLimit,MaxIdleConnsPerHost:MaxConcurrentRequests+streamLimit,
    IdleConnTimeout:30*time.Second,DisableCompression:true,
  }
  lifetime,stop:=context.WithCancel(context.Background())
- return &Client{timeout:timeout,lifetime:lifetime,stop:stop,base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),http:&http.Client{Transport:transport,Timeout:timeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
+ return &Client{timeout:timeout,lifetime:lifetime,stop:stop,base:base,transport:transport,permits:make(chan struct{},MaxConcurrentRequests),streamPermits:make(chan struct{},streamLimit),http:&http.Client{Transport:transport,Timeout:timeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}},nil
 }
+// StreamLimit returns the configured limit. A nil client has no capacity.
+func(c *Client)StreamLimit()int{if c==nil{return 0};return cap(c.streamPermits)}
 func safePath(encoded string)bool{
  for _,segment:=range strings.Split(encoded,"/"){
    decoded,err:=url.PathUnescape(segment)
@@ -101,7 +109,8 @@ func(c *Client)exchange(ctx context.Context,method,relative string,headers http.
  if len(body)>MaxRequestBytes{return fail("invalid_request",errors.New("HTTP request body exceeds limit"))}
  headerBytes:=0
  for name,values:=range headers{headerBytes+=len(name);switch strings.ToLower(name){case "host","connection","transfer-encoding","content-length","trailer","upgrade","proxy-authorization","idempotency-key","x-idempotency-key":return fail("invalid_request",errors.New("unsupported HTTP request header"))};for _,value:=range values{headerBytes+=len(value);if headerBytes>32768 || len(value)>16384{return fail("invalid_request",errors.New("HTTP request header exceeds limit"))}}}
- select{case c.permits<-struct{}{}:defer func(){<-c.permits}();default:return fail("capacity",errors.New("HTTP client capacity exceeded"))}
+ permits:=c.permits;if consume!=nil{permits=c.streamPermits}
+ select{case permits<-struct{}{}:defer func(){<-permits}();default:return fail("capacity",errors.New("HTTP client capacity exceeded"))}
  timeout:=c.timeout;if timeout==0{timeout=RequestTimeout};if consume!=nil{timeout=StreamTimeout}
  ctx,cancel=context.WithTimeout(ctx,timeout)
  stopClose:=context.AfterFunc(c.lifetime,cancel);defer stopClose()

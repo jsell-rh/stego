@@ -2,12 +2,52 @@ package httpclient
 
 import (
 	"context"
+	_ "embed"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+//go:embed testdata/isolation_test.go
+var isolationTests []byte
+
+//go:embed testdata/options_test.go
+var optionTests []byte
+
+func TestStreamRequestIsolation(t *testing.T) { testStreams(t, false) }
+func TestStreamLimitOptions(t *testing.T)     { testStreams(t, true) }
+
+func testStreams(t *testing.T, options bool) {
+	t.Helper()
+	file, err := Render("client", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	files := map[string][]byte{"go.mod": []byte("module example.com/stream-test\ngo 1.26.8\n"), "client.go": file.Bytes(), "isolation_test.go": isolationTests}
+	pattern := "^(TestStreamRequestIsolation|TestStreamCallbackOwnsItsSlot)$"
+	if options {
+		files["options_test.go"] = optionTests
+		pattern = "^(TestStreamLimitOptions|TestConfiguredStreamLimitEnforced)$"
+	}
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "-v", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "-run="+pattern, "./...")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated stream limits: %v\n%s", err, output)
+	}
+	t.Logf("%s", output)
+}
 
 func TestCacheResponse(t *testing.T) {
 	file, err := Render("client", "")

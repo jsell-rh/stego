@@ -75,3 +75,22 @@ Execute bits, group-write access, and other access are rejected. The reader
 checks the open descriptor and requires a regular file. Reads are bounded.
 The gRPC bearer-token reader uses the same mode rule. This lets generated
 workers use their mounted credentials without copying or changing file modes.
+
+Streams have a separate admission limit. A client permits 16 ordinary requests
+and 16 streams by default. `Options.StreamLimit` can select one through 128
+streams; zero selects the default. `StreamLimit()` returns the configured limit.
+An excess call fails immediately. Neither class can use the other class's slots.
+The connection limit covers both classes, including HTTP/1.1 connections.
+Cancellation, response errors, and callback completion release the slot.
+Client close cancels both classes. A callback must honor its context.
+
+These limits are per client. They are not a process memory limit. Each active
+stream can hold a frame of up to 4 MiB. A caller that increases the stream limit
+must account for this memory and for its own object cache. A controller that
+manages several watches must limit their total number and retained objects.
+
+The generated tests hold both request classes open through real TLS connections.
+They check admission in both orders, excess calls, cancellation, slot reuse,
+callback completion, and client close. The Kubernetes test keeps 16 namespace
+watches open while it reads namespace identity. It runs with and without OTEL.
+These are correctness tests, not performance or production capacity results.
