@@ -297,3 +297,12 @@ The live extension is pending. It uses the real Keycloak login form to check
 authorization-code login, PKCE rejection, callback rejection, signed token
 claims, code reuse denial, and device authorization policy for two profiles.
 It drives bounded HTTP protocol requests; it is not a browser UI test.
+
+The first native gate at `0704838` failed before enablement. A diagnostic run at
+`bc7c635` identified `backchannel.logout.revoke.offline.tokens` as the differing
+setting. Both runs completed container cleanup. The pinned
+[OIDC creation factory](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java)
+resets this setting when there is no back-channel URL. Creation now confirms
+ownership and disablement before it applies and verifies the complete policy.
+The same review confirmed that flow-override updates require explicit removal
+entries; an empty map does not clear existing bindings.

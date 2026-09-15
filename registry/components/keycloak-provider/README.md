@@ -186,3 +186,12 @@ empty `authenticationFlowBindingOverrides` map, disabled front-channel logout
 and surrogate authentication, and no root, base, or management URL. A client
 cannot retain a weaker flow override while it passes the base-profile check.
 The configuration repair clears these settings while the client is disabled.
+
+Keycloak applies some defaults after creation. After a successful creation
+response, the provider checks ownership and disablement before it applies the
+complete base policy. It then checks the stored result. It does not repeat the
+creation request or follow its `Location` header. An uncertain creation response
+still requires a later reconciliation.
+
+Authentication flow updates are patches. To clear an old override, the provider
+sends its key with an empty value. It checks the empty stored map afterward.

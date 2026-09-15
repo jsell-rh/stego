@@ -77,6 +77,8 @@ func TestNativeCreationAndRepair(t *testing.T) {
 			if _, ok := stored["secret"]; ok {
 				t.Error("public client supplied a secret")
 			}
+			// The pinned Keycloak factory applies this default after creation.
+			stored["attributes"].(map[string]any)["backchannel.logout.revoke.offline.tokens"] = "false"
 			w.Header().Set("Location", "https://foreign.invalid/client/foreign")
 			w.WriteHeader(201)
 			return
@@ -121,7 +123,7 @@ func TestNativeCreationAndRepair(t *testing.T) {
 	if _, err := c.CreateDisabledNativeClient(context.Background(), b, p); !errors.Is(err, ErrConflict) {
 		t.Fatal("native conflict differs", err)
 	}
-	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil || writes != 2 {
+	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil || writes != 3 {
 		t.Fatal("converged native client was changed", err)
 	}
 	stored["attributes"].(map[string]any)["pkce.code.challenge.method"] = "plain"
@@ -134,10 +136,10 @@ func TestNativeCreationAndRepair(t *testing.T) {
 	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil {
 		t.Fatal(err)
 	}
-	if writes != 3 || stored["name"] != "" || stored["attributes"].(map[string]any)["pkce.code.challenge.method"] != "S256" || stored["attributes"].(map[string]any)["oauth2.device.authorization.grant.enabled"] != "false" {
+	if writes != 4 || stored["name"] != "" || stored["attributes"].(map[string]any)["pkce.code.challenge.method"] != "S256" || stored["attributes"].(map[string]any)["oauth2.device.authorization.grant.enabled"] != "false" {
 		t.Fatal("native repair differs")
 	}
-	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil || writes != 3 {
+	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil || writes != 4 {
 		t.Fatal("repeated native repair changed state", err)
 	}
 }
@@ -231,5 +233,45 @@ func TestNativeRepairRequiresConfirmedOwnershipAndDisablement(t *testing.T) {
 				t.Fatal("ignored fixture write changed state")
 			}
 		})
+	}
+}
+
+func TestNativeRepairExplicitlyRemovesFlowOverrides(t *testing.T) {
+	b, p := nativeInputs()
+	record := nativeRecord()
+	record["authenticationFlowBindingOverrides"] = map[string]string{"browser": "foreign-flow"}
+	writes := 0
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if authRequest(w, r) {
+			return
+		}
+		if r.Method == "PUT" {
+			writes++
+			var update map[string]json.RawMessage
+			if json.NewDecoder(r.Body).Decode(&update) != nil {
+				t.Error("invalid update")
+				w.WriteHeader(400)
+				return
+			}
+			var patch map[string]string
+			if json.Unmarshal(update["authenticationFlowBindingOverrides"], &patch) != nil || len(patch) != 1 {
+				t.Error("flow removal patch is missing")
+				w.WriteHeader(400)
+				return
+			}
+			value, present := patch["browser"]
+			if !present || value != "" {
+				t.Error("flow removal must be explicit")
+				w.WriteHeader(400)
+				return
+			}
+			record["authenticationFlowBindingOverrides"] = map[string]string{}
+			w.WriteHeader(204)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(record)
+	})
+	if err := c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil || writes != 1 {
+		t.Fatal("flow override repair failed", err)
 	}
 }

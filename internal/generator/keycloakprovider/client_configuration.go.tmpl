@@ -37,7 +37,10 @@ func(c *Client)createDisabledClient(ctx context.Context,b ClientBinding,desired 
  body,err:=json.Marshal(desired);if err!=nil{return ClientRepresentation{},ErrResponse}
  response,err:=c.admin(ctx,http.MethodPost,"/clients",body);if err!=nil{return ClientRepresentation{},err}
  if response.StatusCode!=http.StatusCreated{return ClientRepresentation{},statusError(response.StatusCode)}
- // Ignore Location. Creation is confirmed only at the saved identity.
+ // Ignore Location. Keycloak can apply creation defaults after it reads the
+ // requested attributes. Confirm ownership and disablement before applying
+ // the complete base policy, then confirm the stored result.
+ if err=c.configureDisabledClient(ctx,b,desired,check);err!=nil{return ClientRepresentation{},err}
  return c.inspectDisabledClient(ctx,b,desired,check)
 }
 func(c *Client)inspectDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)(ClientRepresentation,error){
@@ -55,6 +58,15 @@ func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desir
  // display name. No secret, role, or mapper value is sent in this update.
  delete(update,"defaultClientScopes");delete(update,"optionalClientScopes")
  update["name"],err=json.Marshal(desired.Name);if err!=nil{return ErrResponse}
+ // Keycloak treats this map as a patch. Omitted bindings remain unchanged.
+ // Send an explicit empty value for each old binding to remove it.
+ if len(value.AuthenticationFlowBindingOverrides)>64{return ErrResponse}
+ clearFlows:=map[string]string{}
+ for key,flow:=range value.AuthenticationFlowBindingOverrides{
+  if !textValue(key,128)||(flow!=""&&!textValue(flow,255)){return ErrResponse}
+  clearFlows[key]=""
+ }
+ update["authenticationFlowBindingOverrides"],err=json.Marshal(clearFlows);if err!=nil{return ErrResponse}
  body,err=json.Marshal(update);if err!=nil{return ErrResponse}
  response,err:=c.admin(ctx,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
