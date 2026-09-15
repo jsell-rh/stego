@@ -158,3 +158,25 @@ those roles or the broader `manage-realm` role. Client-role scope changes can us
 `manage-clients`. Consumers that use only client roles do not need realm
 management. The real test keeps its normal operator unchanged and uses a separate
 disposable credential for the realm-role scope test.
+
+`NativeClientPolicy` supports public native clients with explicit HTTP loopback
+callbacks. It requires PKCE S256 for authorization-code login. Device
+authorization is disabled unless selected. The policy permits one through 16
+redirects. Each redirect must name `localhost` or a canonical loopback IP address,
+with an explicit port or a port wildcard. Paths use unescaped ASCII letters,
+digits, `.`, `_`, `~`, and `-`, separated by `/`. Queries, fragments, credentials,
+traversal, path wildcards, and encoded path aliases are rejected. Prefer loopback
+IP literals; `localhost` remains available for existing callback contracts.
+This profile does not support private URI schemes or claimed HTTPS callbacks.
+
+`CreateDisabledNativeClient`, `InspectDisabledNativeClient`, and
+`ConfigureDisabledNativeClient` use the same checked creation and repair
+mechanisms as service accounts. The caller saves a stable provider ID first.
+The profile rejects unknown attributes and requires empty shared scopes. Repair
+requires ownership and explicit disablement. It does not change role definitions,
+scope assignments, or token mappers. Clearing service-account drift can remove
+that client's dedicated provider user. No native method enables login.
+
+The application must use an external browser and verify state, issuer, and
+nonce. These obligations follow [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html).
+The provider profile does not implement the native application's login client.

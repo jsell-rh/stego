@@ -79,6 +79,8 @@ func testGeneratedProvider(t *testing.T, telemetry, live bool) {
 			t.Fatal(err)
 		}
 		files = append(files, generated...)
+		// The live native login fixture parses Keycloak HTML forms.
+		wiring.GoModRequires["golang.org/x/net"] = "v0.58.0"
 		keys := make([]string, 0, len(wiring.GoModRequires))
 		for key := range wiring.GoModRequires {
 			keys = append(keys, key)
@@ -109,7 +111,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.Name() == "trace_test.go" && !telemetry || entry.Name() == "live_test.go" && !telemetry {
+		if !telemetry && (entry.Name() == "trace_test.go" || entry.Name() == "live_test.go" || strings.HasSuffix(entry.Name(), "_live_test.go")) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join("testdata", entry.Name()))

@@ -239,9 +239,8 @@ The live extension passed at `6360ce42bddda4dd48cc8061abb225dcd1d450c0` in
 It checked signed token identity, exact audiences and roles, lifetime, and
 metadata for two different policies. It also checked stable mapper IDs, exact
 configuration repair, shared scope preservation, and scope permission denial.
-The complete provider test took 45.75 seconds. Container cleanup passed. Four
-CI jobs passed; the full compiler job was still running when this result was
-recorded. Generated source and results are retained under `live-ci` in the
+The complete provider test took 45.75 seconds. Container cleanup passed. All
+five CI jobs passed. Generated source and results are retained under `live-ci` in the
 mapper result directory.
 Production enablement is not part of this change. The test uses a separate,
 explicit fixture action to enable its disposable client.
@@ -278,3 +277,23 @@ requires separate permission for realm-role scope changes. The test now proves
 that the normal operator is denied that change but can set client-role scopes.
 A separate disposable fixture credential supplies realm management for the
 realm-role scope test. No production credential or cluster permission changed.
+
+## Native client profile
+
+Version 0.6.0 adds a public native profile with PKCE S256, explicit loopback
+callbacks, and optional device authorization. The application supplies callback
+URIs, the device-flow choice, ownership, and token lifetime. The provider checks
+canonical addresses and paths, rejects ambiguous or external redirects, and
+requires a disabled client for creation and repair. Native configuration checks
+the complete attribute set. No method enables login.
+
+Native and service-account profiles now share their base creation, readback,
+and repair mechanisms. Small generated tests passed with the race detector,
+with and without telemetry. They cover drift, missing fields, ownership,
+unsafe callbacks, conflicts, ignored writes, and repeated reconciliation.
+Sources and results are stored in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-native-20260915`.
+The live extension is pending. It uses the real Keycloak login form to check
+authorization-code login, PKCE rejection, callback rejection, signed token
+claims, code reuse denial, and device authorization policy for two profiles.
+It drives bounded HTTP protocol requests; it is not a browser UI test.

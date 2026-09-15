@@ -1,0 +1,100 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "encoding/json"
+ "net/netip"
+ "net"
+ "regexp"
+ "net/url"
+ "slices"
+ "strconv"
+ "strings"
+)
+
+// NativeClientPolicy supports public native applications with explicit HTTP
+// loopback callbacks. PKCE S256 is required. Device authorization is opt-in.
+// The caller must use an external browser and verify OAuth state and issuer.
+type NativeClientPolicy struct {
+ DisplayName string
+ AccessTokenLifetimeSeconds int
+ LoopbackRedirectURIs []string
+ EnableDeviceAuthorization bool
+}
+
+var nativeRedirectSegment = regexp.MustCompile(`^[A-Za-z0-9._~-]*$`)
+
+func validLoopbackRedirect(raw string)bool{
+ if !textValue(raw,2048)||!strings.HasPrefix(raw,"http://"){return false}
+ authority,tail,hasPath:=strings.Cut(strings.TrimPrefix(raw,"http://"),"/")
+ parsed:=raw
+ if strings.HasSuffix(authority,":*"){
+  parsed="http://"+strings.TrimSuffix(authority,":*")+":1"
+  if hasPath{parsed+="/"+tail}
+ }
+ if strings.Contains(parsed,"*"){return false}
+ u,err:=url.Parse(parsed)
+ if err!=nil||u.Scheme!="http"||u.Host==""||u.User!=nil||u.Opaque!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||strings.ContainsAny(raw,"?#\\"){return false}
+ host:=u.Hostname()
+ if host!="localhost"{address,e:=netip.ParseAddr(host);if e!=nil||address.Zone()!=""||!address.IsLoopback()||address.String()!=host{return false}}
+ if u.Host!=net.JoinHostPort(host,u.Port()){return false}
+ port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||strconv.Itoa(port)!=u.Port(){return false}
+ // Reject escaped separators and traversal. Only the port may be a wildcard.
+ for _,segment:=range strings.Split(u.EscapedPath(),"/"){
+  value,e:=url.PathUnescape(segment)
+  if e!=nil||value!=segment||value=="."||value==".."||!nativeRedirectSegment.MatchString(value){return false}
+ }
+ return true
+}
+
+func nativeClientConfiguration(b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
+ desired,err:=oidcClientConfiguration(b,p.DisplayName,p.AccessTokenLifetimeSeconds);if err!=nil{return ClientRepresentation{},err}
+ if len(p.LoopbackRedirectURIs)<1||len(p.LoopbackRedirectURIs)>16{return ClientRepresentation{},errors.New("native client requires one through sixteen loopback redirects")}
+ seen:=map[string]bool{}
+ for _,uri:=range p.LoopbackRedirectURIs{if !validLoopbackRedirect(uri)||seen[uri]{return ClientRepresentation{},errors.New("invalid or repeated native loopback redirect")};seen[uri]=true}
+ desired.PublicClient=true;desired.StandardFlowEnabled=true
+ desired.RedirectURIs=append([]string{},p.LoopbackRedirectURIs...);slices.Sort(desired.RedirectURIs)
+ desired.Attributes["pkce.code.challenge.method"]="S256"
+ desired.Attributes["oauth2.device.authorization.grant.enabled"]=strconv.FormatBool(p.EnableDeviceAuthorization)
+ desired.Attributes["backchannel.logout.session.required"]="true"
+ desired.Attributes["backchannel.logout.revoke.offline.tokens"]="true"
+ desired.Attributes["realm_client"]="false"
+ return desired,nil
+}
+func nativeClientConfigurationMatches(value ClientRepresentation,raw []byte,desired ClientRepresentation)bool{
+ if value.ID!=desired.ID||value.ClientID!=desired.ClientID||value.Name!=desired.Name||value.Protocol!="openid-connect"||value.ClientAuthenticatorType!="client-secret"{return false}
+ for key,want:=range map[string]bool{"enabled":false,"publicClient":true,"bearerOnly":false,"consentRequired":false,"serviceAccountsEnabled":false,"standardFlowEnabled":true,"implicitFlowEnabled":false,"directAccessGrantsEnabled":false,"fullScopeAllowed":false}{if !explicitFlag(raw,key,want){return false}}
+ // Match the service-account profile's documented optional authorization flag.
+ var flags map[string]json.RawMessage
+ if json.Unmarshal(raw,&flags)!=nil{return false}
+ if flag,exists:=flags["authorizationServicesEnabled"];exists&&strings.TrimSpace(string(flag))!="false"{return false}
+ // The complete attribute set belongs to this profile. Unknown settings must
+ // be removed or reviewed before enablement; a subset match is insufficient.
+ if len(value.Attributes)!=len(desired.Attributes){return false}
+ for key,want:=range desired.Attributes{if value.Attributes[key]!=want{return false}}
+ if value.RedirectURIs==nil||value.WebOrigins==nil||len(value.WebOrigins)!=0||value.DefaultClientScopes==nil||len(value.DefaultClientScopes)!=0||value.OptionalClientScopes==nil||len(value.OptionalClientScopes)!=0{return false}
+ redirects:=append([]string{},value.RedirectURIs...);slices.Sort(redirects)
+ return slices.Equal(redirects,desired.RedirectURIs)
+}
+
+// CreateDisabledNativeClient requires a stable provider ID saved by the caller.
+// A conflict does not cause adoption or retry. This method never enables login.
+func(c *Client)CreateDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
+ desired,err:=nativeClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ return c.createDisabledClient(work,b,desired,nativeClientConfigurationMatches)
+}
+func(c *Client)InspectDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
+ desired,err:=nativeClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ return c.inspectDisabledClient(work,b,desired,nativeClientConfigurationMatches)
+}
+// ConfigureDisabledNativeClient repairs base settings of an owned, disabled
+// client. Clearing service-account drift can remove that client's provider user.
+// Scope, role, and mapper checks remain separate and required before enablement.
+func(c *Client)ConfigureDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)error{
+ desired,err:=nativeClientConfiguration(b,p);if err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.configureDisabledClient(work,b,desired,nativeClientConfigurationMatches)
+}

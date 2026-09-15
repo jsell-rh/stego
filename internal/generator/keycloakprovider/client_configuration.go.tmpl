@@ -1,0 +1,62 @@
+package {{.Package}}
+
+import (
+ "context"
+ "encoding/json"
+ "errors"
+ "net/http"
+ "strconv"
+ "strings"
+)
+
+var ErrClientConfiguration = errors.New("Keycloak client configuration is not confirmed")
+
+func oidcClientConfiguration(b ClientBinding,name string,lifetime int)(ClientRepresentation,error){
+ if err:=b.validate();err!=nil{return ClientRepresentation{},err}
+ if (name!=""&&!textValue(name,255))||lifetime<1||lifetime>3600{return ClientRepresentation{},errors.New("invalid Keycloak client policy")}
+ attributes:=map[string]string{
+  "access.token.lifespan":strconv.Itoa(lifetime),
+  "client_credentials.use_refresh_token":"false",
+  "oauth2.device.authorization.grant.enabled":"false",
+  "oidc.ciba.grant.enabled":"false",
+  "standard.token.exchange.enabled":"false",
+  "oauth2.jwt.authorization.grant.enabled":"false",
+  "external.token.enabled":"false",
+ }
+ for key,value:=range b.Attributes{
+  if !strings.HasPrefix(key,"stego.owner.")||len(key)==len("stego.owner."){return ClientRepresentation{},errors.New("client ownership attributes require the stego.owner. prefix")}
+  attributes[key]=value
+ }
+ return ClientRepresentation{ID:b.ID,ClientID:b.ClientID,Name:name,Protocol:"openid-connect",ClientAuthenticatorType:"client-secret",
+  RedirectURIs:[]string{},WebOrigins:[]string{},DefaultClientScopes:[]string{},OptionalClientScopes:[]string{},Attributes:attributes},nil
+}
+
+type clientConfigurationCheck func(ClientRepresentation,[]byte,ClientRepresentation)bool
+
+func(c *Client)createDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)(ClientRepresentation,error){
+ body,err:=json.Marshal(desired);if err!=nil{return ClientRepresentation{},ErrResponse}
+ response,err:=c.admin(ctx,http.MethodPost,"/clients",body);if err!=nil{return ClientRepresentation{},err}
+ if response.StatusCode!=http.StatusCreated{return ClientRepresentation{},statusError(response.StatusCode)}
+ // Ignore Location. Creation is confirmed only at the saved identity.
+ return c.inspectDisabledClient(ctx,b,desired,check)
+}
+func(c *Client)inspectDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)(ClientRepresentation,error){
+ value,raw,err:=c.boundClient(ctx,b);if err!=nil{return ClientRepresentation{},err}
+ if !check(value,raw,desired){return ClientRepresentation{},ErrClientConfiguration};return value,nil
+}
+func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)error{
+ value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
+ if !explicitFlag(raw,"enabled",false){return ErrClientConfiguration}
+ if check(value,raw,desired){return nil}
+ body,err:=json.Marshal(desired);if err!=nil{return ErrResponse}
+ var update map[string]json.RawMessage
+ if json.Unmarshal(body,&update)!=nil{return ErrResponse}
+ // Scope assignments have separate endpoints. An empty name clears the old
+ // display name. No secret, role, or mapper value is sent in this update.
+ delete(update,"defaultClientScopes");delete(update,"optionalClientScopes")
+ update["name"],err=json.Marshal(desired.Name);if err!=nil{return ErrResponse}
+ body,err=json.Marshal(update);if err!=nil{return ErrResponse}
+ response,err:=c.admin(ctx,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ _,err=c.inspectDisabledClient(ctx,b,desired,check);return err
+}
