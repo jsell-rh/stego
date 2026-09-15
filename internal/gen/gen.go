@@ -279,6 +279,8 @@ type Wiring struct {
 	// func(string) (*sql.DB, error). The argument is the resolved database URL.
 	// The process reads DATABASE_URL or DATABASE_URL_FILE before this call. The
 	// generated main owns the returned pool. Only one component can supply it.
+	// Any consumed database resource uses this factory, including consumers
+	// that do not use a constructor from the factory's component.
 	DatabaseOpener *DatabaseOpenerSpec
 
 	// DiscoveryRoutes lists route registration expressions for main.go

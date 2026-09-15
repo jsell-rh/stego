@@ -236,7 +236,7 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 	}
 
 	if hasDB {
-		opener := databaseOpenExpression(input, imports, consumedWirings)
+		opener := databaseOpenExpression(input, imports)
 		parent := "context.Background()"
 		if hasRoutes || hasTasks {
 			parent = "ctx"
@@ -354,7 +354,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	}
 	// Standard library imports.
 	stdlibNeeded := make(map[string]bool)
-	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}, consumedWirings) == "" {
+	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}) == "" {
 		stdlibNeeded["database/sql"] = true
 	}
 	// log reports the HTTP listener.
@@ -395,7 +395,7 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// All non-stdlib imports share a SINGLE disambiguation namespace so that
 	// component, fill, and slots aliases cannot collide with each other.
 	var compImports []string
-	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}, consumedWirings) == "" {
+	if hasDB && !isGORM && databaseOpenExpression(input, importResult{}) == "" {
 		compImports = append(compImports, "\t_ \"github.com/jackc/pgx/v5/stdlib\"")
 	}
 	seen := make(map[string]bool)   // full import path → already added
@@ -450,18 +450,19 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		}
 	}
 
-	// Component imports — only for wirings with at least one consumed
-	// constructor. Unconsumed constructors are not emitted by
-	// writeConstructors, so their package imports would be unused — a Go
-	// compile error (finding 30, checklist item 124).
+	// Import packages consumed by constructors or by the process pool factory.
+	// Other imports from an unused component must remain absent.
 	for i, cw := range input.Wirings {
 		if cw.Wiring == nil {
 			continue
 		}
-		if !consumedWirings[i] {
-			continue
-		}
 		for _, imp := range cw.Wiring.Imports {
+			// The process pool consumes its factory even when no constructor from
+			// that component is used. Import only that factory's package in this case.
+			factoryUsed := hasDB && cw.Wiring.DatabaseOpener != nil && cw.Wiring.DatabaseOpener.Namespace == imp
+			if !consumedWirings[i] && !factoryUsed {
+				continue
+			}
 			fullPath := generatedImportPath(input.ModuleName, input.OutDirName, imp)
 			base := path.Base(imp)
 			if seen[fullPath] {

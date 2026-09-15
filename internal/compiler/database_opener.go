@@ -32,9 +32,9 @@ func validateDatabaseOpener(wirings []ComponentWiring) error {
 	return nil
 }
 
-func databaseOpenExpression(input AssemblerInput, imports importResult, consumed map[int]bool) string {
+func databaseOpenExpression(input AssemblerInput, imports importResult) string {
 	for i, component := range input.Wirings {
-		if !consumed[i] || component.Wiring == nil || component.Wiring.DatabaseOpener == nil {
+		if component.Wiring == nil || component.Wiring.DatabaseOpener == nil {
 			continue
 		}
 		opener := component.Wiring.DatabaseOpener
