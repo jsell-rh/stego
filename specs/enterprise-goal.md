@@ -4047,3 +4047,14 @@ passed small local checks. The [base-path contract](http-base-path.md) records
 the exact scope. Full compiler CI remains required. Collection `path_prefix`
 validation and cross-collection pattern conflicts remain open. The frozen CNPG
 source keeps its existing tested compiler pin.
+
+The collection-path follow-up reproduced invalid Go router registration,
+conflicting wildcard routes, public discovery paths that hid collection routes,
+and equivalent OpenAPI paths with different methods. REST component 3.0.4 now
+checks these before rendering. Validation and output use one route definition.
+Small checks passed for rejected paths, retained scoped parameter names,
+in-memory requests, legacy mux rejection, and CLI file preservation. The
+[route contract](http-base-path.md) records the scope and limits. The first full
+compiler run failed on a stale registry version assertion; that assertion is
+corrected. Full CI for this change remains required. The Hypershell database
+contract remains aligned with PR 272, with no database selection field or catalog.

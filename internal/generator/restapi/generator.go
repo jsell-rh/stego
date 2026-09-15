@@ -130,6 +130,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		}
 	}
 
+	if err := validateHTTPRoutePatterns(ctx, collectionMap); err != nil {
+		return err
+	}
 	return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 }
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
@@ -202,29 +205,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.ConstructorDeps[constructorIdx] = []string{"store"}
 
 		for _, op := range eb.Operations {
-			switch op {
-			case types.OpCreate:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"POST %s\", %sHandler.Create)", hrefBase, collCamel))
-			case types.OpRead:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s/{id}\", %sHandler.Read)", hrefBase, collCamel))
-			case types.OpUpdate:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s/{id}\", %sHandler.Update)", hrefBase, collCamel))
-			case types.OpDelete:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"DELETE %s/{id}\", %sHandler.Delete)", hrefBase, collCamel))
-			case types.OpList:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"GET %s\", %sHandler.List)", hrefBase, collCamel))
-			case types.OpUpsert:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PUT %s\", %sHandler.Upsert)", hrefBase, collCamel))
-			case types.OpPatch:
-				wiring.Routes = append(wiring.Routes,
-					fmt.Sprintf("mux.HandleFunc(\"PATCH %s/{id}\", %sHandler.Patch)", hrefBase, collCamel))
+			route, err := collectionHTTPRoute(op, hrefBase)
+			if err != nil {
+				return nil, nil, err
 			}
+			wiring.Routes = append(wiring.Routes,
+				fmt.Sprintf("mux.HandleFunc(%q, %sHandler.%s)", route.pattern(), collCamel, route.handler))
 		}
 	}
 
@@ -344,16 +330,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	// Discovery routes are unauthenticated — registered outside the auth
 	// middleware chain via DiscoveryRoutes (not Routes).
 	discoveryVar := "discoveryHandler"
-	openapiPath := ctx.BasePath + "/openapi"
-	openapiHTMLPath := ctx.BasePath + "/openapi.html"
-	metadataPath := ctx.BasePath
-	if metadataPath == "" {
-		metadataPath = "/{$}"
-	}
-	wiring.DiscoveryRoutes = []string{
-		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeOpenAPI)", openapiPath, discoveryVar),
-		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeOpenAPIUI)", openapiHTMLPath, discoveryVar),
-		fmt.Sprintf("topMux.HandleFunc(\"GET %s\", %s.ServeMetadata)", metadataPath, discoveryVar),
+	for _, route := range discoveryHTTPRoutes(ctx.BasePath) {
+		wiring.DiscoveryRoutes = append(wiring.DiscoveryRoutes,
+			fmt.Sprintf("topMux.HandleFunc(%q, %s.%s)", route.pattern(), discoveryVar, route.handler))
 	}
 	// Track the constructor index so the assembler knows which constructor
 	// the discovery routes reference.
@@ -3406,8 +3385,15 @@ func validateRouteCollisions(collections []types.Collection, collectionMap map[s
 		itemPath := basePath + "/{id}"
 
 		for _, p := range []string{collectionPath, itemPath} {
-			// Normalize to lowercase for case-insensitive collision detection.
-			key := strings.ToLower(p)
+			// Keep the case-insensitive policy and compare parameter positions.
+			// OpenAPI does not permit duplicate paths with different parameter names.
+			segments := strings.Split(strings.ToLower(p), "/")
+			for i, segment := range segments {
+				if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+					segments[i] = "{}"
+				}
+			}
+			key := strings.Join(segments, "/")
 			if existing, ok := seen[key]; ok && existing.collection != eb.Name {
 				errs = append(errs, fmt.Sprintf(
 					"collections %q and %q both resolve to route path %q",
