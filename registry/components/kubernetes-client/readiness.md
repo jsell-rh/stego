@@ -20,3 +20,19 @@ This checks Kubernetes availability. It does not prove application health,
 certificate validity, route admission, or network reachability. Applications
 must combine it with the checks required by their service contract. The helper
 has no Hypershell names, field mappings, or phase policy.
+
+
+Version 1.7.0 adds `PassthroughRouteAdmitted` and `PassthroughRouteTarget` for
+OpenShift Routes. The target fixes the DNS host, Service, named target port, and
+router. The check rejects foreign ownership, alternate backends, path routing,
+wildcards, disabled backends, TLS termination at the router, and plaintext
+access. Deletion or missing admission returns pending. Malformed status,
+conflicting selected ingress entries, and duplicate conditions return an error.
+Ingress and condition counts are bounded. The function makes no network calls.
+
+The [OpenShift Route API](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/network_apis/route-route-openshift-io-v1)
+has router admission conditions but no observed generation. A passing admission
+check does not prove that the current backend serves traffic. The caller must
+also verify TLS and the application through the selected hostname. It must
+commit the observation against the application revision used for external work.
+The helper contains no application entity names or hostname allocation policy.

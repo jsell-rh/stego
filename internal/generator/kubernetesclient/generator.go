@@ -24,6 +24,9 @@ var discoverySource string
 //go:embed watch_set.go.tmpl
 var watchSetSource string
 
+//go:embed route.go.tmpl
+var routeSource string
+
 //go:embed readiness.go.tmpl
 var readinessSource string
 
@@ -48,7 +51,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	peer := ctx.PeerNamespaces["http-application"]
 	data := struct{ Package, Transport string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, peer, "client")}
 	files := []gen.File{}
-	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}, {"watch_set.go", watchSetSource}, {"readiness.go", readinessSource}} {
+	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}, {"watch_set.go", watchSetSource}, {"readiness.go", readinessSource}, {"route.go", routeSource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err
