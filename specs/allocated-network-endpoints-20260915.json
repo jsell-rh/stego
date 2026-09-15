@@ -1,8 +1,8 @@
 {
-  "checked_at": "2026-09-15T17:17:14.737840+00:00",
+  "checked_at": "2026-09-15T17:24:56.466512+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "component_version": "kubernetes-service 1.15.0",
-  "scope": "Generated endpoint renderer and runtime tests, plus Kubernetes admission expression type checks. No policy bindings, Pods, or traffic probes were created.",
+  "scope": "Generated endpoint renderer and runtime checks, full compiler CI, and live Kubernetes admission requests. No Pods or traffic probes were created.",
   "local_checks": {
     "final_focused_package_seconds": 4.667,
     "final_focused_exit_status": 0,
@@ -95,12 +95,99 @@
     {
       "path": "/tmp/stego-allocation-endpoints-fixed-20260915/cleanup.json",
       "sha256": "11eb5523de2317b9bbf2fc6e0b53bd5be57f2f7c2a4c87e4c3d76d030fb241cf"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/first/manifest.json",
+      "sha256": "891cf8e617bed31d520397ea810accbc6967e52a3c025bcbe1cf67d201728a9e"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/next/manifest.json",
+      "sha256": "4dada19b33744302c98d94071f3b704d00a8ae2dd0b544d322b71fd4d4802493"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/check.py",
+      "sha256": "398a40fa2640ca22b83ee050bb5077d1118574ba28625385936962f59860b8e4"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/run.py",
+      "sha256": "bc8e245c409821aa8f8b04a6e08868ee8f7b4d79dd98c720aa8981b59d7dae22"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/admission.log",
+      "sha256": "63bbcbf82a52f4dc8b85f2769636f94ada14f4350d2e972fdce57eba4c011e09"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/evidence/admission-results.json",
+      "sha256": "1ee5fc6e2dabfd9e72660d9dbd48d2811e70ad568804eacb08f0f3e177aeeacf"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/evidence/endpoint-update.json",
+      "sha256": "e1c2cdc1ff9d0fcce73f3ca2bb585f76aa98ebab11eb1e5037428b1958e4728d"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/cleanup.json",
+      "sha256": "11eb5523de2317b9bbf2fc6e0b53bd5be57f2f7c2a4c87e4c3d76d030fb241cf"
+    },
+    {
+      "path": "/tmp/stego-endpoint-admission-retry-20260915/independent-cleanup.json",
+      "sha256": "c50179ae09c14d4d00a0b217a9a4733da6fa0a507015ce864de45d462290e666"
     }
   ],
   "limits": [
-    "Complete endpoint admission request checks remain required.",
     "CNI traffic enforcement and the complete Gateway isolation workflow remain required.",
     "The earlier Hypershell candidate uses compiler e394ab5 and does not test these endpoint bindings.",
     "This mechanism does not resolve or track DNS names. The DNS provider decision remains open."
-  ]
+  ],
+  "request_admission": {
+    "checker_revision": "655f7a1e12a35184b69c252a7e347424f4678630",
+    "directory": "/tmp/stego-endpoint-admission-retry-20260915",
+    "total": 168,
+    "allowed": 14,
+    "denied": 154,
+    "exit_status": 0,
+    "coverage": [
+      "Exact IPv4 and IPv6 endpoint rules",
+      "Missing, extra, duplicate, or broader rules rejected on create and update",
+      "Approved replacement retains policy UID and updates resource version and content hash",
+      "Retired addresses rejected after admission regeneration",
+      "Stale resource version rejected",
+      "Existing Pod peer, ownership, role, and cleanup restrictions"
+    ],
+    "cleanup": {
+      "test_namespaces_absent": true,
+      "allocated_bindings_absent": true,
+      "installed_resources_absent": true,
+      "lease_released": true,
+      "success": true
+    },
+    "independent_cleanup": {
+      "installed_objects_absent": 14,
+      "test_namespaces_absent": true,
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+      "lease_free": true
+    },
+    "prior_failure": {
+      "directory": "/tmp/stego-endpoint-admission-20260915",
+      "reason": "TLS handshake timeout during a dry-run update. This is a failed run, not an admission result.",
+      "exit_status": 1,
+      "cleanup": {
+        "test_namespaces_absent": true,
+        "allocated_bindings_absent": true,
+        "installed_resources_absent": true,
+        "lease_released": true,
+        "success": false
+      },
+      "log_sha256": "a62f6b0d3d3821112fab3fb3cc3529f8c9a9160ff8863b9a312d79e3e69ae894"
+    }
+  },
+  "candidate_adoption": {
+    "source": "50436086a30a371726f3b355fb68cf32f0577d3c",
+    "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+    "run_id": 35001051267,
+    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35001051267",
+    "status": "queued",
+    "regeneration": "Both modules passed repeated apply and drift.",
+    "generation_log_sha256": "3149a187832da1066716047822b6dbce27070cadbe735ae44fb980b233b16d3a",
+    "production_isolation_enabled": false
+  }
 }

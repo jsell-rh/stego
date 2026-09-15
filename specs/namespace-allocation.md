@@ -207,12 +207,19 @@ checks on the selected cluster. This feature does not select a DNS provider
 or establish complete Gateway network isolation.
 
 The [endpoint check record](allocated-network-endpoints-20260915.json) contains
-focused renderer and runtime checks and three passing Kubernetes expression
-type checks. Kubernetes first rejected mixed value types in the generated map.
-The correction stores port values as strings and converts them in CEL. Both
-attempts completed cleanup. Full admission request tests and traffic tests
-remain required. Compiler CI is running in
+focused renderer and runtime checks and full compiler CI from
 [run 35000198875](https://github.com/jsell-rh/stego/actions/runs/35000198875).
+The live request check passed 168 cases: 14 allowed and 154 denied. It checked
+exact IPv4 and IPv6 rules, rejected broader and duplicate rules, replaced
+approved addresses, and rejected retired addresses and stale resource versions.
+All test resources were removed and the shared Lease was released. A prior run
+failed on a TLS handshake timeout and also completed cleanup. No Pods ran.
+Traffic enforcement and the complete application workflow remain required.
+
+Use `--network-endpoints --next-endpoint-manifest PATH` with the existing
+`--network-isolation --network-peers` checker options to test the frozen endpoint
+renderer fixture. This replacement changes endpoint bindings only. It does not
+change the fixture's Pod peers or role subjects.
 
 ## Controlled network updates
 
