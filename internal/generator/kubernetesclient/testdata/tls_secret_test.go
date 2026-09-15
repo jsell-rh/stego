@@ -43,6 +43,44 @@ func secretCertificate(t *testing.T, host string, expiry time.Time, usage x509.E
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
 }
 
+func TestServerTLSSecretTrustBundle(t *testing.T) {
+	ca, leaf, key := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+	otherCA, _, _ := secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+	block, _ := pem.Decode(leaf)
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bundle := range [][]byte{ca, append(append([]byte{}, ca...), otherCA...)} {
+		roots, err := ParseServerTLSRoots(bundle)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
+			t.Fatal(err)
+		}
+		clear(bundle)
+		if _, err := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: "widget.example.test"}); err != nil {
+			t.Fatal("trust pool retained mutable input", err)
+		}
+	}
+	ca, _, _ = secretCertificate(t, "widget.example.test", time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+	for name, input := range map[string][]byte{
+		"empty": nil, "whitespace": []byte(" \n"), "oversize": bytes.Repeat([]byte(" "), (512<<10)+1),
+		"too many": bytes.Repeat(ca, 257), "private key": append(append([]byte{}, ca...), key...),
+		"leading text": append([]byte("unexpected\n"), ca...), "trailing text": append(append([]byte{}, ca...), []byte("unexpected")...),
+		"malformed prefix":    append([]byte("-----BEGIN CERTIFICATE-----\nbroken\n"), ca...),
+		"invalid certificate": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid")}),
+		"headers":             pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Headers: map[string]string{"Name": "value"}, Bytes: block.Bytes}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if roots, err := ParseServerTLSRoots(input); !errors.Is(err, ErrResourceObservation) || roots != nil {
+				t.Fatal("invalid trust input accepted")
+			}
+		})
+	}
+}
+
 func TestServerTLSSecret(t *testing.T) {
 	const host = "widget.example.test"
 	ca, cert, key := secretCertificate(t, host, time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)

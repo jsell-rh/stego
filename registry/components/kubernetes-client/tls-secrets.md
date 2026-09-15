@@ -22,3 +22,15 @@ during verification.
 The application supplies certificate creation policy and handles an absent or
 pending Secret. It must verify the public service before it publishes an address.
 The generated check applies to any service that consumes a Kubernetes TLS Secret.
+
+Version 1.9.0 adds `ParseServerTLSRoots` for operator-supplied certificate data.
+It returns a private CA pool. It accepts at most 512 KiB and 256 certificates.
+It rejects empty input, private material, malformed blocks, PEM headers, and
+text outside the certificate blocks. It does not read system roots, files,
+or workload Secrets. The caller supplies trusted installation data and bounds
+any file read before this call. Changes to the input bytes do not change the
+returned pool. Certificate parsing is shared with the Secret verifier.
+
+The focused generated checks passed on 2026-09-15. They cover independent
+trust, invalid input, and use after input changes. Full compiler CI and the
+Hypershell adoption checks remain required.
