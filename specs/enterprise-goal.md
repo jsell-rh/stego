@@ -61,7 +61,7 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
-| Full compiler CI | STEGO `d00bdc3` | [Run 34985081259](https://github.com/jsell-rh/stego/actions/runs/34985081259) passed. It includes compiler checks, SQL provisioning, and both example services. The later browser observable metric correction requires fresh compiler CI and consumer adoption; see the [runtime record](browser-telemetry.md). |
+| Full compiler CI | STEGO `fe07b0a` | [Run 34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977) passed. It includes the browser observable metric correction, compiler checks with race detection, SQL provisioning, and both example services. Consumer adoption remains pending; see the [runtime record](browser-telemetry.md). |
 | Core application acceptance | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989401887](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989401887) passed core acceptance with race detection in 1269.116 seconds, including the fresh API token audience check after grant synchronization. Regeneration, ordinary browser, console, and image checks passed. The manual workflow skipped CNPG and Sandbox. See the [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json). |
 | Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
@@ -73,7 +73,8 @@ The current verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
-| Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), active; consumer adoption and a rebuilt console bundle remain required |
+| Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), completed successfully |
+| Browser runtime consumer candidate | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), active on `codex/browser-metric-bounds-20260915`; its rebuilt console bundle is committed, but adoption into the main variant branch remains pending |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), active after the earlier core run passed |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), dispatched through the registered contract workflow with `cnpg_only=true`; queued behind the current contract run |
@@ -88,8 +89,8 @@ The next required work is:
 
 1. Check current full CI for the public workflow's source. The complete public
    result is recorded; preserve its limits when assessing broader requirements.
-   Check compiler CI for the browser observable metric correction, then adopt
-   its generated package and rebuilt console bundle and repeat rendered checks.
+   Check application CI for the browser observable metric candidate, including
+   its rendered workflow and bundle reproduction, then adopt the checked result.
 2. Run the complete unattended CNPG workflow with sufficient credential lifetime.
    Prove application behavior, automatic cleanup, and volume removal together.
    The earlier manual recovery does not meet this gate.

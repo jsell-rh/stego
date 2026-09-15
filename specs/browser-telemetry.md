@@ -20,8 +20,22 @@ It permits 32 callback registrations per meter and 32 observations per callback
 collection. Batch observations require an instrument in the registered selection
 from the same meter. Duplicate registration, removal, and asynchronous callback
 behavior remain supported. Five focused checks and the strict TypeScript check
-passed in `/tmp/stego-observable-bounds-q518fk48`. Full compiler CI and consumer
-adoption remain required. The earlier public pass does not test this correction.
+passed in `/tmp/stego-observable-bounds-q518fk48`.
+
+Full compiler [CI 34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977)
+passed for `fe07b0a`, including both examples and SQL provisioning. The generated
+browser telemetry package passed in 8.530 seconds, the browser backend in 22.111
+seconds, and OTEL in 58.904 seconds. CI required the Node fixture and used race
+detection for Go tests.
+
+Hypershell candidate `0c2e7fe` adopts the compiler and generated runtime. Console
+asset [CI 34994065945](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994065945)
+built its 54-entry, 852,525-byte bundle from candidate `13363e3`. The source
+commit, source archive hash, compiler pin, and bundle checksum passed independent
+checks. The candidate includes the new bundle and generated backend assets.
+Application [CI 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003)
+is active. Adoption into the main variant branch remains pending. The earlier
+public pass does not test this correction.
 
 ## Earlier implementation and verification
 
