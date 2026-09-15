@@ -3666,3 +3666,24 @@ second, and post-test generation records match. The Job, Pods, and private
 fixtures are absent. Both restricted API and browser workflows now pass for
 the cleanup fix. The namespace recovery browser workflow at `48eae25` has
 started, with later checks still queued. See the [combined evidence](hypershell-browser-ci.json).
+
+The [complete namespace recovery workflow](hypershell-namespace-replacement.json)
+passed at Hypershell `48eae25` with compiler `2097bea`. The test deleted one
+observed workload namespace with a UID precondition. Running controllers
+restored the namespace and Deployment in 43.73 seconds. The source namespace,
+source keys, SQL object IDs, credentials, provider data, and access rules were
+preserved. All three controller Pods kept their UIDs without container restarts.
+The other Gateway retained SQL state and was ready after recovery. This is one
+fixture result, not a production recovery limit or proof of continuous service.
+
+The complete browser workflow passed in 372.73 seconds, including later REST,
+gRPC, event, telemetry, account, restart, logout, and deletion checks. All 870
+source files and 229 generated files match the pushed and frozen records.
+Host cleanup passed, and the operator installation remains. Common production
+runtime code needed no change for this recovery case. The later SQL cleanup
+denial test remains queued. The separate API check at `48eae25` is active.
+
+The complete core, ordinary browser, console, and service-image CI jobs at
+`48eae25` passed. Full CI still fails on the unfinished CNPG and Sandbox checks.
+Installation CNPG, actual RDS, remaining recovery cases, and the broader
+enterprise requirements remain open. The goal remains active.

@@ -348,44 +348,44 @@
     "scope": "Cleanup after the failed Job and its Pod are gone. No application or SQL workflow ran in this recovery check."
   },
   "previous_full_ci": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191511",
-    "commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936911526",
+    "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
     "jobs": [
-      {
-        "name": "service-image",
-        "conclusion": "success",
-        "started_at": "2026-09-15T06:03:09Z",
-        "completed_at": "2026-09-15T06:06:39Z"
-      },
-      {
-        "name": "web-console",
-        "conclusion": "success",
-        "started_at": "2026-09-15T06:03:09Z",
-        "completed_at": "2026-09-15T06:05:52Z"
-      },
       {
         "name": "sandbox-workload",
         "conclusion": "failure",
-        "started_at": "2026-09-15T06:03:09Z",
-        "completed_at": "2026-09-15T06:03:49Z"
-      },
-      {
-        "name": "acceptance (browser)",
-        "conclusion": "success",
-        "started_at": "2026-09-15T06:03:09Z",
-        "completed_at": "2026-09-15T06:06:48Z"
-      },
-      {
-        "name": "acceptance (core)",
-        "conclusion": "success",
-        "started_at": "2026-09-15T06:03:10Z",
-        "completed_at": "2026-09-15T06:26:56Z"
+        "started_at": "2026-09-15T06:26:59Z",
+        "completed_at": "2026-09-15T06:27:33Z"
       },
       {
         "name": "cnpg-gateway-workflow",
         "conclusion": "failure",
-        "started_at": "2026-09-15T06:03:09Z",
-        "completed_at": "2026-09-15T06:03:45Z"
+        "started_at": "2026-09-15T06:27:00Z",
+        "completed_at": "2026-09-15T06:27:45Z"
+      },
+      {
+        "name": "web-console",
+        "conclusion": "success",
+        "started_at": "2026-09-15T06:26:59Z",
+        "completed_at": "2026-09-15T06:29:15Z"
+      },
+      {
+        "name": "acceptance (browser)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T06:26:59Z",
+        "completed_at": "2026-09-15T06:30:28Z"
+      },
+      {
+        "name": "service-image",
+        "conclusion": "success",
+        "started_at": "2026-09-15T06:26:59Z",
+        "completed_at": "2026-09-15T06:30:49Z"
+      },
+      {
+        "name": "acceptance (core)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T06:26:59Z",
+        "completed_at": "2026-09-15T06:50:19Z"
       }
     ]
   },
@@ -397,7 +397,7 @@
   },
   "limits": [
     "The first browser CI run failed cleanup. Its application pass is not a passing CI gate.",
-    "The browser cleanup fix passed. The new namespace recovery workflow and its API check remain pending.",
+    "The browser cleanup fix and namespace recovery workflow passed. The namespace candidate API check and later SQL cleanup denial check remain pending.",
     "The fixed namespace retains six test image streams. Registry retention is outside this cleanup proof.",
     "The browser fixture has no external connection endpoint. Screenshots do not prove external connectivity.",
     "Installation CNPG, actual RDS, and Sandbox checks remain open."
@@ -680,12 +680,13 @@
     "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937103556",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018",
-    "result": "browser_running_api_pending",
+    "result": "browser_success_api_running",
     "cancelled_before_jobs": [
       34936911573,
       34936911464
     ],
-    "queue_transition": "Both push runs were cancelled before a job started. The older API workflow became active at this transition. The API provides no cancellation reason. New dispatches use the same pushed commit."
+    "queue_transition": "Both push runs were cancelled before a job started. The older API workflow became active at this transition. The API provides no cancellation reason. New dispatches use the same pushed commit.",
+    "browser_evidence": "browser-namespace-replacement-evidence.json"
   },
   "sql_cleanup_denial_candidate": {
     "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
@@ -693,6 +694,6 @@
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123",
     "result": "pending"
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/4d08488a914b3722fa0ffb06ecbe8763a3934dca/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "5443694c7f2a386da7a4be2f1696331f669d6d207e0b788e8f1f8e54c8d4d085"
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/7ba12364cdb86539c44d0030793ee604fff7344b/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "775991deff384b348d00c134f077eb72a6ac689d67dbdb97ced48b72a06f696f"
 }
