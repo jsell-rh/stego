@@ -40,3 +40,11 @@ Both examples were regenerated with clean compiler `5d24fad`. Their module files
 now select the corrected dependency versions. Dependency resolution, repeated
 apply, and drift checks pass. Repeat CI must still establish vulnerability,
 build, and fill-test results for these files.
+
+[Repeat CI 34966021202](https://github.com/jsell-rh/stego/actions/runs/34966021202)
+passed both example jobs. This includes regeneration, dependency verification,
+vulnerability checks, race tests, and service builds. Real PostgreSQL provisioning
+also passed. The overall run failed because the live registry test still expected
+REST version 3.0.4 after the generator update to 3.1.0. The assertion is corrected;
+a further full run remains required. This result does not close the separate
+SSO issuer, audience, and expiry defect.
