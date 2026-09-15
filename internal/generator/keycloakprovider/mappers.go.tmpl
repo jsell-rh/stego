@@ -127,6 +127,10 @@ func(c *Client)mapperGuard(ctx context.Context,b ClientBinding,p TokenClaimsPoli
 func(c *Client)InspectTokenMappers(ctx context.Context,b ClientBinding,p TokenClaimsPolicy)error{
  if err:=b.validate();err!=nil{return err};if err:=p.validate();err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.inspectTokenMappers(work,b,p)
+}
+func(c *Client)inspectTokenMappers(work context.Context,b ClientBinding,p TokenClaimsPolicy)error{
+ var err error
  if err=c.mapperGuard(work,b,p,false);err!=nil{return err}
  current,err:=c.readMappers(work,b);if err!=nil{return err};desired:=desiredMappers(p)
  if len(mapperDifference(current,desired))!=0||len(mapperDifference(desired,current))!=0{return ErrMapperPolicy}
@@ -140,6 +144,10 @@ func(c *Client)InspectTokenMappers(ctx context.Context,b ClientBinding,p TokenCl
 func(c *Client)ReconcileTokenMappers(ctx context.Context,b ClientBinding,p TokenClaimsPolicy)error{
  if err:=b.validate();err!=nil{return err};if err:=p.validate();err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.reconcileTokenMappers(work,b,p)
+}
+func(c *Client)reconcileTokenMappers(work context.Context,b ClientBinding,p TokenClaimsPolicy)error{
+ var err error
  guard:=func()error{return c.mapperGuard(work,b,p,true)}
  if err=guard();err!=nil{return err}
  desired:=desiredMappers(p);current,err:=c.readMappers(work,b);if err!=nil{return err}

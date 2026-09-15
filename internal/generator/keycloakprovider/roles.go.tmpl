@@ -114,6 +114,9 @@ func explicitFlag(raw []byte,key string,value bool)bool{
 func(c *Client)EnsureClientRoles(ctx context.Context,b ClientBinding,names []string)([]RoleRepresentation,error){
  if err:=b.validate();err!=nil{return nil,err};if err:=validateRoleNames(names);err!=nil{return nil,err}
  work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
+ return c.ensureClientRoles(work,b,names)
+}
+func(c *Client)ensureClientRoles(work context.Context,b ClientBinding,names []string)([]RoleRepresentation,error){
  _,raw,err:=c.boundClient(work,b);if err!=nil{return nil,err};if !explicitFlag(raw,"enabled",false){return nil,ErrRolePolicy}
  for _,name:=range names{
   if _,err=c.getRole(work,b.ID,name);err==nil{continue}else if !errors.Is(err,ErrNotFound){return nil,err}

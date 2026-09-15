@@ -41,46 +41,41 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 		if _, err := c.CreateDisabledNativeClient(ctx, b, p); !errors.Is(err, ErrConflict) {
 			t.Fatal("real native creation conflict differs", err)
 		}
-		if _, err := c.EnsureClientRoles(ctx, b, []string{item.role}); err != nil {
-			t.Fatal(err)
+		scopes := RolePolicy{Clients: []ClientRoleGrant{{Client: b, Names: []string{item.role}}}}
+		claims := TokenClaimsPolicy{AudienceClients: []ClientBinding{b}, ClientRoles: []ClientRoleClaim{{Client: b, Claim: item.claim}}}
+		accessPolicy := NativeAccessPolicy{Client: p, Roles: []string{item.role}, Scopes: scopes, Claims: claims}
+		if err := c.ReconcileNativeClientAccess(ctx, b, accessPolicy); err != nil {
+			t.Fatal("real native access setup failed", err)
 		}
 		if err := c.ReconcileUserClientRoles(ctx, b, nativeTestSubject, []string{item.role}); err != nil {
 			t.Fatal(err)
 		}
-		scopes := RolePolicy{Clients: []ClientRoleGrant{{Client: b, Names: []string{item.role}}}}
-		claims := TokenClaimsPolicy{AudienceClients: []ClientBinding{b}, ClientRoles: []ClientRoleClaim{{Client: b, Claim: item.claim}}}
-		if err := c.ReconcileClientScopes(ctx, b, scopes); err != nil {
-			t.Fatal(err)
+		// Drift includes a shared scope. Base repair and scope repair must work
+		// together while login is disabled, before the complete enable check.
+		response, err := c.admin(ctx, http.MethodGet, "/client-scopes", nil)
+		var shared []assignedScope
+		if err != nil || response.StatusCode != 200 || decode(response.Body, &shared) != nil || len(shared) == 0 {
+			t.Fatal("native shared scope fixture failed", err)
 		}
-		if err := c.ReconcileTokenMappers(ctx, b, claims); err != nil {
-			t.Fatal(err)
+		response, err = c.admin(ctx, http.MethodPut, "/clients/"+b.ID+"/default-client-scopes/"+shared[0].ID, nil)
+		if err != nil || response.StatusCode != 204 {
+			t.Fatal("native shared scope assignment failed", err)
 		}
-		// A changed callback and display name must be repaired while disabled.
-		drift, _ := json.Marshal(map[string]any{"name": "drift", "redirectUris": []string{"https://foreign.invalid/callback"}, "attributes": map[string]string{"stego.test.unwanted": "remove"}})
-		response, err := c.admin(ctx, http.MethodPut, "/clients/"+b.ID, drift)
+		drift, _ := json.Marshal(map[string]any{"name": "drift", "fullScopeAllowed": true, "redirectUris": []string{"https://foreign.invalid/callback"}, "attributes": map[string]string{"stego.test.unwanted": "remove"}})
+		response, err = c.admin(ctx, http.MethodPut, "/clients/"+b.ID, drift)
 		if err != nil || response.StatusCode != 204 {
 			t.Fatal("native drift fixture failed", err)
 		}
-		if _, err = c.InspectDisabledNativeClient(ctx, b, p); !errors.Is(err, ErrClientConfiguration) {
-			t.Fatal("native drift accepted", err)
+		if err = c.InspectNativeClientAccess(ctx, b, accessPolicy); !errors.Is(err, ErrClientConfiguration) {
+			t.Fatal("native access drift accepted", err)
 		}
 		for i := 0; i < 2; i++ {
-			if err = c.ConfigureDisabledNativeClient(ctx, b, p); err != nil {
-				t.Fatal("real native repair failed", err)
+			if err = c.ReconcileNativeClientAccess(ctx, b, accessPolicy); err != nil {
+				t.Fatal("real native access repair failed", err)
 			}
 		}
-		if err = c.InspectClientScopes(ctx, b, scopes); err != nil {
-			t.Fatal("native repair changed scopes", err)
-		}
-		if err = c.InspectTokenMappers(ctx, b, claims); err != nil {
-			t.Fatal("native repair changed mappers", err)
-		}
-		// Only this fixture enables login. Production enablement is a separate gate.
-		// An omitted webOrigins field derives browser origins from redirect URIs.
-		// Keep the required empty set explicit in the enable request.
-		response, err = c.admin(ctx, http.MethodPut, "/clients/"+b.ID, []byte(`{"enabled":true,"webOrigins":[]}`))
-		if err != nil || response.StatusCode != 204 {
-			t.Fatal("enable native fixture", err)
+		if err = c.InspectNativeClientAccess(ctx, b, accessPolicy); err != nil {
+			t.Fatal("real native access not confirmed", err)
 		}
 		browser := newNativeBrowser(t, c, ctx, caFile)
 		authPath := "/realms/provider-test/protocol/openid-connect/auth"
@@ -206,7 +201,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			t.Fatal(err)
 		}
 	}
-	t.Log("Real native checks: two policies; disabled creation and repair; PKCE S256 login; wrong verifier, foreign callback, and code replay denied; signed identity and role claims; device policy; deletion")
+	t.Log("Real native checks: two policies; disabled creation; checked enablement and drift repair; PKCE S256 login; wrong verifier, foreign callback, and code replay denied; signed identity and role claims; device policy; deletion")
 }
 
 type nativeBrowser func(string, string, url.Values) (int, http.Header, []byte)

@@ -1,0 +1,106 @@
+package {{.Package}}
+
+import (
+ "context"
+ "encoding/json"
+ "errors"
+ "net/http"
+ "time"
+)
+
+// NativeAccessPolicy separates application values from provider sequencing.
+// Roles are local leaf definitions. Scopes and Claims control token access.
+// This operation does not grant users a role or infer application authorization.
+type NativeAccessPolicy struct {
+ Client NativeClientPolicy
+ Roles []string
+ Scopes RolePolicy
+ Claims TokenClaimsPolicy
+}
+
+// ErrAccessDisablementUnconfirmed means a failed check could not confirm that
+// the client was disabled or absent. Persist the binding and reconcile again.
+var ErrAccessDisablementUnconfirmed = errors.New("Keycloak access disablement is not confirmed")
+
+func(p NativeAccessPolicy)configuration(b ClientBinding)(ClientRepresentation,error){
+ desired,err:=nativeClientConfiguration(b,p.Client);if err!=nil{return ClientRepresentation{},err}
+ if err=validateRoleNames(p.Roles);err!=nil{return ClientRepresentation{},err}
+ if err=validateServiceAccountRoles(p.Scopes);err!=nil{return ClientRepresentation{},err}
+ if err=p.Claims.validate();err!=nil{return ClientRepresentation{},err}
+ if len(p.Claims.AudienceClients)+len(p.Claims.CustomAudiences)==0{return ClientRepresentation{},errors.New("native access requires an explicit token audience")}
+ return desired,nil
+}
+
+// InspectNativeClientAccess requires the full policy and enabled state. It is
+// read-only. It does not prove a user's authorization or an issued token.
+func(c *Client)InspectNativeClientAccess(ctx context.Context,b ClientBinding,p NativeAccessPolicy)error{
+ desired,err:=p.configuration(b);if err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.inspectNativeAccess(work,b,p,desired,true)
+}
+
+func(c *Client)inspectNativeAccess(ctx context.Context,b ClientBinding,p NativeAccessPolicy,desired ClientRepresentation,enabled bool)error{
+ value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
+ if !nativeClientConfigurationMatchesState(value,raw,desired,enabled){return ErrClientConfiguration}
+ roles,err:=c.resolveRoles(ctx,b.ID,p.Roles);if err!=nil{return err}
+ if err=c.inspectClientScopePolicy(ctx,b,p.Scopes);err!=nil{return err}
+ if err=c.inspectTokenMappers(ctx,b,p.Claims);err!=nil{return err}
+ confirmed,err:=c.resolveRoles(ctx,b.ID,p.Roles);if err!=nil{return err}
+ if !sameRoles(roles,confirmed){return ErrRolePolicy}
+ value,raw,err=c.boundClient(ctx,b);if err!=nil{return err}
+ if !nativeClientConfigurationMatchesState(value,raw,desired,enabled){return ErrClientConfiguration}
+ return nil
+}
+
+// Base repair excludes scope assignments, which have separate endpoints.
+// The complete scope policy is required before and after enablement.
+func nativeClientBaseMatches(value ClientRepresentation,raw []byte,desired ClientRepresentation)bool{
+ value.DefaultClientScopes=[]string{};value.OptionalClientScopes=[]string{}
+ return nativeClientConfigurationMatches(value,raw,desired)
+}
+
+func repairableNativePolicy(err error)bool{
+ return errors.Is(err,ErrClientConfiguration)||errors.Is(err,ErrRolePolicy)||
+  errors.Is(err,ErrScopePolicy)||errors.Is(err,ErrMapperPolicy)||errors.Is(err,ErrNotFound)
+}
+
+// ReconcileNativeClientAccess repairs an existing owned client and enables it
+// only after the complete policy passes. CreateDisabledNativeClient remains a
+// separate operation so the caller can save the stable binding before creation.
+// A correct enabled client causes no writes. All repair runs while disabled.
+// Use exclusive reconciliation: Keycloak has no atomic policy-and-enable API.
+// The normal operation has one permit and a 15-second deadline. Failure cleanup
+// retains that permit and has up to five more seconds, independent of caller
+// cancellation. Closing the provider also stops cleanup.
+func(c *Client)ReconcileNativeClientAccess(ctx context.Context,b ClientBinding,p NativeAccessPolicy)(err error){
+ desired,err:=p.configuration(b);if err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
+ // From this point, any failure requires confirmed disablement. Cleanup uses
+ // the saved binding again and cannot disable a client with different ownership.
+ defer func(){
+  if err==nil{return}
+  cleanup,cancel:=context.WithTimeout(context.WithoutCancel(work),5*time.Second);defer cancel()
+  stop:=context.AfterFunc(c.lifetime,cancel);defer stop()
+  if c.lifetime.Err()!=nil{cancel()}
+  failure:=c.disableClient(cleanup,b)
+  if failure!=nil&&!errors.Is(failure,ErrNotFound){err=errors.Join(err,ErrAccessDisablementUnconfirmed,failure)}
+ }()
+ if !explicitFlag(raw,"enabled",true)&&!explicitFlag(raw,"enabled",false){return ErrResponse}
+ if explicitFlag(raw,"enabled",true){
+  err=c.inspectNativeAccess(work,b,p,desired,true)
+  if err==nil{return nil}
+  if !repairableNativePolicy(err){return err}
+  if err=c.disableClient(work,b);err!=nil{return err}
+ }
+ if err=c.configureDisabledClient(work,b,desired,nativeClientBaseMatches,true);err!=nil{return err}
+ if _,err=c.ensureClientRoles(work,b,p.Roles);err!=nil{return err}
+ if err=c.reconcileClientScopes(work,b,p.Scopes);err!=nil{return err}
+ if err=c.reconcileTokenMappers(work,b,p.Claims);err!=nil{return err}
+ if err=c.inspectNativeAccess(work,b,p,desired,false);err!=nil{return err}
+ // Keep origins explicit: an omitted field can derive origins from callbacks.
+ body,_:=json.Marshal(struct{Enabled bool `json:"enabled"`;Origins []string `json:"webOrigins"`}{true,[]string{}})
+ response,err:=c.admin(work,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ return c.inspectNativeAccess(work,b,p,desired,true)
+}

@@ -70,6 +70,9 @@ func(c *Client)clientPage(ctx context.Context,query url.Values,limit int)([]Clie
 func(c *Client)DisableClient(ctx context.Context,b ClientBinding)error{
  if err:=b.validate();err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.disableClient(work,b)
+}
+func(c *Client)disableClient(work context.Context,b ClientBinding)error{
  _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
  var fields map[string]json.RawMessage
  if json.Unmarshal(raw,&fields)!=nil||fields==nil{return ErrResponse}

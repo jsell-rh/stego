@@ -12,6 +12,7 @@ import (
 )
 
 type roleFixture struct {
+	intercept                                               func(http.ResponseWriter, *http.Request) bool
 	hiddenScopes, denyScopeProbe                            bool
 	mu                                                      sync.Mutex
 	clients                                                 map[string]ClientRepresentation
@@ -67,6 +68,9 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.intercept != nil && f.intercept(w, r) {
+			return
+		}
 		path := strings.TrimPrefix(r.URL.Path, "/admin/realms/tenant/")
 		parts := strings.Split(path, "/")
 		send := func(value any) {

@@ -361,3 +361,25 @@ A small test also found a shutdown error race. The HTTP client could stop before
 the operation context received cancellation from the provider lifetime. The
 provider now checks its lifetime before it returns a transport error. Generated
 tests passed with the race detector, with and without telemetry, after this fix.
+
+## Checked native enablement
+
+Version 0.7.0 adds `NativeAccessPolicy`, `ReconcileNativeClientAccess`, and
+`InspectNativeClientAccess`. The compound operation combines the existing base,
+role, scope, and mapper checks. It repairs only while disabled, verifies all
+policy before and after enablement, and does not write a correct enabled client.
+The caller supplies application values and saves the ownership binding before
+creation. User grants remain separate application decisions.
+
+A failed operation confirms disablement or absence with an independent,
+five-second cleanup budget. It reports `ErrAccessDisablementUnconfirmed` if that
+check fails. Cleanup retains the operation permit and stops on provider shutdown.
+Exclusive reconciliation and saved recovery state remain necessary because
+Keycloak does not make the policy changes and enablement atomic.
+
+Small generated tests cover capacity use, unchanged state, drift with shared
+scopes, ignored writes, uncertain enable responses, failed post-enable checks,
+changed ownership, caller cancellation, and failed cleanup. The real native gate
+now uses the compound operation before login and after injected policy drift.
+Its result is pending. Records and frozen source are stored in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-native-access-20260915`.

@@ -179,7 +179,7 @@ mechanisms as service accounts. The caller saves a stable provider ID first.
 The profile rejects unknown attributes and requires empty shared scopes. Repair
 requires ownership and explicit disablement. It does not change role definitions,
 scope assignments, or token mappers. Clearing service-account drift can remove
-that client's dedicated provider user. No native method enables login.
+that client's dedicated provider user. These three base methods never enable login.
 
 The application must use an external browser and verify state, issuer, and
 nonce. These obligations follow [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html).
@@ -199,3 +199,27 @@ still requires a later reconciliation.
 
 Authentication flow updates are patches. To clear an old override, the provider
 sends its key with an empty value. It checks the empty stored map afterward.
+
+`NativeAccessPolicy` supplies the native profile, local leaf-role definitions,
+exact role scopes, and token claims. It requires at least one explicit audience.
+`ReconcileNativeClientAccess` checks an existing owned client, repairs drift
+while disabled, and enables login only after the full policy passes. It then
+checks the full policy again. A correct enabled client causes no writes.
+`InspectNativeClientAccess` checks that same enabled policy without writes.
+Create the client with `CreateDisabledNativeClient` after saving its binding.
+User grants remain separate; the application decides who can receive each role.
+
+The compound operation uses one capacity permit and the same 15-second deadline
+for all normal work. After a failure, cleanup uses that permit for up to five
+more seconds and confirms disablement or absence. Caller cancellation does not
+prevent cleanup. Provider shutdown does stop it. A failure to confirm cleanup
+includes `ErrAccessDisablementUnconfirmed`; retain the saved binding and
+reconcile again. No failed enable request is replayed. Ownership is checked
+again before cleanup, so a changed binding prevents a write to another owner.
+
+Keycloak has no transaction for these policy changes and enablement. Use
+exclusive reconciliation and persist recovery state. These checks establish the
+provider configuration; they do not authenticate a native user or prove the
+contents of that user's token. The application must still verify issued tokens
+and enforce its access policy. The real provider test covers browser-code login;
+complete device approval and token exchange remain a separate test requirement.
