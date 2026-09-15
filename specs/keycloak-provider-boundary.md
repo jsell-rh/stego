@@ -128,7 +128,7 @@ A later fix at `8a748301704748965cbd61b7b6b915710fc4863d` requires an explicit
 Bearer token type in the administrator grant. Its small checks passed. The real
 provider job passed again at `0ebc3cf01376ea783d3557b6315f3befa2b5a41a` in
 [run 35026075691](https://github.com/jsell-rh/stego/actions/runs/35026075691).
-The complete compiler job is still pending. The first live workflow declaration was rejected
+All five jobs passed. The first live workflow declaration was rejected
 before any job started because it used runner context at job scope. That
 failure is retained in the result directory. The corrected workflow passes
 the workflow linter.
@@ -150,10 +150,14 @@ keys need an explicit adoption migration; a file move is not that migration.
 Small generated checks passed for creation, conflict rejection, uncertain
 responses, ownership denial, explicit disablement, incomplete configuration,
 and confirmed repair. The telemetry build passed with the race detector.
-The new live test creates two clients with different application ownership
-policies. It checks creation, conflicts, configuration changes, credential
-preservation, client reconstruction, and deletion. This live extension is
-pending CI. Sources and local results are stored in
+The live extension passed at `84b445767b468ee8b8d388f078fac0220d0b5fc7` in
+[run 35026787020](https://github.com/jsell-rh/stego/actions/runs/35026787020).
+It created two clients with different application ownership policies. It checked
+creation, rejection of token requests while disabled, provider-ID and client-name
+conflicts, configuration changes, credential preservation, client reconstruction,
+and deletion. The test took 41.97 seconds, and container cleanup passed.
+The full compiler job for this revision is still running. Sources, generated
+output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-creation-20260915`.
 
 This is the start of the extraction. Enablement, role and scope reconciliation,
