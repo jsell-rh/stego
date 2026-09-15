@@ -88,7 +88,7 @@ The fresh console job and ordinary browser job passed at `7d6b6d2` in full CI
 The service image passed, CNPG failed, Sandbox was skipped, and core acceptance
 was still running at the last check. This is not a complete CI pass.
 
-The current public workflow source is Hypershell `795e11c`, with compiler
+The current public workflow source is Hypershell `7cb0e2f`, with compiler
 `4f692d0`. Common TLS Secret checks, Route admission, a credential-free pinned
 TLS RPC probe, and optional external network destinations are in STEGO.
 [Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
@@ -116,7 +116,20 @@ identities, credentials, provider data, and internal TLS. Its request tests and
 frozen generated fixture checks pass. The live renewal result remains required.
 See the
 [public connection contract](hypershell-external-connection.md) and
-[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/795e11c/acceptance/public-gateway-tls.md).
+[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/7cb0e2f/acceptance/public-gateway-tls.md).
+
+Hypershell `cfc201f` corrects the public fault test baseline and verifies the
+actual worker NetworkPolicy change. It permits removal only of the selected
+IP/443 rules and requires exact restoration. Required destinations, ingress,
+selector, and policy UID must remain unchanged. It now compares SQL object OIDs
+as well as credentials and provider data captured before the fault. Focused
+policy checks pass; the live result remains required.
+
+Hypershell `7cb0e2f` makes missing or failed evidence collection fail the service
+run. The wrapper requires records for the selected profile and bounds log,
+archive, and acknowledgment requests. Fourteen local command fixtures pass.
+Partial evidence from failed tests remains available for diagnosis. These
+collection checks do not establish an application pass.
 
 API run `34975653347` and browser run `34975653307` stopped before test creation
 because the CI credential had too little time left. The operator context still returned `Unauthorized` on 2026-09-15. Its login

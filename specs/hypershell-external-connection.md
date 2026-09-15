@@ -149,7 +149,7 @@ The manual public profile requires an operator-supplied domain, issuer, router,
 CA certificate bundle, and IP/443 pairs. It has no default trust or public
 address. Missing required inputs fail. Configuration uses the existing test
 trust ConfigMap and cleanup policy. See the
-[application profile](https://github.com/jsell-rh/hypershell-stego/blob/795e11c/acceptance/public-gateway-tls.md).
+[application profile](https://github.com/jsell-rh/hypershell-stego/blob/7cb0e2f/acceptance/public-gateway-tls.md).
 Hypershell `795e11c` adds manual Certificate renewal to the public profile. It
 uses the status operation from the pinned cmctl source and retains the observed
 UID and revision. One named Certificate status permission is added to the
@@ -170,3 +170,19 @@ failed and Sandbox was skipped. API `34975653347` and browser `34975653307`
 failed their credential lifetime check before test creation. The operator
 login refresh remains pending. Keep the older browser result limited to its
 internal Service and recorded archive.
+
+The test review found that the public network fault baseline was taken after
+the worker change. Hypershell `cfc201f` moves the baseline before the fault and
+verifies the live NetworkPolicy specification before removal, while blocked,
+and after restoration. It permits only the selected IP/443 rules to disappear.
+It retains the policy UID and requires SQL object OIDs, credentials, and provider
+data to match the original baseline. Synthetic IPv4, IPv6, duplicate-rule, and
+unrelated-change checks pass. A live network result remains required.
+
+The service wrapper also ignored archive transfer failure. Hypershell `7cb0e2f`
+now rejects failed transfers, unreadable archives, and missing required records.
+It requires public RPC, network recovery, and renewal records when the public
+profile is selected. The fourteen local collection cases pass. The wrapper still
+retains partial evidence after an application failure and preserves that failed
+result. This change prevents a collection failure from producing a green run;
+it does not replace verification of the archive contents or complete cleanup.
