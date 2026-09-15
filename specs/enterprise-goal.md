@@ -63,8 +63,8 @@ checks, but it cannot establish a complete application pass.
 | --- | --- | --- |
 | Full compiler CI | STEGO `d00bdc3` | [Run 34985081259](https://github.com/jsell-rh/stego/actions/runs/34985081259) passed. It includes compiler checks, SQL provisioning, and both example services. Later STEGO commits change documentation only. |
 | Core application acceptance | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989401887](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989401887) passed core acceptance with race detection in 1269.116 seconds, including the fresh API token audience check after grant synchronization. Regeneration, ordinary browser, console, and image checks passed. The manual workflow skipped CNPG and Sandbox. See the [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json). |
-| Public Gateway checks | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989405950](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989405950) passed public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, and namespace recovery. The full workflow failed because the telemetry fixture rejected extra expected worker instances. Cleanup passed. See the [progress record](hypershell-public-gateway-progress-20260915.json). |
-| Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The public profile requires two allocator, two identity, and four workload instances. The internal profile requires two of each. Every instance still needs metrics and correlated logs and traces. Full runtime verification remains required. |
+| Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
+| Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
 | Unattended CNPG | Hypershell `3a50db7` | [Recovery record](hypershell-cnpg-ci-recovery-20260915.json) records a failed application startup, cleanup defects, source corrections, and verified manual cleanup. No complete unattended workflow passed. |
 | Allocated namespace policy | STEGO kubernetes-service 1.12.0 | [Policy-set evidence](hypershell-network-policy-set.json) covers generated deny-all behavior and 59 live admission checks. No Pods ran in that admission test. Allowed traffic and CNI enforcement remain unproved. Hypershell has not enabled the policy. |
@@ -73,20 +73,20 @@ The current verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
-| Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), active when checked |
+| Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), active after the earlier core run passed |
+| Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), dispatched through the registered contract workflow with `cnpg_only=true`; queued behind the current contract run |
 
 Poll these handles before taking further action. A timeout or incomplete log is
 not a terminal result. Inspect the test Job and verify cleanup before a new live
 cluster test. Keep one live cluster test at a time under the shared Lease.
-The manually dispatched contract workflow skips CNPG and Sandbox; those skipped
-jobs are not passes.
+The default manual contract workflow skips CNPG and Sandbox. The explicit
+`cnpg_only=true` selection runs CNPG and skips ordinary checks. Skips are not passes.
 
 The next required work is:
 
-1. Complete the public Gateway workflow on the corrected source. Retain all
-   public reports, rendered browser evidence, service-account checks, confirmed
-   identity-provider logout, normal deletion, and cleanup. Check current full CI.
+1. Check current full CI for the public workflow's source. The complete public
+   result is recorded; preserve its limits when assessing broader requirements.
 2. Run the complete unattended CNPG workflow with sufficient credential lifetime.
    Prove application behavior, automatic cleanup, and volume removal together.
    The earlier manual recovery does not meet this gate.
@@ -108,5 +108,5 @@ The next required work is:
 Public TLS uses the operator-selected issuer and router passthrough. Internal
 Gateway TLS uses a separate operator-supplied trust file. The
 [Route permission record](hypershell-public-route-host.json) retains the bounded
-role update and installation identities. Neither these checks nor the current
-partial public result establishes full production readiness.
+role update and installation identities. The complete public workflow proves its
+recorded application scope. It does not establish full production readiness.

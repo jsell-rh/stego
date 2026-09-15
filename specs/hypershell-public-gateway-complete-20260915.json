@@ -1,0 +1,222 @@
+{
+  "checked_on": "2026-09-15",
+  "run": 34991226917,
+  "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917",
+  "conclusion": "success",
+  "source": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
+  "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+  "test": "TestGeneratedKubernetesBrowserGatewayWorkflow",
+  "test_seconds": 457.75,
+  "package_seconds": 458.8,
+  "race_detection": true,
+  "source_verification": {
+    "fixture_manifest_sha256": "5bae303efed7495cb08f65b2d49bfe5f7619088a13f41bd49e36d0829981679c",
+    "changed_files": [
+      ".stego/state.yaml",
+      "out/deploy/allocation/allocation.go",
+      "out/deploy/render/worker-namespace-allocation.json.tmpl",
+      "service.yaml"
+    ],
+    "scope": "Production source with two namespace inspection roles and two appended bindings. Production binding indices and runtime code are unchanged.",
+    "verified_unchanged_files": [
+      "acceptance/browser_workflow_test.go",
+      "acceptance/browser_worker_signals_test.go",
+      "acceptance/browser_postgres_signals_test.go",
+      "scripts/run-browser-deployment-pod.sh"
+    ]
+  },
+  "generation": {
+    "file_count": 238,
+    "before_after_regeneration_and_after_tests_equal": true,
+    "manifest_sha256": "cba7239deaaa980c76d24aeed6e45936a8e8d9b698680f531e9ef62cd7b92b4c"
+  },
+  "workflow_checks": [
+    "Rendered Keycloak login and Gateway creation through the generated browser backend.",
+    "Gateway ID, kind, href, creator, owner grant, and committed event delivery.",
+    "REST and gRPC access, filtered lists, denied writes, and access removal.",
+    "API and console restart, session key rotation, token renewal, and confirmed identity-provider logout.",
+    "Public verified TLS, owner RPC writes and reads, invalid identity denial, and retained provider data after Pod replacement.",
+    "Controller public network failure, address withdrawal, policy restoration, and recovery.",
+    "Public certificate and private key rotation with a fresh verified connection and rejection of the old pin.",
+    "Separate SQL databases and logins, denied cross-database access, unsafe privilege recovery, and PostgreSQL restart.",
+    "Namespace replacement with retained source keys, SQL identities, provider data, and access rules.",
+    "Rendered service-account creation, one-time credential handoff, token issuance, reload, revoke, and deletion.",
+    "Three service-account identities used the real Gateway; Gateway deletion removed provider clients and denied further token issuance.",
+    "Denied SQL cleanup retained pending state; later normal deletion removed Gateway SQL, keys, and allocated namespaces."
+  ],
+  "worker_telemetry": {
+    "required_instances": {
+      "hypershell-namespace-allocation": 2,
+      "hypershell-gateway-identity": 2,
+      "hypershell-gateway-workload": 4
+    },
+    "each_instance_has_metrics_and_correlated_logs_and_traces": true,
+    "sql_signals_include_restart_cleanup_denial_and_recovery": true
+  },
+  "reports": {
+    "gateway-public-rpc.json": {
+      "sha256": "10d7a600d93bb3c16ecf3b86e896abef7b5ef36bd401d7af16d50d42aee45f50",
+      "result": {
+        "address": "https://gw-openshell-6438dcfa9852a559.apps.rosa.jshell.8u58.p3.openshiftapps.com",
+        "foreign_audience_denied": true,
+        "forged_token_denied": true,
+        "gateway_id": "3JN4Hf2fKerLk7oIDD6SoOYC6QH",
+        "gateway_pod_replaced": true,
+        "issuer": "acp-hypershell-test-ca",
+        "namespace": "openshell-6438dcfa9852a559",
+        "owner_provider_write_and_read": true,
+        "provider_data_preserved": true,
+        "router": "default",
+        "unauthenticated_denied": true,
+        "ungranted_user_denied": true,
+        "verified_tls": true
+      }
+    },
+    "gateway-public-network-recovery.json": {
+      "sha256": "9e0e285bdd14d855d4ac2bf67c42130ad02d8449de4f56c5ee3d08821734b9dd",
+      "result": {
+        "baseline_before_fault": true,
+        "before_policy_sha256": "385bcdd372e2c1a5e9a26322a2980868333af4f06664487101e4508e33b058bd",
+        "blocked_policy_sha256": "4f7872874982ef26790c7f990a256c84ef5bf6e9c75dd4542d24902beac3b787",
+        "degraded_addresses_cleared": true,
+        "gateway_ids": [
+          "3JN4H7ePr2OUsXCKCX0anIThXkz",
+          "3JN4Hf2fKerLk7oIDD6SoOYC6QH"
+        ],
+        "generated_egress_restored": true,
+        "healthy_addresses_restored": true,
+        "live_policy_change_verified": true,
+        "policy_uid": "977a8fff-9362-468b-95c6-8cc861e4548f",
+        "provider_data_preserved": true,
+        "restored_policy_sha256": "385bcdd372e2c1a5e9a26322a2980868333af4f06664487101e4508e33b058bd",
+        "seconds": 14.391941569,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "worker_public_egress_removed": true
+      }
+    },
+    "gateway-public-certificate-rotation.json": {
+      "sha256": "291e29b66e2b6af496ac8a2ae4ef60924e4b16abc399e564e9b6c62e733cc223",
+      "result": {
+        "address": "https://gw-openshell-6438dcfa9852a559.apps.rosa.jshell.8u58.p3.openshiftapps.com",
+        "certificate_uid": "c9ec1a15-e831-40a0-96d5-8507d733b163",
+        "gateway_id": "3JN4Hf2fKerLk7oIDD6SoOYC6QH",
+        "internal_tls_unchanged": true,
+        "new_certificate_sha256": "a7426efb62ea4d774138d68a0b74cbd7f5c459db143349c253b1196879c54142",
+        "new_owner_connection_verified": true,
+        "new_tls_connection_verified": true,
+        "old_certificate_sha256": "9719826d967ad51a72e836262fcc2956ca9b5e150de1e3e47672b30bbe3b55bd",
+        "old_pin_rejected": true,
+        "private_key_rotated": true,
+        "provider_data_preserved": true,
+        "renewal_uses_observed_uid_and_revision": true,
+        "seconds": 14.817426941,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "unauthenticated_denied": true
+      }
+    },
+    "gateway-account-deletion.json": {
+      "sha256": "b40b4060d3d4704288652bf31b907aee4c33bc284b5471e025a11f8fac4cfdd9",
+      "result": {
+        "account_ids": [
+          "3JN4oPlqhRJaPXWlbjXv66oiJyj",
+          "3JN4oWCCfiVr4IdzZ9wmhUopDCU",
+          "3JN4oa3kgIQgzzDiTQzibGZEHb3"
+        ],
+        "accounts_used_actual_gateway": 3,
+        "checked_after_delete_response": true,
+        "cleanup_audits": 3,
+        "gateway_id": "3JN4Hf2fKerLk7oIDD6SoOYC6QH",
+        "metadata_closed": 3,
+        "provider_clients_absent": 3,
+        "token_issuance_denied": 3
+      }
+    },
+    "sql-cleanup-denial.json": {
+      "sha256": "c0c79eac660e5be31f854b4ee7b309ed6f4c0d55b9dbffdc57411cfca9608cfb",
+      "result": {
+        "cleanup_pending": true,
+        "gateway_id": "3JN4Hf2fKerLk7oIDD6SoOYC6QH",
+        "ledger_state": "deleting",
+        "other_gateway_ready": true,
+        "source_data_unchanged": true,
+        "source_secret_uid": "4c07f825-fbe5-4b06-b45e-7e810c03d76b",
+        "sql_object_ids_unchanged": true,
+        "sqlstate": "42501"
+      }
+    },
+    "postgres-signals.json": {
+      "sha256": "1c0a5d765c675b1b889351ac92b580b99f7ffe06a9529fa7041d6ee6b2c893bb",
+      "result": {
+        "32d00384-6dcb-47fb-866c-499e84adee20": {
+          "ensure/success": true,
+          "read/success": true,
+          "server-identity/busy": true,
+          "server-identity/success": true
+        },
+        "8f919ff9-86fb-47da-8035-d47a64ad2396": {
+          "delete/failure": true,
+          "delete/success": true,
+          "ensure/success": true
+        },
+        "9c4b8209-b803-4e5d-b451-fa2edbb9c1b9": {
+          "ensure/failure": true,
+          "ensure/success": true
+        },
+        "c5399de4-2c8d-497d-8aad-60f15449527c": {
+          "ensure/success": true
+        }
+      }
+    },
+    "verify.json": {
+      "sha256": "53150546e0c8174350882a681a141d1ff242684eb953fc6c92e87b23657617dd",
+      "result": {
+        "verified": true,
+        "publicConnectionVerified": true
+      }
+    }
+  },
+  "rendered_evidence": {
+    "verify.json.png": {
+      "sha256": "e20d3033be29133b23edffda19b6a118f683b97952e625c3ab955be0f38b40f3",
+      "visually_checked": true
+    },
+    "accounts-delete.json.png": {
+      "sha256": "acc2581609a77aace201f48c1933997af90781ee04aaf3109dc3a956d689fe8a",
+      "visually_checked": true
+    }
+  },
+  "cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "allocation_cleanup": {
+    "allocations_before": 0,
+    "allocations_absent": true
+  },
+  "job": {
+    "name": "service-check",
+    "uid": "a5519bef-9ec2-4f28-9fe3-535e2c3c8928",
+    "completion_time": "2026-09-15T16:08:29Z",
+    "succeeded": 1
+  },
+  "independent_cluster_check": {
+    "test_jobs_pods_and_deployments_absent": true,
+    "shared_lease_holder_empty": true
+  },
+  "artifacts": {
+    "name": "gateway-browser-34991226917-1",
+    "deployment_log_sha256": "9637dd5f1b516619c1485feb2ddf2343b09732ad44c9058c7d8487625b1c1242",
+    "evidence_tar_sha256": "9f5557b0f0b2b2670c533a78b6b02ba06d2848f71327363deb5987e284b3c78c"
+  },
+  "limits": [
+    "Public endpoint clients ran inside jshell through the public router. This is not an external Internet client test.",
+    "The test used an operator-selected test certificate issuer and supplied trust.",
+    "The fixture adds two restricted inspection roles and bindings. It does not add production worker rights.",
+    "Controller egress recovery does not prove allocated Gateway namespace network isolation. That policy is not enabled.",
+    "This run used supplied PostgreSQL. It does not prove unattended CNPG or actual RDS failover.",
+    "Sandbox isolation, the remaining Hypershell port, backup and restore, and measured capacity remain open."
+  ]
+}

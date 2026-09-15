@@ -357,8 +357,11 @@
   "current_public_retry": {
     "run": 34991226917,
     "source": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
-    "state": "active after verified prior cleanup",
-    "core_and_browser_ci_run": 34991229447
+    "state": "completed",
+    "core_and_browser_ci_run": 34991229447,
+    "conclusion": "success",
+    "complete_workflow_passed": true,
+    "evidence": "hypershell-public-gateway-complete-20260915.json"
   },
   "public_attempt_34987757894": {
     "run": 34987757894,
