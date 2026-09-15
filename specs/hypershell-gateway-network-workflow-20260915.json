@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-09-15T17:38:37.881603+00:00",
+  "checked_at": "2026-09-15T17:44:20.384875+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
-  "live_source_revision": "1ec82839367b7a1b57eb1e4bb643d3a0be610e22",
+  "live_source_revision": "23273c01b28ec46f57e1c1c5352ed25c1a437288",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
-  "scope": "Generated Gateway and state network policies are enabled in a candidate. The live public workflow is running; traffic isolation is not yet proved.",
+  "scope": "Generated Gateway and state network policies are enabled in a candidate. The public workflow is running after a state test fixture correction; traffic isolation is not yet proved.",
   "declaration": {
     "gateway": "Selected router, DNS, SQL, identity-provider, and telemetry Pod peers, plus exact operator Kubernetes addresses.",
     "state": "Deny all traffic.",
@@ -17,7 +17,11 @@
     "focused_internal_tls_and_invalid_gateway_seconds": 0.017,
     "installation_tests": 11,
     "inspection_tests": 10,
-    "evidence_collector_cases": 15
+    "evidence_collector_cases": 15,
+    "state_recovery_policy_snapshot_seconds": 0.046,
+    "receiver_public_fixture_tests": 5,
+    "receiver_cnpg_fixture_tests": 13,
+    "receiver_fixture_acceptance_compile_seconds": 0.027
   },
   "first_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-live-20260915",
@@ -44,18 +48,10 @@
   "corrections": [
     "The copied kubernetes-service schema is now 1.15.0.",
     "The operator and test Job use the same saved Kubernetes endpoints.",
-    "The installer checks all policies before bindings and records server errors and a pending resource identity."
+    "The installer checks all policies before bindings and records server errors and a pending resource identity.",
+    "State recovery fixtures now return the named policy and complete set, with explicit missing, changed, and extra policy denial cases.",
+    "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The active frozen run does not include this correction."
   ],
-  "live_attempt": {
-    "directory": "/tmp/hypershell-gateway-network-retry-live-20260915",
-    "log": "/tmp/hypershell-gateway-network-retry-live-20260915.log",
-    "namespace": "stego-service-20260915-845abf",
-    "job": "service-check",
-    "pod": "service-check-qr2tv",
-    "status": "running",
-    "exec_session": 86474,
-    "shared_lease": "stego-ci/jshell-live-test"
-  },
   "ci": [
     {
       "run_id": 35001051267,
@@ -67,6 +63,12 @@
       "run_id": 35001765334,
       "source": "e381e41fca848d76e3ec81be33d2279eff6debd6",
       "scope": "Enabled network declaration and traffic probe code. Later installer and CNPG fixture changes are not included.",
+      "status": "cancelled; replaced by the later pending run"
+    },
+    {
+      "run_id": 35002724757,
+      "source": "23273c01b28ec46f57e1c1c5352ed25c1a437288",
+      "scope": "Enabled network declaration with installer, CNPG declaration, and state fixture corrections. Receiver probe corrections are not included.",
       "status": "pending"
     }
   ],
@@ -108,6 +110,49 @@
     {
       "path": "/tmp/hypershell-cnpg-network-prepare-20260915.log",
       "sha256": "419346c3c09d6a96e58d78405925f62e6523a9567c2488f8ef9810b148faf2ea"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-retry-live-20260915.log",
+      "sha256": "be92802d56e74221497845e1d492da7b421662cebdf68bb09957a8ae07252737"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-retry-live-20260915/cleanup.json",
+      "sha256": "b4953403f78bd13c1f474ede0178e4e730a9ea1869f0b9729800f825e26eef4e"
+    },
+    {
+      "path": "/tmp/hypershell-state-network-fixture-20260915.log",
+      "sha256": "415018fcc2337e8e6a72590e1b6b177bdd067d64e0fddba34951ce3b102b77d9"
+    },
+    {
+      "path": "/tmp/hypershell-network-receiver-fixtures-20260915.log",
+      "sha256": "a3881af51800c89a1b23a9949d8eaa662107c4195af9e8291a26faf47fd4ac0f"
     }
-  ]
+  ],
+  "second_live_attempt": {
+    "directory": "/tmp/hypershell-gateway-network-retry-live-20260915",
+    "log": "/tmp/hypershell-gateway-network-retry-live-20260915.log",
+    "namespace": "stego-service-20260915-845abf",
+    "job": "service-check",
+    "pod": "service-check-qr2tv",
+    "status": "failed",
+    "exec_session": 86474,
+    "shared_lease": "stego-ci/jshell-live-test",
+    "exit_status": 1,
+    "failure": "State recovery test fixtures did not supply the required complete network policy snapshot. The run stopped before application execution.",
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-845abf",
+      "owned_resources_absent": true
+    },
+    "lease_released": true
+  },
+  "live_attempt": {
+    "directory": "/tmp/hypershell-gateway-network-state-live-20260915",
+    "log": "/tmp/hypershell-gateway-network-state-live-20260915.log",
+    "namespace": "stego-service-20260915-e77723",
+    "job": "service-check",
+    "pod": "service-check-d6gsl",
+    "status": "running",
+    "exec_session": 45138,
+    "shared_lease": "stego-ci/jshell-live-test"
+  }
 }

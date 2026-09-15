@@ -86,14 +86,18 @@ The latest verification handles are:
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
 The Gateway isolation candidate `e381e41` enables the generated policies and
-adds bounded traffic probes to the full browser workflow. Its CI run
-[35001765334](https://github.com/jsell-rh/hypershell-stego/actions/runs/35001765334)
-is pending. The first live run stopped during permission setup and completed
-cleanup. A separate installation probe passed. Candidate `1ec8283` now waits for
-policy type checks before bindings and retains server errors. Its frozen public
-workflow is running in `stego-service-20260915-845abf` and holds the shared Lease.
+adds bounded traffic probes to the full browser workflow. Its pending CI run
+was replaced by [35002724757](https://github.com/jsell-rh/hypershell-stego/actions/runs/35002724757)
+for candidate `23273c0`. The first live run stopped during permission setup.
+The second run installed all 18 resources, then failed in state recovery test
+fixtures before application execution. Both runs completed cleanup and released
+the Lease. Candidate `23273c0` corrects the state policy snapshots and passed
+its focused recovery check. Its frozen public workflow is running in
+`stego-service-20260915-e77723`. Candidate `8b17fb4` also corrects destination
+fixture rules for telemetry and token-free probes. Those changes passed the
+focused local checks and are not in the active frozen run.
 See the [workflow record](hypershell-gateway-network-workflow-20260915.json).
-The later CNPG fixture change `47a16b3` passed generation and comparison checks;
+The CNPG fixture change `47a16b3` passed generation and comparison checks;
 its live isolation workflow has not run. The main variant branch still uses the
 earlier checked candidate. Traffic isolation remains unproved.
 Before a new live cluster test, verify that the prior
