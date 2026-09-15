@@ -149,7 +149,8 @@ confirmed resource absence; the next API CI job then held the Lease.
 CI identified GO-2026-6443 in gRPC v1.83.1 during that frozen run.
 [Compiler b0bd9a4](grpc-security-update-20260915.md) requires v1.83.2 and checks
 rejection of requests with missing host headers. Candidate `1df3d36` uses the
-patched compiler in both Go modules. Its full CI is pending. The earlier
+patched compiler in both Go modules. Full compiler CI passed, as did the
+consumer API and console vulnerability scans. Full application CI is pending. The earlier
 CNPG functional pass does not qualify the old dependency for release.
 
 The [address-change fixture preparation](hypershell-endpoint-change-preparation-20260915.json)
