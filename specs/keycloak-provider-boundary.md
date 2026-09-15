@@ -385,8 +385,7 @@ The real test passed at `f27377f7c09eeffd5e8912f0754309a67c63baf3` in
 Both native policies used the common operation for initial enablement and repair
 of shared scopes, callback settings, full-scope access, and unwanted attributes.
 The subsequent login tests verified the signed claims and denial cases. The
-runtime took 47.01 seconds; container cleanup passed. The full compiler job was
-still running when this record was written. Records and frozen source are in
+runtime took 47.01 seconds; container cleanup passed. All five CI jobs passed. Records and frozen source are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-native-access-20260915`.
 
 Small generated tests passed in 3.992 seconds without telemetry and 10.395
@@ -410,6 +409,17 @@ scope disabled. It remains separate from enablement and does not replace full
 configuration, role, scope, or mapper checks. Small tests cover altered signed
 claims, malformed claims, signature failure, extra credentials, wrong client
 state, and ownership changes. The live mapper gate now uses this common proof
-for both application policies. Its result is pending. Frozen source and results
-are retained in
+for both application policies. It passed at
+`c85fd8c9f6916a43120d050fcb121aa0dbe4ff49` in
+[run 35033615735](https://github.com/jsell-rh/stego/actions/runs/35033615735).
+Both policies passed the common proof; wrong subjects and audiences were denied.
+The runtime took 47.52 seconds, and container cleanup passed. Full compiler CI
+was still running when this record was written. Small generated tests passed
+with and without telemetry in 11.465 seconds. Compiler preflight and namespace
+checks also passed. Frozen source and results are retained in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-token-proof-20260915`.
+
+The token check first requires the saved subject to exist and be enabled. It
+rejects ID and refresh tokens in the client-credentials response. Service-account
+checked enablement and Hypershell adoption remain open. The application compiler
+pin and handwritten provider have not changed.
