@@ -207,7 +207,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	if len(networkCases) > 0 {
 		rules = append(rules,
-			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"get"}, "resourceNames": []string{"stego-allocation"}},
+			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"get", "patch"}, "resourceNames": []string{"stego-allocation"}},
 			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"create", "list"}})
 	}
 	if len(identityMaps) > 0 {

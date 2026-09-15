@@ -150,6 +150,10 @@ func TestAllocationManifests(t *testing.T) {
 	}
 	if os.Getenv("STEGO_ALLOCATION_NEXT") == "1" {
 		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+		if peers, ok := p["network_peers"].([]any); ok {
+			peers[0].(object)["port"] = 8081
+			p["network_peers"] = []any{peers[0], peers[2]}
+		}
 		p["bindings"] = p["bindings"].([]any)[:1]
 		p["bindings"].([]any)[0].(object)["service_account"] = "replacement"
 	}

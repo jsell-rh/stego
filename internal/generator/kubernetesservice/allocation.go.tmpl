@@ -199,9 +199,25 @@ func (a *Allocator) networkSpec(p profile, name string) networkSpec {
  return spec
 }
 
+const networkHashAnnotation = "stego.dev/network-spec-sha256"
+
+// networkBytes normalizes API defaults and policy type order for comparisons.
+// Object keys use a stable order. The hash contains no credential and does not
+// replace ownership or admission checks.
+func networkBytes(spec networkSpec) ([]byte,error) {
+ spec.PolicyTypes=nil
+ data,err:=json.Marshal(spec);if err!=nil{return nil,err}
+ var canonical map[string]any
+ if err=json.Unmarshal(data,&canonical);err!=nil{return nil,err}
+ return json.Marshal(canonical)
+}
+func networkHash(data []byte) string { sum:=sha256.Sum256(data);return hex.EncodeToString(sum[:]) }
+
 // requireNetwork verifies the complete declared policy before access is granted.
 // It does not prove that the cluster network plugin has applied the policy.
-// A changed policy is rejected. It is not patched or adopted.
+// Ensure can update an intact owned policy to the current declaration. It
+// returns ErrPending after a write so that the caller observes the result again.
+// RequireNamespace is read-only. Foreign or changed stored content is rejected.
 func (a *Allocator) requireNetwork(ctx context.Context,p profile,name string,owner kube.Owner,create bool)error{
  collection:="/apis/networking.k8s.io/v1/namespaces/"+name+"/networkpolicies"
  current,code,err:=a.client.Request(ctx,http.MethodGet,collection+"/stego-allocation",nil)
@@ -209,6 +225,8 @@ func (a *Allocator) requireNetwork(ctx context.Context,p profile,name string,own
  if code==http.StatusNotFound{
   if !create{return ErrPending}
   meta:=metadata("stego-allocation",owner);meta["namespace"]=name
+  encoded,err:=networkBytes(a.networkSpec(p,name));if err!=nil{return err}
+  meta["annotations"]=kube.Object{networkHashAnnotation:networkHash(encoded)}
   desired:=kube.Object{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":meta,"spec":a.networkSpec(p,name)}
   if _,_,err=a.client.Request(ctx,http.MethodPost,collection,desired);err!=nil{return err}
   current,code,err=a.client.Request(ctx,http.MethodGet,collection+"/stego-allocation",nil)
@@ -229,11 +247,23 @@ func (a *Allocator) requireNetwork(ctx context.Context,p profile,name string,own
  if err=decoder.Decode(&spec);err!=nil||spec.PodSelector==nil||len(spec.PodSelector.MatchLabels)!=0||len(spec.PodSelector.MatchExpressions)!=0||len(spec.PolicyTypes)!=2{return errors.New("invalid allocation network policy shape")}
  if !(spec.PolicyTypes[0]=="Ingress"&&spec.PolicyTypes[1]=="Egress"||spec.PolicyTypes[0]=="Egress"&&spec.PolicyTypes[1]=="Ingress"){return errors.New("allocation network policy must restrict both directions")}
  expected:=a.networkSpec(p,name)
- // Policy type order and omitted empty fields do not change permissions.
- spec.PolicyTypes=nil;expected.PolicyTypes=nil
- actualJSON,err:=json.Marshal(spec);if err!=nil{return err}
- expectedJSON,err:=json.Marshal(expected);if err!=nil{return err}
- if !bytes.Equal(actualJSON,expectedJSON){return errors.New("allocation network policy differs from its declared peers")}
+ actualJSON,err:=networkBytes(spec);if err!=nil{return err}
+ expectedJSON,err:=networkBytes(expected);if err!=nil{return err}
+ storedHash:=kube.Nested(current,"metadata","annotations",networkHashAnnotation)
+ intact:=storedHash==networkHash(actualJSON)
+ if storedHash!=nil&&!intact{return errors.New("allocation network policy content differs from its recorded hash")}
+ matches:=bytes.Equal(actualJSON,expectedJSON)
+ if !matches&&(!create||!intact){return errors.New("allocation network policy differs from its declared peers")}
+ if create&&(!matches||!intact){
+  // A legacy policy without a hash can be sealed only when it already matches
+  // the current declaration. No changed policy is adopted through this path.
+  patchSpec:=kube.Object{"podSelector":kube.Object{"matchLabels":nil,"matchExpressions":nil},"policyTypes":[]string{"Ingress","Egress"},"ingress":nil,"egress":nil}
+  if len(expected.Ingress)>0{patchSpec["ingress"]=expected.Ingress}
+  if len(expected.Egress)>0{patchSpec["egress"]=expected.Egress}
+  patch:=kube.Object{"metadata":kube.Object{"uid":kube.String(current,"metadata","uid"),"resourceVersion":kube.String(current,"metadata","resourceVersion"),"annotations":kube.Object{networkHashAnnotation:networkHash(expectedJSON)}},"spec":patchSpec}
+  if _,_,err=a.client.Request(ctx,http.MethodPatch,collection+"/stego-allocation",patch);err!=nil{return err}
+  return ErrPending
+ }
 
  return nil
 }

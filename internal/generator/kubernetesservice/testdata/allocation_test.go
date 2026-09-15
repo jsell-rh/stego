@@ -31,6 +31,7 @@ type api struct {
 	mutateNetwork   func(kube.Object)
 	incomplete      bool
 	networkList     func(kube.Object)
+	networkPatch    func(kube.Object, kube.Object) int
 }
 
 func fixture(t *testing.T) (*Allocator, *api) {
@@ -151,6 +152,12 @@ func fixture(t *testing.T) (*Allocator, *api) {
 			state.objects[key] = body
 			_ = json.NewEncoder(w).Encode(body)
 		case "PATCH":
+			if strings.Contains(r.URL.Path, "/networkpolicies/") && state.networkPatch != nil {
+				if status := state.networkPatch(current, body); status != 0 {
+					w.WriteHeader(status)
+					return
+				}
+			}
 			if !exists || kube.String(body, "metadata", "uid") != kube.String(current, "metadata", "uid") || kube.String(body, "metadata", "resourceVersion") != kube.String(current, "metadata", "resourceVersion") {
 				w.WriteHeader(409)
 				return
@@ -167,6 +174,20 @@ func fixture(t *testing.T) (*Allocator, *api) {
 						old[key] = value
 					}
 				}
+			}
+			if strings.Contains(r.URL.Path, "/networkpolicies/") {
+				if r.URL.Query().Get("fieldValidation") != "Strict" {
+					t.Error("network patch requires strict validation")
+				}
+				if r.Header.Get("Content-Type") != "application/merge-patch+json" {
+					t.Error("network patch must use merge semantics")
+				}
+				if patch, ok := body["spec"].(map[string]any); ok {
+					mergeNetworkFields(current["spec"].(map[string]any), patch)
+				}
+				var version int
+				fmt.Sscan(kube.String(current, "metadata", "resourceVersion"), &version)
+				meta["resourceVersion"] = fmt.Sprint(version + 1)
 			}
 			_ = json.NewEncoder(w).Encode(current)
 		case "DELETE":
@@ -637,5 +658,25 @@ func TestExternalSubjectNamespace(t *testing.T) {
 	subject := subjects[0].(map[string]any)
 	if kube.String(subject, "namespace") != "operator-system" || kube.String(subject, "name") != "widget-data" {
 		t.Fatal("external subject was rebound to control or allocated namespace")
+	}
+}
+
+// mergeNetworkFields follows JSON Merge Patch deletion and replacement rules.
+func mergeNetworkFields(current, patch map[string]any) {
+	for key, value := range patch {
+		if value == nil {
+			delete(current, key)
+			continue
+		}
+		if fields, ok := value.(map[string]any); ok {
+			target, ok := current[key].(map[string]any)
+			if !ok {
+				target = map[string]any{}
+				current[key] = target
+			}
+			mergeNetworkFields(target, fields)
+		} else {
+			current[key] = value
+		}
 	}
 }

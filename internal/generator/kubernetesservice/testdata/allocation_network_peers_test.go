@@ -2,7 +2,9 @@ package allocation
 
 import (
 	"context"
+	"errors"
 	kube "example.com/widget/out/kubernetes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -63,13 +65,36 @@ func TestAllocationNetworkPeersLifecycle(t *testing.T) {
 	s.mu.Unlock()
 	restarted.config.Profiles[0].NetworkPeers = selectedNetworkPeers()
 	restarted.config.Profiles[0].NetworkPeers[0].Port = 8081
-	if err = restarted.Ensure(ctx, "tenant", networkName, "owner-1"); err == nil {
-		t.Fatal("changed declaration silently adopted")
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+		t.Fatal("old policy permits work under a changed declaration")
+	}
+	if err = restarted.Ensure(ctx, "tenant", networkName, "owner-1"); !errors.Is(err, ErrPending) {
+		t.Fatal("declaration update requires a fresh observation", err)
+	}
+	if err = restarted.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	if len(s.writes) != count+1 || s.writes[count] != "PATCH "+networkPath || kube.String(s.objects[networkPath], "metadata", "uid") != uid || kube.String(s.objects[networkPath], "metadata", "resourceVersion") != "2" {
+		t.Fatal("policy update lost identity or repeated a write", s.writes)
+	}
+	s.mu.Unlock()
+	// Removal must delete prior rules, not leave them through merge semantics.
+	restarted.config.Profiles[0].NetworkPeers = nil
+	if err = restarted.Ensure(ctx, "tenant", networkName, "owner-1"); !errors.Is(err, ErrPending) {
+		t.Fatal(err)
+	}
+	if err = restarted.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.writes) != count {
-		t.Fatal("changed declaration caused a write")
+	spec = s.objects[networkPath]["spec"].(map[string]any)
+	if spec["ingress"] != nil || spec["egress"] != nil || len(s.writes) != count+2 {
+		t.Fatal("retired peers remain", spec, s.writes)
 	}
 }
 
@@ -119,6 +144,108 @@ func TestAllocationNetworkPeersRejectWidening(t *testing.T) {
 			defer s.mu.Unlock()
 			if len(s.writes) != 3 {
 				t.Fatal("changed policy caused binding writes", s.writes)
+			}
+		})
+	}
+}
+
+func TestAllocationNetworkUpdateConflict(t *testing.T) {
+	for _, code := range []int{403, 409, 500} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			a, s := fixture(t)
+			a.config.Profiles[0].NetworkIsolation = true
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			a.config.Profiles[0].NetworkPeers = selectedNetworkPeers()
+			calls := 0
+			s.networkPatch = func(old, patch kube.Object) int {
+				calls++
+				if kube.String(patch, "metadata", "uid") != kube.String(old, "metadata", "uid") || kube.String(patch, "metadata", "resourceVersion") != kube.String(old, "metadata", "resourceVersion") {
+					t.Error("patch lost observed identity")
+				}
+				return code
+			}
+			if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err == nil || errors.Is(err, ErrPending) {
+				t.Fatal("failed patch reported progress", err)
+			}
+			if calls != 1 {
+				t.Fatal("patch was retried without a new observation", calls)
+			}
+			if err := a.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+				t.Fatal("failed patch permitted work")
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if len(s.writes) != 7 || kube.String(s.objects[networkPath], "metadata", "resourceVersion") != "1" {
+				t.Fatal("failed patch caused another write", s.writes)
+			}
+		})
+	}
+}
+
+func TestAllocationNetworkLegacySeal(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		t.Run(fmt.Sprint(changed), func(t *testing.T) {
+			a, s := fixture(t)
+			a.config.Profiles[0].NetworkIsolation = true
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Lock()
+			delete(s.objects[networkPath]["metadata"].(map[string]any), "annotations")
+			s.mu.Unlock()
+			if changed {
+				a.config.Profiles[0].NetworkPeers = selectedNetworkPeers()
+			}
+			err := a.Ensure(ctx, "tenant", networkName, "owner-1")
+			if changed {
+				if err == nil || errors.Is(err, ErrPending) {
+					t.Fatal("changed legacy policy was adopted", err)
+				}
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if len(s.writes) != 6 {
+					t.Fatal("changed legacy policy caused a write")
+				}
+			} else {
+				if !errors.Is(err, ErrPending) {
+					t.Fatal("matching legacy policy was not sealed", err)
+				}
+				if err = a.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+					t.Fatal(err)
+				}
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				if len(s.writes) != 7 || kube.String(s.objects[networkPath], "metadata", "annotations", networkHashAnnotation) == "" {
+					t.Fatal("legacy seal missing or repeated")
+				}
+			}
+		})
+	}
+}
+
+func TestAllocationNetworkHashRejectsChanges(t *testing.T) {
+	for _, hash := range []any{"", strings.Repeat("0", 64), true, map[string]any{"value": "invalid"}} {
+		t.Run(fmt.Sprint(hash), func(t *testing.T) {
+			a, s := fixture(t)
+			a.config.Profiles[0].NetworkIsolation = true
+			s.mutateNetwork = func(o kube.Object) {
+				o["metadata"].(map[string]any)["annotations"].(map[string]any)[networkHashAnnotation] = hash
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err == nil {
+				t.Fatal("changed seal was accepted")
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if len(s.writes) != 3 {
+				t.Fatal("changed seal caused a binding write")
 			}
 		})
 	}

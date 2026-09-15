@@ -145,9 +145,9 @@ The generated runtime and admission policy enforce the complete declared rule
 set. The allocator creates the policy before access bindings. It checks the
 complete policy snapshot on later calls and after restart. A different peer,
 port, protocol, additional policy, or incomplete snapshot stops the call.
-The allocator cannot patch, delete, or adopt a changed policy. To change peers
-for existing allocations, the operator must plan the policy migration. A source
-change alone does not migrate an existing policy.
+Version 1.13.0 rejects all policy changes. Version 1.14.0 adds the controlled
+update path below. The allocator still cannot delete a policy or adopt foreign
+resources.
 
 This mechanism supplies selected traffic within a cluster. It does not yet
 supply external DNS targets or a peer in a different allocation selected by
@@ -163,6 +163,40 @@ covered each declared namespace, Pod selector, port, and protocol, additional
 policy denial, regeneration, and cleanup. No Pods ran. Traffic enforcement and
 the complete Gateway workflow remain required. Full compiler CI passed in
 [run 34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449).
+
+## Controlled network updates
+
+Version 1.14.0 gives the allocator patch access only to NetworkPolicy
+`stego-allocation`. Admission still requires the complete current declaration.
+The operator must install the generated admission policies before starting the
+new allocator. An old allocator cannot restore a rule that the new admission
+policy rejects.
+
+New policies carry `stego.dev/network-spec-sha256`. The runtime computes this
+hash from the complete normalized rule specification. It excludes policy type
+order and omitted empty fields. Object keys use a stable order. This hash is a
+content check, not an authorization credential or a signature. Ownership and
+admission remain required.
+
+On `Ensure`, the allocator first checks the complete policy set, ownership,
+UID, resource version, deletion state, and stored content hash. If the intact
+stored policy differs from the current declaration, it patches the desired
+rules and hash together. The patch carries the observed UID and resource
+version. Retired ingress and egress rules are explicitly removed. A failed
+patch stops the call. The runtime does not read a newer version and retry the
+same change.
+
+A successful patch returns `ErrPending`. The caller must retry from a fresh
+application observation. No binding write follows that patch in the same call.
+`RequireNamespace` remains read-only and rejects a policy that differs from
+its declaration. These checks do not establish when the network plugin has
+applied a rule. The application test must still use fresh network connections.
+
+A legacy policy without a hash can be sealed only when its complete rules
+already match the current declaration. This also returns `ErrPending` and
+requires a fresh observation. A different legacy policy needs an explicit
+migration. An incorrect hash or a changed stored rule stops work; the runtime
+does not silently repair or adopt that content.
 
 ## Fixed network deny policy
 

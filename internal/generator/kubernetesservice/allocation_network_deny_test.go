@@ -53,12 +53,12 @@ func TestAllocationNetworkIsolationManifest(t *testing.T) {
 						if !reflect.DeepEqual(rule["resources"], []any{"networkpolicies"}) {
 							t.Fatal("unexpected network resource permission")
 						}
-						if reflect.DeepEqual(rule["verbs"], []any{"get"}) {
+						if reflect.DeepEqual(rule["verbs"], []any{"get", "patch"}) {
 							if !reflect.DeepEqual(rule["resourceNames"], []any{"stego-allocation"}) {
 								t.Fatal("network read is not restricted by name")
 							}
 						} else if !reflect.DeepEqual(rule["verbs"], []any{"create", "list"}) {
-							t.Fatal("allocator can change or delete a policy")
+							t.Fatal("allocator can change an unrestricted policy or delete a policy")
 						}
 					}
 				}

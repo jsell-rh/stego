@@ -117,6 +117,8 @@ def check_network_policy():
             rule("to", owned, "database", 5432, "TCP"),
             rule("to", "cluster-dns", "dns", 53, "UDP"),
         ]
+    normalized = {key: value for key, value in policy["spec"].items() if key != "policyTypes"}
+    policy["metadata"]["annotations"] = {"stego.dev/network-spec-sha256": hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
     check("declared network policy", ["create", "--dry-run=server", "-f", "-"], policy, good=True)
     invalid = []
     for direction in ("ingress", "egress"):
@@ -179,6 +181,11 @@ def check_network_policy():
     check("create declared network policy", ["create", "-f", "-"], policy, good=True)
     check("allocator reads declared network policy", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
     check("allocator lists the complete policy set", ["get", "networkpolicies", "-n", owned], good=True)
+    if args.network_peers:
+        changed = copy.deepcopy(policy)
+        changed["spec"]["ingress"][0]["ports"][0]["port"] = 8081
+        check("unapproved peer update", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": changed["spec"]}), "--dry-run=server"])
+
     change = json.dumps({"spec": {"ingress": [{}]}})
     check("another actor changes declared policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
     for identity in (actor, None):
@@ -491,6 +498,26 @@ try:
             extra = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "extra", "namespace": owned}, "spec": {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [{}]}}
             check("regenerated policy blocks an extra allow policy", ["create", "--dry-run=server", "-f", "-"], extra, as_user=None)
             check("declared policy survives regeneration", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
+            if args.network_peers:
+                old_policy = json.loads(run(["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "json"], as_user=actor).stdout)
+                spec = copy.deepcopy(old_policy["spec"])
+                spec["ingress"][0]["ports"][0]["port"] = 8081
+                spec["egress"] = spec["egress"][1:]
+                normalized = {key: value for key, value in spec.items() if key != "policyTypes"}
+                digest = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+                patch = {"metadata": {"uid": old_policy["metadata"]["uid"], "resourceVersion": old_policy["metadata"]["resourceVersion"], "annotations": {"stego.dev/network-spec-sha256": digest}}, "spec": spec}
+                check("approved regenerated peer update", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps(patch)], good=True)
+                updated = json.loads(run(["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "json"], as_user=actor).stdout)
+                if updated["metadata"]["uid"] != old_policy["metadata"]["uid"] or updated["metadata"]["resourceVersion"] == old_policy["metadata"]["resourceVersion"] or updated["spec"] != spec:
+                    raise RuntimeError("The policy update did not retain identity and replace the rules")
+                check("stale allocator cannot restore retired peers", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": old_policy["spec"]}), "--dry-run=server"])
+                stale = run(["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps(patch), "--dry-run=server"], as_user=actor, good=False)
+                if "conflict" not in stale.stderr.lower() and "object has been modified" not in stale.stderr.lower():
+                    raise RuntimeError("A stale policy version did not fail through a conflict")
+                evidence.append({"check": "stale policy resource version", "allowed": False, "reason": "conflict"})
+                print("DENY stale policy resource version", flush=True)
+
+
             check("regenerated policy blocks another actor", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": {"egress": [{}]}}), "--dry-run=server"], as_user=None)
         check(
             "retired subject binding delete",
