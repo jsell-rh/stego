@@ -74,8 +74,11 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), active |
+| Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), active; Job `stego-service-ci/service-check`, UID `90da2d62-2964-43f1-8790-0eaf9a443cf7` |
 | Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), active |
+| API gate with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271359](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271359), queued |
+| Browser workflow with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271404](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271404), queued |
+| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), queued |
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
@@ -98,8 +101,8 @@ that separate verifier with the shared JWT runtime and a bounded key source.
 Expanded generated race tests pass. Both examples were regenerated in `a355306`.
 [Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920)
 passed, including both examples, generated authentication race checks, and real
-SQL provisioning. Hypershell is adopting this verified compiler; its new API,
-browser, and full CI gates remain required. Key-source telemetry and performance
+SQL provisioning. Hypershell `752d92e` adopts this verified compiler; its new API,
+browser, and full CI gates above remain required. Key-source telemetry and performance
 evidence remain separate open requirements. These checks do not close all of
 C4 or C6.
 
