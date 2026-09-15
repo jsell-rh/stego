@@ -62,7 +62,7 @@ checks, but it cannot establish a complete application pass.
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
 | Full compiler CI | STEGO `d00bdc3` | [Run 34985081259](https://github.com/jsell-rh/stego/actions/runs/34985081259) passed. It includes compiler checks, SQL provisioning, and both example services. Later STEGO commits change documentation only. |
-| Core application acceptance | Hypershell `3a50db7`, compiler `0b0c932` | [Run 34985981930](https://github.com/jsell-rh/hypershell-stego/actions/runs/34985981930) passed core acceptance with race detection, ordinary browser, console, and image checks. The overall run failed because of CNPG. Sandbox was skipped. See the [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json). |
+| Core application acceptance | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989401887](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989401887) passed core acceptance with race detection in 1269.116 seconds, including the fresh API token audience check after grant synchronization. Regeneration, ordinary browser, console, and image checks passed. The manual workflow skipped CNPG and Sandbox. See the [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json). |
 | Public Gateway checks | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989405950](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989405950) passed public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, and namespace recovery. The full workflow failed because the telemetry fixture rejected extra expected worker instances. Cleanup passed. See the [progress record](hypershell-public-gateway-progress-20260915.json). |
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The public profile requires two allocator, two identity, and four workload instances. The internal profile requires two of each. Every instance still needs metrics and correlated logs and traces. Full runtime verification remains required. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
@@ -74,8 +74,7 @@ The current verification handles are:
 | Check | Source | Handle |
 | --- | --- | --- |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), active when checked |
-| Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), queued behind the earlier core run when checked |
-| Earlier core run | Hypershell `cc8e545` | [34989401887](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989401887), core active; ordinary browser, console, and images passed |
+| Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), active after the earlier core run passed |
 
 Poll these handles before taking further action. A timeout or incomplete log is
 not a terminal result. Inspect the test Job and verify cleanup before a new live
