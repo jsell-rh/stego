@@ -79,6 +79,7 @@ and the
 [address-set update](https://github.com/openshift/ovn-kubernetes/blob/e2082ef4a1aaad8fa5acc7b24880394b60a4e8ae/go-controller/pkg/ovn/dns_name_resolver/dns.go#L151).
 This is source evidence, not a live DNS result. The installed image digest was
 read, but its source commit remains unverified because registry access was
-denied. No registry credential was read. Provider qualification must establish
+denied, including a request with an explicit empty registry auth file. No
+cluster pull Secret was read. Provider qualification must establish
 what happens to old addresses after failed or empty DNS answers. A retry
 interval alone is not an address-removal guarantee.

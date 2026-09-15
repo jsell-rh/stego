@@ -13,8 +13,9 @@
   ],
   "installed_image": "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:0ac13d5f94f47a6276e6b37fa49eeef84e548b3b71eef6ff7bec8a4005b77e0c",
   "installed_source_commit_verified": false,
-  "image_metadata_check": "The registry denied unauthenticated image metadata access. No credential was read or changed.",
+  "image_metadata_check": "The metadata request was denied with an explicit empty registry auth file. No cluster pull Secret was read and no credential was changed.",
   "conclusion": "Do not infer bounded old-address removal after DNS failure from provider support or retry intervals. Qualify the exact installed implementation and its traffic behavior.",
   "cluster_changes": false,
-  "live_dns_test": false
+  "live_dns_test": false,
+  "explicit_anonymous_metadata_check": "denied"
 }
