@@ -16,10 +16,10 @@ Read-only checks on jshell on 2026-09-15 found `OVNKubernetes` and the namespace
 was created, and no DNS-change or traffic-enforcement result is claimed.
 The saved cluster context reports OpenShift 4.22.11.
 
-A question is pending: may STEGO use DNS-aware cluster controls, or must it use
-standard Kubernetes NetworkPolicy only? The first choice can require a network
-provider with supported DNS behavior. The second requires a separate mechanism
-to update approved IP rules. A provider has not been selected or enabled.
+The user approved supported DNS-aware providers on 2026-09-15. Application
+destination declarations must remain independent of the network provider.
+STEGO must reject unsupported configurations and must not enable Technology
+Preview features. No provider implementation has been enabled yet.
 
 For example, the operator approves one PostgreSQL hostname on TCP port 5432.
 An RDS failover can change the address behind that hostname. AWS recommends
@@ -39,9 +39,9 @@ The proposed design keeps destination declarations independent of the network
 provider. STEGO validates and generates the selected enforcement mechanism.
 For in-cluster services, standard Pod and namespace selectors remain useful.
 For external DNS destinations, a provider-specific implementation can be used
-when its support and behavior meet the deployment requirements. The user has
-requested more detail about this choice; no decision has been recorded.
-The proposal does not select OpenShift's Technology Preview resolver.
+when its support and behavior meet the deployment requirements. The approved
+design excludes OpenShift's Technology Preview resolver.
+Provider selection still requires documented support and live traffic evidence.
 
 The acceptance gate must retain these requirements under either choice:
 
@@ -52,5 +52,6 @@ The acceptance gate must retain these requirements under either choice:
    controller restart, regeneration, and denied unrelated destinations.
 5. Tests retain separate Gateway, database, and Sandbox policy boundaries.
 
-The existing public Gateway workflow can continue while this choice is open.
-Its passing result would not prove allocated namespace network isolation.
+The public Gateway workflow has separate evidence for allocated namespace
+network isolation. Those fixed Pod and IP rules do not prove external DNS
+tracking, address replacement, or DNS failure behavior.
