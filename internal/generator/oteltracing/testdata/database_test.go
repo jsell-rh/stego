@@ -3,12 +3,18 @@ package tracing
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -181,4 +187,202 @@ func BenchmarkDatabaseSignals(b *testing.B) {
 			b.ReportMetric(float64(runtime.LocalLogDrops())/float64(b.N), "local_drops/op")
 		})
 	}
+}
+
+// Use database/sql's real pool and wait accounting with a driver that has no
+// network or database. The application test supplies the PostgreSQL check.
+type poolTestConnector struct{}
+
+func (poolTestConnector) Connect(context.Context) (driver.Conn, error) { return poolTestConn{}, nil }
+func (poolTestConnector) Driver() driver.Driver                        { return poolTestDriver{} }
+
+type poolTestDriver struct{}
+
+func (poolTestDriver) Open(string) (driver.Conn, error) { return poolTestConn{}, nil }
+
+type poolTestConn struct{}
+
+func (poolTestConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("unused") }
+func (poolTestConn) Close() error                        { return nil }
+func (poolTestConn) Begin() (driver.Tx, error)           { return nil, errors.New("unused") }
+
+func TestDatabasePoolMetricsLifecycle(t *testing.T) {
+	sink := collectorFixture(t, false)
+	pool := sql.OpenDB(poolTestConnector{})
+	defer pool.Close()
+	pool.SetMaxOpenConns(1)
+	pool.SetMaxIdleConns(1)
+	r, err := NewTracingRuntime(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	collect := func() map[string]*metricpb.Metric {
+		t.Helper()
+		if err := r.signals.meter.ForceFlush(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case batch := <-sink.metrics:
+			for _, resource := range batch.ResourceMetrics {
+				if value(resource.Resource.Attributes, "service.instance.id").GetStringValue() != r.instance {
+					t.Fatal("pool resource identity differs")
+				}
+				for _, scope := range resource.ScopeMetrics {
+					for _, m := range scope.Metrics {
+						if strings.HasPrefix(m.Name, "stego.db.pool.") && scope.Scope.Name != "stego/database" {
+							t.Fatal("pool scope differs")
+						}
+					}
+				}
+			}
+			return metricMap(batch)
+		case <-ctx.Done():
+			t.Fatal("pool metrics missing")
+			return nil
+		}
+	}
+	gauge := func(metrics map[string]*metricpb.Metric, state string) int64 {
+		t.Helper()
+		m := metrics["stego.db.pool.connections"]
+		if m == nil || m.Unit != "{connection}" || len(m.GetGauge().GetDataPoints()) != 2 {
+			t.Fatal("pool connection metric differs", m)
+		}
+		for _, point := range m.GetGauge().GetDataPoints() {
+			if len(point.Attributes) != 1 {
+				t.Fatal("unexpected pool attributes")
+			}
+			if value(point.Attributes, "state").GetStringValue() == state {
+				return point.GetAsInt()
+			}
+		}
+		t.Fatal("pool state missing", state)
+		return -1
+	}
+	first := collect()
+	if gauge(first, "used") != 1 || gauge(first, "idle") != 0 {
+		t.Fatal("held connection is not visible")
+	}
+	limit := first["stego.db.pool.limit"]
+	if limit == nil || len(limit.GetGauge().GetDataPoints()) != 1 || limit.GetGauge().DataPoints[0].GetAsInt() != 1 || len(limit.GetGauge().DataPoints[0].Attributes) != 0 {
+		t.Fatal("pool limit differs", limit)
+	}
+	wait, cancelWait := context.WithTimeout(ctx, 25*time.Millisecond)
+	_, err = pool.Conn(wait)
+	cancelWait()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("pool wait did not expire", err)
+	}
+	stats := pool.Stats()
+	second := collect()
+	for _, name := range []string{"stego.db.pool.waits", "stego.db.pool.wait.duration", "stego.db.pool.connections.closed"} {
+		m := second[name]
+		if m == nil || !m.GetSum().GetIsMonotonic() || m.GetSum().GetAggregationTemporality() != metricpb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE {
+			t.Fatal("pool counter differs", m)
+		}
+	}
+	waits := second["stego.db.pool.waits"].GetSum().DataPoints
+	duration := second["stego.db.pool.wait.duration"].GetSum().DataPoints
+	if len(waits) != 1 || len(duration) != 1 || waits[0].GetAsInt() != stats.WaitCount || stats.WaitCount != 1 || duration[0].GetAsDouble() != stats.WaitDuration.Seconds() || stats.WaitDuration <= 0 || len(waits[0].Attributes) != 0 || len(duration[0].Attributes) != 0 {
+		t.Fatal("pool wait totals differ")
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	third := collect()
+	if gauge(third, "used") != 0 || gauge(third, "idle") != 1 {
+		t.Fatal("released connection is not visible")
+	}
+	pool.SetMaxIdleConns(0)
+	final := collect()
+	closed := final["stego.db.pool.connections.closed"].GetSum().DataPoints
+	if len(closed) != 3 {
+		t.Fatal("pool retirement reasons differ")
+	}
+	for _, point := range closed {
+		reason := value(point.Attributes, "reason").GetStringValue()
+		if len(point.Attributes) != 1 || reason != "idle_limit" && reason != "idle_time" && reason != "lifetime" {
+			t.Fatal("unknown pool retirement reason")
+		}
+		expected := int64(0)
+		if reason == "idle_limit" {
+			expected = 1
+		}
+		if point.GetAsInt() != expected {
+			t.Fatal("pool retirement count differs")
+		}
+	}
+	r.Close()
+	r.Close()
+	// Telemetry must not close the application's pool.
+	after, err := pool.Conn(ctx)
+	if err != nil {
+		t.Fatal("telemetry closed the pool", err)
+	}
+	after.Close()
+}
+
+func TestDatabasePoolMetricsOptionalAndDisabled(t *testing.T) {
+	if r, err := NewTracingRuntime(nil, nil); err == nil || r != nil {
+		t.Fatal("multiple process pools accepted")
+	}
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(disabled), func(t *testing.T) {
+			if disabled {
+				collectorFixture(t, false)
+				t.Setenv("OTEL_METRICS_EXPORTER", "none")
+			} else {
+				t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+			}
+			pool := sql.OpenDB(poolTestConnector{})
+			defer pool.Close()
+			for _, input := range []*sql.DB{nil, pool} {
+				r, err := NewTracingRuntime(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if r.database.poolRegistration != nil {
+					t.Fatal("disabled metric callback registered")
+				}
+				r.Close()
+			}
+		})
+	}
+}
+
+func TestDatabasePoolMetricsCollectorFailure(t *testing.T) {
+	collectorFixture(t, true)
+	pool := sql.OpenDB(poolTestConnector{})
+	defer pool.Close()
+	pool.SetMaxOpenConns(1)
+	r, err := NewTracingRuntime(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	err = r.signals.meter.ForceFlush(ctx)
+	cancel()
+	if err == nil {
+		t.Fatal("blocked collector flush passed")
+	}
+	before := time.Now()
+	r.Close()
+	if time.Since(before) > ShutdownTimeout+time.Second {
+		t.Fatal("pool metrics delayed shutdown")
+	}
+	use, cancelUse := context.WithTimeout(context.Background(), time.Second)
+	defer cancelUse()
+	conn, err := pool.Conn(use)
+	if err != nil {
+		t.Fatal("collector failure changed pool access", err)
+	}
+	conn.Close()
 }

@@ -50,7 +50,13 @@ var databaseTests []byte
 //go:embed testdata/browser_test.go
 var browserTests []byte
 
-func TestGeneratedTracing(t *testing.T) {
+func TestGeneratedTracing(t *testing.T) { testGeneratedTracing(t, "") }
+
+func TestGeneratedDatabasePoolTelemetry(t *testing.T) {
+	testGeneratedTracing(t, "^TestDatabasePoolMetrics")
+}
+
+func testGeneratedTracing(t *testing.T, pattern string) {
 	files, wiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "records"})
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +89,16 @@ func TestGeneratedTracing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy", "-go=1.26.0"}, {"vet", "./..."}, {"test", "-race", "-count=1", "-timeout=60s", "./..."}} {
+	commands := [][]string{{"mod", "tidy", "-go=1.26.0"}}
+	if pattern == "" {
+		commands = append(commands, []string{"vet", "./..."})
+	}
+	testArgs := []string{"test", "-race", "-count=1", "-timeout=60s"}
+	if pattern != "" {
+		testArgs = append(testArgs, "-run", pattern)
+	}
+	commands = append(commands, append(testArgs, "./..."))
+	for _, args := range commands {
 		command := exec.Command("go", args...)
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")

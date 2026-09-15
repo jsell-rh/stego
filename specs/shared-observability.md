@@ -94,3 +94,8 @@ The [database driver contract](database-observability.md) defines common pool
 ownership and context-bound PostgreSQL call signals. SQL text, arguments, and
 connection details are excluded. Pool statistics, startup work, the separate
 PostgreSQL read client, and unbound workers remain open requirements.
+
+The [pool metric contract](database-pool-metrics.md) adds automatic statistics
+for the pool owned by generated service assembly. The compiler supplies the
+existing pool through an optional typed resource. Independent runtime and
+application checks must verify this change before its gate can close.

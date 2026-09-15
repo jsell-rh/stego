@@ -382,3 +382,7 @@ type Resource string
 
 const ServiceContext Resource = "service-context"
 const SQLDatabase Resource = "sql-database"
+
+// OptionalSQLDatabase supplies the process pool, or nil when no consumed
+// constructor requires a database. It does not create a database dependency.
+const OptionalSQLDatabase Resource = "optional-sql-database"

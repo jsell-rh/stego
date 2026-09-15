@@ -42,7 +42,7 @@ func validateConstructorMetadata(wirings []ComponentWiring) error {
 				return err
 			}
 			for _, resource := range w.ConstructorResources[index] {
-				if resource != gen.ServiceContext && resource != gen.SQLDatabase {
+				if resource != gen.ServiceContext && resource != gen.SQLDatabase && resource != gen.OptionalSQLDatabase {
 					return fmt.Errorf("component %q requests unsupported resource %q", component.Name, resource)
 				}
 			}

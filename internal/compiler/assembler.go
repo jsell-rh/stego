@@ -1145,10 +1145,13 @@ func writeConstructors(buf *bytes.Buffer, input AssemblerInput, slotVarsByCollec
 			switch resource {
 			case gen.ServiceContext:
 				expr = injectConstructorArgs(expr, []string{"ctx"})
-			case gen.SQLDatabase:
+			case gen.SQLDatabase, gen.OptionalSQLDatabase:
 				name := "db"
 				if isGORM {
 					name = "sqlDB"
+				}
+				if resource == gen.OptionalSQLDatabase && !hasDB {
+					name = "nil"
 				}
 				expr = injectConstructorArgs(expr, []string{name})
 			}

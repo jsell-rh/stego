@@ -4,6 +4,7 @@ package {{.Package}}
 
 import (
 	"context"
+ "database/sql"
 	"errors"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 )
 
 type databaseSignals struct {
+ poolRegistration metric.Registration
 	tracer   trace.Tracer
 	logger   otellog.Logger
 	duration metric.Float64Histogram
@@ -124,4 +126,37 @@ func TraceDatabase(ctx context.Context, call string) (context.Context, func(stri
 			}
 		})
 	}
+}
+
+// observeDatabasePool reads one process-owned pool when the SDK collects metrics.
+// It does not open connections, run SQL, or take ownership of pool closure.
+func (r *Runtime) observeDatabasePool(pool *sql.DB) error {
+ if r.signals.meter==nil { return nil }
+ meter:=r.signals.meter.Meter("stego/database")
+ connections,err:=meter.Int64ObservableGauge("stego.db.pool.connections",metric.WithUnit("{connection}"))
+ if err!=nil{return errors.New("cannot create database pool metric")}
+ limit,err:=meter.Int64ObservableGauge("stego.db.pool.limit",metric.WithUnit("{connection}"))
+ if err!=nil{return errors.New("cannot create database pool metric")}
+ waits,err:=meter.Int64ObservableCounter("stego.db.pool.waits",metric.WithUnit("{wait}"))
+ if err!=nil{return errors.New("cannot create database pool metric")}
+ duration,err:=meter.Float64ObservableCounter("stego.db.pool.wait.duration",metric.WithUnit("s"))
+ if err!=nil{return errors.New("cannot create database pool metric")}
+ closed,err:=meter.Int64ObservableCounter("stego.db.pool.connections.closed",metric.WithUnit("{connection}"))
+ if err!=nil{return errors.New("cannot create database pool metric")}
+ registration,err:=meter.RegisterCallback(func(ctx context.Context, observer metric.Observer)error{
+  if err:=ctx.Err();err!=nil{return err}
+  stats:=pool.Stats()
+  observer.ObserveInt64(connections,int64(stats.InUse),metric.WithAttributes(attribute.String("state","used")))
+  observer.ObserveInt64(connections,int64(stats.Idle),metric.WithAttributes(attribute.String("state","idle")))
+  observer.ObserveInt64(limit,int64(stats.MaxOpenConnections))
+  observer.ObserveInt64(waits,stats.WaitCount)
+  observer.ObserveFloat64(duration,stats.WaitDuration.Seconds())
+  observer.ObserveInt64(closed,stats.MaxIdleClosed,metric.WithAttributes(attribute.String("reason","idle_limit")))
+  observer.ObserveInt64(closed,stats.MaxIdleTimeClosed,metric.WithAttributes(attribute.String("reason","idle_time")))
+  observer.ObserveInt64(closed,stats.MaxLifetimeClosed,metric.WithAttributes(attribute.String("reason","lifetime")))
+  return nil
+ },connections,limit,waits,duration,closed)
+ if err!=nil{return errors.New("cannot observe database pool")}
+ r.database.poolRegistration=registration
+ return nil
 }
