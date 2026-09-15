@@ -1,0 +1,74 @@
+{
+  "checked_at": "2026-09-15T18:36:02.635862+00:00",
+  "read_only": true,
+  "network_type": "OVNKubernetes",
+  "cluster_networks": [
+    {
+      "cidr": "10.128.0.0/14",
+      "hostPrefix": 23
+    }
+  ],
+  "service_networks": [
+    "172.30.0.0/16"
+  ],
+  "egress_firewall_crd_uid": "2803e387-2c5c-46fd-ab9c-9f64b9a7796a",
+  "egress_firewall_schemas": [
+    {
+      "version": "v1",
+      "served": true,
+      "status_schema": {
+        "description": "Observed status of EgressFirewall",
+        "properties": {
+          "messages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "x-kubernetes-list-type": "set"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ],
+  "feature_set": "Default",
+  "dns_features": [
+    {
+      "version": "4.22.11",
+      "name": "AzureClusterHostedDNSInstall",
+      "state": "enabled"
+    },
+    {
+      "version": "4.22.11",
+      "name": "AWSClusterHostedDNS",
+      "state": "disabled"
+    },
+    {
+      "version": "4.22.11",
+      "name": "AWSClusterHostedDNSInstall",
+      "state": "disabled"
+    },
+    {
+      "version": "4.22.11",
+      "name": "DNSNameResolver",
+      "state": "disabled"
+    },
+    {
+      "version": "4.22.11",
+      "name": "OnPremDNSRecords",
+      "state": "disabled"
+    }
+  ],
+  "cilium_network_policy_api_present": false,
+  "provider_enabled_by_stego": false,
+  "traffic_tests_performed": false,
+  "required_checks": [
+    "Combine provider policy and namespace policy without broad access if either configuration is missing.",
+    "Preserve public router reply traffic and approved Kubernetes access.",
+    "Test address replacement, address removal, resolver failure, and controller restart with fresh connections.",
+    "Check the supported provider version and reject Technology Preview requirements."
+  ]
+}

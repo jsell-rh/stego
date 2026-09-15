@@ -55,3 +55,16 @@ The acceptance gate must retain these requirements under either choice:
 The public Gateway workflow has separate evidence for allocated namespace
 network isolation. Those fixed Pod and IP rules do not prove external DNS
 tracking, address replacement, or DNS failure behavior.
+
+The [capability check](allocated-network-dns-capabilities-20260915.json) used
+read-only cluster requests. The cluster uses the Default feature set, with
+DNSNameResolver disabled. The EgressFirewall API is present; the Cilium policy
+API is absent. API presence alone does not prove support or enforcement.
+No provider or cluster feature was enabled by this check.
+
+Provider acceptance must include the complete public Gateway workflow.
+OpenShift documents router bypass and return-traffic limits for EgressFirewall.
+The generated policy must preserve approved replies without permitting unrelated
+outgoing connections. The EgressFirewall status schema has no observed-generation
+field, so a status string alone cannot prove that a changed rule is enforced.
+Keep live address replacement, removal, and denied connection checks in the gate.
