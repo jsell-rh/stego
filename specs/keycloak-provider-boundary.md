@@ -213,7 +213,8 @@ removal, direct and effective roles, each client binding, and disablement.
 The operation does not configure token claims. Detaching a shared scope also
 removes its mappers. Explicit client mappers and issued-token checks are required
 before enablement. Small generated tests passed with the race detector, with
-and without telemetry. The real Keycloak scope test is pending. Sources and
+and without telemetry. The real Keycloak scope test passed at `6360ce4` in
+[run 35030627861](https://github.com/jsell-rh/stego/actions/runs/35030627861). Sources and
 results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-scopes-20260915`.
 The scope endpoints follow the
@@ -233,8 +234,15 @@ writes, partial failure recovery, and stable mapper IDs. The first check failed
 because adjacent Go braces were read as a template action. The correction and
 both results are retained in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-mappers-20260915`.
-The live extension is pending. It will check signed token identity, exact
-audiences and roles, lifetime, and metadata for two different policies.
+The live extension passed at `6360ce42bddda4dd48cc8061abb225dcd1d450c0` in
+[run 35030627861](https://github.com/jsell-rh/stego/actions/runs/35030627861).
+It checked signed token identity, exact audiences and roles, lifetime, and
+metadata for two different policies. It also checked stable mapper IDs, exact
+configuration repair, shared scope preservation, and scope permission denial.
+The complete provider test took 45.75 seconds. Container cleanup passed. Four
+CI jobs passed; the full compiler job was still running when this result was
+recorded. Generated source and results are retained under `live-ci` in the
+mapper result directory.
 Production enablement is not part of this change. The test uses a separate,
 explicit fixture action to enable its disposable client.
 
