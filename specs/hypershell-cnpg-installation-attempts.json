@@ -91,8 +91,15 @@
         "operator/cnpg-created.json": "4d8f6b6b09628f9ea2a9de58927d116b0121abc4bdbfc00d07fd65e06e3153ce",
         "operator/cnpg-cleanup-requested.json": "1e5d766e84fc3d467af1d1cf9dd8aa2f6adbd884ced81474b8a39f41aa191286"
       }
+    },
+    {
+      "source_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
+      "status": "application_passed_cleanup_read_failed_manual_cleanup_verified",
+      "workflow_seconds": 462.01,
+      "job_uid": "1a1b0d0a-b035-401c-acec-5056028dbfcc",
+      "evidence": "cnpg-installation-evidence.json"
     }
   ],
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/7f3b13951dabd37001f40bdbc5033f0b0a2a7a12/acceptance/cnpg-installation-attempts.json",
-  "source_record_sha256": "1d199c259165e3c9cb816d2781e75a7ec6695346f8dfcb8e1cc35aa74c64e07f"
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/c86526bf0b63604ed2c03e857d1be9c9973cd904/acceptance/cnpg-installation-attempts.json",
+  "source_record_sha256": "ad911437f9b0a7a9764a9904589f5def0d7032d45583c40aeac53996c1473bab"
 }

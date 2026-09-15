@@ -3828,3 +3828,37 @@ role. The public revocation and Gateway access rules remain. This is an
 installation fixture change; the common runtime has no CNPG role name. Frozen
 generation passed. The third attempt now repeats the full application workflow
 with that correction. Both earlier failures remain in the attempt record.
+
+The supplied CNPG browser workflow passed for Hypershell `327f24c` in 462.01
+seconds. CNPG promoted the second instance and recovered the former primary
+as a replica in 69.44 seconds. SQL identities, Gateway keys, credentials,
+provider data, and installation data remained. Namespace recovery took 44.15
+seconds. Encryption, access denial, events, REST and gRPC, controller replacement,
+telemetry, session renewal, logout, and both Gateway deletions passed.
+
+The final cleanup list read failed, so the original runner returned failure.
+Its error text was not retained. A repeat read succeeded. Separate read-only
+checks confirmed absence of application data, allocations, the CNPG namespace,
+all 26 operator resources, and both recorded volumes. The shared Lease is free.
+The [evidence record](hypershell-cnpg-installation-evidence.json) preserves the
+application pass, nonzero runner result, and manual cleanup verification. All
+881 source files, 229 generated files, three generation records, access checks,
+and admission probes were verified. This does not establish unattended CNPG CI.
+
+Hypershell `2bc2b2c` bounds cleanup reads to three attempts and keeps failures
+closed. The outer runner also checks labeled test data before lock release.
+Four small boundary tests passed. The fixed read-only cleanup check also passed
+against the empty live test namespace. No production runtime changed.
+
+Full CI `34943002657` later failed the Sandbox count access-loss test. A denied
+write could stop the watch before its change acknowledgement. Hypershell
+`ee79099` permits that cancellation while it still requires the final controller
+result to be PermissionDenied. Its one focused test passed. Full CI remains
+required. The earlier complete core pass remains recorded but does not replace
+this failed result.
+
+The API continues to omit `database_id` and the database catalog. It rejects
+retired input fields, including empty and null values. Installation-supplied
+PostgreSQL and CNPG use the same generated SQL lifecycle. Actual RDS, unattended
+CNPG CI, Sandbox VM isolation, external connection behavior, and the broader
+enterprise requirements remain open. The goal remains active.

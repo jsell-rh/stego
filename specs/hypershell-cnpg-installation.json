@@ -1,7 +1,7 @@
 {
   "application_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
   "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
-  "status": "maintenance_grant_corrected_third_attempt_running",
+  "status": "application_passed_cleanup_read_failed_manual_cleanup_verified",
   "local_inspection_tests_passed": 8,
   "frozen_generation": "passed",
   "fixture_changed_files": [
@@ -18,11 +18,20 @@
   },
   "ci_scope": "Default API and browser runs were cancelled before Jobs started. The next live slot is for the CNPG installation workflow.",
   "remaining": [
-    "Run the complete browser workflow with CNPG selected.",
-    "Verify generated source, runtime behavior, preserved data, and final cleanup.",
-    "Provide a secure unattended CI installation path."
+    "Complete unattended CNPG CI with a secure installation identity.",
+    "Confirm the cleanup retry change in a complete unattended run.",
+    "Complete core CI for the access-loss acknowledgement test correction.",
+    "Test actual RDS, backup recovery, and infrastructure failure behavior."
   ],
   "local_boundary_tests_passed": 29,
   "live_source_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
-  "attempt_record": "hypershell-cnpg-installation-attempts.json"
+  "attempt_record": "hypershell-cnpg-installation-attempts.json",
+  "evidence": "hypershell-cnpg-installation-evidence.json",
+  "workflow_seconds": 462.01,
+  "cnpg_recovery_seconds": 69.435484805,
+  "namespace_recovery_seconds": 44.150876193,
+  "source_files_verified": 881,
+  "generated_files_verified": 229,
+  "cleanup_retry_boundary_tests_passed": 4,
+  "cleanup_retry_correction_commit": "2bc2b2c37361d88c454b2e60edaf0d0a6cfa3e46"
 }

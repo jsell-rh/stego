@@ -1,0 +1,151 @@
+{
+  "run": "/tmp/hypershell-cnpg-installation-run-v3",
+  "application_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
+  "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+  "result": "application_passed_cleanup_read_failed_manual_cleanup_verified",
+  "workflow_seconds": 462.01,
+  "source_files_checked": 881,
+  "generated_files_checked": 229,
+  "ci_access_checks": 16,
+  "application_access_checks": 57,
+  "admission_probes": 6,
+  "operator_cluster_resources": 18,
+  "job_uid": "1a1b0d0a-b035-401c-acec-5056028dbfcc",
+  "cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "generation_sha256": "9d7c1591cd2071c637c87de22e98a3edeb959552809258177f713e3003a10342",
+  "artifact_sha256": {
+    "deployment.log": "89a5bbfa93a3f84785eed72f85eac645b1f5c258d2e6fff9c9df712522cfb630",
+    "evidence.tar": "04e27566b8bb59bbf5f8c9fd23fc905947a068c6b804f11170df47a46fc564e6",
+    "job-status.json": "a41b2debc931f3647bc06861853819194454b3781faea9365dbaf437f9291a6b",
+    "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
+    "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13",
+    "cnpg-run.json": "d77405718b81c3314e3cef03b866f925bd98f9ee2294e4c280d9470e5ff34493",
+    "cnpg-server-ready.json": "aff7a6403b029c22fbe0c12498d6821f65d5bac8f1bd49b0673f1ff9d00fb252",
+    "cnpg-server-cleanup.json": "1bf78a69d338dd93dcc97c58fadc305642910ef172afcf600577fa1566d76bd7",
+    "browser-run.log": "496ea758d789d7b4ba0a9be4031e4bb7861bade1cbe64d6e10253debdc2cc597",
+    "manual-cleanup/cleanup.json": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232",
+    "manual-cleanup/installation-cleanup.json": "57fdd2aa1b2c5ff1e733f790a86a7f4d118cda7318f69a9bba932627ba4e3470",
+    "manual-cleanup/allocation-absence.json": "cde50eb845d1869946598366716ef902a6fbcb7636d328f476f436fc476b54c3",
+    "operator/cnpg-created.json": "00f9177aba7737a60bb856b4b39233e79a2e5b50b43e5b03be7c4a4203da1299",
+    "operator/cnpg-cleanup-requested.json": "1e5d766e84fc3d467af1d1cf9dd8aa2f6adbd884ced81474b8a39f41aa191286",
+    "installation-volumes.json": "141e990632cf64295a20d54fd24f7d0afb0ec713323d4f1602dc388ea8d9cd49"
+  },
+  "images": {
+    "image.json": "sha256:307d8a7e6623183d271b5a61a748ab89e262f8277464d557c155897142f3cf65",
+    "console-image.json": "sha256:a001ba22f6ebf0a568b1cb6b2bdc9965a2ef3148c74bb4b09f50fe9bce7605af",
+    "provisioner-image.json": "sha256:583a96da6a8361e9205d7d3f7d429c0b664d68f02d701bf68b5a9fced1f826ff",
+    "namespace-allocation-image.json": "sha256:ffb5c7efaab9b8fb748ae16055a07b299f0672494c5999129799ac172c52d81f",
+    "gateway-identity-image.json": "sha256:5a2c8e615eddffd98cb901ecaf8aa10fceff0d403c0defb6dccdfd81e4b9f434",
+    "gateway-workload-image.json": "sha256:ce9cbe87bef9d3dfa45cda4c312fc5f3ffb442f573ee5a6a9cf1b4795d091f4f"
+  },
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "namespace_replacement": {
+    "controller_pods_unchanged": {
+      "hypershell-gateway-identity": "784a7b16-06d5-40df-9d7a-11d4d629d980",
+      "hypershell-gateway-workload": "91cfb9a9-f0eb-43f2-aafa-880899795ac1",
+      "hypershell-namespace-allocation": "5be72994-51c3-47d3-897c-d7fe6322c615"
+    },
+    "database_and_role_oids_unchanged": true,
+    "gateway_id": "3JMATF7XRUMdQeOj0V2eHqTaoOL",
+    "namespace": "openshell-0bda212c39090923",
+    "new_deployment_uid": "5c87f643-6365-4f40-818f-e07a68e896ba",
+    "new_namespace_uid": "65246d59-ef7f-49f8-ac43-1ca7aa9b8cb2",
+    "old_deployment_uid": "4891d294-d919-4e5c-927d-bddbcea22b82",
+    "old_namespace_uid": "893ef491-def1-4933-bed0-edd0bfead0de",
+    "other_gateway_sql_unchanged": true,
+    "provider_data_unchanged": true,
+    "seconds": 44.150876193,
+    "source_data_unchanged": true,
+    "source_secret_uid": "4f779c7b-fbbd-40b2-88e7-9d828e320d8d",
+    "sql_credentials_unchanged": true,
+    "state_namespace_uid": "319a3be8-8189-42f6-ba2d-fdc88c55c476",
+    "ungranted_rpc_denied": true
+  },
+  "sql_cleanup_denial": {
+    "cleanup_pending": true,
+    "gateway_id": "3JMATF7XRUMdQeOj0V2eHqTaoOL",
+    "ledger_state": "deleting",
+    "other_gateway_ready": true,
+    "source_data_unchanged": true,
+    "source_secret_uid": "4f779c7b-fbbd-40b2-88e7-9d828e320d8d",
+    "sql_object_ids_unchanged": true,
+    "sqlstate": "42501"
+  },
+  "credential_encryption": {
+    "after_namespace_recovery": true,
+    "algorithm": "AES-256-GCM",
+    "altered_value_context_rejected": true,
+    "altered_value_rejected": true,
+    "altered_wrapped_key_rejected": true,
+    "altered_wrapping_context_rejected": true,
+    "authenticated_plaintext_matches": true,
+    "envelope_version": 1,
+    "gateway_id": "3JMATF7XRUMdQeOj0V2eHqTaoOL",
+    "no_plaintext_or_base64_in_object_payloads": true,
+    "object_rows": 4,
+    "other_gateway_key_rejected": true,
+    "retained_key_unwrapped_data_key": true,
+    "stored_envelopes": 1
+  },
+  "execution": "manual_operator_installation_restricted_ci_application",
+  "cnpg_restart": {
+    "cluster_spec_unchanged": true,
+    "cluster_uid": "0ea5578b-15ed-4f8a-a3d3-512f3054bcf9",
+    "gateway_credentials_and_keys_unchanged": true,
+    "installation_data_unchanged": true,
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "e560872a-cc68-4687-9a67-15cf457a87a1",
+    "new_primary": "gateway-database-2",
+    "new_primary_pod_uid": "38478dc4-9c0d-43e8-bc76-5a00263a61e2",
+    "old_pod_uid": "0c05676a-db04-49a5-8430-21768cb83f72",
+    "old_primary": "gateway-database-1",
+    "primary_changed": true,
+    "provider_data_unchanged": true,
+    "ready_instances": 2,
+    "seconds": 69.435484805,
+    "sql_object_ids_unchanged": true
+  },
+  "cnpg_installation": {
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "e560872a-cc68-4687-9a67-15cf457a87a1",
+    "cluster_uid": "0ea5578b-15ed-4f8a-a3d3-512f3054bcf9",
+    "image": "ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:14e57107afc9bcdd085ed6593c67743723718f167da512326ddb2f7904cc4576",
+    "ready_instances": 2,
+    "storage_class": "gp3-csi"
+  },
+  "manual_cleanup": {
+    "operator_resources_absent": 26,
+    "database_namespace_absent": true,
+    "private_fixture_absent": true,
+    "recorded_persistent_volumes_absent": true,
+    "shared_lease_free": true,
+    "allocations_absent": true
+  },
+  "runner_result": "failed_with_cleanup",
+  "cleanup_read_failure": {
+    "resource": "networkpolicies",
+    "original_error": "The final list command returned a nonzero result; its error text was not retained.",
+    "repeat_read": "success",
+    "correction_commit": "2bc2b2c",
+    "bounded_retry_tests_passed": 4
+  },
+  "installation_source_hash_note": "The immutable operator record retains the committed production worker template hash. The CNPG fixture adds one namespace and Pod egress selector. All generated cluster policies remain byte-identical.",
+  "limits": [
+    "Manual operator installation with a restricted CI application identity; no unattended CNPG CI pass.",
+    "The original runner exit remains nonzero because of the final cleanup read failure. Separate reads verified complete cleanup.",
+    "Primary Pod deletion and recovery were tested; sudden infrastructure loss, backup restore, and a zero-data-loss objective were not tested.",
+    "Actual RDS, Sandbox VM isolation, and the external Gateway connection interface remain open.",
+    "The screenshot shows a healthy Gateway, but its connection instructions have no external endpoint.",
+    "The later full core CI result failed a cancellation acknowledgement assertion; its correction still requires full CI."
+  ],
+  "core_test_correction_commit": "ee79099cb241f4b9af1a44acab84602a54e6ddc1",
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/c86526bf0b63604ed2c03e857d1be9c9973cd904/acceptance/cnpg-installation-evidence.json",
+  "source_record_sha256": "165147771aab8540423c235e41ec7defb2683df6799148c9329da1693d7ae1d7"
+}
