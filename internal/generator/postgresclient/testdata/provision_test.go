@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	metricSDK "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	traceSDK "go.opentelemetry.io/otel/sdk/trace"
@@ -566,7 +565,7 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	}
 }
 
-func TestDatabaseProvisionSignalsExcludePrivateValues(t *testing.T) {
+func TestDatabaseClientDoesNotUseGlobalProviders(t *testing.T) {
 	previousTrace, previousMeter, previousLog := otel.GetTracerProvider(), otel.GetMeterProvider(), slog.Default()
 	exporter := tracetest.NewInMemoryExporter()
 	traces := traceSDK.NewTracerProvider(traceSDK.WithSyncer(exporter))
@@ -592,50 +591,15 @@ func TestDatabaseProvisionSignalsExcludePrivateValues(t *testing.T) {
 	if err := session.quarantine(databaseRecord{}, 0); !errors.Is(err, ErrDatabaseIsolation) {
 		t.Fatal("invalid quarantine bound accepted", err)
 	}
-	spans := exporter.GetSpans()
-	if len(spans) != 2 {
-		t.Fatal("missing database spans")
-	}
-	for index, name := range []string{"postgres.database.ensure", "postgres.database.quarantine"} {
-		if spans[index].Name != name || spans[index].Status.Code != codes.Error || spans[index].Parent.SpanID() != parent.SpanContext().SpanID() {
-			t.Fatal("missing correlated database span")
-		}
+	if len(exporter.GetSpans()) != 0 {
+		t.Fatal("an unbound client used the global tracer")
 	}
 	parent.End()
 	var measured metricdata.ResourceMetrics
 	if err = reader.Collect(context.Background(), &measured); err != nil {
 		t.Fatal(err)
 	}
-	count := uint64(0)
-	for _, scope := range measured.ScopeMetrics {
-		for _, m := range scope.Metrics {
-			if m.Name == "stego.postgres.database.duration" {
-				histogram, ok := m.Data.(metricdata.Histogram[float64])
-				if !ok {
-					t.Fatal("wrong duration instrument")
-				}
-				for _, point := range histogram.DataPoints {
-					count += point.Count
-					if point.Attributes.Len() != 2 {
-						t.Fatal("unbounded metric attributes")
-					}
-				}
-			}
-		}
-	}
-	if count != 2 || !strings.Contains(logs.String(), "postgres.database.completed") || !strings.Contains(logs.String(), `"operation":"quarantine"`) {
-		t.Fatal("missing database metric or log")
-	}
-	for _, private := range []string{"private-administrator", "private-scope", "private-resource", "private-database", "private-owner", "private-login", strings.Repeat("a", 64)} {
-		if strings.Contains(logs.String(), private) {
-			t.Fatal("private value reached a database log")
-		}
-		for _, span := range spans {
-			for _, value := range span.Attributes {
-				if strings.Contains(value.Value.AsString(), private) {
-					t.Fatal("private value reached a database span")
-				}
-			}
-		}
+	if len(measured.ScopeMetrics) != 0 || logs.Len() != 0 {
+		t.Fatal("an unbound client used global metrics or logging")
 	}
 }

@@ -19,7 +19,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestDatabaseSignals(t *testing.T) {
+func TestDatabaseSignals(t *testing.T)          { testDatabaseSignals(t, false) }
+func TestPostgresOperationSignals(t *testing.T) { testDatabaseSignals(t, true) }
+func testDatabaseSignals(t *testing.T, provision bool) {
+	signal, scopeName, callName, knownCall, event, durationMetric, activeMetric := TraceDatabase, "stego/database", "stego.db.call", "prepare", "db.client.operation.completed", "db.client.operation.duration", "stego.db.active_calls"
+	if provision {
+		signal = TracePostgresOperation
+		scopeName = "stego/postgres-client"
+		callName = "operation"
+		knownCall = "quarantine"
+		event = "postgres.database.completed"
+		durationMetric = "stego.postgres.database.duration"
+		activeMetric = "stego.postgres.database.active"
+	}
+
 	for _, sample := range []string{"1", "0"} {
 		t.Run(sample, func(t *testing.T) {
 			sink := collectorFixture(t, false)
@@ -33,13 +46,13 @@ func TestDatabaseSignals(t *testing.T) {
 			expected := map[string]string{}
 			var childID, parentID string
 			for _, outcome := range []string{"success", "failure", "canceled", "deadline", "aborted", "private-outcome"} {
-				ctx, finish := TraceDatabase(r.Context(context.Background()), "private-call")
+				ctx, finish := signal(r.Context(context.Background()), "private-call")
 				sc := trace.SpanContextFromContext(ctx)
 				if !sc.IsValid() {
 					t.Fatal("database has no span context")
 				}
 				if outcome == "success" {
-					child, done := TraceDatabase(ctx, "prepare")
+					child, done := signal(ctx, knownCall)
 					childID = trace.SpanContextFromContext(child).SpanID().String()
 					parentID = sc.SpanID().String()
 					done("success")
@@ -76,16 +89,16 @@ func TestDatabaseSignals(t *testing.T) {
 				check(batch)
 				for _, res := range batch.ResourceLogs {
 					for _, scope := range res.ScopeLogs {
-						if scope.Scope.Name != "stego/database" {
+						if scope.Scope.Name != scopeName {
 							continue
 						}
 						for _, record := range scope.LogRecords {
-							if value(record.Attributes, "stego.db.call").GetStringValue() == "prepare" {
+							if value(record.Attributes, callName).GetStringValue() == knownCall {
 								continue
 							}
 							id := hex.EncodeToString(record.SpanId)
 							outcome, ok := expected[id]
-							if !ok || record.EventName != "db.client.operation.completed" || value(record.Attributes, "outcome").GetStringValue() != outcome {
+							if !ok || record.EventName != event || value(record.Attributes, "outcome").GetStringValue() != outcome {
 								t.Fatal("wrong database completion")
 							}
 							logs++
@@ -109,17 +122,17 @@ func TestDatabaseSignals(t *testing.T) {
 				check(batch)
 				for _, res := range batch.ResourceMetrics {
 					for _, scope := range res.ScopeMetrics {
-						if scope.Scope.Name != "stego/database" {
+						if scope.Scope.Name != scopeName {
 							continue
 						}
 						for _, m := range scope.Metrics {
 							switch m.Name {
-							case "db.client.operation.duration":
+							case durationMetric:
 								total = 0
 								for _, p := range m.GetHistogram().DataPoints {
 									total += p.Count
 								}
-							case "stego.db.active_calls":
+							case activeMetric:
 								for _, p := range m.GetSum().DataPoints {
 									active = p.GetAsInt()
 								}
@@ -139,10 +152,54 @@ func TestDatabaseSignals(t *testing.T) {
 			} else if len(spans) != 0 {
 				t.Fatal("unsampled database exported spans")
 			}
-			if strings.Contains(local.String(), "private-") || strings.Count(local.String(), `"event.name":"db.client.operation.completed"`) != 7 {
+			if strings.Contains(local.String(), "private-") || strings.Count(local.String(), `"event.name":"`+event+`"`) != 7 {
 				t.Fatal("local database completion failed")
 			}
 		})
+	}
+}
+
+func TestPostgresOperationLocalAndCollectorFailure(t *testing.T) {
+	traceEnvironment(t)
+	var local bytes.Buffer
+	r, err := newRuntime(&local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, done := TracePostgresOperation(r.Context(context.Background()), "ensure")
+	done("success")
+	done("failure")
+	r.Close()
+	_, done = TracePostgresOperation(r.Context(context.Background()), "delete")
+	done("failure")
+	if strings.Count(local.String(), `"event.name":"postgres.database.completed"`) != 1 || !strings.Contains(local.String(), `"operation":"ensure"`) {
+		t.Fatal("disabled export lost bounded local logging")
+	}
+	_, done = TracePostgresOperation(nil, "private-operation")
+	done("private-outcome")
+	_, done = TracePostgresOperation(context.Background(), "private-operation")
+	done("private-outcome")
+
+	collectorFixture(t, true)
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")
+	r, err = newRuntime(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	start := time.Now()
+	for range 16 {
+		_, done = TracePostgresOperation(r.Context(context.Background()), "ensure")
+		done("success")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("blocked collector delayed client completions")
+	}
+	start = time.Now()
+	r.Close()
+	if time.Since(start) > ShutdownTimeout+time.Second {
+		t.Fatal("blocked collector exceeded the shared close bound")
 	}
 }
 

@@ -12,16 +12,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/trace"
+ {{if .Tracing}}telemetry {{printf "%q" .Tracing}}{{end}}
 )
 
 const ProvisionTimeout = 30 * time.Second
@@ -60,25 +55,22 @@ func DatabaseNames(key DatabaseKey) (DatabaseIdentity, error) {
 	return DatabaseIdentity{Database: name, Owner: name + "_owner", User: name + "_login"}, nil
 }
 func databaseSignal(ctx context.Context, operation string) (context.Context, func(error)) {
-	start := time.Now()
-	ctx, span := otel.Tracer("stego.postgres").Start(ctx, "postgres.database."+operation, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attribute.String("db.system.name", "postgresql")))
-	return ctx, func(err error) {
-		outcome := "success"
-		if err != nil {
-			outcome = "error"
-			if errors.Is(err, ErrDatabaseBusy) {
-				outcome = "busy"
-			}
-			span.SetStatus(codes.Error, "PostgreSQL database operation failed")
-		}
-		attrs := []attribute.KeyValue{attribute.String("operation", operation), attribute.String("outcome", outcome)}
-		span.SetAttributes(attrs...)
-		span.End()
-		if elapsed, e := otel.Meter("stego.postgres").Float64Histogram("stego.postgres.database.duration", metric.WithUnit("s")); e == nil {
-			elapsed.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
-		}
-		slog.InfoContext(ctx, "PostgreSQL database operation completed", "event.name", "postgres.database.completed", "operation", operation, "outcome", outcome, "duration_seconds", time.Since(start).Seconds())
-	}
+ {{if .Tracing}}
+ ctx,done:=telemetry.TracePostgresOperation(ctx,operation)
+ return ctx,func(err error){
+  outcome:="success"
+  switch {
+  case err==nil:
+  case errors.Is(err,context.Canceled):outcome="canceled"
+  case errors.Is(err,context.DeadlineExceeded):outcome="deadline"
+  case errors.Is(err,ErrDatabaseBusy):outcome="busy"
+  default:outcome="failure"
+  }
+  done(outcome)
+ }
+ {{else}}
+ return ctx,func(error){}
+ {{end}}
 }
 func quoted(name string) string { return pgx.Identifier{name}.Sanitize() }
 func adminConfig(o Options) (*pgx.ConnConfig, error) {

@@ -99,3 +99,8 @@ The [pool metric contract](database-pool-metrics.md) adds automatic statistics
 for the pool owned by generated service assembly. The compiler supplies the
 existing pool through an optional typed resource. Independent runtime and
 application checks must verify this change before its gate can close.
+
+The [PostgreSQL client signal contract](postgres-client-observability.md) removes
+global providers from SQL provisioning and reads. The generated client uses its
+caller's private runtime. Focused checks pass; full compiler and complete Gateway
+workflow results remain required for this change.

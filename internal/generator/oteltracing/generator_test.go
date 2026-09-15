@@ -52,6 +52,10 @@ var browserTests []byte
 
 func TestGeneratedTracing(t *testing.T) { testGeneratedTracing(t, "") }
 
+func TestGeneratedPostgresOperationTelemetry(t *testing.T) {
+	testGeneratedTracing(t, "^(TestPostgresOperation|TestDatabaseSignals)")
+}
+
 func TestGeneratedDatabasePoolTelemetry(t *testing.T) {
 	testGeneratedTracing(t, "^TestDatabasePoolMetrics")
 }
