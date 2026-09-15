@@ -4069,3 +4069,8 @@ encryption, and automated cleanup passed. Namespace recovery took 44.26 seconds
 without controller restarts or changed SQL identities. The old Job and Pods are
 absent. The newer API run `34955320269` is active; the frozen CNPG run must wait
 for its completion and cleanup.
+
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34956597204)
+passed at `9bda756`, including race tests and SQL provisioning. This verifies the
+combined base-path and collection-route validation fix and the corrected registry
+assertion. The frozen Hypershell CNPG source retains compiler `5e9c89d`.

@@ -26,8 +26,8 @@ runtime code for supported prefixes is unchanged.
 Small checks cover 20 invalid prefixes, six valid prefixes through generated
 route registration and in-memory HTTP requests, the shared gate before any
 generator runs, and file preservation through all three CLI commands. The first
-regression failed on the old generator. The corrected checks pass. Full compiler
-CI remains required.
+regression failed on the old generator. The corrected checks pass. The full CI
+result for the combined route change is recorded below.
 
 ## Collection paths and route conflicts
 
@@ -55,7 +55,8 @@ collisions, scoped route requests, parameter names in handlers and OpenAPI,
 legacy mux mode, and file preservation through all three CLI commands.
 
 The first full compiler run for 3.0.3 failed because the registry test still
-expected 3.0.2. The test now expects 3.0.4 and passes its focused check. Full CI
-for the complete route change remains required. This check covers REST
-collections and their discovery routes. It does not establish that all routes
-from other components can be composed without conflicts.
+expected 3.0.2. The test now expects 3.0.4 and passes its focused check.
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34956597204)
+passed at `9bda756`, including race tests and SQL provisioning. This check covers
+REST collections and their discovery routes. It does not establish that all
+routes from other components can be composed without conflicts.
