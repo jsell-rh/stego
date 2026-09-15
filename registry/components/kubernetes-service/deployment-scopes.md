@@ -40,4 +40,9 @@ deployment targets. Default output matched the prior release byte for byte;
 partial output preserved every object and permission. Repeated generation left
 228 output, state, and dependency files unchanged. See
 [the application evidence](https://github.com/jsell-rh/hypershell-stego/blob/5adf4a2486bb48b84b2a7fda1a50af74fc203f04/acceptance/deployment-scopes.json).
-The workload runner still needs to separate operator installation from CI.
+The browser fixture now uses the scope split. Its operator installed 16 cluster
+resources, and the test Pod checked their rendered content before it applied
+namespace resources. The complete Gateway workflow passed in 330.01 seconds,
+including 17 installation-access checks, restart, telemetry, and cleanup. See
+[the live evidence](https://github.com/jsell-rh/hypershell-stego/blob/a0fb17f8a779ce8761228931ccc0f3618f7398af/acceptance/operator-cluster-installation-evidence.json).
+Namespace and Secret access still need restriction before workload CI use.

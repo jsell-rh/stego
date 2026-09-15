@@ -42,8 +42,26 @@
       "second_sha256": "d03e2e1bede31634637273ca06205a06df6f78a56ea8048ee7cbd230c797b8b3",
       "drift": "No drift in API or console output."
     },
-    "scope": "Bounded renderer and generation checks only. The workload runner does not yet use the scope split.",
-    "pending_application_api_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314161",
-    "pending_application_full_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314180"
+    "scope": "The initial bounded check renders manifests. The later operator workflow applies the split and checks the actual test identity.",
+    "pending_application_full_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314180",
+    "application_api_ci": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314161",
+      "result": "success",
+      "required_checks": 30,
+      "source_matches_commit": true,
+      "repeated_generation_matches": true,
+      "cleanup_confirmed": true,
+      "evidence": "hypershell-sql-quarantine-api-ci.json:later_scope_gateway_gate"
+    },
+    "operator_workflow": {
+      "application_commit": "a0fb17f8a779ce8761228931ccc0f3618f7398af",
+      "result": "success",
+      "evidence": "hypershell-operator-installation.json",
+      "workflow_seconds": 330.01,
+      "cluster_resources": 16,
+      "installation_access_checks": 17,
+      "cleanup_confirmed": true,
+      "remaining": "Restrict namespace and Secret access before workload CI use."
+    }
   }
 }

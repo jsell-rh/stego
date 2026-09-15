@@ -1,0 +1,82 @@
+{
+  "application_commit": "a0fb17f8a779ce8761228931ccc0f3618f7398af",
+  "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/a0fb17f8a779ce8761228931ccc0f3618f7398af/acceptance/operator-cluster-installation-evidence.json",
+  "source_record_sha256": "065df025be47bebb3fbc46562249c90a38fb5ea64a2855aaf2d956e99c13c5c5",
+  "result": "success",
+  "scope": "Complete Kubernetes browser workflow with operator-owned cluster installation and namespace-only deployment by the test Pod.",
+  "workflow_seconds": 330.01,
+  "operator_cluster_resources": 16,
+  "deployment_targets": 6,
+  "installation_access_checks": 17,
+  "passed": [
+    "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion (7.71s)",
+    "TestControllerLocalSchemaHasNoDatabaseCatalog (0.18s)",
+    "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites (0.34s)",
+    "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration (0.24s)",
+    "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart (10.05s)",
+    "TestGatewayDeletionBeforeWorkloadStartup (5.50s)",
+    "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart (6.15s)",
+    "TestKubernetesWriteFailurePrivacy (0.00s)",
+    "TestGeneratedWorkloadWorkerStartupPrivacy (5.21s)",
+    "TestGeneratedKubernetesBrowserGatewayWorkflow (330.01s)"
+  ],
+  "generated_file_count": 229,
+  "generation_record_sha256": {
+    "first.sha256": "c097dd886e0ce7ac9c90bf1a412b2e4a1490ee0d1045886b001e2aa13917d2a5",
+    "second.sha256": "c097dd886e0ce7ac9c90bf1a412b2e4a1490ee0d1045886b001e2aa13917d2a5",
+    "after-tests.sha256": "c097dd886e0ce7ac9c90bf1a412b2e4a1490ee0d1045886b001e2aa13917d2a5"
+  },
+  "source_changes_after_freeze": [],
+  "cleanup": {
+    "namespace_absent": "stego-service-20260915-25f9bd",
+    "owned_resources_absent": true
+  },
+  "job": {
+    "namespace": "stego-service-20260915-25f9bd",
+    "name": "service-check",
+    "uid": "9baf1011-c2a7-4bcb-9fa5-0c8866051cde",
+    "activeDeadlineSeconds": 1800,
+    "backoffLimit": 0,
+    "status": {
+      "completionTime": "2026-09-15T04:56:30Z",
+      "conditions": [
+        {
+          "lastProbeTime": "2026-09-15T04:56:30Z",
+          "lastTransitionTime": "2026-09-15T04:56:30Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "SuccessCriteriaMet"
+        },
+        {
+          "lastProbeTime": "2026-09-15T04:56:30Z",
+          "lastTransitionTime": "2026-09-15T04:56:30Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "Complete"
+        }
+      ],
+      "ready": 0,
+      "startTime": "2026-09-15T04:44:05Z",
+      "succeeded": 1,
+      "terminating": 0,
+      "uncountedTerminatedPods": {}
+    }
+  },
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "visual_review": {
+    "verify.json.png": "The Gateway is Healthy. Connection setup remains pending because this fixture does not publish an external endpoint. This image does not prove external connection-command delivery.",
+    "accounts-delete.json.png": "The Gateway is Healthy and its service-account list is empty after deletion."
+  },
+  "limits": [
+    "The PostgreSQL restart uses the bounded test sidecar. Installation CNPG and RDS failover remain unproven.",
+    "Workload namespace replacement, denied SQL cleanup with retained keys, encrypted data at rest, viewer recovery, and Sandbox/Kata execution remain required.",
+    "The old Kubernetes CI runners still require conversion. This result is not a full CI or production-readiness claim.",
+    "The test identity still has broad namespace and Secret access. This is not the restricted workload CI fixture."
+  ]
+}
