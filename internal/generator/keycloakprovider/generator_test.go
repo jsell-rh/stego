@@ -15,15 +15,18 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
+	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
 func fixture() gen.Context {
-	return gen.Context{ModuleName: "example.com/provider", OutDirName: "out", OutputNamespace: "keycloak", PeerNamespaces: map[string]string{"http-application": "application"}}
+	return gen.Context{ModuleName: "example.com/provider", OutDirName: "out", OutputNamespace: "keycloak", AuthPackage: "example.com/provider/out/auth", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}}
 }
 
 func TestProviderValidation(t *testing.T) {
 	for _, change := range []func(*gen.Context){
+		func(c *gen.Context) { c.AuthPackage = "" },
+		func(c *gen.Context) { c.AuthPackage = "example.com/foreign/auth" },
 		func(c *gen.Context) { c.OutputNamespace = "bad-name" },
 		func(c *gen.Context) { c.PeerNamespaces = nil },
 		func(c *gen.Context) { c.PeerNamespaces["http-application"] = "bad-name" },
@@ -69,6 +72,15 @@ func testGeneratedProvider(t *testing.T, telemetry, live bool) {
 	tracingImport := ""
 	var module strings.Builder
 	module.WriteString("module example.com/provider\ngo 1.26.8\n")
+	authContext := c
+	authContext.OutputNamespace = "auth"
+	authContext.ComponentConfig = map[string]any{"mode": "verifier"}
+	authFiles, authWiring, err := new(jwtauth.Generator).Generate(authContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, authFiles...)
+	requires := authWiring.GoModRequires
 	if telemetry {
 		tracingImport = "example.com/provider/out/tracing"
 		peer := c
@@ -81,16 +93,9 @@ func testGeneratedProvider(t *testing.T, telemetry, live bool) {
 		files = append(files, generated...)
 		// The live native login fixture parses Keycloak HTML forms.
 		wiring.GoModRequires["golang.org/x/net"] = "v0.58.0"
-		keys := make([]string, 0, len(wiring.GoModRequires))
-		for key := range wiring.GoModRequires {
-			keys = append(keys, key)
+		for key, value := range wiring.GoModRequires {
+			requires[key] = value
 		}
-		sort.Strings(keys)
-		module.WriteString("require (\n")
-		for _, key := range keys {
-			fmt.Fprintf(&module, "%s %s\n", key, wiring.GoModRequires[key])
-		}
-		module.WriteString(")\n")
 		files = append(files, gen.File{Path: "tracing/test_fixture.go", Content: []byte(`package tracing
 import (sdktrace "go.opentelemetry.io/otel/sdk/trace"; "go.opentelemetry.io/otel/sdk/trace/tracetest")
 func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
@@ -101,6 +106,16 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 }
 `)})
 	}
+	keys := make([]string, 0, len(requires))
+	for key := range requires {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	module.WriteString("require (\n")
+	for _, key := range keys {
+		fmt.Fprintf(&module, "%s %s\n", key, requires[key])
+	}
+	module.WriteString(")\n")
 	h, err := httpclient.Render("application/client", tracingImport)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +148,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module.String()), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if telemetry {
+	{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		cmd := exec.CommandContext(ctx, "go", "mod", "tidy")
 		cmd.Dir = project
@@ -141,7 +156,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		output, err := cmd.CombinedOutput()
 		cancel()
 		if err != nil {
-			t.Fatalf("provider telemetry dependencies: %v\n%s", err, output)
+			t.Fatalf("provider dependencies: %v\n%s", err, output)
 		}
 	}
 	budget := 60 * time.Second

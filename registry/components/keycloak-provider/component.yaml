@@ -1,9 +1,10 @@
 kind: component
 name: keycloak-provider
-version: 0.7.0
+version: 0.8.0
 output_namespace: keycloak
 requires:
   - application-http
+  - auth-provider
 provides:
   - keycloak-clients
 slots: []

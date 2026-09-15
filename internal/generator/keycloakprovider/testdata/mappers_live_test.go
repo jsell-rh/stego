@@ -89,6 +89,21 @@ func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, t
 	if err = c.InspectClientScopes(ctx, owner, roles); err != nil {
 		t.Fatal("enablement changed scopes", err)
 	}
+	proof := ServiceAccountTokenPolicy{Subject: subject, AccessTokenLifetimeSeconds: 300, Audiences: []string{target.ClientID, "urn:" + target.ClientID}, RoleClaims: map[string][]string{claim: roles.Clients[0].Names, "access.realm_roles": roles.Realm}}
+	if err = c.VerifyServiceAccountToken(ctx, owner, proof); err != nil {
+		t.Fatal("real service-account token proof failed", err)
+	}
+	wrong := proof
+	wrong.Subject = "other-subject"
+	if err = c.VerifyServiceAccountToken(ctx, owner, wrong); !errors.Is(err, ErrTokenPolicy) {
+		t.Fatal("wrong service-account subject accepted", err)
+	}
+	wrong = proof
+	wrong.Audiences = []string{"wrong-audience"}
+	if err = c.VerifyServiceAccountToken(ctx, owner, wrong); !errors.Is(err, ErrTokenPolicy) {
+		t.Fatal("wrong service-account audience accepted", err)
+	}
+	t.Log("Real common service-account token proof passed; wrong subject and audience denied")
 	secret, err := c.GetClientSecret(ctx, owner)
 	if err != nil {
 		t.Fatal(err)

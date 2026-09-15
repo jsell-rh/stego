@@ -28,15 +28,25 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if ctx.ModuleName == "" || peer == "" || gen.ValidateGoPackageNamespace(peer) != nil {
 		return fmt.Errorf("keycloak-provider requires the generated HTTP application client")
 	}
+	trusted := false
+	for _, name := range []string{"jwt-auth", "rh-sso-auth"} {
+		ns := ctx.PeerNamespaces[name]
+		if ns != "" && gen.ValidateGoPackageNamespace(ns) == nil && ctx.AuthPackage == path.Join(ctx.ModuleName, ctx.OutDirName, ns) {
+			trusted = true
+		}
+	}
+	if !trusted {
+		return fmt.Errorf("keycloak-provider requires the generated JWT verifier")
+	}
 	return nil
 }
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	data := struct{ Package, Transport, UnicodeValidation string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation}
+	data := struct{ Package, Transport, UnicodeValidation, Auth string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation, ctx.AuthPackage}
 	var files []gen.File
-	for _, name := range []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go"} {
+	for _, name := range []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "service_account_tokens.go"} {
 		input, err := sources.ReadFile(name + ".tmpl")
 		if err != nil {
 			return nil, nil, err

@@ -6,13 +6,12 @@ cancellation, and telemetry. It has no component settings or startup hook.
 The application constructs it with `New(Options)` and closes it when its owning
 service stops.
 
-Version 0.3.0 provides typed client lookup, bounded inventory pages, ownership
-inspection, disablement, confirmed deletion, client-secret reads, service-account
-user lookup, disabled service-account creation and base configuration, and
-checked role reconciliation. It does not yet provide enablement, scope
-reconciliation, or protocol mapper reconciliation.
-It is not the complete provider extraction described in
-[the acceptance gate](../../../specs/keycloak-provider-boundary.md).
+Version 0.8.0 provides typed client lifecycle, role, scope, and mapper operations,
+checked native enablement, and service-account token verification. It reuses the
+shared JWT verifier from `jwt-auth` or `rh-sso-auth`. The compiler requires that
+verifier and the generated HTTP application client. Service-account checked
+enablement and application adoption remain open. See the
+[acceptance gate](../../../specs/keycloak-provider-boundary.md).
 
 `ClientBinding` contains an immutable provider ID, a public OAuth client ID,
 and expected ownership attributes from application state. Do not derive these
@@ -223,3 +222,18 @@ provider configuration; they do not authenticate a native user or prove the
 contents of that user's token. The application must still verify issued tokens
 and enforce its access policy. The real provider test covers browser-code login;
 complete device approval and token exchange remain a separate test requirement.
+
+`VerifyServiceAccountToken` obtains a fresh client-credentials token for an
+owned, enabled confidential OIDC service account. Full scope must be disabled.
+It verifies the signature with the common JWT verifier and requires the exact
+saved subject, client ID, audience set, role arrays, and signed lifetime. It
+rejects extra audiences, duplicate audiences, malformed roles, refresh tokens,
+ID tokens, and stale issuance. Signing keys come only from the configured
+issuer. The issued token and client secret are not returned to the caller.
+
+`ServiceAccountTokenPolicy` supplies the expected subject, audiences, role-claim
+paths and values, and lifetime. Empty role sets permit an absent claim or an
+empty array, but reject explicit null. The signed lifetime must match exactly;
+`expires_in` can be one second shorter for rounding. This method does not enable,
+repair, or disable a client. Checked reconciliation must still verify its base
+settings, complete roles, scopes, and mappers, and handle failed token proof.

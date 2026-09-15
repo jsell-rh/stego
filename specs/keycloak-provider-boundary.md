@@ -394,3 +394,22 @@ seconds with both variants. Both use the race detector. Service-account token
 verification and checked enablement, ownership migration, and application
 adoption remain open. Hypershell still has its handwritten client; this provider
 result does not claim an application source reduction.
+
+## Common service-account token proof
+
+Version 0.8.0 adds `ServiceAccountTokenPolicy` and `VerifyServiceAccountToken`.
+The provider uses the generated JWT verifier, checks a fresh signed token, and
+compares the exact saved identity, audiences, role arrays, and lifetime. Signing
+keys come from its configured issuer. It does not return tokens or credentials.
+It confirms client ownership before the credential request, before token
+issuance, and after proof. It does not call the service-account-user endpoint,
+which can create a missing user.
+
+The token check requires an enabled confidential OIDC service account with full
+scope disabled. It remains separate from enablement and does not replace full
+configuration, role, scope, or mapper checks. Small tests cover altered signed
+claims, malformed claims, signature failure, extra credentials, wrong client
+state, and ownership changes. The live mapper gate now uses this common proof
+for both application policies. Its result is pending. Frozen source and results
+are retained in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-token-proof-20260915`.
