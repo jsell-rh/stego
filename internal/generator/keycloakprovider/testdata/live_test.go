@@ -25,6 +25,8 @@ import (
 	tracing "example.com/provider/out/tracing"
 )
 
+const nativeTestSubject = "00000000-0000-4000-8000-000000000901"
+
 const providerTestImage = "quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54"
 
 func dockerCommand(t *testing.T, budget time.Duration, args ...string) ([]byte, error) {
@@ -76,7 +78,7 @@ func liveProvider(t *testing.T) (*Client, Options) {
 	users := []any{map[string]any{"username": "service-account-operator", "enabled": true, "serviceAccountClientId": "operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "manage-users", "view-users", "view-realm"}}}}
 	users = append(users, map[string]any{"username": "service-account-scope-blind-operator", "enabled": true, "serviceAccountClientId": "scope-blind-operator", "clientRoles": map[string]any{"realm-management": []string{"query-clients"}}})
 	users = append(users, map[string]any{"username": "service-account-realm-scope-operator", "enabled": true, "serviceAccountClientId": "realm-scope-operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "view-realm", "manage-realm"}}})
-	users = append(users, map[string]any{"id": "native-user", "username": "native-user", "firstName": "Native", "lastName": "User", "email": "native@example.invalid", "emailVerified": true, "enabled": true, "requiredActions": []string{}, "credentials": []any{map[string]any{"type": "password", "value": "provider-test-native-password", "temporary": false}}})
+	users = append(users, map[string]any{"id": nativeTestSubject, "username": "native-user", "firstName": "Native", "lastName": "User", "email": "native@example.invalid", "emailVerified": true, "enabled": true, "requiredActions": []string{}, "credentials": []any{map[string]any{"type": "password", "value": "provider-test-native-password", "temporary": false}}})
 	for _, id := range []string{"shared-catalog", "shared-pipeline"} {
 		users = append(users, map[string]any{"id": id, "username": id, "enabled": true, "realmRoles": []string{"shared-global"}, "clientRoles": map[string]any{"foreign-service": []string{"foreign-view"}}, "groups": []string{"/outside"}})
 	}

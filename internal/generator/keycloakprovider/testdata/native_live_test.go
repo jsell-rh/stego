@@ -44,7 +44,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 		if _, err := c.EnsureClientRoles(ctx, b, []string{item.role}); err != nil {
 			t.Fatal(err)
 		}
-		if err := c.ReconcileUserClientRoles(ctx, b, "native-user", []string{item.role}); err != nil {
+		if err := c.ReconcileUserClientRoles(ctx, b, nativeTestSubject, []string{item.role}); err != nil {
 			t.Fatal(err)
 		}
 		scopes := RolePolicy{Clients: []ClientRoleGrant{{Client: b, Names: []string{item.role}}}}
@@ -127,7 +127,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			}
 			access := verifyLiveMapperToken(t, c, ctx, grant.Access)
 			id := verifyLiveMapperToken(t, c, ctx, grant.ID)
-			if access["iss"] != c.Issuer() || access["sub"] != "native-user" || access["azp"] != b.ClientID || !nativeAudience(access["aud"], b.ClientID) || id["iss"] != c.Issuer() || !nativeAudience(id["aud"], b.ClientID) || id["sub"] != "native-user" || id["nonce"] != nonce {
+			if access["iss"] != c.Issuer() || access["sub"] != nativeTestSubject || access["azp"] != b.ClientID || !nativeAudience(access["aud"], b.ClientID) || id["iss"] != c.Issuer() || !nativeAudience(id["aud"], b.ClientID) || id["sub"] != nativeTestSubject || id["nonce"] != nonce {
 				t.Fatal("native signed identity differs")
 			}
 			pieces := strings.Split(item.claim, ".")
@@ -153,7 +153,22 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 				t.Fatal("native authorization code was reusable")
 			}
 		}
-		status, _, body := browser(http.MethodPost, "/realms/provider-test/protocol/openid-connect/auth/device", url.Values{"client_id": {b.ClientID}})
+		devicePath := "/realms/provider-test/protocol/openid-connect/auth/device"
+		status, _, body := browser(http.MethodPost, devicePath, url.Values{"client_id": {b.ClientID}})
+		var rejected struct {
+			Code  string `json:"device_code"`
+			Error string `json:"error"`
+		}
+		if decode(body, &rejected) != nil || status != 400 || rejected.Code != "" || rejected.Error == "" {
+			t.Fatal("device authorization without PKCE was accepted")
+		}
+		random := make([]byte, 32)
+		if _, err := rand.Read(random); err != nil {
+			t.Fatal(err)
+		}
+		verifier := base64.RawURLEncoding.EncodeToString(random)
+		challenge := sha256.Sum256([]byte(verifier))
+		status, _, body = browser(http.MethodPost, devicePath, url.Values{"client_id": {b.ClientID}, "code_challenge_method": {"S256"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challenge[:])}})
 		var device struct {
 			Code     string `json:"device_code"`
 			UserCode string `json:"user_code"`

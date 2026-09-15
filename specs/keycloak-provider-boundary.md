@@ -313,3 +313,10 @@ OAuth login. That transport correctly rejects redirects. The test now uses its
 own bounded TLS client to inspect OAuth redirects without following them. The
 production transport remains unchanged. The failed result and verified cleanup
 are stored under `creation-fix-ci` in the native result directory.
+
+The next native run at `f5d35b9` passed authorization-code login, exact signed
+claims, wrong-verifier rejection, and code reuse denial for the first profile.
+It then rejected a device-authorization request without PKCE parameters. The
+test now supplies S256 parameters and retains the missing-PKCE denial check.
+This preserves the required PKCE policy. Cleanup passed, and the partial result
+is retained under `browser-driver-ci`. The complete native gate is still pending.
