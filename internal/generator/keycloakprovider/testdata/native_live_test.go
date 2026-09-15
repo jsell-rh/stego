@@ -1,6 +1,7 @@
 package keycloak
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -28,6 +29,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context) {
 		b := ClientBinding{ID: item.name, ClientID: item.name, Attributes: map[string]string{"stego.owner.native-test": item.name}}
 		p := NativeClientPolicy{DisplayName: item.name, AccessTokenLifetimeSeconds: 300, LoopbackRedirectURIs: []string{item.redirect}, EnableDeviceAuthorization: item.device}
 		if _, err := c.CreateDisabledNativeClient(ctx, b, p); err != nil {
+			reportNativeDifference(t, c, ctx, b, p)
 			t.Fatal("real native creation failed", err)
 		}
 		if _, err := c.CreateDisabledNativeClient(ctx, b, p); !errors.Is(err, ErrConflict) {
@@ -305,4 +307,38 @@ func nativeAudience(value any, want string) bool {
 		return len(audience) == 1 && audience[0] == want
 	}
 	return false
+}
+
+// Report names only. Configuration values and provider bodies stay private.
+func reportNativeDifference(t *testing.T, c *Client, ctx context.Context, b ClientBinding, p NativeClientPolicy) {
+	t.Helper()
+	value, _, err := c.boundClient(ctx, b)
+	if err != nil {
+		t.Log("native difference read failed", err)
+		return
+	}
+	desired, err := nativeClientConfiguration(b, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := json.Marshal(value)
+	d, _ := json.Marshal(desired)
+	var actual, wanted map[string]json.RawMessage
+	_ = json.Unmarshal(a, &actual)
+	_ = json.Unmarshal(d, &wanted)
+	for key, v := range wanted {
+		if key != "attributes" && !bytes.Equal(v, actual[key]) {
+			t.Log("native field differs:", key)
+		}
+	}
+	for key, v := range desired.Attributes {
+		if value.Attributes[key] != v {
+			t.Log("native attribute differs:", key)
+		}
+	}
+	for key := range value.Attributes {
+		if _, ok := desired.Attributes[key]; !ok {
+			t.Log("extra native attribute:", key)
+		}
+	}
 }
