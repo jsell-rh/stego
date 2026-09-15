@@ -60,5 +60,15 @@ Gateway access during collector failure. Cumulative waits increased from 9 to
 test observations, not a performance target. The Job, Pods, and private fixtures
 are absent. The shared Lease was free at the independent check.
 
-The complete browser pool test remains separate. This API result uses compiler
-`e5b9931`; it does not verify the later PostgreSQL client signal change.
+The [complete browser pool test](hypershell-pool-browser.json) also passed at
+`916f3a7` in run `34961014607`, in 366.3 seconds. All three checkpoints retained
+the three-connection console limit and had distinct runtime identities. The
+final checkpoint followed key rotation and collector recovery. Namespace and
+SQL recovery, access rules, encryption, account cleanup, and automatic cleanup
+passed. Verification matched 899 source files, 231 generated files, and all
+generation records. Independent reads confirmed cleanup. Full core CI passed
+in 1223.434 seconds; the overall run failed only on the CNPG and Sandbox jobs.
+
+These application results use compiler `e5b9931`. They close the API and console
+pool checks for this source. They do not verify the later PostgreSQL client
+signal change or establish production capacity.

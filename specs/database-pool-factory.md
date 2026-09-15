@@ -37,3 +37,9 @@ Commit `5c5e7c9` changes that assertion to 4.4.1. Its focused registry check pas
 The [full repeat](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed
 at `5c5e7c9`, including compiler race and SQL provisioning checks. The earlier
 failed combined run remains failed. Application pool results are separate.
+
+The [complete Hypershell browser result](hypershell-pool-browser.json) passed at
+`916f3a7` with compiler `e5b9931`. Its generated console used the common factory
+and retained a three-connection limit across all three runtime instances. The
+API pool gate also passed. This supplies application evidence for both factory
+corrections. The broader release and SQL client telemetry checks remain separate.
