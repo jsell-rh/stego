@@ -1,0 +1,330 @@
+{
+  "scope": "Generated browser session refresh claims with real PostgreSQL and injected driver result failures.",
+  "component": "browser-backend 1.6.1",
+  "limits": [
+    "The driver fault models a lost SQL row or commit response. It does not restart PostgreSQL.",
+    "The Hypershell rendered browser failure still needs a new application run."
+  ],
+  "runs": [
+    {
+      "directory": "/tmp/stego-browser-refresh-claim-before",
+      "verification": {
+        "required": [
+          "TestGeneratedRuntime"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedRuntime",
+          "github.com/jsell-rh/stego/internal/generator/browserbackend"
+        ],
+        "missing": [
+          "TestGeneratedRuntime"
+        ],
+        "exit_code": 1
+      },
+      "claim_results": [
+        "claim_test.go:96: failed claim left a pending refresh or changed credentials",
+        "claim_test.go:96: failed claim left a pending refresh or changed credentials",
+        "claim_test.go:96: failed claim left a pending refresh or changed credentials",
+        "--- FAIL: TestRefreshClaimReadFailureKeepsSessionUsable (0.55s)",
+        "--- FAIL: TestRefreshClaimReadFailureKeepsSessionUsable/lost_row (0.30s)",
+        "--- FAIL: TestRefreshClaimReadFailureKeepsSessionUsable/cancelled (0.14s)",
+        "--- FAIL: TestRefreshClaimReadFailureKeepsSessionUsable/deadline (0.11s)"
+      ],
+      "runtime_pass": null,
+      "cleanup": {
+        "job_absent": "controller-local-38d3f947361c",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/browserbackend/backend.go.tmpl": "c34a9370eebd9d08be59b4b3fa8c73b3a97b2cfb38f3524583375401c4d34414",
+        "internal/generator/browserbackend/generator.go": "4c075dca040e29b51ebefc23a52c34e51488c4857fad4a4be0cf94e12ed1dc75",
+        "internal/generator/browserbackend/generator_test.go": "ccbfa71481acb49453b5b60386f9d5256002d58207d9c158fbf6641adf5d27eb",
+        "internal/generator/browserbackend/handlers.go.tmpl": "9f5607483e75af9f09cd7a5d39414759c082dbe8fcba08d7f3fd7017fc0c0bde",
+        "internal/generator/browserbackend/keys.go.tmpl": "ccf0f92fcd88855c0790ffe8912e547ca377997283e55b0fa9d0ef78e141d880",
+        "internal/generator/browserbackend/oauth.go.tmpl": "b988088c9ad8cde1c63fd28ee6ba76773c8f7d0e6ce1e966e7c066f060ab50a4",
+        "internal/generator/browserbackend/schema.sql.tmpl": "b1a40fc315f56a010e97c027fba1c93c66fbfb845bbbfd658aaac87758a96139",
+        "internal/generator/browserbackend/store.go.tmpl": "80dbb4e2778f9260e8ba40b98b90c949f5f449146431980aed9643c9efadbc3d",
+        "internal/generator/browserbackend/telemetry.go.tmpl": "2b1b76fda6f6ab38aab7fc59959107b2a44c0431b3c61fa6ff6eea77bd19ae97",
+        "internal/generator/browserbackend/testdata/claim_test.go": "e054fc4e3f1156730c7d53a11d8b49543b1a7990a42dcffaaa8a7a63cc56dd25",
+        "internal/generator/browserbackend/testdata/fixture_test.go": "dab9ea60ef49ff4a821f7b85451c3ee8a1d4acd45230edad2039eb91f712bf05",
+        "internal/generator/browserbackend/testdata/keys_test.go": "bc8459e7597c52c86a62f1dce4bc8182601fb9ae1c0325a8f3d6d3ddea2a35ec",
+        "internal/generator/browserbackend/testdata/runtime_test.go": "79b9130dce85af069924a4ec2e70be0e4305a72c4b88a16754ae6f5d1d4500aa",
+        "registry/components/browser-backend/component.yaml": "8339c95cc4511987b6d08617098a4ab19847b5e85f9556b8a093e71394edb25b"
+      },
+      "artifact_sha256": {
+        "source.tar": "fbad65a71ec116a5312b7a030b0c101e75365a6442efc2fc917a7ee1fa017911",
+        "tests.jsonl": "345fc1c826d71b49c3ddafee4bfdd1ec83214a1ed168efcc22533bf5ee619e65",
+        "test.log": "696ef49cc4f4830ba1ab97ab33d7f23418f576d778f781b0c278378f44ff5887",
+        "job-final.json": "cf6868e6da98bcd2fc7301fa6b44692e92bd62a20753606184e4a17272b848b6",
+        "cleanup.json": "4f3d7c59408f868c47813215e84394873c2c453922675df71f830b1a6eea317d"
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "controller-local-38d3f947361c",
+        "uid": "3233ac5b-2dfc-4298-b4dc-fd9060df0639",
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T01:39:04Z",
+              "lastTransitionTime": "2026-09-15T01:39:04Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T01:39:04Z",
+              "lastTransitionTime": "2026-09-15T01:39:04Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T01:37:08Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "containers": [
+          {
+            "name": "postgres",
+            "image": "docker.io/library/postgres@sha256:7341002d2b8c7c5bdd7542a671a95b36196c0b5b888daf454ae4fc33ba5346d7",
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "ephemeral-storage": "2Gi",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "ephemeral-storage": "1Gi",
+                "memory": "256Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true
+            }
+          },
+          {
+            "name": "test",
+            "image": "docker.io/library/golang@sha256:2d54f6c8c6ea532a321e0b4c69553b2ed3637608d4f4357dbed37939fe2620cc",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "ephemeral-storage": "6Gi",
+                "memory": "3Gi"
+              },
+              "requests": {
+                "cpu": "500m",
+                "ephemeral-storage": "2Gi",
+                "memory": "1Gi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "directory": "/tmp/stego-browser-refresh-claim-after",
+      "verification": {
+        "required": [
+          "TestGeneratedRuntime",
+          "TestGeneration",
+          "TestInvalidConfig"
+        ],
+        "passed": [
+          "TestGeneratedRuntime",
+          "TestGeneration",
+          "TestInvalidConfig",
+          "TestInvalidConfig/asset_missing",
+          "TestInvalidConfig/asset_outside_public",
+          "TestInvalidConfig/asset_too_large",
+          "TestInvalidConfig/duplicate_route",
+          "TestInvalidConfig/generated_input",
+          "TestInvalidConfig/logout_scope",
+          "TestInvalidConfig/missing_root",
+          "TestInvalidConfig/mixed_API",
+          "TestInvalidConfig/no_database",
+          "TestInvalidConfig/no_telemetry",
+          "TestInvalidConfig/prefix_/",
+          "TestInvalidConfig/prefix_/api/../auth",
+          "TestInvalidConfig/prefix_/api/{id}",
+          "TestInvalidConfig/prefix_/assets",
+          "TestInvalidConfig/prefix_/auth",
+          "TestInvalidConfig/prefix_/auth/session",
+          "TestInvalidConfig/prefix_/index.html",
+          "TestInvalidConfig/prefix_/livez",
+          "TestInvalidConfig/prefix_/readyz",
+          "TestInvalidConfig/reserved_telemetry",
+          "TestInvalidConfig/roles_type",
+          "TestInvalidConfig/route_/api/records/v1/a",
+          "TestInvalidConfig/route_/assets/x",
+          "TestInvalidConfig/route_/auth/callback",
+          "TestInvalidConfig/route_/index.html",
+          "TestInvalidConfig/route_/livez",
+          "TestInvalidConfig/route_/readyz",
+          "TestInvalidConfig/telemetry_service",
+          "TestInvalidConfig/traversal",
+          "TestInvalidConfig/unknown",
+          "TestInvalidConfig/unknown_parameter",
+          "TestInvalidConfig/unsupported_asset"
+        ],
+        "failed": [],
+        "missing": [],
+        "exit_code": 0
+      },
+      "claim_results": [
+        "--- PASS: TestRefreshClaimReadFailureKeepsSessionUsable (0.51s)",
+        "--- PASS: TestRefreshClaimReadFailureKeepsSessionUsable/lost_row (0.18s)",
+        "--- PASS: TestRefreshClaimReadFailureKeepsSessionUsable/cancelled (0.12s)",
+        "--- PASS: TestRefreshClaimReadFailureKeepsSessionUsable/deadline (0.21s)",
+        "--- PASS: TestRefreshClaimLostCommitRequiresLogin (0.11s)"
+      ],
+      "runtime_pass": {
+        "Time": "2026-09-15T01:41:01.324757278Z",
+        "Action": "pass",
+        "Package": "github.com/jsell-rh/stego/internal/generator/browserbackend",
+        "Test": "TestGeneratedRuntime",
+        "Elapsed": 61.2
+      },
+      "cleanup": {
+        "job_absent": "controller-local-e203bb4aebad",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/browserbackend/backend.go.tmpl": "c34a9370eebd9d08be59b4b3fa8c73b3a97b2cfb38f3524583375401c4d34414",
+        "internal/generator/browserbackend/generator.go": "4c075dca040e29b51ebefc23a52c34e51488c4857fad4a4be0cf94e12ed1dc75",
+        "internal/generator/browserbackend/generator_test.go": "ccbfa71481acb49453b5b60386f9d5256002d58207d9c158fbf6641adf5d27eb",
+        "internal/generator/browserbackend/handlers.go.tmpl": "9f5607483e75af9f09cd7a5d39414759c082dbe8fcba08d7f3fd7017fc0c0bde",
+        "internal/generator/browserbackend/keys.go.tmpl": "ccf0f92fcd88855c0790ffe8912e547ca377997283e55b0fa9d0ef78e141d880",
+        "internal/generator/browserbackend/oauth.go.tmpl": "b988088c9ad8cde1c63fd28ee6ba76773c8f7d0e6ce1e966e7c066f060ab50a4",
+        "internal/generator/browserbackend/schema.sql.tmpl": "b1a40fc315f56a010e97c027fba1c93c66fbfb845bbbfd658aaac87758a96139",
+        "internal/generator/browserbackend/store.go.tmpl": "f527d0a6b951981bec98822a49993a9c584181ea395426bbec1c1e1171f0afac",
+        "internal/generator/browserbackend/telemetry.go.tmpl": "2b1b76fda6f6ab38aab7fc59959107b2a44c0431b3c61fa6ff6eea77bd19ae97",
+        "internal/generator/browserbackend/testdata/claim_test.go": "fbee0ed3d896fc11145e5f0af49cb7f57d473dcd87b608dd13d9e01c00a871bb",
+        "internal/generator/browserbackend/testdata/fixture_test.go": "dab9ea60ef49ff4a821f7b85451c3ee8a1d4acd45230edad2039eb91f712bf05",
+        "internal/generator/browserbackend/testdata/keys_test.go": "bc8459e7597c52c86a62f1dce4bc8182601fb9ae1c0325a8f3d6d3ddea2a35ec",
+        "internal/generator/browserbackend/testdata/runtime_test.go": "79b9130dce85af069924a4ec2e70be0e4305a72c4b88a16754ae6f5d1d4500aa",
+        "registry/components/browser-backend/component.yaml": "3cf1cce3388883a83df4587e314a7059f6834610de092a59d45f18d8154d3c30"
+      },
+      "artifact_sha256": {
+        "source.tar": "981d662384d43454d9999fa0e28cdbe481c2ba523342b6458a0d52d18166a387",
+        "tests.jsonl": "49f97ebc8e803e15d153bd67140b0ce4ae81fe4e265f1b762c4fc3abb8fac955",
+        "test.log": "696ef49cc4f4830ba1ab97ab33d7f23418f576d778f781b0c278378f44ff5887",
+        "job-final.json": "29f56de0424c44ed178f4797ea3ff623785fba9163ef06f6a4480c02fc7fd160",
+        "cleanup.json": "49ee1880687189e50502a25e27b888dcd0dae5c4ab477ec701582a10e5bb7c4f"
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "controller-local-e203bb4aebad",
+        "uid": "7f4077ba-492c-4f87-be4f-cebae4d7b0e6",
+        "status": {
+          "completionTime": "2026-09-15T01:41:11Z",
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T01:41:11Z",
+              "lastTransitionTime": "2026-09-15T01:41:11Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "SuccessCriteriaMet"
+            },
+            {
+              "lastProbeTime": "2026-09-15T01:41:11Z",
+              "lastTransitionTime": "2026-09-15T01:41:11Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "Complete"
+            }
+          ],
+          "ready": 0,
+          "startTime": "2026-09-15T01:39:27Z",
+          "succeeded": 1,
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "containers": [
+          {
+            "name": "postgres",
+            "image": "docker.io/library/postgres@sha256:7341002d2b8c7c5bdd7542a671a95b36196c0b5b888daf454ae4fc33ba5346d7",
+            "resources": {
+              "limits": {
+                "cpu": "500m",
+                "ephemeral-storage": "2Gi",
+                "memory": "512Mi"
+              },
+              "requests": {
+                "cpu": "100m",
+                "ephemeral-storage": "1Gi",
+                "memory": "256Mi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true
+            }
+          },
+          {
+            "name": "test",
+            "image": "docker.io/library/golang@sha256:2d54f6c8c6ea532a321e0b4c69553b2ed3637608d4f4357dbed37939fe2620cc",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "ephemeral-storage": "6Gi",
+                "memory": "3Gi"
+              },
+              "requests": {
+                "cpu": "500m",
+                "ephemeral-storage": "2Gi",
+                "memory": "1Gi"
+              }
+            },
+            "securityContext": {
+              "allowPrivilegeEscalation": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              },
+              "readOnlyRootFilesystem": true,
+              "runAsNonRoot": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

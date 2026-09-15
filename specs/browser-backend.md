@@ -102,6 +102,19 @@ before token revocation. A refresh completion cannot restore a removed session.
 A database failure reports temporary unavailability; it does not report a
 successful logout.
 
+Version 1.6.1 reads and decodes a refresh claim inside the same transaction
+that changes its state. A lost or cancelled result rolls back the claim before
+any provider request. The session can then renew on a later request. If the
+commit result is unknown, the backend invalidates the session with a separate,
+bounded cleanup context and requires a new login. It does not retry the token.
+
+The [refresh-claim evidence](browser-refresh-claim-evidence.json) records three
+failures before this change and a passing generated runtime suite after it.
+The tests use real PostgreSQL and drop a result at the driver boundary. They
+also check a lost commit acknowledgement, concurrent refresh, cancellation,
+logout, and key rotation. Both bounded cluster Jobs and their fixtures were
+removed. The Hypershell browser workflow still needs a new run with this change.
+
 The initial limits are 16 concurrent requests per process, a 20-second request
 context, a 1 MiB request body, and a 4 MiB API response body. A pending login
 lasts five minutes. An active session lasts one hour. The shared store permits

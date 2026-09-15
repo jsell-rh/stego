@@ -85,8 +85,19 @@ func(s *sessionStore)activate(ctx context.Context,id string,value session,previo
 }
 func(s *sessionStore)claimRefresh(ctx context.Context,id string)(session,error){
  hash,err:=sessionHash(id);if err!=nil{return session{},err};var payload []byte
- err=s.db.QueryRowContext(ctx,"UPDATE stego_browser_sessions SET state='refreshing',changed_at=CURRENT_TIMESTAMP WHERE id_hash=$1 AND state='active' AND expires_at>CURRENT_TIMESTAMP RETURNING payload",hash).Scan(&payload)
- if errors.Is(err,sql.ErrNoRows){return session{},errBusy};if err!=nil{return session{},errStore};return s.open(id,payload)
+ tx,err:=s.db.BeginTx(ctx,nil);if err!=nil{return session{},errStore};defer tx.Rollback()
+ err=tx.QueryRowContext(ctx,"UPDATE stego_browser_sessions SET state='refreshing',changed_at=CURRENT_TIMESTAMP WHERE id_hash=$1 AND state='active' AND expires_at>CURRENT_TIMESTAMP RETURNING payload",hash).Scan(&payload)
+ if errors.Is(err,sql.ErrNoRows){return session{},errBusy};if err!=nil{return session{},errStore}
+ // Do not publish a claim before its returned credentials are available.
+ // A cancelled or incomplete row read must roll back the state change.
+ value,err:=s.open(id,payload);if err!=nil{return session{},err}
+ if tx.Commit()!=nil{
+  // A lost commit response has an uncertain outcome. No provider request
+  // has started. Invalidate the session instead of retrying its token.
+  cleanup,cancel:=context.WithTimeout(context.WithoutCancel(ctx),5*time.Second);defer cancel()
+  _ = s.remove(cleanup,id);return session{},errSession
+ }
+ return value,nil
 }
 func(s *sessionStore)finishRefresh(ctx context.Context,id string,value session)error{
  hash,err:=sessionHash(id);if err!=nil{return err};payload,err:=s.seal(id,value);if err!=nil{return err}
