@@ -3701,3 +3701,19 @@ source files and 228 generated files match the commit. Generation records match,
 and the Job, Pods, and private fixtures are absent. This source now has both
 API and full browser passes. The later SQL cleanup denial candidate has an
 active API check and a queued browser check. The enterprise goal remains active.
+
+Hypershell `ee1f23e` adds a direct check of application credential encryption
+after namespace recovery. It reads the actual stored envelope with the Gateway
+SQL login and uses Go AES-GCM to verify bytes written by the pinned Rust Gateway.
+The retained Gateway key must unwrap the data key and authenticate the known
+credential. Another Gateway key, altered ciphertext, and altered authentication
+contexts must fail. A bounded scan checks object payloads for plaintext and
+base64 copies. Invalid probes use private copies and do not alter stored data.
+See the [test contract](https://github.com/jsell-rh/hypershell-stego/blob/ee1f23e875509e6e923a8102a94f8a8ef6a0864c/acceptance/browser-credential-encryption.md).
+
+Formatting and frozen generation passed. The
+[browser run](https://github.com/jsell-rh/hypershell-stego/actions/runs/34939475635)
+and [API run](https://github.com/jsell-rh/hypershell-stego/actions/runs/34939474440)
+are queued behind the SQL cleanup denial checks. No live encryption result is
+claimed. This is an application credential-storage check, not disk, volume,
+backup, or RDS encryption proof. No production runtime or permission changed.
