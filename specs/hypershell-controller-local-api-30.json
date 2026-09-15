@@ -19,13 +19,15 @@
   "next_workflow": {
     "commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
     "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191558",
-    "result": "pending",
+    "result": "failure",
     "operator_installation_complete": true,
     "generated_cluster_resources": 18,
-    "ci_access_checks_passed": 15
+    "ci_access_checks_passed": 15,
+    "application_result": "success",
+    "cleanup_result": "failure"
   },
   "limits": [
-    "The browser CI run is pending.",
+    "The first browser CI run passed the application checks but failed cleanup. See hypershell-browser-ci.json for the repair, recovery check, and retry.",
     "Installation CNPG, actual RDS, Sandbox, and full CI remain open."
   ]
 }

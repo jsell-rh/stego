@@ -3604,6 +3604,21 @@ Hypershell `c4cd70d` adds the complete browser workflow to restricted jshell CI.
 The operator installed its fixed namespace and 18 generated cluster resources.
 All 15 actual CI admission and access probes pass. CI checks an immutable
 manifest record before it starts a Job. Cleanup uses STEGO's generated allocator.
-The complete CI run and failed-Job cleanup proof still need live results. The
-enterprise goal remains active; installation CNPG, actual RDS, Sandbox, and
-complete CI remain open.
+The first CI run passed the application workflow in 335.05 seconds but failed
+host cleanup. The test had deleted the allocator service account before host
+cleanup could request its token. The failure kept the shared Lease. The operator
+restored the account and removed CI deletion rights; restricted cleanup then
+removed the remaining data and released the Lease.
+
+Hypershell `de07bff` keeps service accounts until host cleanup finishes. The
+test and CI roles cannot delete them. Its live recovery check passed after a
+Job exited with code 23 and its Pod was removed. The generated allocator removed
+both owned allocations, the installation remained, and all 16 access checks
+passed. The source matched the committed checkout. A new full browser CI run
+is active, with the API run queued behind it. See the
+[browser CI and recovery evidence](hypershell-browser-ci.json).
+
+The first failed CI run remains failed. The enterprise goal remains active;
+installation CNPG, actual RDS, Sandbox, and complete CI remain open. The fixed
+test namespace retains image streams; registry retention is not part of this
+cleanup proof.

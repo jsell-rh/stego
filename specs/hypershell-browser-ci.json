@@ -1,0 +1,164 @@
+{
+  "reference_contract": {
+    "url": "https://github.com/openshift-online/hypershell/pull/272",
+    "head": "d61f1dffe639f1de6e67cd82d89282fedb0d15e6"
+  },
+  "api_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191505",
+    "commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
+    "required_passed": 30,
+    "source_files_checked": 865,
+    "generated_files_checked": 228,
+    "job_uid": "cb35a5ae-47cc-4bcb-a9a8-f9b3e575e3b2",
+    "cleanup": {
+      "job_absent": "gateway-api-435f25d1293b",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    }
+  },
+  "failed_job_recovery": {
+    "application_commit": "de07bffed63969df32610117abccd884dceaef2a",
+    "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+    "source_files_checked": 867,
+    "fixture_source_unchanged": true,
+    "expected_job_failure_exit_code": 23,
+    "failed_job_uid": "831ae435-04b7-4cf0-a179-ff89b2692668",
+    "removed_pod_uid": "d2a1d2da-7fc2-4011-9579-aedbf228eddc",
+    "allocations": [
+      {
+        "Profile": "gateway",
+        "Namespace": "openshell-022d0aa82c4f7ab4",
+        "Owner": "CI05f6a0050ea953e5926874e09"
+      },
+      {
+        "Profile": "gateway-state",
+        "Namespace": "openshell-state-022d0aa82c4f7ab414ce1aa6689c1ecb49bfd045",
+        "Owner": "CI05f6a0050ea953e5926874e09"
+      }
+    ],
+    "allocation_cleanup": {
+      "allocations_before": 2,
+      "allocations_absent": true
+    },
+    "cleanup": {
+      "namespace_retained": "stego-service-ci",
+      "test_resources_absent": true,
+      "allocations_absent": true
+    },
+    "ci_access_checks": 16,
+    "operator_cluster_resources": 18,
+    "artifact_sha256": {
+      "recovery-job.json": "dc81dbb1d8d2c5f51fc67efbcafb94378b928aa1154ef4a3cd366cf2cda3a828",
+      "recovery-pods.json": "153aed353f615a364aaee4a5a7062199f6ba70d3c528b6c9a704fce6d618d982",
+      "recovery-allocations.json": "4113e5289dc75d823e5be165b92c1fb163b2e2f707f120f0e64be0d575028c29",
+      "allocation-cleanup.json": "b33f23658e827fe2875ab1ce3abc38296ec7655ca2d89ab780a76ace9bc6f6ef",
+      "cleanup.json": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232",
+      "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
+      "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13"
+    },
+    "scope": "Cleanup after the failed Job and its Pod are gone. No application or SQL workflow ran in this recovery check."
+  },
+  "previous_full_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34932976117",
+    "commit": "b08f8b3e9858d5d757c68ccf939e4df233dc3835",
+    "jobs": [
+      {
+        "name": "service-image",
+        "conclusion": "success",
+        "started_at": "2026-09-15T05:39:42Z",
+        "completed_at": "2026-09-15T05:43:43Z"
+      },
+      {
+        "name": "web-console",
+        "conclusion": "success",
+        "started_at": "2026-09-15T05:39:42Z",
+        "completed_at": "2026-09-15T05:42:22Z"
+      },
+      {
+        "name": "gateway-workload",
+        "conclusion": "failure",
+        "started_at": "2026-09-15T05:39:41Z",
+        "completed_at": "2026-09-15T05:40:12Z"
+      },
+      {
+        "name": "sandbox-workload",
+        "conclusion": "failure",
+        "started_at": "2026-09-15T05:39:42Z",
+        "completed_at": "2026-09-15T05:40:20Z"
+      },
+      {
+        "name": "acceptance (browser)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T05:39:42Z",
+        "completed_at": "2026-09-15T05:43:16Z"
+      },
+      {
+        "name": "acceptance (core)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T05:39:42Z",
+        "completed_at": "2026-09-15T06:03:06Z"
+      },
+      {
+        "name": "cnpg-gateway-workflow",
+        "conclusion": "failure",
+        "started_at": "2026-09-15T05:39:41Z",
+        "completed_at": "2026-09-15T05:40:16Z"
+      }
+    ]
+  },
+  "retry": {
+    "commit": "de07bffed63969df32610117abccd884dceaef2a",
+    "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017009",
+    "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017005",
+    "result": "pending"
+  },
+  "limits": [
+    "The first browser CI run failed cleanup. Its application pass is not a passing CI gate.",
+    "The new full browser and API CI results are pending.",
+    "The fixed namespace retains six test image streams. Registry retention is outside this cleanup proof.",
+    "The browser fixture has no external connection endpoint. Screenshots do not prove external connectivity.",
+    "Installation CNPG, actual RDS, and Sandbox checks remain open."
+  ],
+  "browser_attempt": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191558",
+    "application_commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
+    "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+    "result": "application_passed_ci_cleanup_failed",
+    "workflow_seconds": 335.05,
+    "source_files_checked": 865,
+    "generated_files_checked": 229,
+    "ci_access_checks": 15,
+    "application_access_checks": 57,
+    "admission_probes": 6,
+    "operator_cluster_resources": 18,
+    "job_uid": "53c0eb58-4ff1-49d5-b94d-8f533acf6a50",
+    "generation_sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c",
+    "session_checks": [
+      "terminated its existing session; the other Gateway session remained open",
+      "preserved credentials, keys, and provider data"
+    ],
+    "ci_cleanup": {
+      "result": "failure",
+      "reason": "The test cleanup deleted the allocator service account before host cleanup could request its token."
+    }
+  },
+  "manual_repair": {
+    "operator_action": {
+      "namespace_uid": "0666fe42-3306-4de3-acd8-d0acebcf1db6",
+      "lease_holder": "stego-service-ci",
+      "execution_resources_absent": true,
+      "removed_ci_permission": "delete serviceaccounts in stego-service-ci",
+      "allocator_service_account_uid": "778e00ed-19dc-4cf7-be7f-23e7031950cc",
+      "reason": "The test cleanup deleted the allocator service account before host cleanup could request its token."
+    },
+    "cleanup": {
+      "namespace_retained": "stego-service-ci",
+      "test_resources_absent": true,
+      "allocations_absent": true
+    },
+    "ci_access_checks": 16,
+    "cleanup_sha256": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232"
+  },
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/68122a3ddd9e7da594c61d910adfceacc801efc7/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "c41f76dd298ce54f5319cfec389db9d59081909b173a28a9c43a04ff9aa0fa45"
+}
