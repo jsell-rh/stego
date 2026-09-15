@@ -4058,3 +4058,14 @@ in-memory requests, legacy mux rejection, and CLI file preservation. The
 compiler run failed on a stale registry version assertion; that assertion is
 corrected. Full CI for this change remains required. The Hypershell database
 contract remains aligned with PR 272, with no database selection field or catalog.
+
+The [environment-backed browser run](hypershell-environment-browser.json)
+`34952975989` passed at Hypershell `f900d5a` with compiler `5e9c89d`. The complete
+workflow took 380.37 seconds. Verification matched 890 source files, 230 generated
+files, all three generation records, 16 CI access checks, 57 application access
+checks, six admission probes, and 18 operator resources. Viewer recovery, denied
+writes, both access-removal paths, three live account cleanups, SQL isolation,
+encryption, and automated cleanup passed. Namespace recovery took 44.26 seconds
+without controller restarts or changed SQL identities. The old Job and Pods are
+absent. The newer API run `34955320269` is active; the frozen CNPG run must wait
+for its completion and cleanup.
