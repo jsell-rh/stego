@@ -1,7 +1,10 @@
 # Pinned admission policies
 
-Version 1.5.0 adds `PinnedAdmissionPolicies`. It creates Kubernetes admission
-policies for one service account that must run only operator-approved resource
+Version 1.5.1 withdraws `PinnedAdmissionPolicies` from generated output. The
+live gate failed. The prototype and its small renderer checks remain in test
+data for further work. Do not use the earlier 1.5.0 output as a CI boundary.
+
+The prototype creates Kubernetes admission policies for one service account that must run only operator-approved resource
 templates. The helper has no network calls and grants no access. It returns
 policy and binding objects for the operator to install.
 
@@ -84,5 +87,7 @@ parts and preserve resource UIDs through cleanup.
 
 The target Kubernetes server supplies schema defaults and CEL evaluation. See
 [Kubernetes admission parameters](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
-The pure renderer checks pass. Live policy type checks and the unattended CNPG
-workflow remain required; this source is not yet a verified CI installation.
+The pure renderer and live type checks pass, but the parameter lookup gate
+failed. No complete admission or lifetime result has passed. See the
+[attempt record](../../../specs/pinned-resource-admission.md). Unattended CNPG
+installation and credential renewal remain open.

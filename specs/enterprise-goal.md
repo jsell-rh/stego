@@ -3881,3 +3881,13 @@ The application took 396.86 seconds. Verification matched 882 source files,
 229 generated files, three generation records, access checks, and automated
 cleanup. The SQL denial, namespace recovery, encryption, and session checks
 passed. This is supplied PostgreSQL evidence; unattended CNPG CI remains open.
+
+The new pinned-admission prototype did not pass its live gate. Four bounded
+attempts found invalid namespace access, a parent/subresource matching defect,
+and missing parameters. The third attempt also blocked namespace cleanup;
+manual binding removal restored cleanup. Exact namespace selectors and safer
+deletion rules were added, but parameter lookup still failed in the fourth run.
+All probe resources are absent and the shared Lease is free. Version 1.5.1
+withdraws the prototype from generated runtime output. The prototype stays in
+test data until repeated installation, isolation, and lifetime checks pass.
+Hypershell did not adopt it. See the [attempt record](pinned-resource-admission.md).

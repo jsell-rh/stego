@@ -1,14 +1,17 @@
 package kubernetesclient
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
+	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
@@ -32,6 +35,11 @@ var rotationTelemetryTests []byte
 
 //go:embed testdata/pinned_admission_test.go
 var pinnedAdmissionTests []byte
+
+// The prototype is test-only until its live admission gate passes.
+//
+//go:embed testdata/pinned_admission.go.tmpl
+var pinnedAdmissionSource string
 
 func TestGeneratedKubernetesClient(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
@@ -61,7 +69,6 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 	files = append(files, gen.File{Path: "kubernetes/rotation_test.go", Content: rotationTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
-	files = append(files, gen.File{Path: "kubernetes/pinned_admission_test.go", Content: pinnedAdmissionTests})
 	var module strings.Builder
 	module.WriteString("module example.com/widget\ngo 1.26.8\n")
 	if telemetry {
@@ -140,27 +147,30 @@ func TestMissingHTTPClientIsRejected(t *testing.T) {
 	}
 }
 
-// This check compiles the pure policy renderer without a cluster or network.
+// This check compiles the test-only prototype without a cluster or network.
 func TestPinnedAdmissionTemplate(t *testing.T) {
-	ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
-	files, _, err := new(Generator).Generate(ctx)
+	tmpl, err := template.New("prototype").Parse(pinnedAdmissionSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, struct{ Package string }{Package: "kubernetes"}); err != nil {
+		t.Fatal(err)
+	}
+	code, err := format.Source(output.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	for _, file := range files {
-		if file.Path == "kubernetes/pinned_admission.go" {
-			if err := os.WriteFile(filepath.Join(directory, "policy.go"), file.Bytes(), 0600); err != nil {
-				t.Fatal(err)
-			}
-			if artifacts := os.Getenv("STEGO_PINNED_POLICY_ARTIFACTS"); artifacts != "" {
-				if err := os.Mkdir(artifacts, 0700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(artifacts, "pinned_admission.go"), file.Bytes(), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
+	if err := os.WriteFile(filepath.Join(directory, "policy.go"), code, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if artifacts := os.Getenv("STEGO_PINNED_POLICY_ARTIFACTS"); artifacts != "" {
+		if err := os.Mkdir(artifacts, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(artifacts, "pinned_admission.go"), code, 0600); err != nil {
+			t.Fatal(err)
 		}
 	}
 	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/policy\ngo 1.26.8\n"), "types.go": []byte("package kubernetes\ntype Object map[string]any\n"), "policy_test.go": pinnedAdmissionTests} {
@@ -173,5 +183,21 @@ func TestPinnedAdmissionTemplate(t *testing.T) {
 	command.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("pinned policy renderer: %v\n%s", err, output)
+	}
+}
+
+func TestUnverifiedAdmissionPrototypeIsNotGenerated(t *testing.T) {
+	ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
+	files, _, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 4 {
+		t.Fatal("unexpected Kubernetes runtime file set")
+	}
+	for _, file := range files {
+		if strings.Contains(file.Path, "pinned_admission") || bytes.Contains(file.Bytes(), []byte("PinnedAdmissionPolicies")) {
+			t.Fatal("unverified admission prototype reached generated output")
+		}
 	}
 }

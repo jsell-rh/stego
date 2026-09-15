@@ -1,0 +1,146 @@
+{
+  "date": "2026-09-15",
+  "server_version": "v1.35.6",
+  "component_version": "1.5.1",
+  "generated_policy_api": "withdrawn_until_live_gate_passes",
+  "hypershell_compiler_unchanged": "2097bea6e155a889c48514e640507cae26bb3037",
+  "attempts": [
+    {
+      "attempt": 1,
+      "result": "namespace_uid_expression_rejected",
+      "complete_live_gate_passed": false,
+      "local_results": "/tmp/stego-pinned-admission-run-v1",
+      "source": {
+        "source_commit": "afa46d14ac99191aa5cb7ad08abca585bced8758",
+        "source_sha256": {
+          "internal/generator/kubernetesclient/pinned_admission.go.tmpl": "d615466b0b8cb9485814ca39dfa1a579d0dbfb9c028da4a49d412b7337bc8294",
+          "scripts/check-pinned-admission.py": "af93f2a8d621bb6e9a888b14a8322a2aeccc13ad5c14a6ef2fd203cf769d1978",
+          "internal/generator/kubernetesclient/testdata/pinned_admission_test.go": "e46620954607fa42ed794c0bf3bcd39ae8eb6ed85da5013f07c70ac9e1106fb0"
+        },
+        "generated_renderer_sha256": "15c0659bfbb20a156d5c3a6dce9c2856f244d03f0e6adff8e106470e5b9eebf1",
+        "renderer_binary_sha256": "f88e8db5845ae8c6236042daaef12a2c8299a02251c1718a951965fb3a5b3a2c",
+        "frozen_probe_sha256": "af93f2a8d621bb6e9a888b14a8322a2aeccc13ad5c14a6ef2fd203cf769d1978"
+      },
+      "cleanup": {
+        "namespace_absent": "stego-pinned-afa46d14",
+        "created_cluster_resources_absent": true
+      },
+      "artifact_sha256": {
+        "source.json": "84c844944b442107ad9327cc7977b47e076f863c0fefa2578ce0b5c94182bd65",
+        "created.json": "09ef1a43b6e7c4915f7c76a2293780291797b03de04624434f352f243f20938e",
+        "renderer-input.json": "991cc2aeed270de01e6e330e35bd2fbb89887b0cb15a38cfc43d2e35f4de8c36",
+        "policies.json": "a007070ac756a5e802b38643f3bac9c9a3a7ca21a3fa9340def65c7bde47fae8",
+        "cleanup.json": "313ec9f321a212d234e63ab3e9a1641bff8e349f459693a1a9e1fc733b629815"
+      }
+    },
+    {
+      "attempt": 2,
+      "result": "subresource_rule_denied_parent_creation",
+      "complete_live_gate_passed": false,
+      "local_results": "/tmp/stego-pinned-admission-run-v2",
+      "source": {
+        "source_commit": "dd0d4eb9ec97ad1f2b8ef30fc01738e9a8ab1f58",
+        "source_sha256": {
+          "internal/generator/kubernetesclient/pinned_admission.go.tmpl": "20e2e8e077b65cc4bde1af999537ac1f6fda905cbae4f0ab4a0e314a025a87be",
+          "scripts/check-pinned-admission.py": "f24d26c7aa9653b8e7c819a6edc7d898c21995d9710d4b5269e1feee305cfeb0",
+          "internal/generator/kubernetesclient/testdata/pinned_admission_test.go": "c7d3766ace810e9e736078f0886b5cdd7aef328f0007eabcc74e2b3f105cb4a2"
+        },
+        "generated_renderer_sha256": "540289a72fcaf0e22c2401544aab5e036938b1fbb65b32ba567b1f41d3d1b67b",
+        "renderer_binary_sha256": "7f890eb94d2889aee4a8ba3dc24abfcca8a69695a6140b6bfbc8e0099724aafd",
+        "frozen_probe_sha256": "f24d26c7aa9653b8e7c819a6edc7d898c21995d9710d4b5269e1feee305cfeb0"
+      },
+      "cleanup": {
+        "namespace_absent": "stego-pinned-dd0d4eba",
+        "created_cluster_resources_absent": true
+      },
+      "artifact_sha256": {
+        "source.json": "b903a7c18bb7e76debbc11a11a098753e5212823cbe31a4bd918d89c2a1af6ea",
+        "created.json": "13bfa794ab5d626f4e58e7c92a618561e713cb224bf412e1c6e01412fc7ef510",
+        "renderer-input.json": "61a28efeaffc976d05fa966531540ffac92878589e3c3b36bcd3ab4dbd359e52",
+        "policies.json": "2dac8d88935fc526dbe792617804cd911589c092e7e4fb8abb116c5cb880de26",
+        "cleanup.json": "65d1d159035a1c55c946ddc55a8c4dabeb816e21f665008ef167ea3e30da5808",
+        "policy-status.json": "9a1cdca87f4a0c4311320a9dc94ff6d686a01d08c8d6efffe3077b094554e220"
+      },
+      "log_sha256": "f0de1a198ca91c3e5f1868db4662f68d35090a7dff8df93712fa4fc0ec7765e7"
+    },
+    {
+      "attempt": 3,
+      "result": "missing_parameter_and_cleanup_failure",
+      "complete_live_gate_passed": false,
+      "local_results": "/tmp/stego-pinned-admission-run-v3",
+      "source": {
+        "source_commit": "50f9c59972835541920ec2372192db710dbf0c2b",
+        "source_sha256": {
+          "internal/generator/kubernetesclient/pinned_admission.go.tmpl": "55c8b6f466276d34c5388259aec741efd73c0e45b8af5668fd6148483175713b",
+          "scripts/check-pinned-admission.py": "ebd9b2d60828f4dacceb7a2d7ad4006f0e3a79f9d669f36346d190061859c395",
+          "internal/generator/kubernetesclient/testdata/pinned_admission_test.go": "2f5f800484cf375982a2cc58e520ec8d54caf7935117abea865475edced1232c"
+        },
+        "generated_renderer_sha256": "c5faa5ca2a632ef1a329e79733236f4a5ae8a09e39c3a0a3df6d99d40de1258a",
+        "renderer_binary_sha256": "09fd255fd77ea6035952869229b8ceaaa0e4eac18f5ce571206d07243458439f",
+        "frozen_probe_sha256": "ebd9b2d60828f4dacceb7a2d7ad4006f0e3a79f9d669f36346d190061859c395"
+      },
+      "cleanup": {
+        "namespace_absent": "stego-pinned-50f9c59a",
+        "created_cluster_resources_absent": true,
+        "probe_runner_exit": 1,
+        "manual_binding_removal_required": true
+      },
+      "artifact_sha256": {
+        "source.json": "4743986b3354dba41c6b6258193fd29ac934117e8327b4b3bdec28982d76bfa8",
+        "created.json": "4efabc5582e7b82893afa089975e353b5d9ef8a515fa82ca1f0203fb24c947c8",
+        "renderer-input.json": "b5c58c399bd1386f923d0ff1433e2f0ce7ba6e3b180431050cf3e141b3b857a3",
+        "policies.json": "d67e4774dc3e2ab6c26a4ae6e0cbcad825b09793ef7d56d2a5027be2ff145d99",
+        "manual-cleanup.json": "c1d2b1bf1c0e081ad28aa2ebcd5a1c22238dc331e9b1d0c9eca149edd99c0da1",
+        "policy-status.json": "9651c5b0a2f9d1d5d8e72e598f5f3f83ed51e73c3faa707d6f53ff1d4fcff3c9",
+        "binding-recovery.json": "0bf33cdb68e986968ad62f30feaffa164aa56b782f23cdd1bd3c829b21fb8afe"
+      },
+      "log_sha256": "a404c0233324db41c82d9b93e3360220f802e4a71e60fa17f5ef2233ffb78808"
+    },
+    {
+      "attempt": 4,
+      "result": "parameter_wait_expired",
+      "complete_live_gate_passed": false,
+      "local_results": "/tmp/stego-pinned-admission-run-v4",
+      "source": {
+        "source_commit": "a2e608818610f5154df2d709a9e4adc9cdf028fd",
+        "source_sha256": {
+          "internal/generator/kubernetesclient/pinned_admission.go.tmpl": "01339a4a5e9817cee3397ba8904b8555e792807e0be60e777e314258467ac777",
+          "scripts/check-pinned-admission.py": "803781b8b35a4d1a0fcf5a2bddebe5ad99791a9df0f80bb34c18868cf408c8f9",
+          "internal/generator/kubernetesclient/testdata/pinned_admission_test.go": "626636dd8061e76f902f70b0279beda964e37b52db70612d735ad2bcf7285455"
+        },
+        "generated_renderer_sha256": "50fba6cb6c42b0d10cfb2419391901819d34905f13a5475f58ad5e944d282f0c",
+        "renderer_binary_sha256": "e611f28f1216ee9a6fa7cf63458bb8341d317059515373cc72784bf30215ace8",
+        "frozen_probe_sha256": "803781b8b35a4d1a0fcf5a2bddebe5ad99791a9df0f80bb34c18868cf408c8f9"
+      },
+      "cleanup": {
+        "namespace_absent": "stego-pinned-a2e6088a",
+        "created_cluster_resources_absent": true
+      },
+      "artifact_sha256": {
+        "source.json": "9209cd391987deaab694d1e275dd9e9c3875d55cfb4712cea3ff077f31a8def6",
+        "created.json": "df197408f4c19e82bd9b7289269c52f64946ca8dbe99307e240cd89f3e31e3fc",
+        "renderer-input.json": "951d9c10ca41eed31e0e4dd14ee6d604ddae9f15baeeee2c5c624ed87c30dd0a",
+        "policies.json": "7f7a1bd847f8f2ce04384713f14bd459c344146f7e12f71b531c3982d18b6ac2",
+        "cleanup.json": "fb6b51e0fe74f6a157c00cb4c74358fb531e80b582ba398a2f1a25617413bba8",
+        "failure.json": "cb7d7664e4b81480d8ef1d2a020931947677c59d5819493c67364b0f4f359a89",
+        "policy-status.json": "e7d866c6f1adf86dc8c2c93b4c7db0279f7e9ba21e98e354ede0cc97427629cd"
+      },
+      "log_sha256": "dea0fe71cdee2811c40b28ac4c43ae37c89db4bc370aa4d2a1ef653a69033dc4"
+    }
+  ],
+  "final_cluster_check": {
+    "namespace": "absent",
+    "validatingadmissionpolicy": "absent",
+    "validatingadmissionpolicybinding": "absent",
+    "customresourcedefinition": "absent",
+    "shared_lease": "free"
+  },
+  "limits": [
+    "No complete admission or lifetime workflow passed.",
+    "The third attempt needed manual binding removal before namespace cleanup could complete.",
+    "Earlier policies lacked namespace selectors; unrelated request failures during missing-parameter windows were not measured.",
+    "The final prototype has namespace selectors, but its missing-parameter isolation probes were not reached.",
+    "A stopped shared informer is a hypothesis only.",
+    "The generated API is withdrawn; the prototype remains in test data."
+  ]
+}
