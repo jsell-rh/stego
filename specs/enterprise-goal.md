@@ -85,13 +85,16 @@ The console archive differed from a fresh build at that source. Hypershell
 [archive record](hypershell-console-endpoint-assets.json) preserves their hashes.
 The fresh console job and ordinary browser job passed at `7d6b6d2` in full CI
 [34975653596](https://github.com/jsell-rh/hypershell-stego/actions/runs/34975653596).
-The service image passed, CNPG failed, Sandbox was skipped, and core acceptance
-was still running at the last check. This is not a complete CI pass.
+Core acceptance and the service image passed. The expanded controller grant
+and atomic endpoint test passed with race detection in 8.06 seconds. The
+[transaction record](hypershell-endpoint-transaction-ci.json) preserves its
+source and log hashes. CNPG failed before test creation and Sandbox was skipped.
+The complete run reports failure.
 
-The current public workflow source is Hypershell `7cb0e2f`, with compiler
-`4f692d0`. Common TLS Secret checks, Route admission, a credential-free pinned
+The current public workflow source is Hypershell `74fcbba`, with compiler
+`635f5da`. Common TLS Secret checks, Route admission, a credential-free pinned
 TLS RPC probe, and optional external network destinations are in STEGO.
-[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
+For compiler `4f692d0`, [full CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
 passed the compiler, SQL provisioning, and both independent example services.
 The earlier private-block defect in the TLS Secret helper is corrected in
 `0953fcc` and retained in this source.
@@ -99,7 +102,7 @@ The earlier private-block defect in the TLS Secret helper is corrected in
 Hypershell commits workload status and endpoint observations in one generated
 serializable transaction. It uses the original API revision and requires both
 exact observation grants. New SQL tests cover rollback, stale writes, and
-restart; their complete integration result remains required. The controller
+restart; their core CI result passed at `7d6b6d2` as recorded above. The controller
 creates the Route, checks admission, matches the public certificate, checks
 health and denied identity calls, and rechecks the Route revision before it
 publishes the address. A failed observation clears the address with status.
@@ -131,6 +134,28 @@ archive, and acknowledgment requests. Fourteen local command fixtures pass.
 Partial evidence from failed tests remains available for diagnosis. These
 collection checks do not establish an application pass.
 
+Compiler `805a152` fixes the separate RPC process startup context and cleanup
+telemetry. The bounded regression first reproduced missing startup database
+signals. The corrected check passed startup and cleanup errors, panic,
+`runtime.Goexit`, clean shutdown, and fixed lifecycle events through TLS OTLP.
+Hypershell `7494ff5` adopts the generated runtime; `0600ba2` records console
+regeneration with the same compiler. Repeated generation, drift, and provisioner
+compilation pass. At `805a152`, the RPC generator package, SQL provisioning,
+and both example jobs passed. Full CI failed because the command fixture used
+the wrong telemetry namespace. Compiler `635f5da` corrects that fixture; its
+bounded command check passes. Hypershell `74fcbba` adopts this pin, with repeated
+generation and drift checks. [Full CI](https://github.com/jsell-rh/stego/actions/runs/34978866375)
+passed the compiler, SQL provisioning, and both example jobs at `635f5da`.
+The new deployed application result remains required. See the [RPC process contract](grpc-processes.md).
+
+At Hypershell `74fcbba`, API run `34978962793` and browser run `34978962567`
+stopped at the credential check before test creation. Their logs require a
+valid one-hour token and verified HTTPS context. Full application CI
+`34978963236` is queued behind the running `7cb0e2f` core check in `34977883303`.
+Retain that active run until it has a result.
+
+CNPG job `104403102945` in run `34975653596` stopped before test creation because
+its CI credential had too little time left. This is not a CNPG runtime result.
 API run `34975653347` and browser run `34975653307` stopped before test creation
 because the CI credential had too little time left. The operator context still returned `Unauthorized` on 2026-09-15. Its login
 refresh is still pending. The next cluster run also needs the installed policy to match

@@ -173,3 +173,9 @@ import to the archetype namespace. The corrected command check passed in
 4.481 seconds, including generation, dependency resolution, build, drift, and
 rejection of an invalid factory without output changes. A new full CI result
 is required; the failed run remains recorded.
+
+[Full CI 34978866375](https://github.com/jsell-rh/stego/actions/runs/34978866375)
+passed at `635f5dad071323f579dee32e0f89beddb55f6959`, including the compiler,
+SQL provisioning, and both example jobs. Hypershell `74fcbba` uses this compiler.
+Its repeated generation and drift checks pass. A new deployed application
+result remains required.

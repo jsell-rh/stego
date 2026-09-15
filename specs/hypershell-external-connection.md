@@ -165,8 +165,12 @@ No live rotation result exists. The complete public gate, regeneration, and
 cleanup must pass before public readiness can be claimed.
 
 The fresh console, ordinary browser, and service image jobs passed at `7d6b6d2`
-in run `34975653596`; core acceptance was still running at the last check. CNPG
-failed and Sandbox was skipped. API `34975653347` and browser `34975653307`
+in run `34975653596`. Core acceptance also passed. The expanded endpoint and
+controller grant test passed with race detection in 8.06 seconds, including
+rollback after the second SQL update, denied writes, event delivery, and restart.
+The [transaction record](hypershell-endpoint-transaction-ci.json) preserves the
+source and result. CNPG failed before test creation and Sandbox was skipped.
+API `34975653347` and browser `34975653307`
 failed their credential lifetime check before test creation. The operator
 login refresh remains pending. Keep the older browser result limited to its
 internal Service and recorded archive.

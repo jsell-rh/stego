@@ -109,3 +109,10 @@ The [worker startup contract](worker-startup-observability.md) moves telemetry
 ownership to the generated controller callback. Provider setup, nested loops,
 and cleanup share the runtime. Early callback failures now have a fixed local
 and OTLP event. Complete application verification remains required.
+
+The [RPC process contract](grpc-processes.md) now binds the private runtime to
+application initialization. Fixed failure events and telemetry flush survive
+callback panic and `runtime.Goexit`. The bounded TLS collector regression
+covers startup database instrumentation, serving, and cleanup. Hypershell uses
+the regenerated runtime. The deployed application gate and the remaining
+unbound entry points still require evidence.

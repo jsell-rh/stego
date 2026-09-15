@@ -1,0 +1,48 @@
+{
+  "checked_at": "2026-09-15",
+  "source_revision": "7d6b6d263230ee5456d07fee00336eba91f09357",
+  "compiler_revision": "3f757e32fd2d4b4b2f9fbc1b116915efa08da937",
+  "workflow": {
+    "run_id": 34975653596,
+    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34975653596",
+    "conclusion": "failure",
+    "core_job_id": 104403103058,
+    "core_conclusion": "success",
+    "ordinary_browser_conclusion": "success",
+    "console_conclusion": "success",
+    "service_image_conclusion": "success",
+    "cnpg_conclusion": "failure",
+    "cnpg_failure": "CI credential had too little time left; no test was created.",
+    "sandbox_conclusion": "skipped"
+  },
+  "test": {
+    "name": "TestGatewayControllerWriteGrantsAcrossPlacementAndRestart",
+    "result": "pass",
+    "elapsed_seconds": 8.06,
+    "source_file": "acceptance/gateway_write_grants_test.go",
+    "source_sha256": "041a2c5ce5744e7862396055e0f354ef6c85a51230e150612d53bfc6e68741e6",
+    "race_detection": true
+  },
+  "core_acceptance_elapsed_seconds": 1314.355,
+  "log": {
+    "path": "/tmp/hypershell-core-34975653596.log",
+    "sha256": "bfd2342858f201ab4de46146410b41c10960c3c224f71f9d3821e01e1c842f26"
+  },
+  "verified": [
+    "Both exact observation grants are required for a combined write.",
+    "Failure of the second SQL observation update rolls back Gateway state and events.",
+    "A successful write commits one event and advances the resource revision.",
+    "The generated runtime delivers the event.",
+    "Stale combined writes change neither state nor events.",
+    "REST and gRPC reject owner writes to route_address.",
+    "REST reads preserve the controller address.",
+    "Endpoint failure clears the address and workload readiness together.",
+    "Placement and API restart preserve controller permission checks."
+  ],
+  "limits": [
+    "The live public Route, TLS renewal, and network recovery tests did not run.",
+    "This result applies to the recorded source. Later changes require their own CI results.",
+    "The complete workflow result is failure because CNPG could not start.",
+    "The deferred Sandbox test is not a pass."
+  ]
+}
