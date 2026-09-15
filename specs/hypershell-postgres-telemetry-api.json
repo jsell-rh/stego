@@ -1,0 +1,29 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176232",
+  "commit": "2af1b462db4924d91055cbb4aa0438aad768994f",
+  "required_passed": 31,
+  "source_files_checked": 902,
+  "generated_files_checked": 230,
+  "job_uid": "3a1dfb46-3ed8-4be1-92f2-0922165e9cef",
+  "cleanup": {
+    "job_absent": "gateway-api-d5a1c23cdff3",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "pool_metrics": {
+    "wait_count_before": 11,
+    "wait_count_after": 14,
+    "wait_seconds_before": 0.028446,
+    "wait_seconds_after": 3.702519,
+    "restart_and_collector_recovery": true
+  },
+  "independent_cleanup": {
+    "checked_on": "2026-09-15",
+    "selector": "stego.test/run=gateway-api-d5a1c23cdff3",
+    "owned_jobs_pods_and_fixtures_absent": true,
+    "lease_free_at_check": true
+  },
+  "pool_test_seconds": 9.74,
+  "acceptance_seconds": 153.598
+}

@@ -45,3 +45,10 @@ cleanup denial and recovery, and retained signal identity across worker restart.
 passed at `f2b09c0`, including race checks and generated PostgreSQL provisioning.
 Hypershell `2af1b46` adopts this source and requires SQL operation signals in its
 complete browser workflow. That application result remains separate and required.
+
+The [Gateway API gate](hypershell-postgres-telemetry-api.json) passed at `2af1b46`
+in run `34962176232`: all 31 required tests, 902 source files, 230 generated files,
+four matching generation records, and complete cleanup. Acceptance took 153.598
+seconds. The independent cluster check found no remaining Job, Pods, or private
+fixtures. The complete browser SQL signal check remains required. The later
+worker startup change has separate compiler and application checks.

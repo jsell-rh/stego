@@ -60,7 +60,7 @@ its recorded source and test scope:
 
 | Result | Source | Evidence and limits |
 | --- | --- | --- |
-| Complete Gateway API gate, 31 required tests | Hypershell `916f3a7`, compiler `e5b9931` | [API evidence](hypershell-pool-api.json): 899 source files, 230 generated files, four matching generation records, and complete cleanup. Includes pool metrics, cancellation, API restart, and collector failure and recovery. |
+| Complete Gateway API gate, 31 required tests | Hypershell `2af1b46`, compiler `f2b09c0` | [API evidence](hypershell-postgres-telemetry-api.json): 902 source files, 230 generated files, four matching generation records, and complete cleanup. Includes pool metrics, cancellation, API restart, and collector failure and recovery. |
 | Complete generated browser workflow and console pool metrics | Hypershell `916f3a7`, compiler `e5b9931` | [Browser evidence](hypershell-pool-browser.json): all three pool checkpoints, SQL isolation, access rules, namespace recovery, account cleanup, encryption, session checks, and automatic cleanup. Does not verify the later SQL client telemetry change. |
 | Complete supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [CNPG evidence](hypershell-cnpg-complete.json): failover, retained data and identities, and automatic cleanup. The operator installed the server; this is not unattended CI. |
 | Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
@@ -73,9 +73,9 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| API gate with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176232](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176232), active; Job `stego-ci/gateway-api-d5a1c23cdff3` |
-| Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), queued |
+| Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), active |
 | Full CI with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260), active |
+| Worker setup and cleanup telemetry | Compiler `f97b315` | [34964671704](https://github.com/jsell-rh/stego/actions/runs/34964671704), active; [contract and focused results](worker-startup-observability.md) |
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
