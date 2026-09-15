@@ -1,0 +1,42 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352",
+  "commit": "677973f87c47ecea9d1d43a13c197c74eb4ebd67",
+  "required_passed": 31,
+  "source_files_checked": 907,
+  "generated_files_checked": 230,
+  "job_uid": "accbf7c5-4540-4934-a02a-d3a08ea1d427",
+  "cleanup": {
+    "job_absent": "gateway-api-fdef9ea532c2",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "pool_metrics": {
+    "wait_count_before": 11,
+    "wait_count_after": 15,
+    "wait_seconds_before": 0.032377,
+    "wait_seconds_after": 3.725971,
+    "restart_and_collector_recovery": true
+  },
+  "compiler_revision": "f97b3155c10a194082337905939b582814722e98",
+  "independent_cleanup": {
+    "checked_on": "2026-09-15",
+    "selector": "stego.test/run=gateway-api-fdef9ea532c2",
+    "owned_jobs_pods_and_fixtures_absent": true,
+    "lease_free_at_check": true
+  },
+  "acceptance_seconds": 166.615,
+  "pool_test_seconds": 10.53,
+  "worker_startup": {
+    "seconds": 7.24,
+    "passed_workers": [
+      "namespace-allocation",
+      "gateway-identity",
+      "gateway-workload",
+      "sandbox-count"
+    ],
+    "actual_processes": true,
+    "tls_otlp": true,
+    "local_and_remote_lifecycle_correlated": true
+  }
+}

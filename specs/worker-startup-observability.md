@@ -41,3 +41,11 @@ for all four generated workers in 3.887 seconds. Each process failed during
 provider setup, excluded private data, and exported one start, failure, and stop
 record with the same identity as local output. This is a focused startup check;
 the complete API and browser workflows remain queued.
+
+The [complete API evidence](hypershell-worker-startup-api.json) records a pass for Hypershell `677973f`
+in run `34964891352`. All 31 required tests passed; acceptance took 166.615
+seconds. This run includes the four actual worker startup failures and their
+correlated local and TLS OTLP records, in 7.24 seconds. Verification matched
+907 source files, 230 generated files, and four identical generation records.
+Automatic cleanup and independent cluster reads found no test resources. The
+complete browser run `34964891373` and full CI `34964891409` remain active.
