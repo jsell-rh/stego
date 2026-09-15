@@ -222,7 +222,9 @@ been sent to the user and remains pending. The existing two-Role public test
 permission plan must be recomputed after network policy permissions change.
 
 STEGO kubernetes-service 1.11.0 adds an explicit allocator-owned deny-all
-NetworkPolicy option. Focused generated runtime and manifest checks passed.
+NetworkPolicy option. Full compiler CI, generated runtime and manifest checks,
+and a frozen Hypershell declaration check passed. Hypershell adopted the compiler
+in `1e89428`; its network option remains off.
 The [mechanism and limits](namespace-allocation.md#fixed-network-deny-policy)
 remain separate from the full network gate. Live admission, allowed traffic,
 denied traffic, and Hypershell adoption are pending. Keep the application

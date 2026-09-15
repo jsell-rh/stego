@@ -158,6 +158,19 @@ checks passed for profile selection, bounded permissions, fixed constraints,
 and repeat generation. These are fixture and source checks, not API-server
 CEL evaluation or traffic tests.
 
+Full [compiler CI 34981210745](https://github.com/jsell-rh/stego/actions/runs/34981210745)
+passed at `d709240`: compiler race tests, PostgreSQL provisioning, and both
+examples. The Kubernetes service package passed in 14.435 seconds. Hypershell
+adopted this compiler in `1e89428` and regenerated both modules with no drift.
+Its production network option remains off.
+
+The [frozen Hypershell fixture](hypershell-network-opt-in-fixture.json) selected
+the option only in a temporary declaration. The generated allocator wrote nine
+resources. Its deny policy was third, after the Namespace and quota and before
+all bindings. The unchanged production declaration still wrote eight resources
+and no policy. Both diagnostics used a local TLS API fixture. Neither tested
+live admission, allowed service traffic, or network enforcement.
+
 For the live admission fixture, set `STEGO_ALLOCATION_NETWORK=1` when producing
 both the original and next manifests. Use `--network-isolation` with
 `scripts/check-namespace-allocation.py`. The added checks cover permitted deny

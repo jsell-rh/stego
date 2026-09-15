@@ -1,0 +1,110 @@
+{
+  "checked_at": "2026-09-15",
+  "source_parent_revision": "16465bdae1bd636e276daea2fe6ec68bdf1d554c",
+  "compiler_revision": "d709240557c91f7b415262b35de107c4d70f987e",
+  "component_version": "kubernetes-service 1.11.0",
+  "scope": "Generated Hypershell allocator against a local TLS API fixture. No cluster or network enforcement test.",
+  "declaration_change": "Only the frozen test copy sets network_isolation: true on the gateway allocation profile.",
+  "production_network_option_enabled": false,
+  "generation": {
+    "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB GOFLAGS=-p=1 timeout 90s bash scripts/generate.sh",
+    "result": "pass",
+    "drift": "none in application and console"
+  },
+  "diagnostics": [
+    {
+      "mode": "baseline",
+      "exit_status": 1,
+      "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB timeout 30s go run -p=1 -mod=readonly scripts/allocated-network-audit.go",
+      "result": {
+        "ensure_succeeded": true,
+        "network_policy_writes": 0,
+        "scope": "Generated allocator against a TLS API fixture; no real cluster",
+        "writes": [
+          "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+          "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-proof",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-0",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-1",
+          "ClusterRoleBinding /apis/rbac.authorization.k8s.io/v1/clusterrolebindings/control.hypershell-namespace-allocation.openshell-aaaaaaaaaaaaaaaa.2",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-3",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-4"
+        ]
+      },
+      "sha256": "77e3f512f2906f6b4dd1ddafb0c55c9bc75f8877922ef427e066d1a4a95cf655"
+    },
+    {
+      "mode": "opt-in",
+      "exit_status": 0,
+      "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB timeout 30s go run -p=1 -mod=readonly scripts/allocated-network-audit.go",
+      "result": {
+        "ensure_succeeded": true,
+        "network_policy_writes": 1,
+        "scope": "Generated allocator against a TLS API fixture; no real cluster",
+        "writes": [
+          "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+          "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+          "NetworkPolicy /apis/networking.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/networkpolicies/stego-allocation",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-proof",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-0",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-1",
+          "ClusterRoleBinding /apis/rbac.authorization.k8s.io/v1/clusterrolebindings/control.hypershell-namespace-allocation.openshell-aaaaaaaaaaaaaaaa.2",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-3",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-4"
+        ]
+      },
+      "sha256": "c2c227691c9c19e45328f3b850843baa492fc3c0a46c854ffe9a7984f2a4fb2b"
+    }
+  ],
+  "files": [
+    {
+      "label": "production declaration",
+      "path": "/home/jsell/code/hypershell-stego/service.yaml",
+      "sha256": "4bd64f1a0ef1e1f5054273bbe8f4372cd466a1b7ae7fc75cb828eb0eed5a09a0"
+    },
+    {
+      "label": "test declaration",
+      "path": "/tmp/hypershell-network-opt-in-20260915/service.yaml",
+      "sha256": "f42d5e8cbfc7aacfb69ca6e5d25db1185b05e4d1632a0432ebb1e06e1b901dcd"
+    },
+    {
+      "label": "test generated allocator",
+      "path": "/tmp/hypershell-network-opt-in-20260915/out/deploy/allocation/allocation.go",
+      "sha256": "ceda67c6cc06190895ea521780d2754b60f03ea9d2cbabfc2ff4f0d2a77f0829"
+    },
+    {
+      "label": "test generation log",
+      "path": "/tmp/hypershell-network-opt-in-generation-20260915.log",
+      "sha256": "747ffe6199d8f8878f425e280497644d58615ebbc8f8a4e8ab91ba0d0ee4f0f0"
+    },
+    {
+      "label": "production generation log",
+      "path": "/tmp/hypershell-network-baseline-generation-20260915.log",
+      "sha256": "1d11d0db6664de4ef0dc18455fd19aae64492f40414b07aec2b9dc06d53de6d9"
+    }
+  ],
+  "limits": [
+    "Live admission and CEL type checking are pending.",
+    "Allowed paths and protection of the complete policy set are pending.",
+    "Policy writes do not prove CNI enforcement.",
+    "The production profile still has the recorded network isolation gap."
+  ],
+  "compiler_ci": {
+    "run_id": 34981210745,
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34981210745",
+    "source_revision": "d709240557c91f7b415262b35de107c4d70f987e",
+    "conclusion": "success",
+    "jobs": [
+      "compiler",
+      "postgres-provisioning",
+      "examples (user-management)",
+      "examples (user-management-rhsso)"
+    ],
+    "compiler_job_id": 104421707135,
+    "kubernetes_service_package_seconds": 14.435,
+    "race_detection": true,
+    "log_path": "/tmp/stego-network-compiler-34981210745.log",
+    "log_sha256": "d118961c17997d1a90184baaf1717ea87dc1b0d6b822d977e12da2097a167878"
+  },
+  "consumer_revision": "1e89428c618c187d6c3a8d8f1bfbabe8cbbcadaa"
+}
