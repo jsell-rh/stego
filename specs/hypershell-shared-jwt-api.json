@@ -1,0 +1,40 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271359",
+  "commit": "752d92e26c4e7b967d1befbb31c7c1f9d9b0c037",
+  "required_passed": 31,
+  "source_files_checked": 911,
+  "generated_files_checked": 231,
+  "job_uid": "d7a20814-bb32-45e9-9da6-d372ff48b424",
+  "cleanup": {
+    "job_absent": "gateway-api-87029b6a0b06",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "pool_metrics": {
+    "wait_count_before": 9,
+    "wait_count_after": 13,
+    "wait_seconds_before": 0.045184,
+    "wait_seconds_after": 3.720029,
+    "restart_and_collector_recovery": true
+  },
+  "compiler_revision": "a355306caea077ae8771884e4ca7b5eb5605eeca",
+  "independent_cleanup": {
+    "checked_on": "2026-09-15",
+    "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+    "selector": "stego.test/run=gateway-api-87029b6a0b06",
+    "owned_jobs_pods_and_fixtures_absent": true
+  },
+  "acceptance_seconds": 166.638,
+  "pool_test_seconds": 9.89,
+  "retired_database_request_test_seconds": 4.12,
+  "worker_startup": {
+    "seconds": 6.9,
+    "passed_workers": [
+      "namespace-allocation",
+      "gateway-identity",
+      "gateway-workload",
+      "sandbox-count"
+    ]
+  }
+}

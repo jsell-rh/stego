@@ -1,0 +1,348 @@
+{
+  "source_revision": "dab02cfaee5bdfeeb949b7d882ddc8ff636c95c3",
+  "installation_id": "57997a20e039ad44d9430c6210f75d98",
+  "complete": true,
+  "resource_count": 45,
+  "resources": [
+    {
+      "kind": "Namespace",
+      "name": "stego-cnpg-operator-ci",
+      "namespace": "",
+      "state": "created",
+      "uid": "5abe01b3-96fd-41e6-a096-7d1e164c56b6"
+    },
+    {
+      "kind": "Namespace",
+      "name": "stego-cnpg-database-ci",
+      "namespace": "",
+      "state": "created",
+      "uid": "d57b0776-5a99-45d6-a1cc-7b031a555359"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "backups.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "dc20633d-9da3-4cb6-baba-9949d2f82c85"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "clusterimagecatalogs.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "851a560c-9264-417d-a5bf-a0262d340cca"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "clusters.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "1a3bbea6-1dae-4a3c-b367-8160b26efcb5"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "databaseroles.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "fe4f5aef-96b4-4990-ace6-023235832f05"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "databases.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "de2c4f2d-f34e-48d9-8e54-ea321b6b6230"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "failoverquorums.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "35b752c2-123a-494d-980b-77887e8a8a5d"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "imagecatalogs.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "79f51ee3-2c26-4642-90ec-80af2dac729a"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "poolers.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "7b3fbcca-ee3c-4224-9fa7-354a8371590e"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "publications.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "2123243c-6be9-45a3-929a-6ab7fe3ceb14"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "scheduledbackups.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "1dfb5e1d-5a0f-4347-9de4-809d00474282"
+    },
+    {
+      "kind": "CustomResourceDefinition",
+      "name": "subscriptions.postgresql.cnpg.io",
+      "namespace": "",
+      "state": "created",
+      "uid": "7b573d9d-f304-4cd1-9737-d189487f8033"
+    },
+    {
+      "kind": "MutatingWebhookConfiguration",
+      "name": "cnpg-mutating-webhook-configuration-stego-ci",
+      "namespace": "",
+      "state": "created",
+      "uid": "ed8cb16c-3c24-4c58-93a3-a99b41ccf981"
+    },
+    {
+      "kind": "ValidatingWebhookConfiguration",
+      "name": "cnpg-validating-webhook-configuration-stego-ci",
+      "namespace": "",
+      "state": "created",
+      "uid": "a342ff45-bb8f-4df2-ac9c-83bae4e4725d"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-cnpg-ci-manager",
+      "namespace": "",
+      "state": "created",
+      "uid": "4325eb5d-8ce8-4921-87d0-c59b0b589787"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-cnpg-ci-observer",
+      "namespace": "",
+      "state": "created",
+      "uid": "7318354e-ba81-4391-a39d-7d674c75044d"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-cnpg-ci-observer",
+      "namespace": "",
+      "state": "created",
+      "uid": "3cc1d0c1-eb7e-4500-9489-97a8d6d9d187"
+    },
+    {
+      "kind": "ServiceAccount",
+      "name": "cnpg-manager",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "10186c3b-3eca-4d66-a971-6d902ba5f868"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "cnpg-manager",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "d59e6acf-532f-4a73-b506-b57618a08b5c"
+    },
+    {
+      "kind": "Service",
+      "name": "cnpg-webhook-service",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "b574f20c-7960-47c8-a1d5-4a562dfb9dbd"
+    },
+    {
+      "kind": "Certificate",
+      "name": "webhook",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "43ae5e31-f268-4850-a61a-9916b74d10e9"
+    },
+    {
+      "kind": "ResourceQuota",
+      "name": "installation",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "dd6e1131-1ecd-48f9-bf18-d3b71be0d920"
+    },
+    {
+      "kind": "ResourceQuota",
+      "name": "installation",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "537d7b5b-d861-4130-96bc-c5319c5540d1"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "cnpg-manager",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "042484d6-dcaf-42cd-bf49-f9d87bc52559"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "database-nonroot",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "9cff04b1-aa19-401b-aae3-083c397b4ad0"
+    },
+    {
+      "kind": "Role",
+      "name": "fixture-observer",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "cbd8430e-1836-4123-8ee6-90002afb08c8"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "fixture-observer",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "8468ba3a-53d9-40e7-915d-16535e70f825"
+    },
+    {
+      "kind": "NetworkPolicy",
+      "name": "database",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "c9f7bc1f-c6cd-4436-a335-de73bddc0055"
+    },
+    {
+      "kind": "Role",
+      "name": "cnpg-ci",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "52229542-8cb1-4ce5-97c7-2a529b26e9fe"
+    },
+    {
+      "kind": "Role",
+      "name": "cnpg-ci",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "961c24e0-0d28-428b-bc2f-95c7b78de165"
+    },
+    {
+      "kind": "Role",
+      "name": "cnpg-ci-fixture",
+      "namespace": "stego-service-ci",
+      "state": "created",
+      "uid": "9d1a6255-c0c4-450e-9398-aff198d004fe"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-cnpg-ci-installation-reader",
+      "namespace": "",
+      "state": "created",
+      "uid": "f8957f95-f759-405e-8a59-303d53638a1d"
+    },
+    {
+      "kind": "NetworkPolicy",
+      "name": "operator",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "eec41b36-df72-4dc4-90ad-8d2c042524d7"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-cnpg-operator-ci.bounded-jobs",
+      "namespace": "",
+      "state": "created",
+      "uid": "61823408-614b-4c5f-8be7-706e6f87f38f"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-cnpg-operator-ci.bounded-jobs",
+      "namespace": "",
+      "state": "created",
+      "uid": "3f17ba14-3248-441e-bc5a-0a70fbf0223a"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-cnpg-database-ci.bounded-jobs",
+      "namespace": "",
+      "state": "created",
+      "uid": "1ce76068-9e47-4a54-8723-6bdd0e64886c"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-cnpg-database-ci.bounded-jobs",
+      "namespace": "",
+      "state": "created",
+      "uid": "59f3225e-c9e5-4d87-9538-710c0acd1801"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-cnpg-database-ci.bounded-cluster",
+      "namespace": "",
+      "state": "created",
+      "uid": "6c9b47c3-9002-4042-b693-0eabb90515df"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-cnpg-database-ci.bounded-cluster",
+      "namespace": "",
+      "state": "created",
+      "uid": "114997ec-533f-462c-ba65-016127e58bdb"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "cnpg-ci",
+      "namespace": "stego-cnpg-operator-ci",
+      "state": "created",
+      "uid": "eff5d657-a3f8-4464-bc5a-d838590b08e2"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "cnpg-ci",
+      "namespace": "stego-cnpg-database-ci",
+      "state": "created",
+      "uid": "527efd51-a3d5-4c7b-997f-9fd9e79d1ccf"
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "cnpg-ci-fixture",
+      "namespace": "stego-service-ci",
+      "state": "created",
+      "uid": "724d85a6-7ff0-40b9-8781-d8c144cd7725"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-cnpg-ci-installation-reader",
+      "namespace": "",
+      "state": "created",
+      "uid": "09c19658-4adf-484c-955a-562eb7afc193"
+    },
+    {
+      "kind": "ConfigMap",
+      "name": "cnpg-ci-installation",
+      "namespace": "stego-service-ci",
+      "state": "created",
+      "uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b"
+    }
+  ],
+  "admission_type_checks": [
+    {
+      "name": "stego-cnpg-operator-ci.bounded-jobs",
+      "uid": "61823408-614b-4c5f-8be7-706e6f87f38f",
+      "generation": 1,
+      "type_errors": []
+    },
+    {
+      "name": "stego-cnpg-database-ci.bounded-jobs",
+      "uid": "1ce76068-9e47-4a54-8723-6bdd0e64886c",
+      "generation": 1,
+      "type_errors": []
+    },
+    {
+      "name": "stego-cnpg-database-ci.bounded-cluster",
+      "uid": "6c9b47c3-9002-4042-b693-0eabb90515df",
+      "generation": 1,
+      "type_errors": []
+    }
+  ],
+  "webhook_ca_injected": true,
+  "certificate_ready": true,
+  "configuration_immutable": true,
+  "test_jobs_and_pods_absent": true,
+  "full_workflow_verified": false
+}
