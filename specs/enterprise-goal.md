@@ -110,7 +110,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The restricted CI
-credential was last renewed through 2026-09-15 12:34:07 UTC; check its remaining
+credential was last renewed through 2026-09-15 12:45:13 UTC; check its remaining
 lifetime before a queued run starts.
 
 Keep this file limited to current requirements and result links. Put detailed
