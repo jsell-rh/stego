@@ -1,0 +1,27 @@
+{
+  "phase": "complete",
+  "namespace_uid": "0666fe42-3306-4de3-acd8-d0acebcf1db6",
+  "policy_uid": "72b7653d-ebf5-450e-92ec-678326afcbd6",
+  "holder": "fixture-receiver-20260915",
+  "source_commit": "1524ec3",
+  "resource_version": "6415339",
+  "test_runtime_absent": true,
+  "change": "Add only TCP 19093 to the existing allocator and Gateway namespace rule.",
+  "lease_released": true,
+  "preflight": {
+    "source": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+    "frozen_source_verified": true,
+    "restricted_context": "jshell-ci",
+    "old_receiver_policy_rejected": true,
+    "current_policies_accepted": true,
+    "observed_uids": {
+      "deny-ingress": "974c54c1-56b8-45a5-82ca-2ba815832b17",
+      "fixture-ingress": "72b7653d-ebf5-450e-92ec-678326afcbd6"
+    },
+    "writes": false
+  },
+  "before_spec_sha256": "68229048a82aa16bd926282c3580fe9b1ff64f28cba29b3c42730af6fb94cdfc",
+  "after_spec_sha256": "204b3d7399dc2fd499f4da4b8cf89d8098c1177308ad74390f887a80842a0755",
+  "first_preflight_failure": "The first comparison treated an omitted empty ingress list as a change. Source 2d1d8ea accepts that equivalent empty form and still rejects missing ports and broader rules.",
+  "focused_ci_checks": 7
+}

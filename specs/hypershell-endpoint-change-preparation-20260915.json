@@ -33,15 +33,25 @@
   "listener_checks": 8,
   "cluster_writes": false,
   "remaining": [
-    "Connect the fixed listener inputs to the operator and test Job.",
-    "Change the generated admission policy with UID and resourceVersion checks and confirm type checking.",
-    "Restart the generated workers with the replacement binding.",
-    "Prove that fresh connections reach the replacement and cannot reach the old address.",
-    "Repeat the checks after worker restart and namespace recovery; check regeneration and cleanup."
+    "Run the complete public Gateway workflow with the address-change fixture after the active CNPG run ends and cleanup is verified.",
+    "Verify new-address access, old-address denial, worker restart, namespace recovery, unchanged generation, and complete cleanup.",
+    "Use any application failure to determine the next common STEGO change."
   ],
   "limits": [
     "This fixture uses fixed IP addresses. It does not prove DNS tracking or RDS failover.",
     "The test Pod must not supply operator policy or gain admission-policy write permission.",
     "No DNS provider or Technology Preview feature was enabled."
-  ]
+  ],
+  "workflow_implementation": {
+    "source_commit": "aac4baf",
+    "status": "connected-and-checked-live-run-pending",
+    "python_checks": 50,
+    "shell_checks": 25,
+    "go_checks": "Selected endpoint input, per-instance telemetry, and invalid Gateway checks passed against the generated fixture.",
+    "operator": "A fixed request changes one generated policy with UID, resourceVersion, and original-spec conditions. Lost responses are checked against the same journal and policy.",
+    "workflow": "Both generated workers restart with the replacement binding. Fresh connections check both addresses before the change, after it, and after recovery.",
+    "telemetry": "Require every expected worker instance, including both endpoint-change restarts.",
+    "evidence": "Require the operator acknowledgement, completed journal, traffic record, and generation records.",
+    "live_traffic_verified": false
+  }
 }

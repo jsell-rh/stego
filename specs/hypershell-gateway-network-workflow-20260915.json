@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T18:37:40.479443+00:00",
+  "checked_at": "2026-09-15T18:56:52.198383+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
@@ -100,10 +100,51 @@
     }
   ],
   "cnpg": {
-    "source": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
-    "fixture_directory": "/tmp/hypershell-cnpg-network-preflight-frozen-20260915",
+    "source": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+    "fixture_directory": "/tmp/hypershell-cnpg-receiver-checked-frozen-20260915",
     "generation": "passed",
     "full_source_verification": "passed",
+    "status": "running",
+    "directory": "/tmp/hypershell-cnpg-receiver-live-20260915",
+    "log": "/tmp/hypershell-cnpg-receiver-live-20260915.log",
+    "exec_session": 64008,
+    "run": {
+      "source_base_commit": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+      "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+      "holder": "stego-cnpg-live-7255331d681a5260",
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+      "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+      "phase": "operator_ready",
+      "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae"
+    },
+    "receiver_update": {
+      "phase": "complete",
+      "namespace_uid": "0666fe42-3306-4de3-acd8-d0acebcf1db6",
+      "policy_uid": "72b7653d-ebf5-450e-92ec-678326afcbd6",
+      "holder": "fixture-receiver-20260915",
+      "source_commit": "1524ec3",
+      "resource_version": "6415339",
+      "test_runtime_absent": true,
+      "change": "Add only TCP 19093 to the existing allocator and Gateway namespace rule.",
+      "lease_released": true,
+      "preflight": {
+        "source": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+        "frozen_source_verified": true,
+        "restricted_context": "jshell-ci",
+        "old_receiver_policy_rejected": true,
+        "current_policies_accepted": true,
+        "observed_uids": {
+          "deny-ingress": "974c54c1-56b8-45a5-82ca-2ba815832b17",
+          "fixture-ingress": "72b7653d-ebf5-450e-92ec-678326afcbd6"
+        },
+        "writes": false
+      },
+      "before_spec_sha256": "68229048a82aa16bd926282c3580fe9b1ff64f28cba29b3c42730af6fb94cdfc",
+      "after_spec_sha256": "204b3d7399dc2fd499f4da4b8cf89d8098c1177308ad74390f887a80842a0755",
+      "first_preflight_failure": "The first comparison treated an omitted empty ingress list as a change. Source 2d1d8ea accepts that equivalent empty form and still rejects missing ports and broader rules.",
+      "focused_ci_checks": 7
+    },
+    "scope": "Retry the complete CNPG isolation workflow after the receiver correction. The application and cleanup result are pending.",
     "previous_attempts": [
       {
         "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
@@ -201,26 +242,81 @@
           "manual_recovery": true
         },
         "automatic_cleanup_passed": false
+      },
+      {
+        "source": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
+        "fixture_directory": "/tmp/hypershell-cnpg-network-preflight-frozen-20260915",
+        "generation": "passed",
+        "full_source_verification": "passed",
+        "status": "failed_with_cleanup",
+        "scope": "The application failed at the telemetry receiver network probe. Automatic cleanup and Lease release passed.",
+        "directory": "/tmp/hypershell-cnpg-network-retry-live-20260915",
+        "log": "/tmp/hypershell-cnpg-network-retry-live-20260915.log",
+        "exec_session": 96928,
+        "run": {
+          "source_base_commit": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
+          "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+          "holder": "stego-cnpg-live-188c8d1b0de09b88",
+          "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+          "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+          "phase": "application_running",
+          "cluster_uid": "bd5ac732-3e0d-4be7-b1bc-cf7fcdce1731"
+        },
+        "initial_allocation_check": {
+          "allocations_before": 0,
+          "allocations_absent": true
+        },
+        "exit_status": 1,
+        "failure_evidence": {
+          "source_commit": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
+          "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+          "directory": "/tmp/hypershell-cnpg-network-retry-live-20260915",
+          "exec_session": 96928,
+          "exit_status": 1,
+          "phase": "failed_with_cleanup",
+          "application_seconds": 182.77,
+          "failure": "The first Gateway network probe timed out on the expected telemetry destination, TCP 19093.",
+          "cause": "The static fixture-ingress policy had the Gateway namespace selector and PostgreSQL port 5432, but lacked the declared telemetry port 19093.",
+          "passed_before_failure": [
+            "Two Gateways became ready with current controller observations.",
+            "Both SQL logins used verified TLS and separate databases; cross-database access was denied.",
+            "Gateway RPC, denied calls, and provider data after Pod replacement passed.",
+            "Generated admission denials, allocation limits, and scoped worker access passed.",
+            "The first network probe reached Kubernetes, PostgreSQL, and the identity provider and could not reach the other Gateway or control API."
+          ],
+          "regeneration": {
+            "before_test_hashes_match": true,
+            "after_test_record_present": false
+          },
+          "application_cleanup": {
+            "namespace_retained": "stego-service-ci",
+            "test_resources_absent": true,
+            "allocations_absent": true
+          },
+          "allocation_cleanup": {
+            "allocations_before": 4,
+            "allocations_absent": true
+          },
+          "outer_allocation_check": {
+            "allocations_before": 0,
+            "allocations_absent": true
+          },
+          "automatic_cleanup": {
+            "runtime_absent": true,
+            "volumes_absent": true,
+            "private_fixture_absent": true,
+            "installation_retained": true
+          },
+          "lease_released": true,
+          "independent_cleanup_check": "The later operator update checked all three test namespaces and test volume claims before acquiring its Lease.",
+          "evidence_sha256": "81a0acc60cefa2bf3d9e605fcab16ce5e7b434ce783d8914e324f5c423cb67fa",
+          "limits": [
+            "The complete CNPG application workflow did not pass.",
+            "CNPG primary replacement and normal Gateway deletion were not reached in this run."
+          ]
+        }
       }
-    ],
-    "status": "running",
-    "scope": "The corrected restricted workflow validates and copies the supplied Gateway CA before cluster access. It prepares its own allocation check before resource creation. Its initial live allocation check passed with no browser child files. Full CNPG application and automatic cleanup evidence remain required.",
-    "directory": "/tmp/hypershell-cnpg-network-retry-live-20260915",
-    "log": "/tmp/hypershell-cnpg-network-retry-live-20260915.log",
-    "exec_session": 96928,
-    "run": {
-      "source_base_commit": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
-      "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
-      "holder": "stego-cnpg-live-188c8d1b0de09b88",
-      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
-      "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
-      "phase": "application_running",
-      "cluster_uid": "bd5ac732-3e0d-4be7-b1bc-cf7fcdce1731"
-    },
-    "initial_allocation_check": {
-      "allocations_before": 0,
-      "allocations_absent": true
-    }
+    ]
   },
   "remaining": [
     "Test approved and retired endpoint addresses with fresh connections, restart, and regeneration.",

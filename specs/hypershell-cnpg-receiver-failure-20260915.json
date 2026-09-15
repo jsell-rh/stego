@@ -1,0 +1,48 @@
+{
+  "source_commit": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
+  "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "directory": "/tmp/hypershell-cnpg-network-retry-live-20260915",
+  "exec_session": 96928,
+  "exit_status": 1,
+  "phase": "failed_with_cleanup",
+  "application_seconds": 182.77,
+  "failure": "The first Gateway network probe timed out on the expected telemetry destination, TCP 19093.",
+  "cause": "The static fixture-ingress policy had the Gateway namespace selector and PostgreSQL port 5432, but lacked the declared telemetry port 19093.",
+  "passed_before_failure": [
+    "Two Gateways became ready with current controller observations.",
+    "Both SQL logins used verified TLS and separate databases; cross-database access was denied.",
+    "Gateway RPC, denied calls, and provider data after Pod replacement passed.",
+    "Generated admission denials, allocation limits, and scoped worker access passed.",
+    "The first network probe reached Kubernetes, PostgreSQL, and the identity provider and could not reach the other Gateway or control API."
+  ],
+  "regeneration": {
+    "before_test_hashes_match": true,
+    "after_test_record_present": false
+  },
+  "application_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "allocation_cleanup": {
+    "allocations_before": 4,
+    "allocations_absent": true
+  },
+  "outer_allocation_check": {
+    "allocations_before": 0,
+    "allocations_absent": true
+  },
+  "automatic_cleanup": {
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true
+  },
+  "lease_released": true,
+  "independent_cleanup_check": "The later operator update checked all three test namespaces and test volume claims before acquiring its Lease.",
+  "evidence_sha256": "81a0acc60cefa2bf3d9e605fcab16ce5e7b434ce783d8914e324f5c423cb67fa",
+  "limits": [
+    "The complete CNPG application workflow did not pass.",
+    "CNPG primary replacement and normal Gateway deletion were not reached in this run."
+  ]
+}

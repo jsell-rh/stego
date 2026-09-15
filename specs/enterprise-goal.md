@@ -125,18 +125,34 @@ removed all runtime, claims, volumes, and private fixtures and released the
 Lease. Source `38a1d76` checks and copies the CA before cluster access and
 prepares an independent allocation client before runtime creation. Twenty-two
 focused checks passed. Generation and full source verification passed. The
-corrected run is active in `/tmp/hypershell-cnpg-network-retry-live-20260915`.
-Its initial allocation check found zero allocations without browser files.
-The complete CNPG application and automatic cleanup result remain required.
+corrected run reached the application and failed at the telemetry network probe
+after 182.77 seconds. The static receiver policy lacked the declared TCP port
+19093 for Gateway namespaces. [The failure record](hypershell-cnpg-receiver-failure-20260915.json)
+retains the successful checks before that failure. Automatic cleanup removed
+four allocations, database runtime, claims, volumes, and the private fixture.
+Independent reads confirmed absence, and the Lease was released.
+
+The [receiver correction](hypershell-ci-receiver-update-20260915.json) added only
+the missing port to the existing namespace rule. The policy UID stayed the
+same. Source `2d1d8ea` checks the installed fixture policies before a test Job
+starts. Seven focused CI checks passed. The restricted identity rejected the
+saved old receiver policy and accepted the corrected installed policies.
+Generation and full source verification passed. The retry is active in
+`/tmp/hypershell-cnpg-receiver-live-20260915`; its final result remains required.
 
 The [address-change fixture preparation](hypershell-endpoint-change-preparation-20260915.json)
 passed generation, drift, and 19 focused checks at Hypershell `a39c81f`.
 It adds one test endpoint name to the Gateway allocation profile. The checked
 operator plan replaces one address in the generated admission variable. All
 other cluster fields remain equal. The listener fixture has two separate Pod
-addresses and a third unrelated listener. Live address replacement, removal,
-restart, and recovery still need the complete application test. This preparation
-does not prove traffic enforcement or external DNS behavior.
+addresses and a third unrelated listener. Source `aac4baf` connects those inputs
+to the operator and generated workers. It checks the policy UID, version, and
+original specification before the update, confirms admission type checking,
+and restarts both workers with the replacement binding. It requires traffic
+records and telemetry from each new instance. Fifty Python checks, 25 shell
+checks, and selected Go checks passed. The complete live address-change test
+is still pending. These checks do not prove traffic enforcement or external DNS
+behavior.
 
 This result does not close the full network gate. Approved and retired endpoint
 addresses need live traffic checks. External database DNS behavior also remains
