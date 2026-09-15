@@ -151,3 +151,10 @@ a direct scope read. The inventory has a limit of 512 entries. A realm with no
 scope definitions cannot supply this permission proof and is rejected. Client
 scope management requires the provider's realm scope permissions; client-only
 permissions are insufficient. The provider never changes a scope definition.
+
+Keycloak 26.7.3 uses separate permissions for realm-role and client-role scope
+changes. Realm-role scope changes need `map-role-client-scope` permission for
+those roles or the broader `manage-realm` role. Client-role scope changes can use
+`manage-clients`. Consumers that use only client roles do not need realm
+management. The real test keeps its normal operator unchanged and uses a separate
+disposable credential for the realm-role scope test.

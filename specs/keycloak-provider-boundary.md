@@ -260,3 +260,13 @@ read before it accepts empty assignments. A realm with no scope definitions
 cannot supply this permission proof and is rejected. This follows the pinned
 [client resource](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java)
 and [scope permission checks](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/fgap/ClientPermissions.java).
+
+The corrected representation passed, including the live test for hidden scope
+lists, but the scope update then returned HTTP 403 at `bf198da` in
+[run 35030247238](https://github.com/jsell-rh/stego/actions/runs/35030247238).
+Cleanup passed. The pinned
+[V2 role permission check](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/fgap/RolePermissionsV2.java)
+requires separate permission for realm-role scope changes. The test now proves
+that the normal operator is denied that change but can set client-role scopes.
+A separate disposable fixture credential supplies realm management for the
+realm-role scope test. No production credential or cluster permission changed.

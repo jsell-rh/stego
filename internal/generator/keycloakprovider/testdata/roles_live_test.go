@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func testLiveRolePolicies(t *testing.T, c *Client, ctx context.Context) {
+func testLiveRolePolicies(t *testing.T, c, scopeAdmin *Client, ctx context.Context) {
 	t.Helper()
 	request := func(method, path string, body []byte, status int) []byte {
 		t.Helper()
@@ -167,7 +167,7 @@ func testLiveRolePolicies(t *testing.T, c *Client, ctx context.Context) {
 		if err != nil || identities(stillShared.Realm) != identities(before.Realm) || identities(stillShared.Clients[foreign.ID]) != identities(before.Clients[foreign.ID]) {
 			t.Fatal("full service-account update changed the shared user", err)
 		}
-		testLiveScopePolicy(t, c, ctx, owner, target, policy)
+		testLiveScopePolicy(t, c, scopeAdmin, ctx, owner, target, policy)
 		testLiveMapperPolicy(t, c, ctx, owner, target, subject.ID, policy)
 		if err = c.DeleteClient(ctx, owner); err != nil {
 			t.Fatal(err)

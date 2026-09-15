@@ -72,8 +72,10 @@ func liveProvider(t *testing.T) (*Client, Options) {
 		clients = append(clients, map[string]any{"clientId": item.name, "enabled": true, "protocol": "openid-connect", "publicClient": false, "secret": "provider-test-client-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": false, "attributes": map[string]string{item.key: item.value}})
 	}
 	clients = append(clients, map[string]any{"clientId": "scope-blind-operator", "enabled": true, "protocol": "openid-connect", "secret": "provider-test-scope-blind-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": true})
+	clients = append(clients, map[string]any{"clientId": "realm-scope-operator", "enabled": true, "protocol": "openid-connect", "secret": "provider-test-realm-scope-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": true})
 	users := []any{map[string]any{"username": "service-account-operator", "enabled": true, "serviceAccountClientId": "operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "manage-users", "view-users", "view-realm"}}}}
 	users = append(users, map[string]any{"username": "service-account-scope-blind-operator", "enabled": true, "serviceAccountClientId": "scope-blind-operator", "clientRoles": map[string]any{"realm-management": []string{"query-clients"}}})
+	users = append(users, map[string]any{"username": "service-account-realm-scope-operator", "enabled": true, "serviceAccountClientId": "realm-scope-operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "view-realm", "manage-realm"}}})
 	for _, id := range []string{"shared-catalog", "shared-pipeline"} {
 		users = append(users, map[string]any{"id": id, "username": id, "enabled": true, "realmRoles": []string{"shared-global"}, "clientRoles": map[string]any{"foreign-service": []string{"foreign-view"}}, "groups": []string{"/outside"}})
 	}
@@ -169,7 +171,18 @@ func TestProviderLive(t *testing.T) {
 		t.Fatal("real hidden scope inventory was accepted", err)
 	}
 	t.Log("Real scope visibility check: query-only administrator cannot prove an empty scope policy")
-	testLiveRolePolicies(t, client, ctx)
+	scopeOptions := options
+	scopeOptions.ClientID = "realm-scope-operator"
+	scopeOptions.SecretFile = filepath.Join(t.TempDir(), "realm-scope-secret")
+	if err := os.WriteFile(scopeOptions.SecretFile, []byte("provider-test-realm-scope-secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scopeAdmin, err := New(scopeOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scopeAdmin.Close()
+	testLiveRolePolicies(t, client, scopeAdmin, ctx)
 	for _, application := range []struct{ name, key, value string }{{"new-catalog", "stego.owner.product", "object-3"}, {"new-worker", "stego.owner.pipeline", "run-4"}} {
 		binding := ClientBinding{ID: "stego-" + application.name, ClientID: application.name, Attributes: map[string]string{application.key: application.value}}
 		policy := ServiceAccountPolicy{DisplayName: "Created worker", AccessTokenLifetimeSeconds: 300}
