@@ -60,8 +60,13 @@ func TestPinnedAdmissionHasNoWriteGrantOrOptionalParameter(t *testing.T) {
 	for _, item := range result {
 		raw, _ := json.Marshal(item)
 		if strings.HasSuffix(item["metadata"].(Object)["name"].(string), ".subresources") {
-			if item["kind"] == "ValidatingAdmissionPolicy" && !strings.Contains(string(raw), `"expression":"false"`) {
-				t.Fatal("subresource write is not denied")
+			if item["kind"] == "ValidatingAdmissionPolicy" {
+				if !strings.Contains(string(raw), `"expression":"false"`) {
+					t.Fatal("subresource write is not denied")
+				}
+				if !strings.Contains(string(raw), "request.subResource != ''") {
+					t.Fatal("subresource denial also matches parent requests")
+				}
 			}
 			continue
 		}

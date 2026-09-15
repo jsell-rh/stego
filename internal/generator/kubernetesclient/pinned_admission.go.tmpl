@@ -118,11 +118,13 @@ func PinnedAdmissionPolicies(actorNamespace, actorName string, rules []PinnedAdm
   }}
   binding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":r.Name},"spec":Object{"policyName":r.Name,"validationActions":[]string{"Deny"},"paramRef":Object{"name":r.TemplateName,"namespace":r.TemplateNamespace,"parameterNotFoundAction":"Deny"}}}
   // Status and scale writes must not bypass the pinned parent resource.
+  // Require a nonempty subresource because resource wildcards also match
+  // parent requests on supported API servers.
   subName:=r.Name+".subresources"
   subPolicy:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":Object{"name":subName},"spec":Object{
    "failurePolicy":"Fail",
    "matchConstraints":Object{"resourceRules":[]Object{ {"apiGroups":[]string{group},"apiVersions":[]string{parts[len(parts)-1]},"operations":[]string{"CREATE","UPDATE","DELETE"},"resources":[]string{r.Resource+"/*"},"scope":"Namespaced"}}},
-   "matchConditions":[]Object{ {"name":"selected-account-and-namespace","expression":"request.userInfo.username == "+quote(actor)+" && request.namespace == "+quote(r.Namespace)}},
+   "matchConditions":[]Object{ {"name":"selected-account-and-namespace","expression":"request.userInfo.username == "+quote(actor)+" && request.namespace == "+quote(r.Namespace)+" && request.subResource != ''"}},
    "validations":[]Object{ {"expression":"false","message":"The caller cannot change pinned resource subresources"}},
   }}
   subBinding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":subName},"spec":Object{"policyName":subName,"validationActions":[]string{"Deny"}}}

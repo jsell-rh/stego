@@ -36,7 +36,10 @@ def verify_policy_scope(policies, rules, namespace, actor):
             group, version = rule['APIVersion'].split('/')
             resource = rule['Resource'] + ('/*' if name.endswith('.subresources') else '')
             match = [{'apiGroups': [group], 'apiVersions': [version], 'operations': ['CREATE', 'UPDATE', 'DELETE'], 'resources': [resource], 'scope': 'Namespaced'}]
-            if spec.get('matchConditions') != condition or spec.get('matchConstraints', {}).get('resourceRules') != match or spec.get('failurePolicy') != 'Fail':
+            scoped_condition = copy.deepcopy(condition)
+            if name.endswith('.subresources'):
+                scoped_condition[0]['expression'] += " && request.subResource != ''"
+            if spec.get('matchConditions') != scoped_condition or spec.get('matchConstraints', {}).get('resourceRules') != match or spec.get('failurePolicy') != 'Fail':
                 raise RuntimeError('The rendered policy escapes its probe identity or resource scope')
         elif policy['spec'].get('policyName') != name:
             raise RuntimeError('The renderer selected an unrelated policy')
