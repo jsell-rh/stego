@@ -44,11 +44,21 @@ cleanup denial and recovery, and retained signal identity across worker restart.
 [Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34961995199)
 passed at `f2b09c0`, including race checks and generated PostgreSQL provisioning.
 Hypershell `2af1b46` adopts this source and requires SQL operation signals in its
-complete browser workflow. That application result remains separate and required.
+complete browser workflow. The verified application results follow.
 
 The [Gateway API gate](hypershell-postgres-telemetry-api.json) passed at `2af1b46`
 in run `34962176232`: all 31 required tests, 902 source files, 230 generated files,
 four matching generation records, and complete cleanup. Acceptance took 153.598
 seconds. The independent cluster check found no remaining Job, Pods, or private
-fixtures. The complete browser SQL signal check remains required. The later
-worker startup change has separate compiler and application checks.
+fixtures.
+
+The [complete browser result](hypershell-postgres-telemetry-browser.json) passed
+at the same source in run `34962176339`, in 354.91 seconds. Verification matched
+902 source files, 231 generated files, and all three generation records. Both
+Gateway worker instances exported correlated SQL logs, traces, and metrics.
+The run proved cleanup denial and recovery, namespace recovery, retained SQL
+data and credentials, and all three console pool checkpoints. Independent
+cluster reads confirmed removal of the test Job, Pods, Deployments, and private
+fixtures. Saved images show a healthy Gateway and an empty service account list
+after deletion. They do not prove public Gateway connectivity. The later worker
+startup change has separate compiler and application checks.

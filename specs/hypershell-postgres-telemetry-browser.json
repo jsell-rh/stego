@@ -1,0 +1,398 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339",
+  "application_commit": "2af1b462db4924d91055cbb4aa0438aad768994f",
+  "compiler_revision": "f2b09c0762405cabb5e7f9404abbf2be4d57a1b2",
+  "result": "success",
+  "workflow_seconds": 354.91,
+  "source_files_checked": 902,
+  "generated_files_checked": 231,
+  "ci_access_checks": 16,
+  "application_access_checks": 57,
+  "admission_probes": 6,
+  "operator_cluster_resources": 18,
+  "job_uid": "46488241-4c08-4449-aa9e-8cb17c8fdac1",
+  "cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "generation_sha256": "b445d4ab4c664d4cd04b1ecc8949e8a48dec521c2572aa45ac146fdc0783c9b9",
+  "artifact_sha256": {
+    "deployment.log": "dd13fdc74c8e3450abb2400fa04f83151c8aa580830bbe78a62a15e98829950b",
+    "evidence.tar": "7efacf43fc421e07ae373edb43e63e8e2eb16ff2155c7a2b845ceed8b6365377",
+    "job-status.json": "3bf20596946872a2fdf408f8af06e1876b51087e068914090bfb9e62ed9bd21d",
+    "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
+    "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13"
+  },
+  "images": {
+    "image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell:acceptance",
+      "digest": "sha256:01092da70dd55f6b09f70d04228456a3622ac7df3994421b3f6630ffda16cfee",
+      "contentDigest": "sha256:01092da70dd55f6b09f70d04228456a3622ac7df3994421b3f6630ffda16cfee",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:69bff18659fc0b96c15b1bfae3074a08f3f8dd983c3b936b3f5f378cb67c75eb",
+          "size": 21329152
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/service"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 21329152,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:0ec97863e6456f98cb1e2e8edcb8ae768f28bdac9f2d9d3eec0f15d929bc2058"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "console-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-console:acceptance",
+      "digest": "sha256:c2d2e25450262cc00fb002b0c37f71c0b92018188081902e35fb5da0d4687dc4",
+      "contentDigest": "sha256:c2d2e25450262cc00fb002b0c37f71c0b92018188081902e35fb5da0d4687dc4",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:eec0a6fde57ca174eb1d234dfb57f2a7710375d49dbe2f018a6bde17b7b9d989",
+          "size": 15924160
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/service"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 15924160,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:3ffcafa23c6e4e26fdbcf196638644eaf8b658380ab9812dad57a7385c0d24e6"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "provisioner-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-provisioner:acceptance",
+      "digest": "sha256:72b48cce5f002eda179bb677f82cbf55a3f5b11a344b6bb6e75286f470ce177d",
+      "contentDigest": "sha256:72b48cce5f002eda179bb677f82cbf55a3f5b11a344b6bb6e75286f470ce177d",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:fc61de1f5548e6365fba12be754803bb083dea8ed85a3d35f0187d42bfeccb58",
+          "size": 12465005
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/rpc"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12465005,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:9e8ad55aa250ca6e13c97fbe67aa656924a165b8adbf761b04770ee386dad062"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "namespace-allocation-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-namespace-allocation:acceptance",
+      "digest": "sha256:6dce364334c60a2e54eba835d3bfe9a491afaf819e93eddf8792ebf053c02ba8",
+      "contentDigest": "sha256:6dce364334c60a2e54eba835d3bfe9a491afaf819e93eddf8792ebf053c02ba8",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:f971148060fa685240af342c56dc4ccfd72179a6b391a5d1619f03eea74f9a94",
+          "size": 12879569
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12879569,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:2d69df77088b2c16a8a4c7137a60823ebeece42c29168ad2bf77d922479ecd53"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "gateway-identity-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-gateway-identity:acceptance",
+      "digest": "sha256:c8576853ef2e9fa5f3e70b59b5544e62bceb9b2da97497df212912fc4e9ad105",
+      "contentDigest": "sha256:c8576853ef2e9fa5f3e70b59b5544e62bceb9b2da97497df212912fc4e9ad105",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:bb4f73cd4348ae17343c4338fd12f7a55c8fcc869e967ad70c3b0bf08fa5b778",
+          "size": 12618097
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12618097,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:f88f0e7710c2bf9aa239f9a344db77a7f0073352922f32b06237b8e884d8a3e4"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "gateway-workload-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-gateway-workload:acceptance",
+      "digest": "sha256:139f94401c42e0396e4457f6fd7b9c4bafa6d5f764c267834f145e5e14a758ad",
+      "contentDigest": "sha256:139f94401c42e0396e4457f6fd7b9c4bafa6d5f764c267834f145e5e14a758ad",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:988d75370c55d049d84b7ae39250dc9bb6a00860bce5907d6a51a52c827c1f27",
+          "size": 14990139
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 14990139,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:c57b71ba3593a92447f78e8c6b0b2d323f3613cd39b8f51e622806f33ab3c8a5"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    }
+  },
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "namespace_replacement": {
+    "controller_pods_unchanged": {
+      "hypershell-gateway-identity": "0568f43f-64d2-460f-97c8-e2eb78010f46",
+      "hypershell-gateway-workload": "5c2b45ce-7904-403c-aa9f-bb5abb7b6f59",
+      "hypershell-namespace-allocation": "308eb6a5-0e88-43ed-9963-4e5837b90cce"
+    },
+    "database_and_role_oids_unchanged": true,
+    "gateway_id": "3JMZs0YpQ7pIFhgQN20Gyodr42Z",
+    "namespace": "openshell-456a713510cb6a72",
+    "new_deployment_uid": "dd1bd33a-6525-48b4-b467-f5f2f3fc8c49",
+    "new_namespace_uid": "61041b48-5c3b-4244-ad63-3b3c1afa4157",
+    "old_deployment_uid": "84693220-fa97-4fd0-8c4d-e5228db8a0e6",
+    "old_namespace_uid": "2bf8d04d-d5f4-4cdf-8b2c-cf2db4413aa1",
+    "other_gateway_sql_unchanged": true,
+    "provider_data_unchanged": true,
+    "seconds": 34.291720646,
+    "source_data_unchanged": true,
+    "source_secret_uid": "25d256c6-84e1-4619-b81b-d11e86bd192d",
+    "sql_credentials_unchanged": true,
+    "state_namespace_uid": "71d9421f-cfbd-42fe-9666-8f38842b3ca1",
+    "ungranted_rpc_denied": true,
+    "viewer_lists_filtered": true,
+    "viewer_membership_recovered": true,
+    "viewer_writes_denied": true,
+    "workspace_and_gateway_revocation_verified": true
+  },
+  "sql_cleanup_denial": {
+    "cleanup_pending": true,
+    "gateway_id": "3JMZs0YpQ7pIFhgQN20Gyodr42Z",
+    "ledger_state": "deleting",
+    "other_gateway_ready": true,
+    "source_data_unchanged": true,
+    "source_secret_uid": "25d256c6-84e1-4619-b81b-d11e86bd192d",
+    "sql_object_ids_unchanged": true,
+    "sqlstate": "42501"
+  },
+  "credential_encryption": {
+    "after_namespace_recovery": true,
+    "algorithm": "AES-256-GCM",
+    "altered_value_context_rejected": true,
+    "altered_value_rejected": true,
+    "altered_wrapped_key_rejected": true,
+    "altered_wrapping_context_rejected": true,
+    "authenticated_plaintext_matches": true,
+    "envelope_version": 1,
+    "gateway_id": "3JMZs0YpQ7pIFhgQN20Gyodr42Z",
+    "no_plaintext_or_base64_in_object_payloads": true,
+    "object_rows": 5,
+    "other_gateway_key_rejected": true,
+    "retained_key_unwrapped_data_key": true,
+    "stored_envelopes": 1
+  },
+  "gateway_account_deletion": {
+    "account_ids": [
+      "3JMaD3Npl1XzDVIFOeS7IUkSGkQ",
+      "3JMaD8zbzgfNVk7Ax5u7byG2yzs",
+      "3JMaDBIujwvfpAbNQ5gCgQmdGQx"
+    ],
+    "accounts_used_actual_gateway": 3,
+    "checked_after_delete_response": true,
+    "cleanup_audits": 3,
+    "gateway_id": "3JMZs0YpQ7pIFhgQN20Gyodr42Z",
+    "metadata_closed": 3,
+    "provider_clients_absent": 3,
+    "token_issuance_denied": 3
+  },
+  "browser_pool": {
+    "after_key_rotation": {
+      "Collected": 1789473251129699731,
+      "Instance": "d369b791-0351-4d62-8e5a-0ae12f49586b",
+      "Used": 0,
+      "Idle": 2,
+      "Limit": 3,
+      "Waits": 0,
+      "WaitSeconds": 0
+    },
+    "initial": {
+      "Collected": 1789473097129577357,
+      "Instance": "5ecd2a13-b2e8-4f1c-9890-5ac8b4fb737e",
+      "Used": 0,
+      "Idle": 2,
+      "Limit": 3,
+      "Waits": 0,
+      "WaitSeconds": 0
+    },
+    "restarted": {
+      "Collected": 1789473238017003320,
+      "Instance": "e4e221f7-a8f0-4679-9b83-24b88a1f0d95",
+      "Used": 0,
+      "Idle": 1,
+      "Limit": 3,
+      "Waits": 0,
+      "WaitSeconds": 0
+    }
+  },
+  "postgres_signals": {
+    "4327f597-c76a-4365-a88d-f002ca2037fa": {
+      "delete/failure": true,
+      "delete/success": true,
+      "ensure/success": true
+    },
+    "91982749-c174-49a8-87b5-d3e0bf3b28bd": {
+      "ensure/failure": true,
+      "ensure/success": true,
+      "read/success": true,
+      "server-identity/success": true
+    }
+  },
+  "manual_cleanup": null,
+  "independent_cleanup": {
+    "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+    "namespace": "stego-service-ci",
+    "jobs_pods_deployments_absent": true,
+    "fixture_selector": "stego.test/browser-run=stego-service-ci",
+    "secrets_services_networkpolicies_configmaps_absent": true,
+    "shared_lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "next_holder": "gateway-api-fdef9ea532c2",
+    "note": "The next API test holds the shared Lease. No browser test resource remains."
+  },
+  "visual_review": {
+    "verify.json.png": "The Gateway detail page shows Healthy. The connection instructions still show loading placeholders.",
+    "accounts-delete.json.png": "The service account page shows zero accounts after deletion.",
+    "public_gateway_connection_verified": false
+  }
+}

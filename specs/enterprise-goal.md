@@ -61,7 +61,7 @@ its recorded source and test scope:
 | Result | Source | Evidence and limits |
 | --- | --- | --- |
 | Complete Gateway API gate, 31 required tests | Hypershell `2af1b46`, compiler `f2b09c0` | [API evidence](hypershell-postgres-telemetry-api.json): 902 source files, 230 generated files, four matching generation records, and complete cleanup. Includes pool metrics, cancellation, API restart, and collector failure and recovery. |
-| Complete generated browser workflow and console pool metrics | Hypershell `916f3a7`, compiler `e5b9931` | [Browser evidence](hypershell-pool-browser.json): all three pool checkpoints, SQL isolation, access rules, namespace recovery, account cleanup, encryption, session checks, and automatic cleanup. Does not verify the later SQL client telemetry change. |
+| Complete generated browser workflow and private SQL telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [Browser evidence](hypershell-postgres-telemetry-browser.json): correlated SQL logs, traces, and metrics across worker restart, cleanup denial, and recovery; all three console pool checkpoints; SQL isolation; access rules; namespace recovery; account cleanup; encryption; session checks; and automatic cleanup. |
 | Complete supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [CNPG evidence](hypershell-cnpg-complete.json): failover, retained data and identities, and automatic cleanup. The operator installed the server; this is not unattended CI. |
 | Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
 | Private PostgreSQL client telemetry | Compiler `f2b09c0` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961995199) passed, including generated runtime race checks and real SQL provisioning. Complete application evidence remains required. |
@@ -74,9 +74,8 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), active; Job `stego-service-ci/service-check`, UID `46488241-4c08-4449-aa9e-8cb17c8fdac1` |
 | Full CI with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260), active |
-| API gate with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891352](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352), queued |
+| API gate with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891352](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352), active; shared Lease holder `gateway-api-fdef9ea532c2` |
 | Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), queued |
 | Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), queued |
 
