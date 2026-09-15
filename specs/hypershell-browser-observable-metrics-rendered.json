@@ -1,0 +1,60 @@
+{
+  "checked_on": "2026-09-15",
+  "source": "0c2e7fea15192cffd90417c4093df7836d3b6fb6",
+  "compiler_revision": "fe07b0a85f9cc3136b73c296ce7221e0380eecce",
+  "run": 34994298003,
+  "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003",
+  "browser": {
+    "job": 104466551933,
+    "conclusion": "success",
+    "test": "TestGeneratedBrowserGatewayWorkflow",
+    "test_seconds": 99.67,
+    "package_seconds": 100.728,
+    "race_detection": true,
+    "rendered_browser_required": true
+  },
+  "console": {
+    "job": 104466551594,
+    "conclusion": "success",
+    "ui_tests": 229,
+    "types_architecture_lint_build": true,
+    "bundle_reproduced": true,
+    "pinned_regeneration_matches_checkout": true
+  },
+  "checks": [
+    "Real Keycloak login and rendered Gateway creation through the generated Go browser backend.",
+    "Required Gateway identity and API shape, owner grant, generated event delivery, REST and gRPC access, and denied requests.",
+    "Browser root trace through the backend and API, correlated workflow log, and workflow metric at the TLS collector.",
+    "Collector failure, bounded browser pool, API and browser backend restart, session key rotation, renewal, and confirmed identity-provider logout.",
+    "Rendered service-account creation, one-time credential handoff, token issuance, reload, revoke, and deletion."
+  ],
+  "artifacts": {
+    "name": "rendered-browser",
+    "files": {
+      "verify.json.png": "536e5873ed5ff3ecc35cd7105aad5878287b64651cef1ee561574c6f9dab5af4",
+      "accounts-delete.json.png": "39e8bad974457acc8f4c91451bdec45920037ef56b8bfc79d8e7ee65070d1a48",
+      "browser-resources.txt": "8db6967e716ce69e93266253641df0ef1168d2ec679070c6e0c30ba68cc87319"
+    },
+    "images_visually_checked": true
+  },
+  "browser_resources": {
+    "memory_peak_bytes": 495603712,
+    "memory_limit_bytes": 1610612736,
+    "oom_events": 0,
+    "oom_kill_events": 0,
+    "pid_limit_events": 0,
+    "pid_limit": 256,
+    "capacity_claim": false
+  },
+  "logs": {
+    "browser_sha256": "68c7da1626c58af9059738cceccb69662f38d2da6ad906b7425ba93e70c2b14e",
+    "console_sha256": "0d9a875cd433bcb442749dc8c2d8376cf5ee8d395dbfd1b08f0ef5dd9681806e"
+  },
+  "limits": [
+    "This record covers the completed browser and console jobs. It does not establish the result of the full parent workflow.",
+    "The ordinary browser test does not deploy the Gateway Kubernetes workload. Its main Gateway remains in provisioning in the saved image.",
+    "The service-account image uses the separate account fixture. It does not prove public Gateway RPC or workload reconciliation.",
+    "Allocated namespace network isolation, unattended CNPG, and Sandbox behavior require separate application evidence.",
+    "The earlier complete public workflow used compiler 0b0c932. It does not prove this compiler revision."
+  ]
+}

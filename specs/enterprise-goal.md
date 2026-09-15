@@ -74,7 +74,7 @@ The current verification handles are:
 | Check | Source | Handle |
 | --- | --- | --- |
 | Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), completed successfully |
-| Browser runtime consumer candidate | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), active on `codex/browser-metric-bounds-20260915`; its rebuilt console bundle is committed, but adoption into the main variant branch remains pending |
+| Browser runtime consumer candidate | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), active on `codex/browser-metric-bounds-20260915`; rendered browser and console jobs passed, including bundle reproduction. The core job and adoption into the main variant branch remain pending. See the [rendered record](hypershell-browser-observable-metrics-rendered.json). |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), active; job `104467182418` uses the registered contract workflow with `cnpg_only=true` |

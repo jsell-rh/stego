@@ -34,8 +34,12 @@ built its 54-entry, 852,525-byte bundle from candidate `13363e3`. The source
 commit, source archive hash, compiler pin, and bundle checksum passed independent
 checks. The candidate includes the new bundle and generated backend assets.
 Application [CI 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003)
-is active. Adoption into the main variant branch remains pending. The earlier
-public pass does not test this correction.
+passed its rendered browser test in 99.67 seconds. The console job passed 229
+tests, types, architecture checks, lint, bundle reproduction, and generation.
+The [rendered record](hypershell-browser-observable-metrics-rendered.json)
+retains the source, results, image hashes, and workload limits. The parent
+workflow's core test is still active. Adoption into the main variant branch
+remains pending. The earlier public pass does not test this correction.
 
 ## Earlier implementation and verification
 
