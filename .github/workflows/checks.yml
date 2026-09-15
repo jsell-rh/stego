@@ -128,7 +128,6 @@ jobs:
       GOMAXPROCS: '2'
       GOMEMLIMIT: 768MiB
       STEGO_REQUIRE_KEYCLOAK_PROVIDER: '1'
-      STEGO_KEYCLOAK_PROVIDER_ARTIFACTS: ${{ runner.temp }}/keycloak-provider
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
@@ -136,6 +135,8 @@ jobs:
           go-version: '1.26.8'
           cache: true
       - name: Check generated provider against real Keycloak
+        env:
+          STEGO_KEYCLOAK_PROVIDER_ARTIFACTS: ${{ runner.temp }}/keycloak-provider
         run: |
           mkdir -p "$STEGO_KEYCLOAK_PROVIDER_ARTIFACTS"
           go test -v -race -count=1 -p=1 -mod=readonly -timeout=9m -run '^TestGeneratedKeycloakProviderLive$' ./internal/generator/keycloakprovider 2>&1 | tee "$STEGO_KEYCLOAK_PROVIDER_ARTIFACTS/gate.log"
