@@ -349,3 +349,13 @@ The [external DNS review](allocated-network-dns.md) records a pending provider
 choice for approved external destinations. jshell exposes the OpenShift egress
 firewall API, but that does not prove DNS-change behavior. Continue the current
 public workflow while the provider choice is open.
+
+Full CI `34985981930` completed with a core acceptance pass at Hypershell
+`3a50db7` and compiler `0b0c932`. The acceptance package passed with race
+detection in 1203.850 seconds. REST/gRPC Gateway workflows, controller write
+grants across placement and restart, and telemetry recovery checks passed.
+Ordinary browser, console, and service-image jobs also passed. The overall run
+failed because of CNPG; Sandbox was skipped. The updated
+[core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json)
+keeps the earlier run and this later result separate. Public run `34987757894`
+remains active and has reached the complete deployed browser workflow.
