@@ -4074,3 +4074,11 @@ for its completion and cleanup.
 passed at `9bda756`, including race tests and SQL provisioning. This verifies the
 combined base-path and collection-route validation fix and the corrected registry
 assertion. The frozen Hypershell CNPG source retains compiler `5e9c89d`.
+
+Full Hypershell CI
+[34955320193](https://github.com/jsell-rh/hypershell-stego/actions/runs/34955320193)
+completed at `eb53ea7`. Core acceptance passed in 1091.085 seconds. Ordinary
+browser, console, and service-image jobs passed. The overall run failed because
+the CNPG and Sandbox entry points still require their restricted cluster
+execution paths. The separate API Job remains active. The renewed CI credential
+has its original permissions and enough time for the next CNPG attempt.
