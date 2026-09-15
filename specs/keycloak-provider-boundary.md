@@ -299,8 +299,7 @@ It uses the real Keycloak login form to check authorization-code login, PKCE
 rejection, callback rejection, signed token claims, code reuse denial, and
 device authorization policy for two profiles. It also verifies attribute repair
 and rejects callback path, query, and fragment changes. The runtime took 45.19
-seconds. Container cleanup passed. The three other completed jobs passed; the
-full compiler job was still running when this record was written. Sources and
+seconds. Container cleanup passed. All five CI jobs passed. Sources and
 results are retained under `default-port-ci` in the native result directory.
 
 This test drives bounded HTTP protocol requests; it is not a browser UI test.
@@ -381,5 +380,17 @@ Small generated tests cover capacity use, unchanged state, drift with shared
 scopes, ignored writes, uncertain enable responses, failed post-enable checks,
 changed ownership, caller cancellation, and failed cleanup. The real native gate
 now uses the compound operation before login and after injected policy drift.
-Its result is pending. Records and frozen source are stored in
+The real test passed at `f27377f7c09eeffd5e8912f0754309a67c63baf3` in
+[run 35033171244](https://github.com/jsell-rh/stego/actions/runs/35033171244).
+Both native policies used the common operation for initial enablement and repair
+of shared scopes, callback settings, full-scope access, and unwanted attributes.
+The subsequent login tests verified the signed claims and denial cases. The
+runtime took 47.01 seconds; container cleanup passed. The full compiler job was
+still running when this record was written. Records and frozen source are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-native-access-20260915`.
+
+Small generated tests passed in 3.992 seconds without telemetry and 10.395
+seconds with both variants. Both use the race detector. Service-account token
+verification and checked enablement, ownership migration, and application
+adoption remain open. Hypershell still has its handwritten client; this provider
+result does not claim an application source reduction.
