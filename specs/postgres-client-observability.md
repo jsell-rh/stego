@@ -40,3 +40,8 @@ database identities stop before a SQL connection in these focused tests.
 Full compiler CI must retain the real SQL lifecycle checks. The complete
 Hypershell browser workflow must prove successful database creation and deletion,
 cleanup denial and recovery, and retained signal identity across worker restart.
+
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34961995199)
+passed at `f2b09c0`, including race checks and generated PostgreSQL provisioning.
+Hypershell `2af1b46` adopts this source and requires SQL operation signals in its
+complete browser workflow. That application result remains separate and required.

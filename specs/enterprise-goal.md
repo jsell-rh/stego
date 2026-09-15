@@ -4215,3 +4215,19 @@ instances, plus failed and successful deletion signals linked to controller
 spans. API `34962176232`, browser `34962176339`, and full CI `34962176260` are
 queued behind the retained pool-metric runs. The application result remains
 required. Hypershell adds no SQL telemetry runtime or operation wrapper.
+
+Full SQL telemetry compiler CI `34961995199` passed at `f2b09c0`, including the
+generated runtime race checks and PostgreSQL provisioning. The pool-metric API
+Job `gateway-api-c93d23b2bd51` is active with UID
+`d7cb1848-cb47-42cf-99ff-f0d8b996207f`. The later SQL telemetry browser and API
+runs remain queued. Their application results remain required.
+
+The [pool-metric API result](hypershell-pool-api.json) passed all 31 required
+tests at `916f3a7` in run `34961014687`. Verification matched 899 source files,
+230 generated files, and all four generation records. The pool test passed in
+9.83 seconds through cancellation, restart, collector failure, and recovery.
+Independent reads confirmed that its Job, Pods, and private fixtures were
+absent and that the shared Lease was free. Browser run `34961014607` is now
+active. This API result does not close its browser pool check or the later SQL
+telemetry application gate. The restricted CI credential was renewed through
+12:19:07 UTC with its existing permissions.

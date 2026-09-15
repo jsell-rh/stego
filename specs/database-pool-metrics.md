@@ -49,3 +49,16 @@ the workstation. Hypershell's expanded application check remains separate.
 This covers the pool that generated service assembly owns. Separate worker
 entry points and independent PostgreSQL clients still require their own
 explicit resource wiring. These metrics do not establish production capacity.
+
+The [Hypershell API result](hypershell-pool-api.json) passed at `916f3a7` in run
+`34961014687`. All 31 required tests passed. Verification matched 899 source
+files, 230 generated files, and all four generation records. The pool test
+passed in 9.83 seconds. It verified two occupied connections, caller cancellation,
+recovery, a new runtime identity after restart, and continued allowed and denied
+Gateway access during collector failure. Cumulative waits increased from 9 to
+13; total wait duration increased from 0.095924 to 3.971334 seconds. These are
+test observations, not a performance target. The Job, Pods, and private fixtures
+are absent. The shared Lease was free at the independent check.
+
+The complete browser pool test remains separate. This API result uses compiler
+`e5b9931`; it does not verify the later PostgreSQL client signal change.
