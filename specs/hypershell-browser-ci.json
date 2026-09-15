@@ -4,14 +4,14 @@
     "head": "d61f1dffe639f1de6e67cd82d89282fedb0d15e6"
   },
   "api_ci": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34939474440",
-    "commit": "ee1f23e875509e6e923a8102a94f8a8ef6a0864c",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181696",
+    "commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
     "required_passed": 30,
     "source_files_checked": 872,
     "generated_files_checked": 228,
-    "job_uid": "de64b193-b619-4a31-b406-03953e5f93ac",
+    "job_uid": "5fec02fd-9ef4-4ff3-ab2c-f1f208c18e50",
     "cleanup": {
-      "job_absent": "gateway-api-10b0b375df08",
+      "job_absent": "gateway-api-ab4bab1ca336",
       "pods_absent": true,
       "fixture_resources_absent": true
     }
@@ -813,10 +813,23 @@
     "commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181554",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181696",
-    "result": "browser_success_api_running",
+    "result": "browser_success_api_success",
     "includes_credential_encryption": true,
-    "evidence_file": "browser-sql-recovery-encryption-evidence.json"
+    "evidence_file": "browser-sql-recovery-encryption-evidence.json",
+    "api_evidence": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181696",
+      "commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
+      "required_passed": 30,
+      "source_files_checked": 872,
+      "generated_files_checked": 228,
+      "job_uid": "5fec02fd-9ef4-4ff3-ab2c-f1f208c18e50",
+      "cleanup": {
+        "job_absent": "gateway-api-ab4bab1ca336",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      }
+    }
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/90b6ca58ba6ab89131672cccdde4a1452c1dbe6f/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "3230445828fa5dc8db656e3d7e27b9e072da495cb765b4cd59e7798417cf0a25"
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/eac3925262979e80d835a4b46faf1d77e797d8e9/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "defeee2fb8f2c5a0849776364173f976e5239c7ca6b3791149fc1138a6469b8a"
 }

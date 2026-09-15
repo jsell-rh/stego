@@ -3796,3 +3796,9 @@ connection file only into the test container. Twenty-nine small local checks
 passed. No live CNPG result is claimed. The next live slot will test the same
 complete Gateway workflow on this supplied server. The enterprise goal remains
 active.
+
+The separate API run for `70b2dd7` passed all 30 required checks. All 872 source
+files and 228 generated files match the commit; generation and cleanup passed.
+The first CNPG installation run now holds the shared test Lease. Both database
+instances are ready. Its frozen source is `90b6ca5`; application execution is
+in progress. No CNPG application result is claimed yet.
