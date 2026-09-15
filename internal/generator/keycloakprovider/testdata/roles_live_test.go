@@ -144,6 +144,16 @@ func testLiveRolePolicies(t *testing.T, c, scopeAdmin *Client, ctx context.Conte
 		if err = c.ReconcileServiceAccountRoles(ctx, owner, subject.ID, policy); err != nil {
 			t.Fatal("real full service-account roles did not converge", err)
 		}
+		if err = c.InspectServiceAccountRoles(ctx, owner, subject.ID, policy); err != nil {
+			t.Fatal("real service-account role inspection failed", err)
+		}
+		request(http.MethodPut, "/users/"+subject.ID+"/groups/"+groupID, nil, http.StatusNoContent)
+		if err = c.InspectServiceAccountRoles(ctx, owner, subject.ID, policy); !errors.Is(err, ErrRolePolicy) {
+			t.Fatal("real role inspection missed a group", err)
+		}
+		if err = c.ReconcileServiceAccountRoles(ctx, owner, subject.ID, policy); err != nil {
+			t.Fatal("real group repair failed", err)
+		}
 		raw := request(http.MethodGet, servicePath, nil, http.StatusOK)
 		var final struct {
 			Realm []struct {

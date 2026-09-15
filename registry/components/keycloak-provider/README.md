@@ -290,3 +290,9 @@ one-time credential response. A failed check returns no credential. The result
 uses the redacted `Secret` type; only the response boundary calls `Reveal()`.
 It does not enable or repair the client. Serialize creation, rotation, and
 deletion for the client before you use either token operation.
+
+`InspectServiceAccountRoles` checks the saved dedicated subject, exact direct and
+effective roles, and absence of group membership. It accepts an enabled or
+disabled confidential service-account client. It performs no administrative
+writes. This role check does not prove scopes, mappers, or token contents; use
+`InspectServiceAccountAccess` for the complete enabled policy and token proof.

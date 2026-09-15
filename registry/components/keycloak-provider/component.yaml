@@ -1,6 +1,6 @@
 kind: component
 name: keycloak-provider
-version: 0.10.1
+version: 0.10.2
 output_namespace: keycloak
 requires:
   - application-http

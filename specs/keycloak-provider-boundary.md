@@ -539,3 +539,19 @@ real application login test now adds API automation registration, REST grants,
 provider role checks, denied requests, and removal across restart. That extension
 still needs CI qualification. Remaining adoption includes client lifecycle,
 scopes, mappers, durable legacy bindings, and checked enablement.
+
+## Service-account role inspection
+
+Version 0.10.2 adds `InspectServiceAccountRoles`. It uses the role inspector from
+the complete service-account access check. It verifies the saved dedicated
+subject before and after inspection, exact direct and effective roles, and no
+group membership. It accepts an enabled or disabled confidential service-account
+client. The existing role reconciler still requires explicit disablement.
+
+This method lets an application replace a direct-role-only check without adding
+its own group or inherited-role mechanism. It does not authorize enablement or
+replace scope, mapper, and signed-token checks. Small tests cover both client
+states, group drift, missing and excess roles, inherited access, wrong subjects,
+disabled users, missing state flags, and changed ownership. The generated suites
+passed with and without telemetry and with the race detector in 14.068 seconds.
+The real provider gate also checks group drift and repair; that run is pending.

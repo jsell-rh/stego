@@ -600,3 +600,70 @@ func TestScopedRoleSubjectCanUseFederatedIdentitySyntax(t *testing.T) {
 		}
 	}
 }
+
+func TestInspectServiceAccountRoles(t *testing.T) {
+	for _, fault := range []string{"disabled", "enabled", "group", "excess direct", "missing direct", "excess inherited", "wrong subject", "disabled user", "changed ownership", "missing enabled flag"} {
+		t.Run(fault, func(t *testing.T) {
+			c, f := newRoleFixture(t)
+			owner, target := roleBindings()
+			policy := ServiceAccountRolePolicy{Clients: []ClientRoleGrant{{Client: target, Names: []string{"read"}}}}
+			f.current["service-user"] = roleSet{Clients: map[string][]RoleRepresentation{"target": {f.roles["target/read"]}}}
+			f.groups["service-user"] = nil
+			switch fault {
+			case "enabled":
+				value := f.clients[owner.ID]
+				value.Enabled = true
+				f.clients[owner.ID] = value
+			case "group":
+				f.groups["service-user"] = []string{"outside-group"}
+			case "excess direct":
+				f.current["service-user"].Clients["foreign"] = []RoleRepresentation{f.roles["foreign/other"]}
+			case "missing direct":
+				delete(f.current["service-user"].Clients, "target")
+			case "excess inherited":
+				f.inherited = true
+			case "wrong subject":
+				f.serviceSubject = "different-user"
+			case "disabled user":
+				f.enabled["service-user"] = false
+			case "changed ownership", "missing enabled flag":
+				reads := 0
+				f.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+					if r.URL.Path != "/admin/realms/tenant/clients/worker" {
+						return false
+					}
+					reads++
+					if fault == "changed ownership" && reads == 1 {
+						return false
+					}
+					value := f.clients[owner.ID]
+					raw, _ := json.Marshal(value)
+					var fields map[string]any
+					_ = json.Unmarshal(raw, &fields)
+					if fault == "changed ownership" {
+						fields["attributes"] = map[string]string{"pipeline.job": "other"}
+					} else {
+						delete(fields, "enabled")
+					}
+					_ = json.NewEncoder(w).Encode(fields)
+					return true
+				}
+			}
+			// Only one operation permit is available. Inspection must not nest permits.
+			for i := 0; i < MaxConcurrentOperations-1; i++ {
+				c.permits <- struct{}{}
+			}
+			err := c.InspectServiceAccountRoles(context.Background(), owner, "service-user", policy)
+			for i := 0; i < MaxConcurrentOperations-1; i++ {
+				<-c.permits
+			}
+			wantError := fault != "disabled" && fault != "enabled"
+			if (err != nil) != wantError {
+				t.Fatalf("inspection result: %v", err)
+			}
+			if len(f.writes) != 0 {
+				t.Fatal("role inspection changed provider state")
+			}
+		})
+	}
+}

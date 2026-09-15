@@ -231,8 +231,11 @@ func(c *Client)serviceAccountGroups(ctx context.Context,subject string)([]string
  sort.Strings(ids);return ids,nil
 }
 func(c *Client)boundServiceAccount(ctx context.Context,b ClientBinding,subject string)error{
+ return c.boundServiceAccountState(ctx,b,subject,true)
+}
+func(c *Client)boundServiceAccountState(ctx context.Context,b ClientBinding,subject string,disabled bool)error{
  value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
- if value.Protocol!="openid-connect"||!explicitFlag(raw,"enabled",false)||!explicitFlag(raw,"publicClient",false)||!explicitFlag(raw,"serviceAccountsEnabled",true){return ErrRolePolicy}
+ if value.Protocol!="openid-connect"||(!explicitFlag(raw,"enabled",false)&&(disabled||!explicitFlag(raw,"enabled",true)))||!explicitFlag(raw,"publicClient",false)||!explicitFlag(raw,"serviceAccountsEnabled",true){return ErrRolePolicy}
  user,err:=c.serviceAccountUser(ctx,b);if err!=nil{return err};if user.ID!=subject{return ErrOwnership};return nil
 }
 func(c *Client)readEffectiveRoles(ctx context.Context,path string,clientIDs []string)(roleSet,error){
@@ -241,6 +244,20 @@ func(c *Client)readEffectiveRoles(ctx context.Context,path string,clientIDs []st
  result.Realm,err=c.readRoles(ctx,path+"/realm/composite","");if err!=nil{return roleSet{},err}
  for _,id:=range clientIDs{roles,e:=c.readRoles(ctx,path+"/clients/"+id+"/composite",id);if e!=nil{return roleSet{},e};if len(roles)>0{result.Clients[id]=roles}}
  return result,nil
+}
+
+// InspectServiceAccountRoles checks the saved dedicated subject, exact direct
+// and effective roles, and absence of group membership. It accepts an enabled
+// or disabled client and performs no administrative writes. It does not check
+// scopes, mappers, or tokens. The caller retains exclusive control of writes.
+func(c *Client)InspectServiceAccountRoles(ctx context.Context,b ClientBinding,subject string,p ServiceAccountRolePolicy)error{
+ if err:=b.validate();err!=nil{return err}
+ if !identifier.MatchString(subject){return errors.New("invalid Keycloak service-account subject")}
+ if err:=validateServiceAccountRoles(p);err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ if err=c.boundServiceAccountState(work,b,subject,false);err!=nil{return err}
+ if err=c.inspectServiceAccountRolePolicy(work,subject,p);err!=nil{return err}
+ return c.boundServiceAccountState(work,b,subject,false)
 }
 
 // ReconcileServiceAccountRoles controls all direct roles and removes all group
