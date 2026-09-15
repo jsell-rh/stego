@@ -15,3 +15,6 @@ A missing result is not a pass. Preserve unrelated files and workloads.
 
 Do not edit a shell script while it is running. Use a frozen source copy if
 source edits must continue during a check.
+
+Keep frozen test sources, operator journals, and result records in persistent
+storage. Do not use `/tmp` for their only copies.

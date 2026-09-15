@@ -61,5 +61,9 @@
     "This restricted CI profile does not check an unrelated receiver with no ingress policy.",
     "Public Gateway routing, external DNS changes, and RDS failover are not proved by this run.",
     "Kata Sandbox tests remain deferred."
-  ]
+  ],
+  "evidence_retention": {
+    "raw_local_archive_available": false,
+    "reason": "The workstation restart cleared the temporary result directory. The committed result and archive digest remain. A new run must retain raw evidence in persistent storage."
+  }
 }

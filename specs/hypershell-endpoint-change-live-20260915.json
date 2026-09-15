@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "failed_with_manual_cleanup",
   "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
   "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
   "frozen_source": "/tmp/hypershell-endpoint-security-frozen-20260915",
@@ -46,8 +46,50 @@
     "application_started": false
   },
   "limits": [
-    "No final application or cleanup result is available yet.",
-    "This fixed-address test does not prove DNS tracking or RDS failover.",
-    "No DNS provider or Technology Preview feature was enabled."
-  ]
+    "The address replacement and recovery stages did not run.",
+    "Normal Gateway deletion and complete final telemetry checks did not pass in this run.",
+    "The lost local operator journal cannot be used as evidence of a completed write.",
+    "DNS tracking and RDS failover remain unproved."
+  ],
+  "result": {
+    "status": "failed_with_manual_cleanup",
+    "application_seconds": 367.41,
+    "exit_status": 1,
+    "failure": "The operator did not confirm the recorded endpoint transition after the workstation restarted.",
+    "initial_network_checks": 18,
+    "initial_network_all_passed": true,
+    "independent_egress": true,
+    "endpoint_acknowledgement_present": false,
+    "policy_uid": "9212e633-638c-4836-bb37-ed02405a920b",
+    "policy_generation": 1,
+    "policy_kept_original_address": true,
+    "generation": {
+      "first_second_equal": true,
+      "after_test_record_present": false
+    },
+    "cleanup": {
+      "manual_recovery": true,
+      "runtime_absent": true,
+      "namespaces_absent": 6,
+      "cluster_resources_absent": 22,
+      "claims_before": 0,
+      "lease_released": true
+    },
+    "automatic_cleanup_passed": false,
+    "workstation_restart": {
+      "previous_boot_ended": "2026-09-15T19:31:55Z",
+      "new_boot_started": "2026-09-15T19:33:19Z",
+      "cause": "Not established by the saved kernel log.",
+      "temporary_source_and_journal_lost": true
+    },
+    "recovered_evidence_directory": "/home/jsell/.local/state/stego/runs/endpoint-20260915-recovery",
+    "evidence_sha256": "2ac0d84a927525612e8c5d2dbf7d18417107653e0611d5c3324f5ba44b739963",
+    "cleanup_script_sha256": "9eaefcabe58c0338212c91c8b3e25a5a8ce67451fd4c4ff1e7fef4ce8a4b5f28",
+    "limits": [
+      "The address replacement and recovery stages did not run.",
+      "Normal Gateway deletion and complete final telemetry checks did not pass in this run.",
+      "The lost local operator journal cannot be used as evidence of a completed write.",
+      "DNS tracking and RDS failover remain unproved."
+    ]
+  }
 }

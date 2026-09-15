@@ -1441,5 +1441,10 @@
     "date": "2026-09-15",
     "scope": "Allow supported DNS-aware providers. Keep application declarations independent of the provider. Reject unsupported configurations and exclude Technology Preview features.",
     "implementation": "not enabled"
+  },
+  "evidence_retention": {
+    "temporary_directories_lost": "2026-09-15T19:33:19Z",
+    "scope": "The local result directories for the recorded public and CNPG runs were under /tmp. Their committed result records remain, but the raw local archives are no longer available.",
+    "next_action": "Keep new source, journal, and result copies in persistent storage."
   }
 }

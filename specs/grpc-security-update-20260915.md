@@ -11,7 +11,7 @@ Both example modules use that version. Regeneration and drift checks passed.
 The generated gRPC runtime test sends a request without either host header.
 It requires HTTP 400 and gRPC status Internal. Normal authenticated requests
 must still succeed. The focused generated runtime check passed in 24.254
-seconds, with race detection. Full consumer CI remains required.
+seconds, with race detection. Full application workflow qualification remains required.
 
 The CNPG test that was active when CI reported the issue retains its frozen
 source and v1.83.1. Its functional results do not qualify the old dependency
@@ -27,8 +27,10 @@ Sources:
 passed at `b0bd9a4`: compiler race tests, both generated examples, dependency
 scans, and SQL provisioning.
 [Hypershell CI 35012420380](https://github.com/jsell-rh/hypershell-stego/actions/runs/35012420380)
-passed the API and console vulnerability scans at `1df3d36`. Its complete
-application result is still pending. The duplicate manual run 35012427295
+passed the API and console vulnerability scans at `1df3d36`. All four ordinary
+application jobs passed, including core acceptance in 1277.155 seconds. The
+overall run failed because CNPG refused a credential with too little time left
+before test execution. Sandbox was skipped; that is not a pass. The duplicate manual run 35012427295
 was canceled before any job started.
 
 [Gateway API cluster CI 35012419987](https://github.com/jsell-rh/hypershell-stego/actions/runs/35012419987)

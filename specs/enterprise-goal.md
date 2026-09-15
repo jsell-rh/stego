@@ -164,12 +164,17 @@ original specification before the update, confirms admission type checking,
 and restarts both workers with the replacement binding. It requires traffic
 records and telemetry from each new instance. Fifty Python checks, 25 shell
 checks, and selected Go checks passed. The complete live address-change test
-is [active on the patched source](hypershell-endpoint-change-live-20260915.json).
+[failed after a workstation restart](hypershell-endpoint-change-live-20260915.json).
 Its first attempt stopped on a read-only TLS handshake timeout before namespace
-creation. Cleanup verified absence and released the Lease. The retry uses the
-same frozen source and a new result directory. Its final application and cleanup
-results remain required. Preparation checks do not prove traffic enforcement or
-external DNS behavior.
+creation. The second attempt passed all 18 initial network checks, then failed
+because the operator did not confirm the address transition. The policy kept
+the original address at generation 1. The restart removed the local temporary
+source and journal. Evidence was recovered from the existing Job into persistent
+storage. Manual cleanup removed the Job, all six namespaces, and 22 owned
+cluster resources, then released the Lease. The full address-change and recovery
+stages remain required. Future frozen sources and journals must use persistent
+storage. The cause of the workstation restart is not established.
+
 
 This result does not close the full network gate. Approved and retired endpoint
 addresses need live traffic checks. External database DNS behavior also remains
