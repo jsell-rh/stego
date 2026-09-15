@@ -88,7 +88,7 @@ The fresh console job and ordinary browser job passed at `7d6b6d2` in full CI
 The service image passed, CNPG failed, Sandbox was skipped, and core acceptance
 was still running at the last check. This is not a complete CI pass.
 
-The current public workflow source is Hypershell `0c0333f`, with compiler
+The current public workflow source is Hypershell `795e11c`, with compiler
 `4f692d0`. Common TLS Secret checks, Route admission, a credential-free pinned
 TLS RPC probe, and optional external network destinations are in STEGO.
 [Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
@@ -109,14 +109,18 @@ existing RPC, access, data, restart, namespace recovery, and service account
 checks through the public endpoint. It also checks the rendered connection
 command and removes the worker's public egress binding to require address
 withdrawal and recovery without data loss. Local input checks, compilation,
-and generated network rendering pass. No live public result exists. Public
-certificate rotation still needs an explicit test. See the
+and generated network rendering pass. No live public result exists. The public certificate renewal test is now in
+the source. It uses a conditional Certificate status update, checks a new key
+and certificate through fresh TLS connections, and requires unchanged SQL
+identities, credentials, provider data, and internal TLS. Its request tests and
+frozen generated fixture checks pass. The live renewal result remains required.
+See the
 [public connection contract](hypershell-external-connection.md) and
-[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/0c0333f/acceptance/public-gateway-tls.md).
+[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/795e11c/acceptance/public-gateway-tls.md).
 
 API run `34975653347` and browser run `34975653307` stopped before test creation
-because the CI credential had too little time left. The operator login refresh
-is still pending. The next cluster run also needs the installed policy to match
+because the CI credential had too little time left. The operator context still returned `Unauthorized` on 2026-09-15. Its login
+refresh is still pending. The next cluster run also needs the installed policy to match
 the current generated policy, plus explicit public issuer, trust, router, and
 network inputs. The PostgreSQL version and provisioning-role check has compiled
 but has no new cluster result. Do not replace these missing results with the

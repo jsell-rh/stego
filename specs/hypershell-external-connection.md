@@ -149,9 +149,20 @@ The manual public profile requires an operator-supplied domain, issuer, router,
 CA certificate bundle, and IP/443 pairs. It has no default trust or public
 address. Missing required inputs fail. Configuration uses the existing test
 trust ConfigMap and cleanup policy. See the
-[application profile](https://github.com/jsell-rh/hypershell-stego/blob/0c0333f/acceptance/public-gateway-tls.md).
-Explicit certificate rotation remains to be added. The complete public gate,
-regeneration, and cleanup must pass before public readiness can be claimed.
+[application profile](https://github.com/jsell-rh/hypershell-stego/blob/795e11c/acceptance/public-gateway-tls.md).
+Hypershell `795e11c` adds manual Certificate renewal to the public profile. It
+uses the status operation from the pinned cmctl source and retains the observed
+UID and revision. One named Certificate status permission is added to the
+existing fixture role. The request and generated permission tests pass in a
+frozen fixture; production allocation runtime code remains unchanged.
+
+The live test must observe a new certificate revision and key, a complete
+Deployment rollout, a fresh connection with the new certificate pin, rejection
+of the old pin, and a fresh authenticated owner read. SQL database and role
+OIDs, credentials, provider data, and internal TLS must remain unchanged. This
+test permits a controlled restart. It does not establish uninterrupted service.
+No live rotation result exists. The complete public gate, regeneration, and
+cleanup must pass before public readiness can be claimed.
 
 The fresh console, ordinary browser, and service image jobs passed at `7d6b6d2`
 in run `34975653596`; core acceptance was still running at the last check. CNPG
