@@ -12,7 +12,7 @@ Hypershell must not add a private copy of this general policy mechanism.
 `kubernetes-client` 1.5.0 adds the generated `PinnedAdmissionPolicies` helper.
 It emits policies and bindings for one named service account. Jobs have fixed
 lifetimes. Deployments and custom resources require a matching lifetime Job.
-The policies compare operator-owned templates, pin namespace and template UIDs,
+The policies compare operator-owned templates, check operator-stamped namespace identity and template UIDs,
 require restricted Pod security, and deny update, scale, and status operations.
 No RBAC grant is emitted. See the [component contract](../registry/components/kubernetes-client/pinned-admission.md).
 

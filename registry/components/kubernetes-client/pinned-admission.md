@@ -40,7 +40,12 @@ require a matching lifetime Job rule in the same namespace. Their sole owner
 must name that Job. Kubernetes checks the owner UID when it collects dependents.
 The caller cannot use an owner reference to block Job deletion.
 
-The policies check the target namespace UID and restricted Pod security. They
+The policies check an operator-owned namespace identity label and restricted
+Pod security. After namespace creation, the operator must set
+`PinnedNamespaceUIDLabel` (`stego.dev/pinned-namespace-uid`) to the observed
+namespace UID. A recreated namespace needs its new UID and new policies. Never
+copy this label from an old namespace. Kubernetes does not expose the namespace
+UID through `namespaceObject` in CEL, so this check relies on that operator step. They
 check the parameter UID and fail if the template is absent or replaced. The
 account can create and delete the exact resource. It cannot update it. Separate
 policies deny writes through subresources, including scale and status. Existing

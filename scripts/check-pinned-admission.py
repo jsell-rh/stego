@@ -119,6 +119,7 @@ def main():
         namespace_object = item('Namespace', args.namespace, namespace=None)
         namespace_object['metadata']['labels'] = {'pod-security.kubernetes.io/enforce': 'restricted'}
         namespace = create(namespace_object)
+        call(['label', 'namespace', args.namespace, 'stego.dev/pinned-namespace-uid=' + namespace['metadata']['uid']])
         create(item('ResourceQuota', 'limits', spec={'hard': {'pods': '2', 'limits.cpu': '50m', 'limits.memory': '64Mi', 'limits.ephemeral-storage': '32Mi', 'persistentvolumeclaims': '0', 'requests.storage': '0'}}))
         create(item('NetworkPolicy', 'deny-all', 'networking.k8s.io/v1', spec={'podSelector': {}, 'policyTypes': ['Ingress', 'Egress']}))
         create(item('ServiceAccount', 'runner', automountServiceAccountToken=False))
@@ -171,6 +172,11 @@ def main():
         create(item('RoleBinding', 'runner', 'rbac.authorization.k8s.io/v1', roleRef={'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': 'runner'}, subjects=[{'kind': 'ServiceAccount', 'name': 'runner', 'namespace': args.namespace}]))
         job = item('Job', 'lifetime', 'batch/v1', spec={'suspend': False, 'parallelism': 1, 'completions': 1, 'backoffLimit': 0, 'activeDeadlineSeconds': 30, 'ttlSecondsAfterFinished': 0, 'template': {'metadata': {'labels': {'app': 'pinned-lifetime'}}, 'spec': pod}})
         probe('pinned Job', job, True)
+        for marker, value in [('missing namespace identity', None), ('changed namespace identity', '11111111-2222-3333-4444-555555555555')]:
+            argument = 'stego.dev/pinned-namespace-uid-' if value is None else 'stego.dev/pinned-namespace-uid=' + value
+            call(['label', 'namespace', args.namespace, argument, '--overwrite'])
+            probe(marker, job, False, args.namespace + '-job')
+        call(['label', 'namespace', args.namespace, 'stego.dev/pinned-namespace-uid=' + namespace['metadata']['uid'], '--overwrite'])
         for name, change in [('missing deadline', lambda o: o['spec'].pop('activeDeadlineSeconds')), ('long deadline', lambda o: o['spec'].update(activeDeadlineSeconds=3600)), ('suspended Job', lambda o: o['spec'].update(suspend=True)), ('different image', lambda o: o['spec']['template']['spec']['containers'][0].update(image='example.invalid/unpinned:latest')), ('extra Pod label', lambda o: o['spec']['template']['metadata']['labels'].update(unapproved='value')), ('another Job name', lambda o: o['metadata'].update(name='other'))]:
             bad = copy.deepcopy(job); change(bad); probe(name, bad, False, args.namespace + '-job')
         owner = {'apiVersion': 'batch/v1', 'kind': 'Job', 'name': 'lifetime', 'uid': '11111111-2222-3333-4444-555555555555'}

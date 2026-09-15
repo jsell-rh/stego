@@ -10,6 +10,10 @@ import (
  "strings"
 )
 
+// PinnedNamespaceUIDLabel is set by the operator after namespace creation.
+// Its value must be the observed namespace UID. The caller cannot write it.
+const PinnedNamespaceUIDLabel = "stego.dev/pinned-namespace-uid"
+
 // PinnedAdmissionRule selects one operator-owned template and one named target.
 // Jobs have a fixed deadline. Every other target must belong to a Job in the
 // same rule set and namespace. These rules grant no Kubernetes permissions.
@@ -87,7 +91,7 @@ func PinnedAdmissionPolicies(actorNamespace, actorName string, rules []PinnedAdm
   add:=func(expression,message string){checks=append(checks,Object{"expression":expression,"message":message})}
   add("params != null", "The pinned template is required")
   add("params.metadata.uid == "+quote(r.TemplateUID), "The pinned template identity changed")
-  add("namespaceObject != null && namespaceObject.metadata.uid == "+quote(r.NamespaceUID)+" && has(namespaceObject.metadata.labels) && 'pod-security.kubernetes.io/enforce' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'", "The target namespace must retain its identity and restricted Pod security")
+  add("namespaceObject != null && has(namespaceObject.metadata.labels) && "+quote(PinnedNamespaceUIDLabel)+" in namespaceObject.metadata.labels && namespaceObject.metadata.labels["+quote(PinnedNamespaceUIDLabel)+"] == "+quote(r.NamespaceUID)+" && 'pod-security.kubernetes.io/enforce' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'", "The target namespace must retain its identity and restricted Pod security")
   add("request.operation != 'UPDATE'", "Pinned resources cannot be updated by this account")
   add("variables.target.metadata.name == "+quote(r.ResourceName)+" && variables.target.metadata.namespace == "+quote(r.Namespace), "Only the named pinned resource is permitted")
   add("request.operation == 'DELETE' || !has(variables.target.metadata.finalizers) || size(variables.target.metadata.finalizers) == 0", "The caller cannot add resource finalizers")
