@@ -1,0 +1,47 @@
+{
+  "date": "2026-09-15",
+  "status": "preparation-verified-live-change-not-run",
+  "source_commit": "a39c81f7898e119b002c3b0ca23444651d80dc93",
+  "prepared_base_commit": "22781589de6e936301f59a039a8c3031199ed3fb",
+  "prepared_source_matches_committed_files": true,
+  "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "frozen_source": "/tmp/hypershell-endpoint-policy-check-20260915",
+  "preparation_record_sha256": "98d3a209623e96b6c277cdf36d4e08507fd784f222dd04a3525d6a8a9cbb5e34",
+  "focused_checks": {
+    "inspection": 13,
+    "endpoint_boundary": 6
+  },
+  "generation": "passed",
+  "drift": "passed",
+  "changed_fixture_files": [
+    ".stego/state.yaml",
+    "out/deploy/allocation/allocation.go",
+    "out/deploy/render/worker-gateway-workload.json.tmpl",
+    "out/deploy/render/worker-namespace-allocation.json.tmpl",
+    "out/deploy/render/worker-sandbox-count.json.tmpl",
+    "service.yaml"
+  ],
+  "admission_transition": {
+    "kind": "ValidatingAdmissionPolicy",
+    "name": "stego-service-inspection.hypershell-namespace-allocation.allocation",
+    "initial_sha256": "47881eeba33b84c33e7850dad4937106a0ee43c30d073acc0f128871ee7eca58",
+    "replacement_sha256": "fc19c409d561907fd947fffcc26d58851f3669ab783a66fbaf1dce64a760db20",
+    "scope": "One address replacement in the Gateway admission variable. All other cluster fields remain equal.",
+    "live_traffic_verified": false
+  },
+  "listener_source_commit": "6f56159",
+  "listener_checks": 8,
+  "cluster_writes": false,
+  "remaining": [
+    "Connect the fixed listener inputs to the operator and test Job.",
+    "Change the generated admission policy with UID and resourceVersion checks and confirm type checking.",
+    "Restart the generated workers with the replacement binding.",
+    "Prove that fresh connections reach the replacement and cannot reach the old address.",
+    "Repeat the checks after worker restart and namespace recovery; check regeneration and cleanup."
+  ],
+  "limits": [
+    "This fixture uses fixed IP addresses. It does not prove DNS tracking or RDS failover.",
+    "The test Pod must not supply operator policy or gain admission-policy write permission.",
+    "No DNS provider or Technology Preview feature was enabled."
+  ]
+}

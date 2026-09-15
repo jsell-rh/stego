@@ -129,6 +129,15 @@ corrected run is active in `/tmp/hypershell-cnpg-network-retry-live-20260915`.
 Its initial allocation check found zero allocations without browser files.
 The complete CNPG application and automatic cleanup result remain required.
 
+The [address-change fixture preparation](hypershell-endpoint-change-preparation-20260915.json)
+passed generation, drift, and 19 focused checks at Hypershell `a39c81f`.
+It adds one test endpoint name to the Gateway allocation profile. The checked
+operator plan replaces one address in the generated admission variable. All
+other cluster fields remain equal. The listener fixture has two separate Pod
+addresses and a third unrelated listener. Live address replacement, removal,
+restart, and recovery still need the complete application test. This preparation
+does not prove traffic enforcement or external DNS behavior.
+
 This result does not close the full network gate. Approved and retired endpoint
 addresses need live traffic checks. External database DNS behavior also remains
 unproved. The main variant branch still uses the earlier checked candidate.
