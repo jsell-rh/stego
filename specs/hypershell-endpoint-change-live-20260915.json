@@ -1,20 +1,20 @@
 {
-  "status": "failed_with_manual_cleanup",
-  "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
+  "status": "running",
+  "source_commit": "93f590b8dc50a2a2264897b7bef0958040129498",
   "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
-  "frozen_source": "/tmp/hypershell-endpoint-security-frozen-20260915",
-  "source_record_sha256": "2ec38e3f46b0336062a721d4785016bde2e9664e44186475202fc1e514760813",
-  "directory": "/tmp/hypershell-endpoint-security-retry-live-20260915",
-  "log": "/tmp/hypershell-endpoint-security-retry-live-20260915.log",
-  "exec_session": 60341,
-  "namespace": "stego-service-20260915-6fe6df",
-  "pod": "service-check-mmf9k",
+  "frozen_source": "/home/jsell/.local/state/stego/frozen/hypershell-endpoint-20260915-recovery",
+  "source_record_sha256": "6fd1be473012d88fd824fd884ec0a64b8f793b090d30a8c9c872efed881d88dc",
+  "directory": "/home/jsell/.local/state/stego/runs/endpoint-20260915-durable",
+  "log": "/home/jsell/.local/state/stego/runs/endpoint-20260915-durable.log",
+  "exec_session": 84203,
+  "namespace": "stego-service-20260915-f11fea",
+  "pod": "service-check-bsn46",
   "journal": {
     "phase": "prepared",
-    "control_uid": "5416910f-5308-471b-a084-e9dc4870e970",
-    "pod_uid": "d86aa267-571d-41b3-8260-6b79b3ff9aa9",
-    "policy_uid": "9212e633-638c-4836-bb37-ed02405a920b",
-    "nonce": "9e4b9082110a484b9df28d1ba08ad798"
+    "control_uid": "94182763-1650-4067-b242-b378e4592e16",
+    "pod_uid": "ce2dcb95-a899-4b5f-ac0b-8105e12e9a87",
+    "policy_uid": "76d78385-6c3b-45b3-adfc-3236bbc10bdb",
+    "nonce": "42333c3292394289bc6b9ba5ee8381fd"
   },
   "expected_network_checks": 54,
   "stages": [
@@ -38,6 +38,54 @@
       },
       "lease_released": true,
       "test_job_created": false
+    },
+    {
+      "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
+      "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+      "namespace": "stego-service-20260915-6fe6df",
+      "pod": "service-check-mmf9k",
+      "status": "failed_with_manual_cleanup",
+      "result": {
+        "status": "failed_with_manual_cleanup",
+        "application_seconds": 367.41,
+        "exit_status": 1,
+        "failure": "The operator did not confirm the recorded endpoint transition after the workstation restarted.",
+        "initial_network_checks": 18,
+        "initial_network_all_passed": true,
+        "independent_egress": true,
+        "endpoint_acknowledgement_present": false,
+        "policy_uid": "9212e633-638c-4836-bb37-ed02405a920b",
+        "policy_generation": 1,
+        "policy_kept_original_address": true,
+        "generation": {
+          "first_second_equal": true,
+          "after_test_record_present": false
+        },
+        "cleanup": {
+          "manual_recovery": true,
+          "runtime_absent": true,
+          "namespaces_absent": 6,
+          "cluster_resources_absent": 22,
+          "claims_before": 0,
+          "lease_released": true
+        },
+        "automatic_cleanup_passed": false,
+        "workstation_restart": {
+          "previous_boot_ended": "2026-09-15T19:31:55Z",
+          "new_boot_started": "2026-09-15T19:33:19Z",
+          "cause": "Not established by the saved kernel log.",
+          "temporary_source_and_journal_lost": true
+        },
+        "recovered_evidence_directory": "/home/jsell/.local/state/stego/runs/endpoint-20260915-recovery",
+        "evidence_sha256": "2ac0d84a927525612e8c5d2dbf7d18417107653e0611d5c3324f5ba44b739963",
+        "cleanup_script_sha256": "9eaefcabe58c0338212c91c8b3e25a5a8ce67451fd4c4ff1e7fef4ce8a4b5f28",
+        "limits": [
+          "The address replacement and recovery stages did not run.",
+          "Normal Gateway deletion and complete final telemetry checks did not pass in this run.",
+          "The lost local operator journal cannot be used as evidence of a completed write.",
+          "DNS tracking and RDS failover remain unproved."
+        ]
+      }
     }
   ],
   "cancelled_duplicate_browser_ci": {
@@ -46,50 +94,10 @@
     "application_started": false
   },
   "limits": [
-    "The address replacement and recovery stages did not run.",
-    "Normal Gateway deletion and complete final telemetry checks did not pass in this run.",
-    "The lost local operator journal cannot be used as evidence of a completed write.",
-    "DNS tracking and RDS failover remain unproved."
+    "No final application or cleanup result is available yet.",
+    "This fixed-address test does not prove DNS tracking or RDS failover.",
+    "No DNS provider or Technology Preview feature was enabled."
   ],
-  "result": {
-    "status": "failed_with_manual_cleanup",
-    "application_seconds": 367.41,
-    "exit_status": 1,
-    "failure": "The operator did not confirm the recorded endpoint transition after the workstation restarted.",
-    "initial_network_checks": 18,
-    "initial_network_all_passed": true,
-    "independent_egress": true,
-    "endpoint_acknowledgement_present": false,
-    "policy_uid": "9212e633-638c-4836-bb37-ed02405a920b",
-    "policy_generation": 1,
-    "policy_kept_original_address": true,
-    "generation": {
-      "first_second_equal": true,
-      "after_test_record_present": false
-    },
-    "cleanup": {
-      "manual_recovery": true,
-      "runtime_absent": true,
-      "namespaces_absent": 6,
-      "cluster_resources_absent": 22,
-      "claims_before": 0,
-      "lease_released": true
-    },
-    "automatic_cleanup_passed": false,
-    "workstation_restart": {
-      "previous_boot_ended": "2026-09-15T19:31:55Z",
-      "new_boot_started": "2026-09-15T19:33:19Z",
-      "cause": "Not established by the saved kernel log.",
-      "temporary_source_and_journal_lost": true
-    },
-    "recovered_evidence_directory": "/home/jsell/.local/state/stego/runs/endpoint-20260915-recovery",
-    "evidence_sha256": "2ac0d84a927525612e8c5d2dbf7d18417107653e0611d5c3324f5ba44b739963",
-    "cleanup_script_sha256": "9eaefcabe58c0338212c91c8b3e25a5a8ce67451fd4c4ff1e7fef4ce8a4b5f28",
-    "limits": [
-      "The address replacement and recovery stages did not run.",
-      "Normal Gateway deletion and complete final telemetry checks did not pass in this run.",
-      "The lost local operator journal cannot be used as evidence of a completed write.",
-      "DNS tracking and RDS failover remain unproved."
-    ]
-  }
+  "persistent_storage": true,
+  "public_inputs_match_previous_attempt": true
 }

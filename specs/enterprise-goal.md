@@ -173,7 +173,10 @@ source and journal. Evidence was recovered from the existing Job into persistent
 storage. Manual cleanup removed the Job, all six namespaces, and 22 owned
 cluster resources, then released the Lease. The full address-change and recovery
 stages remain required. Future frozen sources and journals must use persistent
-storage. The cause of the workstation restart is not established.
+storage. The cause of the workstation restart is not established. A new run at source
+`93f590b` is active with persistent source, journal, trust, and result files.
+Its public Gateway inputs match the previous attempt. The final result and
+cleanup checks remain required.
 
 
 This result does not close the full network gate. Approved and retired endpoint
