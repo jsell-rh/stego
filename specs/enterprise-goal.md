@@ -95,8 +95,19 @@ removed its namespace and owned resources before releasing the Lease.
 See the [workflow record](hypershell-gateway-network-workflow-20260915.json).
 Its ordinary CI run
 [35003173222](https://github.com/jsell-rh/hypershell-stego/actions/runs/35003173222)
-has passed browser, console, and image checks; core is still running.
+passed core acceptance in 1236.192 seconds, plus browser, console, and image
+checks. CNPG and Sandbox skipped.
 The earlier setup and fixture failures remain in the record.
+
+Candidate `ee3d41d` adds a separate listener to the direct cluster workflow.
+The listener has no ingress NetworkPolicy, token, or Secret mount. Its namespace
+is outside the allocator. It has fixed resource and time limits and a deny
+egress policy. The full run is active in `stego-service-20260915-734cfd` and
+requires 28 connection checks before and after recovery. The listener is ready;
+its Gateway denial checks have not run. Six fixture boundary checks, the
+focused renderer and CI checks, and frozen generation passed. Restricted CI
+still has no listener and records that the extra check did not run.
+
 
 This result does not close the full network gate. The denied destinations also
 have ingress controls. Add an unrelated listener that permits incoming test

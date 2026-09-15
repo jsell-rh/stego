@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T18:06:09.682692+00:00",
+  "checked_at": "2026-09-15T18:13:49.587327+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
@@ -22,7 +22,12 @@
     "receiver_public_fixture_tests": 5,
     "receiver_cnpg_fixture_tests": 13,
     "receiver_fixture_acceptance_compile_seconds": 0.027,
-    "cnpg_cleanup_boundary_tests": 12
+    "cnpg_cleanup_boundary_tests": 12,
+    "unrelated_peer_boundary_tests": 6,
+    "unrelated_peer_render_tests": 5,
+    "browser_ci_boundary_tests": 6,
+    "cnpg_projection_tests": 6,
+    "unrelated_peer_acceptance_compile_seconds": 0.026
   },
   "first_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-live-20260915",
@@ -78,7 +83,14 @@
       "run_id": 35003173222,
       "source": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
       "scope": "Enabled network declaration with state and receiver fixture corrections. Ordinary CI does not run the live isolation workflow.",
-      "status": "core running; ordinary browser, web console, and images passed"
+      "status": "completed successfully; core, ordinary browser, web console, and images passed; CNPG and Sandbox skipped",
+      "core_acceptance_seconds": 1236.192
+    },
+    {
+      "run_id": 35005977361,
+      "source": "ee3d41d7398a3b7f0d5029263988c66ceb201fc6",
+      "scope": "Unrelated namespace probe and earlier CNPG cleanup correction. Ordinary CI does not run the direct cluster workflow.",
+      "status": "running"
     }
   ],
   "cnpg": {
@@ -191,6 +203,22 @@
     {
       "path": "/tmp/hypershell-network-ci-render-plan-20260915/comparison.json",
       "sha256": "d30ad5fdd0693272fa2352d55d66ac9927a19bde47f18f806ca4cb62adf4ffab"
+    },
+    {
+      "path": "/tmp/hypershell-network-core-35003173222.log",
+      "sha256": "dc7fba9701a9db806c0dee511e9b67fe01e452cecd245b3bd0aa5fec723b28c7"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-compile-20260915.log",
+      "sha256": "826054dc5eeffe2bd0261c74c5e341ccb537869caa3612ec0b97aad78cf8dc23"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-prepare-20260915.log",
+      "sha256": "fe9a3d53452560b578643698f964aea02ac66dbe14ed24f0ebfd55057d954901"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-frozen-20260915/acceptance/browser-inspection-source.json",
+      "sha256": "64c1141bda5d587f5831bd922feb85016c2eb282ae6f6c57f8ae7333f48ceff2"
     }
   ],
   "second_live_attempt": {
@@ -577,5 +605,21 @@
     "directory": "/tmp/hypershell-network-ci-render-plan-20260915",
     "changed_resources": 8,
     "status": "read-only comparison; no cluster installation change applied"
+  },
+  "independent_egress_attempt": {
+    "source": "ee3d41d7398a3b7f0d5029263988c66ceb201fc6",
+    "directory": "/tmp/hypershell-unrelated-peer-live-20260915",
+    "log": "/tmp/hypershell-unrelated-peer-live-20260915.log",
+    "frozen_source": "/tmp/hypershell-unrelated-peer-frozen-20260915",
+    "namespace": "stego-service-20260915-734cfd",
+    "job": "service-check",
+    "pod": "service-check-84kq5",
+    "exec_session": 55606,
+    "status": "running",
+    "expected_network_checks": 28,
+    "peer_namespace": "stego-service-20260915-734cfd-peer",
+    "peer_phase": "ready",
+    "peer_scope": "Separate test namespace with no allocator labels or ingress NetworkPolicy. The listener has no token or Secret mount and has a deny egress policy and fixed resource and time limits. No egress denial result is claimed yet.",
+    "ci_limit": "The direct workflow requires this listener. The fixed restricted CI installation has no listener and records independent_egress=false."
   }
 }
