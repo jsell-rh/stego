@@ -303,3 +303,18 @@ that cause. Full CI for the test change remains required. The logs are
 `/tmp/stego-34bf5b2-failure-20260915.log` and
 `/tmp/stego-rpc-cleanup-goexit-port-20260915.log`. Earlier passing runs remain
 valid only for their recorded executions.
+
+Public workflow `34983965151` failed because OpenShift denied the controller's
+explicit Route host. The Gateway Pod and certificates were ready. A server dry
+run under the controller identity reproduced the denial. Hypershell adds the
+required `create` permission for `routes/custom-host` through its existing STEGO
+allocation declaration. No application policy engine was added. The
+[Route host record](hypershell-public-route-host.json) contains complete cleanup,
+seven passing planner checks, and the verified one-Role operator update. A new
+complete workflow is required. Pending runs `34984874811`, `34984842021`, and
+`34984842133` were canceled before execution because their source lacked this
+permission. The old active core run was retained.
+
+Full compiler CI `34985081259` passed after the RPC fixture port correction in
+`d00bdc3`. This confirms that run, including both example services. It does not
+prove the cause of the earlier intermittent failure.
