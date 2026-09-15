@@ -416,5 +416,20 @@
     "Hypershell must adopt the new generated runtime and prove active-session termination through its Gateway workflow.",
     "Operator DDL must use the documented coordination. Quarantine does not continuously intercept administrator changes."
   ],
-  "final_verified_run": 5
+  "final_verified_run": 5,
+  "compiler_ci": {
+    "revision": "868ff1f83a1289a7becffa6530f282f980a5216b",
+    "run": "https://github.com/jsell-rh/stego/actions/runs/34925662236",
+    "result": "success",
+    "jobs": [
+      "compiler",
+      "postgres-provisioning"
+    ],
+    "checks": [
+      "Complete compiler race suite",
+      "Generated PostgreSQL provisioning",
+      "Go module verification",
+      "Dependency vulnerability check"
+    ]
+  }
 }

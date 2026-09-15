@@ -122,3 +122,8 @@ Hypershell still needs to adopt this runtime and prove active-session terminatio
 through its real Gateway workflow. The earlier supplied-server browser and
 27-check API results remain valid for compiler `16e09a2`; they do not prove this
 new quarantine behavior. Actual CNPG and RDS operation remain required.
+
+The full compiler CI and its dedicated PostgreSQL job passed at `868ff1f` in
+[run 34925662236](https://github.com/jsell-rh/stego/actions/runs/34925662236).
+This verifies the common runtime. The new Hypershell application check remains
+required before adoption can be reported as verified.

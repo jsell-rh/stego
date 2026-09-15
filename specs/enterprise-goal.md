@@ -3541,3 +3541,10 @@ metrics call, missing read access to the schema marker in the credential fixture
 and an unsupported legacy grant-condition upgrade test. The variant now has
 corrections in progress and a focused cluster check. A new full core result is
 required. The prior browser and 27-check API passes are not a full CI pass.
+
+The complete compiler race suite and PostgreSQL job passed for `868ff1f`.
+Hypershell commit `3bd9f63` fixes the three core test defects. Its focused jshell
+check passed credential-file rotation, cleanup metrics, and the SQL adapter
+contract. Source and generation hashes match, and test resources are absent.
+The complete core suite and the expanded 29-check API gate are running in CI.
+The application adoption of session quarantine remains in progress.
