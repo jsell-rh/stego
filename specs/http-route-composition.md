@@ -27,8 +27,9 @@ application HTTP, and browser backend generators provide the declarations.
 Checks cover public probe conflicts, protected duplicates, wildcard conflicts,
 the public fallback, invalid registrations, legacy mux mode, declaration changes,
 validation before rendering, and CLI file preservation. A protected application
-mount at `/` can still coexist with public probes and root metadata. Full
-compiler CI remains required for this change.
+mount at `/` can still coexist with public probes and root metadata.
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34959118556)
+passed at `1edd407`, including the race suite and SQL provisioning checks.
 
 This validates registration on the composed multiplexers. It does not inspect
 routes inside an application-supplied handler or establish the access policy

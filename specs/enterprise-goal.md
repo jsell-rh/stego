@@ -4118,3 +4118,9 @@ Direct assembly also checks literal registrations. The
 [composition contract](http-route-composition.md) records the scope, regressions,
 and remaining policy limits. Full compiler CI remains required. The active CNPG
 workflow continues with its frozen compiler and source.
+
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34959118556)
+passed at `1edd407`, including race tests and SQL provisioning. This verifies the
+route-composition change and its declaration checks. The CNPG run has reached
+a ready Gateway and passed database Pod recovery; its remaining application and
+cleanup checks are still active.
