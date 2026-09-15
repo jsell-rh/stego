@@ -8,6 +8,13 @@ Version 1.10.0 adds fixed PostgreSQL driver signals through the same runtime.
 The storage peer supplies the driver callbacks. SQL and connection data do not
 enter the signal API. See the [database telemetry contract](../../../specs/database-observability.md).
 
+Version 1.13.0 adds automatic metrics for the process database pool. The compiler
+supplies the existing pool; no database is created for telemetry alone. The
+runtime reports connection use, the configured limit, cumulative waits and
+wait duration, and connection retirement. These are eight fixed series with
+the runtime's service and instance identity. See the
+[pool metric contract](../../../specs/database-pool-metrics.md).
+
 The runtime records methods, registered routes when available, status, duration,
 and active requests. Request logs correlate with spans. Metrics and logs also
 cover unsampled requests. Raw URLs, bodies, credentials, and identity fields are

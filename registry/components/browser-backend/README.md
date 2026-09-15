@@ -4,6 +4,13 @@ Use this component in a separate browser service. The `browser-service`
 archetype adds the common database pool, health checks, and telemetry.
 The application supplies its browser assets and its domain API.
 
+Use PostgreSQL adapter 4.4.1 or later and the compiler's independent factory
+selection. This supplies the shared verified-TLS policy, connection deadline,
+and bounded pool even when the browser service has no entities. Configure its
+pool with the same [deployment settings](../../../specs/database-pool-bounds.md)
+as the API. With telemetry 1.13.0, pool metrics are automatic. The browser and
+API processes have separate pool budgets and runtime identities.
+
 Declare `api_prefix`, `routes`, and `assets`. Each asset has a `source` path
 relative to the service project and a public `path`. Public assets use
 `/index.html` or `/assets/`. Routes must include `/`. A route can contain

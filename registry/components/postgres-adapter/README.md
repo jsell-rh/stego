@@ -51,6 +51,12 @@ idle time. Deployment settings can change these bounds. Invalid settings stop
 pool creation. See the [pool contract](../../../specs/database-pool-bounds.md)
 for defaults, limits, ownership, and acceptance requirements.
 
+Version 4.4.1 also supplies the pool factory when the service has no entities.
+This supports the separate browser backend and other SQL consumers without
+storage models or automatic migrations. Assembly selects the declared factory
+for each required process pool, even when the storage constructor is unused.
+See the [factory contract](../../../specs/database-pool-factory.md).
+
 Version 3.16.0 bounds each pool connection operation to five seconds. The limit
 includes host fallbacks and preserves a shorter caller deadline. It does not
 limit an established session. Generated startup also uses a five-second ping
