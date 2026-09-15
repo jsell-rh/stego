@@ -1,0 +1,197 @@
+{
+  "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+  "compiler": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "phase": "verified",
+  "namespace": "stego-service-ci",
+  "old_installation_uid": "cdd0f59a-43d9-4222-8eeb-8b7f5fc6c772",
+  "new_installation_uid": "f9610ca2-0071-4280-b596-1451b086e9a1",
+  "changes": [
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+      "uid": "c466fcde-1874-4bc9-bc02-264d62e1c517",
+      "resource_version": "6404187"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+      "uid": "a3b714c5-17a2-48ef-bf62-0dad6d5221ad",
+      "resource_version": "6404211"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation",
+      "uid": "103f4a86-d52d-47e9-8628-257be5fdfdb9",
+      "resource_version": "6404229"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+      "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+      "resource_version": "6404239"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-state-inspector",
+      "uid": "57b5124e-968e-432a-ab5e-c792f1ad0c70",
+      "resource_version": "6404253"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-state",
+      "uid": "b6689010-e1c2-4081-8e7e-0e008c5e2ce1",
+      "resource_version": "6404265"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+      "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+      "resource_version": "6404277"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.sandbox-count",
+      "uid": "6a0a11c7-dd86-4a24-a1ce-5259ab0a9ab5",
+      "resource_version": "6404289"
+    }
+  ],
+  "verified_resources": [
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-gateway-workload",
+      "uid": "095f43f8-c8db-4bd7-9a10-73d4a0a9ab19",
+      "resource_version": "6120564"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation",
+      "uid": "103f4a86-d52d-47e9-8628-257be5fdfdb9",
+      "resource_version": "6404229"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+      "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+      "resource_version": "6404239"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-state-inspector",
+      "uid": "57b5124e-968e-432a-ab5e-c792f1ad0c70",
+      "resource_version": "6404253"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-reviews",
+      "uid": "c77ff8f0-256c-4274-aedb-6da027eeb609",
+      "resource_version": "6120557"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-runtime",
+      "uid": "f2bbfaba-3d34-4bd3-96fc-7ed89a28c3b8",
+      "resource_version": "6120555"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-state",
+      "uid": "b6689010-e1c2-4081-8e7e-0e008c5e2ce1",
+      "resource_version": "6404265"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+      "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+      "resource_version": "6404277"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.proof",
+      "uid": "fcb78ed6-91db-42f5-bbcd-9282a11eff6e",
+      "resource_version": "6120558"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.sandbox-count",
+      "uid": "6a0a11c7-dd86-4a24-a1ce-5259ab0a9ab5",
+      "resource_version": "6404289"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-service-ci.hypershell-gateway-workload",
+      "uid": "400775cb-7c10-485d-88aa-a8488d080e9f",
+      "resource_version": "6120565"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation",
+      "uid": "88d5486c-40d6-47b0-8a90-75e8cc7696f1",
+      "resource_version": "6120562"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+      "uid": "c466fcde-1874-4bc9-bc02-264d62e1c517",
+      "resource_version": "6404196"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+      "uid": "398d815d-25ef-4320-be4b-f0c274e2d6e6",
+      "resource_version": "6120534"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+      "uid": "a3b714c5-17a2-48ef-bf62-0dad6d5221ad",
+      "resource_version": "6404212"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+      "uid": "c5d82f5e-71d2-42a9-9d4f-70925f87d49c",
+      "resource_version": "6120532"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+      "uid": "ba1ab5a0-be60-45d7-acc2-af41c2f2924f",
+      "resource_version": "6120537"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+      "uid": "ee65ddc5-aa8b-40da-abf2-52e1e09fea86",
+      "resource_version": "6120546"
+    }
+  ],
+  "cnpg_receiver": {
+    "namespace": "stego-cnpg-database-ci",
+    "name": "database",
+    "uid": "c9f7bc1f-c6cd-4436-a335-de73bddc0055",
+    "added_peer": {
+      "namespaceSelector": {
+        "matchLabels": {
+          "stego.dev/allocator": "5305aa89c5f40a73316e60bd033ec8ab",
+          "stego.dev/allocation-profile": "gateway"
+        }
+      },
+      "podSelector": {
+        "matchExpressions": [
+          {
+            "key": "stego.test/network-probe",
+            "operator": "Exists"
+          }
+        ]
+      }
+    }
+  },
+  "admission_checked_before_role_changes": true,
+  "shared_lease_released": true,
+  "artifacts": {
+    "update.py": "ccda27cde5e0b3b2c1c30f85ee6f3f52d7b8e87c5e4baf60e6c0bf4d5423aa79",
+    "plan.json": "73f1647795107cfaf4ffdc239ecae4db7f34606b2416060825b770079e540d53",
+    "journal.json": "1c789bf37b41219d9608fbe01952bfca695d923e611da75ef7755dd87e743e9f",
+    "source-verification.json": "e409bf1449aa42e903dc16582e1af47b3ab594512af8b9d102a4c4679ac29b6c"
+  }
+}

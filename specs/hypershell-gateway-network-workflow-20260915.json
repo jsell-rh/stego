@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-09-15T18:13:49.587327+00:00",
+  "checked_at": "2026-09-15T18:31:06.771117+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
-  "scope": "The complete public Gateway workflow passed with generated Gateway and state network policies enabled. The two denied targets also have ingress controls; independent egress denial against an unrelated namespace, live endpoint changes, and the CNPG isolation workflow remain unproved.",
+  "scope": "The complete public Gateway workflow passed with generated Gateway and state network policies enabled. Both Gateways independently denied an unrelated listener before and after recovery. Live endpoint changes, external DNS enforcement, and the CNPG isolation workflow remain unproved.",
   "declaration": {
     "gateway": "Selected router, DNS, SQL, identity-provider, and telemetry Pod peers, plus exact operator Kubernetes addresses.",
     "state": "Deny all traffic.",
@@ -27,7 +27,8 @@
     "unrelated_peer_render_tests": 5,
     "browser_ci_boundary_tests": 6,
     "cnpg_projection_tests": 6,
-    "unrelated_peer_acceptance_compile_seconds": 0.026
+    "unrelated_peer_acceptance_compile_seconds": 0.026,
+    "cnpg_source_and_inspection_boundary_tests": 17
   },
   "first_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-live-20260915",
@@ -56,8 +57,9 @@
     "The operator and test Job use the same saved Kubernetes endpoints.",
     "The installer checks all policies before bindings and records server errors and a pending resource identity.",
     "State recovery fixtures now return the named policy and complete set, with explicit missing, changed, and extra policy denial cases.",
-    "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The active frozen run does not include this correction.",
-    "Candidate 7e23873 passes saved Kubernetes endpoint bindings to the final CNPG allocation check. Missing or empty input prevents a cleanup success result before credential use."
+    "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The passing public runs include this correction.",
+    "Candidate 7e23873 passes saved Kubernetes endpoint bindings to the final CNPG allocation check. Missing or empty input prevents a cleanup success result before credential use.",
+    "Candidate 6062269 fixes the later frozen-source verifier to accept only the declared CNPG peer together with the fixed inspection roles. The prior prepared source failed this check before a live CNPG run. Full source verification now passes; altered peers, broader roles, and changed runtime code are rejected."
   ],
   "ci": [
     {
@@ -94,17 +96,35 @@
     }
   ],
   "cnpg": {
-    "source": "7e23873000bfceb405e23b8173220e2e06c56017",
-    "fixture_directory": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915",
+    "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+    "fixture_directory": "/tmp/hypershell-cnpg-network-source-check-frozen-20260915",
     "generation": "passed",
-    "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
+    "full_source_verification": "passed",
+    "previous_preparation": {
+      "source": "7e23873000bfceb405e23b8173220e2e06c56017",
+      "fixture_directory": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915",
+      "generation": "passed",
+      "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
+    },
+    "scope": "The complete restricted CNPG isolation workflow is active. No application or cleanup pass is claimed.",
+    "directory": "/tmp/hypershell-cnpg-network-live-20260915",
+    "log": "/tmp/hypershell-cnpg-network-live-20260915.log",
+    "exec_session": 35177,
+    "run": {
+      "source_base_commit": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+      "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+      "holder": "stego-cnpg-live-085097c4fe8c556d",
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+      "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+      "phase": "operator_ready",
+      "cluster_uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26"
+    }
   },
   "remaining": [
-    "Check independent Gateway egress denial against an unrelated namespace whose listener permits incoming test traffic.",
     "Test approved and retired endpoint addresses with fresh connections, restart, and regeneration.",
     "Run the complete CNPG workflow with isolation enabled.",
     "Declare and test external database endpoints for deployments outside this SQL Pod fixture.",
-    "Resolve the open DNS provider choice.",
+    "Implement and prove a supported DNS-aware provider under the approved provider-independent contract; exclude Technology Preview features.",
     "The user deferred the live Kata test."
   ],
   "artifacts": [
@@ -219,6 +239,34 @@
     {
       "path": "/tmp/hypershell-unrelated-peer-frozen-20260915/acceptance/browser-inspection-source.json",
       "sha256": "64c1141bda5d587f5831bd922feb85016c2eb282ae6f6c57f8ae7333f48ceff2"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-live-20260915/evidence.tar",
+      "sha256": "626986c973c66a188fced3f3b9ca486a0d22203df13914d402ab56aabc0fd011"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-live-20260915/deployment.log",
+      "sha256": "fb0075164d7a9f6d668cdf777002c16748f2ac906bdc55637265af9dd33593eb"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-live-20260915/cleanup.json",
+      "sha256": "3677973685df63da55fdfa84b6062c1bf9f253652bbc0b84c5f16dc4509f4aab"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-live-20260915/network-peer.json",
+      "sha256": "785ef58d9b8505a125365a0abc26e49cfe00f4d1c69a1768b8141cefc79677a0"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-live-20260915/verified-application-result.json",
+      "sha256": "3eb685d255b808d9b092211371d9147d482ac17f9480f4683f0444bc4d632684"
+    },
+    {
+      "path": "/tmp/hypershell-network-ci-render-plan-20260915/verified-update.json",
+      "sha256": "af6e4e900a9868ff21013be415835534873861dca347b20e906320c0a067d8bd"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-source-check-prepare-20260915.log",
+      "sha256": "00b1f13e46a20a90bdaff6241beefcc88330a466bfba34fa189b1d7762227ef4"
     }
   ],
   "second_live_attempt": {
@@ -615,11 +663,468 @@
     "job": "service-check",
     "pod": "service-check-84kq5",
     "exec_session": 55606,
-    "status": "running",
+    "status": "passed",
     "expected_network_checks": 28,
     "peer_namespace": "stego-service-20260915-734cfd-peer",
-    "peer_phase": "ready",
-    "peer_scope": "Separate test namespace with no allocator labels or ingress NetworkPolicy. The listener has no token or Secret mount and has a deny egress policy and fixed resource and time limits. No egress denial result is claimed yet.",
-    "ci_limit": "The direct workflow requires this listener. The fixed restricted CI installation has no listener and records independent_egress=false."
+    "peer_phase": "removed",
+    "peer_scope": "Separate test namespace with no allocator labels or ingress NetworkPolicy. The listener had no token or Secret mount and had fixed resource and time limits. Both Gateways timed out against this reachable listener before and after recovery.",
+    "ci_limit": "The direct workflow requires this listener. The fixed restricted CI installation has no listener and records independent_egress=false.",
+    "exit_status": 0,
+    "workflow_seconds": 512.91,
+    "race_detection": true,
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-734cfd",
+      "owned_resources_absent": true
+    },
+    "peer_cleanup": {
+      "control": "stego-service-20260915-734cfd",
+      "namespace": "stego-service-20260915-734cfd-peer",
+      "nonce": "e7e0ede6694b41239558a56a7098a1af",
+      "phase": "removed",
+      "host": "peer.stego-service-20260915-734cfd-peer.svc.cluster.local",
+      "port": 8080,
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+      "namespace_uid": "537595ed-de9e-4f4d-b206-0cdbea7707ab",
+      "last_created": {
+        "kind": "Pod",
+        "uid": "6e785f93-781c-45e0-8a42-b502396ce837"
+      },
+      "pod_uid": "6e785f93-781c-45e0-8a42-b502396ce837",
+      "policy_uid": "d0260e76-a7ef-4d0d-a903-94785d6d7fa3",
+      "ingress_policy": false,
+      "outbound_connections": false,
+      "namespace_absent": true
+    },
+    "lease_released": true,
+    "application_result": {
+      "generation_hashes_match": true,
+      "generation_manifest_sha256": "2a5d71709b372e2dfe2af8aeaf7be3a577b3f8be12eb7e2c8dd2e52fa72af810",
+      "network_stages": [
+        {
+          "fresh_connections": true,
+          "gateways": [
+            {
+              "gateway_id": "3JNLDVaUyGrsVnMSHNYcvgNv789",
+              "namespace": "openshell-92e2d890ac48866a",
+              "result": {
+                "results": [
+                  {
+                    "allowed": true,
+                    "name": "kubernetes",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "postgres",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "identity",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "telemetry",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "other-gateway",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "control-api",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "unrelated-namespace",
+                    "outcome": "timeout",
+                    "passed": true
+                  }
+                ]
+              }
+            },
+            {
+              "gateway_id": "3JNLDy4TTGCdreLmU6QBQTpAJ6G",
+              "namespace": "openshell-3ac383deefc7d72e",
+              "result": {
+                "results": [
+                  {
+                    "allowed": true,
+                    "name": "kubernetes",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "postgres",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "identity",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "telemetry",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "other-gateway",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "control-api",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "unrelated-namespace",
+                    "outcome": "timeout",
+                    "passed": true
+                  }
+                ]
+              }
+            }
+          ],
+          "independent_egress": true,
+          "stage": "initial",
+          "token_mounted": false
+        },
+        {
+          "fresh_connections": true,
+          "gateways": [
+            {
+              "gateway_id": "3JNLDVaUyGrsVnMSHNYcvgNv789",
+              "namespace": "openshell-92e2d890ac48866a",
+              "result": {
+                "results": [
+                  {
+                    "allowed": true,
+                    "name": "kubernetes",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "postgres",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "identity",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "telemetry",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "other-gateway",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "control-api",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "unrelated-namespace",
+                    "outcome": "timeout",
+                    "passed": true
+                  }
+                ]
+              }
+            },
+            {
+              "gateway_id": "3JNLDy4TTGCdreLmU6QBQTpAJ6G",
+              "namespace": "openshell-3ac383deefc7d72e",
+              "result": {
+                "results": [
+                  {
+                    "allowed": true,
+                    "name": "kubernetes",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "postgres",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "identity",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": true,
+                    "name": "telemetry",
+                    "outcome": "connected",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "other-gateway",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "control-api",
+                    "outcome": "timeout",
+                    "passed": true
+                  },
+                  {
+                    "allowed": false,
+                    "name": "unrelated-namespace",
+                    "outcome": "timeout",
+                    "passed": true
+                  }
+                ]
+              }
+            }
+          ],
+          "independent_egress": true,
+          "stage": "after-recovery",
+          "token_mounted": false
+        }
+      ],
+      "network_checks": 28,
+      "browser": {
+        "verified": true,
+        "publicConnectionVerified": true
+      }
+    }
+  },
+  "ci_network_installation": {
+    "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+    "compiler": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+    "phase": "verified",
+    "namespace": "stego-service-ci",
+    "old_installation_uid": "cdd0f59a-43d9-4222-8eeb-8b7f5fc6c772",
+    "new_installation_uid": "f9610ca2-0071-4280-b596-1451b086e9a1",
+    "changes": [
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+        "uid": "c466fcde-1874-4bc9-bc02-264d62e1c517",
+        "resource_version": "6404187"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+        "uid": "a3b714c5-17a2-48ef-bf62-0dad6d5221ad",
+        "resource_version": "6404211"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation",
+        "uid": "103f4a86-d52d-47e9-8628-257be5fdfdb9",
+        "resource_version": "6404229"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+        "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+        "resource_version": "6404239"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.fixture-state-inspector",
+        "uid": "57b5124e-968e-432a-ab5e-c792f1ad0c70",
+        "resource_version": "6404253"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-state",
+        "uid": "b6689010-e1c2-4081-8e7e-0e008c5e2ce1",
+        "resource_version": "6404265"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+        "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+        "resource_version": "6404277"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.sandbox-count",
+        "uid": "6a0a11c7-dd86-4a24-a1ce-5259ab0a9ab5",
+        "resource_version": "6404289"
+      }
+    ],
+    "verified_resources": [
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-gateway-workload",
+        "uid": "095f43f8-c8db-4bd7-9a10-73d4a0a9ab19",
+        "resource_version": "6120564"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation",
+        "uid": "103f4a86-d52d-47e9-8628-257be5fdfdb9",
+        "resource_version": "6404229"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+        "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+        "resource_version": "6404239"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.fixture-state-inspector",
+        "uid": "57b5124e-968e-432a-ab5e-c792f1ad0c70",
+        "resource_version": "6404253"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-reviews",
+        "uid": "c77ff8f0-256c-4274-aedb-6da027eeb609",
+        "resource_version": "6120557"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-runtime",
+        "uid": "f2bbfaba-3d34-4bd3-96fc-7ed89a28c3b8",
+        "resource_version": "6120555"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-state",
+        "uid": "b6689010-e1c2-4081-8e7e-0e008c5e2ce1",
+        "resource_version": "6404265"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+        "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+        "resource_version": "6404277"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.proof",
+        "uid": "fcb78ed6-91db-42f5-bbcd-9282a11eff6e",
+        "resource_version": "6120558"
+      },
+      {
+        "kind": "ClusterRole",
+        "name": "stego-service-ci.hypershell-namespace-allocation.sandbox-count",
+        "uid": "6a0a11c7-dd86-4a24-a1ce-5259ab0a9ab5",
+        "resource_version": "6404289"
+      },
+      {
+        "kind": "ClusterRoleBinding",
+        "name": "stego-service-ci.hypershell-gateway-workload",
+        "uid": "400775cb-7c10-485d-88aa-a8488d080e9f",
+        "resource_version": "6120565"
+      },
+      {
+        "kind": "ClusterRoleBinding",
+        "name": "stego-service-ci.hypershell-namespace-allocation",
+        "uid": "88d5486c-40d6-47b0-8a90-75e8cc7696f1",
+        "resource_version": "6120562"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+        "uid": "c466fcde-1874-4bc9-bc02-264d62e1c517",
+        "resource_version": "6404196"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+        "uid": "398d815d-25ef-4320-be4b-f0c274e2d6e6",
+        "resource_version": "6120534"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+        "uid": "a3b714c5-17a2-48ef-bf62-0dad6d5221ad",
+        "resource_version": "6404212"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicyBinding",
+        "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+        "uid": "c5d82f5e-71d2-42a9-9d4f-70925f87d49c",
+        "resource_version": "6120532"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicyBinding",
+        "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+        "uid": "ba1ab5a0-be60-45d7-acc2-af41c2f2924f",
+        "resource_version": "6120537"
+      },
+      {
+        "kind": "ValidatingAdmissionPolicyBinding",
+        "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+        "uid": "ee65ddc5-aa8b-40da-abf2-52e1e09fea86",
+        "resource_version": "6120546"
+      }
+    ],
+    "cnpg_receiver": {
+      "namespace": "stego-cnpg-database-ci",
+      "name": "database",
+      "uid": "c9f7bc1f-c6cd-4436-a335-de73bddc0055",
+      "added_peer": {
+        "namespaceSelector": {
+          "matchLabels": {
+            "stego.dev/allocator": "5305aa89c5f40a73316e60bd033ec8ab",
+            "stego.dev/allocation-profile": "gateway"
+          }
+        },
+        "podSelector": {
+          "matchExpressions": [
+            {
+              "key": "stego.test/network-probe",
+              "operator": "Exists"
+            }
+          ]
+        }
+      }
+    },
+    "admission_checked_before_role_changes": true,
+    "shared_lease_released": true,
+    "artifacts": {
+      "update.py": "ccda27cde5e0b3b2c1c30f85ee6f3f52d7b8e87c5e4baf60e6c0bf4d5423aa79",
+      "plan.json": "73f1647795107cfaf4ffdc239ecae4db7f34606b2416060825b770079e540d53",
+      "journal.json": "1c789bf37b41219d9608fbe01952bfca695d923e611da75ef7755dd87e743e9f",
+      "source-verification.json": "e409bf1449aa42e903dc16582e1af47b3ab594512af8b9d102a4c4679ac29b6c"
+    }
+  },
+  "dns_decision": {
+    "status": "approved",
+    "date": "2026-09-15",
+    "scope": "Allow supported DNS-aware providers. Keep application declarations independent of the provider. Reject unsupported configurations and exclude Technology Preview features.",
+    "implementation": "not enabled"
   }
 }

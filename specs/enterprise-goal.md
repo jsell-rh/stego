@@ -61,7 +61,7 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
-| Gateway workflow with network policies | Hypershell `56a5998`, compiler `5516e48` | The [bounded jshell run](hypershell-gateway-network-workflow-20260915.json) passed the complete public workflow in 492.39 seconds with race detection. All 24 fresh-connection probes passed before and after recovery. REST, gRPC, grants, event delivery, SQL faults, namespace replacement, encrypted credentials, eight worker telemetry instances, service accounts, and deletion passed. Generation hashes matched. Cleanup and Lease release passed. Independent egress denial against an unrelated namespace, live endpoint changes, and CNPG with isolation remain required. |
+| Gateway workflow with network policies | Hypershell `ee3d41d`, compiler `5516e48` | The [bounded jshell run](hypershell-gateway-network-workflow-20260915.json) passed the complete public workflow in 512.91 seconds with race detection. All 28 fresh-connection probes passed before and after recovery, including independent egress denial against an unrelated listener. REST, gRPC, grants, event delivery, SQL faults, namespace replacement, encrypted credentials, eight worker telemetry instances, service accounts, and deletion passed. Generation hashes matched. Cleanup and Lease release passed. Live endpoint changes, external DNS enforcement, and CNPG with isolation remain required. |
 | Full compiler CI | STEGO `8aedc54` | [Run 34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541) passed controlled network updates, compiler checks with race detection, SQL provisioning, and both example services. The Kubernetes service package passed in 15.869 seconds. Browser runtime adoption remains recorded in the [runtime record](browser-telemetry.md). |
 | Core application acceptance | Hypershell `0c2e7fe`, compiler `fe07b0a` | [Run 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003) passed core acceptance with race detection in 1330.563 seconds. Rendered browser, 229 UI tests, bundle reproduction, regeneration, and image checks passed. The manual workflow skipped CNPG and Sandbox. The main variant branch adopted the checked candidate through `4d1334b`. |
 | Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
@@ -99,24 +99,28 @@ passed core acceptance in 1236.192 seconds, plus browser, console, and image
 checks. CNPG and Sandbox skipped.
 The earlier setup and fixture failures remain in the record.
 
-Candidate `ee3d41d` adds a separate listener to the direct cluster workflow.
-The listener has no ingress NetworkPolicy, token, or Secret mount. Its namespace
-is outside the allocator. It has fixed resource and time limits and a deny
-egress policy. The full run is active in `stego-service-20260915-734cfd` and
-requires 28 connection checks before and after recovery. The listener is ready;
-its Gateway denial checks have not run. Six fixture boundary checks, the
-focused renderer and CI checks, and frozen generation passed. Restricted CI
-still has no listener and records that the extra check did not run.
+Candidate `ee3d41d` passed the full public workflow in 512.91 seconds with race
+detection. Both Gateways passed all 28 connection checks before and after
+recovery, including denial of a reachable listener in an unrelated namespace.
+The listener had no ingress NetworkPolicy, token, or Secret mount. Generation
+hashes matched. Both test namespaces and owned resources were removed, the
+wrapper exited successfully, and the Lease was released. Restricted CI still
+has no unrelated listener and records that the extra check did not run there.
 
+CNPG source `6062269` corrects the frozen-source verifier. It accepts the exact
+declared database peer and fixed inspection roles together. Seventeen focused
+checks passed, followed by generation and complete frozen-source verification.
+The earlier prepared source `7e23873` failed that final source check before any
+CNPG run. The [CI installation update](hypershell-network-ci-update-20260915.json)
+changed two generated admission policies, six Roles, and the selected CNPG
+receiver rule. Admission checks passed before permission changes. All resource
+identities and specifications, the new immutable record, and Lease release
+were verified. The complete restricted CNPG workflow is now active in
+`/tmp/hypershell-cnpg-network-live-20260915`; no result is claimed yet.
 
-This result does not close the full network gate. The denied destinations also
-have ingress controls. Add an unrelated listener that permits incoming test
-traffic to check Gateway egress denial independently. Approved and retired
-endpoint addresses also need live traffic checks. CNPG candidate `7e23873`
-passed generation and 12 cleanup boundary checks, but its live isolation
-workflow has not run. A read-only CI comparison found eight generated policy
-and role changes; none were applied. The main variant branch still uses the
-earlier checked candidate.
+This result does not close the full network gate. Approved and retired endpoint
+addresses need live traffic checks. External database DNS behavior also remains
+unproved. The main variant branch still uses the earlier checked candidate.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.
@@ -128,7 +132,9 @@ The next required work is:
 1. Supply allowed Gateway network paths through STEGO and prove them in the same
    application workflow. Include two Gateways, an unrelated namespace, allowed
    and denied fresh connections, endpoint changes, restart, regeneration, and
-   cleanup. The [DNS provider choice](allocated-network-dns.md) remains open.
+   cleanup. The user approved [supported DNS-aware providers](allocated-network-dns.md).
+   Keep declarations independent of the provider, reject unsupported
+   configurations, and exclude Technology Preview features.
    The controller's public egress fault test does not prove Gateway isolation.
 2. Complete separate Sandbox allocation and its permission and network boundary.
    The current controller rejects Sandbox runtime configuration with the shared
