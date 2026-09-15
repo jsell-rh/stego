@@ -1,0 +1,97 @@
+# Keycloak provider boundary
+
+Review date: 2026-09-15.
+
+Hypershell still contains reusable Keycloak mechanisms. At application revision
+`f9fc9f2da2b3ffb2a8ef1de9e71ec23a0857a9ec`,
+`internal/serviceaccountkeycloak/client.go` has 1,158 lines. With `gateway.go`
+and `gateway_users.go`, the package has 1,588 implementation lines. Line count
+is evidence of the review scope, not an acceptance measure.
+
+The next extraction must separate provider operations from application policy.
+It must reduce handwritten mechanisms in an existing, proved workflow. Moving
+the same code into a generated package with Gateway constants is insufficient.
+
+## Responsibilities
+
+| Keep in Hypershell | Put in a common STEGO provider |
+| --- | --- |
+| Gateway and service-account client ID formats | Typed, realm-bound client lookup and lifecycle operations |
+| Ownership attribute names and expected application IDs | Validate ownership before mutation; reject foreign clients |
+| `gateway:owner` and `gateway:viewer` mapping to OpenShell roles | Resolve and reconcile specified provider roles |
+| Gateway audience, role claim, token lifetime, and enabled flow policy | Apply and verify specified client settings and protocol mappers |
+| Stored grants, role ceilings, expiry, and deletion history | Bounded provider inventory, checked responses, and partial-failure recovery |
+| Gateway state observations and cleanup checkpoints | HTTPS, private credential reads, token cache, cancellation, and telemetry |
+
+The provider must use typed methods with explicit contexts. Its public contract
+must not require callers to construct Keycloak URL paths or decode provider
+JSON. It must not contain Hypershell IDs, role names, or claim names. Application
+policy must supply those values through validated inputs.
+
+The generated HTTP transport already supplies connection and body limits,
+verified TLS, cancellation, and telemetry. Reuse it. A provider component must
+not introduce a second transport implementation.
+
+## Two different role operations
+
+The current code has two valid but different ownership boundaries:
+
+1. A managed service account has a dedicated provider user. Its full role set
+   and client scope are controlled by the application. Reconciliation removes
+   unexpected realm roles and roles for other clients before it adds the
+   desired roles. The provider must verify the service-account user binding
+   before it uses this operation.
+2. A human user can have access to several applications. Reconciliation may
+   change only roles for the selected, owned client. Other client roles and
+   realm roles must remain unchanged. The user is selected by verified issuer
+   and subject, not by a display name.
+
+Do not combine these operations into an unrestricted role-replacement method.
+Both operations must remove excess access before they add access. They must
+check effective roles, including composite roles, before they report success.
+
+## First extraction gate
+
+Move common administrator authentication and typed client management together
+with the role, scope, and mapper mechanisms used by the existing service-account
+workflow. Keep the desired client policy and Gateway bindings in Hypershell.
+Then use the same provider for the existing Gateway user workflow. Do not add
+a dashboard-only Keycloak client as a separate implementation.
+
+The extraction must preserve these behaviors:
+
+- A foreign or mismatched client cannot be adopted, changed, or removed.
+- New service-account clients start disabled. Failed setup cannot leave a
+  usable credential with incomplete restrictions.
+- A repair disables access before it changes settings. Repeated reconciliation
+  of the correct state does not rewrite provider resources.
+- Creation ambiguity, partial deletion, restart, and late provider completion
+  remain recoverable through existing application checkpoints.
+- Empty, mismatched, duplicate, or unsafe provider identifiers fail closed.
+  The provider must check a creation response before it uses its identifier.
+- Credential values cannot enter ordinary formatting, JSON, logs, or traces.
+- Cancellation applies while a caller waits for token refresh. Provider errors
+  do not copy response bodies or credentials into error messages.
+
+Review concurrent mutation behavior as part of the provider contract. A local
+ownership check alone does not prove that a later remote write is atomic.
+Preserve the existing worker deployment and serialization assumptions until
+the replacement has equivalent evidence.
+
+## Required evidence
+
+Keep the application tests that check Gateway binding, ownership before writes,
+foreign-client rejection, deletion confirmation, and per-client human roles.
+Run the generated provider tests with a second policy that has different ID,
+attribute, role, and claim names. This must show that the provider does not
+depend on Hypershell policy.
+
+Re-run the existing service-account and Gateway identity workflows against real
+Keycloak after adoption. Include token claims, denied requests, human grants,
+repair, partial cleanup, restart, and HTTP client telemetry. Preserve the REST,
+gRPC, CLI, and regeneration checks that already cover these workflows. Use CI
+or one bounded jshell test; do not run the heavy suite on the workstation.
+
+This file records the extraction boundary and acceptance gate. The extraction
+is not implemented or verified by this review. The upstream dashboard workflow
+also remains open.
