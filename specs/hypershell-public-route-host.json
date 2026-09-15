@@ -355,8 +355,56 @@
     "state": "canceled while the failed CNPG run still held the Lease; no public Job started"
   },
   "current_public_retry": {
+    "run": 34989405950,
+    "source": "cc8e545b2252fa2908c64f94d18f3f910c4fe95c",
+    "state": "active after verified prior cleanup",
+    "core_and_browser_ci_run": 34989401887
+  },
+  "public_attempt_34987757894": {
     "run": 34987757894,
     "source": "4133b66c0eb8194842bc0da93eb082f95c336bdf",
-    "state": "active after verified CNPG recovery"
+    "conclusion": "failure",
+    "browser_seconds": 176.59,
+    "reached": [
+      "Two Gateway Deployments were ready with current controller observations.",
+      "Both Gateway logins used verified PostgreSQL TLS and separate databases.",
+      "Cross-database access was denied."
+    ],
+    "failure": "GetCurrentUser returned OK for one token in the invalid-identity loop. The old log did not name the case.",
+    "diagnosis": "The API login fixture enabled all client scopes. This can invalidate the assumption that an owner API token lacks the Gateway audience. The exact cause remains unconfirmed.",
+    "cleanup": {
+      "namespace_retained": "stego-service-ci",
+      "test_resources_absent": true,
+      "allocations_absent": true
+    },
+    "allocation_cleanup": {
+      "allocations_before": 4,
+      "allocations_absent": true
+    },
+    "lease_released": true,
+    "correction": "cc8e545b2252fa2908c64f94d18f3f910c4fe95c",
+    "correction_scope": [
+      "Disable fullScopeAllowed for the API login fixture.",
+      "Require the negative token to pass API verification and fail Gateway audience verification before the RPC check.",
+      "Name each invalid-identity case without logging its token.",
+      "Check a fresh API token after Gateway grant synchronization in the core login workflow."
+    ],
+    "local_validation": "Acceptance package compiled; no local integration tests ran.",
+    "logs": [
+      {
+        "path": "/tmp/hypershell-public-artifacts-34987757894/gateway-browser/deployment.log",
+        "sha256": "c41e9b8d69f023b2f70d565fd89fb3c5a86b9ada05d9099d4dcb992284f8aa87"
+      },
+      {
+        "path": "/tmp/hypershell-public-artifacts-34987757894/gateway-browser/evidence.tar",
+        "sha256": "ff774deaf5281727c791db9fa562c482d0e2f2e736bd3d4e569d8df3ecc324d7"
+      }
+    ],
+    "limits": [
+      "No complete public workflow passed.",
+      "The provider-data, public network recovery, and public certificate-rotation checks did not complete.",
+      "The fixture correction requires fresh runtime evidence.",
+      "Allocated namespace network isolation remains open."
+    ]
   }
 }

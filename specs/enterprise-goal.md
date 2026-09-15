@@ -275,7 +275,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The operator login was restored on 2026-09-15. The restricted CI credential and
-GitHub environment secret were renewed and expire at 16:08:37 UTC on that date.
+GitHub environment secret were renewed and expire at 16:34:40 UTC on that date.
 Check the remaining credential lifetime before a queued run starts. Use the
 operator context to renew the CI credential while that login remains valid.
 
@@ -342,8 +342,8 @@ covered by focused tests. The startup wait is now ten minutes within the same
 proves manual cleanup of test runtime and volumes and Lease release. It does
 not prove automatic cleanup or a complete CNPG application pass. Public run
 `34986369202` was canceled while the CNPG Lease remained held. Its replacement,
-`34987757894`, is active at Hypershell `4133b66`. Keep this handle; do not start
-a duplicate while it is active.
+`34987757894`, failed an invalid-identity RPC check after Gateway readiness and
+SQL isolation passed. Its cleanup passed; all four allocations were removed.
 
 The [external DNS review](allocated-network-dns.md) records a pending provider
 choice for approved external destinations. jshell exposes the OpenShift egress
@@ -358,4 +358,13 @@ Ordinary browser, console, and service-image jobs also passed. The overall run
 failed because of CNPG; Sandbox was skipped. The updated
 [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json)
 keeps the earlier run and this later result separate. Public run `34987757894`
-remains active and has reached the complete deployed browser workflow.
+subsequently failed its invalid-identity RPC check; the full public gate remains open.
+
+The API login fixture enabled all client scopes, so an owner API token can have
+a Gateway audience. This is a possible cause of the latest public failure; the
+old log did not identify the failed negative case. Hypershell `cc8e545` restricts
+the API fixture and checks token audiences before the negative RPC call. It
+also checks a fresh API token after grant synchronization. The acceptance
+package compiled. Core/browser CI `34989401887` and public CI `34989405950` are
+active. Inspect these handles. The [public record](hypershell-public-route-host.json)
+contains the failed run, cleanup, correction, and remaining limits.
