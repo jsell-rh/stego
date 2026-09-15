@@ -123,6 +123,7 @@ func TestTokenMapperFailureStopsAdditions(t *testing.T) {
 		want     error
 		noWrites bool
 	}{
+		{"hidden shared scopes", func(f *roleFixture) { f.hiddenScopes = true }, ErrScopePolicy, true},
 		{"ignored removal", func(f *roleFixture) { f.ignoreDelete = true }, ErrMapperPolicy, false},
 		{"shared scope returns", func(f *roleFixture) { f.scopeOnMapperDelete = true }, ErrMapperPolicy, false},
 		{"null response", func(f *roleFixture) { f.malformedMappers = true }, ErrResponse, true},

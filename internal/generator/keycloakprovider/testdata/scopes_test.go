@@ -69,6 +69,7 @@ func TestClientScopeFailureStopsGrants(t *testing.T) {
 		want     error
 		noWrites bool
 	}{
+		{"hidden scope inventory", func(f *roleFixture) { f.hiddenScopes = true }, ErrScopePolicy, true},
 		{"ignored scope removal", func(f *roleFixture) { f.ignoreScopeDelete = true }, ErrScopePolicy, false},
 		{"ignored role removal", func(f *roleFixture) { f.ignoreDelete = true }, ErrScopePolicy, false},
 		{"hidden effective role", func(f *roleFixture) { f.inherited = true }, ErrScopePolicy, false},
@@ -131,5 +132,19 @@ func TestClientScopeFailedAdditionCanRecover(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestClientScopeVisibilityRequiresDirectRead(t *testing.T) {
+	c, f := newRoleFixture(t)
+	owner, _ := roleBindings()
+	f.scopes["default-client-scopes"] = []assignedScope{}
+	f.scopes["optional-client-scopes"] = []assignedScope{}
+	f.denyScopeProbe = true
+	if err := c.ReconcileClientScopes(context.Background(), owner, RolePolicy{}); err == nil {
+		t.Fatal("scope visibility was not proved")
+	}
+	if len(f.writes) != 0 {
+		t.Fatal("hidden scope state caused a write")
 	}
 }

@@ -143,3 +143,11 @@ The mapper configuration follows the Keycloak 26.7.3
 [audience mapper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java),
 [client role mapper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/UserClientRoleMappingMapper.java),
 and [claim helper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java).
+
+Keycloak's assigned-scope responses contain only IDs and names. An empty response
+can also mean that the administrator cannot view scopes. Before it accepts empty
+assignments, the provider requires a nonempty realm scope inventory and confirms
+a direct scope read. The inventory has a limit of 512 entries. A realm with no
+scope definitions cannot supply this permission proof and is rejected. Client
+scope management requires the provider's realm scope permissions; client-only
+permissions are insufficient. The provider never changes a scope definition.

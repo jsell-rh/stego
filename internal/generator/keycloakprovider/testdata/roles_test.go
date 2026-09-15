@@ -12,6 +12,7 @@ import (
 )
 
 type roleFixture struct {
+	hiddenScopes, denyScopeProbe                            bool
 	mu                                                      sync.Mutex
 	clients                                                 map[string]ClientRepresentation
 	roles                                                   map[string]RoleRepresentation
@@ -73,6 +74,22 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 			if err := json.NewEncoder(w).Encode(value); err != nil {
 				t.Error(err)
 			}
+		}
+		if path == "client-scopes" && r.Method == "GET" {
+			if f.hiddenScopes {
+				send([]assignedScope{})
+			} else {
+				send([]assignedScope{{ID: "scope-proof", Name: "scope-proof", Protocol: "openid-connect"}})
+			}
+			return
+		}
+		if path == "client-scopes/scope-proof" && r.Method == "GET" {
+			if f.denyScopeProbe {
+				w.WriteHeader(403)
+			} else {
+				send(assignedScope{ID: "scope-proof", Name: "scope-proof", Protocol: "openid-connect"})
+			}
+			return
 		}
 		if len(parts) >= 3 && parts[0] == "clients" && parts[2] == "scope-mappings" {
 			// Reuse the role-set wire fixture for the distinct scope endpoints.
@@ -149,7 +166,14 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 					if f.malformedScopes {
 						send(nil)
 					} else {
-						send(f.scopes[parts[2]])
+						// The real assignment endpoints return only identity fields.
+						values := []map[string]string{}
+						if !f.hiddenScopes {
+							for _, scope := range f.scopes[parts[2]] {
+								values = append(values, map[string]string{"id": scope.ID, "name": scope.Name})
+							}
+						}
+						send(values)
 					}
 					return
 				}

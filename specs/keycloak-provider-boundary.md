@@ -243,3 +243,20 @@ enablement remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
 client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.
+
+## First live scope result
+
+The first combined scope and mapper gate failed at `261b2ea` in
+[run 35029927597](https://github.com/jsell-rh/stego/actions/runs/35029927597).
+It stopped before scope mutations because the provider expected a protocol
+field that the assigned-scope endpoint does not return. Container cleanup passed.
+The failed source and result are retained under `first-ci` in the mapper result
+directory. No mapper or issued-token pass is claimed for that run.
+
+The correction accepts the ID and name representation. The review also found
+that Keycloak can hide scopes behind an empty successful list. The provider now
+requires a nonempty bounded realm scope inventory and a successful direct scope
+read before it accepts empty assignments. A realm with no scope definitions
+cannot supply this permission proof and is rejected. This follows the pinned
+[client resource](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java)
+and [scope permission checks](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/fgap/ClientPermissions.java).

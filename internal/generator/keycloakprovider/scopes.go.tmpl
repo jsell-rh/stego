@@ -18,6 +18,29 @@ type assignedScope struct {
 }
 type scopeAssignment struct { ID, Kind string }
 
+// Keycloak can hide scope assignments behind an empty successful response.
+// A direct scope read requires realm-wide scope visibility. An empty realm
+// inventory cannot prove that permission and is therefore not accepted.
+func(c *Client)confirmScopeVisibility(ctx context.Context)error{
+ response,err:=c.admin(ctx,http.MethodGet,"/client-scopes",nil);if err!=nil{return err}
+ if response.StatusCode!=http.StatusOK{return statusError(response.StatusCode)}
+ var scopes []assignedScope
+ if decode(response.Body,&scopes)!=nil||scopes==nil||len(scopes)>MaxRoleMappings{return ErrResponse}
+ if len(scopes)==0{return ErrScopePolicy}
+ ids,names:=map[string]bool{},map[string]bool{}
+ for _,scope:=range scopes{
+  if !identifier.MatchString(scope.ID)||!textValue(scope.Name,255)||ids[scope.ID]||names[scope.Name]{return ErrResponse}
+  ids[scope.ID]=true;names[scope.Name]=true
+ }
+ sort.Slice(scopes,func(i,j int)bool{return scopes[i].ID<scopes[j].ID})
+ probe:=scopes[0]
+ response,err=c.admin(ctx,http.MethodGet,"/client-scopes/"+probe.ID,nil);if err!=nil{return err}
+ if response.StatusCode!=http.StatusOK{return statusError(response.StatusCode)}
+ var confirmed assignedScope
+ if decode(response.Body,&confirmed)!=nil||confirmed.ID!=probe.ID||confirmed.Name!=probe.Name{return ErrResponse}
+ return nil
+}
+
 func(c *Client)boundScopedClient(ctx context.Context,b ClientBinding,disabled bool)error{
  value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
  if value.Protocol!="openid-connect"||!explicitFlag(raw,"fullScopeAllowed",false){return ErrScopePolicy}
@@ -35,10 +58,12 @@ func(c *Client)assignedClientScopes(ctx context.Context,b ClientBinding)([]scope
   var values []assignedScope
   if decode(response.Body,&values)!=nil||values==nil||len(values)+len(result)>MaxAssignedClientScopes{return nil,ErrResponse}
   for _,value:=range values{
-   if !identifier.MatchString(value.ID)||!textValue(value.Name,255)||value.Protocol!="openid-connect"||ids[value.ID]||names[value.Name]{return nil,ErrResponse}
+   // Assignment responses contain only IDs and names, not protocol settings.
+   if !identifier.MatchString(value.ID)||!textValue(value.Name,255)||ids[value.ID]||names[value.Name]{return nil,ErrResponse}
    ids[value.ID]=true;names[value.Name]=true;result=append(result,scopeAssignment{value.ID,kind})
   }
  }
+ if len(result)==0{if err:=c.confirmScopeVisibility(ctx);err!=nil{return nil,err}}
  sort.Slice(result,func(i,j int)bool{return result[i].ID<result[j].ID});return result,nil
 }
 
