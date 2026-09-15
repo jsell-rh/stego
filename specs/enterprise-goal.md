@@ -3457,3 +3457,53 @@ generation. This does not complete the conversion of the old Kubernetes CI
 jobs. Those unconverted jobs fail explicitly. Credential renewal, remaining
 workload checks, the external database application gate, and the full enterprise
 goal remain open.
+
+### Database catalog removal and durable effect bindings, 2026-09-15
+
+Hypershell no longer selects a `ManagedDatabase` resource. Installation supplies
+PostgreSQL. The Gateway worker manages only its logical database, login, and
+retained keys. The supplied-server browser workflow passed with the earlier
+compiler at `421ce6b`. Its evidence is in the Hypershell test repository. Actual
+installation CNPG and RDS operation remain required.
+
+STEGO adapter 4.4.0 now provides durable effect bindings. A transaction registers
+one public state digest before external work. Closure retains that digest or
+proves that no registration committed. Immutable history and exact scope keys
+permit safe decisions after restart. See [the binding contract](effect-bindings.md)
+and [the storage and CI results](effect-bindings-evidence.json). This common
+mechanism has no Gateway dependency. Hypershell supplies authorization, resource
+locking, SQL state, and the domain cleanup sequence.
+
+Hypershell uses a new schema generation for this protocol. An older installation
+could have SQL state without a binding, so an empty binding table must not be
+used to infer safe cleanup. The application rejects that older generation and
+does not supply an automatic migration.
+
+The SQL privilege review found a remaining common runtime requirement. On an
+isolation failure, `EnsureDatabase` disables new login but does not stop sessions
+that are already open. Add bounded termination of verified owned sessions and
+prove it with a live connection. Preserve unrelated sessions and return a
+failure when termination cannot be verified. The current login-denial test is
+not evidence of complete session isolation. This work belongs in STEGO.
+
+Hypershell commit `0bdfa98` now passes that complete-package application check.
+The browser workflow passed with race detection in 327.75 seconds using compiler
+`16e09a2`. It proves early deletion before worker startup, retained registration
+after API restart, SQL privilege and password recovery, PostgreSQL sidecar
+restart, worker replacement, normal deletion, and retained installation data.
+The API preflight also passed. No test files were excluded from compilation.
+Both application dependency checks passed, and all 229 generated files match
+repeat generation and the post-test check. The Job exited with zero. All owned
+resources are absent, and the shared live-test Lease was released.
+
+See the [application result](https://github.com/jsell-rh/hypershell-stego/blob/0bdfa98/acceptance/sql-registration-browser-evidence.json)
+and [remaining application requirements](https://github.com/jsell-rh/hypershell-stego/blob/0bdfa98/acceptance/controller-local-test-transition.md).
+The earlier failed restart attempt remains recorded. Its test role lacked exec
+permission for the exact Job Pod. The correction did not change runtime rights.
+Commit `0489e07` removes retired server-controller CI jobs and manual roles.
+The remaining required workload CI jobs still need restricted runners.
+
+The full enterprise goal remains active. Complete owned-session termination in
+STEGO next, then prove it through the Gateway workflow. Installation CNPG, RDS,
+remaining recovery cases, Sandbox execution, and complete CI remain required.
+This PostgreSQL sidecar restart is not a CNPG or RDS failover result.
