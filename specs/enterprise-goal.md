@@ -217,8 +217,9 @@ writes. It reproduced allocation success with zero NetworkPolicies. The
 [network audit](hypershell-allocated-network-audit.json) records this missing
 behavior and the reference ingress policies. This is an open H1, H2, and H3
 requirement, not a passing isolation result. The common fix belongs in STEGO;
-Hypershell must declare domain peers and ports. The Gateway egress choice has
-been sent to the user and remains pending. The existing two-Role public test
+Hypershell must declare domain peers and ports. On 2026-09-15, the user selected
+only operator-approved Gateway server destinations. Sandbox traffic retains a
+separate policy. The existing two-Role public test
 permission plan must be recomputed after network policy permissions change.
 
 STEGO kubernetes-service 1.11.0 adds an explicit allocator-owned deny-all
@@ -226,15 +227,16 @@ NetworkPolicy option. Full compiler CI, generated runtime and manifest checks,
 and a frozen Hypershell declaration check passed. Hypershell adopted the compiler
 in `1e89428`; its network option remains off.
 The [mechanism and limits](namespace-allocation.md#fixed-network-deny-policy)
-remain separate from the full network gate. Live admission, allowed traffic,
-denied traffic, and Hypershell adoption are pending. Keep the application
+remain separate from the full network gate. The current policy-set admission check passed. Allowed traffic, denied traffic,
+and production network activation are pending. Keep the application
 requirement open. Do not add domain policy construction to Hypershell.
 
 STEGO kubernetes-service 1.12.0 rejects additional NetworkPolicies and incomplete
 policy snapshots in isolated profiles. This follows a reproduced allow-all
 policy gap in the initial option. The admission generator now protects the
-complete policy set for those profiles. Focused tests passed; live admission
-and allowed traffic checks remain open. This change does not enable the
+complete policy set for those profiles. Full compiler CI and 59 live admission checks passed. The
+[policy-set record](hypershell-network-policy-set.json) includes cleanup evidence.
+Allowed traffic and CNI checks remain open. This change does not enable the
 production Hypershell profile or supply its permitted destinations.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
@@ -270,9 +272,10 @@ direct pushes; do not wait for pull request merges. Follow [AGENTS.md](../AGENTS
 no Playwright, no local performance or stress tests, small ordinary local checks,
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
-before starting another run. Keep credentials out of output. The restricted CI
-credential expired at 2026-09-15 13:37:23 UTC. Renew it after the operator
-login is restored, and check its lifetime before a queued run starts.
+before starting another run. Keep credentials out of output. The operator login was restored on 2026-09-15. The restricted CI credential and
+GitHub environment secret were renewed and expire at 15:35:59 UTC on that date.
+Check the remaining credential lifetime before a queued run starts. Use the
+operator context to renew the CI credential while that login remains valid.
 
 Keep this file limited to current requirements and result links. Put detailed
 measurements and failed attempts in their feature evidence files. Preserve the

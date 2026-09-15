@@ -1,0 +1,401 @@
+{
+  "checked_at": "2026-09-15T14:37:46.776622+00:00",
+  "compiler_revision": "7ebd67831f3faf99b0e84a4962a80bf41e4cb9ac",
+  "component_version": "kubernetes-service 1.12.0",
+  "consumer_parent_revision": "1e89428c618c187d6c3a8d8f1bfbabe8cbbcadaa",
+  "gateway_egress_decision": "Only operator-approved destinations. Sandbox traffic has a separate policy.",
+  "production_network_option_enabled": false,
+  "compiler_ci": {
+    "run_id": 34982147474,
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34982147474",
+    "conclusion": "success",
+    "compiler_job_id": 104424887218,
+    "kubernetes_service_package_seconds": 14.749,
+    "race_detection": true,
+    "postgres_provisioning": "success",
+    "examples": "both passed"
+  },
+  "hypershell_fixtures": [
+    {
+      "case": "before-extra",
+      "compiler_revision": "d709240557c91f7b415262b35de107c4d70f987e",
+      "diagnostic_exit_status": 0,
+      "go_run_exit_status": 0,
+      "result": {
+        "additional_policy_injected": true,
+        "ensure_succeeded": true,
+        "network_policy_writes": 1,
+        "scope": "Generated allocator against a TLS API fixture; no real cluster",
+        "writes": [
+          "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+          "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+          "NetworkPolicy /apis/networking.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/networkpolicies/stego-allocation",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-proof",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-0",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-1",
+          "ClusterRoleBinding /apis/rbac.authorization.k8s.io/v1/clusterrolebindings/control.hypershell-namespace-allocation.openshell-aaaaaaaaaaaaaaaa.2",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-3",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-4"
+        ]
+      },
+      "sha256": "773f002de2ede2ed605a00dbdda1191d74db406ccf6e2d154daa94a29834ef96"
+    },
+    {
+      "case": "after-valid",
+      "compiler_revision": "7ebd67831f3faf99b0e84a4962a80bf41e4cb9ac",
+      "diagnostic_exit_status": 0,
+      "go_run_exit_status": 0,
+      "result": {
+        "additional_policy_injected": false,
+        "ensure_succeeded": true,
+        "network_policy_writes": 1,
+        "scope": "Generated allocator against a TLS API fixture; no real cluster",
+        "writes": [
+          "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+          "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+          "NetworkPolicy /apis/networking.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/networkpolicies/stego-allocation",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-proof",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-0",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-1",
+          "ClusterRoleBinding /apis/rbac.authorization.k8s.io/v1/clusterrolebindings/control.hypershell-namespace-allocation.openshell-aaaaaaaaaaaaaaaa.2",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-3",
+          "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-4"
+        ]
+      },
+      "sha256": "b528517d5d7f3db197815330d030216036d4d165c32dfa2759219429b5ba8ea5"
+    },
+    {
+      "case": "after-extra",
+      "compiler_revision": "7ebd67831f3faf99b0e84a4962a80bf41e4cb9ac",
+      "diagnostic_exit_status": 2,
+      "go_run_exit_status": 1,
+      "result": {
+        "additional_policy_injected": true,
+        "ensure_succeeded": false,
+        "error_type": "allocator failure",
+        "network_policy_writes": 1,
+        "scope": "Generated allocator against a TLS API fixture; no real cluster",
+        "writes": [
+          "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+          "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+          "NetworkPolicy /apis/networking.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/networkpolicies/stego-allocation"
+        ]
+      },
+      "sha256": "8e6c2fdc45c822350e0bc00d886b93e428b4b635c30e1adabdcee718383bacad"
+    }
+  ],
+  "live_admission": {
+    "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+    "control_namespace": "stego-allocation-network-20260915",
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "lease_holder": "allocation-network-20260915",
+    "original_policies_type_checked_before_binding": 3,
+    "type_warnings": 0,
+    "checks": [
+      {
+        "check": "wrong namespace pattern",
+        "allowed": false
+      },
+      {
+        "check": "namespace owner spoof by another actor",
+        "allowed": false
+      },
+      {
+        "check": "owned namespace",
+        "allowed": true
+      },
+      {
+        "check": "declared quota",
+        "allowed": true
+      },
+      {
+        "check": "declared deny policy",
+        "allowed": true
+      },
+      {
+        "check": "ingress allow rule",
+        "allowed": false
+      },
+      {
+        "check": "egress allow rule",
+        "allowed": false
+      },
+      {
+        "check": "changed network podSelector {\"matchLabels\": {\"app\": \"selected\"}}",
+        "allowed": false
+      },
+      {
+        "check": "changed network podSelector {\"matchExpressions\": [{\"key\": \"app\", \"operator\": \"Exists\"}]}",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Ingress\"]",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Egress\"]",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Ingress\", \"Ingress\"]",
+        "allowed": false
+      },
+      {
+        "check": "foreign network name",
+        "allowed": false
+      },
+      {
+        "check": "foreign network namespace",
+        "allowed": false
+      },
+      {
+        "check": "foreign network owner",
+        "allowed": false
+      },
+      {
+        "check": "another actor creates reserved policy",
+        "allowed": false
+      },
+      {
+        "check": "another actor adds an unlabelled allow policy",
+        "allowed": false
+      },
+      {
+        "check": "create fixed deny policy",
+        "allowed": true
+      },
+      {
+        "check": "allocator reads fixed deny policy",
+        "allowed": true
+      },
+      {
+        "check": "allocator lists the complete policy set",
+        "allowed": true
+      },
+      {
+        "check": "another actor changes deny policy",
+        "allowed": false
+      },
+      {
+        "check": "reserved policy deletion system:serviceaccount:stego-allocation-network-20260915:widget-queue",
+        "allowed": false
+      },
+      {
+        "check": "reserved policy deletion operator",
+        "allowed": false
+      },
+      {
+        "check": "foreign namespace delete",
+        "allowed": false
+      },
+      {
+        "check": "owner label removal",
+        "allowed": false
+      },
+      {
+        "check": "Pod security downgrade",
+        "allowed": false
+      },
+      {
+        "check": "foreign namespace binding",
+        "allowed": false
+      },
+      {
+        "check": "wrong role",
+        "allowed": false
+      },
+      {
+        "check": "wrong subject",
+        "allowed": false
+      },
+      {
+        "check": "cluster binding before proof",
+        "allowed": false
+      },
+      {
+        "check": "declared data binding",
+        "allowed": true
+      },
+      {
+        "check": "namespace proof",
+        "allowed": true
+      },
+      {
+        "check": "declared cluster binding",
+        "allowed": true
+      },
+      {
+        "check": "global data binding",
+        "allowed": false
+      },
+      {
+        "check": "foreign cluster binding",
+        "allowed": false
+      },
+      {
+        "check": "quota increase",
+        "allowed": false
+      },
+      {
+        "check": "worker owned Secret read",
+        "allowed": true
+      },
+      {
+        "check": "worker foreign Secret read",
+        "allowed": false
+      },
+      {
+        "check": "allocator Secret read",
+        "allowed": false
+      },
+      {
+        "check": "worker Namespace create",
+        "allowed": false
+      },
+      {
+        "check": "quota deletion by another actor",
+        "allowed": false
+      },
+      {
+        "check": "reserved binding deletion by another actor",
+        "allowed": false
+      },
+      {
+        "check": "quota collection deletion while active",
+        "allowed": false
+      },
+      {
+        "check": "allocator public identity read",
+        "allowed": true
+      },
+      {
+        "check": "allocator foreign identity read",
+        "allowed": false
+      },
+      {
+        "check": "allocator identity record create",
+        "allowed": false
+      },
+      {
+        "check": "allocator namespace identity seal",
+        "allowed": true
+      },
+      {
+        "check": "sealed fingerprint change",
+        "allowed": false
+      },
+      {
+        "check": "sealed label removal",
+        "allowed": false
+      },
+      {
+        "check": "regenerated policy blocks an extra allow policy",
+        "allowed": false
+      },
+      {
+        "check": "deny policy survives regeneration",
+        "allowed": true
+      },
+      {
+        "check": "regenerated policy blocks another actor",
+        "allowed": false
+      },
+      {
+        "check": "retired subject binding delete",
+        "allowed": true
+      },
+      {
+        "check": "retired subject binding create",
+        "allowed": false
+      },
+      {
+        "check": "replacement subject binding",
+        "allowed": true
+      },
+      {
+        "check": "retired worker Secret read",
+        "allowed": false
+      },
+      {
+        "check": "replacement worker Secret read",
+        "allowed": true
+      },
+      {
+        "check": "retired cluster binding delete",
+        "allowed": true
+      },
+      {
+        "check": "orphan cluster binding delete",
+        "allowed": true
+      }
+    ],
+    "cleanup": {
+      "installed_resources": 14,
+      "remaining_resources": 0,
+      "allocation_namespaces_absent": true,
+      "allocation_cluster_bindings_absent": true,
+      "pods_created": 0,
+      "deletions_used_uid_and_resource_version": true
+    },
+    "lease_released": true,
+    "allowed_checks": 18,
+    "denied_checks": 41
+  },
+  "files": [
+    {
+      "path": "/tmp/stego-network-admission-20260915/original/manifest.json",
+      "sha256": "71f9a0e4189c59138cc996f0a7a827a97220921c565eae55abdacbe118d80e21"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/next/manifest.json",
+      "sha256": "95715338e1ce6c94628d775dbeafd2ec843df6b6285a1d4958f7bd05e4e8f647"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/check-namespace-allocation.py",
+      "sha256": "005385732f5a72cc760f0539d8bdf0b830974a3f052be0113b5a1e84e1e4cc9b"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/install.py",
+      "sha256": "fcb2b5d51b273300efad7298648a203fd10912f0d6a227b489f7d3bc3ecf2239"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/cleanup.py",
+      "sha256": "ae9f90eda7fef02920794960a1ce078f90f58d7f392e2d90b42cd4720fc1b1c8"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/created.json",
+      "sha256": "ff3fd595551ba0427e350c39c6adbe3ffdd335c0f98cbd067c1d933915a6b9f6"
+    },
+    {
+      "path": "/tmp/stego-network-admission-20260915/run.log",
+      "sha256": "cdb604393e9e370b935dae7655537f6710bb6589667290f1e6edbe24330f6981"
+    },
+    {
+      "path": "/tmp/stego-network-policy-set-before-20260915.log",
+      "sha256": "a94085408f29ac24563f83ec4358ffdea56b5cb7dce8e5fbc1df1891fa649b3e"
+    },
+    {
+      "path": "/tmp/stego-network-policy-set-verified-20260915.log",
+      "sha256": "a508a62cb0c45854c45cfed5323f1420cd61305fb21f1edfbde5acff8d205e5f"
+    },
+    {
+      "path": "/tmp/stego-network-policy-set-compiler-34982147474.log",
+      "sha256": "79af57541314e13eb8bfa3f0e2ab55a5fd53525ed6feb09886197ffcb01cc38a"
+    },
+    {
+      "path": "/tmp/hypershell-network-policy-set-adoption-20260915.log",
+      "sha256": "1d11d0db6664de4ef0dc18455fd19aae64492f40414b07aec2b9dc06d53de6d9"
+    },
+    {
+      "path": "/home/jsell/code/hypershell-stego/scripts/allocated-network-audit.go",
+      "sha256": "dd80fbcf52e517b138888db1713456360467ec2b5732aaef87f4d0a41d184f08"
+    }
+  ],
+  "limits": [
+    "The live test checked Kubernetes admission and authorization. It created no Pods and tested no traffic.",
+    "Permitted Gateway paths and CNI enforcement remain incomplete.",
+    "Hypershell production allocation still has the recorded network gap because its option is off.",
+    "The runtime rejects an unexpected policy. It does not delete it or revoke earlier access bindings."
+  ],
+  "consumer_revision": "0befe5884117ede63c4caaf018c14bf6b60b3305"
+}
