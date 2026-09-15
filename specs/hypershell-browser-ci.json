@@ -4,14 +4,14 @@
     "head": "d61f1dffe639f1de6e67cd82d89282fedb0d15e6"
   },
   "api_ci": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017005",
-    "commit": "de07bffed63969df32610117abccd884dceaef2a",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018",
+    "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
     "required_passed": 30,
-    "source_files_checked": 867,
+    "source_files_checked": 870,
     "generated_files_checked": 228,
-    "job_uid": "480ba9ff-997d-4de7-8d7b-16ad0ea2b5a5",
+    "job_uid": "f759e067-3bac-4959-a47a-3e6a9d5c6186",
     "cleanup": {
-      "job_absent": "gateway-api-399a95b3a3b4",
+      "job_absent": "gateway-api-dcc3b8071a53",
       "pods_absent": true,
       "fixture_resources_absent": true
     }
@@ -397,7 +397,7 @@
   },
   "limits": [
     "The first browser CI run failed cleanup. Its application pass is not a passing CI gate.",
-    "The browser cleanup fix and namespace recovery workflow passed. The namespace candidate API check and later SQL cleanup denial check remain pending.",
+    "The API and browser checks passed for namespace recovery. The later SQL cleanup denial check remains pending.",
     "The fixed namespace retains six test image streams. Registry retention is outside this cleanup proof.",
     "The browser fixture has no external connection endpoint. Screenshots do not prove external connectivity.",
     "Installation CNPG, actual RDS, and Sandbox checks remain open."
@@ -680,20 +680,33 @@
     "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937103556",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018",
-    "result": "browser_success_api_running",
+    "result": "success",
     "cancelled_before_jobs": [
       34936911573,
       34936911464
     ],
     "queue_transition": "Both push runs were cancelled before a job started. The older API workflow became active at this transition. The API provides no cancellation reason. New dispatches use the same pushed commit.",
-    "browser_evidence": "browser-namespace-replacement-evidence.json"
+    "browser_evidence": "browser-namespace-replacement-evidence.json",
+    "api_evidence": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018",
+      "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
+      "required_passed": 30,
+      "source_files_checked": 870,
+      "generated_files_checked": 228,
+      "job_uid": "f759e067-3bac-4959-a47a-3e6a9d5c6186",
+      "cleanup": {
+        "job_absent": "gateway-api-dcc3b8071a53",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      }
+    }
   },
   "sql_cleanup_denial_candidate": {
     "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319194",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123",
-    "result": "pending"
+    "result": "api_running_browser_pending"
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/7ba12364cdb86539c44d0030793ee604fff7344b/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "775991deff384b348d00c134f077eb72a6ac689d67dbdb97ced48b72a06f696f"
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/ebbb856aebec3011480c08e2bb9a54e92a3eb3a1/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "721d43968fac074b017603f76c2a70711126b6be9ef97b3cfcf10bd4de7b0bb6"
 }

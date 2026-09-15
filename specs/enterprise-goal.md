@@ -3694,3 +3694,10 @@ runners did not use these lists. The acceptance index now points to complete
 contract, API, and browser workflows and separates historical conversion records
 from current evidence. This removes a stale acceptance path; it adds no new
 runtime proof. The SQL cleanup denial workflow remains queued.
+
+The separate [API check](https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018)
+for namespace recovery source `48eae25` passed all 30 required tests. All 870
+source files and 228 generated files match the commit. Generation records match,
+and the Job, Pods, and private fixtures are absent. This source now has both
+API and full browser passes. The later SQL cleanup denial candidate has an
+active API check and a queued browser check. The enterprise goal remains active.
