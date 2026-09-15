@@ -90,6 +90,12 @@ The original module coverage audit also found stale example output and no CI
 jobs for either nested example module. The [example project checks](example-project-checks.md)
 restore current generation and add CI gates for both projects. Their build and
 test results remain required; the root compiler suite does not cover them.
+The first example gates failed on generated dependency vulnerabilities. The
+corrected generators and regenerated modules are in `6e2b514`; repeat
+[CI 34966021202](https://github.com/jsell-rh/stego/actions/runs/34966021202) remains
+required. The [SSO authentication audit](sso-auth-audit.md) also found missing
+required issuer, audience, and expiry checks in that separate component. Fix
+this C4 trust-policy gap next; dependency updates do not close it.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and
