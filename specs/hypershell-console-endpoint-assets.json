@@ -1,0 +1,18 @@
+{
+  "failure_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34973064115",
+  "failure_job": 104394523966,
+  "failure": "A fresh console build differed from the committed archive.",
+  "candidate_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34973886601",
+  "candidate_source": "9b79e7efe9f092d68ad334abaa6f04f31bb6bbd8",
+  "source_archive_sha256": "9fc17828a80103736aac53d4f21a3a4adc860add278207f284f5b100b57997fc",
+  "compiler_revision": "0953fcc245a74c5a1711c7dd18a96d0e07398454",
+  "old_archive_sha256": "6bf08e52adce2274496eafc72fb5beb7d90217d00663c5a1e8513974d78dd7e7",
+  "new_archive_sha256": "a3c774a75fdeb7ae13903729c58d9a77cd7e8cd64405df83a80564135851071b",
+  "file_count": 54,
+  "application_change": "Remove route_address from the owner patch schema. All other application bundle bytes match.",
+  "other_changes": "Asset filenames, manifest, and index references. All other archive entries match.",
+  "source_identity_verified": true,
+  "frontend_inputs_match_current_source": true,
+  "regeneration_passed": true,
+  "new_archive_browser_gate_passed": false
+}

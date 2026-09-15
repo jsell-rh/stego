@@ -116,9 +116,17 @@ lifetime check before Job creation. The operator login refresh is still pending.
 
 Compiler `0953fcc` corrects a reproduced private-block defect in the new TLS
 Secret helper. Hypershell `0bfce85` adopts it; focused checks and generation pass.
-Full compiler run `34973613718` remains required. Earlier compiler `74d9a70`
+Full compiler run `34973613718` passed. Earlier compiler `74d9a70`
 passed CI but does not contain this correction. This result does not close C4
 or establish a verified public Gateway connection.
+
+Hypershell `01fa021` corrects the console archive with a verified CI build and
+regenerates both services. The changed bundle removes the owner-writable
+`route_address` schema entry. Full CI `34974186524`, API `34974186030`, and
+browser `34974186012` remain required. The latest browser source also records
+the PostgreSQL server version and provisioning role; that check has compiled
+but has not run on the cluster. The existing browser pass still has the limits
+in its evidence record. See [the archive evidence](hypershell-console-endpoint-assets.json).
 
 The original module coverage audit also found stale example output and no CI
 jobs for either nested example module. The [example project checks](example-project-checks.md)

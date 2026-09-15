@@ -85,8 +85,9 @@ private-key block in `tls.crt`. The helper could then return that private block
 with the certificate data. Compiler `0953fcc`, version 1.8.1, rejects private
 blocks, extra text, and malformed block prefixes. The regression failed before
 the correction and passes after it. Hypershell `0bfce85` adopts the correction
-and tests it through the Kubernetes client fixture. Full compiler run
-`34973613718` remains required. The
+and tests it through the Kubernetes client fixture. [Full compiler run
+34973613718](https://github.com/jsell-rh/stego/actions/runs/34973613718) passed,
+including both independent examples and SQL provisioning. The
 [TLS Secret contract](../registry/components/kubernetes-client/tls-secrets.md)
 defines trust, ownership, data limits, and error privacy.
 
@@ -106,6 +107,16 @@ candidate build and a new application run are required after the archive changes
 The 32-test API attempts at `25927c2` and `0bfce85` did not start application
 Jobs because the CI credential had too little time left. They are failures,
 not missing passes or evidence of API behavior.
+
+Hypershell `01fa021` fixes the asset drift from a verified CI candidate. Only the
+owner patch schema changes in the application bundle: it no longer accepts
+`route_address`. Asset names and manifest references change with the bundle.
+Both services regenerate without drift. Full CI `34974186524`, API
+`34974186030`, and browser `34974186012` remain required for this source.
+The [archive evidence](hypershell-console-endpoint-assets.json) records the exact
+source and output identities. Commit `17e5d5e` also records the queried PostgreSQL
+version and provisioning role in the next browser run; compilation is not live
+evidence for that new check.
 
 The next workflow change must join Route creation, public TLS and RPC checks,
 and current endpoint publication. Status and address must describe the same
