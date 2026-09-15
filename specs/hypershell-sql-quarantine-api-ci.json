@@ -122,5 +122,137 @@
     "job-final.json": "ee67689b5ccd8af6102224ed81d88594e591d876fb8ec866a3a4b0296190eee2",
     "cleanup.json": "b04db835ef75768b767ba143c580aa1374a6a4a4a1b213431a07c327b6d933ff",
     "verification.json": "b1044c4ddbec501329e60dc193d18476a0635314999abb021f39af0bacf85fa2"
+  },
+  "later_gateway_gate": {
+    "scope": "Complete Gateway API gate with forced role conflicts and rejection of the retired database field.",
+    "application_commit": "09e941de4a959a9039892fa62141d8bf000a8388",
+    "compiler_revision": "868ff1f83a1289a7becffa6530f282f980a5216b",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929091285",
+    "verification": {
+      "required": [
+        "TestConcurrentGlobalRoleProjection",
+        "TestCleanupSummaryScopeAndTimestampChecks",
+        "TestGatewayDatabaseSecretFileAndCredentialRotation",
+        "TestGatewayDeletionBeforeWorkloadStartup",
+        "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+        "TestGeneratedWorkloadWorkerStartupPrivacy",
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGatewayCreationCommitsOwnerAndEvent",
+        "TestGatewayRequestsRejectRetiredDatabaseField",
+        "TestGeneratedGoSDKGatewayWorkflow",
+        "TestGeneratedCLIWorkflow",
+        "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+        "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+        "TestEventFailureRollsBackGatewayAndOwner",
+        "TestAccessFiltersRunBeforeCountAndPagination",
+        "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+        "TestGatewayWorkflowThroughGeneratedRESTProcess",
+        "TestGatewayWorkflowAcrossRESTAndGRPC",
+        "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+        "TestGatewayWatchThroughGeneratedRuntime",
+        "TestPlacementWorkflowThroughGeneratedRuntime",
+        "TestControllerLocalSchemaHasNoDatabaseCatalog",
+        "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+        "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+        "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+        "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+        "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+        "TestGeneratedCLICatalogWorkflow",
+        "TestGeneratedCLIApplyWorkflow"
+      ],
+      "passed": [
+        "TestAccessFiltersRunBeforeCountAndPagination",
+        "TestCleanupSummaryScopeAndTimestampChecks",
+        "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+        "TestConcurrentGlobalRoleProjection",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites/empty",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites/populated",
+        "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+        "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+        "TestControllerLocalSchemaHasNoDatabaseCatalog",
+        "TestEventFailureRollsBackGatewayAndOwner",
+        "TestEventFailureRollsBackGatewayAndOwner/gateway.created",
+        "TestEventFailureRollsBackGatewayAndOwner/rolebinding.created",
+        "TestGatewayCreationCommitsOwnerAndEvent",
+        "TestGatewayDatabaseSecretFileAndCredentialRotation",
+        "TestGatewayDeletionBeforeWorkloadStartup",
+        "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+        "TestGatewayRequestsRejectRetiredDatabaseField",
+        "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+        "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+        "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGatewayWatchThroughGeneratedRuntime",
+        "TestGatewayWorkflowAcrossRESTAndGRPC",
+        "TestGatewayWorkflowThroughGeneratedRESTProcess",
+        "TestGeneratedCLIApplyWorkflow",
+        "TestGeneratedCLICatalogWorkflow",
+        "TestGeneratedCLIWorkflow",
+        "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+        "TestGeneratedGoSDKGatewayWorkflow",
+        "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+        "TestGeneratedWorkloadWorkerStartupPrivacy",
+        "TestGeneratedWorkloadWorkerStartupPrivacy/gateway-workload",
+        "TestGeneratedWorkloadWorkerStartupPrivacy/namespace-allocation",
+        "TestGeneratedWorkloadWorkerStartupPrivacy/sandbox-count",
+        "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+        "TestPlacementWorkflowThroughGeneratedRuntime"
+      ],
+      "failed": [],
+      "missing": [],
+      "exit_code": 0
+    },
+    "source_matches_commit": true,
+    "source_inventory_sha256": "1c025559d051472eb577120f7f6020efa4832bc7fc06535ccf17de45b9e8de3e",
+    "generated_snapshots": {
+      "committed.sha256": "066dab721a06c860c56c628ae5d05bd0d12ac7d098404a93f0c30511634a1512",
+      "first.sha256": "066dab721a06c860c56c628ae5d05bd0d12ac7d098404a93f0c30511634a1512",
+      "second.sha256": "066dab721a06c860c56c628ae5d05bd0d12ac7d098404a93f0c30511634a1512",
+      "after.sha256": "066dab721a06c860c56c628ae5d05bd0d12ac7d098404a93f0c30511634a1512"
+    },
+    "cleanup": {
+      "job_absent": "gateway-api-c935a63e27b6",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    },
+    "job_status": {
+      "completionTime": "2026-09-15T04:36:57Z",
+      "conditions": [
+        {
+          "lastProbeTime": "2026-09-15T04:36:57Z",
+          "lastTransitionTime": "2026-09-15T04:36:57Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "SuccessCriteriaMet"
+        },
+        {
+          "lastProbeTime": "2026-09-15T04:36:57Z",
+          "lastTransitionTime": "2026-09-15T04:36:57Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "Complete"
+        }
+      ],
+      "ready": 0,
+      "startTime": "2026-09-15T04:30:35Z",
+      "succeeded": 1,
+      "terminating": 0,
+      "uncountedTerminatedPods": {}
+    },
+    "conflict_retries": {
+      "creation": 7,
+      "removal": 7
+    },
+    "artifact_sha256": {
+      "tests.jsonl": "4008f09736a8afc361dcb8123f6b0a4ac889142e441918241a09264c28efde00",
+      "test.log": "f58baed1d01e48e03cf83a7c1d8ef4f7630c06553c49c4200839176020ead4fb",
+      "job-final.json": "17667b923d23c1dede3ae67ae23667d65aa66c81fa463d87538f380ca2a97d14",
+      "cleanup.json": "904fb37502afff7a01cc2e3fb7209c6a8df6f5cce813baac1127db8a12d0cffe",
+      "verification.json": "6e23daebbd70632d26ae78d3705c075177af452d660eedf7bd8cde57e1c54cb6"
+    }
   }
 }

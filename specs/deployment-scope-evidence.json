@@ -29,5 +29,21 @@
   "limits": [
     "This is compiler and generated renderer evidence. It does not prove a restricted workload CI identity or an installation workflow.",
     "Hypershell still needs to install cluster resources through an operator identity and remove broad test-driver permissions."
-  ]
+  ],
+  "consumer": {
+    "application_commit": "5adf4a2486bb48b84b2a7fda1a50af74fc203f04",
+    "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/5adf4a2486bb48b84b2a7fda1a50af74fc203f04/acceptance/deployment-scopes.json",
+    "source_record_sha256": "04125296b87837ddee6b415c24cb7a592cb0d6fa7554ff1b9ea8f03075b4dd5e",
+    "result": "success",
+    "target_count": 7,
+    "generation": {
+      "files": 228,
+      "first_sha256": "d03e2e1bede31634637273ca06205a06df6f78a56ea8048ee7cbd230c797b8b3",
+      "second_sha256": "d03e2e1bede31634637273ca06205a06df6f78a56ea8048ee7cbd230c797b8b3",
+      "drift": "No drift in API or console output."
+    },
+    "scope": "Bounded renderer and generation checks only. The workload runner does not yet use the scope split.",
+    "pending_application_api_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314161",
+    "pending_application_full_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314180"
+  }
 }

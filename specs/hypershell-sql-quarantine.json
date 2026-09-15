@@ -79,5 +79,42 @@
   "visual_review": {
     "verify.json.png": "The Gateway is Healthy. The connection-command section still has loading placeholders in this frame; this image does not prove completed command rendering.",
     "accounts-delete.json.png": "The Gateway is Healthy. The service-account list is empty after deletion."
+  },
+  "later_application_browser_ci": {
+    "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/fe9af4d/acceptance/browser-temp-ci.json",
+    "source_record_sha256": "2e484a5f51a1077825f343940f23c77d35d35701c564ab9e36d2ede9e73ea1e5",
+    "result": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929091178",
+      "job_id": 104253336594,
+      "application_commit": "09e941de4a959a9039892fa62141d8bf000a8388",
+      "compiler_revision": "868ff1f83a1289a7becffa6530f282f980a5216b",
+      "result": "success",
+      "test": "TestGeneratedBrowserGatewayWorkflow",
+      "test_seconds": 95.12,
+      "temporary_limit_kib": 524288,
+      "sampled_temporary_peak_kib": 203940,
+      "memory_peak_bytes": 475938816,
+      "memory_limit_bytes": 1610612736,
+      "memory_oom_events": 0,
+      "memory_oom_kill_events": 0,
+      "process_limit_events": 0,
+      "samples": 123,
+      "artifact_sha256": {
+        "verify.json.png": "b6bed5a348db0d5a97fe3c2fa6e9515abd0c097be312f66cea91ccbc3d9f901b",
+        "browser-resources.txt": "e13aef75b92f95d7c8ac8acbacb7804829c9d6427cd5c7d7f451badb7b7898c3",
+        "accounts-delete.json.png": "39e8bad974457acc8f4c91451bdec45920037ef56b8bfc79d8e7ee65070d1a48"
+      },
+      "job_log_sha256": "46e6703b2a5aac7843feee1d32e2f5aabc3dcf9ca58305eb330443262a402fb3",
+      "visual_review": {
+        "verify.json.png": "The browser shows the created Gateway. It is Provisioning, with connection setup pending. This fixture has no live Gateway worker.",
+        "accounts-delete.json.png": "The service-account list is empty after deletion."
+      },
+      "limits": [
+        "This successful run used less than the old temporary-storage limit. It does not prove the cause of the earlier tab crash.",
+        "The core job was still running when this browser result was recorded. The three workload CI jobs still fail because their restricted installation fixtures are missing.",
+        "This result covers the browser with generated API and console processes. The separate Kubernetes browser test supplies live Gateway workload evidence."
+      ]
+    },
+    "scope": "Separate API and console browser CI. It does not replace the live Kubernetes Gateway proof above."
   }
 }

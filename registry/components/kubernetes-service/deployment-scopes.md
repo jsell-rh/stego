@@ -34,3 +34,10 @@ They cover HTTP, RPC, and namespace allocator manifests, all emitted resource
 kinds, empty lists, exact resource preservation, invalid scopes, unknown kinds,
 wrong namespaces, and full-input validation. Restricted application CI still
 requires installation and live access checks.
+
+Hypershell adopted this renderer in `5adf4a2`. Its bounded check covered all seven
+deployment targets. Default output matched the prior release byte for byte;
+partial output preserved every object and permission. Repeated generation left
+228 output, state, and dependency files unchanged. See
+[the application evidence](https://github.com/jsell-rh/hypershell-stego/blob/5adf4a2486bb48b84b2a7fda1a50af74fc203f04/acceptance/deployment-scopes.json).
+The workload runner still needs to separate operator installation from CI.
