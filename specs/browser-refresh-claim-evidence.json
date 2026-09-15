@@ -3,7 +3,7 @@
   "component": "browser-backend 1.6.1",
   "limits": [
     "The driver fault models a lost SQL row or commit response. It does not restart PostgreSQL.",
-    "The Hypershell rendered browser failure still needs a new application run."
+    "The Hypershell browser workflow passed with the explicit transition test list. The full application build and production checks remain open."
   ],
   "runs": [
     {
@@ -326,5 +326,29 @@
         ]
       }
     }
-  ]
+  ],
+  "application_result": {
+    "evidence_url": "https://github.com/jsell-rh/hypershell-stego/blob/a637a33105dfe00c54ab1c482f38ec08f1b4d122/acceptance/controller-local-browser-evidence.json",
+    "evidence_sha256": "746ed683803d7d7b270652634fbf568865f392fd1ba08eb4557affae548700db",
+    "compiler_revision": "421ce6b53a40850a3241cd1582843e65d6709fc9",
+    "passed": [
+      "TestGeneratedKubernetesBrowserGatewayWorkflow (301.84s)"
+    ],
+    "exit": "0",
+    "generation_record_sha256": {
+      "first.sha256": "5cd1d8e076c36f321f765a1ee92a89a9c4ee121ebedd277ccbbd24083c35857e",
+      "second.sha256": "5cd1d8e076c36f321f765a1ee92a89a9c4ee121ebedd277ccbbd24083c35857e",
+      "after-tests.sha256": "5cd1d8e076c36f321f765a1ee92a89a9c4ee121ebedd277ccbbd24083c35857e"
+    },
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-6ef700",
+      "owned_resources_absent": true
+    },
+    "limits": [
+      "The run uses the explicit 126-file transition list. Three old live test files still block the full acceptance build.",
+      "Direct apply and drift ran twice. Full dependency checks remain required.",
+      "The server is the bounded PostgreSQL fixture. This does not prove installation-managed CNPG or Amazon RDS.",
+      "Deletion before the first worker run and the remaining SQL fault/recovery checks remain open."
+    ]
+  }
 }

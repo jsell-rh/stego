@@ -113,7 +113,17 @@ failures before this change and a passing generated runtime suite after it.
 The tests use real PostgreSQL and drop a result at the driver boundary. They
 also check a lost commit acknowledgement, concurrent refresh, cancellation,
 logout, and key rotation. Both bounded cluster Jobs and their fixtures were
-removed. The Hypershell browser workflow still needs a new run with this change.
+removed.
+
+The [Hypershell supplied-server browser workflow](https://github.com/jsell-rh/hypershell-stego/blob/a637a33105dfe00c54ab1c482f38ec08f1b4d122/acceptance/controller-local-browser-evidence.json)
+then passed with compiler `421ce6b` in 301.84 seconds under race detection.
+It covered rendered session renewal, API and console replacement, key rotation,
+collector loss, and logout with real Keycloak. Gateway SQL isolation, access,
+events, worker telemetry, and normal deletion also passed. Both generation runs
+and the post-test hashes matched. The Job and its owned resources were removed.
+The result uses an explicit test-file list. Old application tests still block
+the full dependency and acceptance checks. Early deletion, database-server
+restart, installation CNPG, and actual RDS remain outside this passing result.
 
 The initial limits are 16 concurrent requests per process, a 20-second request
 context, a 1 MiB request body, and a 4 MiB API response body. A pending login
