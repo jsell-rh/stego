@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T18:31:06.771117+00:00",
+  "checked_at": "2026-09-15T18:36:35.567036+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
@@ -28,7 +28,9 @@
     "browser_ci_boundary_tests": 6,
     "cnpg_projection_tests": 6,
     "unrelated_peer_acceptance_compile_seconds": 0.026,
-    "cnpg_source_and_inspection_boundary_tests": 17
+    "cnpg_source_and_inspection_boundary_tests": 17,
+    "cnpg_outer_preflight_boundary_tests": 15,
+    "cnpg_source_workflow_tests": 7
   },
   "first_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-live-20260915",
@@ -59,7 +61,8 @@
     "State recovery fixtures now return the named policy and complete set, with explicit missing, changed, and extra policy denial cases.",
     "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The passing public runs include this correction.",
     "Candidate 7e23873 passes saved Kubernetes endpoint bindings to the final CNPG allocation check. Missing or empty input prevents a cleanup success result before credential use.",
-    "Candidate 6062269 fixes the later frozen-source verifier to accept only the declared CNPG peer together with the fixed inspection roles. The prior prepared source failed this check before a live CNPG run. Full source verification now passes; altered peers, broader roles, and changed runtime code are rejected."
+    "Candidate 6062269 fixes the later frozen-source verifier to accept only the declared CNPG peer together with the fixed inspection roles. The prior prepared source failed this check before a live CNPG run. Full source verification now passes; altered peers, broader roles, and changed runtime code are rejected.",
+    "Candidate 38a1d76 validates and copies the internal Gateway CA before cluster access and prepares an independent allocation-check directory and binary before runtime creation. The outer cleanup no longer depends on browser child files. The original CI configuration already supplied the CA; the failed local launch did not."
   ],
   "ci": [
     {
@@ -96,28 +99,126 @@
     }
   ],
   "cnpg": {
-    "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
-    "fixture_directory": "/tmp/hypershell-cnpg-network-source-check-frozen-20260915",
+    "source": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
+    "fixture_directory": "/tmp/hypershell-cnpg-network-preflight-frozen-20260915",
     "generation": "passed",
     "full_source_verification": "passed",
-    "previous_preparation": {
-      "source": "7e23873000bfceb405e23b8173220e2e06c56017",
-      "fixture_directory": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915",
-      "generation": "passed",
-      "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
-    },
-    "scope": "The complete restricted CNPG isolation workflow is active. No application or cleanup pass is claimed.",
-    "directory": "/tmp/hypershell-cnpg-network-live-20260915",
-    "log": "/tmp/hypershell-cnpg-network-live-20260915.log",
-    "exec_session": 35177,
+    "previous_attempts": [
+      {
+        "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+        "fixture_directory": "/tmp/hypershell-cnpg-network-source-check-frozen-20260915",
+        "generation": "passed",
+        "full_source_verification": "passed",
+        "previous_preparation": {
+          "source": "7e23873000bfceb405e23b8173220e2e06c56017",
+          "fixture_directory": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915",
+          "generation": "passed",
+          "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
+        },
+        "scope": "The complete restricted CNPG isolation workflow is active. No application or cleanup pass is claimed.",
+        "directory": "/tmp/hypershell-cnpg-network-live-20260915",
+        "log": "/tmp/hypershell-cnpg-network-live-20260915.log",
+        "exec_session": 35177,
+        "run": {
+          "source_base_commit": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+          "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+          "holder": "stego-cnpg-live-085097c4fe8c556d",
+          "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+          "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+          "phase": "operator_ready",
+          "cluster_uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26"
+        },
+        "status": "failed_before_browser_setup",
+        "exit_status": 1,
+        "failure": "The local launch omitted STEGO_TEST_GATEWAY_INTERNAL_CA_FILE. The browser script stopped before any application Job was created. The outer cleanup then could not read endpoint files that the browser had not created.",
+        "recovery": {
+          "run": "/tmp/hypershell-cnpg-network-live-20260915",
+          "process_exit": 1,
+          "application_job_created": false,
+          "holder": "stego-cnpg-live-085097c4fe8c556d",
+          "cluster_uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26",
+          "source_commit": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+          "result": "failed_before_application",
+          "phase": "complete",
+          "deleted": [
+            {
+              "kind": "Cluster",
+              "namespace": "stego-cnpg-database-ci",
+              "name": "gateway-database",
+              "uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26"
+            },
+            {
+              "kind": "Secret",
+              "namespace": "stego-service-ci",
+              "name": "cnpg-credentials",
+              "uid": "05edcbd3-22b1-49c8-a961-dc6429f86286"
+            },
+            {
+              "kind": "Secret",
+              "namespace": "stego-cnpg-database-ci",
+              "name": "fixture-postgres",
+              "uid": "6461013b-d49f-4038-ba24-0ff769c136df"
+            },
+            {
+              "kind": "Job",
+              "namespace": "stego-cnpg-database-ci",
+              "name": "database-lifetime",
+              "uid": "a5ce366d-51f9-4aa7-aaa7-8bdd9faf555e"
+            },
+            {
+              "kind": "Job",
+              "namespace": "stego-cnpg-operator-ci",
+              "name": "cnpg-operator",
+              "uid": "53a5fc96-a3b3-4613-86ac-bf892478c7e3"
+            }
+          ],
+          "allocations": {
+            "allocations_before": 0,
+            "allocations_absent": true
+          },
+          "volumes": [
+            {
+              "name": "pvc-48964f40-2017-4226-b1e8-fdf9335a7bd2",
+              "uid": "70288a9c-f776-4227-b8a1-94d29c5fefe1"
+            },
+            {
+              "name": "pvc-676c77ad-49da-4de9-a6fd-8008e8567cc2",
+              "uid": "212c316e-9573-46f9-a929-d55e8fc86592"
+            }
+          ],
+          "runtime_absent": true,
+          "volumes_absent": true,
+          "private_fixture_absent": true,
+          "installation_retained": true,
+          "lease_released": true
+        },
+        "independent_cleanup": {
+          "runtime_absent": true,
+          "claims_and_volumes_absent": true,
+          "private_fixture_absent": true,
+          "shared_lease_free": true,
+          "manual_recovery": true
+        },
+        "automatic_cleanup_passed": false
+      }
+    ],
+    "status": "running",
+    "scope": "The corrected restricted workflow validates and copies the supplied Gateway CA before cluster access. It prepares its own allocation check before resource creation. Its initial live allocation check passed with no browser child files. Full CNPG application and automatic cleanup evidence remain required.",
+    "directory": "/tmp/hypershell-cnpg-network-retry-live-20260915",
+    "log": "/tmp/hypershell-cnpg-network-retry-live-20260915.log",
+    "exec_session": 96928,
     "run": {
-      "source_base_commit": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+      "source_base_commit": "38a1d7631a9822465a2cbf05d9263e8467aac2b6",
       "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
-      "holder": "stego-cnpg-live-085097c4fe8c556d",
+      "holder": "stego-cnpg-live-188c8d1b0de09b88",
       "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
       "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
-      "phase": "operator_ready",
-      "cluster_uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26"
+      "phase": "application_running",
+      "cluster_uid": "bd5ac732-3e0d-4be7-b1bc-cf7fcdce1731"
+    },
+    "initial_allocation_check": {
+      "allocations_before": 0,
+      "allocations_absent": true
     }
   },
   "remaining": [
@@ -267,6 +368,26 @@
     {
       "path": "/tmp/hypershell-cnpg-network-source-check-prepare-20260915.log",
       "sha256": "00b1f13e46a20a90bdaff6241beefcc88330a466bfba34fa189b1d7762227ef4"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-live-20260915.log",
+      "sha256": "6c26c200c455fde50a4d8f7a69ee144f7fa4b0d5f3f0027718153ff51e7b293e"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-live-20260915/browser-run.log",
+      "sha256": "612c4bf482c2b7009dc477befac5e893ffbc7226516fdbc663ce071611052758"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-recovery-20260915/recovery.json",
+      "sha256": "dd06daa96fe537c7cd7fd1886ac8ff3da8bf3674d7f692ac03f8dc5c25a93a14"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-recovery-20260915/independent-cleanup.json",
+      "sha256": "bb456ac9d98ee135f1b91c5ca935404f5dce5410e605e11ca0790f31eb30cadc"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-preflight-prepare-20260915.log",
+      "sha256": "d03d02bad096bb770e70fefa0eda7e50f66fbc10e27516c4d1c1bd742feb83c5"
     }
   ],
   "second_live_attempt": {

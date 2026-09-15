@@ -115,8 +115,16 @@ CNPG run. The [CI installation update](hypershell-network-ci-update-20260915.jso
 changed two generated admission policies, six Roles, and the selected CNPG
 receiver rule. Admission checks passed before permission changes. All resource
 identities and specifications, the new immutable record, and Lease release
-were verified. The complete restricted CNPG workflow is now active in
-`/tmp/hypershell-cnpg-network-live-20260915`; no result is claimed yet.
+were verified. The first restricted run stopped before browser setup because the local launch
+omitted the required Gateway CA input. The outer cleanup also depended on files
+that the browser had not created. [Manual recovery](hypershell-cnpg-network-recovery-20260915.json)
+removed all runtime, claims, volumes, and private fixtures and released the
+Lease. Source `38a1d76` checks and copies the CA before cluster access and
+prepares an independent allocation client before runtime creation. Twenty-two
+focused checks passed. Generation and full source verification passed. The
+corrected run is active in `/tmp/hypershell-cnpg-network-retry-live-20260915`.
+Its initial allocation check found zero allocations without browser files.
+The complete CNPG application and automatic cleanup result remain required.
 
 This result does not close the full network gate. Approved and retired endpoint
 addresses need live traffic checks. External database DNS behavior also remains

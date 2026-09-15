@@ -1,0 +1,74 @@
+{
+  "failed_source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+  "failure": "The local launch omitted STEGO_TEST_GATEWAY_INTERNAL_CA_FILE. The browser script stopped before any application Job was created. The outer cleanup then could not read endpoint files that the browser had not created.",
+  "recovery": {
+    "run": "/tmp/hypershell-cnpg-network-live-20260915",
+    "process_exit": 1,
+    "application_job_created": false,
+    "holder": "stego-cnpg-live-085097c4fe8c556d",
+    "cluster_uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26",
+    "source_commit": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
+    "result": "failed_before_application",
+    "phase": "complete",
+    "deleted": [
+      {
+        "kind": "Cluster",
+        "namespace": "stego-cnpg-database-ci",
+        "name": "gateway-database",
+        "uid": "a5a1b06a-d048-49d6-9d63-e6bf43078b26"
+      },
+      {
+        "kind": "Secret",
+        "namespace": "stego-service-ci",
+        "name": "cnpg-credentials",
+        "uid": "05edcbd3-22b1-49c8-a961-dc6429f86286"
+      },
+      {
+        "kind": "Secret",
+        "namespace": "stego-cnpg-database-ci",
+        "name": "fixture-postgres",
+        "uid": "6461013b-d49f-4038-ba24-0ff769c136df"
+      },
+      {
+        "kind": "Job",
+        "namespace": "stego-cnpg-database-ci",
+        "name": "database-lifetime",
+        "uid": "a5ce366d-51f9-4aa7-aaa7-8bdd9faf555e"
+      },
+      {
+        "kind": "Job",
+        "namespace": "stego-cnpg-operator-ci",
+        "name": "cnpg-operator",
+        "uid": "53a5fc96-a3b3-4613-86ac-bf892478c7e3"
+      }
+    ],
+    "allocations": {
+      "allocations_before": 0,
+      "allocations_absent": true
+    },
+    "volumes": [
+      {
+        "name": "pvc-48964f40-2017-4226-b1e8-fdf9335a7bd2",
+        "uid": "70288a9c-f776-4227-b8a1-94d29c5fefe1"
+      },
+      {
+        "name": "pvc-676c77ad-49da-4de9-a6fd-8008e8567cc2",
+        "uid": "212c316e-9573-46f9-a929-d55e8fc86592"
+      }
+    ],
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true,
+    "lease_released": true
+  },
+  "independent_cleanup": {
+    "runtime_absent": true,
+    "claims_and_volumes_absent": true,
+    "private_fixture_absent": true,
+    "shared_lease_free": true,
+    "manual_recovery": true
+  },
+  "automatic_cleanup_passed": false,
+  "correction_source": "38a1d7631a9822465a2cbf05d9263e8467aac2b6"
+}
