@@ -3802,3 +3802,11 @@ files and 228 generated files match the commit; generation and cleanup passed.
 The first CNPG installation run now holds the shared test Lease. Both database
 instances are ready. Its frozen source is `90b6ca5`; application execution is
 in progress. No CNPG application result is claimed yet.
+
+The first live CNPG installation reached two ready database instances, but the
+application Pod could not obtain CPU and memory within its startup limit. No
+application test ran. Cleanup removed the application Job, database namespace,
+private fixture, operator resources, and both recorded persistent volumes. The
+shared Lease was released. After the new worker node became ready, the same
+frozen source started a second bounded attempt. The failed result is retained
+in the [attempt record](hypershell-cnpg-installation-attempts.json).

@@ -1,0 +1,47 @@
+{
+  "attempts": [
+    {
+      "source_commit": "90b6ca58ba6ab89131672cccdde4a1452c1dbe6f",
+      "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+      "status": "startup_failed_cleanup_passed",
+      "cause": "The application Pod could not obtain CPU and memory within the 180-second startup limit.",
+      "application_tests_ran": false,
+      "cnpg_server": {
+        "namespace": "stego-cnpg-database-ci",
+        "namespace_uid": "7be09430-68fc-4e8b-9497-346d1a293737",
+        "cluster_uid": "73cf7041-2e6f-495f-8e8f-c4dbb08b45d7",
+        "image": "ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:14e57107afc9bcdd085ed6593c67743723718f167da512326ddb2f7904cc4576",
+        "ready_instances": 2,
+        "storage_class": "gp3-csi"
+      },
+      "browser_cleanup": {
+        "namespace_retained": "stego-service-ci",
+        "test_resources_absent": true,
+        "allocations_absent": true
+      },
+      "server_cleanup": {
+        "database_namespace_absent": "stego-cnpg-database-ci",
+        "private_fixture_absent": true
+      },
+      "operator_resources_removed": 26,
+      "lease_released": true,
+      "recorded_persistent_volumes_absent": [
+        "pvc-781d603d-f961-4996-b677-6a94340ce9f9",
+        "pvc-c974f606-f7dc-4069-b4a8-99f04be92a60"
+      ],
+      "artifact_sha256": {
+        "cnpg-run.json": "0c397140a72bf5c05f779145c229ccb0f009ff37053b8c065f17a9ae42a6f8f4",
+        "cnpg-server-ready.json": "c5d9e1116bff97b0528571e6c51dd3728ab5312ca1cd8e9871dffdf25f0a5059",
+        "cnpg-server-cleanup.json": "1bf78a69d338dd93dcc97c58fadc305642910ef172afcf600577fa1566d76bd7",
+        "browser-run.log": "64f5c23c62dc227caed793973122c3bd9406033a9de716e881503e67b9e1d727",
+        "startup-events.json": "6adc0e7d659b59eef344ffde41c089267ca91c7b12836347b1abd650a4398a6f",
+        "browser/job-status.json": "5d5c3857da43b5fe90fa3fdd592d71546e8fa08552759de51f56d7711c1d9e2f",
+        "browser/cleanup.json": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232",
+        "operator/cnpg-created.json": "9f9373fe0353386d18231a926712839117cea104d53a0a7a2f13ef8f84ac4eba",
+        "operator/cnpg-cleanup-requested.json": "1e5d766e84fc3d467af1d1cf9dd8aa2f6adbd884ced81474b8a39f41aa191286"
+      }
+    }
+  ],
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/95b543de7bbf6059c2d13a647002ccf50f590b3a/acceptance/cnpg-installation-attempts.json",
+  "source_record_sha256": "650f95014f0bb7c688605b1b9d56fade579b348f3478569631b6b16c9728bb38"
+}
