@@ -28,6 +28,9 @@ var conditionTests []byte
 //go:embed testdata/checkpoints_test.go
 var checkpointTests []byte
 
+//go:embed testdata/effects_test.go
+var effectBindingTests []byte
+
 //go:embed testdata/cursor_test.go
 var cursorTests []byte
 
@@ -163,7 +166,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests, "storage/conditions_test.go": conditionTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests, "storage/effects_test.go": effectBindingTests, "storage/conditions_test.go": conditionTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}

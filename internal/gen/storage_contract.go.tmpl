@@ -281,6 +281,24 @@ type CheckpointStore interface {
  SaveCheckpoint(context.Context,string,string,string,int64,string)(ScanCheckpoint,error)
 }
 
+// EffectBinding retains a public digest of state needed for an external effect.
+// A closed binding with an empty digest proves that no binding was accepted.
+// A nonempty digest requires cleanup of the registered effect. It does not prove
+// that the external operation ran or that cleanup is complete.
+type EffectBinding struct { Present bool; Digest string; Closed bool }
+var ErrEffectBinding = errors.New("invalid effect binding")
+var ErrEffectBindingConflict = errors.New("effect binding differs or is closed")
+// EffectBindingStore binds one digest to an exact entity, resource ID, and scope.
+// Bind and Close require a transaction. Authorize and lock the resource in that
+// transaction. Bind only live resources; close during deletion. Limit scope
+// names and register before any external use of the state. Retain closed rows.
+// This interface does not fence an external call that was already authorized.
+type EffectBindingStore interface {
+ LoadEffectBinding(context.Context,string,string,string)(EffectBinding,error)
+ BindEffect(context.Context,string,string,string,string)(EffectBinding,error)
+ CloseEffectBinding(context.Context,string,string,string)(EffectBinding,error)
+}
+
 // ResourceCondition contains one owner's stored observation. Current is derived
 // from the resource generation and deletion state. An old status is not current.
 type ResourceCondition struct {

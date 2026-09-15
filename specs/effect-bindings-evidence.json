@@ -1,0 +1,415 @@
+{
+  "scope": "Generated effect bindings and the complete generated PostgreSQL storage transaction suite.",
+  "component": "postgres-adapter 4.4.0",
+  "test": "TestGeneratedStoreTransactions",
+  "race": true,
+  "source_matches_final_run": true,
+  "corrections": [
+    "Separate Go composite literal braces from template delimiters.",
+    "Handle a rejected serializable transaction in the concurrency test only after both attempts finish.",
+    "Add immutable history guard and schema verification after the third passing baseline run.",
+    "Send migration statements separately when prepared statements are enabled."
+  ],
+  "limits": [
+    "This checks the common storage contract. Application SQL registration and early worker deletion require separate evidence.",
+    "Database administrators can bypass the guard. Runtime roles must have no DDL or TRUNCATE rights."
+  ],
+  "runs": [
+    {
+      "attempt": 1,
+      "verification": {
+        "required": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedStoreTransactions",
+          "github.com/jsell-rh/stego/internal/generator/postgresadapter"
+        ],
+        "missing": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "effect-bindings-f4023be79fcd",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "effect-bindings-f4023be79fcd",
+        "uid": "4e6b9f0e-628f-4662-a211-828f61dc26ae",
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T02:15:00Z",
+              "lastTransitionTime": "2026-09-15T02:15:00Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T02:15:00Z",
+              "lastTransitionTime": "2026-09-15T02:15:00Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T02:14:24Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200
+      },
+      "source_sha256": {
+        "internal/gen/storage_contract.go.tmpl": "a9d2cfa531f48c464b14eef650d6214be389676a86c71c19a451bc874778396b",
+        "internal/generator/postgresadapter/effects.go": "27f799de3a07f9831ecb3507d4b5dd0586140876cdd223b5163313b0f8057cbd",
+        "internal/generator/postgresadapter/effects.go.tmpl": "235777ca70ee37dc7da0a60c510b60aa9a7e798367d0827e402227f7e76377a9",
+        "internal/generator/postgresadapter/generator.go": "81466260f53d12c5fe1c7b483f383a97f3904a2593bb0ba7f08f3ef534c71be1",
+        "internal/generator/postgresadapter/testdata/effects_test.go": "5aa89469f1dd83f9a65eef8a3651aefbc9411c1609bc97d3716e691927f51349",
+        "internal/generator/postgresadapter/transaction_test.go": "4180b388c3b58bdb33a8bc84ef41818ffd6a0c7a086cd014f6b2a4add738e9ec",
+        "registry/components/postgres-adapter/component.yaml": "b74d1eedc34a2b6a25e742f36d845f604c3417c086ceda9b0abc06186aef4afd"
+      },
+      "artifacts_sha256": {
+        "tests.jsonl": "c38c2b561c6120d0be686a01edc099332d2a5c4812458b32e49615a0c800080d",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "source.tar": "c0618de59ec75f9dafb18802463fd2fe083ec6517ae6ae8490bc730fef2ac503",
+        "job-final.json": "a4bfb4fab534a6ce702d26db61bbaa3cc89f1d00306c8076b726ca349c143f8f",
+        "cleanup.json": "d209bc1cb689bcc7ca08821670aee787704e777fbb83ef6926b2fbb35cae4605"
+      },
+      "elapsed_seconds": [
+        0.08
+      ],
+      "effect_results": []
+    },
+    {
+      "attempt": 2,
+      "verification": {
+        "required": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedStoreTransactions",
+          "github.com/jsell-rh/stego/internal/generator/postgresadapter"
+        ],
+        "missing": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "effect-bindings-7c294b145ffd",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "effect-bindings-7c294b145ffd",
+        "uid": "f617a526-abd5-4505-a9ac-c3f59a5422b1",
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T02:17:28Z",
+              "lastTransitionTime": "2026-09-15T02:17:28Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T02:17:28Z",
+              "lastTransitionTime": "2026-09-15T02:17:28Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T02:15:27Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200
+      },
+      "source_sha256": {
+        "internal/gen/storage_contract.go.tmpl": "a9d2cfa531f48c464b14eef650d6214be389676a86c71c19a451bc874778396b",
+        "internal/generator/postgresadapter/effects.go": "27f799de3a07f9831ecb3507d4b5dd0586140876cdd223b5163313b0f8057cbd",
+        "internal/generator/postgresadapter/effects.go.tmpl": "bb5b6bf6629becb5c71f126bd88010e52b88eb992ac9c0657f902762e38eac81",
+        "internal/generator/postgresadapter/generator.go": "81466260f53d12c5fe1c7b483f383a97f3904a2593bb0ba7f08f3ef534c71be1",
+        "internal/generator/postgresadapter/testdata/effects_test.go": "5aa89469f1dd83f9a65eef8a3651aefbc9411c1609bc97d3716e691927f51349",
+        "internal/generator/postgresadapter/transaction_test.go": "4180b388c3b58bdb33a8bc84ef41818ffd6a0c7a086cd014f6b2a4add738e9ec",
+        "registry/components/postgres-adapter/component.yaml": "b74d1eedc34a2b6a25e742f36d845f604c3417c086ceda9b0abc06186aef4afd"
+      },
+      "artifacts_sha256": {
+        "tests.jsonl": "a403b11a9c34e4eaaabc0a0a818c27372c03a1b60c4b7082da987a3d9eaacbb1",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "source.tar": "1596f9ecd1af0d3ea97603828c58e37ba516411c3c3c428de834ff82e54e4dca",
+        "job-final.json": "204c2e7da0690d7376606d7bc2d95edb657b110323717bf0191e4de8f43b6e57",
+        "cleanup.json": "3bacd37b7605d09d5e100db9263ad9b67b02daac8178fedaa0c65c8f75cf7009"
+      },
+      "elapsed_seconds": [
+        84.95
+      ],
+      "effect_results": [
+        "--- PASS: TestEffectBindingDistinguishesEarlyDeletionAndRetainedState (0.14s)",
+        "--- PASS: TestEffectBindingFailureRollsBackAndRequiresActiveTransaction (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity (0.35s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_pkey (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_check (0.11s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_ENABLE_ROW_LEVEL_SECURITY (0.11s)"
+      ]
+    },
+    {
+      "attempt": 3,
+      "verification": {
+        "required": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "passed": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "failed": [],
+        "missing": [],
+        "exit_code": 0
+      },
+      "cleanup": {
+        "job_absent": "effect-bindings-f4d1f12f28c3",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "effect-bindings-f4d1f12f28c3",
+        "uid": "fd424611-6d02-47a2-8ce1-667a47766d90",
+        "status": {
+          "completionTime": "2026-09-15T02:20:31Z",
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T02:20:31Z",
+              "lastTransitionTime": "2026-09-15T02:20:31Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "SuccessCriteriaMet"
+            },
+            {
+              "lastProbeTime": "2026-09-15T02:20:31Z",
+              "lastTransitionTime": "2026-09-15T02:20:31Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "Complete"
+            }
+          ],
+          "ready": 0,
+          "startTime": "2026-09-15T02:18:30Z",
+          "succeeded": 1,
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200
+      },
+      "source_sha256": {
+        "internal/gen/storage_contract.go.tmpl": "a9d2cfa531f48c464b14eef650d6214be389676a86c71c19a451bc874778396b",
+        "internal/generator/postgresadapter/effects.go": "27f799de3a07f9831ecb3507d4b5dd0586140876cdd223b5163313b0f8057cbd",
+        "internal/generator/postgresadapter/effects.go.tmpl": "bb5b6bf6629becb5c71f126bd88010e52b88eb992ac9c0657f902762e38eac81",
+        "internal/generator/postgresadapter/generator.go": "81466260f53d12c5fe1c7b483f383a97f3904a2593bb0ba7f08f3ef534c71be1",
+        "internal/generator/postgresadapter/testdata/effects_test.go": "1c51d3a414f0533172d8f3b7772917993f0bfb48baf387967a70f46298df986b",
+        "internal/generator/postgresadapter/transaction_test.go": "4180b388c3b58bdb33a8bc84ef41818ffd6a0c7a086cd014f6b2a4add738e9ec",
+        "registry/components/postgres-adapter/component.yaml": "b74d1eedc34a2b6a25e742f36d845f604c3417c086ceda9b0abc06186aef4afd"
+      },
+      "artifacts_sha256": {
+        "tests.jsonl": "8daa4b1ca63151fd638e1f01f023b5b13bd1d6bfcca7119679da7f39bfedfbee",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "source.tar": "ba5a46d4d4087d210c323d6c515ed74a5e4636fdff9ce9a27ad0ceb1e59ad772",
+        "job-final.json": "e41d9d9cd7693fcd676ce63364c889c5a0091b0fcde3c7cc54f5d44151ff7b83",
+        "cleanup.json": "dca2d9cdda7b711f0c2be3e5d96e3fe81eb7d7be931d1d5fe085aa6953ef53ce"
+      },
+      "elapsed_seconds": [
+        84.2
+      ],
+      "effect_results": [
+        "--- PASS: TestEffectBindingDistinguishesEarlyDeletionAndRetainedState (0.14s)",
+        "--- PASS: TestEffectBindingFailureRollsBackAndRequiresActiveTransaction (0.12s)",
+        "--- PASS: TestEffectBindingSerializesRegistrationAndClosure (0.27s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity (0.41s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_pkey (0.15s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_check (0.14s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_ENABLE_ROW_LEVEL_SECURITY (0.12s)"
+      ]
+    },
+    {
+      "attempt": 4,
+      "verification": {
+        "required": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedStoreTransactions",
+          "github.com/jsell-rh/stego/internal/generator/postgresadapter"
+        ],
+        "missing": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "effect-bindings-71372ac950bf",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "effect-bindings-71372ac950bf",
+        "uid": "8e2c6554-93e0-4ae5-b983-4052313fb754",
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T02:23:36Z",
+              "lastTransitionTime": "2026-09-15T02:23:36Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T02:23:36Z",
+              "lastTransitionTime": "2026-09-15T02:23:36Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T02:21:35Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200
+      },
+      "source_sha256": {
+        "internal/gen/storage_contract.go.tmpl": "a9d2cfa531f48c464b14eef650d6214be389676a86c71c19a451bc874778396b",
+        "internal/generator/postgresadapter/effects.go": "ebefe6544d33e4d7a524d29f7a38cf475ca31e8ce7f4a27c2e31c8fd56062438",
+        "internal/generator/postgresadapter/effects.go.tmpl": "4c97ff1540ef318caa57f1f340a98adc8bc5c7cd832962674758658b9d9e41f1",
+        "internal/generator/postgresadapter/generator.go": "81466260f53d12c5fe1c7b483f383a97f3904a2593bb0ba7f08f3ef534c71be1",
+        "internal/generator/postgresadapter/testdata/effects_test.go": "59a8238a9b8c90a0d51d52d90887defceae83d3713ee69eee06d6af5934b04c9",
+        "internal/generator/postgresadapter/transaction_test.go": "4180b388c3b58bdb33a8bc84ef41818ffd6a0c7a086cd014f6b2a4add738e9ec",
+        "registry/components/postgres-adapter/component.yaml": "b74d1eedc34a2b6a25e742f36d845f604c3417c086ceda9b0abc06186aef4afd"
+      },
+      "artifacts_sha256": {
+        "tests.jsonl": "099a52519c781f765da0cc5f4f122acd64517861e3efe583ff680c10381fa82b",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "source.tar": "c865394895d5953d699cbd6608cc574230ea25f2f9333fba8d9f5385324727a1",
+        "job-final.json": "a77c1370e6ede835169ffd7e4d1260822fc7fa7f2fe2a29ed67bafa0d17e6bb3",
+        "cleanup.json": "d7f99d5364ca7a8462a27f2c522b023dcb0e753c3ed171ad8b8f38931e127a65"
+      },
+      "elapsed_seconds": [
+        82.81
+      ],
+      "effect_results": [
+        "--- PASS: TestEffectBindingDistinguishesEarlyDeletionAndRetainedState (0.14s)",
+        "--- PASS: TestEffectBindingFailureRollsBackAndRequiresActiveTransaction (0.11s)",
+        "--- PASS: TestEffectBindingSerializesRegistrationAndClosure (0.29s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity (0.58s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_pkey (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_check (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_ENABLE_ROW_LEVEL_SECURITY (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DISABLE_TRIGGER_stego_effect_binding_guard (0.22s)",
+        "--- PASS: TestEffectBindingHistoryCannotBeChangedOrRemoved (0.13s)"
+      ]
+    },
+    {
+      "attempt": 5,
+      "verification": {
+        "required": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "passed": [
+          "TestGeneratedStoreTransactions"
+        ],
+        "failed": [],
+        "missing": [],
+        "exit_code": 0
+      },
+      "cleanup": {
+        "job_absent": "effect-bindings-64ea5e709568",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "job": {
+        "namespace": "stego-ci",
+        "name": "effect-bindings-64ea5e709568",
+        "uid": "6713f1bc-6bb7-4890-a797-9014f60264b4",
+        "status": {
+          "completionTime": "2026-09-15T02:27:34Z",
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T02:27:34Z",
+              "lastTransitionTime": "2026-09-15T02:27:34Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "SuccessCriteriaMet"
+            },
+            {
+              "lastProbeTime": "2026-09-15T02:27:34Z",
+              "lastTransitionTime": "2026-09-15T02:27:34Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "Complete"
+            }
+          ],
+          "ready": 0,
+          "startTime": "2026-09-15T02:25:27Z",
+          "succeeded": 1,
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        },
+        "activeDeadlineSeconds": 1200
+      },
+      "source_sha256": {
+        "internal/gen/storage_contract.go.tmpl": "a9d2cfa531f48c464b14eef650d6214be389676a86c71c19a451bc874778396b",
+        "internal/generator/postgresadapter/effects.go": "8bf444c84515939cdb3874b589b289c2a29c85dc18701610ebbc5db1c99b715b",
+        "internal/generator/postgresadapter/effects.go.tmpl": "b7bbf520dc53f08c6588cf978f5b5f36c5792b7d5d747d169953a4b868b97787",
+        "internal/generator/postgresadapter/generator.go": "81466260f53d12c5fe1c7b483f383a97f3904a2593bb0ba7f08f3ef534c71be1",
+        "internal/generator/postgresadapter/testdata/effects_test.go": "59a8238a9b8c90a0d51d52d90887defceae83d3713ee69eee06d6af5934b04c9",
+        "internal/generator/postgresadapter/transaction_test.go": "4180b388c3b58bdb33a8bc84ef41818ffd6a0c7a086cd014f6b2a4add738e9ec",
+        "registry/components/postgres-adapter/component.yaml": "b74d1eedc34a2b6a25e742f36d845f604c3417c086ceda9b0abc06186aef4afd"
+      },
+      "artifacts_sha256": {
+        "tests.jsonl": "1c5715741529669a7fdeee695b9ad3502560e67cc75f28dbfe69dc407de9a8ee",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "source.tar": "b70e6e45deb676d6a2d4592c0b542d58d83a99cc9b7ec1cf77c905b9b7704a8d",
+        "job-final.json": "a8504c1a1a644ae71d85176b865e773268c4cc2c5045d7d555fdfe284494a500",
+        "cleanup.json": "668cfc6eaeacfe213b500c9677ef37642618f6d11376759eb8201f72e534f909"
+      },
+      "elapsed_seconds": [
+        87.69
+      ],
+      "effect_results": [
+        "--- PASS: TestEffectBindingDistinguishesEarlyDeletionAndRetainedState (0.14s)",
+        "--- PASS: TestEffectBindingFailureRollsBackAndRequiresActiveTransaction (0.12s)",
+        "--- PASS: TestEffectBindingSerializesRegistrationAndClosure (0.26s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity (0.63s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_pkey (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DROP_CONSTRAINT_stego_effect_bindings_check (0.12s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_ENABLE_ROW_LEVEL_SECURITY (0.26s)",
+        "--- PASS: TestEffectBindingSchemaMustPreserveBoundsAndIdentity/ALTER_TABLE_stego_effect_bindings_DISABLE_TRIGGER_stego_effect_binding_guard (0.12s)",
+        "--- PASS: TestEffectBindingHistoryCannotBeChangedOrRemoved (0.12s)"
+      ]
+    }
+  ]
+}
