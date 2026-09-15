@@ -3891,3 +3891,11 @@ All probe resources are absent and the shared Lease is free. Version 1.5.1
 withdraws the prototype from generated runtime output. The prototype stays in
 test data until repeated installation, isolation, and lifetime checks pass.
 Hypershell did not adopt it. See the [attempt record](pinned-resource-admission.md).
+
+The next application gate is the [external Gateway connection](hypershell-external-connection.md).
+The current browser gate reaches the Gateway through its internal Service; it
+has no public endpoint evidence. A readiness review found that the workload
+controller omits available replicas and owner validation at its final read.
+The new shared `DeploymentAvailable` helper covers those checks. Its small
+generated runtime test passed. Application adoption and live verification are
+still required. The TLS and address-ownership questions remain pending.

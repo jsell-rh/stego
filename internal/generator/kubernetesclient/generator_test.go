@@ -18,6 +18,9 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
+//go:embed testdata/readiness_test.go
+var readinessTests []byte
+
 //go:embed testdata/client_test.go
 var runtimeTests []byte
 
@@ -43,10 +46,13 @@ var pinnedAdmissionSource string
 
 func TestGeneratedKubernetesClient(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
-		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedKubernetesClient(t, telemetry) })
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedKubernetesClient(t, telemetry, "") })
 	}
 }
-func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
+func TestGeneratedDeploymentAvailability(t *testing.T) {
+	testGeneratedKubernetesClient(t, false, "^TestDeploymentAvailability$")
+}
+func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string) {
 	ctx := gen.Context{ModuleName: "example.com/widget", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, StorageContract: "example.com/widget/out/contracts/storage", AuthPackage: "example.com/widget/out/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
 	if telemetry {
 		ctx.PeerNamespaces["otel-tracing"] = "tracing"
@@ -66,6 +72,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 		}
 	}
 	files = append(files, gen.File{Path: "kubernetes/client_test.go", Content: runtimeTests})
+	files = append(files, gen.File{Path: "kubernetes/readiness_test.go", Content: readinessTests})
 	files = append(files, gen.File{Path: "kubernetes/rotation_test.go", Content: rotationTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
@@ -119,7 +126,11 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 	if telemetry && os.Getenv("STEGO_KUBERNETES_LIVE_ROTATION") == "1" {
 		budget = "15m"
 	}
-	cmd := exec.Command("go", "test", "-v", "-race", "-count=1", "-timeout="+budget, "./...")
+	arguments := []string{"test", "-v", "-race", "-count=1", "-timeout=" + budget}
+	if selected != "" {
+		arguments = append(arguments, "-run", selected)
+	}
+	cmd := exec.Command("go", append(arguments, "./...")...)
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if !telemetry {
@@ -192,7 +203,7 @@ func TestUnverifiedAdmissionPrototypeIsNotGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 4 {
+	if len(files) != 5 {
 		t.Fatal("unexpected Kubernetes runtime file set")
 	}
 	for _, file := range files {
