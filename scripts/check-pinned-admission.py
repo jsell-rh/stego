@@ -19,6 +19,31 @@ IMAGE = 'docker.io/library/node@sha256:87362b5d965240a1bc79f85cec63179d4ee853741
 LABEL = 'stego.test/pinned-admission'
 
 
+def verify_policy_scope(policies, rules, namespace, actor):
+    expected = {r['Name'] + suffix: r for r in rules for suffix in ['', '.subresources']}
+    observed = set()
+    condition = [{'name': 'selected-account-and-namespace', 'expression': 'request.userInfo.username == ' + json.dumps(actor) + ' && request.namespace == ' + json.dumps(namespace)}]
+    for policy in policies:
+        kind = policy.get('kind')
+        name = policy.get('metadata', {}).get('name')
+        key = (kind, name)
+        if kind not in ['ValidatingAdmissionPolicy', 'ValidatingAdmissionPolicyBinding'] or name not in expected or key in observed:
+            raise RuntimeError('The renderer returned an unexpected policy identity')
+        observed.add(key)
+        rule = expected[name]
+        if kind == 'ValidatingAdmissionPolicy':
+            spec = policy['spec']
+            group, version = rule['APIVersion'].split('/')
+            resource = rule['Resource'] + ('/*' if name.endswith('.subresources') else '')
+            match = [{'apiGroups': [group], 'apiVersions': [version], 'operations': ['CREATE', 'UPDATE', 'DELETE'], 'resources': [resource], 'scope': 'Namespaced'}]
+            if spec.get('matchConditions') != condition or spec.get('matchConstraints', {}).get('resourceRules') != match or spec.get('failurePolicy') != 'Fail':
+                raise RuntimeError('The rendered policy escapes its probe identity or resource scope')
+        elif policy['spec'].get('policyName') != name:
+            raise RuntimeError('The renderer selected an unrelated policy')
+    if len(observed) != len(expected) * 2:
+        raise RuntimeError('The renderer omitted a policy or binding')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     for name in ['context', 'namespace', 'lease-holder', 'lease-uid']:
@@ -120,7 +145,11 @@ def main():
         configuration = {'ActorNamespace': args.namespace, 'ActorName': 'runner', 'Rules': rules}
         save('renderer-input.json', configuration)
         rendered = subprocess.run([str(args.renderer.resolve())], input=json.dumps(configuration), text=True, capture_output=True, check=True, timeout=10)
-        policies = json.loads(rendered.stdout); save('policies.json', policies)
+        if len(rendered.stdout) > 200000:
+            raise RuntimeError('The rendered policy set exceeds its limit')
+        policies = json.loads(rendered.stdout)
+        verify_policy_scope(policies, rules, args.namespace, actor)
+        save('policies.json', policies)
         for policy in policies:
             create(policy)
         def type_checked():
