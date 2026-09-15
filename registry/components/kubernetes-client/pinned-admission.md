@@ -40,6 +40,10 @@ require a matching lifetime Job rule in the same namespace. Their sole owner
 must name that Job. Kubernetes checks the owner UID when it collects dependents.
 The caller cannot use an owner reference to block Job deletion.
 
+Both policies and bindings have an exact namespace selector. CEL caller
+conditions alone do not isolate parameter lookup failures. Missing parameters
+can cause denial before those conditions run.
+
 The policies check an operator-owned namespace identity label and restricted
 Pod security. After namespace creation, the operator must set
 `PinnedNamespaceUIDLabel` (`stego.dev/pinned-namespace-uid`) to the observed
@@ -47,7 +51,11 @@ namespace UID. A recreated namespace needs its new UID and new policies. Never
 copy this label from an old namespace. Kubernetes does not expose the namespace
 UID through `namespaceObject` in CEL, so this check relies on that operator step. They
 check the parameter UID and fail if the template is absent or replaced. The
-account can create and delete the exact resource. It cannot update it. Separate
+account can create and delete the exact resource. Deletion requires current UID
+and resource-version preconditions, explicit foreground or background cleanup,
+and at most 30 seconds of grace. Orphan and unsafe deletion are denied because
+they could leave dependent workloads after the lifetime Job is gone. The account
+cannot update the resource. Separate
 policies deny writes through subresources, including scale and status. Existing
 operator finalizers do not prevent an authorized delete request.
 
@@ -65,7 +73,9 @@ Do not grant Pod creation, exec, token creation, impersonation, or arbitrary
 workload permissions. The operator must inspect and approve the template images,
 service accounts, volume sources, network policies, and resource limits.
 
-Install templates first, then policies and bindings. Require successful API
+Install templates first, then policies and bindings. On removal, revoke the
+account's write grants first, then remove bindings before templates or namespaces.
+Do not remove templates while a binding still requires them. Require successful API
 server type checks and allowed/denied request probes before granting production
 use. Missing policy installation is not an authorization boundary. These
 policies do not provide a Lease, a namespace allocator, an image signature check,

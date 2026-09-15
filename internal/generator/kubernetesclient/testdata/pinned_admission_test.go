@@ -59,6 +59,9 @@ func TestPinnedAdmissionHasNoWriteGrantOrOptionalParameter(t *testing.T) {
 	}
 	for _, item := range result {
 		raw, _ := json.Marshal(item)
+		if !strings.Contains(string(raw), `"namespaceSelector":{"matchLabels":{"kubernetes.io/metadata.name":"test-ns"}}`) {
+			t.Fatal("parameter failures can escape the target namespace")
+		}
 		if strings.HasSuffix(item["metadata"].(Object)["name"].(string), ".subresources") {
 			if item["kind"] == "ValidatingAdmissionPolicy" {
 				if !strings.Contains(string(raw), `"expression":"false"`) {
@@ -72,7 +75,7 @@ func TestPinnedAdmissionHasNoWriteGrantOrOptionalParameter(t *testing.T) {
 		}
 		switch item["kind"] {
 		case "ValidatingAdmissionPolicy":
-			for _, fragment := range []string{`"failurePolicy":"Fail"`, `system:serviceaccount:ci:runner`, `"scope":"Namespaced"`, `params.metadata.uid`, `stego.dev/pinned-namespace-uid`, `request.operation != 'UPDATE'`} {
+			for _, fragment := range []string{`"failurePolicy":"Fail"`, `system:serviceaccount:ci:runner`, `"scope":"Namespaced"`, `params.metadata.uid`, `stego.dev/pinned-namespace-uid`, `request.operation != 'UPDATE'`, `request.options.propagationPolicy`, `request.options.preconditions.uid`} {
 				if !strings.Contains(string(raw), fragment) {
 					t.Fatal("missing policy guard", fragment)
 				}

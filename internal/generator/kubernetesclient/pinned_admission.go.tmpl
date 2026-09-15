@@ -93,6 +93,7 @@ func PinnedAdmissionPolicies(actorNamespace, actorName string, rules []PinnedAdm
   add("params.metadata.uid == "+quote(r.TemplateUID), "The pinned template identity changed")
   add("namespaceObject != null && has(namespaceObject.metadata.labels) && "+quote(PinnedNamespaceUIDLabel)+" in namespaceObject.metadata.labels && namespaceObject.metadata.labels["+quote(PinnedNamespaceUIDLabel)+"] == "+quote(r.NamespaceUID)+" && 'pod-security.kubernetes.io/enforce' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'", "The target namespace must retain its identity and restricted Pod security")
   add("request.operation != 'UPDATE'", "Pinned resources cannot be updated by this account")
+  add("request.operation != 'DELETE' || (has(request.options) && has(request.options.propagationPolicy) && request.options.propagationPolicy in ['Foreground', 'Background'] && !has(request.options.orphanDependents) && (!has(request.options.gracePeriodSeconds) || request.options.gracePeriodSeconds <= 30) && (!has(request.options.ignoreStoreReadErrorWithClusterBreakingPotential) || !request.options.ignoreStoreReadErrorWithClusterBreakingPotential) && has(request.options.preconditions) && has(request.options.preconditions.uid) && request.options.preconditions.uid == variables.target.metadata.uid && has(request.options.preconditions.resourceVersion) && request.options.preconditions.resourceVersion == variables.target.metadata.resourceVersion)", "Deletion must retain ownership and use current resource preconditions")
   add("variables.target.metadata.name == "+quote(r.ResourceName)+" && variables.target.metadata.namespace == "+quote(r.Namespace), "Only the named pinned resource is permitted")
   add("request.operation == 'DELETE' || !has(variables.target.metadata.finalizers) || size(variables.target.metadata.finalizers) == 0", "The caller cannot add resource finalizers")
   if r.Mode!="job" {
@@ -112,22 +113,22 @@ func PinnedAdmissionPolicies(actorNamespace, actorName string, rules []PinnedAdm
   }
   policy:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":Object{"name":r.Name},"spec":Object{
    "failurePolicy":"Fail","paramKind":Object{"apiVersion":r.APIVersion,"kind":r.Kind},
-   "matchConstraints":Object{"resourceRules":[]Object{ {"apiGroups":[]string{group},"apiVersions":[]string{parts[len(parts)-1]},"operations":[]string{"CREATE","UPDATE","DELETE"},"resources":[]string{r.Resource},"scope":"Namespaced"}}},
+   "matchConstraints":Object{"namespaceSelector":Object{"matchLabels":Object{"kubernetes.io/metadata.name":r.Namespace}},"resourceRules":[]Object{ {"apiGroups":[]string{group},"apiVersions":[]string{parts[len(parts)-1]},"operations":[]string{"CREATE","UPDATE","DELETE"},"resources":[]string{r.Resource},"scope":"Namespaced"}}},
    "matchConditions":[]Object{ {"name":"selected-account-and-namespace","expression":"request.userInfo.username == "+quote(actor)+" && request.namespace == "+quote(r.Namespace)}},
    "variables":[]Object{ {"name":"target","expression":"object != null ? object : oldObject"}},"validations":checks,
   }}
-  binding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":r.Name},"spec":Object{"policyName":r.Name,"validationActions":[]string{"Deny"},"paramRef":Object{"name":r.TemplateName,"namespace":r.TemplateNamespace,"parameterNotFoundAction":"Deny"}}}
+  binding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":r.Name},"spec":Object{"matchResources":Object{"namespaceSelector":Object{"matchLabels":Object{"kubernetes.io/metadata.name":r.Namespace}}},"policyName":r.Name,"validationActions":[]string{"Deny"},"paramRef":Object{"name":r.TemplateName,"namespace":r.TemplateNamespace,"parameterNotFoundAction":"Deny"}}}
   // Status and scale writes must not bypass the pinned parent resource.
   // Require a nonempty subresource because resource wildcards also match
   // parent requests on supported API servers.
   subName:=r.Name+".subresources"
   subPolicy:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicy","metadata":Object{"name":subName},"spec":Object{
    "failurePolicy":"Fail",
-   "matchConstraints":Object{"resourceRules":[]Object{ {"apiGroups":[]string{group},"apiVersions":[]string{parts[len(parts)-1]},"operations":[]string{"CREATE","UPDATE","DELETE"},"resources":[]string{r.Resource+"/*"},"scope":"Namespaced"}}},
+   "matchConstraints":Object{"namespaceSelector":Object{"matchLabels":Object{"kubernetes.io/metadata.name":r.Namespace}},"resourceRules":[]Object{ {"apiGroups":[]string{group},"apiVersions":[]string{parts[len(parts)-1]},"operations":[]string{"CREATE","UPDATE","DELETE"},"resources":[]string{r.Resource+"/*"},"scope":"Namespaced"}}},
    "matchConditions":[]Object{ {"name":"selected-account-and-namespace","expression":"request.userInfo.username == "+quote(actor)+" && request.namespace == "+quote(r.Namespace)+" && request.subResource != ''"}},
    "validations":[]Object{ {"expression":"false","message":"The caller cannot change pinned resource subresources"}},
   }}
-  subBinding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":subName},"spec":Object{"policyName":subName,"validationActions":[]string{"Deny"}}}
+  subBinding:=Object{"apiVersion":"admissionregistration.k8s.io/v1","kind":"ValidatingAdmissionPolicyBinding","metadata":Object{"name":subName},"spec":Object{"matchResources":Object{"namespaceSelector":Object{"matchLabels":Object{"kubernetes.io/metadata.name":r.Namespace}}},"policyName":subName,"validationActions":[]string{"Deny"}}}
   result=append(result,policy,binding,subPolicy,subBinding)
  }
  encoded,err:=json.Marshal(result);if err!=nil { return nil,fmt.Errorf("encode pinned policies: %w",err) };if len(encoded)>200000 { return nil,errors.New("pinned admission policy set exceeds its limit") }

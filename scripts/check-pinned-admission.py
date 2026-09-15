@@ -31,6 +31,7 @@ def verify_policy_scope(policies, rules, namespace, actor):
             raise RuntimeError('The renderer returned an unexpected policy identity')
         observed.add(key)
         rule = expected[name]
+        selector = {'matchLabels': {'kubernetes.io/metadata.name': namespace}}
         if kind == 'ValidatingAdmissionPolicy':
             spec = policy['spec']
             group, version = rule['APIVersion'].split('/')
@@ -39,9 +40,9 @@ def verify_policy_scope(policies, rules, namespace, actor):
             scoped_condition = copy.deepcopy(condition)
             if name.endswith('.subresources'):
                 scoped_condition[0]['expression'] += " && request.subResource != ''"
-            if spec.get('matchConditions') != scoped_condition or spec.get('matchConstraints', {}).get('resourceRules') != match or spec.get('failurePolicy') != 'Fail':
+            if spec.get('matchConditions') != scoped_condition or spec.get('matchConstraints', {}).get('resourceRules') != match or spec.get('matchConstraints', {}).get('namespaceSelector') != selector or spec.get('failurePolicy') != 'Fail':
                 raise RuntimeError('The rendered policy escapes its probe identity or resource scope')
-        elif policy['spec'].get('policyName') != name:
+        elif policy['spec'].get('policyName') != name or policy['spec'].get('matchResources') != {'namespaceSelector': selector}:
             raise RuntimeError('The renderer selected an unrelated policy')
     if len(observed) != len(expected) * 2:
         raise RuntimeError('The renderer omitted a policy or binding')
@@ -122,6 +123,14 @@ def main():
         namespace_object = item('Namespace', args.namespace, namespace=None)
         namespace_object['metadata']['labels'] = {'pod-security.kubernetes.io/enforce': 'restricted'}
         namespace = create(namespace_object)
+        outside_namespace = args.namespace + '-outside'
+        outside = item('Namespace', outside_namespace, namespace=None)
+        outside['metadata']['labels'] = {'pod-security.kubernetes.io/enforce': 'restricted'}
+        create(outside)
+        create(item('ResourceQuota', 'limits', namespace=outside_namespace, spec={'hard': {'pods': '0', 'persistentvolumeclaims': '0', 'requests.storage': '0'}}))
+        create(item('NetworkPolicy', 'deny-all', 'networking.k8s.io/v1', namespace=outside_namespace, spec={'podSelector': {}, 'policyTypes': ['Ingress', 'Egress']}))
+        create(item('Role', 'runner', 'rbac.authorization.k8s.io/v1', namespace=outside_namespace, rules=[{'apiGroups': ['batch'], 'resources': ['jobs'], 'verbs': ['create']}]))
+        create(item('RoleBinding', 'runner', 'rbac.authorization.k8s.io/v1', namespace=outside_namespace, roleRef={'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': 'runner'}, subjects=[{'kind': 'ServiceAccount', 'name': 'runner', 'namespace': args.namespace}]))
         call(['label', 'namespace', args.namespace, 'stego.dev/pinned-namespace-uid=' + namespace['metadata']['uid']])
         create(item('ResourceQuota', 'limits', spec={'hard': {'pods': '2', 'limits.cpu': '50m', 'limits.memory': '64Mi', 'limits.ephemeral-storage': '32Mi', 'persistentvolumeclaims': '0', 'requests.storage': '0'}}))
         create(item('NetworkPolicy', 'deny-all', 'networking.k8s.io/v1', spec={'podSelector': {}, 'policyTypes': ['Ingress', 'Egress']}))
@@ -174,6 +183,14 @@ def main():
         create(item('Role', 'runner', 'rbac.authorization.k8s.io/v1', rules=[{'apiGroups': ['batch'], 'resources': ['jobs', 'jobs/status'], 'verbs': ['create', 'get', 'delete', 'update', 'patch']}, {'apiGroups': ['apps'], 'resources': ['deployments', 'deployments/scale', 'deployments/status'], 'verbs': ['create', 'get', 'delete', 'update', 'patch']}, {'apiGroups': [group], 'resources': ['servers'], 'verbs': ['create', 'get', 'delete', 'update', 'patch']}]))
         create(item('RoleBinding', 'runner', 'rbac.authorization.k8s.io/v1', roleRef={'apiGroup': 'rbac.authorization.k8s.io', 'kind': 'Role', 'name': 'runner'}, subjects=[{'kind': 'ServiceAccount', 'name': 'runner', 'namespace': args.namespace}]))
         job = item('Job', 'lifetime', 'batch/v1', spec={'suspend': False, 'parallelism': 1, 'completions': 1, 'backoffLimit': 0, 'activeDeadlineSeconds': 30, 'ttlSecondsAfterFinished': 0, 'template': {'metadata': {'labels': {'app': 'pinned-lifetime'}}, 'spec': pod}})
+        def parameters_ready():
+            result = call(['create', '--dry-run=server', '-f', '-', '-o', 'json'], job, actor, good=False)
+            if result.returncode == 0:
+                return True
+            if 'no params found for policy binding' not in result.stderr:
+                raise RuntimeError('The initial admission probe failed: ' + result.stderr)
+            return False
+        wait(parameters_ready, 30, 'The admission parameter cache did not become ready')
         probe('pinned Job', job, True)
         for marker, value in [('missing namespace identity', None), ('changed namespace identity', '11111111-2222-3333-4444-555555555555')]:
             argument = 'stego.dev/pinned-namespace-uid-' if value is None else 'stego.dev/pinned-namespace-uid=' + value
@@ -192,17 +209,43 @@ def main():
         live_job = create(job, actor); owner['uid'] = live_job['metadata']['uid']
         deployment['metadata']['ownerReferences'] = [owner]; server['metadata']['ownerReferences'] = [owner]
         live_deployment = create(deployment, actor); live_server = create(server, actor)
+        live_job = get('job', 'lifetime', args.namespace)
+        delete_options = {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'propagationPolicy': 'Foreground', 'preconditions': {'uid': live_job['metadata']['uid'], 'resourceVersion': live_job['metadata']['resourceVersion']}}
+        delete_words = ['delete', '--raw=/apis/batch/v1/namespaces/' + args.namespace + '/jobs/lifetime?dryRun=All', '-f', '-']
+        probe('conditional cascading deletion', delete_options, True, words=delete_words)
+        for name, change in [('orphan deletion', lambda o: o.update(propagationPolicy='Orphan')), ('implicit deletion policy', lambda o: o.pop('propagationPolicy')), ('unconditional deletion', lambda o: o.pop('preconditions')), ('long deletion grace', lambda o: o.update(gracePeriodSeconds=3600))]:
+            bad = copy.deepcopy(delete_options); change(bad)
+            probe(name, bad, False, args.namespace + '-job', delete_words)
         probe('scale subresource', {'apiVersion': 'autoscaling/v1', 'kind': 'Scale', 'metadata': {'name': 'worker', 'namespace': args.namespace, 'resourceVersion': live_deployment['metadata']['resourceVersion']}, 'spec': {'replicas': 2}}, False, args.namespace + '-deployment.subresources', ['replace', '--raw=/apis/apps/v1/namespaces/' + args.namespace + '/deployments/worker/scale?dryRun=All', '-f', '-'])
         started = time.monotonic()
         wait(lambda: get('job', 'lifetime', args.namespace) is None and get('deployment', 'worker', args.namespace) is None and get('servers.' + group, 'server', args.namespace) is None, 120, 'The lifetime Job did not remove its owned resources')
         save('lifetime.json', {'job_uid': live_job['metadata']['uid'], 'deployment_uid': live_deployment['metadata']['uid'], 'custom_resource_uid': live_server['metadata']['uid'], 'owned_resources_absent': True, 'seconds': time.monotonic() - started})
+        template_now = get('job', 'job-template', args.namespace)
+        call(['delete', '--raw=/apis/batch/v1/namespaces/' + args.namespace + '/jobs/job-template', '-f', '-'], {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {'uid': job_template['metadata']['uid'], 'resourceVersion': template_now['metadata']['resourceVersion']}, 'propagationPolicy': 'Foreground'})
+        def missing_parameter_denied():
+            result = call(['create', '--dry-run=server', '-f', '-', '-o', 'json'], job, actor, good=False)
+            if result.returncode == 0:
+                return False
+            if 'no params found for policy binding' not in result.stderr or args.namespace + '-job' not in result.stderr:
+                raise RuntimeError('Unexpected missing-parameter result: ' + result.stderr)
+            return True
+        wait(missing_parameter_denied, 30, 'A missing template did not deny creation')
+        probe('missing template', job, False, args.namespace + '-job')
+        outside_job = copy.deepcopy(job); outside_job['metadata']['namespace'] = outside_namespace
+        probe('other probe namespace with missing parameter', outside_job, True)
         passed = True
+    except Exception as error:
+        save('failure.json', {'type': type(error).__name__, 'message': str(error)})
+        print('Pinned admission failed; cleanup is in progress: ' + str(error), flush=True)
+        raise
     finally:
-        # Remove the namespace first, then the policies and CRD. Keep ownership
-        # checks even after a lost create response. Do not adopt other resources.
-        ordered = sorted(created, key=lambda e: 0 if e['kind'] == 'Namespace' else 1)
+        # Revoke probe access, remove bindings, then remove namespaces and the
+        # remaining cluster resources. Missing parameters must not block cleanup.
+        # Keep UID checks after a lost response. Do not adopt other resources.
+        priority = {'RoleBinding': 0, 'ValidatingAdmissionPolicyBinding': 1, 'Namespace': 2}
+        ordered = sorted(created, key=lambda e: priority.get(e['kind'], 3))
         for entry in ordered:
-            if entry['namespace'] is not None:
+            if entry['namespace'] is not None and entry['kind'] != 'RoleBinding':
                 continue
             actual = get(entry['kind'], entry['name'], entry['namespace'])
             if not actual:
@@ -216,7 +259,7 @@ def main():
             resource = 'servers' if entry['kind'] == 'servers.' + group else plurals[entry['kind']]
             call(['delete', '--raw=' + prefix + '/' + resource + '/' + entry['name'], '-f', '-'], {'apiVersion': 'v1', 'kind': 'DeleteOptions', 'preconditions': {'uid': entry['uid'], 'resourceVersion': actual['metadata']['resourceVersion']}, 'propagationPolicy': 'Foreground'})
             if entry['kind'] == 'Namespace':
-                wait(lambda: get('namespace', args.namespace) is None, 90, 'Probe namespace cleanup is incomplete')
+                wait(lambda: get('namespace', entry['name']) is None, 90, 'Probe namespace cleanup is incomplete')
         wait(lambda: all(get(e['kind'], e['name'], e['namespace']) is None for e in created if e['namespace'] is None), 60, 'Probe cluster resource cleanup is incomplete')
         if get('namespace', args.namespace) is not None:
             raise RuntimeError('The probe namespace remains; retain the Lease')
