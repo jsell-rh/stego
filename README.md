@@ -10,6 +10,11 @@ work. Production use requires validation for the selected application and
 deployment.
 The [Kubernetes service component](specs/kubernetes-service.md) supplies common
 container build files, restricted Pod settings, network policy, and HTTPS probes.
+Its workload policies do not cover application-allocated namespaces. The
+[namespace allocator](specs/namespace-allocation.md) has an optional deny-all
+policy with admission protection. Allowed traffic and live network enforcement
+for the Hypershell Gateway profile remain open; the application has not enabled
+that policy.
 
 ## Why
 
