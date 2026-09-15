@@ -492,8 +492,8 @@ The generated tests passed with and without telemetry and with the race detector
 in 13.668 seconds. The live gate uses this method before its separate signed-token
 checks. The real Keycloak gate passed at `cae56de1` in
 [run 35035109569](https://github.com/jsell-rh/stego/actions/runs/35035109569).
-It took 54.09 seconds, and container cleanup passed. The full compiler job is
-still running. Hypershell adoption is in progress.
+It took 54.09 seconds. Container cleanup and all five CI jobs passed.
+Hypershell adoption is in progress.
 
 Hypershell commit `d031143` adopts `VerifiedServiceAccountSecret` in the real
 one-time credential response. Its handwritten client fell from 1,158 to 1,042
@@ -509,3 +509,11 @@ read, ownership, role, and cleanup tests passed with the race detector. The
 initial application gate exposed a dirty compiler build record; commit
 `881afa6` regenerates from the exact clean pin and matches the clean CI hashes.
 Complete application qualification remains open at head `fff749b`.
+
+The application browser acceptance, console, and image checks passed in
+[run 35035649199](https://github.com/jsell-rh/hypershell-stego/actions/runs/35035649199)
+at `fff749b`. Core acceptance and the complete CNPG workflow are still running.
+The separate external browser gate rejected a fixture network profile mismatch
+before it created a Job. Hypershell `348f630` uses the operator's existing network
+profile with external SQL credentials still selected, and checks that profile
+before taking the shared test Lease. The correction needs live qualification.
