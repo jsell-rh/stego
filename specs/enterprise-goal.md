@@ -86,6 +86,11 @@ weakening the gate. The [pool metric contract](database-pool-metrics.md) and
 requirements. A queued test, successful compilation, or partial workflow is not
 a passing application result.
 
+The original module coverage audit also found stale example output and no CI
+jobs for either nested example module. The [example project checks](example-project-checks.md)
+restore current generation and add CI gates for both projects. Their build and
+test results remain required; the root compiler suite does not cover them.
+
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and
 restore evidence, and measured capacity. The public route trust and ownership

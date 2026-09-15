@@ -8,22 +8,80 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	sort "sort"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
-	api "github.com/example/service/out/internal/api"
+	stegostorage "github.com/example/service/out/contracts/storage"
 	search "github.com/example/service/out/internal/search"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-// Store provides GORM-backed storage for all entities.
-type Store struct {
-	db *gorm.DB
+// filterKeys keeps equivalent maps on one prepared-query shape.
+func filterKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
-// NewStore creates a new Store with the given GORM connection.
-func NewStore(db *gorm.DB) *Store {
-	return &Store{db: db}
+type OrderByField = stegostorage.OrderByField
+type ListOptions = stegostorage.ListOptions
+type ListResult = stegostorage.ListResult
+
+var ErrNotFound = stegostorage.ErrNotFound
+var ErrConflict = stegostorage.ErrConflict
+var ErrSearch = stegostorage.ErrSearch
+var _ stegostorage.Storage = (*Store)(nil)
+var _ stegostorage.Transactor = (*Store)(nil)
+var _ stegostorage.Repository = (*Store)(nil)
+var _ stegostorage.Transaction = (*Store)(nil)
+
+// Store provides GORM-backed storage for all entities.
+type Store struct {
+	db          *gorm.DB
+	transaction *transactionState
+}
+
+var schemaInitialization sync.Mutex
+
+// NewStore prepares all model metadata before concurrent queries can start.
+// Construct the store before other code uses these models on the connection.
+// Preparation does not change database tables. Versioned models require a schema check.
+func NewStore(db *gorm.DB) (*Store, error) {
+	if db == nil {
+		return nil, errors.New("storage requires an initialized GORM database")
+	}
+	if db.Error != nil {
+		return nil, db.Error
+	}
+	if db.Config == nil || db.Statement == nil || db.NamingStrategy == nil {
+		return nil, errors.New("storage requires an initialized GORM database")
+	}
+	schemaInitialization.Lock()
+	defer schemaInitialization.Unlock()
+	for _, model := range []any{
+		&Organization{},
+		&User{},
+		&OrgSetting{},
+	} {
+		statement := &gorm.Statement{DB: db}
+		if err := statement.Parse(model); err != nil {
+			return nil, fmt.Errorf("prepare storage schema: %w", err)
+		}
+	}
+	if err := verifyScanCheckpoints(db); err != nil {
+		return nil, err
+	}
+	if err := verifyEffectBindings(db); err != nil {
+		return nil, err
+	}
+	return &Store{db: db}, nil
 }
 
 // Create inserts a new entity record. Computed fields are excluded.
@@ -41,7 +99,7 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		}
 		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
 			if isUniqueConstraintError(err) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return err
 		}
@@ -57,7 +115,7 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		}
 		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
 			if isUniqueConstraintError(err) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return err
 		}
@@ -73,7 +131,7 @@ func (s *Store) Create(ctx context.Context, entity string, value any) error {
 		}
 		if err := s.db.WithContext(ctx).Create(&v).Error; err != nil {
 			if isUniqueConstraintError(err) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return err
 		}
@@ -91,7 +149,7 @@ func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) 
 		var v Organization
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, api.ErrNotFound
+				return nil, stegostorage.ErrNotFound
 			}
 			return nil, err
 		}
@@ -100,7 +158,7 @@ func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) 
 		var v User
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, api.ErrNotFound
+				return nil, stegostorage.ErrNotFound
 			}
 			return nil, err
 		}
@@ -109,7 +167,7 @@ func (s *Store) Get(ctx context.Context, entity string, id string) (any, error) 
 		var v OrgSetting
 		if err := s.db.WithContext(ctx).First(&v, "id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, api.ErrNotFound
+				return nil, stegostorage.ErrNotFound
 			}
 			return nil, err
 		}
@@ -137,12 +195,12 @@ func (s *Store) Replace(ctx context.Context, entity string, id string, value any
 		result := s.db.WithContext(ctx).Model(&Organization{}).Where("id = ?", id).Select([]string{"name", "description"}).Updates(&v)
 		if result.Error != nil {
 			if isUniqueConstraintError(result.Error) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	case "User":
@@ -158,12 +216,12 @@ func (s *Store) Replace(ctx context.Context, entity string, id string, value any
 		result := s.db.WithContext(ctx).Model(&User{}).Where("id = ?", id).Select([]string{"email", "display_name", "role", "org_id", "metadata"}).Updates(&v)
 		if result.Error != nil {
 			if isUniqueConstraintError(result.Error) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	case "OrgSetting":
@@ -179,12 +237,12 @@ func (s *Store) Replace(ctx context.Context, entity string, id string, value any
 		result := s.db.WithContext(ctx).Model(&OrgSetting{}).Where("id = ?", id).Select([]string{"org_id", "key", "value", "generation"}).Updates(&v)
 		if result.Error != nil {
 			if isUniqueConstraintError(result.Error) {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	default:
@@ -202,7 +260,7 @@ func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	case "User":
@@ -211,7 +269,7 @@ func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	case "OrgSetting":
@@ -220,7 +278,7 @@ func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 			return result.Error
 		}
 		if result.RowsAffected == 0 {
-			return api.ErrNotFound
+			return stegostorage.ErrNotFound
 		}
 		return nil
 	default:
@@ -228,42 +286,82 @@ func (s *Store) Delete(ctx context.Context, entity string, id string) error {
 	}
 }
 
+func searchInputError(err error) bool {
+	var failure *pgconn.PgError
+	if !errors.As(err, &failure) {
+		return false
+	}
+	return strings.HasPrefix(failure.Code, "22") || failure.Code == "42883" || failure.Code == "42804" || failure.Code == "42846"
+}
+
 // List retrieves entities with optional scope filtering, ordering, and pagination.
 // It performs a COUNT(*) query first to get the total matching records,
 // then applies ordering and fetches the requested page via OFFSET/LIMIT.
-func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts api.ListOptions) (api.ListResult, error) {
+func (s *Store) List(ctx context.Context, entity string, scopeField string, scopeValue string, opts stegostorage.ListOptions) (stegostorage.ListResult, error) {
+	return s.listQuery(ctx, entity, scopeField, scopeValue, opts, "", false)
+}
+func (s *Store) listQuery(ctx context.Context, entity, scopeField, scopeValue string, opts stegostorage.ListOptions, afterID string, cursor bool) (stegostorage.ListResult, error) {
 	switch entity {
 	case "Organization":
-		validCols := map[string]bool{"name": true, "description": true}
+		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "name": true, "description": true}
 		query := s.db.WithContext(ctx).Model(&Organization{})
+		if opts.IncludeDeleted || opts.OnlyDeleted {
+			query = query.Unscoped()
+		}
+		if opts.OnlyDeleted {
+			query = query.Where("deleted_at IS NOT NULL")
+		}
+		query, err := s.applyRelated(ctx, query, "Organization", opts.Related)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
+		query, err = s.applyRowFilter(ctx, query, "Organization", opts.Filter)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
 		if scopeField != "" && scopeValue != "" {
 			if !validCols[scopeField] {
-				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity Organization", scopeField)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid scope field %q for entity Organization", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
-		for field, value := range opts.ImplicitFilters {
+		for _, field := range filterKeys(opts.ImplicitFilters) {
+			value := opts.ImplicitFilters[field]
 			if !validCols[field] {
-				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity Organization", field)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity Organization", field)
 			}
 			query = query.Where(field+" = ?", value)
 		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("Organization", opts.Search)
 			if err != nil {
-				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
+				return stegostorage.ListResult{}, fmt.Errorf("%w: %s", stegostorage.ErrSearch, err)
 			}
 			if searchResult != nil {
 				query = query.Where(searchResult.Where, searchResult.Args...)
 			}
 		}
-		var total int64
-		if err := query.Count(&total).Error; err != nil {
-			return api.ListResult{}, err
-		}
 		for _, ob := range opts.OrderBy {
+			if !validCols[ob.Field] || (ob.Direction != "asc" && ob.Direction != "desc") {
+				return stegostorage.ListResult{}, fmt.Errorf("invalid ordering")
+			}
 			if validCols[ob.Field] {
 				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if cursor && afterID != "" {
+			query = query.Where("id > ?", afterID)
+		}
+		var total int64
+		if !cursor {
+			if err := query.Count(&total).Error; err != nil {
+				if opts.Search != "" && searchInputError(err) {
+					return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+				}
+				return stegostorage.ListResult{}, err
+			}
+			if opts.CountOnly {
+				return stegostorage.ListResult{Items: []Organization{}, Total: total}, nil
 			}
 		}
 		if len(opts.Fields) > 0 {
@@ -285,40 +383,72 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 		}
 		var result []Organization
 		if err := query.Find(&result).Error; err != nil {
-			return api.ListResult{}, err
+			if opts.Search != "" && searchInputError(err) {
+				return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+			}
+			return stegostorage.ListResult{}, err
 		}
-		return api.ListResult{Items: result, Total: total}, nil
+		return stegostorage.ListResult{Items: result, Total: total}, nil
 	case "User":
-		validCols := map[string]bool{"email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
+		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
 		query := s.db.WithContext(ctx).Model(&User{})
+		if opts.IncludeDeleted || opts.OnlyDeleted {
+			query = query.Unscoped()
+		}
+		if opts.OnlyDeleted {
+			query = query.Where("deleted_at IS NOT NULL")
+		}
+		query, err := s.applyRelated(ctx, query, "User", opts.Related)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
+		query, err = s.applyRowFilter(ctx, query, "User", opts.Filter)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
 		if scopeField != "" && scopeValue != "" {
 			if !validCols[scopeField] {
-				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity User", scopeField)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid scope field %q for entity User", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
-		for field, value := range opts.ImplicitFilters {
+		for _, field := range filterKeys(opts.ImplicitFilters) {
+			value := opts.ImplicitFilters[field]
 			if !validCols[field] {
-				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity User", field)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity User", field)
 			}
 			query = query.Where(field+" = ?", value)
 		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("User", opts.Search)
 			if err != nil {
-				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
+				return stegostorage.ListResult{}, fmt.Errorf("%w: %s", stegostorage.ErrSearch, err)
 			}
 			if searchResult != nil {
 				query = query.Where(searchResult.Where, searchResult.Args...)
 			}
 		}
-		var total int64
-		if err := query.Count(&total).Error; err != nil {
-			return api.ListResult{}, err
-		}
 		for _, ob := range opts.OrderBy {
+			if !validCols[ob.Field] || (ob.Direction != "asc" && ob.Direction != "desc") {
+				return stegostorage.ListResult{}, fmt.Errorf("invalid ordering")
+			}
 			if validCols[ob.Field] {
 				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if cursor && afterID != "" {
+			query = query.Where("id > ?", afterID)
+		}
+		var total int64
+		if !cursor {
+			if err := query.Count(&total).Error; err != nil {
+				if opts.Search != "" && searchInputError(err) {
+					return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+				}
+				return stegostorage.ListResult{}, err
+			}
+			if opts.CountOnly {
+				return stegostorage.ListResult{Items: []User{}, Total: total}, nil
 			}
 		}
 		if len(opts.Fields) > 0 {
@@ -340,40 +470,72 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 		}
 		var result []User
 		if err := query.Find(&result).Error; err != nil {
-			return api.ListResult{}, err
+			if opts.Search != "" && searchInputError(err) {
+				return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+			}
+			return stegostorage.ListResult{}, err
 		}
-		return api.ListResult{Items: result, Total: total}, nil
+		return stegostorage.ListResult{Items: result, Total: total}, nil
 	case "OrgSetting":
-		validCols := map[string]bool{"org_id": true, "key": true, "value": true, "generation": true}
+		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "org_id": true, "key": true, "value": true, "generation": true}
 		query := s.db.WithContext(ctx).Model(&OrgSetting{})
+		if opts.IncludeDeleted || opts.OnlyDeleted {
+			query = query.Unscoped()
+		}
+		if opts.OnlyDeleted {
+			query = query.Where("deleted_at IS NOT NULL")
+		}
+		query, err := s.applyRelated(ctx, query, "OrgSetting", opts.Related)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
+		query, err = s.applyRowFilter(ctx, query, "OrgSetting", opts.Filter)
+		if err != nil {
+			return stegostorage.ListResult{}, err
+		}
 		if scopeField != "" && scopeValue != "" {
 			if !validCols[scopeField] {
-				return api.ListResult{}, fmt.Errorf("invalid scope field %q for entity OrgSetting", scopeField)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid scope field %q for entity OrgSetting", scopeField)
 			}
 			query = query.Where(scopeField+" = ?", scopeValue)
 		}
-		for field, value := range opts.ImplicitFilters {
+		for _, field := range filterKeys(opts.ImplicitFilters) {
+			value := opts.ImplicitFilters[field]
 			if !validCols[field] {
-				return api.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity OrgSetting", field)
+				return stegostorage.ListResult{}, fmt.Errorf("invalid implicit filter field %q for entity OrgSetting", field)
 			}
 			query = query.Where(field+" = ?", value)
 		}
 		if opts.Search != "" {
 			searchResult, err := search.NewSearchEngine().ParseSearch("OrgSetting", opts.Search)
 			if err != nil {
-				return api.ListResult{}, fmt.Errorf("%w: %s", api.ErrSearch, err)
+				return stegostorage.ListResult{}, fmt.Errorf("%w: %s", stegostorage.ErrSearch, err)
 			}
 			if searchResult != nil {
 				query = query.Where(searchResult.Where, searchResult.Args...)
 			}
 		}
-		var total int64
-		if err := query.Count(&total).Error; err != nil {
-			return api.ListResult{}, err
-		}
 		for _, ob := range opts.OrderBy {
+			if !validCols[ob.Field] || (ob.Direction != "asc" && ob.Direction != "desc") {
+				return stegostorage.ListResult{}, fmt.Errorf("invalid ordering")
+			}
 			if validCols[ob.Field] {
 				query = query.Order(ob.Field + " " + ob.Direction)
+			}
+		}
+		if cursor && afterID != "" {
+			query = query.Where("id > ?", afterID)
+		}
+		var total int64
+		if !cursor {
+			if err := query.Count(&total).Error; err != nil {
+				if opts.Search != "" && searchInputError(err) {
+					return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+				}
+				return stegostorage.ListResult{}, err
+			}
+			if opts.CountOnly {
+				return stegostorage.ListResult{Items: []OrgSetting{}, Total: total}, nil
 			}
 		}
 		if len(opts.Fields) > 0 {
@@ -395,12 +557,239 @@ func (s *Store) List(ctx context.Context, entity string, scopeField string, scop
 		}
 		var result []OrgSetting
 		if err := query.Find(&result).Error; err != nil {
-			return api.ListResult{}, err
+			if opts.Search != "" && searchInputError(err) {
+				return stegostorage.ListResult{}, fmt.Errorf("%w: invalid search value", stegostorage.ErrSearch)
+			}
+			return stegostorage.ListResult{}, err
 		}
-		return api.ListResult{Items: result, Total: total}, nil
+		return stegostorage.ListResult{Items: result, Total: total}, nil
 	default:
-		return api.ListResult{}, fmt.Errorf("unknown entity: %s", entity)
+		return stegostorage.ListResult{}, fmt.Errorf("unknown entity: %s", entity)
 	}
+}
+
+func (s *Store) applyRelated(ctx context.Context, query *gorm.DB, target string, filters []stegostorage.RelatedFilter) (*gorm.DB, error) {
+	if len(filters) > 8 {
+		return nil, fmt.Errorf("too many related filters")
+	}
+	for _, filter := range filters {
+		expression, err := s.relatedExpression(ctx, target, filter)
+		if err != nil {
+			return nil, err
+		}
+		query = query.Where(expression)
+	}
+	return query, nil
+}
+
+func referenceTarget(entity, field string) string {
+	switch entity {
+	case "Organization":
+		switch field {
+		case "id":
+			return "Organization"
+		}
+	case "User":
+		switch field {
+		case "id":
+			return "User"
+		case "org_id":
+			return "Organization"
+		}
+	case "OrgSetting":
+		switch field {
+		case "id":
+			return "OrgSetting"
+		case "org_id":
+			return "Organization"
+		}
+	}
+	return ""
+}
+
+func filterColumns(entity string) map[string]bool {
+	switch entity {
+	case "Organization":
+		return map[string]bool{"id": true, "created_time": true, "updated_time": true, "name": true, "description": true}
+	case "User":
+		return map[string]bool{"id": true, "created_time": true, "updated_time": true, "email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
+	case "OrgSetting":
+		return map[string]bool{"id": true, "created_time": true, "updated_time": true, "org_id": true, "key": true, "value": true, "generation": true}
+	}
+	return nil
+}
+
+func textColumns(entity string) map[string]bool {
+	switch entity {
+	case "Organization":
+		return map[string]bool{"name": true, "description": true}
+	case "User":
+		return map[string]bool{"email": true, "display_name": true}
+	case "OrgSetting":
+		return map[string]bool{"key": true}
+	}
+	return nil
+}
+
+func (s *Store) relatedExpression(ctx context.Context, target string, filter stegostorage.RelatedFilter) (clause.Expression, error) {
+	if len(filter.Values) > 16 {
+		return nil, fmt.Errorf("too many related filter fields")
+	}
+	local := filter.LocalField
+	if local == "" {
+		local = "id"
+	}
+	identity := referenceTarget(target, local)
+	if identity == "" || identity != referenceTarget(filter.Entity, filter.ForeignField) {
+		return nil, fmt.Errorf("related filter requires keys for the same declared entity")
+	}
+	var related *gorm.DB
+	switch filter.Entity {
+	case "Organization":
+		related = s.db.WithContext(ctx).Model(&Organization{}).Select(filter.ForeignField)
+	case "User":
+		related = s.db.WithContext(ctx).Model(&User{}).Select(filter.ForeignField)
+	case "OrgSetting":
+		related = s.db.WithContext(ctx).Model(&OrgSetting{}).Select(filter.ForeignField)
+	default:
+		return nil, fmt.Errorf("unknown related entity")
+	}
+	columns := filterColumns(filter.Entity)
+	for _, field := range filterKeys(filter.Values) {
+		values := filter.Values[field]
+		if !columns[field] {
+			return nil, fmt.Errorf("invalid related filter field")
+		}
+		if err := checkFilterValues(values); err != nil {
+			return nil, err
+		}
+		related = related.Where(clause.IN{Column: clause.Column{Name: field}, Values: relatedValues(values)})
+	}
+	return clause.Expr{SQL: "? IN (?)", Vars: []any{clause.Column{Name: local}, related}}, nil
+}
+
+func checkFilterValues(values []string) error {
+	if len(values) > 100 {
+		return fmt.Errorf("too many filter values")
+	}
+	for _, value := range values {
+		if len(value) > 4096 {
+			return fmt.Errorf("filter value exceeds size limit")
+		}
+	}
+	return nil
+}
+
+func relatedValues(values []string) []any {
+	result := make([]any, len(values))
+	for i, value := range values {
+		result[i] = value
+	}
+	return result
+}
+
+func (s *Store) applyRowFilter(ctx context.Context, query *gorm.DB, entity string, filter *stegostorage.RowFilter) (*gorm.DB, error) {
+	if filter == nil {
+		return query, nil
+	}
+	nodes, bytes := 0, 0
+	expression, err := s.rowExpression(ctx, entity, *filter, 1, &nodes, &bytes)
+	if err != nil {
+		return nil, err
+	}
+	return query.Where(expression), nil
+}
+
+func (s *Store) rowExpression(ctx context.Context, entity string, filter stegostorage.RowFilter, depth int, nodes, bytes *int) (clause.Expression, error) {
+	*nodes++
+	if depth > 8 || *nodes > 64 {
+		return nil, fmt.Errorf("row filter exceeds structure limit")
+	}
+	modes := 0
+	if filter.Field != "" {
+		modes++
+	}
+	if filter.Related != nil {
+		modes++
+	}
+	if filter.Text != nil {
+		modes++
+	}
+	if filter.All != nil {
+		modes++
+	}
+	if filter.Any != nil {
+		modes++
+	}
+	if modes != 1 || (filter.Field == "" && filter.Values != nil) {
+		return nil, fmt.Errorf("row filter requires one condition")
+	}
+	if filter.Text != nil {
+		text := filter.Text
+		if len(text.Fields) < 1 || len(text.Fields) > 8 || len(text.Value) < 1 || len(text.Value) > 4096 || !utf8.ValidString(text.Value) || strings.ContainsRune(text.Value, 0) {
+			return nil, fmt.Errorf("invalid text match")
+		}
+		*bytes += len(text.Value)
+		if *bytes > 65536 {
+			return nil, fmt.Errorf("row filter exceeds value size limit")
+		}
+		columns, seen := textColumns(entity), map[string]bool{}
+		pattern := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(text.Value) + "%"
+		expressions := make([]clause.Expression, 0, len(text.Fields))
+		for _, field := range text.Fields {
+			if !columns[field] || seen[field] {
+				return nil, fmt.Errorf("invalid text match field")
+			}
+			seen[field] = true
+			expressions = append(expressions, clause.Expr{SQL: "? ILIKE ? ESCAPE '!'", Vars: []any{clause.Column{Name: field}, pattern}})
+		}
+		return clause.Or(expressions...), nil
+	}
+	values := filter.Values
+	if filter.Related != nil {
+		for _, group := range filter.Related.Values {
+			for _, value := range group {
+				*bytes += len(value)
+			}
+		}
+	}
+	for _, value := range values {
+		*bytes += len(value)
+	}
+	if *bytes > 65536 {
+		return nil, fmt.Errorf("row filter exceeds value size limit")
+	}
+	if filter.Field != "" {
+		if !filterColumns(entity)[filter.Field] {
+			return nil, fmt.Errorf("invalid row filter field")
+		}
+		if err := checkFilterValues(values); err != nil {
+			return nil, err
+		}
+		return clause.IN{Column: clause.Column{Name: filter.Field}, Values: relatedValues(values)}, nil
+	}
+	if filter.Related != nil {
+		return s.relatedExpression(ctx, entity, *filter.Related)
+	}
+	children := filter.All
+	if filter.Any != nil {
+		children = filter.Any
+	}
+	if len(children) == 0 || len(children) > 64 {
+		return nil, fmt.Errorf("invalid row filter group size")
+	}
+	expressions := make([]clause.Expression, 0, len(children))
+	for _, child := range children {
+		expression, err := s.rowExpression(ctx, entity, child, depth+1, nodes, bytes)
+		if err != nil {
+			return nil, err
+		}
+		expressions = append(expressions, expression)
+	}
+	if filter.Any != nil {
+		return clause.Or(expressions...), nil
+	}
+	return clause.And(expressions...), nil
 }
 
 // Upsert inserts or updates an entity using natural-key conflict resolution.
@@ -469,7 +858,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 				return result.Error
 			}
 			if concurrency == "optimistic" && result.RowsAffected == 0 {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			created = existingCount == 0
 			return nil
@@ -537,7 +926,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 				return result.Error
 			}
 			if concurrency == "optimistic" && result.RowsAffected == 0 {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			created = existingCount == 0
 			return nil
@@ -605,7 +994,7 @@ func (s *Store) Upsert(ctx context.Context, entity string, value any, upsertKey 
 				return result.Error
 			}
 			if concurrency == "optimistic" && result.RowsAffected == 0 {
-				return api.ErrConflict
+				return stegostorage.ErrConflict
 			}
 			created = existingCount == 0
 			return nil

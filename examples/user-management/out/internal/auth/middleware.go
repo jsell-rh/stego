@@ -4,113 +4,439 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
-// Identity represents the caller's identity extracted from a JWT token.
-// Matches the stego.common.Identity proto definition.
+const maxTokenBytes = 16384
+const maxKeyFileBytes = 65536
+
+// Identity contains claims from a verified token. Authorization remains a
+// separate decision. A role claim alone does not grant access to a resource.
 type Identity struct {
+	Issuer     string            `json:"issuer"`
 	UserID     string            `json:"user_id"`
 	Role       string            `json:"role"`
 	Attributes map[string]string `json:"attributes"`
+	Username   string            `json:"username"`
+	Email      string            `json:"email"`
+	GivenName  string            `json:"given_name"`
+	FamilyName string            `json:"family_name"`
+	Roles      []string          `json:"roles"`
+	ExpiresAt  time.Time         `json:"expires_at"`
 }
 
-type contextKey string
+type contextKey struct{}
 
-const identityKey contextKey = "stego.identity"
+var identityKey contextKey
 
-// IdentityFromContext retrieves the Identity from the request context.
-// Returns a zero Identity if none is present.
 func IdentityFromContext(ctx context.Context) Identity {
-	if id, ok := ctx.Value(identityKey).(Identity); ok {
-		return id
-	}
-	return Identity{}
+	id, _ := ctx.Value(identityKey).(Identity)
+	return id
 }
 
-// jwtClaims represents the JWT payload claims used for identity extraction.
+// Config fixes the trust rules for one token issuer and one API audience.
+type Config struct {
+	Issuer     string
+	Audience   string
+	PublicKey  *rsa.PublicKey
+	RolesClaim string
+}
+
+// Verifier can be shared by HTTP and application transport adapters.
+type Verifier struct {
+	parser    *jwt.Parser
+	key       *rsa.PublicKey
+	rolesPath []string
+}
+
 type jwtClaims struct {
-	Sub        string            `json:"sub"`
+	jwt.RegisteredClaims
 	Role       string            `json:"role"`
 	Attributes map[string]string `json:"attributes"`
+	Username   string            `json:"preferred_username"`
+	Email      string            `json:"email"`
+	GivenName  string            `json:"given_name"`
+	FamilyName string            `json:"family_name"`
 }
 
-// parseJWT decodes the payload section of a JWT token and extracts claims.
-// Cryptographic signature verification is deferred to the deployment layer
-// (e.g. an API gateway or sidecar proxy).
-func parseJWT(token string) (jwtClaims, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return jwtClaims{}, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
+func (claims jwtClaims) Validate() error {
+	if strings.TrimSpace(claims.Subject) == "" {
+		return errors.New("token subject is required")
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if claims.IssuedAt == nil || claims.ExpiresAt == nil || !claims.IssuedAt.Before(claims.ExpiresAt.Time) {
+		return errors.New("token requires a valid issue time and expiry")
+	}
+	return nil
+}
+
+// NewVerifier validates configuration before any requests can be accepted.
+func NewVerifier(config Config) (*Verifier, error) {
+	rolesPath, err := claimPath(config.RolesClaim)
 	if err != nil {
-		return jwtClaims{}, fmt.Errorf("invalid JWT payload encoding: %w", err)
+		return nil, err
 	}
-	var claims jwtClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return jwtClaims{}, fmt.Errorf("invalid JWT payload JSON: %w", err)
+	issuer, err := url.Parse(config.Issuer)
+	if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" {
+		return nil, errors.New("authentication issuer must be an HTTPS URL")
 	}
-	return claims, nil
+	if config.Audience == "" || strings.TrimSpace(config.Audience) != config.Audience {
+		return nil, errors.New("authentication audience is required")
+	}
+	key := config.PublicKey
+	if key == nil || key.N == nil || key.N.Sign() <= 0 || key.N.BitLen() < 2048 || key.N.BitLen() > 8192 || key.N.Bit(0) == 0 || key.E != 65537 {
+		return nil, errors.New("authentication requires a 2048 to 8192 bit RSA public key with exponent 65537")
+	}
+	return &Verifier{
+		parser: jwt.NewParser(
+			jwt.WithValidMethods([]string{"RS256"}),
+			jwt.WithIssuer(config.Issuer),
+			jwt.WithAudience(config.Audience),
+			jwt.WithExpirationRequired(),
+			jwt.WithIssuedAt(),
+			jwt.WithStrictDecoding(),
+		),
+		key:       &rsa.PublicKey{N: new(big.Int).Set(key.N), E: key.E},
+		rolesPath: rolesPath,
+	}, nil
 }
 
-// extractToken retrieves the JWT token from the X-Internal-Token header.
-// For tokens prefixed with "Bearer ", the prefix is stripped.
+// Verify checks a token before it exposes any identity claims.
+func (v *Verifier) Verify(raw string) (Identity, error) {
+	if v == nil || v.parser == nil || v.key == nil {
+		return Identity{}, errors.New("authentication verifier is not initialized")
+	}
+	if len(raw) == 0 || len(raw) > maxTokenBytes {
+		return Identity{}, errors.New("invalid token size")
+	}
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return Identity{}, errors.New("invalid token format")
+	}
+	for _, segment := range parts[:2] {
+		data, err := base64.RawURLEncoding.Strict().DecodeString(segment)
+		if err != nil {
+			return Identity{}, errors.New("invalid token encoding")
+		}
+		if err := checkJSONObject(data); err != nil {
+			return Identity{}, err
+		}
+	}
+	claims := new(jwtClaims)
+	token, err := v.parser.ParseWithClaims(raw, claims, func(token *jwt.Token) (any, error) {
+		if token.Method != jwt.SigningMethodRS256 {
+			return nil, errors.New("unsupported signing algorithm")
+		}
+		if kind, ok := token.Header["typ"].(string); !ok || kind != "JWT" {
+			return nil, errors.New("unsupported token type")
+		}
+		for _, name := range []string{"crit", "jku", "jwk", "x5u"} {
+			if _, present := token.Header[name]; present {
+				return nil, errors.New("unsupported token header")
+			}
+		}
+		return v.key, nil
+	})
+	if err != nil || token == nil || !token.Valid {
+		return Identity{}, errors.New("invalid authentication token")
+	}
+	roles, err := v.roles(parts[1])
+	if err != nil {
+		return Identity{}, err
+	}
+	return Identity{Issuer: claims.Issuer, UserID: claims.Subject, Role: claims.Role, Attributes: claims.Attributes,
+		Username: claims.Username, Email: claims.Email, GivenName: claims.GivenName, FamilyName: claims.FamilyName, Roles: roles, ExpiresAt: claims.ExpiresAt.Time}, nil
+}
+
+// Authenticate supplies the same verified identity to each transport.
+func (v *Verifier) Authenticate(ctx context.Context, raw string) (context.Context, error) {
+	if ctx == nil {
+		return nil, errors.New("authentication requires a context")
+	}
+	id, err := v.Verify(raw)
+	if err != nil {
+		return nil, err
+	}
+	return context.WithValue(ctx, identityKey, id), nil
+}
+
+func claimPath(value string) ([]string, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ".")
+	if len(value) > 128 || len(parts) > 8 {
+		return nil, errors.New("invalid role claim path")
+	}
+	for _, part := range parts {
+		if part == "" {
+			return nil, errors.New("invalid role claim path")
+		}
+		for _, ch := range part {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-') {
+				return nil, errors.New("invalid role claim path")
+			}
+		}
+	}
+	return parts, nil
+}
+
+// roles reads only the configured claim after signature and claim validation.
+// An absent claim grants no roles. A malformed claim fails authentication.
+func (v *Verifier) roles(encoded string) ([]string, error) {
+	if len(v.rolesPath) == 0 {
+		return nil, nil
+	}
+	data, err := base64.RawURLEncoding.Strict().DecodeString(encoded)
+	if err != nil {
+		return nil, errors.New("invalid role claim")
+	}
+	for _, part := range v.rolesPath {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(data, &object); err != nil || object == nil {
+			return nil, errors.New("invalid role claim")
+		}
+		child, present := object[part]
+		if !present {
+			return nil, nil
+		}
+		data = child
+	}
+	var roles []string
+	if len(data) == 0 || data[0] != '[' || json.Unmarshal(data, &roles) != nil || len(roles) > 128 {
+		return nil, errors.New("invalid role claim")
+	}
+	for _, role := range roles {
+		if len(role) == 0 || len(role) > 256 || strings.TrimSpace(role) != role {
+			return nil, errors.New("invalid role claim")
+		}
+	}
+	return roles, nil
+}
+
+// checkJSONObject rejects duplicate names and invalid Unicode before JWT
+// decoding. This prevents different consumers from reading different claims.
+func checkJSONObject(data []byte) error {
+	if !utf8.Valid(data) || !validUnicodeEscapes(data) {
+		return errors.New("invalid token Unicode")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.UseNumber()
+	first, err := decoder.Token()
+	if err != nil || first != json.Delim('{') {
+		return errors.New("token must contain JSON objects")
+	}
+	var readValue func(json.Token, int) error
+	readValue = func(start json.Token, depth int) error {
+		if depth > 32 {
+			return errors.New("token nesting limit exceeded")
+		}
+		switch start {
+		case json.Delim('{'):
+			names := make(map[string]bool)
+			for decoder.More() {
+				name, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				key, ok := name.(string)
+				if !ok || names[key] {
+					return errors.New("duplicate token member")
+				}
+				names[key] = true
+				value, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				if err := readValue(value, depth+1); err != nil {
+					return err
+				}
+			}
+			end, err := decoder.Token()
+			if err != nil || end != json.Delim('}') {
+				return errors.New("invalid token object")
+			}
+		case json.Delim('['):
+			for decoder.More() {
+				value, err := decoder.Token()
+				if err != nil {
+					return err
+				}
+				if err := readValue(value, depth+1); err != nil {
+					return err
+				}
+			}
+			end, err := decoder.Token()
+			if err != nil || end != json.Delim(']') {
+				return errors.New("invalid token array")
+			}
+		}
+		return nil
+	}
+	if err := readValue(first, 0); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return errors.New("extra token JSON data")
+	}
+	return nil
+}
+
 func extractToken(r *http.Request) string {
-	v := r.Header.Get("X-Internal-Token")
-	if v == "" {
+	values := r.Header.Values("X-Internal-Token")
+	if len(values) != 1 || len(values[0]) > maxTokenBytes+7 {
 		return ""
 	}
-	if strings.HasPrefix(v, "Bearer ") {
-		return strings.TrimPrefix(v, "Bearer ")
+	parts := strings.Fields(values[0])
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
 	}
-	return v
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return ""
 }
 
-// NewAuthMiddleware returns HTTP middleware that validates JWT tokens from
-// the X-Internal-Token header and populates the request context with the caller's Identity.
-func NewAuthMiddleware() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractToken(r)
-			if token == "" {
-				writeAuthError(w, r, "missing authentication token")
-				return
-			}
-			claims, err := parseJWT(token)
-			if err != nil {
-				writeAuthError(w, r, "invalid authentication token")
-				return
-			}
-			id := Identity{
-				UserID:     claims.Sub,
-				Role:       claims.Role,
-				Attributes: claims.Attributes,
-			}
-			ctx := context.WithValue(r.Context(), identityKey, id)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+func (v *Verifier) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw := extractToken(r)
+		if raw == "" {
+			writeAuthError(w, r, "missing authentication token")
+			return
+		}
+		ctx, err := v.Authenticate(r.Context(), raw)
+		if err != nil {
+			writeAuthError(w, r, "invalid authentication token")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
-// writeAuthError writes an RFC 9457 Problem Details error response
-// with Content-Type application/problem+json for authentication failures.
+func envOrDefault(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// NewAuthMiddleware loads a public key once. Restart after a key change.
+func NewAuthMiddleware() (func(http.Handler) http.Handler, error) {
+	verifier, err := NewVerifierFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	return verifier.Middleware, nil
+}
+
+// NewVerifierFromEnvironment loads one verifier for all application transports.
+func NewVerifierFromEnvironment() (*Verifier, error) {
+	keyFile := envOrDefault("STEGO_AUTH_PUBLIC_KEY_FILE", "")
+	if keyFile == "" {
+		return nil, errors.New("STEGO_AUTH_PUBLIC_KEY_FILE is required")
+	}
+	pathInfo, err := os.Stat(keyFile)
+	if err != nil || !pathInfo.Mode().IsRegular() {
+		return nil, errors.New("authentication key must be a regular file")
+	}
+	file, err := os.Open(keyFile)
+	if err != nil {
+		return nil, fmt.Errorf("opening authentication public key: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("authentication key must be a regular file")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxKeyFileBytes+1))
+	if err != nil || len(data) > maxKeyFileBytes {
+		return nil, errors.New("cannot read authentication public key within size limit")
+	}
+	block, rest := pem.Decode(data)
+	if block == nil || len(block.Headers) != 0 || !strings.HasPrefix(strings.TrimSpace(string(data)), "-----BEGIN ") || len(strings.TrimSpace(string(rest))) != 0 || (block.Type != "PUBLIC KEY" && block.Type != "RSA PUBLIC KEY") {
+		return nil, errors.New("authentication key must contain one RSA public key PEM block")
+	}
+	key, err := jwt.ParseRSAPublicKeyFromPEM(data)
+	if err != nil {
+		return nil, fmt.Errorf("invalid authentication public key: %w", err)
+	}
+	verifier, err := NewVerifier(Config{
+		Issuer:     envOrDefault("STEGO_AUTH_ISSUER", ""),
+		Audience:   envOrDefault("STEGO_AUTH_AUDIENCE", ""),
+		PublicKey:  key,
+		RolesClaim: envOrDefault("STEGO_AUTH_ROLES_CLAIM", ""),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return verifier, nil
+}
+
 func writeAuthError(w http.ResponseWriter, r *http.Request, detail string) {
-	resp := map[string]any{
-		"type":      "https://api.example.com/errors/unauthorized",
-		"title":     "Unauthorized",
-		"status":    http.StatusUnauthorized,
-		"detail":    detail,
-		"code":      "USERMANAGEMENT-AUT-001",
-		"instance":  r.URL.Path,
+	response := map[string]any{
+		"type": "https://api.example.com/errors/unauthorized", "title": "Unauthorized", "status": http.StatusUnauthorized,
+		"detail": detail, "code": "USERMANAGEMENT-AUT-001", "instance": r.URL.Path,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(resp)
+	// Once headers are sent, a client write error cannot change this response.
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// encoding/json replaces unmatched UTF-16 surrogates. Reject these sequences
+// before decoding so distinct invalid inputs cannot become one stored value.
+func validUnicodeEscapes(data []byte) bool {
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(data) {
+			return false
+		}
+		if data[i] != 'u' {
+			continue
+		}
+		if i+4 >= len(data) {
+			return false
+		}
+		value, err := strconv.ParseUint(string(data[i+1:i+5]), 16, 16)
+		if err != nil {
+			return false
+		}
+		i += 4
+		if value >= 0xDC00 && value <= 0xDFFF {
+			return false
+		}
+		if value < 0xD800 || value > 0xDBFF {
+			continue
+		}
+		if i+6 >= len(data) || data[i+1] != '\\' || data[i+2] != 'u' {
+			return false
+		}
+		low, err := strconv.ParseUint(string(data[i+3:i+7]), 16, 16)
+		if err != nil || low < 0xDC00 || low > 0xDFFF {
+			return false
+		}
+		i += 6
+	}
+	return true
 }

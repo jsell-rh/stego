@@ -3,9 +3,23 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	admincreationpolicy "github.com/example/service/fills/admin-creation-policy"
 	auditlogger "github.com/example/service/fills/audit-logger"
@@ -15,31 +29,62 @@ import (
 	rbacpolicy "github.com/example/service/fills/rbac-policy"
 	sendwelcome "github.com/example/service/fills/send-welcome"
 	userchangenotifier "github.com/example/service/fills/user-change-notifier"
+	health "github.com/example/service/out/health"
 	api "github.com/example/service/out/internal/api"
 	auth "github.com/example/service/out/internal/auth"
+	events "github.com/example/service/out/internal/events"
 	storage "github.com/example/service/out/internal/storage"
 	slots "github.com/example/service/out/slots"
+	tracing "github.com/example/service/out/tracing"
 	postgres "gorm.io/driver/postgres"
 	gorm "gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
 func main() {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+	if err := run(); err != nil {
+		stegoReportFailure(os.Stderr, err)
+		os.Exit(1)
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+}
+
+func run() (stegoErr error) {
+	stegoStage := "startup"
+	defer func() {
+		if stegoErr != nil {
+			stegoErr = &stegoServiceFailure{stage: stegoStage, cause: stegoErr, tasks: stegoTaskNames(stegoErr), abortedTasks: stegoAbortedTaskNames(stegoErr)}
+		}
+	}()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	stegoStage = "database.configure"
+	dsn, err := stegoDatabaseURL()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	sqlDB, err := db.DB()
+	stegoStage = "database.open"
+	sqlDB, err := storage.OpenDatabase(dsn)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer sqlDB.Close()
-
+	db, err := gorm.Open(postgres.New(postgres.Config{Conn: sqlDB}), &gorm.Config{Logger: gormlogger.Discard, DisableAutomaticPing: true})
+	if err != nil {
+		return err
+	}
+	stegoStage = "database.handle"
+	stegoStage = "database.ping"
+	{
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := sqlDB.PingContext(ctx)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
+	stegoStage = "component[1].database[0]"
 	if err := storage.Migrate(db); err != nil {
-		log.Fatal(err)
+		return err
 	}
 	// Slot wiring — fills composed via operators.
 	// Slot: before_create (gate) for org-users
@@ -73,8 +118,33 @@ func main() {
 	validationMiddleware := api.NewValidationMiddleware()
 	cORSMiddleware := api.NewCORSMiddleware()
 	discoveryHandler := api.NewDiscoveryHandler()
-	store := storage.NewStore(db)
-	authMiddleware := auth.NewAuthMiddleware()
+	stegoStage = "component[1].constructor[0]"
+	store, err := storage.NewStore(db)
+	if err != nil {
+		return err
+	}
+	stegoStage = "component[3].constructor[0]"
+	tracingRuntime, err := tracing.NewTracingRuntime(sqlDB)
+	if err != nil {
+		return err
+	}
+	defer tracingRuntime.Close()
+	stegoStage = "component[4].constructor[0]"
+	monitor, err := health.NewMonitor(ctx)
+	if err != nil {
+		return err
+	}
+	stegoStage = "component[5].constructor[0]"
+	authMiddleware, err := auth.NewAuthMiddleware()
+	if err != nil {
+		return err
+	}
+	stegoStage = "component[7].constructor[0]"
+	runtime, err := events.NewRuntime(ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut, afterCreateOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
@@ -106,12 +176,375 @@ func main() {
 		port = "8080"
 	}
 	addr := ":" + port
-	log.Printf("starting server on %s", addr)
-	handler := cORSMiddleware(authMiddleware(validationMiddleware(mux)))
 	topMux := http.NewServeMux()
 	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi", discoveryHandler.ServeOpenAPI)
 	topMux.HandleFunc("GET /api/user-mgmt/v1/openapi.html", discoveryHandler.ServeOpenAPIUI)
 	topMux.HandleFunc("GET /api/user-mgmt/v1", discoveryHandler.ServeMetadata)
-	topMux.Handle("/", handler)
-	log.Fatal(http.ListenAndServe(addr, topMux))
+	topMux.HandleFunc("GET /livez", monitor.Live)
+	topMux.HandleFunc("GET /readyz", monitor.Ready)
+	topMux.Handle("/", tracingRuntime.Handler(cORSMiddleware(authMiddleware(tracingRuntime.Route(validationMiddleware(mux))))))
+	stegoStage = "http.configure"
+	httpTLS, err := stegoHTTPTransport()
+	if err != nil {
+		return err
+	}
+	stegoStage = "http.listen"
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	if httpTLS != nil {
+		listener = tls.NewListener(listener, httpTLS)
+	}
+	log.Printf("starting server on %s", listener.Addr())
+	defer listener.Close()
+	stegoStage = "service.run"
+	return stegoRunTasks(ctx, []stegoTask{
+		{name: "http", run: func(ctx context.Context) error {
+			return stegoServeHTTP(ctx, listener, stegoHTTPServerWithErrorLog(topMux, tracingRuntime.HTTPErrorLog()), 10*time.Second)
+		}},
+		{name: "health-check[0]", run: monitor.Run},
+		{name: "kafka-producer[0]", run: runtime.Run},
+	})
+}
+
+func stegoDatabaseURL() (string, error) {
+	value := os.Getenv("DATABASE_URL")
+	name := os.Getenv("DATABASE_URL_FILE")
+	invalid := errors.New("invalid database configuration source")
+	if (value == "") == (name == "") {
+		return "", invalid
+	}
+	if name == "" {
+		if len(value) > 65536 {
+			return "", invalid
+		}
+		return value, nil
+	}
+	if len(name) > 4096 || !filepath.IsAbs(name) {
+		return "", invalid
+	}
+	// Follow projected-volume symlinks. Check the opened descriptor so a path
+	// replacement cannot bypass the file type and permission checks.
+	file, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return "", invalid
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 || info.Mode().Perm()&0137 != 0 {
+		return "", invalid
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 65537))
+	if err != nil || len(data) > 65536 {
+		return "", invalid
+	}
+	value = string(data)
+	if strings.HasSuffix(value, "\r\n") {
+		value = value[:len(value)-2]
+	} else {
+		value = strings.TrimSuffix(value, "\n")
+	}
+	if value == "" || strings.ContainsAny(value, "\x00\r\n") {
+		return "", invalid
+	}
+	return value, nil
+}
+
+type stegoServiceFailure struct {
+	stage        string
+	cause        error
+	tasks        []string
+	abortedTasks []string
+}
+
+func (e *stegoServiceFailure) Error() string { return "service failed at " + e.stage }
+func (e *stegoServiceFailure) Unwrap() error { return e.cause }
+
+// stegoReportFailure writes one fixed record before process exit. The stage
+// comes from generated code. The cause is never formatted or serialized.
+// A blocked output can retain one worker until the process exits.
+func stegoReportFailure(output io.Writer, err error) {
+	stage := "service.run"
+	var tasks, abortedTasks []string
+	if failure, ok := err.(*stegoServiceFailure); ok {
+		stage = failure.stage
+		tasks = failure.tasks
+		abortedTasks = failure.abortedTasks
+	}
+	record := struct {
+		Timestamp    string   `json:"timestamp"`
+		Severity     string   `json:"severity"`
+		Event        string   `json:"event.name"`
+		Message      string   `json:"message"`
+		Stage        string   `json:"stage"`
+		Tasks        []string `json:"tasks,omitempty"`
+		AbortedTasks []string `json:"aborted_tasks,omitempty"`
+	}{time.Now().UTC().Format(time.RFC3339Nano), "ERROR", "service.failed", "Service failed", stage, tasks, abortedTasks}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		json.NewEncoder(output).Encode(record)
+	}()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
+}
+
+// stegoHTTPServer sets limits for the generated request-response API.
+func stegoHTTPServer(handler http.Handler) *http.Server {
+	return stegoHTTPServerWithErrorLog(handler, nil)
+}
+
+func stegoHTTPServerWithErrorLog(handler http.Handler, errorLog *log.Logger) *http.Server {
+	if errorLog == nil {
+		errorLog = stegoNewHTTPErrorLog(os.Stderr)
+	}
+	return &http.Server{
+		Handler:           handler,
+		ErrorLog:          errorLog,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+	}
+}
+
+// stegoServeHTTP owns the listener. Shutdown first drains active requests.
+// After the deadline, it closes remaining connections and returns an error.
+func stegoServeHTTP(ctx context.Context, listener net.Listener, server *http.Server, drainTimeout time.Duration) error {
+	defer stegoCloseHTTPDiagnostics(server)
+	defer listener.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	result := make(chan error, 1)
+	go func() { result <- server.Serve(listener) }()
+	select {
+	case err := <-result:
+		return errors.Join(stegoHTTPError(err), server.Close())
+	case <-ctx.Done():
+		drain, cancel := context.WithTimeout(context.Background(), drainTimeout)
+		defer cancel()
+		err := server.Shutdown(drain)
+		if err != nil {
+			err = errors.Join(err, server.Close())
+		}
+		return errors.Join(err, stegoHTTPError(<-result))
+	}
+}
+
+func stegoHTTPError(err error) error {
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+type stegoHTTPDiagnostics struct {
+	mu                sync.Mutex
+	output            io.Writer
+	queue             chan time.Time
+	done              chan struct{}
+	closed            bool
+	dropped, failures atomic.Uint64
+}
+
+func stegoNewHTTPErrorLog(output io.Writer) *log.Logger {
+	return log.New(&stegoHTTPDiagnostics{output: output, done: make(chan struct{})}, "", 0)
+}
+
+// Write does not retain raw server output. It queues only the event time.
+// The worker starts on the first diagnostic. Callers never wait for output.
+func (d *stegoHTTPDiagnostics) Write(data []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		d.dropped.Add(1)
+		return len(data), nil
+	}
+	if d.queue == nil {
+		d.queue = make(chan time.Time, 256)
+		go func() {
+			defer close(d.done)
+			encoder := json.NewEncoder(d.output)
+			for timestamp := range d.queue {
+				record := struct {
+					Time     time.Time `json:"timestamp"`
+					Severity string    `json:"severity"`
+					Event    string    `json:"event.name"`
+					Message  string    `json:"message"`
+				}{timestamp, "ERROR", "http.server.diagnostic", "HTTP server reported a diagnostic"}
+				if err := encoder.Encode(record); err != nil {
+					d.failures.Add(1)
+				}
+			}
+		}()
+	}
+	select {
+	case d.queue <- time.Now().UTC():
+	default:
+		d.dropped.Add(1)
+	}
+	return len(data), nil
+}
+
+func (d *stegoHTTPDiagnostics) close() {
+	d.mu.Lock()
+	if !d.closed {
+		d.closed = true
+		if d.queue != nil {
+			close(d.queue)
+		} else {
+			close(d.done)
+		}
+	}
+	d.mu.Unlock()
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-d.done:
+	case <-timer.C:
+	}
+}
+
+// The server owns only the fallback logger. Component loggers keep their owner.
+func stegoCloseHTTPDiagnostics(server *http.Server) {
+	if server.ErrorLog == nil {
+		return
+	}
+	if diagnostics, ok := server.ErrorLog.Writer().(*stegoHTTPDiagnostics); ok {
+		diagnostics.close()
+	}
+}
+
+func stegoHTTPTransport() (*tls.Config, error) {
+	invalid := errors.New("invalid HTTP TLS configuration")
+	required, present := os.LookupEnv("STEGO_HTTP_REQUIRE_TLS")
+	if present && required != "0" && required != "1" {
+		return nil, invalid
+	}
+	certificate, key := os.Getenv("STEGO_HTTP_TLS_CERT"), os.Getenv("STEGO_HTTP_TLS_KEY")
+	if certificate == "" && key == "" && required != "1" {
+		return nil, nil
+	}
+	certPEM, err := stegoHTTPReadTLSFile(certificate, false)
+	if err != nil {
+		return nil, invalid
+	}
+	keyPEM, err := stegoHTTPReadTLSFile(key, true)
+	if err != nil {
+		return nil, invalid
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, invalid
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{pair}}, nil
+}
+
+func stegoHTTPReadTLSFile(name string, private bool) ([]byte, error) {
+	invalid := errors.New("invalid HTTP TLS file")
+	if len(name) > 4096 || !filepath.IsAbs(name) {
+		return nil, invalid
+	}
+	file, err := stegoHTTPOpenTLSFile(name)
+	if err != nil {
+		return nil, invalid
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 || private && info.Mode().Perm()&0137 != 0 {
+		return nil, invalid
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 65537))
+	if err != nil || len(data) > 65536 {
+		return nil, invalid
+	}
+	return data, nil
+}
+
+type stegoTaskFailure struct {
+	name    string
+	cause   error
+	aborted bool
+}
+
+func (e *stegoTaskFailure) Error() string { return "task " + e.name + " failed" }
+func (e *stegoTaskFailure) Unwrap() error { return e.cause }
+
+// stegoTaskNames reads only the direct task failures made by stegoRunTasks.
+// It does not inspect or format component error causes.
+func stegoTaskNames(err error) []string        { return stegoTaskFailureNames(err, false) }
+func stegoAbortedTaskNames(err error) []string { return stegoTaskFailureNames(err, true) }
+func stegoTaskFailureNames(err error, abortedOnly bool) []string {
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, cause := range joined.Unwrap() {
+		if failure, ok := cause.(*stegoTaskFailure); ok && (!abortedOnly || failure.aborted) {
+			names = append(names, failure.name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// stegoTask runs until cancellation. It must return after cancellation.
+type stegoTask struct {
+	name string
+	run  func(context.Context) error
+}
+
+// stegoRunTasks cancels all tasks when one task fails. It waits for every task
+// before return, so deferred resource cleanup cannot run during task use.
+func stegoRunTasks(parent context.Context, tasks []stegoTask) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	if parent.Err() != nil || ctx.Err() != nil {
+		return nil
+	}
+	results := make(chan error, len(tasks))
+	for _, task := range tasks {
+		go func(task stegoTask) {
+			returned := false
+			var err error
+			defer func() {
+				// An explicit return flag also covers panic(nil) in legacy mode and Goexit.
+				// Never retain, format, or unwrap the panic value.
+				aborted := !returned
+				if aborted {
+					recover()
+					err = errors.New("task aborted before return")
+				}
+				// Parent cancellation can be visible before it reaches this child.
+				if err == nil && parent.Err() == nil && ctx.Err() == nil {
+					err = errors.New("task stopped before cancellation")
+				}
+				if err == context.Canceled && (parent.Err() != nil || ctx.Err() != nil) {
+					err = nil
+				}
+				if err != nil {
+					err = &stegoTaskFailure{name: task.name, cause: err, aborted: aborted}
+				}
+				results <- err
+			}()
+			err = task.run(ctx)
+			returned = true
+		}(task)
+	}
+	var failures []error
+	for range tasks {
+		if err := <-results; err != nil {
+			cancel()
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
 }

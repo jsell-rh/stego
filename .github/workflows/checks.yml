@@ -17,6 +17,46 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  examples:
+    name: examples (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [user-management, user-management-rhsso]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: |
+            go.sum
+            examples/*/go.sum
+      - name: Build the current compiler
+        run: go build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego
+      - name: Check example generation and fill behavior
+        working-directory: examples/${{ matrix.project }}
+        env:
+          STEGO_REGISTRY: ${{ github.workspace }}/registry
+          GOWORK: 'off'
+        run: |
+          "$RUNNER_TEMP/stego" validate
+          "$RUNNER_TEMP/stego" apply
+          "$RUNNER_TEMP/stego" deps
+          "$RUNNER_TEMP/stego" apply
+          "$RUNNER_TEMP/stego" drift
+          git diff --exit-code -- out go.mod go.sum fills service.yaml .stego/config.yaml
+          test -z "$(git ls-files --others --exclude-standard -- out)"
+          cp .stego/state.yaml "$RUNNER_TEMP/example-state.yaml"
+          "$RUNNER_TEMP/stego" apply
+          cmp .stego/state.yaml "$RUNNER_TEMP/example-state.yaml"
+          "$RUNNER_TEMP/stego" drift
+          go mod verify
+          go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
+          go test -race -count=1 -mod=readonly -timeout=3m ./...
+          go build -mod=readonly -o "$RUNNER_TEMP/example-service" ./out
+
   compiler:
     runs-on: ubuntu-latest
     timeout-minutes: 20

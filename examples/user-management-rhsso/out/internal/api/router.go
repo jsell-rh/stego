@@ -3,59 +3,18 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
+	stegostorage "github.com/example/service/out/contracts/storage"
 )
 
-// ErrNotFound is returned by Storage.Get when the requested entity does not exist.
-// Storage implementations must return this error (or wrap it) for not-found cases.
-var ErrNotFound = errors.New("entity not found")
+type Storage = stegostorage.Storage
+type OrderByField = stegostorage.OrderByField
+type ListOptions = stegostorage.ListOptions
+type ListResult = stegostorage.ListResult
 
-// ErrConflict is returned by Storage.Upsert when optimistic concurrency check fails.
-// Storage implementations must return this error when the upsert is a no-op due to
-// the incoming generation not being newer than the existing row's generation.
-var ErrConflict = errors.New("upsert conflict")
-
-// ErrSearch is returned by Storage.List when the search expression is invalid.
-// Storage implementations must wrap search-related errors with this sentinel.
-var ErrSearch = errors.New("search error")
-
-// OrderByField represents a single ordering criterion.
-type OrderByField struct {
-	Field     string
-	Direction string // "asc" or "desc"
-}
-
-// ListOptions contains pagination, ordering, field selection, and search parameters.
-type ListOptions struct {
-	Page            int
-	Size            int
-	OrderBy         []OrderByField
-	Fields          []string
-	Search          string            // TSL search expression from ?search= query parameter
-	ImplicitFilters map[string]string // compile-time constant filters from collection implicit declarations
-}
-
-// ListResult wraps list query results with total count for pagination.
-type ListResult struct {
-	Items any
-	Total int64
-}
-
-// Storage is the interface that handlers use to interact with the data store.
-// Get must return ErrNotFound when the entity does not exist.
-type Storage interface {
-	Create(ctx context.Context, entity string, value any) error
-	Get(ctx context.Context, entity string, id string) (any, error)
-	Replace(ctx context.Context, entity string, id string, value any) error
-	Delete(ctx context.Context, entity string, id string) error
-	List(ctx context.Context, entity string, scopeField string, scopeValue string, opts ListOptions) (ListResult, error)
-	// Upsert returns true when a new row was created, false when an existing row was updated.
-	// Implementations must return ErrConflict when optimistic concurrency check fails.
-	Upsert(ctx context.Context, entity string, value any, upsertKey []string, concurrency string) (bool, error)
-	Exists(ctx context.Context, entity string, id string) (bool, error)
-}
+var ErrNotFound = stegostorage.ErrNotFound
+var ErrConflict = stegostorage.ErrConflict
+var ErrSearch = stegostorage.ErrSearch
 
 // Organization represents the Organization entity.
 type Organization struct {

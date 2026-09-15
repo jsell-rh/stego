@@ -1,27 +1,64 @@
 last_applied:
+    inputs:
+        version: 1
+        options:
+            module_name: github.com/example/service
+            go_version: 1.26.8
+            output_dir: out
+            registry_ref: env-override
+        files:
+            .stego/config.yaml:
+                exists: true
+                sha256: 1f22e1d31edec033c594c2564b8069aa79b45707f2319448a8c234843177b8e9
+                mode: 420
+            go.mod:
+                exists: true
+                sha256: 9df80f9707ab568defee0fc43388fc13b6d123ce9cb763c43fcfbd91b28d9506
+                mode: 420
+            go.sum:
+                exists: true
+                sha256: 1d62a38da6b19ff762cd315fce3f02792f1d0bae52253df8110b75c7a447eb5b
+                mode: 420
+            service.yaml:
+                exists: true
+                sha256: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
+                mode: 420
+        sha256: 3fc0033e83831b46f5cba1f09acc2f0bc0044ed141c7e90cb6a0c378866a032a
+    compiler_build:
+        go_version: go1.26.8
+        goos: linux
+        goarch: amd64
+        module_version: v0.0.0-20260915114142-f97b3155c10a
+        vcs: git
+        revision: f97b3155c10a194082337905939b582814722e98
+        source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
+    registry_content_sha256: cac1a8e68b555cb37ffb751798edbea3b99083785a66ddac9980e6b333d3117b
     components:
         health-check:
-            version: 0.1.0
+            version: 1.0.0
             sha: env-override
         kafka-producer:
-            version: 0.1.0
+            version: 1.0.4
             sha: env-override
         otel-tracing:
-            version: 0.1.0
+            version: 1.14.0
+            sha: env-override
+        outbox:
+            version: 1.1.0
             sha: env-override
         postgres-adapter:
-            version: 2.0.0
+            version: 4.4.1
             sha: env-override
         rest-api:
-            version: 3.0.0
+            version: 3.0.4
             sha: env-override
         rh-sso-auth:
-            version: 1.0.0
+            version: 1.0.1
             sha: env-override
         tsl-search:
-            version: 1.0.0
+            version: 1.0.2
             sha: env-override
     entities:
         OrgSetting:
@@ -61,7 +98,11 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
-        go.mod: 38db1cbfc42bf6ec931f0aca25d59161b3d6220b1b7e7a5d7111769f917abb98
+        contracts/events/events.go: db027ed6920450da2cfd51e0145f394eb82e248fa418f33efe9f6f41edce6d97
+        contracts/storage/storage.go: b3e785e761db60a69d359859f610dbb447cba6068cb1cc0f414882288d6e979a
+        health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
+        http_tls_open_other.go: 76811bb166da158cbbdf0d6fb4ce32491dcb95f2f3a4e0e0e9f0341224a9a00d
+        http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
         internal/api/cors.go: 9d2b3589a6f06b05aaac95e711c60e82af3adb0ba31b1c26d2e6ef2f178f92c1
         internal/api/discovery.go: 31cf4a80ece098d319dad61a8c861282481707c57deeaab8af29485c6ded4f85
         internal/api/errors.go: ef0a217eac895b508f5c89534d68ab2a4471c729144ec07fb94723ec20062340
@@ -70,19 +111,44 @@ last_applied:
         internal/api/handler_org_users.go: efb8efd69e953d8a8b2045b46bb8f3c98bd151a44585d2f15c6cff4a463ea22d
         internal/api/handler_organizations.go: eb2c982d8e50142042770198f0ccddeea8f3458b9a55f10296a2ff5668aead0a
         internal/api/openapi.json: 08df6ad682de142074f28805f1b4b8fba825e9fec3a172e32b17aeacb0b5d32a
-        internal/api/router.go: 9929b7f1f9a3250bf609223e554f424215a359735d74055fbf75d0d30facbdde
+        internal/api/router.go: 1c1a75eee7f5b48a92d7b7fade930f53b4a61dded8b9476ff75d674d73f93739
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/context.go: 21fa1192bdf97d1f00cb471dcb4af32963873a954a7cb21aa0ef742b568c06f2
         internal/auth/middleware.go: 3dfbd767de93fb1519471cef921b7da5280b9c03411e6c855217067b6f0901ac
-        internal/search/field_map.go: f84a53753b62db86e9908d6a9eae9f97e6c930f950f16cda2bfa212b8c6bbad6
-        internal/search/search.go: 8e517214792a8e844ae687ae45d364895588893ca4c9028470599302dec55089
+        internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
+        internal/events/runtime.go: 8f36c84a8ededf06068d90a52744a75b6cf4952d3f4d62d5209a4ad6ae85adcd
+        internal/outbox/migrations/000001_outbox.sql: dd2a63ebf5b005cdb0a6e56433c4cc3fd4f0f0bde4c52e04c8433c08125b5437
+        internal/outbox/queue.go: b5ad4e086989c86dcce669b9a03731ec1c80690954d073418dc2f1c604664f93
+        internal/outbox/schema.go: b8fc87fd5109f5f7ba99383d51785a90f2468755b8f49b56951d138f5f9f5c45
+        internal/outbox/source.go: 6b299a5af41962dbb3c81e55a90a7fd9f7d4fb177c0efc10eef09fe9438ac1c7
+        internal/outbox/worker.go: aca348a67c30021026fc646b3ad97ff0b461e949b7b65f435d5f29fb982df122
+        internal/search/field_map.go: 38b2f59a5224e13d9a172bafca64c65b1594646b897491cb179a893d178d9608
+        internal/search/search.go: 659978afd6ae1f55ea9b3460f6bb35fb52282e3ad56145bdd9f80f74bba0478b
+        internal/storage/checkpoints.go: e9533b3cf06b47a3daaabeb6b0577938845b7eb707b97cefafe250611c20b537
+        internal/storage/cleanup_summary.go: 555b887cc05421187775a3fc6215626e36ab2424756ae2dc83d6b532011867d1
+        internal/storage/cursor.go: bc0d8d970cb990e66b3f9cc5a638f3c33bbaf1649907d4f5cdaf4a44cca5165e
+        internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
+        internal/storage/effects.go: 9254b7a8f403f94c59505f739a49f0ddd7cab75bfddfe8ea4b2060807af1edc4
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
         internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
+        internal/storage/migrations/000006_scan_checkpoints.sql: 148a9b3aa6ac989ce458b5d878e6f5b250ecc1f10762331dd1df0adcc82e9f95
+        internal/storage/migrations/000008_effect_bindings.sql: aa6ed402091e352159c9cf88401d7287ba9ebd18236ff11eb0ac7721a8191564
         internal/storage/models.go: 7ac29205534884f00185996b22908f7644d61fe4fcb44248d20861fca858a518
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
-        internal/storage/store.go: 532f3ff1289fedbc8d155bc07d99a82bf7a3c4ab679118b171a0d76d1f980b1c
-        main.go: 1377e18c374f01bd561e2dd9cc1b296eb4ff7a29dec83e23f0c4401bffcdaf0e
+        internal/storage/store.go: 8f8c268aa63f1baa9c1364824d5ad486fe41085580d2d18a01aa343eb9b525f8
+        internal/storage/transaction.go: 243f5b08893c7522ee098d2701f63c11265f999c06ea4cd33fa0c13f7f729e37
+        main.go: 2b24e5248881b85015623a921871622c2b662bc52ba0e7836b8aa17a260982f8
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
         slots/on_entity_changed_operators.go: b1edb4b33a83bbf8e56dd4b2199944b9c673921f2caecafd1d4178ed3188a55a
+        tracing/browser.go: 4dd18324aae16bde4bea32a8a054b7fc41215602e6a0c9b46c3107e0a7be5c9e
+        tracing/client.go: 37ee470ae71faa5e5daecd59d73b7874a0c38ea08e5eaed9d1ed2617ac241c67
+        tracing/command.go: e34d452e8ffa1e6aade0f1d8ad1b4cdf2cb3ae51e2ae69137ef9c0c5b779f812
+        tracing/controller.go: 330e49b31935577ae95a5c009b5796144ec64141c998d0dc2c0bb17953f9c222
+        tracing/database.go: ab4b6ee0244f004876885030e8e72d7e8f6a47a7819b054696d40f6ee6273e33
+        tracing/http_client.go: ca9ed1cf57d3a8b33bca141a03733431859a7ed0d58ae92c301460f9438bf683
+        tracing/identity.go: 2c7be8be622a167b67941ea98459f7540b8ba16b64a7631dad109db70c2c0bb6
+        tracing/runtime.go: de0385cd92f685ceba0e63c83a68cf64085b0761d90ccd14a4b757f53c031397
+        tracing/service.go: 59fdee10ad51bd5f51644c8c4fecdfdae74bc5a315d2799a1131abdb92d98b38
+        tracing/signals.go: 3555488a11cab6bfc7c31a9017cb574a3d188b51773bb218a53f896e79d22bb2

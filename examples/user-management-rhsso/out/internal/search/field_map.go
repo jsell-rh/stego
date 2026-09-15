@@ -5,24 +5,72 @@ package search
 // EntityFieldMaps maps entity names to their field-to-column name mappings.
 // Field names from search expressions are validated against these maps;
 // unknown fields are rejected. The mapped values are SQL column names.
-// The resolve_field slot allows fills to customize specific field mappings
-// (e.g. JSONB path queries, label queries, or cross-entity JOINs).
+// Only declared fields and common metadata aliases are available.
 var EntityFieldMaps = map[string]map[string]string{
 	"OrgSetting": {
-		"generation": "generation",
-		"key":        "key",
-		"org_id":     "org_id",
-		"value":      "value",
+		"id":           "id",
+		"created_time": "created_time",
+		"updated_time": "updated_time",
+		"created_at":   "created_time",
+		"updated_at":   "updated_time",
+		"generation":   "generation",
+		"key":          "key",
+		"org_id":       "org_id",
+		"value":        "value",
 	},
 	"Organization": {
-		"description": "description",
-		"name":        "name",
+		"id":           "id",
+		"created_time": "created_time",
+		"updated_time": "updated_time",
+		"created_at":   "created_time",
+		"updated_at":   "updated_time",
+		"description":  "description",
+		"name":         "name",
 	},
 	"User": {
+		"id":           "id",
+		"created_time": "created_time",
+		"updated_time": "updated_time",
+		"created_at":   "created_time",
+		"updated_at":   "updated_time",
 		"display_name": "display_name",
 		"email":        "email",
 		"metadata":     "metadata",
 		"org_id":       "org_id",
 		"role":         "role",
+	},
+}
+var entityFieldTypes = map[string]map[string]string{
+	"OrgSetting": {
+		"id":           "string",
+		"created_time": "timestamp",
+		"updated_time": "timestamp",
+		"created_at":   "timestamp",
+		"updated_at":   "timestamp",
+		"org_id":       "ref",
+		"key":          "string",
+		"value":        "jsonb",
+		"generation":   "int64",
+	},
+	"Organization": {
+		"id":           "string",
+		"created_time": "timestamp",
+		"updated_time": "timestamp",
+		"created_at":   "timestamp",
+		"updated_at":   "timestamp",
+		"name":         "string",
+		"description":  "string",
+	},
+	"User": {
+		"id":           "string",
+		"created_time": "timestamp",
+		"updated_time": "timestamp",
+		"created_at":   "timestamp",
+		"updated_at":   "timestamp",
+		"email":        "string",
+		"display_name": "string",
+		"role":         "enum",
+		"org_id":       "ref",
+		"metadata":     "jsonb",
 	},
 }
