@@ -198,6 +198,13 @@ requires a fresh observation. A different legacy policy needs an explicit
 migration. An incorrect hash or a changed stored rule stops work; the runtime
 does not silently repair or adopt that content.
 
+The [update admission record](allocated-network-update-admission-20260915.json)
+contains 93 passing cases: 19 allowed operations and 74 denied operations.
+The API accepted the approved regenerated policy, rejected retired rules from
+a stale allocator, and rejected a stale resource version. Cleanup passed.
+Full compiler CI for this change is running in
+[run 34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541).
+
 ## Fixed network deny policy
 
 Version 1.11.0 adds the explicit profile setting `network_isolation: true`.

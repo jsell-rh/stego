@@ -1,31 +1,25 @@
 {
-  "checked_at": "2026-09-15T16:53:59.917348+00:00",
-  "compiler_revision": "e394ab57c7b26412789d58429554334371d3d2db",
-  "component_version": "kubernetes-service 1.13.0",
-  "scope": "Generated runtime and Kubernetes admission. No Pods or traffic probes ran.",
+  "checked_at": "2026-09-15T17:02:48.033099+00:00",
+  "compiler_revision": "8aedc54e721a42b744f5cfe721908f886d6bc653",
+  "component_version": "kubernetes-service 1.14.0",
+  "scope": "Generated runtime update checks and Kubernetes admission. No Pods or traffic probes ran.",
   "local_checks": {
-    "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=45s ./internal/generator/kubernetesservice -run '^(TestAllocationNetworkPeerValidation|TestAllocationNetworkPeerAdmissionRules|TestAllocationNetworkIsolationManifest|TestAllocationValidation|TestGeneratedAllocationNetworkRuntime|TestAllocationManifests)$'",
+    "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=45s ./internal/generator/kubernetesservice -run '^(TestAllocationNetworkIsolationManifest|TestGeneratedAllocationNetworkRuntime|TestAllocationNetworkPeerValidation|TestAllocationNetworkPeerAdmissionRules|TestAllocationManifests)$'",
     "exit_status": 0,
-    "package_seconds": 2.637,
+    "package_seconds": 2.851,
     "generated_runtime_race_detection": true
   },
   "compiler_ci": {
-    "run_id": 34997668449,
-    "url": "https://github.com/jsell-rh/stego/actions/runs/34997668449",
-    "status": "completed",
-    "conclusion": "success",
-    "kubernetes_service_package_seconds": 14.516,
-    "race_detection": true,
-    "examples": "both passed",
-    "postgres_provisioning": "passed",
-    "log_sha256": "45e78b3a991d143edc9c2eb58870264892c2b486136f2ee6ecbeff067588f010"
+    "run_id": 34998601541,
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34998601541",
+    "status": "in_progress"
   },
   "live_admission": {
     "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
-    "namespace": "stego-approved-peers-20260915",
+    "namespace": "stego-network-update-20260915",
     "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
-    "allowed": 18,
-    "denied": 71,
+    "allowed": 19,
+    "denied": 74,
     "checks": [
       {
         "check": "wrong namespace pattern",
@@ -228,11 +222,15 @@
         "allowed": true
       },
       {
+        "check": "unapproved peer update",
+        "allowed": false
+      },
+      {
         "check": "another actor changes declared policy",
         "allowed": false
       },
       {
-        "check": "reserved policy deletion system:serviceaccount:stego-approved-peers-20260915:widget-queue",
+        "check": "reserved policy deletion system:serviceaccount:stego-network-update-20260915:widget-queue",
         "allowed": false
       },
       {
@@ -352,6 +350,19 @@
         "allowed": true
       },
       {
+        "check": "approved regenerated peer update",
+        "allowed": true
+      },
+      {
+        "check": "stale allocator cannot restore retired peers",
+        "allowed": false
+      },
+      {
+        "check": "stale policy resource version",
+        "allowed": false,
+        "reason": "conflict"
+      },
+      {
         "check": "regenerated policy blocks another actor",
         "allowed": false
       },
@@ -386,19 +397,19 @@
     ],
     "type_checks": [
       {
-        "name": "stego-approved-peers-20260915.widget-queue.allocation",
+        "name": "stego-network-update-20260915.widget-queue.allocation",
         "generation": 1,
         "observed_generation": 1,
         "warnings": []
       },
       {
-        "name": "stego-approved-peers-20260915.widget-queue.ownership",
+        "name": "stego-network-update-20260915.widget-queue.ownership",
         "generation": 1,
         "observed_generation": 1,
         "warnings": []
       },
       {
-        "name": "stego-approved-peers-20260915.widget-queue.resources",
+        "name": "stego-network-update-20260915.widget-queue.resources",
         "generation": 1,
         "observed_generation": 1,
         "warnings": []
@@ -414,36 +425,40 @@
   },
   "independent_cleanup": {
     "installed_objects_checked_absent": 14,
+    "test_namespaces_checked_absent": [
+      "tenant-7556e0e2",
+      "tenant-3f42dc18"
+    ],
     "shared_lease_free": true
   },
   "artifacts": [
     {
       "path": "first/manifest.json",
-      "sha256": "8fcba021a7b9263b6fcbd0abd611d798c52caca171d253e347097e5fc0886071"
+      "sha256": "99b288eeee6c859eed6175859b583b47a1a0b0cfde63b0228abbe6915cfa80a1"
     },
     {
       "path": "next/manifest.json",
-      "sha256": "633792896f4ff0e00e1204bb14437d3939dd6bbf5245a2009285a16d392e6714"
+      "sha256": "8c5c2c08ae6a2bb0f683b83844f5a31d81d93cad04734df33f12fba696092ff1"
     },
     {
       "path": "check.py",
-      "sha256": "2abf19d23f031e99438dcbef2e50db532d77ad61df9cfb0ec72cd5f80e1f333f"
+      "sha256": "2135cdf5ba8c11c6f3f642ea1eed2fd90f98b6db8de0ab592cf9b9af78b415b0"
     },
     {
       "path": "run.py",
-      "sha256": "f22ea3b369b433543ea7a82d95afff7f3a407ff35912d5143970e243ba4a4fc2"
+      "sha256": "b98187964526f570286b42879722090253ac5c34ed2f9bc0c27bfa5194b3e046"
     },
     {
       "path": "admission.log",
-      "sha256": "2473dae9c56e0674dccd8da7968c94b620330c92633a842124db8b13ceb8b33b"
+      "sha256": "3efba7526c2d46c06e6ea4af258a459c54478c56d104a356f675b1da3bab7f9b"
     },
     {
       "path": "evidence/admission-results.json",
-      "sha256": "fea5ca03d8c0aa4c88ab73a7a46a7531b4273d7e8163c8ae3c88febc75efc2d7"
+      "sha256": "f20878b6a00188b3ac0bd1aa4c44bc9f306379bc487c1ad58873e4b4de4931f8"
     },
     {
       "path": "type-checks.json",
-      "sha256": "a310966a55c0d87ced7bf2f3648eae00df5aa1af599d93b729d39fe67ff7a9a5"
+      "sha256": "6adf7330959d1f29412fba4c8680a4122ebeab25824402b6667496793d4cc172"
     },
     {
       "path": "cleanup.json",
@@ -451,57 +466,10 @@
     }
   ],
   "limits": [
+    "The policy hash is a content check, not an authorization credential or signature.",
     "Production Hypershell allocation isolation remains disabled.",
+    "The earlier application candidate uses compiler e394ab5 and does not test this update path.",
     "No external DNS provider has been selected.",
-    "The complete Gateway traffic, endpoint change, and Sandbox isolation gates remain open.",
-    "Existing policies require an operator-planned migration when declared peers change."
-  ],
-  "candidate_adoption": {
-    "source": "101f31d0e10f39998aa90a10c86f67325575a71a",
-    "branch": "codex/approved-network-peers-20260915",
-    "compiler_revision": "e394ab57c7b26412789d58429554334371d3d2db",
-    "run_id": 34998079776,
-    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34998079776",
-    "status": "in_progress",
-    "regeneration": "Both modules passed repeated apply and drift.",
-    "generation_log_sha256": "1d11d0db6664de4ef0dc18455fd19aae64492f40414b07aec2b9dc06d53de6d9",
-    "production_isolation_enabled": false,
-    "cnpg": "skipped",
-    "sandbox": "skipped",
-    "scope": "Core, rendered browser, web console, images, and regeneration. This run does not prove Gateway network isolation.",
-    "browser": {
-      "job_id": 104479328805,
-      "conclusion": "success",
-      "test": "TestGeneratedBrowserGatewayWorkflow",
-      "test_seconds": 97,
-      "race_detection": true,
-      "screenshots_viewed": true,
-      "screenshots": [
-        {
-          "name": "verify.json.png",
-          "sha256": "fd5d2e1e55386fbc91393be5a6c5da7ff273c406a3868515184249befe35c413"
-        },
-        {
-          "name": "accounts-delete.json.png",
-          "sha256": "39e8bad974457acc8f4c91451bdec45920037ef56b8bfc79d8e7ee65070d1a48"
-        }
-      ],
-      "screenshot_scope": "Gateway creation shows Provisioning. The service-account screen uses a separate Healthy fixture and shows an empty list after deletion. No Gateway Pod or public Route is proved by this run.",
-      "memory_peak_bytes": 489639936,
-      "memory_limit_bytes": 1610612736,
-      "oom_events": 0,
-      "pid_limit": 256,
-      "pid_limit_events": 0,
-      "log_sha256": "99101d03fbb88bf5ca81c03227ec9096a693622733c1653e2dc4ab4aa1c47e3c"
-    },
-    "web_console": {
-      "job_id": 104479328671,
-      "conclusion": "success",
-      "tests_passed": 229,
-      "regeneration": "passed",
-      "bundle_reproduction": "passed"
-    },
-    "service_image": "success",
-    "core": "in_progress"
-  }
+    "The complete Gateway traffic, endpoint change, and Sandbox isolation gates remain open."
+  ]
 }
