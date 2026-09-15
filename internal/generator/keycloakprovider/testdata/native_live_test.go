@@ -41,6 +41,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 		if _, err := c.CreateDisabledNativeClient(ctx, b, p); !errors.Is(err, ErrConflict) {
 			t.Fatal("real native creation conflict differs", err)
 		}
+		testLiveOwnershipMigration(t, c, ctx, b)
 		scopes := RolePolicy{Clients: []ClientRoleGrant{{Client: b, Names: []string{item.role}}}}
 		claims := TokenClaimsPolicy{AudienceClients: []ClientBinding{b}, ClientRoles: []ClientRoleClaim{{Client: b, Claim: item.claim}}}
 		accessPolicy := NativeAccessPolicy{Client: p, Roles: []string{item.role}, Scopes: scopes, Claims: claims}

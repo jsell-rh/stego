@@ -6,7 +6,7 @@ cancellation, and telemetry. It has no component settings or startup hook.
 The application constructs it with `New(Options)` and closes it when its owning
 service stops.
 
-Version 0.9.0 provides typed client lifecycle, role, scope, and mapper operations,
+Version 0.10.0 provides typed client lifecycle, role, scope, and mapper operations,
 checked native and service-account enablement, and service-account token verification. It reuses the
 shared JWT verifier from `jwt-auth` or `rh-sso-auth`. The compiler requires that
 verifier and the generated HTTP application client. Application adoption remains open. See the
@@ -255,3 +255,31 @@ silently select another user. Create the disabled client and save its subject
 before this operation. Keep exclusive reconciliation and saved recovery state.
 Failure cleanup uses the existing five-second budget and reports unconfirmed
 disablement through `ErrAccessDisablementUnconfirmed`.
+
+`DiscoverOwnedClient` supports read-only legacy discovery by exact public client
+ID and expected ownership attributes from application state. It checks the full
+record after the bounded search. Save the returned provider ID before any
+mutation. Do not use discovery instead of a saved binding in ordinary work.
+
+`ClientOwnershipMigration` maps every legacy ownership key to a distinct key
+under `stego.owner.`. It cannot change expected values, provider IDs, or public
+client IDs. `MigrateClientOwnership` requires a disabled OIDC client before any
+write. It rejects conflicting values and unrelated STEGO ownership keys. It
+checks scope visibility and requires an observable existing secret for a
+confidential client. Only the ownership attributes change; readback must confirm
+all other observed fields and unrelated attributes, including the credential.
+
+Call `PrepareClientOwnershipMigration` while the full prior binding is present
+and no target key exists. Save its explicit `Checkpoint()` to encrypted storage
+before migration. The checkpoint contains a hash of the complete observed record
+except the renamed keys. Its hash includes credential state. Formatting and
+ordinary JSON serialization cannot expose the checkpoint; storage requires an
+explicit `Reveal()`. `RestoreOwnershipMigration` restores the saved plan.
+
+An uncertain write is not replayed. A later call can finish matching partial
+key updates while disabled. Each call checks the original saved hash, including
+when all keys have changed. Thus a retry cannot hide a credential or unrelated
+field change. A completed migration causes no writes. Save the new binding
+before access reconciliation or enablement; those actions change the record
+and invalidate the migration checkpoint. Run full access reconciliation before use; migration does not prove
+the role, scope, mapper, or token policy and never enables the client.

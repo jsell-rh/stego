@@ -33,7 +33,8 @@ type ClientRepresentation struct {
 }
 
 // ClientBinding supplies expected identity from application state. Never build
-// it from the resource being checked. All attributes must match before a write.
+// expected attributes from the resource being checked. For legacy discovery,
+// use DiscoverOwnedClient and save its provider ID before a write.
 // The provider does not claim that a read and a later remote write are atomic.
 type ClientBinding struct {
  ID, ClientID string

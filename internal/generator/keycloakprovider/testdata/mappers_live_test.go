@@ -225,6 +225,13 @@ func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, t
 	if err = c.DisableClient(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
+	testLiveOwnershipMigration(t, c, ctx, owner)
+	if err = c.ReconcileServiceAccountAccess(ctx, owner, accessPolicy); err != nil {
+		t.Fatal("service-account access after migration failed", err)
+	}
+	if err = c.DisableClient(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 	if err = c.ReconcileClientScopes(ctx, owner, roles); err != nil {
 		t.Fatal("scope repair after disablement failed", err)
 	}

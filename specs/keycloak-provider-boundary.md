@@ -451,3 +451,27 @@ seconds with both variants. Both use the race detector. Frozen source and
 results are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-service-access-20260915`.
 Hypershell adoption and ownership migration remain open.
+
+## Ownership migration
+
+Version 0.10.0 adds read-only `DiscoverOwnedClient` and checked
+`MigrateClientOwnership`. Application state supplies the exact public ID and
+legacy ownership values. The caller saves the provider ID before mutation.
+The migration only renames ownership keys; it cannot change their values or
+client IDs. Writes require explicit disablement. Conflicting ownership fails
+before a write. Preparation returns a protected checkpoint of the original
+record. Save it to encrypted storage before migration. Matching partial updates
+can recover from this saved plan. Every retry checks the original record hash,
+so new ownership keys alone cannot hide a credential or unrelated field change.
+Save the new binding before access reconciliation or enablement. Readback must preserve unrelated attributes and the complete observed client
+record, including an existing confidential credential.
+
+Small tests cover discovery, conflicts, partial writes, ignored removals,
+credential changes across retries, exact large numbers, protected checkpoint
+serialization, preserved unknown fields, and repeated migration. Both generated
+variants passed with the race detector in 13.588 seconds. The live
+gate now migrates both native and service-account clients before their login
+or signed-token checks. Its result is pending. Frozen source and results are in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-migration-20260915`.
+The Hypershell adapter must still adopt these methods and persist legacy
+bindings before mutation. No application source reduction is claimed yet.

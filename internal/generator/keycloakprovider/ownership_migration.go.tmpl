@@ -1,0 +1,169 @@
+package {{.Package}}
+
+import (
+ "context"
+ "bytes"
+ "encoding/json"
+ "crypto/sha256"
+ "encoding/hex"
+ "errors"
+ "net/http"
+ "reflect"
+ "strings"
+)
+
+// ClientOwnershipMigration renames legacy ownership keys. Expected values,
+// provider ID, and public client ID cannot change. Save Prior before mutation.
+type ClientOwnershipMigration struct {
+ Prior ClientBinding
+ Renames map[string]string
+ fingerprint string
+}
+
+func(m ClientOwnershipMigration)NextBinding()(ClientBinding,error){
+ if err:=m.Prior.validate();err!=nil{return ClientBinding{},err}
+ if len(m.Renames)!=len(m.Prior.Attributes){return ClientBinding{},errors.New("ownership migration requires every prior key")}
+ next:=ClientBinding{ID:m.Prior.ID,ClientID:m.Prior.ClientID,Attributes:map[string]string{}}
+ for old,value:=range m.Prior.Attributes{
+  key,exists:=m.Renames[old]
+  if !exists||!textValue(key,128)||!strings.HasPrefix(key,"stego.owner.")||key=="stego.owner."{return ClientBinding{},errors.New("invalid ownership migration key")}
+  if _,exists=m.Prior.Attributes[key];exists{return ClientBinding{},errors.New("ownership migration keys overlap")}
+  if _,exists=next.Attributes[key];exists{return ClientBinding{},errors.New("repeated ownership migration key")}
+  next.Attributes[key]=value
+ }
+ return next,nil
+}
+
+// DiscoverOwnedClient is read-only legacy discovery. Its public ID and all
+// expected attributes must come from trusted application state. It checks one
+// exact search result and its full record. Save the returned provider ID before
+// migration or any other mutation. Ordinary reconciliation uses saved bindings.
+func(c *Client)DiscoverOwnedClient(ctx context.Context,clientID string,expected map[string]string)(ClientBinding,error){
+ binding:=ClientBinding{ID:"discovery",ClientID:clientID,Attributes:map[string]string{}}
+ for key,value:=range expected{binding.Attributes[key]=value}
+ if err:=binding.validate();err!=nil{return ClientBinding{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientBinding{},err};defer done()
+ value,err:=c.findClient(work,clientID);if err!=nil{return ClientBinding{},err}
+ binding.ID=value.ID
+ if _,_,err=c.boundClient(work,binding);err!=nil{return ClientBinding{},err}
+ return binding,nil
+}
+
+func migrationState(value ClientRepresentation,m ClientOwnershipMigration,next ClientBinding)(bool,error){
+ if value.ID!=next.ID||value.ClientID!=next.ClientID{return false,ErrOwnership}
+ complete:=true
+ for old,expected:=range m.Prior.Attributes{
+  before,hasOld:=value.Attributes[old];after,hasNew:=value.Attributes[m.Renames[old]]
+  if (!hasOld&&!hasNew)||(hasOld&&before!=expected)||(hasNew&&after!=expected){return false,ErrOwnership}
+  if hasOld||!hasNew{complete=false}
+ }
+ for key:=range value.Attributes{
+  if strings.HasPrefix(key,"stego.owner."){
+   _,old:=m.Prior.Attributes[key];_,new:=next.Attributes[key]
+   if !old&&!new{return false,ErrOwnership}
+  }
+ }
+ return complete,nil
+}
+
+func migrationRecordHash(raw []byte,m ClientOwnershipMigration)(string,error){
+ var record map[string]any
+ if decode(raw,&record)!=nil||record==nil{return "",ErrResponse}
+ decoder:=json.NewDecoder(bytes.NewReader(raw));decoder.UseNumber()
+ if decoder.Decode(&record)!=nil{return "",ErrResponse}
+ attributes,ok:=record["attributes"].(map[string]any);if !ok{return "",ErrResponse}
+ for old,next:=range m.Renames{delete(attributes,old);delete(attributes,next)}
+ // Credentials remain inside the hash input, never in the exported checkpoint.
+ canonical,err:=json.Marshal(record);if err!=nil{return "",ErrResponse}
+ digest:=sha256.Sum256(canonical);return hex.EncodeToString(digest[:]),nil
+}
+
+func(m ClientOwnershipMigration)String()string{return "ClientOwnershipMigration{checkpoint redacted}"}
+func(m ClientOwnershipMigration)GoString()string{return m.String()}
+func(m ClientOwnershipMigration)MarshalJSON()([]byte,error){return nil,errors.New("migration serialization requires an explicit checkpoint")}
+
+type ownershipCheckpoint struct{
+ Version int `json:"version"`
+ Prior ClientBinding `json:"prior"`
+ Renames map[string]string `json:"renames"`
+ Fingerprint string `json:"fingerprint"`
+}
+func validMigrationFingerprint(value string)bool{
+ decoded,err:=hex.DecodeString(value);return err==nil&&len(decoded)==sha256.Size&&hex.EncodeToString(decoded)==value
+}
+
+// Checkpoint requires explicit Reveal at a protected storage boundary. Store it
+// encrypted before migration. It includes a fingerprint derived from credential
+// state and must not enter ordinary logs, formatting, or public responses.
+func(m ClientOwnershipMigration)Checkpoint()(Secret,error){
+ if _,err:=m.NextBinding();err!=nil{return Secret{},err}
+ if !validMigrationFingerprint(m.fingerprint){return Secret{},errors.New("ownership migration has no prepared checkpoint")}
+ raw,err:=json.Marshal(ownershipCheckpoint{1,m.Prior,m.Renames,m.fingerprint});if err!=nil{return Secret{},ErrResponse}
+ return Secret{string(raw)},nil
+}
+func RestoreOwnershipMigration(checkpoint string)(ClientOwnershipMigration,error){
+ var saved ownershipCheckpoint
+ if len(checkpoint)>32768||decode([]byte(checkpoint),&saved)!=nil||saved.Version!=1||!validMigrationFingerprint(saved.Fingerprint){return ClientOwnershipMigration{},ErrResponse}
+ m:=ClientOwnershipMigration{Prior:saved.Prior,Renames:saved.Renames,fingerprint:saved.Fingerprint}
+ if _,err:=m.NextBinding();err!=nil{return ClientOwnershipMigration{},err};return m,nil
+}
+
+// PrepareClientOwnershipMigration requires the full prior binding, no target
+// keys, a disabled OIDC client, and visible confidential credential state.
+// Persist its protected checkpoint before MigrateClientOwnership. Preparation
+// does not mutate the provider and cannot recreate a lost partial-migration plan.
+func(c *Client)PrepareClientOwnershipMigration(ctx context.Context,prior ClientBinding,renames map[string]string)(ClientOwnershipMigration,error){
+ m:=ClientOwnershipMigration{Prior:ClientBinding{ID:prior.ID,ClientID:prior.ClientID,Attributes:map[string]string{}},Renames:map[string]string{}}
+ for key,value:=range prior.Attributes{m.Prior.Attributes[key]=value};for key,value:=range renames{m.Renames[key]=value}
+ next,err:=m.NextBinding();if err!=nil{return ClientOwnershipMigration{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientOwnershipMigration{},err};defer done()
+ value,raw,err:=c.boundClient(work,m.Prior);if err!=nil{return ClientOwnershipMigration{},err}
+ for key:=range next.Attributes{if _,exists:=value.Attributes[key];exists{return ClientOwnershipMigration{},ErrOwnership}}
+ if _,err=migrationState(value,m,next);err!=nil{return ClientOwnershipMigration{},err}
+ if err=migrationReady(value,raw);err!=nil{return ClientOwnershipMigration{},err}
+ if err=c.confirmScopeVisibility(work);err!=nil{return ClientOwnershipMigration{},err}
+ m.fingerprint,err=migrationRecordHash(raw,m);if err!=nil{return ClientOwnershipMigration{},err};return m,nil
+}
+
+func migrationReady(value ClientRepresentation,raw []byte)error{
+ if !explicitFlag(raw,"enabled",false)||value.Protocol!="openid-connect"||value.ClientAuthenticatorType!="client-secret"{return ErrClientConfiguration}
+ if value.WebOrigins==nil||len(value.Attributes)>128{return ErrResponse}
+ if !explicitFlag(raw,"publicClient",true)&&!explicitFlag(raw,"publicClient",false){return ErrResponse}
+ if !value.PublicClient{
+  var fields map[string]any;if decode(raw,&fields)!=nil{return ErrResponse}
+  secret,ok:=fields["secret"].(string);if !ok||!credentialValue(secret){return ErrResponse}
+ }
+ return nil
+}
+
+// MigrateClientOwnership requires the saved migration plan. A mutation requires
+// an explicitly disabled OIDC client. A completed migration is read-only while
+// it still matches the checkpoint. Save the new binding before any access
+// reconciliation or enablement; ordinary work uses that binding. Matching key updates can
+// recover while disabled; conflicting values are never overwritten.
+// This method does not enable the client or return a credential. An uncertain
+// write is not replayed. Reuse the saved plan to inspect the next observed state.
+func(c *Client)MigrateClientOwnership(ctx context.Context,m ClientOwnershipMigration)(ClientBinding,error){
+ next,err:=m.NextBinding();if err!=nil{return ClientBinding{},err}
+ if !validMigrationFingerprint(m.fingerprint){return ClientBinding{},errors.New("ownership migration requires a prepared checkpoint")}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientBinding{},err};defer done()
+ value,raw,err:=c.getClient(work,next.ID);if err!=nil{return ClientBinding{},err}
+ complete,err:=migrationState(value,m,next);if err!=nil{return ClientBinding{},err}
+ if err=migrationReady(value,raw);err!=nil{return ClientBinding{},err}
+ before,err:=migrationRecordHash(raw,m);if err!=nil{return ClientBinding{},err}
+ if before!=m.fingerprint{return ClientBinding{},errors.New("Keycloak migration checkpoint no longer matches")}
+ if complete{return next,nil}
+ if err=c.confirmScopeVisibility(work);err!=nil{return ClientBinding{},err}
+ patch:=map[string]string{};expected:=map[string]string{}
+ for key,v:=range value.Attributes{expected[key]=v}
+ for old,v:=range m.Prior.Attributes{patch[old]="";patch[m.Renames[old]]=v;delete(expected,old);expected[m.Renames[old]]=v}
+ body,err:=json.Marshal(struct{Attributes map[string]string `json:"attributes"`;Enabled bool `json:"enabled"`;Origins []string `json:"webOrigins"`}{patch,false,value.WebOrigins})
+ if err!=nil{return ClientBinding{},ErrResponse}
+ response,err:=c.admin(work,http.MethodPut,"/clients/"+next.ID,body);if err!=nil{return ClientBinding{},err}
+ if response.StatusCode!=http.StatusNoContent{return ClientBinding{},statusError(response.StatusCode)}
+ value,raw,err=c.getClient(work,next.ID);if err!=nil{return ClientBinding{},err}
+ complete,err=migrationState(value,m,next);if err!=nil{return ClientBinding{},err}
+ after,err:=migrationRecordHash(raw,m);if err!=nil{return ClientBinding{},err}
+ if !complete||!explicitFlag(raw,"enabled",false)||!reflect.DeepEqual(value.Attributes,expected)||after!=m.fingerprint{return ClientBinding{},errors.New("Keycloak ownership migration is not confirmed")}
+ return next,nil
+}
