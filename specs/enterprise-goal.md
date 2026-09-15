@@ -4101,3 +4101,11 @@ and keeps errors private. Writes are not replayed. Twelve installation checks
 and six workflow checks passed after reproducing the old failures. Pod startup
 now has a five-minute allowance within the existing Job deadline; six browser
 boundary checks and shell syntax passed. A fresh frozen CNPG run is required.
+
+The final read review also moved namespaced cleanup flags after the `get`
+operation and rejects unsupported command order before execution. Thirteen
+installation checks and six workflow checks passed. The
+[v7 frozen source](hypershell-cnpg-retry-preflight.json) matches all 895 files at
+Hypershell `ccfa4a9`, with compiler `5e9c89d`. The run started in
+`stego-cnpg-database-20260915-v7` after final cleanup verification. Its complete
+application and automated cleanup results remain required.
