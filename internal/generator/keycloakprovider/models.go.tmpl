@@ -9,6 +9,12 @@ type ClientRepresentation struct {
  Name string `json:"name,omitempty"`
  Protocol string `json:"protocol,omitempty"`
  ClientAuthenticatorType string `json:"clientAuthenticatorType,omitempty"`
+ RootURL string `json:"rootUrl"`
+ BaseURL string `json:"baseUrl"`
+ AdminURL string `json:"adminUrl"`
+ FrontchannelLogout bool `json:"frontchannelLogout"`
+ SurrogateAuthRequired bool `json:"surrogateAuthRequired"`
+ AuthenticationFlowBindingOverrides map[string]string `json:"authenticationFlowBindingOverrides"`
  Enabled bool `json:"enabled"`
  PublicClient bool `json:"publicClient"`
  BearerOnly bool `json:"bearerOnly"`

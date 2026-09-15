@@ -63,6 +63,7 @@ func nativeClientConfiguration(b ClientBinding,p NativeClientPolicy)(ClientRepre
  return desired,nil
 }
 func nativeClientConfigurationMatches(value ClientRepresentation,raw []byte,desired ClientRepresentation)bool{
+ if !clientFlowBindingsMatch(value,raw){return false}
  if value.ID!=desired.ID||value.ClientID!=desired.ClientID||value.Name!=desired.Name||value.Protocol!="openid-connect"||value.ClientAuthenticatorType!="client-secret"{return false}
  for key,want:=range map[string]bool{"enabled":false,"publicClient":true,"bearerOnly":false,"consentRequired":false,"serviceAccountsEnabled":false,"standardFlowEnabled":true,"implicitFlowEnabled":false,"directAccessGrantsEnabled":false,"fullScopeAllowed":false}{if !explicitFlag(raw,key,want){return false}}
  // Match the service-account profile's documented optional authorization flag.

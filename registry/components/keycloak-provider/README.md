@@ -180,3 +180,9 @@ that client's dedicated provider user. No native method enables login.
 The application must use an external browser and verify state, issuer, and
 nonce. These obligations follow [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html).
 The provider profile does not implement the native application's login client.
+
+Both base profiles use the realm's authentication flow. They require an explicit
+empty `authenticationFlowBindingOverrides` map, disabled front-channel logout
+and surrogate authentication, and no root, base, or management URL. A client
+cannot retain a weaker flow override while it passes the base-profile check.
+The configuration repair clears these settings while the client is disabled.

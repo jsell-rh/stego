@@ -14,6 +14,7 @@ func nativeInputs() (ClientBinding, NativeClientPolicy) {
 }
 func nativeRecord() map[string]any {
 	return map[string]any{
+		"frontchannelLogout": false, "surrogateAuthRequired": false, "authenticationFlowBindingOverrides": map[string]string{},
 		"id": "native-id", "clientId": "catalog-cli", "name": "Catalog CLI", "protocol": "openid-connect", "clientAuthenticatorType": "client-secret",
 		"enabled": false, "publicClient": true, "bearerOnly": false, "consentRequired": false, "serviceAccountsEnabled": false, "standardFlowEnabled": true, "implicitFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": false,
 		"redirectUris": []string{"http://127.0.0.1:*", "http://localhost:*"}, "webOrigins": []string{}, "defaultClientScopes": []string{}, "optionalClientScopes": []string{},
@@ -146,6 +147,13 @@ func TestNativeProfileRejectsDrift(t *testing.T) {
 		name   string
 		change func(map[string]any)
 	}{
+		{"flow override", func(v map[string]any) {
+			v["authenticationFlowBindingOverrides"] = map[string]string{"browser": "other-flow"}
+		}},
+		{"null flow map", func(v map[string]any) { v["authenticationFlowBindingOverrides"] = nil }},
+		{"management target", func(v map[string]any) { v["adminUrl"] = "https://other.invalid" }},
+		{"front-channel logout", func(v map[string]any) { v["frontchannelLogout"] = true }},
+		{"surrogate authentication", func(v map[string]any) { v["surrogateAuthRequired"] = true }},
 		{"enabled", func(v map[string]any) { v["enabled"] = true }},
 		{"missing enabled", func(v map[string]any) { delete(v, "enabled") }},
 		{"authorization null", func(v map[string]any) { v["authorizationServicesEnabled"] = nil }},

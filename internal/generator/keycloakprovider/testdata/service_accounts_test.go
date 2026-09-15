@@ -12,6 +12,7 @@ import (
 // optional-field behavior of a full Keycloak client response.
 func disabledServiceAccountRecord() map[string]any {
 	return map[string]any{
+		"frontchannelLogout": false, "surrogateAuthRequired": false, "authenticationFlowBindingOverrides": map[string]string{},
 		"id": "stable-id", "clientId": "catalog", "name": "Catalog worker", "protocol": "openid-connect", "clientAuthenticatorType": "client-secret",
 		"enabled": false, "publicClient": false, "bearerOnly": false, "consentRequired": false, "serviceAccountsEnabled": true,
 		"standardFlowEnabled": false, "implicitFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": false,

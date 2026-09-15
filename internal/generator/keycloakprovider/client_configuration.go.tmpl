@@ -28,7 +28,7 @@ func oidcClientConfiguration(b ClientBinding,name string,lifetime int)(ClientRep
   attributes[key]=value
  }
  return ClientRepresentation{ID:b.ID,ClientID:b.ClientID,Name:name,Protocol:"openid-connect",ClientAuthenticatorType:"client-secret",
-  RedirectURIs:[]string{},WebOrigins:[]string{},DefaultClientScopes:[]string{},OptionalClientScopes:[]string{},Attributes:attributes},nil
+  AuthenticationFlowBindingOverrides:map[string]string{},RedirectURIs:[]string{},WebOrigins:[]string{},DefaultClientScopes:[]string{},OptionalClientScopes:[]string{},Attributes:attributes},nil
 }
 
 type clientConfigurationCheck func(ClientRepresentation,[]byte,ClientRepresentation)bool
@@ -59,4 +59,12 @@ func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desir
  response,err:=c.admin(ctx,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
  _,err=c.inspectDisabledClient(ctx,b,desired,check);return err
+}
+
+// These profiles use the realm's authentication flow. They do not permit
+// client-specific flow overrides or browser logout and management targets.
+func clientFlowBindingsMatch(value ClientRepresentation,raw []byte)bool{
+ return value.RootURL==""&&value.BaseURL==""&&value.AdminURL==""&&
+  explicitFlag(raw,"frontchannelLogout",false)&&explicitFlag(raw,"surrogateAuthRequired",false)&&
+  value.AuthenticationFlowBindingOverrides!=nil&&len(value.AuthenticationFlowBindingOverrides)==0
 }
