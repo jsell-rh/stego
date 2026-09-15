@@ -364,9 +364,59 @@ func (s *provisionSession) ownership(row databaseRecord, allowAbsent bool) error
 	}
 	return nil
 }
+// quarantine disables new login and stops only sessions of the recorded roles.
+// Each signal waits for confirmed exit. The operation has a fixed session bound
+// and the caller's deadline. A failed or incomplete check is never success.
+func (s *provisionSession) quarantine(row databaseRecord, limit int) (failure error) {
+ _, done := databaseSignal(s.ctx, "quarantine")
+ defer func(){ done(failure) }()
+ if limit < 1 || limit > 128 { return ErrDatabaseIsolation }
+ if err := s.ownership(row, false); err != nil { return err }
+ for _, role := range []struct{name string; oid uint32}{ {s.names.User,row.login}, {s.names.Owner,row.owner} } {
+  var matches bool
+  if err := s.conn.QueryRow(s.ctx,"SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE oid=$1 AND rolname=$2)",role.oid,role.name).Scan(&matches); err != nil {
+   failure=errors.Join(failure,safeError(s.ctx,"isolation",err));continue
+  }
+  if !matches { failure=errors.Join(failure,ErrDatabaseOwnership);continue }
+  // Separate commands retain denial for one role if the other cannot change.
+  if err := s.exec("isolation","ALTER ROLE "+quoted(role.name)+" NOLOGIN");err!=nil {failure=errors.Join(failure,err)}
+ }
+ type session struct {pid int32; role uint32; started *time.Time}
+ rows,err:=s.conn.Query(s.ctx,`SELECT pid,usesysid,backend_start FROM pg_catalog.pg_stat_activity
+ WHERE usesysid IN ($1,$2) AND pid<>pg_catalog.pg_backend_pid() ORDER BY pid LIMIT $3`,row.login,row.owner,limit+1)
+ if err!=nil{return errors.Join(failure,safeError(s.ctx,"isolation-sessions",err))}
+ var sessions []session
+ for rows.Next(){
+  var value session
+  if err=rows.Scan(&value.pid,&value.role,&value.started);err!=nil{rows.Close();return errors.Join(failure,safeError(s.ctx,"isolation-sessions",err))}
+  if value.pid<1 || value.started==nil || value.role!=row.login && value.role!=row.owner {rows.Close();return errors.Join(failure,ErrDatabaseIsolation,&Error{Stage:"isolation-session-identity"})}
+  sessions=append(sessions,value)
+ }
+ err=rows.Err();rows.Close()
+ if err!=nil{return errors.Join(failure,safeError(s.ctx,"isolation-sessions",err))}
+ if len(sessions)>limit {sessions=sessions[:limit];failure=errors.Join(failure,ErrDatabaseIsolation)}
+ for _,value:=range sessions{
+  var stopped bool
+  // Recheck session identity before the signal. A session that has already
+  // ended is harmless. Do not signal another role or a reused process ID.
+  err=s.conn.QueryRow(s.ctx,`SELECT pg_catalog.pg_terminate_backend(pid,1000)
+   FROM pg_catalog.pg_stat_activity WHERE pid=$1 AND usesysid=$2 AND backend_start=$3`,value.pid,value.role,*value.started).Scan(&stopped)
+  if errors.Is(err,pgx.ErrNoRows){continue}
+  if err!=nil{failure=errors.Join(failure,safeError(s.ctx,"isolation-sessions",err));continue}
+  if !stopped {failure=errors.Join(failure,ErrDatabaseIsolation,&Error{Stage:"isolation-session-timeout"})}
+ }
+ // Each query uses a new transaction, so the activity view has a fresh snapshot.
+ var closed bool
+ err=s.conn.QueryRow(s.ctx,`SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE usesysid IN ($1,$2))
+  AND (SELECT count(*)=2 FROM pg_catalog.pg_roles WHERE NOT rolcanlogin AND ((oid=$1 AND rolname=$3) OR (oid=$2 AND rolname=$4)))`,row.login,row.owner,s.names.User,s.names.Owner).Scan(&closed)
+ if err!=nil{return errors.Join(failure,safeError(s.ctx,"isolation-sessions",err))}
+ if !closed {failure=errors.Join(failure,ErrDatabaseIsolation,&Error{Stage:"isolation-verification"})}
+ return failure
+}
+
 func (s *provisionSession) isolated(row databaseRecord) error {
 	var safe bool
-	err := s.conn.QueryRow(s.ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE oid IN ($1,$2) AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members WHERE member IN ($1,$2)) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname<>$3 AND datallowconn AND pg_catalog.has_database_privilege($2,oid,'CONNECT'))`, row.owner, row.login, s.names.Database).Scan(&safe)
+	err := s.conn.QueryRow(s.ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE oid IN ($1,$2) AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit OR (oid=$1 AND rolcanlogin))) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members WHERE member IN ($1,$2)) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname<>$3 AND datallowconn AND pg_catalog.has_database_privilege($2,oid,'CONNECT'))`, row.owner, row.login, s.names.Database).Scan(&safe)
 	if err != nil {
 		return safeError(s.ctx, "isolation", err)
 	}
@@ -492,12 +542,14 @@ func EnsureDatabase(ctx context.Context, o Options, spec DatabaseSpec) (identity
 	if err = s.ownership(row, false); err != nil {
 		return identity, err
 	}
-	if err = s.isolated(row); err != nil {
+	// Cover isolation failures in both the initial check and final activation.
+	// The locked session remains open until quarantine completes or fails.
+	defer func() {
 		if errors.Is(err, ErrDatabaseIsolation) {
-			if disable := s.exec("isolation", "ALTER ROLE "+quoted(s.names.User)+" NOLOGIN; ALTER ROLE "+quoted(s.names.Owner)+" NOLOGIN"); disable != nil {
-				return identity, disable
-			}
+			err = errors.Join(err, s.quarantine(row, 128))
 		}
+	}()
+	if err = s.isolated(row); err != nil {
 		return identity, err
 	}
 	if row.state == "ready" {

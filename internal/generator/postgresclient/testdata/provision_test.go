@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestDatabaseNamesAndValidation(t *testing.T) {
@@ -248,12 +249,12 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 		t.Fatal("repair lost data", err)
 	}
 
-	// Repair credential and owner-login changes without replacing stored data.
+	// Repair a credential change without replacing stored data.
 	replacement, e := NewDatabasePassword()
 	if e != nil {
 		t.Fatal(e)
 	}
-	exec(bootstrap, "ALTER ROLE "+quoted(first.User)+" PASSWORD '"+replacement+"'; ALTER ROLE "+quoted(first.Owner)+" LOGIN")
+	exec(bootstrap, "ALTER ROLE "+quoted(first.User)+" PASSWORD '"+replacement+"'")
 	if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
 		t.Fatal("credential repair", err)
 	}
@@ -273,18 +274,182 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
 		t.Fatal("failed activation did not recover", err)
 	}
-	// A new grant on another database must disable this login, not change that database.
+	// Keep owned sessions in both the owned database and another database.
+	// The owner role can also have a session after an operator enables login.
+	exec(bootstrap, "ALTER ROLE "+quoted(first.Owner)+" LOGIN PASSWORD '"+a.Password+"'")
+	ownerOptions := appOptions(a, first)
+	ownerOptions.User = first.Owner
+	ownerSession := connect(ownerOptions)
 	exec(bootstrap, "GRANT CONNECT ON DATABASE postgres TO "+quoted(first.User))
+	outsideOptions := appOptions(a, first)
+	outsideOptions.Database = "postgres"
+	outsideSession := connect(outsideOptions)
 	if _, err = EnsureDatabase(ctx, provisioner, a); !errors.Is(err, ErrDatabaseIsolation) {
 		t.Fatal("isolation drift accepted", err)
 	}
 	if err = bootstrap.QueryRow(ctx, "SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname=$1", first.User).Scan(&login); err != nil || login {
 		t.Fatal("isolation drift left login enabled", err)
 	}
+	for _, connection := range []*pgx.Conn{app, ownerSession, outsideSession} {
+		if err := connection.Ping(ctx); err == nil {
+			t.Fatal("an owned session survived isolation failure")
+		}
+	}
+	if err = other.QueryRow(ctx, "SELECT value FROM public.marker").Scan(&count); err != nil || count != 99 {
+		t.Fatal("quarantine stopped an unrelated session", err)
+	}
+	if err = adminConn.Ping(ctx); err != nil {
+		t.Fatal("quarantine stopped the administrator", err)
+	}
 	exec(bootstrap, "REVOKE CONNECT ON DATABASE postgres FROM "+quoted(first.User))
 	if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
 		t.Fatal("isolation recovery", err)
 	}
+	app = connect(appOptions(a, first))
+
+	for _, fault := range []struct {
+		apply, restore string
+		ownerLogin     bool
+	}{
+		{"ALTER ROLE " + quoted(first.User) + " CREATEDB", "ALTER ROLE " + quoted(first.User) + " NOCREATEDB", false},
+		{"GRANT pg_read_all_data TO " + quoted(first.User), "REVOKE pg_read_all_data FROM " + quoted(first.User), false},
+		{"ALTER ROLE " + quoted(first.Owner) + " LOGIN", "ALTER ROLE " + quoted(first.Owner) + " NOLOGIN", true},
+	} {
+		exec(bootstrap, fault.apply)
+		var ownerConnection *pgx.Conn
+		if fault.ownerLogin {
+			ownerConnection = connect(ownerOptions)
+		}
+		if _, err = EnsureDatabase(ctx, provisioner, a); !errors.Is(err, ErrDatabaseIsolation) {
+			t.Fatal("unsafe role was not quarantined", err)
+		}
+		if err = app.Ping(ctx); err == nil {
+			t.Fatal("unsafe role retained an open session")
+		}
+		if ownerConnection != nil && ownerConnection.Ping(ctx) == nil {
+			t.Fatal("owner login retained an open session")
+		}
+		if err = other.Ping(ctx); err != nil {
+			t.Fatal("role quarantine stopped another resource", err)
+		}
+		exec(bootstrap, fault.restore)
+		if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
+			t.Fatal("role quarantine did not recover", err)
+		}
+		app = connect(appOptions(a, first))
+	}
+
+	// The server can deny signals. Retain NOLOGIN, return the safe error, and
+	// retry only after the operator restores permission. Never report success.
+	ledgerOptions := o
+	ledgerOptions.Database = ledger
+	ledgerAdmin := connect(ledgerOptions)
+	const restoreSignal = "GRANT EXECUTE ON FUNCTION pg_catalog.pg_terminate_backend(integer,bigint) TO PUBLIC"
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := ledgerAdmin.Exec(cleanup, restoreSignal); err != nil {
+			t.Error("signal permission restore failed", safeError(cleanup, "fixture", err))
+		}
+	})
+	exec(ledgerAdmin, "REVOKE EXECUTE ON FUNCTION pg_catalog.pg_terminate_backend(integer,bigint) FROM PUBLIC")
+	var signalAllowed bool
+	if err = ledgerAdmin.QueryRow(ctx, "SELECT pg_catalog.has_function_privilege($1,'pg_catalog.pg_terminate_backend(integer,bigint)','EXECUTE')", admin).Scan(&signalAllowed); err != nil || signalAllowed {
+		t.Fatal("signal denial fixture did not remove permission", err)
+	}
+	var signalResult bool
+	err = adminConn.QueryRow(ctx, "SELECT pg_catalog.pg_terminate_backend($1,100)", app.PgConn().PID()).Scan(&signalResult)
+	var signalError *pgconn.PgError
+	if !errors.As(err, &signalError) || signalError.Code != "42501" {
+		t.Fatalf("signal denial direct call: error=%t SQLSTATE=%s stopped=%t", err != nil, safeError(ctx, "fixture", err).(*Error).SQLState, signalResult)
+	}
+	exec(bootstrap, "ALTER ROLE "+quoted(first.User)+" CREATEDB")
+	_, err = EnsureDatabase(ctx, provisioner, a)
+	var denied *Error
+	if !errors.Is(err, ErrDatabaseIsolation) || !errors.As(err, &denied) || denied.Stage != "isolation-sessions" || denied.SQLState != "42501" {
+		t.Fatal("denied session termination was not reported", err)
+	}
+	if err = app.Ping(ctx); err != nil {
+		t.Fatal("denied signal fixture did not retain its session", err)
+	}
+	if err = bootstrap.QueryRow(ctx, "SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname=$1", first.User).Scan(&login); err != nil || login {
+		t.Fatal("denied signal restored login", err)
+	}
+	exec(ledgerAdmin, restoreSignal)
+	if _, err = EnsureDatabase(ctx, provisioner, a); !errors.Is(err, ErrDatabaseIsolation) {
+		t.Fatal("unsafe role recovered before operator repair", err)
+	}
+	if err = app.Ping(ctx); err == nil {
+		t.Fatal("session termination did not resume")
+	}
+	exec(bootstrap, "ALTER ROLE "+quoted(first.User)+" NOCREATEDB")
+	if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
+		t.Fatal("signal recovery failed", err)
+	}
+	app = connect(appOptions(a, first))
+
+	// Use two connections and a one-session bound to test bounded progress.
+	// This tests the same code without a large connection or stress workload.
+	extra := connect(appOptions(a, first))
+	quarantine, err := openProvision(ctx, provisioner, a.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = quarantine.conn.Close(cleanup)
+	})
+	retained, found, err := quarantine.record()
+	if err != nil || !found {
+		t.Fatal("quarantine ledger is absent", err)
+	}
+	if err = quarantine.quarantine(retained, 0); !errors.Is(err, ErrDatabaseIsolation) {
+		t.Fatal("invalid session bound accepted", err)
+	}
+	if err = app.Ping(ctx); err != nil {
+		t.Fatal("invalid bound changed a session", err)
+	}
+	canceled, stop := context.WithCancel(ctx)
+	stop()
+	quarantine.ctx = canceled
+	if err = quarantine.quarantine(retained, 1); !errors.Is(err, context.Canceled) {
+		t.Fatal("quarantine ignored cancellation", err)
+	}
+	_ = quarantine.conn.Close(ctx)
+	if err = app.Ping(ctx); err != nil {
+		t.Fatal("canceled quarantine changed a session", err)
+	}
+	quarantine, err = openProvision(ctx, provisioner, a.Key)
+	if err != nil {
+		t.Fatal("quarantine retry could not open a new session", err)
+	}
+	if err = quarantine.quarantine(retained, 1); !errors.Is(err, ErrDatabaseIsolation) {
+		t.Fatal("session bound was not enforced", err)
+	}
+	if err = bootstrap.QueryRow(ctx, "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE usesysid IN ($1,$2)", retained.login, retained.owner).Scan(&count); err != nil || count != 1 {
+		t.Fatal("bounded quarantine did not make exact progress", err)
+	}
+	if err = other.Ping(ctx); err != nil {
+		t.Fatal("bounded quarantine stopped another resource", err)
+	}
+	if err = quarantine.quarantine(retained, 128); err != nil {
+		t.Fatal("bounded quarantine did not finish", err)
+	}
+	_ = quarantine.conn.Close(ctx)
+	for _, connection := range []*pgx.Conn{app, extra} {
+		if err = connection.Ping(ctx); err == nil {
+			t.Fatal("bounded quarantine retained an owned session")
+		}
+	}
+	if _, err = EnsureDatabase(ctx, provisioner, a); err != nil {
+		t.Fatal("bounded quarantine did not recover", err)
+	}
+	app = connect(appOptions(a, first))
+	if err = app.QueryRow(ctx, "SELECT value FROM public.marker").Scan(&count); err != nil || count != 42 {
+		t.Fatal("quarantine changed stored application data", err)
+	}
+	t.Log("Owned login and owner sessions stopped across databases; unrelated sessions survived; denied signals, cancellation, bounded progress, and recovery passed")
 
 	// A dependency outside the owned database must stop deletion. Resume after
 	// the operator removes that dependency, including an already dropped login.
@@ -423,9 +588,18 @@ func TestDatabaseProvisionSignalsExcludePrivateValues(t *testing.T) {
 	if err == nil {
 		t.Fatal("invalid specification accepted")
 	}
+	session := &provisionSession{ctx: ctx, key: DatabaseKey{"private-scope", "private-resource"}, names: DatabaseIdentity{"private-database", "private-owner", "private-login"}}
+	if err := session.quarantine(databaseRecord{}, 0); !errors.Is(err, ErrDatabaseIsolation) {
+		t.Fatal("invalid quarantine bound accepted", err)
+	}
 	spans := exporter.GetSpans()
-	if len(spans) != 1 || spans[0].Name != "postgres.database.ensure" || spans[0].Status.Code != codes.Error || spans[0].Parent.SpanID() != parent.SpanContext().SpanID() {
-		t.Fatal("missing correlated database span")
+	if len(spans) != 2 {
+		t.Fatal("missing database spans")
+	}
+	for index, name := range []string{"postgres.database.ensure", "postgres.database.quarantine"} {
+		if spans[index].Name != name || spans[index].Status.Code != codes.Error || spans[index].Parent.SpanID() != parent.SpanContext().SpanID() {
+			t.Fatal("missing correlated database span")
+		}
 	}
 	parent.End()
 	var measured metricdata.ResourceMetrics
@@ -449,10 +623,10 @@ func TestDatabaseProvisionSignalsExcludePrivateValues(t *testing.T) {
 			}
 		}
 	}
-	if count != 1 || !strings.Contains(logs.String(), "postgres.database.completed") {
+	if count != 2 || !strings.Contains(logs.String(), "postgres.database.completed") || !strings.Contains(logs.String(), `"operation":"quarantine"`) {
 		t.Fatal("missing database metric or log")
 	}
-	for _, private := range []string{"private-administrator", "private-scope", "private-resource", strings.Repeat("a", 64)} {
+	for _, private := range []string{"private-administrator", "private-scope", "private-resource", "private-database", "private-owner", "private-login", strings.Repeat("a", 64)} {
 		if strings.Contains(logs.String(), private) {
 			t.Fatal("private value reached a database log")
 		}

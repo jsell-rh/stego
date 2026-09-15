@@ -3526,3 +3526,18 @@ Read fresh session state after termination and preserve unrelated connections.
 See the [PostgreSQL signal contract](https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-ADMIN-SIGNAL)
 and [session visibility and snapshot rules](https://www.postgresql.org/docs/18/monitoring-stats.html#MONITORING-STATS-VIEWS).
 These are requirements for the next implementation, not a passing result.
+
+
+The common session-quarantine implementation now passes the generated PostgreSQL
+suite. `postgres-client` 1.2.1 stops sessions of the recorded login and owner roles
+after an isolation error, with bounded work and a positive termination wait.
+It preserves unrelated sessions and stored data. The
+[verified result](postgres-quarantine-evidence.json) also covers an enabled owner
+login, denied signals, cancellation, recovery, and private OTEL output.
+Hypershell adoption and a real Gateway session-termination check remain required.
+
+The full Hypershell core CI run at `0489e07` failed. It found a retired database
+metrics call, missing read access to the schema marker in the credential fixture,
+and an unsupported legacy grant-condition upgrade test. The variant now has
+corrections in progress and a focused cluster check. A new full core result is
+required. The prior browser and 27-check API passes are not a full CI pass.

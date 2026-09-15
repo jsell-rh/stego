@@ -99,3 +99,26 @@ The [application evidence](https://github.com/jsell-rh/hypershell-stego/blob/425
 also records the failed attempts and test limits. Old live fixtures still
 prevent the full acceptance package from building. These results do not prove
 the complete Gateway Pod, browser, or supplied SQL server workflow.
+
+
+`postgres-client` 1.2.1 adds bounded session quarantine to `EnsureDatabase`.
+An isolation error disables both recorded roles and stops their current sessions
+across databases. It preserves other roles and their sessions. An enabled owner
+login is also an isolation error. The runtime checks the stored OIDs, uses a
+positive termination wait, and checks fresh session state before quarantine can
+succeed. The original isolation error still prevents readiness until the unsafe
+state is repaired. No global signal role is added.
+
+The final generated suite passed in jshell with a non-superuser provisioner.
+The lifecycle test passed in 4.57 seconds; the generator check passed in 86.75
+seconds. It covers live login and owner sessions, sessions in another database,
+retained unrelated connections, denied signals, cancellation, bounded progress,
+recovery, data retention, and telemetry privacy. The source matches the frozen
+copy. The Job and private resources are absent, and the shared Lease is free.
+The [evidence](postgres-quarantine-evidence.json) retains all five attempts.
+Earlier attempts used the wrong database for the function-permission fault.
+
+Hypershell still needs to adopt this runtime and prove active-session termination
+through its real Gateway workflow. The earlier supplied-server browser and
+27-check API results remain valid for compiler `16e09a2`; they do not prove this
+new quarantine behavior. Actual CNPG and RDS operation remain required.

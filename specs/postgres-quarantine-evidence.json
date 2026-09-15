@@ -1,0 +1,420 @@
+{
+  "scope": "Generated PostgreSQL session quarantine with a non-superuser provisioner on a dedicated bounded jshell server.",
+  "component_version": "1.2.1",
+  "runs": [
+    {
+      "version": 1,
+      "directory": "/tmp/stego-sql-quarantine-v1",
+      "verification": {
+        "required": [
+          "TestGeneratedPostgresClient"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedPostgresClient",
+          "github.com/jsell-rh/stego/internal/generator/postgresclient"
+        ],
+        "missing": [
+          "TestGeneratedPostgresClient"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "sql-quarantine-6f796893926d",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/postgresclient/client.go.tmpl": "45147ee076e63a2853378dba46dbefc9dcd762746197d1988327dfd1973fd473",
+        "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+        "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+        "internal/generator/postgresclient/provision.go.tmpl": "8b79a2c22e466a0a5301aa390c4ffd8e6e11e17d4f1b9d35d0da5d8ac4c46903",
+        "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+        "internal/generator/postgresclient/testdata/provision_test.go": "1c24813e06506f77fffbdaf844cd19d9535dbb584650e2def4f7d65816188005",
+        "registry/components/postgres-client/README.md": "8a9033b48449edf5de666c92482ad272233914b0aa1b51601fffd788e959a503",
+        "registry/components/postgres-client/component.yaml": "719a4da156e9f3d6612be22ce3e73c3236c70c03ebd22a1ad34bf44e33b5804d",
+        "registry/components/postgres-client/provisioning.md": "894fcaa096f60449b81deb38a46d83f05382992bc92b2321db2eabbd7824058d"
+      },
+      "runner_sha256": "54fe2f3c742625b1fd3425be2fd9f4bb5d26b83ae8bdb8b2a934b4591ed3a63a",
+      "artifact_sha256": {
+        "source.tar": "347982ef15a7613c58de63aa72f617eca83d220ddbfabb2753bc1d725e6b5548",
+        "source-sha256.json": "2c95fef5a742377cf065781291c2e810e853b6b322e8ce68adffd3d6a360ffc0",
+        "verification.json": "43da6915a3c6a35b6a4872464ad1ce2e6bfc3451d5701f5bc02d99ee362a714d",
+        "tests.jsonl": "dc1fdbf4d0cc089a1dd712632e6b43a644a75957601dae45c055d62f5753fec1",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "cleanup.json": "c0ee29ea9796a70528fbfc62b94c0df727d15f8236b7e532ccf6ba434299b4ab",
+        "job-final.json": "6b035723792f12e1d8fdb01502fd8e945275babc99801fc1578aee634bc9651c"
+      },
+      "generated_test_results": [
+        "--- PASS: TestDatabaseNamesAndValidation (0.00s)",
+        "--- FAIL: TestDatabaseProvisioningLifecycle (2.13s)",
+        "--- PASS: TestDatabaseProvisionSignalsExcludePrivateValues (0.00s)"
+      ],
+      "job": {
+        "namespace": "stego-ci",
+        "name": "sql-quarantine-6f796893926d",
+        "uid": "16781b48-b025-4cd8-acf6-2420018c9de6",
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T03:23:36Z",
+              "lastTransitionTime": "2026-09-15T03:23:36Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T03:23:36Z",
+              "lastTransitionTime": "2026-09-15T03:23:36Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T03:21:41Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        }
+      },
+      "failure_reason": "The denied-signal fixture revoked function permission in postgres, but the provisioner connects to the ledger database. The expected permission error was not produced."
+    },
+    {
+      "version": 2,
+      "directory": "/tmp/stego-sql-quarantine-v2",
+      "verification": {
+        "required": [
+          "TestGeneratedPostgresClient"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedPostgresClient",
+          "github.com/jsell-rh/stego/internal/generator/postgresclient"
+        ],
+        "missing": [
+          "TestGeneratedPostgresClient"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "sql-quarantine-8ab63ee2ed3b",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/postgresclient/client.go.tmpl": "45147ee076e63a2853378dba46dbefc9dcd762746197d1988327dfd1973fd473",
+        "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+        "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+        "internal/generator/postgresclient/provision.go.tmpl": "3e36112d305e10d3c3428d24f02c2383503f8bedba47e6ab60f46dc022984e7a",
+        "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+        "internal/generator/postgresclient/testdata/provision_test.go": "725c25c67761e6e05465c4b684a5b9d40c306c54671f497bcecb52cd316c193e",
+        "registry/components/postgres-client/README.md": "8a9033b48449edf5de666c92482ad272233914b0aa1b51601fffd788e959a503",
+        "registry/components/postgres-client/component.yaml": "719a4da156e9f3d6612be22ce3e73c3236c70c03ebd22a1ad34bf44e33b5804d",
+        "registry/components/postgres-client/provisioning.md": "894fcaa096f60449b81deb38a46d83f05382992bc92b2321db2eabbd7824058d"
+      },
+      "runner_sha256": "54fe2f3c742625b1fd3425be2fd9f4bb5d26b83ae8bdb8b2a934b4591ed3a63a",
+      "artifact_sha256": {
+        "source.tar": "22ba66ffd7d67e63bc4da4c0ab57282b221f085e919d3ba3f4db3db192d98979",
+        "source-sha256.json": "5bb7f8944cffbe544faa431d7c14d4e48ad25d44ef2e1bc7eb9c66a78d2e65e9",
+        "verification.json": "43da6915a3c6a35b6a4872464ad1ce2e6bfc3451d5701f5bc02d99ee362a714d",
+        "tests.jsonl": "055cee9f7671cada3907bf6a5770a4be8aadae23ca4d7b1685a9636a4a3c304f",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "cleanup.json": "3990371c4160f4a56e00792071495a18d059426ca00018e3003b05ce7f37836e",
+        "job-final.json": "85b23f59d948f2f2392111e08cf7f2e32ba1e79a19d2e34b107b26712f81978f"
+      },
+      "generated_test_results": [
+        "--- PASS: TestDatabaseNamesAndValidation (0.00s)",
+        "--- FAIL: TestDatabaseProvisioningLifecycle (2.10s)",
+        "--- PASS: TestDatabaseProvisionSignalsExcludePrivateValues (0.00s)"
+      ],
+      "job": {
+        "namespace": "stego-ci",
+        "name": "sql-quarantine-8ab63ee2ed3b",
+        "uid": "26004718-781b-4784-b924-05846c96edd5",
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T03:26:35Z",
+              "lastTransitionTime": "2026-09-15T03:26:35Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T03:26:35Z",
+              "lastTransitionTime": "2026-09-15T03:26:35Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T03:24:40Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        }
+      },
+      "failure_reason": "The denied-signal fixture revoked function permission in postgres, but the provisioner connects to the ledger database. The expected permission error was not produced."
+    },
+    {
+      "version": 3,
+      "directory": "/tmp/stego-sql-quarantine-v3",
+      "verification": {
+        "required": [
+          "TestGeneratedPostgresClient"
+        ],
+        "passed": [],
+        "failed": [
+          "TestGeneratedPostgresClient",
+          "github.com/jsell-rh/stego/internal/generator/postgresclient"
+        ],
+        "missing": [
+          "TestGeneratedPostgresClient"
+        ],
+        "exit_code": 1
+      },
+      "cleanup": {
+        "job_absent": "sql-quarantine-1d5f3e0388d2",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/postgresclient/client.go.tmpl": "45147ee076e63a2853378dba46dbefc9dcd762746197d1988327dfd1973fd473",
+        "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+        "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+        "internal/generator/postgresclient/provision.go.tmpl": "250da74911b82c9e142565f1540fd1e329af8eb1b40a4e376f456ed2ab598cc0",
+        "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+        "internal/generator/postgresclient/testdata/provision_test.go": "3eff8d14b9d1371c5ac809050715cb24532823eaaca7c2ae90051bbbeb1647b4",
+        "registry/components/postgres-client/README.md": "8a9033b48449edf5de666c92482ad272233914b0aa1b51601fffd788e959a503",
+        "registry/components/postgres-client/component.yaml": "719a4da156e9f3d6612be22ce3e73c3236c70c03ebd22a1ad34bf44e33b5804d",
+        "registry/components/postgres-client/provisioning.md": "076202ebf20cf0b6108f067ac4f7195b1bb06a72a3bf99a3e758e9ae49d77df9"
+      },
+      "runner_sha256": "54fe2f3c742625b1fd3425be2fd9f4bb5d26b83ae8bdb8b2a934b4591ed3a63a",
+      "artifact_sha256": {
+        "source.tar": "38f26f29af524588ce9a22b1c8201fae88a2b899a00357f61b054622b219abf6",
+        "source-sha256.json": "26f537549c494cbb3b5dcff45fce0032786189f15056a9b7abfd4cdb5b63bc1d",
+        "verification.json": "43da6915a3c6a35b6a4872464ad1ce2e6bfc3451d5701f5bc02d99ee362a714d",
+        "tests.jsonl": "2ca614df489202deeb1489425922804dab4c828ace785c0e1ce8e66c1b5f9b2c",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "cleanup.json": "7908b75b0e8f2d11f2d01533b74d5c203f7adef241cec028d97862be273d00fb",
+        "job-final.json": "d160adbd0ea96b5307859f18b71011c1dcbac5b4dcadc7d521e57715502a8461"
+      },
+      "generated_test_results": [
+        "--- PASS: TestDatabaseNamesAndValidation (0.00s)",
+        "--- FAIL: TestDatabaseProvisioningLifecycle (2.33s)",
+        "--- PASS: TestDatabaseProvisionSignalsExcludePrivateValues (0.00s)"
+      ],
+      "job": {
+        "namespace": "stego-ci",
+        "name": "sql-quarantine-1d5f3e0388d2",
+        "uid": "52b03989-6e14-4a77-aa79-8f2a7345dda0",
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "status": {
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T03:30:26Z",
+              "lastTransitionTime": "2026-09-15T03:30:26Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "FailureTarget"
+            },
+            {
+              "lastProbeTime": "2026-09-15T03:30:27Z",
+              "lastTransitionTime": "2026-09-15T03:30:27Z",
+              "message": "Job has reached the specified backoff limit",
+              "reason": "BackoffLimitExceeded",
+              "status": "True",
+              "type": "Failed"
+            }
+          ],
+          "failed": 1,
+          "ready": 0,
+          "startTime": "2026-09-15T03:28:30Z",
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        }
+      },
+      "failure_reason": "The denied-signal fixture revoked function permission in postgres, but the provisioner connects to the ledger database. The expected permission error was not produced.",
+      "diagnostic": "The direct signal returned no SQL error and false. The permission fault was moved to the ledger database. The positive signal wait was increased to one second."
+    },
+    {
+      "version": 4,
+      "directory": "/tmp/stego-sql-quarantine-v4",
+      "verification": {
+        "required": [
+          "TestGeneratedPostgresClient"
+        ],
+        "passed": [
+          "TestGeneratedPostgresClient"
+        ],
+        "failed": [],
+        "missing": [],
+        "exit_code": 0
+      },
+      "cleanup": {
+        "job_absent": "sql-quarantine-b571a319448e",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/postgresclient/client.go.tmpl": "45147ee076e63a2853378dba46dbefc9dcd762746197d1988327dfd1973fd473",
+        "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+        "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+        "internal/generator/postgresclient/provision.go.tmpl": "3e3f0a7cbbd2930160c22916c76f2f890af2de9f3c82d3d78b3bd4f0be1b6371",
+        "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+        "internal/generator/postgresclient/testdata/provision_test.go": "dccde3f45e22c4edffc7a4aca81d57604f77599d75de716ccb81a822adb83ebe",
+        "registry/components/postgres-client/README.md": "8a9033b48449edf5de666c92482ad272233914b0aa1b51601fffd788e959a503",
+        "registry/components/postgres-client/component.yaml": "719a4da156e9f3d6612be22ce3e73c3236c70c03ebd22a1ad34bf44e33b5804d",
+        "registry/components/postgres-client/provisioning.md": "15b55f418f10cd12f447427efb5ff92663c6ed16f8d789459074fdb5e615d94b"
+      },
+      "runner_sha256": "54fe2f3c742625b1fd3425be2fd9f4bb5d26b83ae8bdb8b2a934b4591ed3a63a",
+      "artifact_sha256": {
+        "source.tar": "977a217b9b2e528bae8256c5e7882c532972410edce7e0bf238f7434b6bf6e5c",
+        "source-sha256.json": "1ed324b94921910246d946fa4ca00a327fa06211a5ee1fc0c5ead1390c5d27ec",
+        "verification.json": "280cf1bd40682fe5a0ac9dce5c7dfced3b2f1f62f86c1f9d801b95fa2e64079e",
+        "tests.jsonl": "10aaee779c14d5f9a41e541309d935062041bda0b53b2293d2f3927128f949d7",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "cleanup.json": "a44ec9cd894b330510682713bbdc4d10a357df70d91b3df44a89a618cf20f278",
+        "job-final.json": "b1d41ca60c80b052b819d77767ba90adb30d981cdca840873bc8b50b2e7870e0"
+      },
+      "generated_test_results": [
+        "--- PASS: TestDatabaseNamesAndValidation (0.00s)",
+        "--- PASS: TestDatabaseProvisioningLifecycle (3.61s)",
+        "--- PASS: TestDatabaseProvisionSignalsExcludePrivateValues (0.00s)"
+      ],
+      "job": {
+        "namespace": "stego-ci",
+        "name": "sql-quarantine-b571a319448e",
+        "uid": "ea3dba9c-8254-46ef-a0f7-a737f6d8c8eb",
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "status": {
+          "completionTime": "2026-09-15T03:33:14Z",
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T03:33:14Z",
+              "lastTransitionTime": "2026-09-15T03:33:14Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "SuccessCriteriaMet"
+            },
+            {
+              "lastProbeTime": "2026-09-15T03:33:15Z",
+              "lastTransitionTime": "2026-09-15T03:33:15Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "Complete"
+            }
+          ],
+          "ready": 0,
+          "startTime": "2026-09-15T03:31:18Z",
+          "succeeded": 1,
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        }
+      },
+      "confirmed": "Owned sessions stopped across databases. Other roles retained their connections. Denied signals, cancellation, bounded progress, recovery, and private telemetry checks passed."
+    },
+    {
+      "version": 5,
+      "directory": "/tmp/stego-sql-quarantine-v5",
+      "verification": {
+        "required": [
+          "TestGeneratedPostgresClient"
+        ],
+        "passed": [
+          "TestGeneratedPostgresClient"
+        ],
+        "failed": [],
+        "missing": [],
+        "exit_code": 0
+      },
+      "cleanup": {
+        "job_absent": "sql-quarantine-8167c5cb0b0e",
+        "pods_absent": true,
+        "fixture_resources_absent": true
+      },
+      "source_sha256": {
+        "internal/generator/postgresclient/client.go.tmpl": "45147ee076e63a2853378dba46dbefc9dcd762746197d1988327dfd1973fd473",
+        "internal/generator/postgresclient/generator.go": "4e199957f5aabdc3648ad85b8fc7532a6b9472fce8600eb470a74c72686e2ed6",
+        "internal/generator/postgresclient/generator_test.go": "e7ec342c8ae24db2a826c44f53cd89198d9e967302b02f6aaad914cd02d3f552",
+        "internal/generator/postgresclient/provision.go.tmpl": "1049e099f1e4321164526fa5b5e6415cdf80e6ed0ce076ec70c6264fa185e4e0",
+        "internal/generator/postgresclient/testdata/client_test.go": "12827139520cb045c050f21f0ee1a598f782ee840675a3838cb6082c6484012b",
+        "internal/generator/postgresclient/testdata/provision_test.go": "1388f3705270c234f351a0d03d8cc862b1fe2c03bcdb874237bd868bf22c1667",
+        "registry/components/postgres-client/README.md": "8a9033b48449edf5de666c92482ad272233914b0aa1b51601fffd788e959a503",
+        "registry/components/postgres-client/component.yaml": "719a4da156e9f3d6612be22ce3e73c3236c70c03ebd22a1ad34bf44e33b5804d",
+        "registry/components/postgres-client/provisioning.md": "996079e72dd09cb4e3e5f699aff5667932c216e55d6633a5c2cc7b91b0c6c57e"
+      },
+      "runner_sha256": "54fe2f3c742625b1fd3425be2fd9f4bb5d26b83ae8bdb8b2a934b4591ed3a63a",
+      "artifact_sha256": {
+        "source.tar": "3adc9c200f6f7f24a6c6f79269765ee99c2deab301f9edce78a200de3f6bd52b",
+        "source-sha256.json": "f74b850f687157469debc843fa60185b505754fe550646f285506b3434d7ccd9",
+        "verification.json": "280cf1bd40682fe5a0ac9dce5c7dfced3b2f1f62f86c1f9d801b95fa2e64079e",
+        "tests.jsonl": "07b9bd439f5cfb6212d79560398dbc2da93342d818b0e63f23aef9ab997e9f56",
+        "test.log": "53d5f6e7011ffb43ca1b6428e5c2c7192cdb15ffad31d85a70e3e8b393a953da",
+        "cleanup.json": "9c87f08312a04da1c75e869fffa4ecbe778d2f7266f38b91f7c82390e667d61d",
+        "job-final.json": "34fa61e48811e21a21404ffbb16ce35b6be6b6f1e347883eedf9725251e10b2c"
+      },
+      "generated_test_results": [
+        "--- PASS: TestDatabaseNamesAndValidation (0.00s)",
+        "--- PASS: TestDatabaseProvisioningLifecycle (4.57s)",
+        "--- PASS: TestDatabaseProvisionSignalsExcludePrivateValues (0.00s)"
+      ],
+      "job": {
+        "namespace": "stego-ci",
+        "name": "sql-quarantine-8167c5cb0b0e",
+        "uid": "26448f9f-49e9-4797-a6f9-ac9ac3161db9",
+        "activeDeadlineSeconds": 1200,
+        "backoffLimit": 0,
+        "status": {
+          "completionTime": "2026-09-15T03:36:17Z",
+          "conditions": [
+            {
+              "lastProbeTime": "2026-09-15T03:36:17Z",
+              "lastTransitionTime": "2026-09-15T03:36:17Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "SuccessCriteriaMet"
+            },
+            {
+              "lastProbeTime": "2026-09-15T03:36:17Z",
+              "lastTransitionTime": "2026-09-15T03:36:17Z",
+              "message": "Reached expected number of succeeded pods",
+              "reason": "CompletionsReached",
+              "status": "True",
+              "type": "Complete"
+            }
+          ],
+          "ready": 0,
+          "startTime": "2026-09-15T03:34:14Z",
+          "succeeded": 1,
+          "terminating": 0,
+          "uncountedTerminatedPods": {}
+        }
+      },
+      "confirmed": "Owned sessions stopped across databases. Other roles retained their connections. Denied signals, cancellation, bounded progress, recovery, and private telemetry checks passed.",
+      "additional_case": "An enabled owner login is an isolation error. Its active session is terminated before recovery."
+    }
+  ],
+  "limits": [
+    "These runs do not prove Amazon RDS operation or CNPG failover.",
+    "Hypershell must adopt the new generated runtime and prove active-session termination through its Gateway workflow.",
+    "Operator DDL must use the documented coordination. Quarantine does not continuously intercept administrator changes."
+  ],
+  "final_verified_run": 5
+}

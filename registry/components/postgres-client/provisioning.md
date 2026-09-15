@@ -68,8 +68,9 @@ and advisory locks; this API is not a boundary against that administrator.
 A failed final check attempts to disable the login on the locked connection.
 A lost connection can leave an uncertain DDL result. The caller must retain the
 resource and credential, report the error, and retry reconciliation. It must not
-report readiness from a missing result. Disabling LOGIN prevents new sessions;
-it does not close sessions that were already open.
+report readiness from a missing result. Disabling LOGIN alone prevents new
+sessions; it does not close sessions that were already open. An isolation error
+also invokes the session quarantine described below.
 
 ## Access boundary
 
@@ -86,10 +87,31 @@ are removed during repair. Normal user tables and their data are retained.
 
 The operator must preserve the server-wide connection policy when it adds a new
 database. A later PUBLIC CONNECT grant can violate isolation. A subsequent
-reconciliation detects that condition and disables the owned application login;
-this is not continuous interception of external administrator changes.
+reconciliation detects that condition and attempts to quarantine both owned
+roles. This is not continuous interception of external administrator changes.
 Connection limits are bounded from 1 to 1000. PostgreSQL enforces them
 approximately; this API does not claim a strict process or storage quota.
+
+`postgres-client` 1.2.1 disables login on each recorded role separately after an
+isolation error. An enabled owner login is also an isolation error. Quarantine
+disables that login before a later reconciliation can recover. It then selects at most 129 session records by the exact role
+OIDs. It can stop up to 128 sessions in one call. The selection includes sessions
+in other databases, but excludes other roles. Each signal rechecks the role,
+process ID, and process start time. A positive one-second timeout requires
+PostgreSQL to confirm termination. A final fresh read requires both roles to
+remain non-login roles and no owned session to remain.
+
+The normal 30-second operation limit also applies to quarantine. An exceeded
+session bound, denied signal, unknown session identity, cancellation, or failed
+final check returns an error. A later reconciliation can continue bounded work.
+The original isolation error remains even after all observed sessions stop;
+the operator must repair unsafe grants before readiness can recover. No new
+credentials are created and no unrelated grants or sessions are removed.
+The runtime uses membership in its owned roles and does not require global
+`pg_signal_backend` rights. See the PostgreSQL
+[session signal rules](https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-ADMIN-SIGNAL)
+and [activity visibility and snapshot rules](https://www.postgresql.org/docs/18/monitoring-stats.html#MONITORING-STATS-VIEWS).
+Quarantine emits its own bounded span, duration metric, and fixed log event.
 
 A healthy repeat call checks permissions and verifies login without changing
 catalog rows or passwords. SQL reads and lifecycle operations emit bounded OTEL
