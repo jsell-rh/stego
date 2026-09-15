@@ -1,0 +1,65 @@
+{
+  "source_commit": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+  "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "directory": "/tmp/hypershell-cnpg-receiver-live-20260915",
+  "exec_session": 64008,
+  "exit_status": 0,
+  "phase": "complete",
+  "application_seconds": 466.65,
+  "race_test_seconds": 467.701,
+  "network": {
+    "stages": [
+      "initial",
+      "after-recovery"
+    ],
+    "checks": 24,
+    "all_passed": true,
+    "independent_egress": false,
+    "fresh_connections": true
+  },
+  "regeneration": {
+    "files": 238,
+    "before_after_equal": true
+  },
+  "restart": {
+    "cluster_spec_unchanged": true,
+    "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae",
+    "gateway_credentials_and_keys_unchanged": true,
+    "installation_data_unchanged": true,
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+    "new_primary": "gateway-database-2",
+    "new_primary_pod_uid": "022c7264-2c84-4201-8bac-aedb2e016cff",
+    "old_pod_uid": "8c7979e5-2655-45fa-9c47-c8641b780c84",
+    "old_primary": "gateway-database-1",
+    "primary_changed": true,
+    "provider_data_unchanged": true,
+    "ready_instances": 2,
+    "seconds": 71.429126707,
+    "sql_object_ids_unchanged": true
+  },
+  "application_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "outer_allocation_check": {
+    "allocations_before": 0,
+    "allocations_absent": true
+  },
+  "automatic_cleanup": {
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true
+  },
+  "lease_released": true,
+  "independent_cleanup_check": "Operator reads found no Pods, Jobs, Deployments, claims, or CNPG Clusters in the three test namespaces. A later API CI job held the shared Lease.",
+  "evidence_sha256": "677c8a35ab07879fa02d665e01edf01b7fbbaac4c68af2d828ae17f5ef8db70b",
+  "limits": [
+    "The source uses gRPC v1.83.1. GO-2026-6443 requires the patched compiler and new security checks before release.",
+    "This restricted CI profile does not check an unrelated receiver with no ingress policy.",
+    "Public Gateway routing, external DNS changes, and RDS failover are not proved by this run.",
+    "Kata Sandbox tests remain deferred."
+  ]
+}

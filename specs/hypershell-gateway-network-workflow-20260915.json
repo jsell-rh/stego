@@ -104,7 +104,7 @@
     "fixture_directory": "/tmp/hypershell-cnpg-receiver-checked-frozen-20260915",
     "generation": "passed",
     "full_source_verification": "passed",
-    "status": "running",
+    "status": "passed_with_cleanup",
     "directory": "/tmp/hypershell-cnpg-receiver-live-20260915",
     "log": "/tmp/hypershell-cnpg-receiver-live-20260915.log",
     "exec_session": 64008,
@@ -114,8 +114,35 @@
       "holder": "stego-cnpg-live-7255331d681a5260",
       "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
       "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
-      "phase": "operator_ready",
-      "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae"
+      "phase": "complete",
+      "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae",
+      "restart": {
+        "cluster_spec_unchanged": true,
+        "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae",
+        "gateway_credentials_and_keys_unchanged": true,
+        "installation_data_unchanged": true,
+        "namespace": "stego-cnpg-database-ci",
+        "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+        "new_primary": "gateway-database-2",
+        "new_primary_pod_uid": "022c7264-2c84-4201-8bac-aedb2e016cff",
+        "old_pod_uid": "8c7979e5-2655-45fa-9c47-c8641b780c84",
+        "old_primary": "gateway-database-1",
+        "primary_changed": true,
+        "provider_data_unchanged": true,
+        "ready_instances": 2,
+        "seconds": 71.429126707,
+        "sql_object_ids_unchanged": true
+      },
+      "volumes": [
+        {
+          "name": "pvc-834f4898-31b3-49d5-b3a5-1a9ac88d5258",
+          "uid": "1f01952d-cd54-4ae7-831e-223ba66351fc"
+        },
+        {
+          "name": "pvc-a7b89d3f-10fb-4ad3-8712-3f85ca606f0f",
+          "uid": "51000687-e1e6-4a1d-b616-120e82210e93"
+        }
+      ]
     },
     "receiver_update": {
       "phase": "complete",
@@ -144,7 +171,7 @@
       "first_preflight_failure": "The first comparison treated an omitted empty ingress list as a change. Source 2d1d8ea accepts that equivalent empty form and still rejects missing ports and broader rules.",
       "focused_ci_checks": 7
     },
-    "scope": "Retry the complete CNPG isolation workflow after the receiver correction. The application and cleanup result are pending.",
+    "scope": "The complete restricted CNPG workflow and automatic cleanup passed. The old gRPC dependency still requires the security update.",
     "previous_attempts": [
       {
         "source": "6062269b8fb9ba351f85d56fa724ff0c869f130b",
@@ -316,7 +343,73 @@
           ]
         }
       }
-    ]
+    ],
+    "exit_status": 0,
+    "result": {
+      "source_commit": "2d1d8ea6ca60ab918971a44194782c667f533c97",
+      "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+      "directory": "/tmp/hypershell-cnpg-receiver-live-20260915",
+      "exec_session": 64008,
+      "exit_status": 0,
+      "phase": "complete",
+      "application_seconds": 466.65,
+      "race_test_seconds": 467.701,
+      "network": {
+        "stages": [
+          "initial",
+          "after-recovery"
+        ],
+        "checks": 24,
+        "all_passed": true,
+        "independent_egress": false,
+        "fresh_connections": true
+      },
+      "regeneration": {
+        "files": 238,
+        "before_after_equal": true
+      },
+      "restart": {
+        "cluster_spec_unchanged": true,
+        "cluster_uid": "73a3e011-19b3-44b1-b5b3-e0d7be6763ae",
+        "gateway_credentials_and_keys_unchanged": true,
+        "installation_data_unchanged": true,
+        "namespace": "stego-cnpg-database-ci",
+        "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+        "new_primary": "gateway-database-2",
+        "new_primary_pod_uid": "022c7264-2c84-4201-8bac-aedb2e016cff",
+        "old_pod_uid": "8c7979e5-2655-45fa-9c47-c8641b780c84",
+        "old_primary": "gateway-database-1",
+        "primary_changed": true,
+        "provider_data_unchanged": true,
+        "ready_instances": 2,
+        "seconds": 71.429126707,
+        "sql_object_ids_unchanged": true
+      },
+      "application_cleanup": {
+        "namespace_retained": "stego-service-ci",
+        "test_resources_absent": true,
+        "allocations_absent": true
+      },
+      "outer_allocation_check": {
+        "allocations_before": 0,
+        "allocations_absent": true
+      },
+      "automatic_cleanup": {
+        "runtime_absent": true,
+        "volumes_absent": true,
+        "private_fixture_absent": true,
+        "installation_retained": true
+      },
+      "lease_released": true,
+      "independent_cleanup_check": "Operator reads found no Pods, Jobs, Deployments, claims, or CNPG Clusters in the three test namespaces. A later API CI job held the shared Lease.",
+      "evidence_sha256": "677c8a35ab07879fa02d665e01edf01b7fbbaac4c68af2d828ae17f5ef8db70b",
+      "limits": [
+        "The source uses gRPC v1.83.1. GO-2026-6443 requires the patched compiler and new security checks before release.",
+        "This restricted CI profile does not check an unrelated receiver with no ingress policy.",
+        "Public Gateway routing, external DNS changes, and RDS failover are not proved by this run.",
+        "Kata Sandbox tests remain deferred."
+      ]
+    }
   },
   "remaining": [
     "Test approved and retired endpoint addresses with fresh connections, restart, and regeneration.",

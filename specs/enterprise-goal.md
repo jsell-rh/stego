@@ -137,8 +137,20 @@ the missing port to the existing namespace rule. The policy UID stayed the
 same. Source `2d1d8ea` checks the installed fixture policies before a test Job
 starts. Seven focused CI checks passed. The restricted identity rejected the
 saved old receiver policy and accepted the corrected installed policies.
-Generation and full source verification passed. The retry is active in
-`/tmp/hypershell-cnpg-receiver-live-20260915`; its final result remains required.
+Generation and full source verification passed. The
+[complete restricted CNPG workflow](hypershell-cnpg-network-complete-20260915.json)
+then passed in 466.65 seconds. All 24 network checks passed, and all 238
+generation hashes stayed equal. Database primary replacement, namespace
+recovery, access checks, worker telemetry, Gateway deletion, and logout passed.
+Automatic cleanup removed runtime, claims, volumes, and the private fixture.
+The wrapper exited with status 0 and released the Lease. Later operator reads
+confirmed resource absence; the next API CI job then held the Lease.
+
+CI identified GO-2026-6443 in gRPC v1.83.1 during that frozen run.
+[Compiler b0bd9a4](grpc-security-update-20260915.md) requires v1.83.2 and checks
+rejection of requests with missing host headers. Candidate `1df3d36` uses the
+patched compiler in both Go modules. Its full CI is pending. The earlier
+CNPG functional pass does not qualify the old dependency for release.
 
 The [address-change fixture preparation](hypershell-endpoint-change-preparation-20260915.json)
 passed generation, drift, and 19 focused checks at Hypershell `a39c81f`.
