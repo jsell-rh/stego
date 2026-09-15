@@ -3643,3 +3643,18 @@ New dispatches use the same pushed source and remain pending. Both new jshell
 workflows use `queue: max`; the older API run still uses the default setting.
 The shared cluster Lease continues to limit live tests to one at a time.
 The enterprise goal remains active.
+
+Hypershell `ae371ae` adds a second application recovery check. Before normal
+REST deletion, the isolated fixture removes the provisioning account's admin
+option on the target login. PostgreSQL must deny the role operation with
+SQLSTATE `42501`. The generated deletion path must record pending SQL deletion
+and retain source keys and SQL object IDs. After the fixture restores the
+original permission, normal controller cleanup must finish. No production
+runtime or permission changed. See the [test contract](https://github.com/jsell-rh/hypershell-stego/blob/ae371ae34b62cbea28b5ff494a50c104b0468e96/acceptance/browser-sql-cleanup-denial.md).
+
+Formatting and frozen generation passed for this candidate. Its
+[browser check](https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319194)
+and [API check](https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123)
+are queued. The namespace recovery candidate at `48eae25` passed the ordinary
+browser acceptance, console, and service-image CI jobs. Its complete live
+workflow is still queued. Neither new recovery behavior has a live pass yet.
