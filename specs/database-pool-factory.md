@@ -34,5 +34,6 @@ browser workflow must verify both changes before the application gate closes.
 at `e5b9931` passed the compiler, generated-runtime, and SQL provisioning checks,
 but failed one registry assertion that still required adapter version 4.4.0.
 Commit `5c5e7c9` changes that assertion to 4.4.1. Its focused registry check passed.
-The [full repeat](https://github.com/jsell-rh/stego/actions/runs/34961472255) remains
-required. The failed combined run is not a full CI pass.
+The [full repeat](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed
+at `5c5e7c9`, including compiler race and SQL provisioning checks. The earlier
+failed combined run remains failed. Application pool results are separate.
