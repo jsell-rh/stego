@@ -3658,3 +3658,11 @@ and [API check](https://github.com/jsell-rh/hypershell-stego/actions/runs/349373
 are queued. The namespace recovery candidate at `48eae25` passed the ordinary
 browser acceptance, console, and service-image CI jobs. Its complete live
 workflow is still queued. Neither new recovery behavior has a live pass yet.
+
+The [API retry](https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017005)
+at `de07bff` passed all 30 required tests. The complete source inventory of
+867 files and all 228 generated files match the commit. Committed, first,
+second, and post-test generation records match. The Job, Pods, and private
+fixtures are absent. Both restricted API and browser workflows now pass for
+the cleanup fix. The namespace recovery browser workflow at `48eae25` has
+started, with later checks still queued. See the [combined evidence](hypershell-browser-ci.json).

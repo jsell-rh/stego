@@ -4,14 +4,14 @@
     "head": "d61f1dffe639f1de6e67cd82d89282fedb0d15e6"
   },
   "api_ci": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191505",
-    "commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017005",
+    "commit": "de07bffed63969df32610117abccd884dceaef2a",
     "required_passed": 30,
-    "source_files_checked": 865,
+    "source_files_checked": 867,
     "generated_files_checked": 228,
-    "job_uid": "cb35a5ae-47cc-4bcb-a9a8-f9b3e575e3b2",
+    "job_uid": "480ba9ff-997d-4de7-8d7b-16ad0ea2b5a5",
     "cleanup": {
-      "job_absent": "gateway-api-435f25d1293b",
+      "job_absent": "gateway-api-399a95b3a3b4",
       "pods_absent": true,
       "fixture_resources_absent": true
     }
@@ -393,7 +393,7 @@
     "commit": "de07bffed63969df32610117abccd884dceaef2a",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017009",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017005",
-    "result": "browser_passed_api_running"
+    "result": "success"
   },
   "limits": [
     "The first browser CI run failed cleanup. Its application pass is not a passing CI gate.",
@@ -680,13 +680,19 @@
     "commit": "48eae250eaf77ffbad7227b8785d9d20d3d9a09f",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937103556",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937105018",
-    "result": "pending",
+    "result": "browser_running_api_pending",
     "cancelled_before_jobs": [
       34936911573,
       34936911464
     ],
     "queue_transition": "Both push runs were cancelled before a job started. The older API workflow became active at this transition. The API provides no cancellation reason. New dispatches use the same pushed commit."
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/e82c3cfb4074d203e6aafb1366a73443ab58b8c2/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "c5e5ad94d8920ecf5603d660a9f4f6fe74e133d555d9c31a245beb242351bd00"
+  "sql_cleanup_denial_candidate": {
+    "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
+    "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319194",
+    "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123",
+    "result": "pending"
+  },
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/4d08488a914b3722fa0ffb06ecbe8763a3934dca/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "5443694c7f2a386da7a4be2f1696331f669d6d207e0b788e8f1f8e54c8d4d085"
 }
