@@ -1,0 +1,143 @@
+{
+  "checked_at": "2026-09-15T15:52:00.238075+00:00",
+  "workflow": {
+    "id": 34989405950,
+    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34989405950",
+    "job": 104449833740,
+    "conclusion": "failure",
+    "browser_seconds": 354.56
+  },
+  "source": "cc8e545b2252fa2908c64f94d18f3f910c4fe95c",
+  "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+  "failure": "The worker telemetry collector allowed only two instances per service. The public fault test starts four workload worker instances.",
+  "local_startup_instances": {
+    "hypershell-gateway-identity": [
+      "cdfaf815-d1a7-4e1c-9a88-40aaa4470feb",
+      "e460644d-32bb-4213-b27c-fa32e53700b6"
+    ],
+    "hypershell-gateway-workload": [
+      "0ee33573-661a-487f-a7ba-4f8268a4ca6d",
+      "3603fe25-691e-4248-ae97-d05b42e40050",
+      "b74a4758-dbaf-4e92-9c1b-ec80fbfdcf20",
+      "d2f2f712-def6-4009-ab1a-07a9a701331e"
+    ],
+    "hypershell-namespace-allocation": [
+      "96399dbb-0356-4264-a352-7a61804fc4d1",
+      "bd92d62a-4972-4fea-ae16-dfde60635da4"
+    ]
+  },
+  "public_reports": {
+    "gateway-public-rpc.json": {
+      "address": "https://gw-openshell-b10794d640ac363d.apps.rosa.jshell.8u58.p3.openshiftapps.com",
+      "foreign_audience_denied": true,
+      "forged_token_denied": true,
+      "gateway_id": "3JN2DllKrtCLCVX7OXZAioI3tus",
+      "gateway_pod_replaced": true,
+      "issuer": "acp-hypershell-test-ca",
+      "namespace": "openshell-b10794d640ac363d",
+      "owner_provider_write_and_read": true,
+      "provider_data_preserved": true,
+      "router": "default",
+      "unauthenticated_denied": true,
+      "ungranted_user_denied": true,
+      "verified_tls": true
+    },
+    "gateway-public-network-recovery.json": {
+      "baseline_before_fault": true,
+      "before_policy_sha256": "72f9cb42878aaa1c7a5bf8f0308689f5e7af6d4cf607749b8a2687c75e523c96",
+      "blocked_policy_sha256": "7fb62d7a445f94da700d78519a1796439e3a5f6fbcc8639622c20c6eb25f3820",
+      "degraded_addresses_cleared": true,
+      "gateway_ids": [
+        "3JN2DJr1yiq30hY4KfvqT6G2UWt",
+        "3JN2DllKrtCLCVX7OXZAioI3tus"
+      ],
+      "generated_egress_restored": true,
+      "healthy_addresses_restored": true,
+      "live_policy_change_verified": true,
+      "policy_uid": "10cfaa28-9718-4ac1-b6be-716f67b9f229",
+      "provider_data_preserved": true,
+      "restored_policy_sha256": "72f9cb42878aaa1c7a5bf8f0308689f5e7af6d4cf607749b8a2687c75e523c96",
+      "seconds": 13.746946413,
+      "sql_credentials_preserved": true,
+      "sql_object_ids_preserved": true,
+      "worker_public_egress_removed": true
+    },
+    "gateway-public-certificate-rotation.json": {
+      "address": "https://gw-openshell-b10794d640ac363d.apps.rosa.jshell.8u58.p3.openshiftapps.com",
+      "certificate_uid": "0c6bc3f4-36cf-4e0b-a71a-21510c466c8b",
+      "gateway_id": "3JN2DllKrtCLCVX7OXZAioI3tus",
+      "internal_tls_unchanged": true,
+      "new_certificate_sha256": "02837ca8c8545814ecd7b340ecd6dcb95ceeff4cecd828d7269a850ab1aee9dc",
+      "new_owner_connection_verified": true,
+      "new_tls_connection_verified": true,
+      "old_certificate_sha256": "887aaabd7d577a9b05aa516a636327411f73edf81c80972aa98f0d3423eda60b",
+      "old_pin_rejected": true,
+      "private_key_rotated": true,
+      "provider_data_preserved": true,
+      "renewal_uses_observed_uid_and_revision": true,
+      "seconds": 14.890672304,
+      "sql_credentials_preserved": true,
+      "sql_object_ids_preserved": true,
+      "unauthenticated_denied": true
+    }
+  },
+  "other_observed_checks": [
+    "Verified PostgreSQL TLS and separate Gateway databases; cross-database access denied.",
+    "SQL privilege faults disabled the affected login and closed its session.",
+    "PostgreSQL, controller, and namespace replacement retained credentials and provider data.",
+    "Viewer access and filtered lists survived namespace replacement.",
+    "Credential encryption rejected another Gateway key and altered ciphertext or context."
+  ],
+  "cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "allocation_cleanup": {
+    "allocations_before": 4,
+    "allocations_absent": true
+  },
+  "live_cleanup_check": {
+    "test_jobs_pods_deployments_absent": true,
+    "shared_lease_holder_empty": true
+  },
+  "correction": {
+    "source": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
+    "scope": "Acceptance collector and assertions only. Require exact counts of two allocator, two identity, and four workload instances for the public profile. The internal profile still requires two of each. Every instance must supply metrics and correlated logs and traces. PostgreSQL checks use the same profile count.",
+    "focused_checks": 9,
+    "focused_result": "pass",
+    "local_command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB GOWORK=off timeout 60s go test -p=1 -mod=readonly -run '^TestWorkerSignalEvidenceRequiresExactProfileAndEachInstance$' -count=1 -timeout=30s ./acceptance"
+  },
+  "fresh_runs": {
+    "public": 34991226917,
+    "core_browser": 34991229447,
+    "source": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
+    "state": "pending complete results"
+  },
+  "limits": [
+    "The complete public workflow failed. The correction has no complete runtime pass yet.",
+    "The earlier invalid-identity loop did not identify its failed case. This run proves the corrected audience fixture and live denials, not that earlier cause.",
+    "Public RPC clients ran inside jshell and used its public router. No client outside the cluster was tested.",
+    "The network fault changed the controller worker policy. It does not prove Gateway namespace network isolation.",
+    "The final service-account, logout, and normal deletion checks were not reached. Fallback cleanup passed.",
+    "Unattended CNPG and the deferred Kata Sandbox gate remain open."
+  ],
+  "files": [
+    {
+      "path": "/tmp/hypershell-public-artifacts-34989405950/gateway-browser-34989405950-1/gateway-browser/deployment.log",
+      "sha256": "2f96ca7c258cd83647493936aca1a828261f368512f091d1745eeebb6fa2df91"
+    },
+    {
+      "path": "/tmp/hypershell-public-artifacts-34989405950/gateway-browser-34989405950-1/gateway-browser/evidence.tar",
+      "sha256": "d6cf97100603e948c1d0eb6ca6f07907097b9881b4a902bcdc0891856020cede"
+    },
+    {
+      "path": "/tmp/hypershell-public-artifacts-34989405950/gateway-browser-34989405950-1/gateway-browser/verify.json.png",
+      "sha256": "50d4753ecffccfd7d151787ab60d19849426c258f52e4215a76eafa243290331"
+    },
+    {
+      "path": "/tmp/hypershell-public-artifacts-34989405950/gateway-browser-34989405950-1/browser-source/acceptance/browser-inspection-source.json",
+      "sha256": "8ce568fec11358f95240791fd3109778a165154b932f58212589479796d0565a"
+    }
+  ]
+}

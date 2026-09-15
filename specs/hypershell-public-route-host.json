@@ -355,10 +355,10 @@
     "state": "canceled while the failed CNPG run still held the Lease; no public Job started"
   },
   "current_public_retry": {
-    "run": 34989405950,
-    "source": "cc8e545b2252fa2908c64f94d18f3f910c4fe95c",
+    "run": 34991226917,
+    "source": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
     "state": "active after verified prior cleanup",
-    "core_and_browser_ci_run": 34989401887
+    "core_and_browser_ci_run": 34991229447
   },
   "public_attempt_34987757894": {
     "run": 34987757894,
@@ -406,5 +406,23 @@
       "The fixture correction requires fresh runtime evidence.",
       "Allocated namespace network isolation remains open."
     ]
+  },
+  "public_attempt_34989405950": {
+    "source": "cc8e545b2252fa2908c64f94d18f3f910c4fe95c",
+    "conclusion": "failure",
+    "public_rpc_network_recovery_and_certificate_rotation": "passed before the later worker telemetry count failure",
+    "failure": "The worker telemetry collector allowed only two instances per service. The public fault test starts four workload worker instances.",
+    "cleanup": {
+      "namespace_retained": "stego-service-ci",
+      "test_resources_absent": true,
+      "allocations_absent": true
+    },
+    "allocation_cleanup": {
+      "allocations_before": 4,
+      "allocations_absent": true
+    },
+    "lease_released": true,
+    "correction": "842a71cb1ec23ddca51902db34efe0d5d082abcf",
+    "complete_workflow_passed": false
   }
 }

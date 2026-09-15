@@ -365,6 +365,16 @@ a Gateway audience. This is a possible cause of the latest public failure; the
 old log did not identify the failed negative case. Hypershell `cc8e545` restricts
 the API fixture and checks token audiences before the negative RPC call. It
 also checks a fresh API token after grant synchronization. The acceptance
-package compiled. Core/browser CI `34989401887` and public CI `34989405950` are
-active. Inspect these handles. The [public record](hypershell-public-route-host.json)
-contains the failed run, cleanup, correction, and remaining limits.
+package compiled. Public CI `34989405950` passed the corrected audience checks,
+RPC denial checks, public network recovery, and certificate rotation. It then
+failed a telemetry fixture that allowed only two instances per worker. The
+public fault test starts the workload worker four times. Cleanup removed all
+four allocations and released the Lease.
+
+Hypershell `842a71c` corrects both controller and PostgreSQL telemetry counts.
+It still requires metrics and correlated logs and traces from each expected
+instance. Nine focused cases passed. The [progress record](hypershell-public-gateway-progress-20260915.json)
+retains the completed checks and the overall failure. Public CI `34991226917`
+and core/browser CI `34991229447` check this correction. Inspect these handles;
+the full public gate, allocated network isolation, and unattended CNPG gate
+remain open.
