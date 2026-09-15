@@ -108,6 +108,54 @@ until its allocations are removed. An application that moves a resource must
 retain its old cleanup target. Removing a profile first makes that target
 unavailable to the generated allocator.
 
+## Declared network peers
+
+Version 1.13.0 adds `network_peers` inside an allocation profile. This setting
+requires `network_isolation: true`. Without peers, the policy still denies all
+Pod traffic. Each peer requires a direction, namespace, Pod label and value,
+numeric port, and protocol. The protocol must be `TCP` or `UDP`.
+
+```yaml
+network_isolation: true
+network_peers:
+  - direction: ingress
+    namespace: control
+    pod_label: app.kubernetes.io/name
+    pod_value: gateway-controller
+    port: 8080
+    protocol: TCP
+  - direction: egress
+    namespace: external
+    external_namespace: cluster-dns
+    pod_label: app
+    pod_value: dns
+    port: 53
+    protocol: UDP
+```
+
+`control` selects the allocator's control namespace. `allocated` selects the
+exact namespace for the current allocation. `external` requires one literal
+`external_namespace`. Here, external means outside the allocated namespace;
+it does not mean an external server such as RDS. The namespace and Pod selectors
+are in one peer. Both must match. A rule cannot select all namespaces or all
+Pods in a namespace. One profile permits at most 16 peers. All profiles together
+permit at most 32 peers. Duplicate peers are rejected.
+
+The generated runtime and admission policy enforce the complete declared rule
+set. The allocator creates the policy before access bindings. It checks the
+complete policy snapshot on later calls and after restart. A different peer,
+port, protocol, additional policy, or incomplete snapshot stops the call.
+The allocator cannot patch, delete, or adopt a changed policy. To change peers
+for existing allocations, the operator must plan the policy migration. A source
+change alone does not migrate an existing policy.
+
+This mechanism supplies selected traffic within a cluster. It does not yet
+supply external DNS targets or a peer in a different allocation selected by
+application ownership. The operator must control peer namespaces and Pod labels.
+Network permission does not replace TLS, service identity, or application access
+checks. Router and host-network behavior require checks on the selected network
+provider. API acceptance alone does not prove traffic enforcement.
+
 ## Fixed network deny policy
 
 Version 1.11.0 adds the explicit profile setting `network_isolation: true`.

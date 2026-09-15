@@ -21,7 +21,10 @@ parser.add_argument("--namespace", required=True)
 parser.add_argument("--evidence", type=Path, required=True)
 parser.add_argument("--next-manifest", type=Path)
 parser.add_argument("--network-isolation", action="store_true")
+parser.add_argument("--network-peers", action="store_true")
 args = parser.parse_args()
+if args.network_peers and not args.network_isolation:
+    parser.error("--network-peers requires --network-isolation")
 
 ctx = args.context
 control = args.namespace
@@ -100,7 +103,21 @@ def check_network_policy():
         },
         "spec": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
     }
-    check("declared deny policy", ["create", "--dry-run=server", "-f", "-"], policy, good=True)
+    if args.network_peers:
+        def rule(side, namespace, pod, port, protocol):
+            return {
+                side: [{
+                    "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": namespace}},
+                    "podSelector": {"matchLabels": {"app": pod}},
+                }],
+                "ports": [{"port": port, "protocol": protocol}],
+            }
+        policy["spec"]["ingress"] = [rule("from", control, "controller", 8080, "TCP")]
+        policy["spec"]["egress"] = [
+            rule("to", owned, "database", 5432, "TCP"),
+            rule("to", "cluster-dns", "dns", 53, "UDP"),
+        ]
+    check("declared network policy", ["create", "--dry-run=server", "-f", "-"], policy, good=True)
     invalid = []
     for direction in ("ingress", "egress"):
         changed = copy.deepcopy(policy)
@@ -123,6 +140,34 @@ def check_network_policy():
     changed = copy.deepcopy(policy)
     changed["metadata"]["labels"]["example.test/owner"] = "other"
     invalid.append(("foreign network owner", changed))
+    if args.network_peers:
+        for direction, side, count in (("ingress", "from", 1), ("egress", "to", 2)):
+            for index in range(count):
+                for mutation in ("namespace", "pod", "no namespace", "no pod", "OR selectors", "port", "protocol", "all ports", "port range", "extra peer"):
+                    changed = copy.deepcopy(policy)
+                    selected = changed["spec"][direction][index]
+                    peer = selected[side][0]
+                    if mutation == "namespace":
+                        peer["namespaceSelector"]["matchLabels"]["kubernetes.io/metadata.name"] = foreign
+                    elif mutation == "pod":
+                        peer["podSelector"]["matchLabels"]["app"] = "unrelated"
+                    elif mutation == "no namespace":
+                        del peer["namespaceSelector"]
+                    elif mutation == "no pod":
+                        del peer["podSelector"]
+                    elif mutation == "OR selectors":
+                        selected[side] = [{"namespaceSelector": peer["namespaceSelector"]}, {"podSelector": peer["podSelector"]}]
+                    elif mutation == "port":
+                        selected["ports"][0]["port"] += 1
+                    elif mutation == "protocol":
+                        selected["ports"][0]["protocol"] = "UDP" if selected["ports"][0]["protocol"] == "TCP" else "TCP"
+                    elif mutation == "all ports":
+                        del selected["ports"]
+                    elif mutation == "port range":
+                        selected["ports"][0]["endPort"] = 65535
+                    elif mutation == "extra peer":
+                        selected[side].append({"ipBlock": {"cidr": "0.0.0.0/0"}})
+                    invalid.append((f"{direction} peer {index} {mutation}", changed))
     for label, changed in invalid:
         check(label, ["create", "--dry-run=server", "-f", "-"], changed)
     check("another actor creates reserved policy", ["create", "--dry-run=server", "-f", "-"], policy, as_user=None)
@@ -131,11 +176,11 @@ def check_network_policy():
     additional["metadata"]["labels"] = {}
     additional["spec"]["ingress"] = [{}]
     check("another actor adds an unlabelled allow policy", ["create", "--dry-run=server", "-f", "-"], additional, as_user=None)
-    check("create fixed deny policy", ["create", "-f", "-"], policy, good=True)
-    check("allocator reads fixed deny policy", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
+    check("create declared network policy", ["create", "-f", "-"], policy, good=True)
+    check("allocator reads declared network policy", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
     check("allocator lists the complete policy set", ["get", "networkpolicies", "-n", owned], good=True)
     change = json.dumps({"spec": {"ingress": [{}]}})
-    check("another actor changes deny policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
+    check("another actor changes declared policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
     for identity in (actor, None):
         check("reserved policy deletion " + (identity or "operator"), ["delete", "networkpolicy", "stego-allocation", "-n", owned, "--dry-run=server"], as_user=identity)
 
@@ -445,7 +490,7 @@ try:
         if args.network_isolation:
             extra = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "extra", "namespace": owned}, "spec": {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [{}]}}
             check("regenerated policy blocks an extra allow policy", ["create", "--dry-run=server", "-f", "-"], extra, as_user=None)
-            check("deny policy survives regeneration", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
+            check("declared policy survives regeneration", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
             check("regenerated policy blocks another actor", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": {"egress": [{}]}}), "--dry-run=server"], as_user=None)
         check(
             "retired subject binding delete",

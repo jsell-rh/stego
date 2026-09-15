@@ -139,6 +139,15 @@ func TestAllocationManifests(t *testing.T) {
 	if os.Getenv("STEGO_ALLOCATION_NETWORK") == "1" {
 		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["network_isolation"] = true
 	}
+	if os.Getenv("STEGO_ALLOCATION_NETWORK_PEERS") == "1" {
+		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+		p["network_isolation"] = true
+		p["network_peers"] = []any{
+			object{"direction": "ingress", "namespace": "control", "pod_label": "app", "pod_value": "controller", "port": 8080, "protocol": "TCP"},
+			object{"direction": "egress", "namespace": "allocated", "pod_label": "app", "pod_value": "database", "port": 5432, "protocol": "TCP"},
+			object{"direction": "egress", "namespace": "external", "external_namespace": "cluster-dns", "pod_label": "app", "pod_value": "dns", "port": 53, "protocol": "UDP"},
+		}
+	}
 	if os.Getenv("STEGO_ALLOCATION_NEXT") == "1" {
 		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
 		p["bindings"] = p["bindings"].([]any)[:1]
@@ -228,6 +237,9 @@ var allocationUIDTests []byte
 //go:embed testdata/allocation_network_deny_test.go
 var allocationNetworkDenyTests []byte
 
+//go:embed testdata/allocation_network_peers_test.go
+var allocationNetworkPeersTests []byte
+
 func TestGeneratedAllocationRuntime(t *testing.T) { testGeneratedAllocationRuntime(t, "") }
 func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
 	testGeneratedAllocationRuntime(t, "^TestAllocationNetwork")
@@ -262,6 +274,7 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_test.go", Content: allocationRuntimeTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_deny_test.go", Content: allocationNetworkDenyTests})
+	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_peers_test.go", Content: allocationNetworkPeersTests})
 	dir := t.TempDir()
 	for _, f := range files {
 		name := filepath.Join(dir, "out", f.Path)

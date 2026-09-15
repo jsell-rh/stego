@@ -20,8 +20,13 @@ type allocationRole struct {
 }
 type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type allocationIdentityField struct{ Field, Key string }
+type allocationNetworkPeer struct {
+	Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string
+	Port                                                                  int
+}
 type allocationProfile struct {
-	NetworkIsolation                    bool `json:",omitempty"`
+	NetworkPeers                        []allocationNetworkPeer `json:",omitempty"`
+	NetworkIsolation                    bool                    `json:",omitempty"`
 	IdentityConfigMap                   string
 	IdentityLabels, IdentityAnnotations []allocationIdentityField
 	Name, Prefix, OwnerLabel, Manager   string
@@ -125,6 +130,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		result.Roles = append(result.Roles, allocationRole{name, scope, parsed})
 	}
 	names := map[string]bool{}
+	networkPeerCount := 0
 	for _, entry := range profiles {
 		values, ok := entry.(map[string]any)
 		if !ok {
@@ -132,7 +138,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}
@@ -158,6 +164,17 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			if !ok {
 				return result, fmt.Errorf("network_isolation must be a boolean")
 			}
+		}
+		if raw, exists := values["network_peers"]; exists {
+			peers, err := allocationNetworkPeers(raw, p.NetworkIsolation)
+			if err != nil {
+				return result, err
+			}
+			networkPeerCount += len(peers)
+			if networkPeerCount > 32 {
+				return result, fmt.Errorf("allocation permits at most 32 network peers across all profiles")
+			}
+			p.NetworkPeers = peers
 		}
 		if value, exists := values["identity_config_map"]; exists {
 			var ok bool

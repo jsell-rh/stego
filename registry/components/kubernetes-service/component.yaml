@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.12.0
+version: 1.13.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -50,6 +50,17 @@ config:
       owner_label: {type: string}
       manager: {type: string}
       network_isolation: {type: bool, optional: true}
+      network_peers:
+        type: list
+        optional: true
+        items:
+          direction: {type: string, enum: [ingress, egress]}
+          namespace: {type: string, enum: [control, allocated, external]}
+          external_namespace: {type: string, optional: true}
+          pod_label: {type: string}
+          pod_value: {type: string}
+          port: {type: int}
+          protocol: {type: string, enum: [TCP, UDP]}
       identity_config_map: {type: string, optional: true}
       identity_labels:
         type: list
