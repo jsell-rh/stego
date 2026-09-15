@@ -344,3 +344,8 @@ not prove automatic cleanup or a complete CNPG application pass. Public run
 `34986369202` was canceled while the CNPG Lease remained held. Its replacement,
 `34987757894`, is active at Hypershell `4133b66`. Keep this handle; do not start
 a duplicate while it is active.
+
+The [external DNS review](allocated-network-dns.md) records a pending provider
+choice for approved external destinations. jshell exposes the OpenShift egress
+firewall API, but that does not prove DNS-change behavior. Continue the current
+public workflow while the provider choice is open.
