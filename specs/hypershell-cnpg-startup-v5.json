@@ -1,0 +1,210 @@
+{
+  "source_commit": "eb53ea742926fd8e0a1f1aa524d7dcafe6172830",
+  "compiler_revision": "5e9c89d9201db4532de1787dcff234e3988cfa00",
+  "runner_exit": 1,
+  "original_phase": "application_running",
+  "application_tests_ran": false,
+  "cause": "The application Pod did not become ready within 180 seconds. The outer cleanup then failed on a resource read.",
+  "browser_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "manual_cleanup": {
+    "database_namespace_absent": true,
+    "private_fixture_absent": true,
+    "application_resources_absent": true,
+    "operator_resources_absent": 26,
+    "database_volumes_absent": true,
+    "allocations_absent": true,
+    "lease_released": true,
+    "manual_cleanup_required": true,
+    "manual_recovery_note": "The final complete inventory check ran after Lease release. No replacement test was started before this check."
+  },
+  "cnpg_server": {
+    "namespace": "stego-cnpg-database-20260915-v5",
+    "namespace_uid": "195aa9b4-9a95-457f-84ca-fbc49dcd41ae",
+    "cluster_uid": "4f45a45b-04b0-4bff-bafa-6f4cc105c6dc",
+    "image": "ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:14e57107afc9bcdd085ed6593c67743723718f167da512326ddb2f7904cc4576",
+    "ready_instances": 2,
+    "storage_class": "gp3-csi"
+  },
+  "scheduling": {
+    "observed_at": "2026-09-15T10:23:52.926648+00:00",
+    "pod": "service-check-bpd6k",
+    "pod_uid": "5ca03505-343b-439f-9978-bd13ddb717c2",
+    "phase": "Pending",
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-09-15T10:21:00Z",
+        "message": "0/5 nodes are available: 1 node(s) had untolerated taint(s), 3 Insufficient cpu, 3 Insufficient memory. no new claims to deallocate, preemption: 0/5 nodes are available: 1 Preemption is not helpful for scheduling, 4 No preemption victims found for incoming pod.",
+        "observedGeneration": 1,
+        "reason": "Unschedulable",
+        "status": "False",
+        "type": "PodScheduled"
+      }
+    ],
+    "resources": [
+      {
+        "name": "node-tools",
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "ephemeral-storage": "256Mi",
+            "memory": "256Mi"
+          },
+          "requests": {
+            "cpu": "100m",
+            "ephemeral-storage": "256Mi",
+            "memory": "128Mi"
+          }
+        }
+      },
+      {
+        "name": "postgres",
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "ephemeral-storage": "2Gi",
+            "memory": "512Mi"
+          },
+          "requests": {
+            "cpu": "100m",
+            "ephemeral-storage": "1Gi",
+            "memory": "256Mi"
+          }
+        },
+        "restartPolicy": "Always"
+      },
+      {
+        "name": "chromium",
+        "resources": {
+          "limits": {
+            "cpu": "1",
+            "ephemeral-storage": "1Gi",
+            "memory": "1536Mi"
+          },
+          "requests": {
+            "cpu": "100m",
+            "ephemeral-storage": "1Gi",
+            "memory": "256Mi"
+          }
+        },
+        "restartPolicy": "Always"
+      },
+      {
+        "name": "test",
+        "resources": {
+          "limits": {
+            "cpu": "1",
+            "ephemeral-storage": "8Gi",
+            "memory": "3Gi"
+          },
+          "requests": {
+            "cpu": "500m",
+            "ephemeral-storage": "2Gi",
+            "memory": "1Gi"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "reason": "FailedScheduling",
+        "message": "0/4 nodes are available: 3 Insufficient cpu, 3 Insufficient memory. no new claims to deallocate, preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.",
+        "firstTimestamp": null,
+        "lastTimestamp": null
+      },
+      {
+        "reason": "TriggeredScaleUp",
+        "message": "pod triggered scale-up: [{MachineDeployment/ocm-production-2sf62fcjk3cr6ob60log2b05mtfb7im5-jshell/jshell-workers 4->5 (max: 5)}]",
+        "firstTimestamp": "2026-09-15T10:21:14Z",
+        "lastTimestamp": "2026-09-15T10:21:14Z",
+        "count": 1
+      },
+      {
+        "reason": "FailedScheduling",
+        "message": "0/4 nodes are available: 3 Insufficient cpu, 3 Insufficient memory. no new claims to deallocate, preemption: 0/4 nodes are available: 4 No preemption victims found for incoming pod.",
+        "firstTimestamp": null,
+        "lastTimestamp": null
+      },
+      {
+        "reason": "FailedScheduling",
+        "message": "0/5 nodes are available: 1 node(s) had untolerated taint(s), 3 Insufficient cpu, 3 Insufficient memory. no new claims to deallocate, preemption: 0/5 nodes are available: 1 Preemption is not helpful for scheduling, 4 No preemption victims found for incoming pod.",
+        "firstTimestamp": null,
+        "lastTimestamp": null
+      }
+    ],
+    "nodes": [
+      {
+        "name": "ip-10-0-1-145.ec2.internal",
+        "created": "2026-09-15T10:23:49Z",
+        "allocatable": {
+          "cpu": "1500m",
+          "ephemeral-storage": "288292006229",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "6815264Ki",
+          "pods": "250"
+        }
+      },
+      {
+        "name": "ip-10-0-1-187.ec2.internal",
+        "created": "2026-08-27T21:56:54Z",
+        "allocatable": {
+          "cpu": "1500m",
+          "ephemeral-storage": "288292006229",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "6815264Ki",
+          "pods": "250"
+        }
+      },
+      {
+        "name": "ip-10-0-1-214.ec2.internal",
+        "created": "2026-09-09T17:49:51Z",
+        "allocatable": {
+          "cpu": "1500m",
+          "ephemeral-storage": "288292006229",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "6815272Ki",
+          "pods": "250"
+        }
+      },
+      {
+        "name": "ip-10-0-1-249.ec2.internal",
+        "created": "2026-08-27T22:10:46Z",
+        "allocatable": {
+          "cpu": "1500m",
+          "ephemeral-storage": "288292006229",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "6815260Ki",
+          "pods": "250"
+        }
+      },
+      {
+        "name": "ip-10-0-1-251.ec2.internal",
+        "created": "2026-08-27T21:56:36Z",
+        "allocatable": {
+          "cpu": "1500m",
+          "ephemeral-storage": "288292006229",
+          "hugepages-1Gi": "0",
+          "hugepages-2Mi": "0",
+          "memory": "6815272Ki",
+          "pods": "250"
+        }
+      }
+    ]
+  },
+  "artifact_sha256": {
+    "cnpg-run.json": "936fbd350a9826b779c65ad8338d613169f0e39ae01333943e8812cbce640071",
+    "browser-run.log": "e134e624037a6899bf5a13be9c18679ffb9f6bfab1abc32bbda1726128bef092",
+    "scheduling.json": "9f38dfe69679488dd8c485d0883d41d3ff966656b04a2fcd21e183148ab1a8b8",
+    "manual-cleanup-verification.json": "8417244c3da827f1ac2b9def41e75cb0c5b4acfa8f565ffad71b5083867dfc38"
+  },
+  "local_results": "/tmp/hypershell-cnpg-installation-run-v5",
+  "status": "failed_before_application_manual_cleanup_verified"
+}

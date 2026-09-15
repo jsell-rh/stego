@@ -4089,3 +4089,15 @@ The [restricted API run at the CNPG source revision](hypershell-cnpg-source-api.
 and private fixtures are absent, and the shared Lease was released. The frozen
 CNPG workflow has now started in `stego-cnpg-database-20260915-v5`. It remains a
 separate live result; the API pass does not establish CNPG recovery or cleanup.
+
+The [CNPG v5 attempt](hypershell-cnpg-startup-v5.json) failed before application
+tests. The new worker became ready after the Pod's three-minute startup limit.
+Browser cleanup passed, but the outer installer failed on a cleanup read.
+Manual recovery and final checks confirmed that application, allocation,
+database, and operator resources were gone. The failed state is retained.
+
+The fixture reader now has three bounded read attempts, rejects invalid replies,
+and keeps errors private. Writes are not replayed. Twelve installation checks
+and six workflow checks passed after reproducing the old failures. Pod startup
+now has a five-minute allowance within the existing Job deadline; six browser
+boundary checks and shell syntax passed. A fresh frozen CNPG run is required.
