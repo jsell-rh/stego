@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	client "example.com/browser-test/out/browser/client"
+	tracing "example.com/browser-test/out/tracing"
 	"github.com/coder/websocket"
-	"github.com/felixge/httpsnoop"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -40,8 +40,8 @@ func socketServer(t *testing.T, f *fixture) (*Backend, *httptest.Server, <-chan 
 	b := f.start(t)
 	complete := make(chan int, 8)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := httpsnoop.CaptureMetrics(b, tightDeadlineWriter{w}, r)
-		complete <- result.Code
+		result := tracing.ObserveHTTP(b, tightDeadlineWriter{w}, r)
+		complete <- result
 	}))
 	server.Config.ReadTimeout = 80 * time.Millisecond
 	server.Config.WriteTimeout = 80 * time.Millisecond
@@ -357,4 +357,49 @@ func TestSocketTransportMessageLimit(t *testing.T) {
 		return err
 	})
 	require(t, err != nil && rejected, "oversized socket message was accepted")
+}
+
+func TestSocketTransportCloseCancelsRead(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		_, _, _ = conn.Read(ctx)
+	}))
+	defer server.Close()
+	c, err := client.New(client.Options{BaseURL: server.URL, CAFile: trust(t, server)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	entered := make(chan struct{})
+	ended := make(chan error, 1)
+	go func() {
+		_, err := c.Socket(ctx, "/socket", "token", func(ctx context.Context, conn *websocket.Conn) error {
+			close(entered)
+			_, _, err := conn.Read(ctx)
+			return err
+		})
+		ended <- err
+	}()
+	select {
+	case <-entered:
+	case err := <-ended:
+		t.Fatal("socket did not start", err)
+	case <-ctx.Done():
+		t.Fatal("socket did not start")
+	}
+	c.Close()
+	select {
+	case err := <-ended:
+		require(t, err != nil, "closed read succeeded")
+	case <-ctx.Done():
+		t.Fatal("client close did not stop the read")
+	}
 }

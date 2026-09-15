@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/felixge/httpsnoop"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -326,16 +325,16 @@ func (r *Runtime) Handler(next http.Handler) http.Handler {
 			span.End(trace.WithTimestamp(end))
 		}()
 		tracedRequest := request.WithContext(ctx)
-		result := httpsnoop.CaptureMetrics(next, w, tracedRequest)
+		result := ObserveHTTP(next, w, tracedRequest)
 		recordRoute(span, method, tracedRequest.Pattern)
 		if pattern := safeRoute(tracedRequest.Pattern); pattern != "" {
 			observed.route.Store(&pattern)
 		}
-		span.SetAttributes(attribute.Int("http.response.status_code", result.Code))
-		if result.Code >= 500 {
+		span.SetAttributes(attribute.Int("http.response.status_code", result))
+		if result >= 500 {
 			span.SetStatus(codes.Error, "")
 		}
-		responseCode = result.Code
+		responseCode = result
 	})
 }
 

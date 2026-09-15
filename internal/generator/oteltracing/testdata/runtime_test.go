@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/pem"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -430,5 +432,78 @@ func TestRPCParentValidationAndDisabledRuntime(t *testing.T) {
 		if got != ctx {
 			t.Fatal("disabled tracing changed context")
 		}
+	}
+}
+
+func TestHTTPFinalStatusObservation(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer provider.Shutdown(context.Background())
+	runtime := &Runtime{provider: provider, tracer: provider.Tracer("fixture")}
+	for _, tc := range []struct {
+		name    string
+		want    int
+		handler http.HandlerFunc
+	}{
+		{"upgrade", 101, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(101) }},
+		{"hints then upgrade", 101, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(103); w.WriteHeader(101) }},
+		{"readfrom then upgrade", 200, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.(io.ReaderFrom).ReadFrom(strings.NewReader("data"))
+			w.WriteHeader(101)
+		}},
+		{"empty readfrom then created", 201, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.(io.ReaderFrom).ReadFrom(strings.NewReader(""))
+			w.WriteHeader(201)
+		}},
+		{"hints then created", 201, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(103); w.WriteHeader(201) }},
+		{"final then upgrade", 204, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204); w.WriteHeader(101) }},
+		{"implicit then upgrade", 200, func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("data")); w.WriteHeader(101) }},
+		{"string then upgrade", 200, func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "data"); w.WriteHeader(101) }},
+		{"flush then upgrade", 200, func(w http.ResponseWriter, _ *http.Request) {
+			_ = http.NewResponseController(w).Flush()
+			w.WriteHeader(101)
+		}},
+		{"empty", 200, func(http.ResponseWriter, *http.Request) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			done := make(chan struct{})
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.want == 101 {
+					w.Header().Set("Upgrade", "websocket")
+					w.Header().Set("Connection", "Upgrade")
+				}
+				runtime.Handler(tc.handler).ServeHTTP(w, r)
+				close(done)
+			}))
+			server.Config.ErrorLog = log.New(io.Discard, "", 0)
+			server.Start()
+			defer server.Close()
+			client := &http.Client{Timeout: 2 * time.Second}
+			defer client.CloseIdleConnections()
+			response, err := client.Get(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			if response.StatusCode != tc.want {
+				t.Fatalf("wire status: got %d, want %d", response.StatusCode, tc.want)
+			}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("handler did not finish")
+			}
+			spans := recorder.Ended()
+			span := spans[len(spans)-1]
+			got := 0
+			for _, attribute := range span.Attributes() {
+				if attribute.Key == "http.response.status_code" {
+					got = int(attribute.Value.AsInt64())
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("response status: got %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

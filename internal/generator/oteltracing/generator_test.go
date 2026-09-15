@@ -50,6 +50,10 @@ var databaseTests []byte
 //go:embed testdata/browser_test.go
 var browserTests []byte
 
+func TestGeneratedHTTPFinalStatus(t *testing.T) {
+	testGeneratedTracing(t, "^TestHTTPFinalStatusObservation$")
+}
+
 func TestGeneratedTracing(t *testing.T) { testGeneratedTracing(t, "") }
 
 func TestGeneratedPostgresOperationTelemetry(t *testing.T) {

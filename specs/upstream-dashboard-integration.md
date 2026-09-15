@@ -130,6 +130,20 @@ returns the drain deadline error. Both reference examples were regenerated.
 CI verification remains required. Keep the application mode unavailable in
 service YAML until the lifecycle and deployment checks are complete.
 
+The first WebSocket CI run,
+[35022610109](https://github.com/jsell-rh/stego/actions/runs/35022610109), failed
+its upgrade-status assertion. The underlying HTTP observer treated status 101
+as an informational response and reported 200. The data and exit-code checks,
+access denials, and all seven session-end cases passed before that result was
+reported. The generated application's vulnerability check did not run after the
+test failure.
+
+STEGO now has a shared final-status observer in `otel-tracing` 1.14.2. It preserves
+the response interfaces and treats 101 as final. Its small test checks actual
+HTTP responses and recorded spans, including early hints, implicit headers,
+flushes, and empty reader copies. That test passed. The browser fixture uses
+this same observer. Full CI verification of the corrected revision is required.
+
 ## Remaining acceptance work
 
 The dashboard workflow is not complete. The next changes must connect this

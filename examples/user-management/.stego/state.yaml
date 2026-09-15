@@ -28,13 +28,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260915205555-07a70cce5bce+dirty
+        module_version: v0.0.0-20260915210026-e142a7de8830+dirty
         vcs: git
-        revision: 07a70cce5bce340afb83a1ba0a6b00ef7e18efa3
+        revision: e142a7de8830ad93b7bbecd90a9c19e42dd08534
         source_state: modified
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 8bd17d983f062b55a96894ab40d3bbf032e69456bbb3d87b1aa412971c0ec123
+    registry_content_sha256: b3fd56d6835b2b0ed994f04d47cebc4fe1074fadbcbf63500af770e82b6003f6
     components:
         health-check:
             version: 1.0.0
@@ -46,7 +46,7 @@ last_applied:
             version: 1.0.4
             sha: env-override
         otel-tracing:
-            version: 1.14.1
+            version: 1.14.2
             sha: env-override
         outbox:
             version: 1.1.0
@@ -169,7 +169,8 @@ last_applied:
         tracing/controller.go: 330e49b31935577ae95a5c009b5796144ec64141c998d0dc2c0bb17953f9c222
         tracing/database.go: ab4b6ee0244f004876885030e8e72d7e8f6a47a7819b054696d40f6ee6273e33
         tracing/http_client.go: ca9ed1cf57d3a8b33bca141a03733431859a7ed0d58ae92c301460f9438bf683
+        tracing/http_observation.go: 56493be11d5e29efb771b5862d45ad2ef9e010e0b01b27766e61b0971862ea86
         tracing/identity.go: 2c7be8be622a167b67941ea98459f7540b8ba16b64a7631dad109db70c2c0bb6
-        tracing/runtime.go: de0385cd92f685ceba0e63c83a68cf64085b0761d90ccd14a4b757f53c031397
+        tracing/runtime.go: bc7a13ad00067dd993f7f09602483e228d172ab601a68dde987cc6cb9e84d7c4
         tracing/service.go: 59fdee10ad51bd5f51644c8c4fecdfdae74bc5a315d2799a1131abdb92d98b38
         tracing/signals.go: 3555488a11cab6bfc7c31a9017cb574a3d188b51773bb218a53f896e79d22bb2
