@@ -475,3 +475,16 @@ or signed-token checks. Its result is pending. Frozen source and results are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-migration-20260915`.
 The Hypershell adapter must still adopt these methods and persist legacy
 bindings before mutation. No application source reduction is claimed yet.
+
+## Verified credential response
+
+Version 0.10.1 adds `VerifiedServiceAccountSecret`. It returns the exact secret
+used for a successful signed token check. The method shares the existing token
+verification implementation and returns an empty secret on failure, including
+an ownership change after the grant. The caller must serialize client creation,
+rotation, and deletion. This supports a one-time application response without a
+second credential read or duplicate token parsing in the application.
+
+The generated tests passed with and without telemetry and with the race detector
+in 13.668 seconds. The live gate uses this method before its separate signed-token
+checks. CI is pending. Hypershell adoption is in progress.

@@ -128,7 +128,7 @@ func TestServiceAccountSignedTokenPolicy(t *testing.T) {
 
 func TestServiceAccountTokenProtocolAndOwnership(t *testing.T) {
 	key, keys := serviceTokenFixture(t)
-	for _, fault := range []string{"valid", "refresh token", "ID token", "wrong type", "public client", "disabled client", "missing subject", "changed owner", "wrong subject"} {
+	for _, fault := range []string{"valid", "refresh token", "ID token", "wrong type", "public client", "disabled client", "missing subject", "changed owner", "changed owner after grant", "wrong subject"} {
 		t.Run(fault, func(t *testing.T) {
 			b := ClientBinding{ID: "owned", ClientID: "worker", Attributes: map[string]string{"stego.owner.product": "catalog"}}
 			p := serviceTokenPolicy()
@@ -171,7 +171,7 @@ func TestServiceAccountTokenProtocolAndOwnership(t *testing.T) {
 				case "/admin/realms/tenant/clients/owned":
 					reads++
 					attributes := b.Attributes
-					if fault == "changed owner" && reads > 1 {
+					if (fault == "changed owner" && reads > 1) || (fault == "changed owner after grant" && reads > 2) {
 						attributes = map[string]string{"stego.owner.product": "other"}
 					}
 					_ = json.NewEncoder(w).Encode(ClientRepresentation{ID: b.ID, ClientID: b.ClientID, Protocol: "openid-connect", Enabled: fault != "disabled client", PublicClient: fault == "public client", ServiceAccountsEnabled: true, Attributes: attributes})
@@ -185,7 +185,10 @@ func TestServiceAccountTokenProtocolAndOwnership(t *testing.T) {
 					w.WriteHeader(500)
 				}
 			})
-			err := c.VerifyServiceAccountToken(context.Background(), b, p)
+			secret, err := c.VerifiedServiceAccountSecret(context.Background(), b, p)
+			if (err == nil && secret.Reveal() != "private-client-secret") || (err != nil && secret.Reveal() != "") {
+				t.Fatal("verified credential boundary differs")
+			}
 			if (err == nil) != (fault == "valid") {
 				t.Fatal("proof result differs", err)
 			}

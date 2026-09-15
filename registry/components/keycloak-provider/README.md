@@ -283,3 +283,10 @@ field change. A completed migration causes no writes. Save the new binding
 before access reconciliation or enablement; those actions change the record
 and invalidate the migration checkpoint. Run full access reconciliation before use; migration does not prove
 the role, scope, mapper, or token policy and never enables the client.
+
+`VerifiedServiceAccountSecret` applies the same token checks and returns the
+exact credential used in that grant. Use this operation for an authorized
+one-time credential response. A failed check returns no credential. The result
+uses the redacted `Secret` type; only the response boundary calls `Reveal()`.
+It does not enable or repair the client. Serialize creation, rotation, and
+deletion for the client before you use either token operation.

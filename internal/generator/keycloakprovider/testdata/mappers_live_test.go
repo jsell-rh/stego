@@ -121,7 +121,7 @@ func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, t
 		t.Fatal("wrong service-account audience accepted", err)
 	}
 	t.Log("Real common service-account token proof passed; wrong subject and audience denied")
-	secret, err := c.GetClientSecret(ctx, owner)
+	secret, err := c.VerifiedServiceAccountSecret(ctx, owner, proof)
 	if err != nil {
 		t.Fatal(err)
 	}
