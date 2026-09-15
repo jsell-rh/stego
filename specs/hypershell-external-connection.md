@@ -60,6 +60,32 @@ a verified public endpoint from this API change alone.
 The reference defaults to passthrough. That mode leaves TLS at the Gateway and
 requires clients to trust its issuer. A public certificate authority generally
 cannot issue the internal Service DNS names used by the current workload.
-Separate public and internal certificate handling remains part of the design;
-no test may disable certificate verification to bypass it. See the
+The pinned Gateway image supports separate public and internal certificates,
+selected by SNI. Hypershell `25927c2` adds the public certificate policy and a
+separate Secret mount. Internal clients retain their Service name and private
+CA. Source inspection and focused tests establish this configuration path;
+the live public connection and rotation checks remain required. No test may
+disable certificate verification to bypass them. See the
 [OpenShift route contract](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/ingress_and_load_balancing/routes).
+
+Compiler `8f86550` supplies strict passthrough Route admission checks in
+`kubernetes-client` 1.7.0. [Full CI](https://github.com/jsell-rh/stego/actions/runs/34973001056)
+passed, including both independent example services and SQL provisioning.
+The earlier run at `21ae108` failed a stale test that assumed a fixed generated
+file count. The corrected test still checks all output for the withdrawn
+admission prototype. Route admission alone does not prove live connectivity.
+
+Compiler `74d9a70` adds shared TLS Secret verification in version 1.8.0.
+Hypershell `ace5823` calls this runtime and removes its separate verifier.
+The application keeps only certificate creation and installation policy.
+Focused generated and application checks pass; repeated generation passes.
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34973403349)
+is required for this revision. The
+[TLS Secret contract](../registry/components/kubernetes-client/tls-secrets.md)
+defines trust, ownership, data limits, and error privacy.
+
+The next workflow change must join Route creation, public TLS and RPC checks,
+and current endpoint publication. Status and address must describe the same
+observation. A failed or stale check must not publish a healthy public endpoint.
+The existing generated transaction and observation contracts must be considered
+before a new common abstraction is added.

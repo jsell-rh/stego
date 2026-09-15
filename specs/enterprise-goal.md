@@ -84,8 +84,21 @@ refused to start while recovery held the live-test Lease. It is not an applicati
 result. Its second attempt was canceled while pending to add the required
 endpoint ownership check. API run `34972191691` uses Hypershell `4977b62` and
 requires 32 checks. Browser run `34972072109` is active, and full CI `34972073256`
-is queued. The failed CNPG run has no remaining runtime or volumes, and its
+was canceled while pending when newer source was pushed. The failed CNPG run has no remaining runtime or volumes, and its
 Lease was released. Verify credentials before another live attempt.
+
+Full CI `34969545259` is now complete. Core acceptance, ordinary browser checks,
+console, and service image passed. CNPG and the old Sandbox job failed. The
+Sandbox source precedes the explicit live-test deferral. The overall result
+remains failure. Do not treat manual CNPG recovery as an automatic cleanup pass.
+
+Hypershell `ace5823` uses compiler `74d9a70` for shared public TLS Secret
+verification. Focused tests and repeated generation passed. Full compiler run
+`34973403349` and application runs `34973489877`, `34973489579`, and
+`34973489648` remain required. Public certificate support is still incomplete
+application evidence: Route creation, verified public RPC, and address
+publication must be tested together. See the
+[public connection contract](hypershell-external-connection.md).
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
