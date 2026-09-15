@@ -3995,3 +3995,24 @@ The [RDS gate](rds-acceptance.md) now records the installation password grant,
 maintenance-database isolation, and failover checks required on an actual RDS
 server. The test target remains to be selected. Generic PostgreSQL evidence
 does not establish this gate.
+
+The complete supplied PostgreSQL browser run `34951393842` passed at
+Hypershell `10a0827` with compiler `5e9c89d`. The workflow took 395.99 seconds.
+It proves the new viewer and live-account checks in one application workflow.
+Viewer grants and workspace membership survived namespace replacement;
+filtered reads, denied writes, and both access-removal paths passed. Three
+automation accounts used the actual Gateway. Gateway deletion closed their
+metadata and audits, removed their provider clients, and denied token issuance.
+
+Verification matched all 887 source files, 230 generated files, three generation
+records, 16 CI access checks, 57 application access checks, and six admission
+probes. Namespace recovery took 45.86 seconds. SQL denial and recovery,
+encryption, deletion, and automated cleanup passed. Independent reads confirmed
+that the Job and Pods were absent. See the
+[verified viewer and account evidence](hypershell-viewer-recovery.json).
+
+This closes the added viewer and account checks for the supplied PostgreSQL
+workflow. Public Gateway connectivity, actual RDS, unattended CNPG CI, Sandbox
+isolation, and the wider enterprise requirements remain open. CI credentials
+were renewed without changing the active Job or Lease. The environment-backed
+workflow results at `f900d5a` remain separate required checks.

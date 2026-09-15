@@ -33,6 +33,11 @@ PostgreSQL browser run also passed, including namespace recovery and automated
 cleanup. It still uses the internal Service endpoint. See the
 [verified evidence](hypershell-workload-availability.json).
 
+The later complete browser run at `10a0827` also passed viewer recovery and live
+account cleanup through the actual Gateway. Its access checks still use the
+internal Service endpoint. The rendered connection panel still has no usable
+public command. See the [viewer and account evidence](hypershell-viewer-recovery.json).
+
 Two application decisions are pending: whether the first public route uses TLS
 passthrough, and whether `route_address` becomes a controller-owned field.
 The current API permits owner writes to that address. Do not claim the address
