@@ -109,8 +109,30 @@ initially blocked during cleanup; the failed result and the corrected results
 are preserved in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-20260915`.
 
+The initial component at `e1e1b045099ab4210d13c62a2fe969f4118ecdc2` passed all
+four jobs in [compiler CI run 35025244647](https://github.com/jsell-rh/stego/actions/runs/35025244647).
+The separate real-Keycloak job also passed at
+`b6f814165df869797d1418ff1269814f35426924` in
+[run 35025647987](https://github.com/jsell-rh/stego/actions/runs/35025647987).
+It checked two ownership policies, foreign-client denial, credential reads,
+service-account user resolution, disablement, confirmed deletion, and trace
+privacy. The test took 28.23 seconds. Container cleanup was verified.
+
+The reconstruction check calls `Client.Close` and `New` within one process.
+It does not restart an application process or Keycloak. The test imports its
+clients at setup; it does not prove generated client creation or the Hypershell
+workflow. The generated source and results are stored under
+`live/first-ci` in the result directory above.
+
+A later fix at `8a748301704748965cbd61b7b6b915710fc4863d` requires an explicit
+Bearer token type in the administrator grant. Its small checks passed; full
+CI verification is pending. The first live workflow declaration was rejected
+before any job started because it used runner context at job scope. That
+failure is retained in the result directory. The corrected workflow passes
+the workflow linter.
+
 This is the start of the extraction. Client creation, enablement, role and scope
 reconciliation, and protocol mapper reconciliation remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
-client or new real-Keycloak workflow result is claimed yet. The upstream
+client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.
