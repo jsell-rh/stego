@@ -28,10 +28,12 @@ func render(args []string, output io.Writer) error {
  namespace:=flags.String("namespace","","Existing target namespace")
  worker:=flags.String("worker","","Declared controller worker")
  rpc:=flags.String("rpc-process","","Declared RPC process deployment")
+ scope:=flags.String("scope","all","Resource scope: all, cluster, or namespace")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
  var external endpointFlags
  flags.Var(&external,"egress","Declared external endpoint: NAME=IP:PORT; use brackets for IPv6")
  if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
+ if *scope!="all"&&*scope!="cluster"&&*scope!="namespace"{return fmt.Errorf("invalid deployment scope")}
  imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
  if flags.NArg()!=0||len(*image)>2048||!imagePattern.MatchString(*image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*namespace)||*group==0||*group>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
  registry,_,_:=strings.Cut(*image,"/")
@@ -48,7 +50,36 @@ func render(args []string, output io.Writer) error {
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
  completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}
+ completed,err=selectDeploymentScope(completed,*scope,*namespace);if err!=nil{return err}
  _,err=output.Write(append(completed,'\n'));return err
+}
+
+// Split only known generated resource kinds. A new kind requires an explicit
+// scope before this renderer can emit either partial manifest.
+func selectDeploymentScope(input []byte,scope,namespace string)([]byte,error){
+ if scope=="all"{return input,nil}
+ if scope!="cluster"&&scope!="namespace"{return nil,fmt.Errorf("invalid deployment scope")}
+ var document map[string]json.RawMessage
+ if json.Unmarshal(input,&document)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
+ var version,kind string
+ if json.Unmarshal(document["apiVersion"],&version)!=nil||version!="v1"||json.Unmarshal(document["kind"],&kind)!=nil||kind!="List"{return nil,fmt.Errorf("invalid generated deployment")}
+ var items []json.RawMessage
+ if json.Unmarshal(document["items"],&items)!=nil||items==nil{return nil,fmt.Errorf("invalid generated deployment")}
+ selected:=make([]json.RawMessage,0,len(items))
+ for _,item:=range items{
+  var header struct{APIVersion string `json:"apiVersion"`;Kind string `json:"kind"`;Metadata struct{Name string `json:"name"`;Namespace string `json:"namespace"`} `json:"metadata"`}
+  if json.Unmarshal(item,&header)!=nil||header.Metadata.Name==""{return nil,fmt.Errorf("invalid generated resource")}
+  resourceScope:=""
+  switch header.APIVersion+"/"+header.Kind{
+  case "v1/ServiceAccount","v1/Service","apps/v1/Deployment","networking.k8s.io/v1/NetworkPolicy","rbac.authorization.k8s.io/v1/Role","rbac.authorization.k8s.io/v1/RoleBinding":resourceScope="namespace"
+  case "rbac.authorization.k8s.io/v1/ClusterRole","rbac.authorization.k8s.io/v1/ClusterRoleBinding","admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy","admissionregistration.k8s.io/v1/ValidatingAdmissionPolicyBinding":resourceScope="cluster"
+  default:return nil,fmt.Errorf("unknown generated resource scope")
+  }
+  if resourceScope=="cluster"&&header.Metadata.Namespace!=""||resourceScope=="namespace"&&(namespace==""||header.Metadata.Namespace!=namespace){return nil,fmt.Errorf("generated resource namespace differs")}
+  if resourceScope==scope{selected=append(selected,item)}
+ }
+ document["items"],_=json.Marshal(selected)
+ result,err:=json.MarshalIndent(document,"","  ");if err!=nil{return nil,fmt.Errorf("cannot render deployment scope")};return result,nil
 }
 
 type endpointFlags []string

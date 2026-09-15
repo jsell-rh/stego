@@ -3571,3 +3571,12 @@ this bounded concurrency failure before changing that contract. The evidence
 is in the variant `acceptance/controller-local-core-ci.json`. Installation
 CNPG, RDS, restricted workload runners, Sandbox, and complete CI remain open.
 The enterprise goal remains active.
+
+The restricted workload CI conversion found a common deployment requirement.
+The old manual browser fixture can install cluster permissions and admission
+policies. That identity must not be used for CI. The generated deployment
+renderer now separates cluster and namespace resources with an explicit scope.
+It validates the full input and rejects unknown resource scopes. Compiler CI
+must verify the partition before Hypershell uses it. The variant still needs
+operator-installed cluster resources and a restricted workload runner; the
+renderer option alone does not complete that access boundary.
