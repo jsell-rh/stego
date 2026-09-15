@@ -394,5 +394,20 @@
     "verify.json.png": "The Gateway detail page shows Healthy. The connection instructions still show loading placeholders.",
     "accounts-delete.json.png": "The service account page shows zero accounts after deletion.",
     "public_gateway_connection_verified": false
+  },
+  "full_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260",
+    "result": "failure",
+    "passed_jobs": [
+      "acceptance (core)",
+      "acceptance (browser)",
+      "web-console",
+      "service-image"
+    ],
+    "failed_jobs": [
+      "sandbox-workload",
+      "cnpg-gateway-workflow"
+    ],
+    "failure_scope": "Sandbox and CNPG jobs require installation fixtures and restricted runners. These gates remain required."
   }
 }

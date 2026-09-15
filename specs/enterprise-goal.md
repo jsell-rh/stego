@@ -66,7 +66,7 @@ its recorded source and test scope:
 | Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
 | Private PostgreSQL client telemetry | Compiler `f2b09c0` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961995199) passed, including generated runtime race checks and real SQL provisioning. Complete application evidence remains required. |
 | Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the focused TLS OTLP startup check; complete application gates remain queued. |
-| Full Hypershell CI at the browser source | Hypershell `916f3a7` | [Run 34961014648](https://github.com/jsell-rh/hypershell-stego/actions/runs/34961014648) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs failed. |
+| Full Hypershell CI at the browser source | Hypershell `2af1b46` | [Run 34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs lack installation fixtures and restricted runners. |
 
 The following runs are active or queued as of 2026-09-15. Confirm their current
 state before taking further action. Do not restart a run because observation
@@ -74,7 +74,6 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Full CI with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260), active |
 | API gate with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891352](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352), active; shared Lease holder `gateway-api-fdef9ea532c2` |
 | Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), queued |
 | Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), queued |
@@ -90,11 +89,18 @@ jobs for either nested example module. The [example project checks](example-proj
 restore current generation and add CI gates for both projects. Their build and
 test results remain required; the root compiler suite does not cover them.
 The first example gates failed on generated dependency vulnerabilities. The
-corrected generators and regenerated modules are in `6e2b514`; repeat
-[CI 34966021202](https://github.com/jsell-rh/stego/actions/runs/34966021202) remains
-required. The [SSO authentication audit](sso-auth-audit.md) also found missing
-required issuer, audience, and expiry checks in that separate component. Fix
-this C4 trust-policy gap next; dependency updates do not close it.
+corrected modules in `6e2b514` passed both example jobs in
+[CI 34966021202](https://github.com/jsell-rh/stego/actions/runs/34966021202). The
+overall run failed a stale REST registry version assertion, now corrected.
+
+The [SSO authentication audit](sso-auth-audit.md) reproduced acceptance of tokens
+with the wrong issuer, wrong audience, and no expiry. Compiler `94f9fa0` replaces
+that separate verifier with the shared JWT runtime and a bounded key source.
+Expanded generated race tests pass. Both examples were regenerated in `a355306`.
+[Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920) is
+active. Verify this result and fix failures before adopting this compiler in
+Hypershell. Key-source telemetry and performance evidence remain separate open
+requirements; these focused trust checks do not close all of C4 or C6.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and
@@ -120,7 +126,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The restricted CI
-credential was last renewed through 2026-09-15 12:45:13 UTC; check its remaining
+credential was last renewed through 2026-09-15 13:03:44 UTC; check its remaining
 lifetime before a queued run starts.
 
 Keep this file limited to current requirements and result links. Put detailed
