@@ -352,6 +352,11 @@
   "next_public_retry": {
     "run": 34986369202,
     "source": "c541a512c8be36a7bd30f83faf9b82c363eaf402",
-    "state": "queued after cleanup; inspect the existing handle"
+    "state": "canceled while the failed CNPG run still held the Lease; no public Job started"
+  },
+  "current_public_retry": {
+    "run": 34987757894,
+    "source": "4133b66c0eb8194842bc0da93eb082f95c336bdf",
+    "state": "active after verified CNPG recovery"
   }
 }

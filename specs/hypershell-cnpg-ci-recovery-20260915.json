@@ -1,0 +1,200 @@
+{
+  "checked_at": "2026-09-15T15:21:14.151517+00:00",
+  "run": 34985981930,
+  "job": 104438635923,
+  "job_result": "failure",
+  "source": "3a50db7ea813ae8d160f79a86359970b457f03a8",
+  "compiler": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+  "server_ready": {
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+    "cluster_uid": "6abe41d6-4324-4178-a9da-f12bb19ac388",
+    "ready_instances": 2
+  },
+  "admission": {
+    "allowed": 3,
+    "denied": 19
+  },
+  "application_test_ran": false,
+  "startup_failure": "Insufficient free CPU and memory delayed scheduling. The autoscaler added a fifth node. Pod initialization exceeded the five-minute readiness wait.",
+  "application_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "automatic_cleanup_failure": "The browser child removed ci-token. The outer CNPG runner then tried to read that file. SQL runtime and the Lease were retained.",
+  "recovery_first_attempt": "Failed before Cluster deletion: the raw API path included clusters.postgresql.cnpg.io instead of clusters. The same defect was present in the automatic runner.",
+  "recovery": {
+    "run": 34985981930,
+    "started": "2026-09-15T15:18:28.486594+00:00",
+    "holder": "stego-cnpg-live-a068eddb462ddd27",
+    "deletions": [
+      {
+        "kind": "Cluster",
+        "name": "gateway-database",
+        "namespace": "stego-cnpg-database-ci",
+        "uid": "6abe41d6-4324-4178-a9da-f12bb19ac388",
+        "resource_version": "6328348",
+        "submitted": true
+      },
+      {
+        "kind": "Secret",
+        "name": "cnpg-credentials",
+        "namespace": "stego-service-ci",
+        "uid": "5c1006b3-a22f-4d5a-8ee5-bbdaa0eb7e94",
+        "resource_version": "6328361",
+        "submitted": true
+      },
+      {
+        "kind": "Secret",
+        "name": "fixture-postgres",
+        "namespace": "stego-cnpg-database-ci",
+        "uid": "2bea1522-fdd0-480d-bc89-16805e4cb8f0",
+        "resource_version": "6327795",
+        "submitted": true
+      },
+      {
+        "kind": "Job",
+        "name": "database-lifetime",
+        "namespace": "stego-cnpg-database-ci",
+        "uid": "4aa878cf-f5f2-4aaf-9318-c08cd6c6ac56",
+        "resource_version": "6327863",
+        "submitted": true
+      },
+      {
+        "kind": "Job",
+        "name": "cnpg-operator",
+        "namespace": "stego-cnpg-operator-ci",
+        "uid": "415dd821-9f69-4183-815e-f70c8cf25cff",
+        "resource_version": "6327785",
+        "submitted": true
+      }
+    ],
+    "phase": "complete",
+    "application_and_allocations_absent": true,
+    "claims": [
+      {
+        "name": "gateway-database-1",
+        "uid": "2d81a99a-552f-46b7-bc1f-6da3b783e187"
+      },
+      {
+        "name": "gateway-database-2",
+        "uid": "d17fe2a6-13a6-42de-a75e-b9ad30131b95"
+      }
+    ],
+    "volumes": [
+      {
+        "name": "pvc-2d81a99a-552f-46b7-bc1f-6da3b783e187",
+        "uid": "1912ffd6-d0fb-45c4-811b-aebf46ae6af1"
+      },
+      {
+        "name": "pvc-d17fe2a6-13a6-42de-a75e-b9ad30131b95",
+        "uid": "f0b13ff6-fc33-4521-8eda-4a2ddae6c887"
+      }
+    ],
+    "public_cancellation_confirmed": {
+      "conclusion": "cancelled",
+      "status": "completed"
+    },
+    "lease_after": {
+      "apiVersion": "coordination.k8s.io/v1",
+      "kind": "Lease",
+      "metadata": {
+        "annotations": {
+          "stego.test/job": "service-check",
+          "stego.test/namespace": "stego-service-ci"
+        },
+        "creationTimestamp": "2026-09-14T18:27:04Z",
+        "labels": {
+          "app.kubernetes.io/managed-by": "stego-ci"
+        },
+        "name": "jshell-live-test",
+        "namespace": "stego-ci",
+        "resourceVersion": "6332560",
+        "uid": "473d5b75-ff67-413c-8ae7-b22f70770c59"
+      },
+      "spec": {
+        "acquireTime": "2026-09-15T15:08:38.993044Z",
+        "holderIdentity": "",
+        "leaseDurationSeconds": 1200,
+        "renewTime": "2026-09-15T15:08:38.993044Z"
+      }
+    },
+    "completed": "2026-09-15T15:19:46.684207+00:00"
+  },
+  "corrections": [
+    {
+      "commit": "815d3bb",
+      "change": "Save a bounded startup record without container commands, environment, or termination messages.",
+      "checks": "Four focused tests and a live read-only Pod observation passed."
+    },
+    {
+      "commit": "45db500",
+      "change": "Allow ten minutes for Pod readiness within the unchanged 30-minute Job deadline.",
+      "checks": "Shell syntax passed; a complete new workflow remains required."
+    },
+    {
+      "commit": "6c84daa",
+      "change": "Use the outer restricted context for the final allocation check; remove its private temporary token after the check.",
+      "checks": "The missing file was reproduced. Ten CNPG checks and eight credential checks passed."
+    },
+    {
+      "commit": "4133b66",
+      "change": "Use the unqualified resource plural in the raw delete path; retain UID and resourceVersion preconditions.",
+      "checks": "The incorrect path was reproduced. Eleven CNPG checks passed. Conditional manual recovery completed."
+    }
+  ],
+  "public_retry": {
+    "cancelled": 34986369202,
+    "cancellation": "Confirmed complete while the CNPG Lease remained held. No public Job was started.",
+    "current": 34987757894,
+    "source": "4133b66c0eb8194842bc0da93eb082f95c336bdf",
+    "state": "active; inspect this handle"
+  },
+  "limits": [
+    "No complete CNPG application workflow passed.",
+    "Manual recovery does not prove automatic cleanup.",
+    "The larger startup allowance is not a capacity or performance result.",
+    "Public Gateway workflow and allocated namespace network isolation remain open."
+  ],
+  "logs": [
+    {
+      "path": "/tmp/hypershell-cnpg-artifacts-34985981930/cnpg-gateway/browser-run.log",
+      "sha256": "d5e538a29b927970010dbcd08c25a4a2fa51b0106463d1227c8e5b231d78a8ab"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-job-104438635923.log",
+      "sha256": "bc41c5af7d90a68ec54a5ac68e2d9f677087d2619b33080bb1f06d55ca68fd0f"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-cleanup-token-before.log",
+      "sha256": "fdee984edad98f8ca5bdb9f02f24d7a012a7e780a09c3bd603f3c9829be7c71e"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-cleanup-path-before.log",
+      "sha256": "7beb8389bac5461af835e44893fd0c2c5189c43b88c2409f37d80e45de224752"
+    },
+    {
+      "path": "/tmp/hypershell-startup-34985981930.log",
+      "sha256": "ae9a4588829bbbd7aad1401fcdca32157e0016a421342700c141ac3f82728b9c"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-recovery-34985981930.json",
+      "sha256": "c56420d2d1ef88426fd1c484daba135e43d028116c4d5980eb22ee19590ca90f"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-recovery-34985981930-v2.json",
+      "sha256": "e2f282b188ed65d5c1572541a7418afed10e61ce73755a97fddefaac5c476ee2"
+    }
+  ],
+  "corrected_final_check": {
+    "context": "jshell-ci",
+    "identity": "system:serviceaccount:stego-ci-access:hypershell-ci",
+    "browser_token_file_absent_before_and_after": true,
+    "result": {
+      "allocations_before": 0,
+      "allocations_absent": true
+    },
+    "scope": "Live read-only allocation check with the corrected runner; no complete application test."
+  }
+}

@@ -331,3 +331,16 @@ step stayed unstarted. A later audit found no test workloads, test data, or
 allocations and verified all eighteen installation resources. The Lease was
 then released. Public run `34986369202` is queued after cleanup. Future push checks use the public
 profile with the explicit operator configuration.
+
+CNPG job `104438635923` in run `34985981930` failed before application testing.
+Its two database instances were ready, but application startup exceeded five
+minutes after cluster autoscaling. Application cleanup passed; outer cleanup
+failed on a token file already removed by the browser child. A later recovery
+also exposed an incorrect raw Cluster delete URL. Both faults are corrected and
+covered by focused tests. The startup wait is now ten minutes within the same
+30-minute Job deadline. The [recovery record](hypershell-cnpg-ci-recovery-20260915.json)
+proves manual cleanup of test runtime and volumes and Lease release. It does
+not prove automatic cleanup or a complete CNPG application pass. Public run
+`34986369202` was canceled while the CNPG Lease remained held. Its replacement,
+`34987757894`, is active at Hypershell `4133b66`. Keep this handle; do not start
+a duplicate while it is active.
