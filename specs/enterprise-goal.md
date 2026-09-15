@@ -68,14 +68,14 @@ its recorded source and test scope:
 | Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the TLS OTLP startup check within the complete API gate; the complete browser gate also passed. |
 | Full Hypershell CI at the browser source | Hypershell `677973f` | [Run 34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs lack installation fixtures and restricted runners. |
 
-The following runs are active or queued as of 2026-09-15. Confirm their current
+The following results were checked on 2026-09-15. Confirm the active run
 state before taking further action. Do not restart a run because observation
 timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), active |
-| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), queued |
+| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), failed only the absent CNPG and Sandbox fixtures; core, ordinary browser, console, and image jobs passed |
+| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), active; both CNPG instances are healthy, application Pod awaits cluster capacity |
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
@@ -99,7 +99,7 @@ Expanded generated race tests pass. Both examples were regenerated in `a355306`.
 [Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920)
 passed, including both examples, generated authentication race checks, and real
 SQL provisioning. Hypershell `752d92e` adopts this verified compiler; its complete API and browser gates passed;
-the full CI result remains required. Key-source telemetry and performance
+full CI failed its old CNPG and Sandbox fixture jobs as recorded above. Key-source telemetry and performance
 evidence remain separate open requirements. These checks do not close all of
 C4 or C6.
 

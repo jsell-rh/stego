@@ -407,5 +407,20 @@
     "local_and_tls_otlp_identity_verified": true,
     "private_setup_data_excluded": true
   },
-  "worker_replacement_telemetry": true
+  "worker_replacement_telemetry": true,
+  "full_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365",
+    "result": "failure",
+    "passed_jobs": [
+      "acceptance (browser)",
+      "acceptance (core)",
+      "service-image",
+      "web-console"
+    ],
+    "failed_jobs": [
+      "cnpg-gateway-workflow",
+      "sandbox-workload"
+    ],
+    "failure_scope": "The CNPG and Sandbox jobs lack installation fixtures and restricted runners at this source. CNPG is now in a separate live run. The user deferred the Kata Sandbox test on 2026-09-15; this earlier failure remains recorded."
+  }
 }
