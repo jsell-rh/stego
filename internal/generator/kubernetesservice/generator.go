@@ -111,7 +111,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	for key, value := range ctx.ComponentConfig {
 		switch key {
-		case "allocation_roles", "allocation_profiles", "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints", "kubernetes_api", "kubernetes_permissions":
+		case "allocation_roles", "allocation_profiles", "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints", "optional_external_endpoints", "kubernetes_api", "kubernetes_permissions":
 		case "env_secret", "files_secret", "dns_namespace":
 			s, ok := value.(string)
 			if !ok || !label.MatchString(s) {
@@ -158,7 +158,7 @@ func networkRulesForPorts(ctx gen.Context, ports map[int]bool, installation gen.
 	if err != nil {
 		return nil, err
 	}
-	external, err := externalEndpoints(ctx)
+	external, optional, err := endpointDeclarations(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +220,9 @@ func networkRulesForPorts(ctx gen.Context, ports map[int]bool, installation gen.
 		// The placeholder is invalid as a Kubernetes CIDR. Direct application
 		// of an unrendered template must not permit unrestricted egress.
 		egress = append(egress, object{"to": []any{object{"ipBlock": object{"cidr": "stego-external:" + name}}}, "ports": []any{object{"protocol": "TCP", "port": 0}}})
+	}
+	for _, name := range optional {
+		egress = append(egress, object{"to": []any{object{"ipBlock": object{"cidr": "stego-external-optional:" + name}}}, "ports": []any{object{"protocol": "TCP", "port": 0}}})
 	}
 	dnsPort := 53
 	if v, ok := ctx.ComponentConfig["dns_port"].(int); ok {

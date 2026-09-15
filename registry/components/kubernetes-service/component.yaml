@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.9.0
+version: 1.10.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -85,6 +85,9 @@ config:
   external_endpoints:
     type: list
     items: {type: string}
+  optional_external_endpoints:
+    type: list
+    items: {type: string}
   network_peers:
     type: list
     items:
@@ -125,6 +128,10 @@ config:
         type: list
         optional: true
         items: {type: string}
+      optional_external_endpoints:
+        type: list
+        optional: true
+        items: {type: string}
       network_peers:
         type: list
         optional: true
@@ -162,6 +169,10 @@ config:
       env_secret: {type: string, optional: true}
       files_secret: {type: string, optional: true}
       external_endpoints:
+        type: list
+        optional: true
+        items: {type: string}
+      optional_external_endpoints:
         type: list
         optional: true
         items: {type: string}

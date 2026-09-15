@@ -58,7 +58,9 @@ func TestDeploymentValidation(t *testing.T) {
 
 func TestGeneratedDeploymentRenderer(t *testing.T) {
 	ctx := rpcContext()
-	ctx.ComponentConfig["workers"] = append(ctx.ComponentConfig["workers"].([]any), map[string]any{"name": "remote", "package": "internal/task", "function": "Run", "external_endpoints": []any{"provider"}})
+	ctx.ComponentConfig["optional_external_endpoints"] = []any{"service-probe"}
+	ctx.ComponentConfig["rpc_processes"].([]any)[0].(map[string]any)["optional_external_endpoints"] = []any{"rpc-probe"}
+	ctx.ComponentConfig["workers"] = append(ctx.ComponentConfig["workers"].([]any), map[string]any{"name": "remote", "package": "internal/task", "function": "Run", "external_endpoints": []any{"provider"}, "optional_external_endpoints": []any{"worker-probe"}})
 	files, _, err := (&Generator{}).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +137,7 @@ func TestRenderedPolicy(t *testing.T){
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check+externalRendererTests), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check+externalRendererTests+optionalExternalRendererTests), 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")

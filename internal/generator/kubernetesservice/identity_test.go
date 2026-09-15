@@ -20,21 +20,25 @@ func TestKubernetesAccessValidation(t *testing.T) {
 	cases := map[string]func(map[string]any, map[string]any){
 		"string opt in":                func(c, p map[string]any) { c["kubernetes_api"] = "true" },
 		"permissions without identity": func(c, p map[string]any) { c["kubernetes_api"] = false },
-		"undeclared egress":            func(c, p map[string]any) { delete(c, "external_endpoints") },
-		"unknown scope":                func(c, p map[string]any) { p["scope"] = "all" },
-		"wildcard group":               func(c, p map[string]any) { p["api_group"] = "*" },
-		"wildcard resource":            func(c, p map[string]any) { p["resources"] = []any{"*"} },
-		"wildcard verb":                func(c, p map[string]any) { p["verbs"] = []any{"*"} },
-		"escalation":                   func(c, p map[string]any) { p["verbs"] = []any{"escalate"} },
-		"impersonation":                func(c, p map[string]any) { p["verbs"] = []any{"impersonate"} },
-		"bind":                         func(c, p map[string]any) { p["verbs"] = []any{"bind"} },
-		"delete collection":            func(c, p map[string]any) { p["verbs"] = []any{"deletecollection"} },
-		"name restricted create":       func(c, p map[string]any) { p["verbs"] = []any{"create"} },
-		"template name":                func(c, p map[string]any) { p["resource_names"] = []any{"{{.Namespace}}"} },
-		"duplicate verb":               func(c, p map[string]any) { p["verbs"] = []any{"get", "get"} },
-		"unknown field":                func(c, p map[string]any) { p["nonResourceURLs"] = []any{"/"} },
-		"empty names":                  func(c, p map[string]any) { p["resource_names"] = []any{} },
-		"limit":                        func(c, p map[string]any) { c["kubernetes_permissions"] = make([]any, 33) },
+		"optional API egress": func(c, p map[string]any) {
+			delete(c, "external_endpoints")
+			c["optional_external_endpoints"] = []any{"kubernetes"}
+		},
+		"undeclared egress":      func(c, p map[string]any) { delete(c, "external_endpoints") },
+		"unknown scope":          func(c, p map[string]any) { p["scope"] = "all" },
+		"wildcard group":         func(c, p map[string]any) { p["api_group"] = "*" },
+		"wildcard resource":      func(c, p map[string]any) { p["resources"] = []any{"*"} },
+		"wildcard verb":          func(c, p map[string]any) { p["verbs"] = []any{"*"} },
+		"escalation":             func(c, p map[string]any) { p["verbs"] = []any{"escalate"} },
+		"impersonation":          func(c, p map[string]any) { p["verbs"] = []any{"impersonate"} },
+		"bind":                   func(c, p map[string]any) { p["verbs"] = []any{"bind"} },
+		"delete collection":      func(c, p map[string]any) { p["verbs"] = []any{"deletecollection"} },
+		"name restricted create": func(c, p map[string]any) { p["verbs"] = []any{"create"} },
+		"template name":          func(c, p map[string]any) { p["resource_names"] = []any{"{{.Namespace}}"} },
+		"duplicate verb":         func(c, p map[string]any) { p["verbs"] = []any{"get", "get"} },
+		"unknown field":          func(c, p map[string]any) { p["nonResourceURLs"] = []any{"/"} },
+		"empty names":            func(c, p map[string]any) { p["resource_names"] = []any{} },
+		"limit":                  func(c, p map[string]any) { c["kubernetes_permissions"] = make([]any, 33) },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

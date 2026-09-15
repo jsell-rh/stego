@@ -74,20 +74,40 @@ the cluster's actual DNS namespace and port. A NetworkPolicy-capable network
 plugin is required.
 
 Declare `external_endpoints` for TCP services outside Pod-label selection. The
-list contains at most 32 distinct DNS label names. It is available on the
-service and on each worker. Supply each selected workload's values at render
+list contains DNS label names. It is available on the service, each worker,
+and each RPC process. Supply each selected workload's values at render
 time, for example `--egress kubernetes=192.0.2.10:6443`. Use brackets for IPv6:
 `--egress kubernetes=[2001:db8::1]:443`. Repeat the flag for multiple addresses.
 The complete render command permits at most 32 address and port pairs.
 
 Each pair produces a separate egress rule with a single `/32` or `/128` IP
 prefix and one TCP port. The renderer does not combine addresses and ports
-into a wider set. Missing, unknown, duplicate, or invalid bindings fail before
-output. Hostnames, CIDR ranges, zero ports, unspecified addresses, loopback,
+into a wider set. Missing required bindings, unknown bindings, duplicate
+bindings, and invalid bindings fail before output. Hostnames, CIDR ranges, zero ports, unspecified addresses, loopback,
 link-local addresses, multicast, IPv4-mapped IPv6, and interface zones are
 rejected. Binding order does not change the output. Values apply only to the
 selected workload. Unrendered endpoint placeholders are invalid Kubernetes
 CIDRs and cannot become empty rules that permit all traffic.
+
+Use `optional_external_endpoints` for destinations that an operator can enable
+at deployment time. An omitted optional binding produces no external egress
+rule. A supplied binding uses the same IP and TCP port checks as a required
+binding. Both lists together permit at most 32 distinct names per workload.
+A name cannot occur in both lists. The `kubernetes_api` setting still requires
+`kubernetes` in `external_endpoints`; an optional declaration does not meet
+that requirement.
+
+For example, a worker can declare `external_endpoints: [kubernetes]` and
+`optional_external_endpoints: [public-router]`. The renderer requires the
+Kubernetes binding. Add `--egress public-router=192.0.2.20:443` to permit that
+public destination. Without this flag, the policy does not permit it. This
+setting controls network access only. The application must separately enable
+its public feature and verify the remote TLS identity.
+
+Focused generated-renderer tests cover optional destinations on services,
+workers, and RPC processes. They check omitted bindings, exact IPv4 and IPv6
+rules, stable output, process scope, and rejected inputs. These tests do not
+establish network enforcement on a live cluster.
 
 The operator must supply the IP addresses visible to the network plugin at
 its policy boundary. TLS must still verify the configured server identity.

@@ -8,20 +8,35 @@ import (
 )
 
 func externalEndpoints(ctx gen.Context) ([]string, error) {
-	entries, err := configList(ctx, "external_endpoints")
-	if err != nil {
-		return nil, err
-	}
+	required, _, err := endpointDeclarations(ctx)
+	return required, err
+}
+
+func endpointDeclarations(ctx gen.Context) (required, optional []string, err error) {
 	seen := map[string]bool{}
-	var names []string
-	for _, entry := range entries {
-		name, ok := entry.(string)
-		if !ok || !label.MatchString(name) || seen[name] {
-			return nil, fmt.Errorf("external_endpoints requires distinct DNS label names")
+	for _, key := range []string{"external_endpoints", "optional_external_endpoints"} {
+		entries, err := configList(ctx, key)
+		if err != nil {
+			return nil, nil, err
 		}
-		seen[name] = true
-		names = append(names, name)
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			name, ok := entry.(string)
+			if !ok || !label.MatchString(name) || seen[name] {
+				return nil, nil, fmt.Errorf("external endpoint declarations require distinct DNS label names")
+			}
+			seen[name] = true
+			if len(seen) > 32 {
+				return nil, nil, fmt.Errorf("external endpoint declarations permit at most 32 names")
+			}
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		if key == "external_endpoints" {
+			required = names
+		} else {
+			optional = names
+		}
 	}
-	sort.Strings(names)
-	return names, nil
+	return required, optional, nil
 }

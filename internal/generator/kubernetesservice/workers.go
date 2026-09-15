@@ -88,7 +88,7 @@ func workers(ctx gen.Context) ([]worker, error) {
 					return nil, fmt.Errorf("worker %s must be a DNS label", key)
 				}
 				child.ComponentConfig[key] = s
-			case "network_peers", "external_endpoints", "kubernetes_api", "kubernetes_permissions":
+			case "network_peers", "external_endpoints", "optional_external_endpoints", "kubernetes_api", "kubernetes_permissions":
 				child.ComponentConfig[key] = value
 			default:
 				return nil, fmt.Errorf("unknown worker setting %q", key)
