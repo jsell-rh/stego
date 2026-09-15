@@ -3622,3 +3622,24 @@ The first failed CI run remains failed. The enterprise goal remains active;
 installation CNPG, actual RDS, Sandbox, and complete CI remain open. The fixed
 test namespace retains image streams; registry retention is not part of this
 cleanup proof.
+
+The restricted [browser CI retry](hypershell-browser-ci.json) at `de07bff`
+passed the application workflow in 331.54 seconds and passed host cleanup.
+All 867 source files and 229 generated files match the committed and frozen
+records. The 16 CI probes, 57 application access checks, and six admission
+probes passed. Test data and allocated namespaces are absent; the operator
+installation remains. The first failed run remains recorded as a failure.
+
+The complete core, browser, console, and service-image jobs at `c4cd70d` passed.
+The full CI result is still failure because installation CNPG and Sandbox
+checks are not complete. The API retry at `de07bff` is active.
+
+Hypershell `48eae25` adds loss of the workload namespace to the complete browser
+workflow. Controllers must restore the workload while retained keys, credentials,
+SQL object IDs, provider data, and access rules stay intact. The other Gateway
+must retain its SQL state. The new check has not yet passed. Two initial push
+runs were cancelled before jobs started during a concurrency queue transition.
+New dispatches use the same pushed source and remain pending. Both new jshell
+workflows use `queue: max`; the older API run still uses the default setting.
+The shared cluster Lease continues to limit live tests to one at a time.
+The enterprise goal remains active.
