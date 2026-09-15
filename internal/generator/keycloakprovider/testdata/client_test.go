@@ -215,7 +215,7 @@ func TestTokenRotationAndUnauthorizedResponse(t *testing.T) {
 			if r.Form.Get("client_secret") != want {
 				t.Error("secret rotation was not read")
 			}
-			_, _ = fmt.Fprintf(w, `{"access_token":"token-%d","expires_in":300}`, count)
+			_, _ = fmt.Fprintf(w, `{"access_token":"token-%d","expires_in":300,"token_type":"Bearer"}`, count)
 			return
 		}
 		count := admin.Add(1)
@@ -391,6 +391,29 @@ func TestDisableRequiresAnExplicitState(t *testing.T) {
 		})
 		if err := c.DisableClient(context.Background(), ClientBinding{ID: "owned", ClientID: "service", Attributes: map[string]string{"owner": "one"}}); !errors.Is(err, ErrResponse) || writes != 0 {
 			t.Fatal("missing state was treated as disabled", err)
+		}
+	}
+}
+
+func TestInvalidAdministratorGrantCannotAuthorizeARequest(t *testing.T) {
+	for _, body := range []string{
+		`{"access_token":"token","expires_in":300}`,
+		`{"access_token":"token","expires_in":300,"token_type":"MAC"}`,
+		`{"access_token":"token","expires_in":0,"token_type":"Bearer"}`,
+		`{"access_token":"token","expires_in":3601,"token_type":"Bearer"}`,
+		`{"access_token":"token","access_token":"second","expires_in":300,"token_type":"Bearer"}`,
+	} {
+		var requests atomic.Int32
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/token") {
+				_, _ = w.Write([]byte(body))
+				return
+			}
+			requests.Add(1)
+			w.WriteHeader(500)
+		})
+		if _, err := c.GetClient(context.Background(), "owned"); !errors.Is(err, ErrResponse) || requests.Load() != 0 {
+			t.Fatal("invalid administrator grant reached the API", err)
 		}
 	}
 }

@@ -101,7 +101,7 @@ func(c *Client)administratorToken(ctx context.Context)(Secret,error){
  if err!=nil{return Secret{},operationError(ctx,err)}
  if response.StatusCode!=http.StatusOK{return Secret{},statusError(response.StatusCode)}
  var token struct{AccessToken string `json:"access_token"`;ExpiresIn int `json:"expires_in"`;TokenType string `json:"token_type"`}
- if decode(response.Body,&token)!=nil||(!credentialValue(token.AccessToken)||!bearerToken.MatchString(token.AccessToken))||token.ExpiresIn<1||token.ExpiresIn>3600||(token.TokenType!=""&&!strings.EqualFold(token.TokenType,"Bearer")){return Secret{},ErrResponse}
+ if decode(response.Body,&token)!=nil||(!credentialValue(token.AccessToken)||!bearerToken.MatchString(token.AccessToken))||token.ExpiresIn<1||token.ExpiresIn>3600||!strings.EqualFold(token.TokenType,"Bearer"){return Secret{},ErrResponse}
  expiry:=started.Add(time.Duration(token.ExpiresIn)*time.Second*4/5)
  if !time.Now().Before(expiry){return Secret{},errors.New("Keycloak administrator token expired during authentication")}
  c.token=Secret{token.AccessToken};c.tokenExpiry=expiry;c.secretHash=hash
