@@ -153,6 +153,14 @@ func TestPinnedAdmissionTemplate(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(directory, "policy.go"), file.Bytes(), 0600); err != nil {
 				t.Fatal(err)
 			}
+			if artifacts := os.Getenv("STEGO_PINNED_POLICY_ARTIFACTS"); artifacts != "" {
+				if err := os.Mkdir(artifacts, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(artifacts, "pinned_admission.go"), file.Bytes(), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 	}
 	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/policy\ngo 1.26.8\n"), "types.go": []byte("package kubernetes\ntype Object map[string]any\n"), "policy_test.go": pinnedAdmissionTests} {
