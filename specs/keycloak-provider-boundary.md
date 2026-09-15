@@ -471,7 +471,10 @@ credential changes across retries, exact large numbers, protected checkpoint
 serialization, preserved unknown fields, and repeated migration. Both generated
 variants passed with the race detector in 13.588 seconds. The live
 gate now migrates both native and service-account clients before their login
-or signed-token checks. Its result is pending. Frozen source and results are in
+or signed-token checks. The real provider gate passed at `0c4451e` in
+[run 35035012028](https://github.com/jsell-rh/stego/actions/runs/35035012028).
+It took 56.85 seconds. Container cleanup passed. The full compiler job is still
+running. Frozen source and results are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-migration-20260915`.
 The Hypershell adapter must still adopt these methods and persist legacy
 bindings before mutation. No application source reduction is claimed yet.
@@ -488,3 +491,10 @@ second credential read or duplicate token parsing in the application.
 The generated tests passed with and without telemetry and with the race detector
 in 13.668 seconds. The live gate uses this method before its separate signed-token
 checks. CI is pending. Hypershell adoption is in progress.
+
+Hypershell commit `d031143` adopts `VerifiedServiceAccountSecret` in the real
+one-time credential response. Its handwritten client fell from 1,158 to 1,042
+lines. Domain bindings, audiences, roles, claim paths, and lifetime remain in
+Hypershell. Generated code owns credential reads and token proof. Small adapter
+tests and generation drift checks passed; full application CI is pending.
+Legacy adoption state and the remaining client administration still need work.
