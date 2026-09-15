@@ -4235,3 +4235,61 @@ absent and that the shared Lease was free. Browser run `34961014607` is now
 active. This API result does not close its browser pool check or the later SQL
 telemetry application gate. The restricted CI credential was renewed through
 12:19:07 UTC with its existing permissions.
+
+
+## Public Gateway work before 2026-09-15 14:00 UTC
+
+The following entries retain their status at the time of writing. The current
+goal record supersedes their pending-run descriptions.
+
+Hypershell `59a6d32` includes controller-owned address observations and a corrected
+CNPG cleanup check through the existing allocator client. Its API run
+[34972072027](https://github.com/jsell-rh/hypershell-stego/actions/runs/34972072027)
+refused to start while recovery held the live-test Lease. It is not an application
+result. Its second attempt was canceled while pending to add the required
+endpoint ownership check. API run `34972191691` uses Hypershell `4977b62` and
+requires 32 checks. Browser run `34972072109` is active, and full CI `34972073256`
+was canceled while pending when newer source was pushed. The failed CNPG run has no remaining runtime or volumes, and its
+Lease was released. Verify credentials before another live attempt.
+
+Full CI `34969545259` is now complete. Core acceptance, ordinary browser checks,
+console, and service image passed. CNPG and the old Sandbox job failed. The
+Sandbox source precedes the explicit live-test deferral. The overall result
+remains failure. Do not treat manual CNPG recovery as an automatic cleanup pass.
+
+Hypershell `ace5823` uses compiler `74d9a70` for shared public TLS Secret
+verification. Focused tests and repeated generation passed. Full compiler run
+`34973403349` and application runs `34973489877`, `34973489579`, and
+`34973489648` remain required. Public certificate support is still incomplete
+application evidence: Route creation, verified public RPC, and address
+publication must be tested together. See the
+[public connection contract](hypershell-external-connection.md).
+
+The next action is to collect and verify these results, then fix failures without
+weakening the gate. The [pool metric contract](database-pool-metrics.md) and
+[SQL client signal contract](postgres-client-observability.md) define the new
+requirements. A queued test, successful compilation, or partial workflow is not
+a passing application result.
+
+The browser result at `59a6d32` is now verified. See
+[the complete record](hypershell-controller-endpoint-browser.json). Public access
+remains unverified. A new console gate also found archive drift; the application
+must rebuild the archive in CI and repeat its console and browser gates.
+Superseded queued runs were canceled where no jobs had started. The active
+browser run was preserved. The newer 32-test API attempts failed their credential
+lifetime check before Job creation. The operator login refresh is still pending.
+
+Compiler `0953fcc` corrects a reproduced private-block defect in the new TLS
+Secret helper. Hypershell `0bfce85` adopts it; focused checks and generation pass.
+Full compiler run `34973613718` passed. Earlier compiler `74d9a70`
+passed CI but does not contain this correction. This result does not close C4
+or establish a verified public Gateway connection.
+
+Hypershell `01fa021` corrects the console archive with a verified CI build and
+regenerates both services. The changed bundle removes the owner-writable
+`route_address` schema entry. Full CI `34974186524`, API `34974186030`, and
+browser `34974186012` remain required. The latest browser source also records
+the PostgreSQL server version and provisioning role; that check has compiled
+but has not run on the cluster. The existing browser pass still has the limits
+in its evidence record. See [the archive evidence](hypershell-console-endpoint-assets.json).
+

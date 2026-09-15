@@ -77,56 +77,51 @@ timed out or a log is incomplete.
 | Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), failed only the absent CNPG and Sandbox fixtures; core, ordinary browser, console, and image jobs passed |
 | Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), CNPG job failed before application execution; Pod readiness timed out, then cleanup used a forbidden namespace list. Manual recovery is complete; [failure and cleanup evidence](hypershell-cnpg-ci-first-run.json) is recorded. |
 
-Hypershell `59a6d32` includes controller-owned address observations and a corrected
-CNPG cleanup check through the existing allocator client. Its API run
-[34972072027](https://github.com/jsell-rh/hypershell-stego/actions/runs/34972072027)
-refused to start while recovery held the live-test Lease. It is not an application
-result. Its second attempt was canceled while pending to add the required
-endpoint ownership check. API run `34972191691` uses Hypershell `4977b62` and
-requires 32 checks. Browser run `34972072109` is active, and full CI `34972073256`
-was canceled while pending when newer source was pushed. The failed CNPG run has no remaining runtime or volumes, and its
-Lease was released. Verify credentials before another live attempt.
+The complete browser result at `59a6d32` is verified in the
+[controller endpoint record](hypershell-controller-endpoint-browser.json).
+It used an external PostgreSQL container and the internal Service endpoint.
+The console archive differed from a fresh build at that source. Hypershell
+`01fa021` corrects the archive from two matching CI builds; the
+[archive record](hypershell-console-endpoint-assets.json) preserves their hashes.
+The fresh console job and ordinary browser job passed at `7d6b6d2` in full CI
+[34975653596](https://github.com/jsell-rh/hypershell-stego/actions/runs/34975653596).
+The service image passed, CNPG failed, Sandbox was skipped, and core acceptance
+was still running at the last check. This is not a complete CI pass.
 
-Full CI `34969545259` is now complete. Core acceptance, ordinary browser checks,
-console, and service image passed. CNPG and the old Sandbox job failed. The
-Sandbox source precedes the explicit live-test deferral. The overall result
-remains failure. Do not treat manual CNPG recovery as an automatic cleanup pass.
+The current public workflow source is Hypershell `0c0333f`, with compiler
+`4f692d0`. Common TLS Secret checks, Route admission, a credential-free pinned
+TLS RPC probe, and optional external network destinations are in STEGO.
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
+passed the compiler, SQL provisioning, and both independent example services.
+The earlier private-block defect in the TLS Secret helper is corrected in
+`0953fcc` and retained in this source.
 
-Hypershell `ace5823` uses compiler `74d9a70` for shared public TLS Secret
-verification. Focused tests and repeated generation passed. Full compiler run
-`34973403349` and application runs `34973489877`, `34973489579`, and
-`34973489648` remain required. Public certificate support is still incomplete
-application evidence: Route creation, verified public RPC, and address
-publication must be tested together. See the
-[public connection contract](hypershell-external-connection.md).
+Hypershell commits workload status and endpoint observations in one generated
+serializable transaction. It uses the original API revision and requires both
+exact observation grants. New SQL tests cover rollback, stale writes, and
+restart; their complete integration result remains required. The controller
+creates the Route, checks admission, matches the public certificate, checks
+health and denied identity calls, and rechecks the Route revision before it
+publishes the address. A failed observation clears the address with status.
 
-The next action is to collect and verify these results, then fix failures without
-weakening the gate. The [pool metric contract](database-pool-metrics.md) and
-[SQL client signal contract](postgres-client-observability.md) define the new
-requirements. A queued test, successful compilation, or partial workflow is not
-a passing application result.
+The same browser workflow now has an explicit public profile. It routes the
+existing RPC, access, data, restart, namespace recovery, and service account
+checks through the public endpoint. It also checks the rendered connection
+command and removes the worker's public egress binding to require address
+withdrawal and recovery without data loss. Local input checks, compilation,
+and generated network rendering pass. No live public result exists. Public
+certificate rotation still needs an explicit test. See the
+[public connection contract](hypershell-external-connection.md) and
+[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/0c0333f/acceptance/public-gateway-tls.md).
 
-The browser result at `59a6d32` is now verified. See
-[the complete record](hypershell-controller-endpoint-browser.json). Public access
-remains unverified. A new console gate also found archive drift; the application
-must rebuild the archive in CI and repeat its console and browser gates.
-Superseded queued runs were canceled where no jobs had started. The active
-browser run was preserved. The newer 32-test API attempts failed their credential
-lifetime check before Job creation. The operator login refresh is still pending.
-
-Compiler `0953fcc` corrects a reproduced private-block defect in the new TLS
-Secret helper. Hypershell `0bfce85` adopts it; focused checks and generation pass.
-Full compiler run `34973613718` passed. Earlier compiler `74d9a70`
-passed CI but does not contain this correction. This result does not close C4
-or establish a verified public Gateway connection.
-
-Hypershell `01fa021` corrects the console archive with a verified CI build and
-regenerates both services. The changed bundle removes the owner-writable
-`route_address` schema entry. Full CI `34974186524`, API `34974186030`, and
-browser `34974186012` remain required. The latest browser source also records
-the PostgreSQL server version and provisioning role; that check has compiled
-but has not run on the cluster. The existing browser pass still has the limits
-in its evidence record. See [the archive evidence](hypershell-console-endpoint-assets.json).
+API run `34975653347` and browser run `34975653307` stopped before test creation
+because the CI credential had too little time left. The operator login refresh
+is still pending. The next cluster run also needs the installed policy to match
+the current generated policy, plus explicit public issuer, trust, router, and
+network inputs. The PostgreSQL version and provisioning-role check has compiled
+but has no new cluster result. Do not replace these missing results with the
+older internal-Service browser pass. Keep the complete restricted CNPG gate
+and original C1–C7 and H1–H3 requirements active.
 
 The original module coverage audit also found stale example output and no CI
 jobs for either nested example module. The [example project checks](example-project-checks.md)
@@ -168,8 +163,8 @@ records all run IDs and the remaining acceptance checks.
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
 On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer
-and controller ownership of `route_address`. These accepted choices still need
-implementation and a complete [public connection check](hypershell-external-connection.md).
+and controller ownership of `route_address`. These accepted choices have source changes but still need
+a complete [public connection check](hypershell-external-connection.md).
 The user approved PostgreSQL containers for the external database gate. No RDS
 test instance exists. Terraform creates RDS outside Hypershell. AWS-specific
 operation remains unverified; it is not a required live test for this gate.
@@ -199,8 +194,8 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The restricted CI
-credential was last renewed through 2026-09-15 13:37:23 UTC; check its remaining
-lifetime before a queued run starts.
+credential expired at 2026-09-15 13:37:23 UTC. Renew it after the operator
+login is restored, and check its lifetime before a queued run starts.
 
 Keep this file limited to current requirements and result links. Put detailed
 measurements and failed attempts in their feature evidence files. Preserve the

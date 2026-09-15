@@ -118,8 +118,44 @@ source and output identities. Commit `17e5d5e` also records the queried PostgreS
 version and provisioning role in the next browser run; compilation is not live
 evidence for that new check.
 
-The next workflow change must join Route creation, public TLS and RPC checks,
-and current endpoint publication. Status and address must describe the same
-observation. A failed or stale check must not publish a healthy public endpoint.
-The existing generated transaction and observation contracts must be considered
-before a new common abstraction is added.
+Hypershell `7829505` joins workload and endpoint observations in the existing
+generated serializable transaction. Both grants are required. It retains the
+original request revision, reads its own updated revision under the same row
+lock, and commits both observations with one event. The added integration
+checks force the second SQL write to fail and require complete rollback. Their
+full SQL result remains required.
+
+Hypershell `7d6b6d2` creates an owned passthrough Route, waits for the selected
+router, uses the generated TLS RPC probe, and checks the Route revision again.
+It publishes status and address together. Failures clear the address. Compiler
+`3f757e3` supplies the credential-free TLS probe; its full CI passed. Compiler
+`4f692d0` adds optional external destinations after the application render
+rejected the public router binding. Its [full CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
+passed. Independent generated-service tests cover both capabilities. Hypershell
+`6d1c7b3` adopts the optional destination. A direct render check confirmed that
+binding it adds exactly one IP and TCP port rule; omitting it adds no public
+rule. Required Kubernetes and SQL destinations remain required.
+
+Hypershell `0afd443` connects the existing real browser workflow to explicit
+public test inputs. It uses the published address and supplied CA for owner,
+denied-call, data retention, restart, namespace recovery, and account checks.
+The browser must show the expected connection command after API and console
+restart. Commit `0c0333f` adds public network failure and recovery: remove the
+worker's optional public egress rule, require degraded status and no address,
+restore the rule, and verify SQL credentials and provider data. Local fixture
+checks and compilation pass. Neither commit has a live public result.
+
+The manual public profile requires an operator-supplied domain, issuer, router,
+CA certificate bundle, and IP/443 pairs. It has no default trust or public
+address. Missing required inputs fail. Configuration uses the existing test
+trust ConfigMap and cleanup policy. See the
+[application profile](https://github.com/jsell-rh/hypershell-stego/blob/0c0333f/acceptance/public-gateway-tls.md).
+Explicit certificate rotation remains to be added. The complete public gate,
+regeneration, and cleanup must pass before public readiness can be claimed.
+
+The fresh console, ordinary browser, and service image jobs passed at `7d6b6d2`
+in run `34975653596`; core acceptance was still running at the last check. CNPG
+failed and Sandbox was skipped. API `34975653347` and browser `34975653307`
+failed their credential lifetime check before test creation. The operator
+login refresh remains pending. Keep the older browser result limited to its
+internal Service and recorded archive.
