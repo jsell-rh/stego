@@ -3580,3 +3580,10 @@ It validates the full input and rejects unknown resource scopes. Compiler CI
 must verify the partition before Hypershell uses it. The variant still needs
 operator-installed cluster resources and a restricted workload runner; the
 renderer option alone does not complete that access boundary.
+
+The [deployment scope checks](deployment-scope-evidence.json) and complete
+compiler CI passed at `2097bea`. The API, RPC, and allocator manifests partition
+without changing resource content or order. Invalid input emits no partial
+output. The application still uses its manual browser fixture. Do not give its
+broad cluster role to CI. A restricted driver must use operator-installed
+cluster resources and access only its control and allocated test namespaces.

@@ -27,3 +27,10 @@ restricted. The installation must set and test RBAC and admission controls.
 A CI job must not receive the operator credential. Keep the cluster manifest
 under operator control and check that it matches the intended release before
 deploying the namespace manifest.
+
+The generated scope tests and full compiler race suite passed at `2097bea` in
+[CI run 34927554750](https://github.com/jsell-rh/stego/actions/runs/34927554750).
+They cover HTTP, RPC, and namespace allocator manifests, all emitted resource
+kinds, empty lists, exact resource preservation, invalid scopes, unknown kinds,
+wrong namespaces, and full-input validation. Restricted application CI still
+requires installation and live access checks.

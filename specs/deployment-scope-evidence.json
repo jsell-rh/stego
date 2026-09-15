@@ -1,0 +1,33 @@
+{
+  "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+  "run": "https://github.com/jsell-rh/stego/actions/runs/34927554750",
+  "result": "success",
+  "jobs": [
+    "compiler",
+    "postgres-provisioning"
+  ],
+  "test": "TestGeneratedDeploymentScopes",
+  "generated_tests": [
+    "TestDeploymentScopePartition",
+    "TestDeploymentScopeRejectsUnknownOrWrongNamespace"
+  ],
+  "checks": [
+    "Identical repeat generation",
+    "Default output equals explicit all scope byte for byte",
+    "Cluster and namespace scopes preserve every resource and its content and order",
+    "HTTP, RPC, and namespace allocator deployments",
+    "Namespace Roles and RoleBindings, cluster roles and bindings, admission policies and bindings",
+    "Invalid scopes, unknown kinds and API versions, wrong namespaces, and missing endpoints produce no output",
+    "Empty scopes emit an empty Kubernetes List"
+  ],
+  "source_sha256": {
+    "internal/generator/kubernetesservice/render.go.tmpl": "e0ba9ef2cead50b816820a5556c735bd2a79c556c78f8d0e071c5702fb412533",
+    "internal/generator/kubernetesservice/scope_test.go": "f6aa94845c9c8de2f9d629b0eb83c35af1c9cbd64509bb4f6dd7f800f0c09e4d",
+    "internal/generator/kubernetesservice/testdata/render_scope_test.go": "662bc65567171d64d832b2d747fa438b5fc91e4d8c11ba98764e903025326a7f",
+    "registry/components/kubernetes-service/component.yaml": "39750a3fb0aeca7e7d2e5eb35e2f7c0999fb5769f2ad1fcfb7f9c5db273c9f17"
+  },
+  "limits": [
+    "This is compiler and generated renderer evidence. It does not prove a restricted workload CI identity or an installation workflow.",
+    "Hypershell still needs to install cluster resources through an operator identity and remove broad test-driver permissions."
+  ]
+}
