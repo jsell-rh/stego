@@ -30,6 +30,9 @@ var watchSetTests []byte
 //go:embed testdata/rotation_telemetry_test.go
 var rotationTelemetryTests []byte
 
+//go:embed testdata/pinned_admission_test.go
+var pinnedAdmissionTests []byte
+
 func TestGeneratedKubernetesClient(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedKubernetesClient(t, telemetry) })
@@ -58,6 +61,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 	files = append(files, gen.File{Path: "kubernetes/rotation_test.go", Content: rotationTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
+	files = append(files, gen.File{Path: "kubernetes/pinned_admission_test.go", Content: pinnedAdmissionTests})
 	var module strings.Builder
 	module.WriteString("module example.com/widget\ngo 1.26.8\n")
 	if telemetry {
@@ -133,5 +137,33 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool) {
 func TestMissingHTTPClientIsRejected(t *testing.T) {
 	if _, _, err := new(Generator).Generate(gen.Context{ModuleName: "example.com/widget", OutputNamespace: "kubernetes"}); err == nil {
 		t.Fatal("missing transport accepted")
+	}
+}
+
+// This check compiles the pure policy renderer without a cluster or network.
+func TestPinnedAdmissionTemplate(t *testing.T) {
+	ctx := gen.Context{ModuleName: "example.com/policy", OutDirName: "out", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application"}}
+	files, _, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	for _, file := range files {
+		if file.Path == "kubernetes/pinned_admission.go" {
+			if err := os.WriteFile(filepath.Join(directory, "policy.go"), file.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/policy\ngo 1.26.8\n"), "types.go": []byte("package kubernetes\ntype Object map[string]any\n"), "policy_test.go": pinnedAdmissionTests} {
+		if err := os.WriteFile(filepath.Join(directory, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command("go", "test", "-p=1", "-count=1", "-timeout=15s", "./...")
+	command.Dir = directory
+	command.Env = append(os.Environ(), "GOWORK=off")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("pinned policy renderer: %v\n%s", err, output)
 	}
 }

@@ -3862,3 +3862,15 @@ retired input fields, including empty and null values. Installation-supplied
 PostgreSQL and CNPG use the same generated SQL lifecycle. Actual RDS, unattended
 CNPG CI, Sandbox VM isolation, external connection behavior, and the broader
 enterprise requirements remain open. The goal remains active.
+
+The next CNPG CI change separates one-time operator setup from run-specific
+resources. The CI identity keeps its restriction against installing cluster
+roles and admission policies. The new general template policy renderer belongs
+to STEGO's Kubernetes component. It has no provider or application names.
+
+`kubernetes-client` 1.5.0 emits pinned admission policies with namespace and
+template UIDs, fixed Job deadlines, matching lifetime owners, and denied update
+and subresource operations. A small local renderer test passed. Full compiler
+CI and live admission checks remain required before Hypershell adoption. See
+[pinned resource admission](pinned-resource-admission.md). The existing live
+browser CI run was not interrupted. The enterprise goal remains active.
