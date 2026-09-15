@@ -3763,3 +3763,19 @@ CNPG restart or failover, retained Gateway and installation data, and complete
 cleanup. The common generated SQL and controller runtime remain the same.
 See the [installation contract](https://github.com/jsell-rh/hypershell-stego/blob/f63d2bd4ea2ed06efc634c0a1d318e1a686d1ccc/acceptance/cnpg-installation.md).
 The broader enterprise goal remains active.
+
+Hypershell `3757c27` adds the private CNPG connection fixture and a bounded
+primary Pod replacement check to the complete browser workflow. The test binds
+the connection to the installation namespace and Cluster UIDs. It uses the
+same limited SQL account and Gateway runtime. The restart check requires a
+new Pod UID, two ready instances, unchanged installation specification, and
+retained SQL object IDs, keys, credentials, provider data, and installation data.
+It records a primary-name change without assuming that every restart is failover.
+
+Eight small inspection tests and frozen generation passed. STEGO renders the
+additional namespace and Pod egress selector; the render comparison permits no
+other worker change. The default sidecar CI is queued. The superseded `f63d2bd`
+API and browser runs were cancelled while pending with no Jobs; its offline CI
+was retained. The active `70b2dd7` browser run was not interrupted.
+The [CNPG fixture record](hypershell-cnpg-installation.json) lists the remaining
+installer and live acceptance work. No live CNPG pass is claimed.
