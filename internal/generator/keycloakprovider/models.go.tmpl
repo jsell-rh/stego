@@ -1,0 +1,52 @@
+package {{.Package}}
+
+import "errors"
+
+// ClientRepresentation contains public configuration, never a client secret.
+type ClientRepresentation struct {
+ ID string `json:"id,omitempty"`
+ ClientID string `json:"clientId"`
+ Name string `json:"name,omitempty"`
+ Protocol string `json:"protocol,omitempty"`
+ ClientAuthenticatorType string `json:"clientAuthenticatorType,omitempty"`
+ Enabled bool `json:"enabled"`
+ PublicClient bool `json:"publicClient"`
+ ServiceAccountsEnabled bool `json:"serviceAccountsEnabled"`
+ StandardFlowEnabled bool `json:"standardFlowEnabled"`
+ ImplicitFlowEnabled bool `json:"implicitFlowEnabled"`
+ DirectAccessGrantsEnabled bool `json:"directAccessGrantsEnabled"`
+ AuthorizationServicesEnabled bool `json:"authorizationServicesEnabled"`
+ FullScopeAllowed bool `json:"fullScopeAllowed"`
+ RedirectURIs []string `json:"redirectUris"`
+ WebOrigins []string `json:"webOrigins"`
+ DefaultClientScopes []string `json:"defaultClientScopes"`
+ OptionalClientScopes []string `json:"optionalClientScopes"`
+ Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+// ClientBinding supplies expected identity from application state. Never build
+// it from the resource being checked. All attributes must match before a write.
+// The provider does not claim that a read and a later remote write are atomic.
+type ClientBinding struct {
+ ID, ClientID string
+ Attributes map[string]string
+}
+func(b ClientBinding)validate()error{
+ if !identifier.MatchString(b.ID)||!textValue(b.ClientID,255)||len(b.Attributes)==0||len(b.Attributes)>16{return errors.New("invalid Keycloak client binding")}
+ for key,value:=range b.Attributes{if !textValue(key,128)||!textValue(value,1024){return errors.New("invalid Keycloak ownership attribute")}}
+ return nil
+}
+func(b ClientBinding)matches(c ClientRepresentation)bool{
+ if c.ID!=b.ID||c.ClientID!=b.ClientID{return false}
+ for key,value:=range b.Attributes{if c.Attributes[key]!=value{return false}}
+ return true
+}
+
+type Page struct { First, Size int }
+func(p Page)validate()error{if p.First<0||p.First>=MaxInventory||p.Size<1||p.Size>MaxPageSize||p.First+p.Size>MaxInventory{return errors.New("invalid Keycloak client page")};return nil}
+
+type UserRepresentation struct {
+ ID string `json:"id"`
+ Enabled bool `json:"enabled"`
+ ServiceAccountClientID string `json:"serviceAccountClientId"`
+}

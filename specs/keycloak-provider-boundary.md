@@ -92,6 +92,25 @@ repair, partial cleanup, restart, and HTTP client telemetry. Preserve the REST,
 gRPC, CLI, and regeneration checks that already cover these workflows. Use CI
 or one bounded jshell test; do not run the heavy suite on the workstation.
 
-This file records the extraction boundary and acceptance gate. The extraction
-is not implemented or verified by this review. The upstream dashboard workflow
-also remains open.
+## First provider implementation
+
+STEGO now has a `keycloak-provider` component with typed client reads, bounded
+inventory pages, expected ownership checks, disablement, confirmed deletion,
+and protected credential reads. Administrator authentication, token caching,
+credential-file rotation, cancellation, and remote response parsing are common
+provider mechanisms. The component reuses the generated HTTP transport. It has
+no public raw-request method and no Hypershell constants.
+
+The small generated checks passed with the race detector, both with and without
+the generated telemetry transport. They used two different ownership policies.
+They also checked malformed identifiers and responses, mutation confirmation,
+token rotation, cancellation, and trace context and privacy. A test fixture
+initially blocked during cleanup; the failed result and the corrected results
+are preserved in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-20260915`.
+
+This is the start of the extraction. Client creation, enablement, role and scope
+reconciliation, and protocol mapper reconciliation remain to be implemented.
+Hypershell has not adopted this component. No reduction in its handwritten
+client or new real-Keycloak workflow result is claimed yet. The upstream
+dashboard workflow also remains open.

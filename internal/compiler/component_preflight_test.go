@@ -8,6 +8,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/controller"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
+	"github.com/jsell-rh/stego/internal/generator/keycloakprovider"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
@@ -25,6 +26,7 @@ func TestComponentPreflightMatchesDirectGeneration(t *testing.T) {
 		want      string
 	}{
 		{"controller settings", new(controller.Generator), gen.Context{OutputNamespace: "controller", ComponentConfig: map[string]any{"unexpected": true}}, "no component settings"},
+		{"Keycloak transport", new(keycloakprovider.Generator), gen.Context{OutputNamespace: "keycloak", ModuleName: "example.com/service"}, "requires the generated HTTP"},
 		{"Kubernetes transport", new(kubernetesclient.Generator), gen.Context{OutputNamespace: "kube", ModuleName: "example.com/service"}, "requires the generated HTTP"},
 		{"PostgreSQL client path", new(postgresclient.Generator), gen.Context{OutputNamespace: "../client"}, "canonical relative path"},
 		{"outbox path", new(outbox.Generator), gen.Context{OutputNamespace: "../outbox"}, "canonical relative path"},

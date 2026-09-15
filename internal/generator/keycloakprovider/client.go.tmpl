@@ -1,0 +1,149 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "context"
+ "crypto/sha256"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "io"
+ "net/http"
+ "net/url"
+ "regexp"
+ "strconv"
+ "strings"
+ "sync/atomic"
+ "time"
+ "unicode/utf8"
+ transport {{printf "%q" .Transport}}
+)
+
+const OperationTimeout = 15*time.Second
+const MaxConcurrentOperations = 16
+const MaxPageSize = 100
+const MaxInventory = 10000
+
+var ErrNotFound = errors.New("Keycloak resource not found")
+var ErrOwnership = errors.New("Keycloak client ownership does not match")
+var ErrConflict = errors.New("Keycloak resource conflict")
+var ErrResponse = errors.New("invalid Keycloak response")
+var ErrCapacity = errors.New("Keycloak operation capacity exceeded")
+var ErrClosed = errors.New("Keycloak provider is closed")
+var identifier = regexp.MustCompile(`^[A-Za-z0-9_-]{1,255}$`)
+var bearerToken = regexp.MustCompile(`^[A-Za-z0-9._~+/-]+=*$`)
+var realmName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+type Options struct { ServerURL, Realm, ClientID, SecretFile, CAFile string }
+
+// Client uses one HTTPS server and realm. It has no arbitrary URL operation.
+// Call Close when the owning service stops. Do not copy a Client.
+type Client struct {
+ http *transport.Client
+ issuer, realm, clientID, secretFile string
+ lifetime context.Context
+ stop context.CancelFunc
+ closed atomic.Bool
+ permits, tokenGate chan struct{}
+ token Secret
+ tokenExpiry time.Time
+ secretHash [32]byte
+}
+func(c *Client)String()string{return "KeycloakClient{credentials redacted}"}
+func(c *Client)GoString()string{return c.String()}
+func(c *Client)MarshalJSON()([]byte,error){return nil,errors.New("Keycloak provider cannot be serialized")}
+
+func New(o Options)(*Client,error){
+ if !realmName.MatchString(o.Realm)||!textValue(o.ClientID,255){return nil,errors.New("invalid Keycloak realm or administrator client")}
+ secret,err:=transport.ReadPrivateFile(o.SecretFile);if err!=nil{return nil,err}
+ if !credentialValue(strings.TrimSpace(string(secret))){return nil,errors.New("invalid Keycloak administrator credential")}
+ h,err:=transport.New(transport.Options{BaseURL:o.ServerURL,CAFile:o.CAFile});if err!=nil{return nil,err}
+ lifetime,stop:=context.WithCancel(context.Background())
+ return &Client{http:h,issuer:strings.TrimRight(o.ServerURL,"/")+"/realms/"+o.Realm,realm:o.Realm,clientID:o.ClientID,secretFile:o.SecretFile,lifetime:lifetime,stop:stop,permits:make(chan struct{},MaxConcurrentOperations),tokenGate:make(chan struct{},1)},nil
+}
+func(c *Client)Issuer()string{if c==nil{return ""};return c.issuer}
+func(c *Client)Close(){if c!=nil&&c.closed.CompareAndSwap(false,true){c.stop();c.http.Close()}}
+func(c *Client)begin(ctx context.Context)(context.Context,func(),error){
+ if c==nil||c.closed.Load(){return nil,nil,ErrClosed}
+ if ctx==nil{return nil,nil,errors.New("Keycloak operation requires a context")}
+ if err:=ctx.Err();err!=nil{return nil,nil,err}
+ select{case c.permits<-struct{}{}:default:return nil,nil,ErrCapacity}
+ work,cancel:=context.WithTimeout(ctx,OperationTimeout)
+ stop:=context.AfterFunc(c.lifetime,cancel)
+ return work,func(){stop();cancel();<-c.permits},nil
+}
+func textValue(s string,max int)bool{
+ if s==""||len(s)>max||!utf8.ValidString(s){return false}
+ for _,r:=range s{if r<32||r==127{return false}}
+ return true
+}
+func credentialValue(s string)bool{return textValue(s,16384)&&!strings.ContainsAny(s," \t")}
+
+// Secret requires an explicit Reveal call at a credential boundary.
+type Secret struct { value string }
+func(s Secret)Reveal()string{return s.value}
+func(s Secret)String()string{return "[credential redacted]"}
+func(s Secret)GoString()string{return s.String()}
+func(s Secret)MarshalJSON()([]byte,error){return nil,errors.New("credential serialization requires an explicit response")}
+
+func(c *Client)administratorToken(ctx context.Context)(Secret,error){
+ select{case c.tokenGate<-struct{}{}:defer func(){<-c.tokenGate}();case <-ctx.Done():return Secret{},ctx.Err()}
+ if err:=ctx.Err();err!=nil{return Secret{},err}
+ // Re-read the private file so rotation invalidates a cached token.
+ raw,err:=transport.ReadPrivateFile(c.secretFile);if err!=nil{return Secret{},err}
+ secret:=strings.TrimSpace(string(raw));if !credentialValue(secret){return Secret{},errors.New("invalid Keycloak administrator credential")}
+ hash:=sha256.Sum256([]byte(secret))
+ if c.token.value!=""&&hash==c.secretHash&&time.Now().Before(c.tokenExpiry){return c.token,nil}
+ c.token=Secret{};c.tokenExpiry=time.Time{}
+ form:=url.Values{"grant_type":{"client_credentials"},"client_id":{c.clientID},"client_secret":{secret}}
+ started:=time.Now()
+ response,err:=c.http.Do(ctx,http.MethodPost,"/realms/"+c.realm+"/protocol/openid-connect/token",http.Header{"Content-Type":{"application/x-www-form-urlencoded"}},[]byte(form.Encode()))
+ if err!=nil{return Secret{},operationError(ctx,err)}
+ if response.StatusCode!=http.StatusOK{return Secret{},statusError(response.StatusCode)}
+ var token struct{AccessToken string `json:"access_token"`;ExpiresIn int `json:"expires_in"`;TokenType string `json:"token_type"`}
+ if decode(response.Body,&token)!=nil||(!credentialValue(token.AccessToken)||!bearerToken.MatchString(token.AccessToken))||token.ExpiresIn<1||token.ExpiresIn>3600||(token.TokenType!=""&&!strings.EqualFold(token.TokenType,"Bearer")){return Secret{},ErrResponse}
+ expiry:=started.Add(time.Duration(token.ExpiresIn)*time.Second*4/5)
+ if !time.Now().Before(expiry){return Secret{},errors.New("Keycloak administrator token expired during authentication")}
+ c.token=Secret{token.AccessToken};c.tokenExpiry=expiry;c.secretHash=hash
+ return c.token,nil
+}
+func(c *Client)admin(ctx context.Context,method,suffix string,body []byte)(transport.Response,error){
+ token,err:=c.administratorToken(ctx);if err!=nil{return transport.Response{},err}
+ headers:=http.Header{"Authorization":{"Bearer "+token.Reveal()}}
+ if body!=nil{headers.Set("Content-Type","application/json")}
+ result,err:=c.http.Do(ctx,method,"/admin/realms/"+c.realm+suffix,headers,body)
+ if err!=nil{return transport.Response{},operationError(ctx,err)}
+ // Never replay a mutation after an ambiguous response. A later reconcile
+ // can obtain a new token and read the current resource state.
+ if result.StatusCode==http.StatusUnauthorized{
+  select{case c.tokenGate<-struct{}{}:if c.token.value==token.value{c.token=Secret{};c.tokenExpiry=time.Time{}};<-c.tokenGate;case <-ctx.Done():return transport.Response{},ctx.Err()}
+ }
+ return result,nil
+}
+func operationError(ctx context.Context,err error)error{if ctx.Err()!=nil{return ctx.Err()};return err}
+func statusError(code int)error{
+ switch code{case http.StatusNotFound:return ErrNotFound;case http.StatusConflict:return ErrConflict}
+ return fmt.Errorf("Keycloak operation returned HTTP %d",code)
+}
+
+// Reject duplicate keys, invalid UTF-8, excessive nesting, and trailing JSON.
+// Unknown representation fields are allowed for provider version compatibility.
+func decode(data []byte,target any)error{
+ if len(data)==0||len(data)>transport.MaxResponseBytes||!utf8.Valid(data)||!validUnicodeEscapes(data){return ErrResponse}
+ d:=json.NewDecoder(bytes.NewReader(data));d.UseNumber();nodes:=0
+ var visit func(int)error
+ visit=func(depth int)error{
+  nodes++;if depth>32||nodes>10000{return ErrResponse}
+  token,err:=d.Token();if err!=nil{return ErrResponse}
+  delimiter,ok:=token.(json.Delim);if !ok{return nil}
+  switch delimiter{
+  case '{':seen:=map[string]bool{};for d.More(){key,err:=d.Token();name,ok:=key.(string);if err!=nil||!ok||seen[name]{return ErrResponse};seen[name]=true;if err=visit(depth+1);err!=nil{return err}};end,err:=d.Token();if err!=nil||end!=json.Delim('}'){return ErrResponse}
+  case '[':for d.More(){if err:=visit(depth+1);err!=nil{return err}};end,err:=d.Token();if err!=nil||end!=json.Delim(']'){return ErrResponse}
+  default:return ErrResponse
+  };return nil
+ }
+ if visit(0)!=nil{return ErrResponse};if _,err:=d.Token();err!=io.EOF{return ErrResponse}
+ if json.Unmarshal(data,target)!=nil{return ErrResponse};return nil
+}
+
+{{.UnicodeValidation}}

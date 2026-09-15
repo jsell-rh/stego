@@ -1,0 +1,125 @@
+package {{.Package}}
+
+import (
+ "context"
+ "bytes"
+ "encoding/json"
+ "errors"
+ "net/http"
+ "net/url"
+ "strconv"
+)
+
+// GetClient reads one immutable provider ID, not a public OAuth client ID.
+func(c *Client)GetClient(ctx context.Context,id string)(ClientRepresentation,error){
+ if !identifier.MatchString(id){return ClientRepresentation{},errors.New("invalid Keycloak client identifier")}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ value,_,err:=c.getClient(work,id);return value,err
+}
+func(c *Client)getClient(ctx context.Context,id string)(ClientRepresentation,[]byte,error){
+ response,err:=c.admin(ctx,http.MethodGet,"/clients/"+id,nil);if err!=nil{return ClientRepresentation{},nil,err}
+ if response.StatusCode!=http.StatusOK{return ClientRepresentation{},nil,statusError(response.StatusCode)}
+ var value ClientRepresentation
+ if decode(response.Body,&value)!=nil||value.ID!=id||!textValue(value.ClientID,255){return ClientRepresentation{},nil,ErrResponse}
+ return value,response.Body,nil
+}
+func(c *Client)boundClient(ctx context.Context,b ClientBinding)(ClientRepresentation,[]byte,error){
+ value,raw,err:=c.getClient(ctx,b.ID);if err!=nil{return ClientRepresentation{},nil,err}
+ if !b.matches(value){return ClientRepresentation{},nil,ErrOwnership}
+ return value,raw,nil
+}
+func(c *Client)InspectClient(ctx context.Context,b ClientBinding)(ClientRepresentation,error){
+ if err:=b.validate();err!=nil{return ClientRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ value,_,err:=c.boundClient(work,b);return value,err
+}
+
+// FindClient rejects ambiguous results. Absence returns ErrNotFound.
+func(c *Client)FindClient(ctx context.Context,clientID string)(ClientRepresentation,error){
+ if !textValue(clientID,255){return ClientRepresentation{},errors.New("invalid Keycloak client name")}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ values,err:=c.clientPage(work,url.Values{"clientId":{clientID},"search":{"false"},"first":{"0"},"max":{"2"}},2)
+ if err!=nil{return ClientRepresentation{},err}
+ if len(values)==0{return ClientRepresentation{},ErrNotFound}
+ if len(values)!=1||values[0].ClientID!=clientID{return ClientRepresentation{},ErrResponse}
+ return values[0],nil
+}
+// ListClients reads a bounded page. The caller must bound the whole scan and
+// check repeated identities across pages. Storage errors can omit records;
+// a short page does not prove that a resource was deleted.
+func(c *Client)ListClients(ctx context.Context,page Page)([]ClientRepresentation,error){
+ if err:=page.validate();err!=nil{return nil,err}
+ work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
+ return c.clientPage(work,url.Values{"first":{strconv.Itoa(page.First)},"max":{strconv.Itoa(page.Size)}},page.Size)
+}
+func(c *Client)clientPage(ctx context.Context,query url.Values,limit int)([]ClientRepresentation,error){
+ response,err:=c.admin(ctx,http.MethodGet,"/clients?"+query.Encode(),nil);if err!=nil{return nil,err}
+ if response.StatusCode!=http.StatusOK{return nil,statusError(response.StatusCode)}
+ var values []ClientRepresentation
+ if decode(response.Body,&values)!=nil||values==nil||len(values)>limit{return nil,ErrResponse}
+ ids,names:=map[string]bool{},map[string]bool{}
+ for _,value:=range values{
+  if !identifier.MatchString(value.ID)||!textValue(value.ClientID,255)||ids[value.ID]||names[value.ClientID]{return nil,ErrResponse}
+  ids[value.ID]=true;names[value.ClientID]=true
+ }
+ return values,nil
+}
+
+// DisableClient preserves unknown provider fields and verifies the final state.
+// No method enables a client before its policy reconciliation is implemented.
+func(c *Client)DisableClient(ctx context.Context,b ClientBinding)error{
+ if err:=b.validate();err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
+ var fields map[string]json.RawMessage
+ if json.Unmarshal(raw,&fields)!=nil||fields==nil{return ErrResponse}
+ enabled:=string(bytes.TrimSpace(fields["enabled"]));if enabled!="true"&&enabled!="false"{return ErrResponse};if enabled=="false"{return nil}
+ fields["enabled"]=json.RawMessage("false")
+ body,err:=json.Marshal(fields);if err!=nil{return ErrResponse}
+ response,err:=c.admin(work,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ _,raw,err=c.boundClient(work,b);if err!=nil{return err}
+ fields=nil
+ if json.Unmarshal(raw,&fields)!=nil||string(bytes.TrimSpace(fields["enabled"]))!="false"{return errors.New("Keycloak client disablement is not confirmed")}
+ return nil
+}
+// DeleteClient requires ownership and confirms absence. A response code alone
+// is not proof that deletion is complete. No failed mutation is replayed here.
+func(c *Client)DeleteClient(ctx context.Context,b ClientBinding)error{
+ if err:=b.validate();err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ if _,_,err=c.boundClient(work,b);errors.Is(err,ErrNotFound){return nil}else if err!=nil{return err}
+ response,err:=c.admin(work,http.MethodDelete,"/clients/"+b.ID,nil);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent&&response.StatusCode!=http.StatusNotFound{return statusError(response.StatusCode)}
+ _,_,err=c.boundClient(work,b)
+ if errors.Is(err,ErrNotFound){return nil}
+ if err!=nil{return err}
+ return errors.New("Keycloak client deletion is not confirmed")
+}
+
+func(c *Client)GetClientSecret(ctx context.Context,b ClientBinding)(Secret,error){
+ if err:=b.validate();err!=nil{return Secret{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return Secret{},err};defer done()
+ value,raw,err:=c.boundClient(work,b);if err!=nil{return Secret{},err}
+ var flags struct{PublicClient *bool `json:"publicClient"`};if json.Unmarshal(raw,&flags)!=nil{return Secret{},ErrResponse}
+ if flags.PublicClient==nil||*flags.PublicClient||value.Protocol!="openid-connect"{return Secret{},errors.New("Keycloak client is not a confidential OIDC client")}
+ response,err:=c.admin(work,http.MethodGet,"/clients/"+b.ID+"/client-secret",nil);if err!=nil{return Secret{},err}
+ if response.StatusCode!=http.StatusOK{return Secret{},statusError(response.StatusCode)}
+ var credential struct{Value string `json:"value"`}
+ if decode(response.Body,&credential)!=nil||!credentialValue(credential.Value){return Secret{},ErrResponse}
+ return Secret{credential.Value},nil
+}
+
+// ResolveServiceAccountUser can create a missing provider user. Keycloak does
+// this through its GET endpoint. The client ownership check is mandatory.
+func(c *Client)ResolveServiceAccountUser(ctx context.Context,b ClientBinding)(UserRepresentation,error){
+ if err:=b.validate();err!=nil{return UserRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return UserRepresentation{},err};defer done()
+ value,_,err:=c.boundClient(work,b);if err!=nil{return UserRepresentation{},err}
+ if !value.ServiceAccountsEnabled{return UserRepresentation{},errors.New("Keycloak client has no enabled service account")}
+ response,err:=c.admin(work,http.MethodGet,"/clients/"+b.ID+"/service-account-user",nil);if err!=nil{return UserRepresentation{},err}
+ if response.StatusCode!=http.StatusOK{return UserRepresentation{},statusError(response.StatusCode)}
+ var user UserRepresentation
+ if decode(response.Body,&user)!=nil||!identifier.MatchString(user.ID)||(user.ServiceAccountClientID!=""&&user.ServiceAccountClientID!=b.ClientID){return UserRepresentation{},ErrResponse}
+ return user,nil
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
+	"github.com/jsell-rh/stego/internal/generator/keycloakprovider"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
@@ -26,7 +27,7 @@ import (
 
 func TestLibraryGeneratorsCheckGoPackageNames(t *testing.T) {
 	for name, generator := range map[string]gen.Generator{
-		"controller": new(controller.Generator), "grpc": new(grpcapplication.Generator), "http": new(httpapplication.Generator), "jwt": new(jwtauth.Generator), "kafka": new(kafkaproducer.Generator), "kubernetes": new(kubernetesclient.Generator), "outbox": new(outbox.Generator), "storage": new(postgresadapter.Generator), "postgres client": new(postgresclient.Generator), "rest": new(restapi.Generator), "sso": new(rhssoauth.Generator), "search": new(tslsearch.Generator),
+		"keycloak": new(keycloakprovider.Generator), "controller": new(controller.Generator), "grpc": new(grpcapplication.Generator), "http": new(httpapplication.Generator), "jwt": new(jwtauth.Generator), "kafka": new(kafkaproducer.Generator), "kubernetes": new(kubernetesclient.Generator), "outbox": new(outbox.Generator), "storage": new(postgresadapter.Generator), "postgres client": new(postgresclient.Generator), "rest": new(restapi.Generator), "sso": new(rhssoauth.Generator), "search": new(tslsearch.Generator),
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := gen.Context{ModuleName: "example.com/names", OutDirName: "out", OutputNamespace: "go-services/worker", StorageContract: "example.com/names/out/contracts/storage", EventsContract: "example.com/names/out/contracts/events", AuthPackage: "example.com/names/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "http-application": "application", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "label", Type: types.FieldTypeString}}}}, Collections: []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}, ComponentConfig: map[string]any{}}

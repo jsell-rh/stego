@@ -28,6 +28,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/httpapplication"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/kafkaproducer"
+	"github.com/jsell-rh/stego/internal/generator/keycloakprovider"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
 	"github.com/jsell-rh/stego/internal/generator/kubernetesservice"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
@@ -801,6 +802,7 @@ func defaultGenerators() map[string]gen.Generator {
 		"typescript-sdk":     &typescriptsdk.Generator{},
 		"cli-application":    &cliapplication.Generator{},
 		"kubernetes-client":  &kubernetesclient.Generator{},
+		"keycloak-provider":  &keycloakprovider.Generator{},
 		"kubernetes-service": &kubernetesservice.Generator{},
 		"postgres-client":    &postgresclient.Generator{},
 		"controller":         &controller.Generator{},
