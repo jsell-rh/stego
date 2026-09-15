@@ -411,5 +411,17 @@
         "--- PASS: TestEffectBindingHistoryCannotBeChangedOrRemoved (0.12s)"
       ]
     }
-  ]
+  ],
+  "full_ci": {
+    "runtime_revision": "8a864829ea4dad41955dda691c131770ffb77395",
+    "checked_revision": "16e09a2c5d483fce29b76308f0f3272e6bd5ca75",
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34921521836",
+    "result": "success",
+    "previous_run": {
+      "url": "https://github.com/jsell-rh/stego/actions/runs/34921273103",
+      "result": "failure",
+      "reason": "The registry test expected version 4.3.1. All other package suites and the separate provisioning job passed."
+    },
+    "correction": "Update the registry test to require 4.4.0. No runtime code changed."
+  }
 }
