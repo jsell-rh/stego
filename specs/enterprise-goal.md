@@ -3587,3 +3587,9 @@ without changing resource content or order. Invalid input emits no partial
 output. The application still uses its manual browser fixture. Do not give its
 broad cluster role to CI. A restricted driver must use operator-installed
 cluster resources and access only its control and allocated test namespaces.
+
+The [29-check API CI run](hypershell-sql-quarantine-api-ci.json) passed on
+Hypershell `4f0767f` with compiler `868ff1f`. This verifies the pushed source
+after SQL session-quarantine adoption. All generated snapshots match. The Job,
+Pods, and private fixtures are absent. The separate browser result proves the
+active-session behavior. A stronger role-concurrency check is now in progress.
