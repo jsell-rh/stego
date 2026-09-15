@@ -67,19 +67,21 @@ checks, but it cannot establish a complete application pass.
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
 | Unattended CNPG | Hypershell `8e942ac`, compiler `0b0c932` | [Run 34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789) passed the complete rendered application test in 470.24 seconds with race detection. Primary replacement preserved SQL identities, credentials, keys, and data. Automatic cleanup removed runtime, private fixtures, claims, and volumes and released the Lease. See the [complete record](hypershell-cnpg-ci-complete-20260915.json). Earlier failures remain in the [recovery record](hypershell-cnpg-ci-recovery-20260915.json). |
-| Allocated namespace policy | STEGO kubernetes-service 1.12.0 | [Policy-set evidence](hypershell-network-policy-set.json) covers generated deny-all behavior and 59 live admission checks. No Pods ran in that admission test. Allowed traffic and CNI enforcement remain unproved. Hypershell has not enabled the policy. |
+| Allocated namespace policy | STEGO `e394ab5`, kubernetes-service 1.13.0 | [Declared-peer evidence](allocated-network-peers-admission-20260915.json) covers the generated runtime and 89 live admission checks: 18 allowed and 71 denied. Exact namespace, Pod, port, and protocol rules, policy-set protection, regeneration, and cleanup passed. No Pods ran. CNI enforcement and the full Gateway workflow remain unproved. Hypershell has not enabled isolation or adopted this compiler change. |
 
 The latest verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
+| Declared allocation network peers | STEGO `e394ab5` | [34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449), compiler checks running; both examples and SQL provisioning passed. The separate live admission check passed and released its Lease. |
 | Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), completed successfully |
 | Browser runtime adoption | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), completed successfully; the main variant branch adopted the checked candidate through `4d1334b`. See the [rendered record](hypershell-browser-observable-metrics-rendered.json). |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
-These runs are complete. Before a new live cluster test, verify that the prior
+The declared-peer compiler run remains active. The earlier runs are complete.
+Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.
 The default manual contract workflow skips CNPG and Sandbox. The explicit

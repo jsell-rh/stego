@@ -156,6 +156,14 @@ Network permission does not replace TLS, service identity, or application access
 checks. Router and host-network behavior require checks on the selected network
 provider. API acceptance alone does not prove traffic enforcement.
 
+The [live admission record](allocated-network-peers-admission-20260915.json)
+contains 89 passing cases: 18 allowed operations and 71 denied operations.
+All three generated admission policies passed Kubernetes type checks. The test
+covered each declared namespace, Pod selector, port, and protocol, additional
+policy denial, regeneration, and cleanup. No Pods ran. Traffic enforcement and
+the complete Gateway workflow remain required. Full compiler CI is running in
+[run 34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449).
+
 ## Fixed network deny policy
 
 Version 1.11.0 adds the explicit profile setting `network_isolation: true`.

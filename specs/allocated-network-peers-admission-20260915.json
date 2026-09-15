@@ -1,0 +1,453 @@
+{
+  "checked_at": "2026-09-15T16:53:59.917348+00:00",
+  "compiler_revision": "e394ab57c7b26412789d58429554334371d3d2db",
+  "component_version": "kubernetes-service 1.13.0",
+  "scope": "Generated runtime and Kubernetes admission. No Pods or traffic probes ran.",
+  "local_checks": {
+    "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB go test -p=1 -count=1 -timeout=45s ./internal/generator/kubernetesservice -run '^(TestAllocationNetworkPeerValidation|TestAllocationNetworkPeerAdmissionRules|TestAllocationNetworkIsolationManifest|TestAllocationValidation|TestGeneratedAllocationNetworkRuntime|TestAllocationManifests)$'",
+    "exit_status": 0,
+    "package_seconds": 2.637,
+    "generated_runtime_race_detection": true
+  },
+  "compiler_ci": {
+    "run_id": 34997668449,
+    "url": "https://github.com/jsell-rh/stego/actions/runs/34997668449",
+    "status": "in_progress"
+  },
+  "live_admission": {
+    "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+    "namespace": "stego-approved-peers-20260915",
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "allowed": 18,
+    "denied": 71,
+    "checks": [
+      {
+        "check": "wrong namespace pattern",
+        "allowed": false
+      },
+      {
+        "check": "namespace owner spoof by another actor",
+        "allowed": false
+      },
+      {
+        "check": "owned namespace",
+        "allowed": true
+      },
+      {
+        "check": "declared quota",
+        "allowed": true
+      },
+      {
+        "check": "declared network policy",
+        "allowed": true
+      },
+      {
+        "check": "ingress allow rule",
+        "allowed": false
+      },
+      {
+        "check": "egress allow rule",
+        "allowed": false
+      },
+      {
+        "check": "changed network podSelector {\"matchLabels\": {\"app\": \"selected\"}}",
+        "allowed": false
+      },
+      {
+        "check": "changed network podSelector {\"matchExpressions\": [{\"key\": \"app\", \"operator\": \"Exists\"}]}",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Ingress\"]",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Egress\"]",
+        "allowed": false
+      },
+      {
+        "check": "changed network policyTypes [\"Ingress\", \"Ingress\"]",
+        "allowed": false
+      },
+      {
+        "check": "foreign network name",
+        "allowed": false
+      },
+      {
+        "check": "foreign network namespace",
+        "allowed": false
+      },
+      {
+        "check": "foreign network owner",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 namespace",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 pod",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 no namespace",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 no pod",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 OR selectors",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 port",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 protocol",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 all ports",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 port range",
+        "allowed": false
+      },
+      {
+        "check": "ingress peer 0 extra peer",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 namespace",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 pod",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 no namespace",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 no pod",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 OR selectors",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 port",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 protocol",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 all ports",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 port range",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 0 extra peer",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 namespace",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 pod",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 no namespace",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 no pod",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 OR selectors",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 port",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 protocol",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 all ports",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 port range",
+        "allowed": false
+      },
+      {
+        "check": "egress peer 1 extra peer",
+        "allowed": false
+      },
+      {
+        "check": "another actor creates reserved policy",
+        "allowed": false
+      },
+      {
+        "check": "another actor adds an unlabelled allow policy",
+        "allowed": false
+      },
+      {
+        "check": "create declared network policy",
+        "allowed": true
+      },
+      {
+        "check": "allocator reads declared network policy",
+        "allowed": true
+      },
+      {
+        "check": "allocator lists the complete policy set",
+        "allowed": true
+      },
+      {
+        "check": "another actor changes declared policy",
+        "allowed": false
+      },
+      {
+        "check": "reserved policy deletion system:serviceaccount:stego-approved-peers-20260915:widget-queue",
+        "allowed": false
+      },
+      {
+        "check": "reserved policy deletion operator",
+        "allowed": false
+      },
+      {
+        "check": "foreign namespace delete",
+        "allowed": false
+      },
+      {
+        "check": "owner label removal",
+        "allowed": false
+      },
+      {
+        "check": "Pod security downgrade",
+        "allowed": false
+      },
+      {
+        "check": "foreign namespace binding",
+        "allowed": false
+      },
+      {
+        "check": "wrong role",
+        "allowed": false
+      },
+      {
+        "check": "wrong subject",
+        "allowed": false
+      },
+      {
+        "check": "cluster binding before proof",
+        "allowed": false
+      },
+      {
+        "check": "declared data binding",
+        "allowed": true
+      },
+      {
+        "check": "namespace proof",
+        "allowed": true
+      },
+      {
+        "check": "declared cluster binding",
+        "allowed": true
+      },
+      {
+        "check": "global data binding",
+        "allowed": false
+      },
+      {
+        "check": "foreign cluster binding",
+        "allowed": false
+      },
+      {
+        "check": "quota increase",
+        "allowed": false
+      },
+      {
+        "check": "worker owned Secret read",
+        "allowed": true
+      },
+      {
+        "check": "worker foreign Secret read",
+        "allowed": false
+      },
+      {
+        "check": "allocator Secret read",
+        "allowed": false
+      },
+      {
+        "check": "worker Namespace create",
+        "allowed": false
+      },
+      {
+        "check": "quota deletion by another actor",
+        "allowed": false
+      },
+      {
+        "check": "reserved binding deletion by another actor",
+        "allowed": false
+      },
+      {
+        "check": "quota collection deletion while active",
+        "allowed": false
+      },
+      {
+        "check": "allocator public identity read",
+        "allowed": true
+      },
+      {
+        "check": "allocator foreign identity read",
+        "allowed": false
+      },
+      {
+        "check": "allocator identity record create",
+        "allowed": false
+      },
+      {
+        "check": "allocator namespace identity seal",
+        "allowed": true
+      },
+      {
+        "check": "sealed fingerprint change",
+        "allowed": false
+      },
+      {
+        "check": "sealed label removal",
+        "allowed": false
+      },
+      {
+        "check": "regenerated policy blocks an extra allow policy",
+        "allowed": false
+      },
+      {
+        "check": "declared policy survives regeneration",
+        "allowed": true
+      },
+      {
+        "check": "regenerated policy blocks another actor",
+        "allowed": false
+      },
+      {
+        "check": "retired subject binding delete",
+        "allowed": true
+      },
+      {
+        "check": "retired subject binding create",
+        "allowed": false
+      },
+      {
+        "check": "replacement subject binding",
+        "allowed": true
+      },
+      {
+        "check": "retired worker Secret read",
+        "allowed": false
+      },
+      {
+        "check": "replacement worker Secret read",
+        "allowed": true
+      },
+      {
+        "check": "retired cluster binding delete",
+        "allowed": true
+      },
+      {
+        "check": "orphan cluster binding delete",
+        "allowed": true
+      }
+    ],
+    "type_checks": [
+      {
+        "name": "stego-approved-peers-20260915.widget-queue.allocation",
+        "generation": 1,
+        "observed_generation": 1,
+        "warnings": []
+      },
+      {
+        "name": "stego-approved-peers-20260915.widget-queue.ownership",
+        "generation": 1,
+        "observed_generation": 1,
+        "warnings": []
+      },
+      {
+        "name": "stego-approved-peers-20260915.widget-queue.resources",
+        "generation": 1,
+        "observed_generation": 1,
+        "warnings": []
+      }
+    ]
+  },
+  "cleanup": {
+    "test_namespaces_absent": true,
+    "allocated_bindings_absent": true,
+    "installed_resources_absent": true,
+    "lease_released": true,
+    "success": true
+  },
+  "independent_cleanup": {
+    "installed_objects_checked_absent": 14,
+    "shared_lease_free": true
+  },
+  "artifacts": [
+    {
+      "path": "first/manifest.json",
+      "sha256": "8fcba021a7b9263b6fcbd0abd611d798c52caca171d253e347097e5fc0886071"
+    },
+    {
+      "path": "next/manifest.json",
+      "sha256": "633792896f4ff0e00e1204bb14437d3939dd6bbf5245a2009285a16d392e6714"
+    },
+    {
+      "path": "check.py",
+      "sha256": "2abf19d23f031e99438dcbef2e50db532d77ad61df9cfb0ec72cd5f80e1f333f"
+    },
+    {
+      "path": "run.py",
+      "sha256": "f22ea3b369b433543ea7a82d95afff7f3a407ff35912d5143970e243ba4a4fc2"
+    },
+    {
+      "path": "admission.log",
+      "sha256": "2473dae9c56e0674dccd8da7968c94b620330c92633a842124db8b13ceb8b33b"
+    },
+    {
+      "path": "evidence/admission-results.json",
+      "sha256": "fea5ca03d8c0aa4c88ab73a7a46a7531b4273d7e8163c8ae3c88febc75efc2d7"
+    },
+    {
+      "path": "type-checks.json",
+      "sha256": "a310966a55c0d87ced7bf2f3648eae00df5aa1af599d93b729d39fe67ff7a9a5"
+    },
+    {
+      "path": "cleanup.json",
+      "sha256": "11eb5523de2317b9bbf2fc6e0b53bd5be57f2f7c2a4c87e4c3d76d030fb241cf"
+    }
+  ],
+  "limits": [
+    "Production Hypershell allocation isolation remains disabled.",
+    "No external DNS provider has been selected.",
+    "The complete Gateway traffic, endpoint change, and Sandbox isolation gates remain open.",
+    "Existing policies require an operator-planned migration when declared peers change."
+  ]
+}
