@@ -462,7 +462,7 @@
     "compiler_revision": "e394ab57c7b26412789d58429554334371d3d2db",
     "run_id": 34998079776,
     "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34998079776",
-    "status": "in_progress",
+    "status": "completed",
     "regeneration": "Both modules passed repeated apply and drift.",
     "generation_log_sha256": "1d11d0db6664de4ef0dc18455fd19aae64492f40414b07aec2b9dc06d53de6d9",
     "production_isolation_enabled": false,
@@ -502,6 +502,12 @@
       "bundle_reproduction": "passed"
     },
     "service_image": "success",
-    "core": "in_progress"
+    "core": {
+      "conclusion": "success",
+      "job_id": 104479328789,
+      "acceptance_package_seconds": 1360.499,
+      "log_sha256": "fe64e6cd5ce806e840c3ea1a016a804ef8d10d7c628af764a3f9ab3214a2ff85"
+    },
+    "conclusion": "success"
   }
 }

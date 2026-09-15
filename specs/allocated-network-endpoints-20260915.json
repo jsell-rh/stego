@@ -24,7 +24,10 @@
   "compiler_ci": {
     "run_id": 35000198875,
     "url": "https://github.com/jsell-rh/stego/actions/runs/35000198875",
-    "status": "in_progress"
+    "status": "completed",
+    "conclusion": "success",
+    "package_seconds": 15.639,
+    "log_sha256": "477842315c3a75803bea56d02219542bf0eeccc7090b5935e1fc1ecb1f056e8c"
   },
   "initial_failure": {
     "source": "Uncommitted endpoint change before port normalization",
