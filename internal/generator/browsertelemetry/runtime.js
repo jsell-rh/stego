@@ -124,7 +124,52 @@ function validAttributes(attributes) {
 }
 function boundedMeter(inner, report) {
   const noop = createNoopMeter(); const instruments = new Map();
+  const observables = new WeakMap(); const batches = []; let callbackCount = 0;
+  const invalid = () => report('metrics','invalid_record');
+  const validPoint = (number, attributes) => {
+    if (!Number.isFinite(number) || !validAttributes(attributes)) { invalid(); return false; }
+    return true;
+  };
+  // The SDK buffers callback observations before it applies series limits.
+  const observationBudget = () => {
+    let remaining = 32;
+    return (number, attributes) => {
+      if (!validPoint(number,attributes)) return false;
+      if (remaining === 0) { invalid(); return false; }
+      remaining--;return true;
+    };
+  };
+  const selectedObservables = values => {
+    if (!Array.isArray(values) || values.length === 0 || values.length > 32) return;
+    const selected = new Set(values.map(value => observables.get(value)));
+    if (selected.has(undefined)) return;
+    return selected;
+  };
+  const sameSelection = (left, right) => left.size === right.size && [...left].every(value => right.has(value));
   return new Proxy(inner, {get(target,key) {
+    if (key === 'addBatchObservableCallback') return (callback, values) => {
+      const selected = selectedObservables(values);
+      if (typeof callback !== 'function' || !selected) { invalid(); return; }
+      if (batches.some(entry => entry.callback === callback && sameSelection(entry.selected,selected))) return;
+      if (callbackCount >= 32) { invalid(); return; }
+      const wrapped = result => {
+        const accept = observationBudget();
+        return callback(Object.freeze({observe(observable, number, attributes) {
+          const instrument = observables.get(observable);
+          if (!selected.has(instrument)) { invalid(); return; }
+          if (accept(number,attributes)) result.observe(instrument,number,attributes);
+        }}));
+      };
+      target.addBatchObservableCallback(wrapped,[...selected]);
+      batches.push({callback,selected,wrapped});callbackCount++;
+    };
+    if (key === 'removeBatchObservableCallback') return (callback, values) => {
+      const selected = selectedObservables(values);if (!selected) return;
+      const index = batches.findIndex(entry => entry.callback === callback && sameSelection(entry.selected,selected));
+      if (index < 0) return;
+      target.removeBatchObservableCallback(batches[index].wrapped,[...selected]);
+      batches.splice(index,1);callbackCount--;
+    };
     const method = target[key];
     if (typeof key !== 'string' || !key.startsWith('create') || typeof method !== 'function') return typeof method === 'function' ? method.bind(target) : method;
     return (name, options) => {
@@ -132,11 +177,29 @@ function boundedMeter(inner, report) {
       if (typeof name !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$/.test(name) || (!instruments.has(id) && instruments.size >= 32)) { report('metrics','invalid_record'); return noop[key]('stego.invalid'); }
       if (instruments.has(id)) return instruments.get(id);
       const instrument = method.call(target,name,options);
+      const callbacks = new Map();
       const bounded = new Proxy(instrument,{get(value,property) {
+        if (property === 'addCallback' && typeof value.addCallback === 'function') return callback => {
+          if (typeof callback !== 'function') { invalid(); return; }
+          if (callbacks.has(callback)) return;
+          if (callbackCount >= 32) { invalid(); return; }
+          const wrapped = result => {
+            const accept = observationBudget();
+            return callback(Object.freeze({observe(number,attributes) {
+              if (accept(number,attributes)) result.observe(number,attributes);
+            }}));
+          };
+          value.addCallback(wrapped);callbacks.set(callback,wrapped);callbackCount++;
+        };
+        if (property === 'removeCallback' && typeof value.removeCallback === 'function') return callback => {
+          const wrapped = callbacks.get(callback);if (!wrapped) return;
+          value.removeCallback(wrapped);callbacks.delete(callback);callbackCount--;
+        };
         const action = value[property];
         if (property !== 'add' && property !== 'record') return typeof action === 'function' ? action.bind(value) : action;
-        return (number,attributes,context) => { if (!Number.isFinite(number) || !validAttributes(attributes)) { report('metrics','invalid_record'); return; } action.call(value,number,attributes,context); };
+        return (number,attributes,context) => { if (validPoint(number,attributes)) action.call(value,number,attributes,context); };
       }});
+      if (key.startsWith('createObservable')) observables.set(bounded,instrument);
       instruments.set(id,bounded);return bounded;
     };
   }});

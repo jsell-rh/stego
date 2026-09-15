@@ -1,5 +1,30 @@
 # Browser telemetry runtime and relay
 
+## Current application evidence
+
+The [complete public Gateway workflow](hypershell-public-gateway-complete-20260915.json)
+passed on consumer `842a71c` with compiler `0b0c932`. It used the rendered React
+console and generated Go browser backend. The collector received the browser
+workflow trace through the backend and API, its correlated log, and its metric.
+The same test covered collector failure, restart, session rotation, service
+accounts, and normal Gateway deletion. This proves the recorded workflow; the
+full enterprise scope and allocated namespace network isolation remain open.
+
+A later runtime review found that observable metric callbacks bypassed the
+client's value and attribute checks. Direct metric writes already had those
+checks. Two focused tests reproduced the missing checks in frozen fixture
+`/tmp/stego-observable-regression-wn2y_ph1` before the correction.
+
+Component 1.2.0 checks both single and batch observations before SDK buffering.
+It permits 32 callback registrations per meter and 32 observations per callback
+collection. Batch observations require an instrument in the registered selection
+from the same meter. Duplicate registration, removal, and asynchronous callback
+behavior remain supported. Five focused checks and the strict TypeScript check
+passed in `/tmp/stego-observable-bounds-q518fk48`. Full compiler CI and consumer
+adoption remain required. The earlier public pass does not test this correction.
+
+## Earlier implementation and verification
+
 STEGO owns browser provider setup, batching, transport, limits, and lifecycle.
 The application owns domain event names and the mapping from domain probes to
 telemetry. The generated package supplies traces, logs, and metrics. It uses

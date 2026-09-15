@@ -32,6 +32,14 @@ Log and metric attributes use at most 16 primitive values with bounded names
 and strings. The runtime reports queue loss and export failure with finite
 public categories. It does not expose collector error text.
 
+Observable metric callbacks use the same value and attribute limits as direct
+metric writes. A meter permits at most 32 registered callbacks across single
+instruments and batches. Each callback can record at most 32 valid observations
+per collection. These checks run before the SDK buffers observations. Batch
+callbacks can observe only their selected instruments from the same meter.
+Duplicate registrations do not consume more capacity. Removing a callback
+releases its capacity. Asynchronous callbacks retain the SDK collection deadline.
+
 Call `forceFlush` at a workflow boundary when delivery evidence is required.
 Call `shutdown` when the application releases the runtime. Hidden-page events
 also start a flush. Shutdown removes these event listeners. Browser page exit

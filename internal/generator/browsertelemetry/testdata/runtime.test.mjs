@@ -77,6 +77,87 @@ test('log bodies, metric instruments, and attributes have finite limits',async()
  assert.equal(failures.filter(f=>f.signal==='metrics'&&f.reason==='invalid_record').length,2);
 });
 
+test('observable metric callbacks enforce record limits and can be removed',async()=>{
+ const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
+ const registrations=[];let observations=0;
+ try {
+  for(const kind of ['Gauge','Counter','UpDownCounter']){
+   const instrument=t.meter['createObservable'+kind]('observable.'+kind);
+   const callback=result=>{
+    observations++;
+    result.observe(1,{state:'valid'});
+    result.observe(2,{state:'oversized-'+ 'x'.repeat(257)});
+    result.observe(3,{state:['invalid-array']});
+    result.observe(Infinity);
+   };
+   instrument.addCallback(callback);instrument.addCallback(callback);
+   registrations.push([instrument,callback]);
+  }
+  await t.forceFlush();
+  assert.equal(observations,3);
+  assert.equal(failures.filter(f=>f.signal==='metrics'&&f.reason==='invalid_record').length,9);
+  const payload=Buffer.concat(calls.filter(c=>c.url.endsWith('/metrics')).map(c=>Buffer.from(c.options.body)));
+  assert.ok(payload.includes(Buffer.from('valid')));
+  assert.equal(payload.includes(Buffer.from('oversized-')),false);
+  assert.equal(payload.includes(Buffer.from('invalid-array')),false);
+  for(const [instrument,callback] of registrations)instrument.removeCallback(callback);
+  await t.forceFlush();assert.equal(observations,3);
+ }finally{for(const [instrument,callback] of registrations)instrument.removeCallback(callback);await t.shutdown();}
+});
+
+test('batch observable metric callbacks enforce record limits and can be removed',async()=>{
+ const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
+ const gauge=t.meter.createObservableGauge('batch.gauge');const counter=t.meter.createObservableCounter('batch.counter');let observations=0;
+ const callback=result=>{
+  observations++;
+  result.observe(gauge,1,{state:'valid-gauge'});result.observe(counter,2,{state:'valid-counter'});
+  result.observe(gauge,3,{state:'oversized-'+ 'x'.repeat(257)});result.observe(counter,NaN);
+ };
+ try {
+  t.meter.addBatchObservableCallback(callback,[gauge,counter]);
+  t.meter.addBatchObservableCallback(callback,[counter,gauge,gauge]);
+  await t.forceFlush();assert.equal(observations,1);
+  assert.equal(failures.filter(f=>f.signal==='metrics'&&f.reason==='invalid_record').length,2);
+  const payload=Buffer.concat(calls.filter(c=>c.url.endsWith('/metrics')).map(c=>Buffer.from(c.options.body)));
+  assert.ok(payload.includes(Buffer.from('valid-gauge')));assert.ok(payload.includes(Buffer.from('valid-counter')));
+  assert.equal(payload.includes(Buffer.from('oversized-')),false);
+  t.meter.removeBatchObservableCallback(callback,[counter,gauge]);
+  await t.forceFlush();assert.equal(observations,1);
+ }finally{t.meter.removeBatchObservableCallback(callback,[gauge,counter]);await t.shutdown();}
+});
+
+test('observable metric callbacks have a shared registration limit and bounded collection',async()=>{
+ const calls=setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
+ const gauge=t.meter.createObservableGauge('bounded.gauge');const counter=t.meter.createObservableCounter('bounded.counter');
+ const callbacks=Array.from({length:31},()=>()=>{});let batchCalls=0;let extraCalls=0;
+ const batch=result=>{batchCalls++;for(let i=0;i<33;i++)result.observe(gauge,i,{series:i===32?'excluded-series':String(i)});};
+ const extra=result=>{extraCalls++;result.observe(1);};
+ try {
+  for(const callback of callbacks)gauge.addCallback(callback);
+  t.meter.addBatchObservableCallback(batch,[gauge]);counter.addCallback(extra);
+  await t.forceFlush();assert.equal(extraCalls,0);assert.equal(batchCalls,1);
+  assert.equal(failures.filter(f=>f.reason==='invalid_record').length,2);
+  const payload=Buffer.concat(calls.filter(c=>c.url.endsWith('/metrics')).map(c=>Buffer.from(c.options.body)));
+  assert.equal(payload.includes(Buffer.from('excluded-series')),false);
+  gauge.removeCallback(callbacks.pop());counter.addCallback(extra);
+  t.meter.removeBatchObservableCallback(batch,[gauge]);
+  await t.forceFlush();assert.equal(extraCalls,1);assert.equal(batchCalls,1);
+ }finally{for(const callback of callbacks)gauge.removeCallback(callback);counter.removeCallback(extra);t.meter.removeBatchObservableCallback(batch,[gauge]);await t.shutdown();}
+});
+
+test('observable metric callbacks reject foreign and unselected instruments',async()=>{
+ setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:0,reportDeliveryFailure:f=>failures.push(f)});
+ const other=createBrowserTelemetry({sampleRatio:0});const local=t.meter.createObservableGauge('local');const unselected=t.meter.createObservableGauge('unselected');const foreign=other.meter.createObservableGauge('foreign');let invalidCalls=0;
+ const invalid=()=>{invalidCalls++;};
+ const callback=async result=>{await Promise.resolve();result.observe(local,1);result.observe(unselected,1);result.observe(foreign,1);};
+ try {
+  t.meter.addBatchObservableCallback(invalid,[foreign]);
+  t.meter.addBatchObservableCallback(invalid,[t.meter.createCounter('synchronous')]);
+  t.meter.addBatchObservableCallback(callback,[local]);
+  await t.forceFlush();assert.equal(invalidCalls,0);assert.equal(failures.filter(f=>f.reason==='invalid_record').length,4);
+ }finally{t.meter.removeBatchObservableCallback(callback,[local]);await t.shutdown();await other.shutdown();}
+});
+
 test('processor queue loss is reported for logs and traces',async()=>{
  setup();const failures=[];const t=createBrowserTelemetry({sampleRatio:1,reportDeliveryFailure:f=>failures.push(f)});
  try {
