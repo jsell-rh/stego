@@ -164,11 +164,10 @@ callbacks. It requires PKCE S256 for authorization-code login. Device
 authorization is disabled unless selected. The policy permits one through 16
 redirects. Each redirect must name `localhost` or a canonical loopback IP address,
 with an explicit port. A port wildcard is also accepted for `localhost`,
-`127.0.0.1`, and `[::1]`. STEGO stores these wildcard declarations as port 80,
-which activates Keycloak's loopback port rule and retains an exact path. An
-explicit port 80 has the same effect for these three hosts. STEGO never sends
-a literal wildcard to Keycloak. Duplicate declarations after this conversion
-are rejected. Paths use unescaped ASCII letters,
+`127.0.0.1`, and `[::1]`. STEGO stores these wildcard declarations without a port.
+Keycloak converts the requested port to the default HTTP port and removes that
+port from the URI before it checks the registered path. STEGO never sends a
+literal wildcard to Keycloak. Fixed-port declarations retain their port. Paths use unescaped ASCII letters,
 digits, `.`, `_`, `~`, and `-`, separated by `/`. Queries, fragments, credentials,
 traversal, path wildcards, and encoded path aliases are rejected. Prefer loopback
 IP literals; `localhost` remains available for existing callback contracts.

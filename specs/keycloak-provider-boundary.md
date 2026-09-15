@@ -321,8 +321,8 @@ test now supplies S256 parameters and retains the missing-PKCE denial check.
 This preserves the required PKCE policy. Cleanup passed, and the partial result
 is retained under `browser-driver-ci`. The complete native gate is still pending.
 
-Version 0.6.2 converts native port wildcards to Keycloak's port-80 loopback
-registration. The pinned provider permits any callback port for `localhost`,
+The native profile converts port wildcards to Keycloak's loopback registration
+with no port. The pinned provider permits any callback port for `localhost`,
 `127.0.0.1`, and `[::1]` with this registration, while it matches the path
 exactly. A literal trailing wildcard also permits other paths. The provider
 must therefore not receive a literal wildcard. The live gate now checks wrong
@@ -339,3 +339,10 @@ An omitted value can make Keycloak derive browser origins from the callback
 URIs. Production enablement must preserve this empty set and confirm the full
 policy after the state change. A payload that contains only `enabled` is not
 sufficient for this native profile.
+
+The first exact-path run at `a26d54b` rejected valid login callbacks. It stored
+`:80` literally. Keycloak's URI builder removes the default port during its
+loopback check, so the saved URI must omit the port. This run failed closed and
+completed container cleanup. The corrected conversion now omits the port.
+The positive login test remains required; negative callback tests alone cannot
+prove a usable registration.

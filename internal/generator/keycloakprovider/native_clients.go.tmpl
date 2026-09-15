@@ -50,11 +50,12 @@ func validLoopbackRedirect(raw string)bool{
 }
 
 // Keycloak accepts any requested port for these loopback hosts when the saved
-// URI uses port 80. A literal wildcard would also permit other callback paths.
+// URI omits the port. Its port-80 fallback omits the default port in the URI.
+// A literal wildcard would also permit other callback paths.
 func providerLoopbackRedirect(raw string)string{
  authority,tail,hasPath:=strings.Cut(strings.TrimPrefix(raw,"http://"),"/")
  if !strings.HasSuffix(authority,":*"){return raw}
- result:="http://"+strings.TrimSuffix(authority,":*")+":80"
+ result:="http://"+strings.TrimSuffix(authority,":*")
  if hasPath{result+="/"+tail}
  return result
 }
