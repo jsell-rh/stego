@@ -1,6 +1,7 @@
 package keycloakprovider
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -43,9 +44,18 @@ func TestProviderValidation(t *testing.T) {
 	}
 }
 
-func TestGeneratedKeycloakProvider(t *testing.T)          { testGeneratedProvider(t, false) }
-func TestGeneratedKeycloakProviderTelemetry(t *testing.T) { testGeneratedProvider(t, true) }
-func testGeneratedProvider(t *testing.T, telemetry bool) {
+func TestGeneratedKeycloakProvider(t *testing.T)          { testGeneratedProvider(t, false, false) }
+func TestGeneratedKeycloakProviderTelemetry(t *testing.T) { testGeneratedProvider(t, true, false) }
+func TestGeneratedKeycloakProviderLive(t *testing.T) {
+	if os.Getenv("STEGO_REQUIRE_KEYCLOAK_PROVIDER") != "1" {
+		t.Skip("real Keycloak provider gate requires CI")
+	}
+	if os.Getenv("GITHUB_ACTIONS") != "true" {
+		t.Fatal("the real Keycloak provider gate runs only in CI")
+	}
+	testGeneratedProvider(t, true, true)
+}
+func testGeneratedProvider(t *testing.T, telemetry, live bool) {
 	g := new(Generator)
 	c := fixture()
 	files, wiring, err := g.Generate(c)
@@ -99,7 +109,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.Name() == "trace_test.go" && !telemetry {
+		if entry.Name() == "trace_test.go" && !telemetry || entry.Name() == "live_test.go" && !telemetry {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join("testdata", entry.Name()))
@@ -132,14 +142,39 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 			t.Fatalf("provider telemetry dependencies: %v\n%s", err, output)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	budget := 60 * time.Second
+	args := []string{"test", "-p=1", "-race", "-count=1", "-timeout=30s", "-v"}
+	if live {
+		budget = 7 * time.Minute
+		args = []string{"test", "-p=1", "-race", "-count=1", "-timeout=6m", "-run", "^TestProviderLive$", "-v"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-p=1", "-race", "-count=1", "-timeout=30s", "-v", "./...")
+	cmd := exec.CommandContext(ctx, "go", append(args, "./...")...)
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	output, err := cmd.CombinedOutput()
+	if live {
+		if destination := os.Getenv("STEGO_KEYCLOAK_PROVIDER_ARTIFACTS"); destination != "" {
+			if !filepath.IsAbs(destination) {
+				t.Fatal("provider artifacts require an absolute path")
+			}
+			if e := os.MkdirAll(destination, 0700); e != nil {
+				t.Fatal(e)
+			}
+			if e := os.WriteFile(filepath.Join(destination, "runtime.log"), output, 0600); e != nil {
+				t.Fatal(e)
+			}
+			if e := os.CopyFS(filepath.Join(destination, "generated"), os.DirFS(project)); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
 	if err != nil {
 		t.Fatalf("generated Keycloak provider: %v\n%s", err, output)
+	}
+	if live && (!bytes.Contains(output, []byte("--- PASS: TestProviderLive ")) || bytes.Contains(output, []byte("--- SKIP: TestProviderLive"))) {
+		t.Fatal("real Keycloak provider result is missing")
 	}
 	t.Logf("%s", output)
 }
