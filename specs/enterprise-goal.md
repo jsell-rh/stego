@@ -3554,3 +3554,20 @@ on pushed Hypershell commit `3bd9f63`. The source matches that commit. Committed
 first, second, and post-test generated snapshots match. The Job, Pods, and private
 fixtures are absent. This run uses compiler `16e09a2`; it does not prove the new
 session-quarantine behavior. The full browser check for that change is running.
+
+Hypershell `acfdc83` now proves the common session-quarantine runtime in the
+complete browser Gateway workflow. It passed in 336.85 seconds. The affected
+Gateway session stopped, the other Gateway session stayed open, and recovery
+retained credentials, keys, and provider data. Restart, access, event delivery,
+worker telemetry, service accounts, and both deletions passed. Source and all
+229 generated files match the frozen check. Test resources are absent. See
+[the result](hypershell-sql-quarantine.json). The variant is pushed.
+
+The full core CI retest at `3bd9f63` passed the corrected fixtures but failed
+`TestConcurrentGlobalRoleProjection` after 20 immediate serialization retries.
+Its package ran for 1099.215 seconds. The transaction API deliberately calls
+callbacks once; automatic replay is not safe for arbitrary callbacks. Review
+this bounded concurrency failure before changing that contract. The evidence
+is in the variant `acceptance/controller-local-core-ci.json`. Installation
+CNPG, RDS, restricted workload runners, Sandbox, and complete CI remain open.
+The enterprise goal remains active.

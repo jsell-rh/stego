@@ -1,0 +1,83 @@
+{
+  "application_commit": "acfdc83",
+  "compiler_revision": "868ff1f83a1289a7becffa6530f282f980a5216b",
+  "result": "success",
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/acfdc83/acceptance/sql-quarantine-browser-evidence.json",
+  "source_record_sha256": "24009919ea456e00a686d70e57314f8e8ca70b8f79ded60184225347643c0034",
+  "passed": [
+    "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion (7.53s)",
+    "TestControllerLocalSchemaHasNoDatabaseCatalog (0.17s)",
+    "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites (0.33s)",
+    "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration (0.18s)",
+    "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart (10.07s)",
+    "TestGatewayDeletionBeforeWorkloadStartup (5.35s)",
+    "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart (6.16s)",
+    "TestKubernetesWriteFailurePrivacy (0.00s)",
+    "TestGeneratedWorkloadWorkerStartupPrivacy (4.67s)",
+    "TestGeneratedKubernetesBrowserGatewayWorkflow (336.85s)"
+  ],
+  "package_results": [
+    "ok  \tgithub.com/jsell-rh/hypershell-stego/contracts\t1.058s",
+    "ok  \tgithub.com/jsell-rh/hypershell-stego/internal/gatewayworkload\t11.231s",
+    "ok  \tgithub.com/jsell-rh/hypershell-stego/internal/namespaceallocation\t1.015s",
+    "ok  \tgithub.com/jsell-rh/hypershell-stego/acceptance\t35.495s",
+    "ok  \tgithub.com/jsell-rh/hypershell-stego/acceptance\t337.904s"
+  ],
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "generated_file_count": 229,
+  "generation_record_sha256": {
+    "first.sha256": "67dbd9f50ad766171a1eeb0e0f3d8e114cf5d8a41fc128e07b41b44c25fdc09c",
+    "second.sha256": "67dbd9f50ad766171a1eeb0e0f3d8e114cf5d8a41fc128e07b41b44c25fdc09c",
+    "after-tests.sha256": "67dbd9f50ad766171a1eeb0e0f3d8e114cf5d8a41fc128e07b41b44c25fdc09c"
+  },
+  "source_changes_after_freeze": [],
+  "cleanup": {
+    "namespace_absent": "stego-service-20260915-78accd",
+    "owned_resources_absent": true
+  },
+  "job": {
+    "namespace": "stego-service-20260915-78accd",
+    "name": "service-check",
+    "uid": "e6e6ca6e-05b0-41c4-b58e-7ce24f155abf",
+    "activeDeadlineSeconds": 1800,
+    "backoffLimit": 0,
+    "status": {
+      "completionTime": "2026-09-15T04:00:30Z",
+      "conditions": [
+        {
+          "lastProbeTime": "2026-09-15T04:00:30Z",
+          "lastTransitionTime": "2026-09-15T04:00:30Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "SuccessCriteriaMet"
+        },
+        {
+          "lastProbeTime": "2026-09-15T04:00:30Z",
+          "lastTransitionTime": "2026-09-15T04:00:30Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "Complete"
+        }
+      ],
+      "ready": 0,
+      "startTime": "2026-09-15T03:48:07Z",
+      "succeeded": 1,
+      "terminating": 0,
+      "uncountedTerminatedPods": {}
+    }
+  },
+  "limits": [
+    "The PostgreSQL restart uses the bounded test sidecar. Installation CNPG and RDS failover remain unproven.",
+    "Workload namespace replacement, denied SQL cleanup with retained keys, encrypted data at rest, viewer recovery, and Sandbox/Kata execution remain required.",
+    "The old Kubernetes CI runners still require conversion. This result is not a full CI or production-readiness claim."
+  ],
+  "visual_review": {
+    "verify.json.png": "The Gateway is Healthy. The connection-command section still has loading placeholders in this frame; this image does not prove completed command rendering.",
+    "accounts-delete.json.png": "The Gateway is Healthy. The service-account list is empty after deletion."
+  }
+}

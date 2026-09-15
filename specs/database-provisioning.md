@@ -127,3 +127,13 @@ The full compiler CI and its dedicated PostgreSQL job passed at `868ff1f` in
 [run 34925662236](https://github.com/jsell-rh/stego/actions/runs/34925662236).
 This verifies the common runtime. The new Hypershell application check remains
 required before adoption can be reported as verified.
+
+Hypershell adopted `postgres-client` 1.2.1 in `acfdc83`. The complete browser
+Gateway workflow passed in 336.85 seconds with race detection. Both unsafe
+privileges and role membership caused the generated runtime to stop an already
+open Gateway SQL session. An already open session for the other Gateway stayed
+usable. Recovery retained keys, credentials, and provider data. PostgreSQL
+restart, process replacement, and both Gateway deletions also passed. The
+[application evidence](hypershell-sql-quarantine.json) confirms matching source,
+all 229 generated files, and resource removal. This closes the application
+session-termination check. Installation CNPG and RDS operation remain open.
