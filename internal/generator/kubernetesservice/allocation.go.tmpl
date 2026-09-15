@@ -10,6 +10,9 @@ import (
  "errors"
  "fmt"
  "net/http"
+ "net/netip"
+ "io"
+ "os"
  "net/url"
  "sort"
  "regexp"
@@ -22,13 +25,13 @@ type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type identityField struct { Field, Key string }
 type networkPeer struct { Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
-type profile struct { NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
+type profile struct { NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
 // Allocator applies the fixed namespace profiles in the service declaration.
 // The caller must get each request from current, authorized application state.
 // Event data alone is not a source of authority.
-type Allocator struct { client *kube.Client; namespace, marker string; config configuration }
+type Allocator struct { client *kube.Client; namespace, marker string; config configuration; networkEndpoints map[string][]netip.AddrPort }
 
 var ErrPending = errors.New("allocation change is pending")
 
@@ -43,8 +46,38 @@ func New(client *kube.Client, controlNamespace string) (*Allocator, error) {
  if client == nil || !dnsLabel.MatchString(controlNamespace) { return nil, errors.New("allocator requires a client and a control namespace") }
  var config configuration
  if err := json.Unmarshal([]byte({{printf "%q" .Configuration}}), &config); err != nil { return nil, errors.New("invalid generated allocation configuration") }
+ endpoints,err:=allocationEndpointBindings(config,os.Getenv("STEGO_ALLOCATION_NETWORK_ENDPOINTS"));if err!=nil{return nil,err}
  digest := sha256.Sum256([]byte(controlNamespace + "." + config.Allocator))
- return &Allocator{client:client, namespace:controlNamespace, marker:hex.EncodeToString(digest[:16]), config:config}, nil
+ return &Allocator{client:client, namespace:controlNamespace, marker:hex.EncodeToString(digest[:16]), config:config, networkEndpoints:endpoints}, nil
+}
+
+// allocationEndpointBindings reads only the endpoint names declared by this
+// service. The generated deployment supplies these non-secret operator values.
+func allocationEndpointBindings(config configuration,input string)(map[string][]netip.AddrPort,error){
+ required:=map[string]bool{}
+ for _,p:=range config.Profiles{for _,name:=range p.NetworkEndpoints{required[name]=true}}
+ if len(required)==0 {if input!=""{return nil,errors.New("allocation network endpoints were not declared")};return nil,nil}
+ if len(input)==0||len(input)>8192{return nil,errors.New("allocation network endpoints are missing or exceed their limit")}
+ decoder:=json.NewDecoder(strings.NewReader(input))
+ token,err:=decoder.Token();if err!=nil||token!=json.Delim('{'){return nil,errors.New("invalid allocation network endpoint object")}
+ result:=map[string][]netip.AddrPort{};total:=0
+ for decoder.More(){
+  token,err:=decoder.Token();if err!=nil{return nil,errors.New("invalid allocation network endpoint name")}
+  name,ok:=token.(string);if !ok||!required[name]||result[name]!=nil{return nil,errors.New("unknown or duplicate allocation network endpoint name")}
+  var values []string
+  if err=decoder.Decode(&values);err!=nil||len(values)==0{return nil,errors.New("allocation network endpoint requires addresses")}
+  total+=len(values);if total>32{return nil,errors.New("allocation network endpoint limit exceeded")}
+  seen:=map[netip.AddrPort]bool{}
+  for _,value:=range values{
+   endpoint,err:=netip.ParseAddrPort(value);ip:=endpoint.Addr()
+   if err!=nil||endpoint.Port()==0||!ip.IsGlobalUnicast()||ip.IsLoopback()||ip.IsLinkLocalUnicast()||ip.Is4In6()||ip.Zone()!=""||seen[endpoint]{return nil,errors.New("allocation network endpoint requires a distinct unicast IP and port")}
+   seen[endpoint]=true;result[name]=append(result[name],endpoint)
+  }
+ }
+ if token,err=decoder.Token();err!=nil||token!=json.Delim('}'){return nil,errors.New("invalid allocation network endpoint object")}
+ var extra any
+ if err=decoder.Decode(&extra);err!=io.EOF||len(result)!=len(required){return nil,errors.New("allocation network endpoints are incomplete or have trailing data")}
+ return result,nil
 }
 
 // Marker identifies this allocator installation. It contains no credential.
@@ -170,7 +203,9 @@ type networkSelector struct {
  MatchLabels map[string]string `json:"matchLabels,omitempty"`
  MatchExpressions []json.RawMessage `json:"matchExpressions,omitempty"`
 }
+type networkIPBlock struct { CIDR string `json:"cidr"`; Except []string `json:"except,omitempty"` }
 type networkTarget struct {
+ IPBlock *networkIPBlock `json:"ipBlock,omitempty"`
  NamespaceSelector *networkSelector `json:"namespaceSelector,omitempty"`
  PodSelector *networkSelector `json:"podSelector,omitempty"`
 }
@@ -195,6 +230,15 @@ func (a *Allocator) networkSpec(p profile, name string) networkSpec {
   target:=networkTarget{NamespaceSelector:&networkSelector{MatchLabels:map[string]string{"kubernetes.io/metadata.name":ns}},PodSelector:&networkSelector{MatchLabels:map[string]string{peer.PodLabel:peer.PodValue}}}
   rule:=networkRule{Ports:[]networkPort{ {Protocol:peer.Protocol,Port:peer.Port} }}
   if peer.Direction=="ingress"{rule.From=[]networkTarget{target};spec.Ingress=append(spec.Ingress,rule)}else{rule.To=[]networkTarget{target};spec.Egress=append(spec.Egress,rule)}
+ }
+ endpoints:=map[string]netip.AddrPort{}
+ for _,name:=range p.NetworkEndpoints{for _,endpoint:=range a.networkEndpoints[name]{endpoints[endpoint.String()]=endpoint}}
+ keys:=make([]string,0,len(endpoints));for key:=range endpoints{keys=append(keys,key)};sort.Strings(keys)
+ for _,key:=range keys{
+  endpoint:=endpoints[key]
+  target:=networkTarget{IPBlock:&networkIPBlock{CIDR:netip.PrefixFrom(endpoint.Addr(),endpoint.Addr().BitLen()).String()}}
+  rule:=networkRule{To:[]networkTarget{target},Ports:[]networkPort{ {Protocol:"TCP",Port:int(endpoint.Port())} }}
+  spec.Egress=append(spec.Egress,rule)
  }
  return spec
 }

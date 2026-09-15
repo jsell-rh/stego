@@ -164,6 +164,48 @@ policy denial, regeneration, and cleanup. No Pods ran. Traffic enforcement and
 the complete Gateway workflow remain required. Full compiler CI passed in
 [run 34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449).
 
+## Operator endpoint bindings
+
+Version 1.15.0 adds `network_endpoints` to an isolated allocation profile.
+Each entry names an operator-supplied TCP endpoint. For example:
+
+```yaml
+network_isolation: true
+network_endpoints: [kubernetes]
+```
+
+Use the existing renderer argument `--egress kubernetes=192.0.2.10:443` to
+supply an address. Use brackets for IPv6. The renderer uses the same checked
+values for the allocation admission rules and the allocator environment. Each
+rule permits one exact host address and TCP port. Duplicate addresses shared
+by different endpoint names produce one rule per profile.
+
+The generated allocator worker receives `STEGO_ALLOCATION_NETWORK_ENDPOINTS`.
+Generated workers with a control-namespace subject in an allocation binding
+also receive it. Other workers do not receive this configuration. A worker
+outside the generated deployment must receive the same checked configuration
+from its operator. No Secret read permission is added.
+
+`allocation.New` reads this bounded configuration when endpoints are declared.
+It rejects missing or unknown names, duplicate keys or addresses within a name,
+trailing data, more than 32 address entries, and input above 8 KiB. IPv4 and IPv6
+must be unicast host addresses with a nonzero port. Loopback, link-local,
+multicast, unspecified, mapped IPv4, and zoned addresses are rejected. Each
+profile permits at most 16 endpoint names. A worker's own endpoint names and
+allocation endpoint names together cannot exceed 32.
+
+Render the allocator and its readers with the same operator bindings. Install
+the new admission policies before starting workers with new bindings. A restart
+loads the new expected endpoints. The controlled update path removes retired
+addresses and retains the policy identity. An old worker cannot restore a rule
+that the current admission policy rejects.
+
+These are explicit IP bindings. STEGO does not resolve or track DNS names in
+this mechanism. Operators must supply the addresses visible at the network
+policy enforcement point. Address translation and service routing require
+checks on the selected cluster. This feature does not select a DNS provider
+or establish complete Gateway network isolation.
+
 ## Controlled network updates
 
 Version 1.14.0 gives the allocator patch access only to NetworkPolicy

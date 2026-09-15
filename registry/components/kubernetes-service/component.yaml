@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.14.0
+version: 1.15.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -50,6 +50,10 @@ config:
       owner_label: {type: string}
       manager: {type: string}
       network_isolation: {type: bool, optional: true}
+      network_endpoints:
+        type: list
+        optional: true
+        items: {type: string}
       network_peers:
         type: list
         optional: true

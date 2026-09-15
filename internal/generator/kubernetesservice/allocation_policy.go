@@ -150,9 +150,19 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	allocationRules := []any{allocationRule("", "namespaces", "resourcequotas"), allocationRule("rbac.authorization.k8s.io", "rolebindings", "clusterrolebindings")}
 	if len(networkCases) > 0 {
 		allocationRules = append(allocationRules, allocationRule("networking.k8s.io", "networkpolicies"))
-		checks = append(checks, validate("request.resource.resource != 'networkpolicies' || "+join(networkCases), "Network policy must deny all Pod traffic in its allocation profile"))
+		checks = append(checks, validate("request.resource.resource != 'networkpolicies' || "+join(networkCases), "Network policy must match its allocation profile"))
 	}
 	guarded := allocationPolicy(base+".allocation", allocationRules, isAllocator, variables, checks)
+	if refs := allocationEndpointReferences(config); len(refs) > 0 {
+		encoded, err := json.Marshal(refs)
+		if err != nil {
+			return nil, err
+		}
+		policy := guarded[0].(object)
+		policy["metadata"].(object)["annotations"] = object{allocationEndpointAnnotation: string(encoded)}
+		policy["spec"].(object)["variables"] = append(append([]any{}, variables...), object{"name": "networkEndpoints", "expression": allocationEndpointPlaceholder})
+	}
+
 	// Namespace identity cannot be added to an existing foreign namespace, removed,
 	// or changed. The policy applies to all actors, including a worker with a bug.
 	unchanged := []string{"object.metadata.labels['stego.dev/allocator'] == oldObject.metadata.labels['stego.dev/allocator']", "object.metadata.labels['stego.dev/allocation-profile'] == oldObject.metadata.labels['stego.dev/allocation-profile']", "object.metadata.labels['app.kubernetes.io/managed-by'] == oldObject.metadata.labels['app.kubernetes.io/managed-by']", "object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'"}

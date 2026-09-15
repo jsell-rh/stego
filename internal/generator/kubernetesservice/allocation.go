@@ -25,6 +25,7 @@ type allocationNetworkPeer struct {
 	Port                                                                  int
 }
 type allocationProfile struct {
+	NetworkEndpoints                    []string                `json:",omitempty"`
 	NetworkPeers                        []allocationNetworkPeer `json:",omitempty"`
 	NetworkIsolation                    bool                    `json:",omitempty"`
 	IdentityConfigMap                   string
@@ -138,7 +139,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers", "network_endpoints":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}
@@ -163,6 +164,21 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			p.NetworkIsolation, ok = value.(bool)
 			if !ok {
 				return result, fmt.Errorf("network_isolation must be a boolean")
+			}
+		}
+		if raw, exists := values["network_endpoints"]; exists {
+			entries, ok := raw.([]any)
+			if !p.NetworkIsolation || !ok || len(entries) == 0 || len(entries) > 16 {
+				return result, fmt.Errorf("network_endpoints requires network_isolation and 1..16 endpoint names")
+			}
+			seen := map[string]bool{}
+			for _, entry := range entries {
+				name, ok := entry.(string)
+				if !ok || !label.MatchString(name) || seen[name] {
+					return result, fmt.Errorf("invalid or duplicate allocation network endpoint")
+				}
+				seen[name] = true
+				p.NetworkEndpoints = append(p.NetworkEndpoints, name)
 			}
 		}
 		if raw, exists := values["network_peers"]; exists {
@@ -332,6 +348,32 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 	}
 	if totalBindings > 32 {
 		return result, fmt.Errorf("allocation permits at most 32 bindings")
+	}
+	for _, entry := range workers {
+		v, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := v["name"].(string)
+		if !allocationWorkerNeedsEndpoints(result, ctx.ServiceName+"-"+name) {
+			continue
+		}
+		names := map[string]bool{}
+		for _, refs := range allocationEndpointReferences(result) {
+			for _, name := range refs {
+				names[name] = true
+			}
+		}
+		required, optional, err := endpointDeclarations(gen.Context{ComponentConfig: v})
+		if err != nil {
+			return result, err
+		}
+		for _, name := range append(required, optional...) {
+			names[name] = true
+		}
+		if len(names) > 32 {
+			return result, fmt.Errorf("worker and allocation endpoints permit at most 32 distinct names")
+		}
 	}
 	return result, nil
 }

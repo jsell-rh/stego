@@ -67,10 +67,17 @@ func allocationNetworkRulesCEL(p allocationProfile, direction string) string {
 			peers = append(peers, peer)
 		}
 	}
-	if len(peers) == 0 {
+	hasEndpoints := direction == "egress" && len(p.NetworkEndpoints) > 0
+	if len(peers) == 0 && !hasEndpoints {
 		return "(!has(" + path + ") || size(" + path + ") == 0)"
 	}
 	checks := []string{fmt.Sprintf("has(%s) && size(%s) == %d", path, path, len(peers))}
+	if hasEndpoints {
+		endpoints := "variables.networkEndpoints[" + celString(p.Name) + "]"
+		checks[0] = fmt.Sprintf("has(%s) && size(%s) == %d + size(%s)", path, path, len(peers), endpoints)
+		checks = append(checks, endpoints+".all(endpoint, "+path+".exists(rule, has(rule.to) && size(rule.to) == 1 && has(rule.to[0].ipBlock) && rule.to[0].ipBlock.cidr == endpoint.cidr && (!has(rule.to[0].ipBlock.except) || size(rule.to[0].ipBlock.except) == 0) && !has(rule.to[0].namespaceSelector) && !has(rule.to[0].podSelector) && has(rule.ports) && size(rule.ports) == 1 && has(rule.ports[0].port) && rule.ports[0].port == int(endpoint.port) && has(rule.ports[0].protocol) && rule.ports[0].protocol == 'TCP' && !has(rule.ports[0].endPort)))")
+	}
+
 	selector := func(path, key, value string) string {
 		return "has(" + path + ") && has(" + path + ".matchLabels) && size(" + path + ".matchLabels) == 1 && " + celString(key) + " in " + path + ".matchLabels && " + path + ".matchLabels[" + celString(key) + "] == " + value + " && (!has(" + path + ".matchExpressions) || size(" + path + ".matchExpressions) == 0)"
 	}
@@ -94,4 +101,34 @@ func allocationNetworkRulesCEL(p allocationProfile, direction string) string {
 			"has("+rule+".ports) && size("+rule+".ports) == 1 && has("+rule+".ports[0].port) && "+rule+".ports[0].port == "+fmt.Sprint(peer.Port)+" && has("+rule+".ports[0].protocol) && "+rule+".ports[0].protocol == "+celString(peer.Protocol)+" && !has("+rule+".ports[0].endPort)")
 	}
 	return "(" + strings.Join(checks, " && ") + ")"
+}
+
+const allocationEndpointAnnotation = "stego.dev/allocation-network-endpoints"
+const allocationEndpointEnvironment = "STEGO_ALLOCATION_NETWORK_ENDPOINTS"
+const allocationEndpointPlaceholder = "stego_unrendered_allocation_endpoints"
+
+func allocationEndpointReferences(config allocationConfiguration) map[string][]string {
+	refs := map[string][]string{}
+	for _, p := range config.Profiles {
+		if len(p.NetworkEndpoints) > 0 {
+			refs[p.Name] = p.NetworkEndpoints
+		}
+	}
+	return refs
+}
+func allocationWorkerNeedsEndpoints(config allocationConfiguration, worker string) bool {
+	if len(allocationEndpointReferences(config)) == 0 {
+		return false
+	}
+	if config.Allocator == worker {
+		return true
+	}
+	for _, p := range config.Profiles {
+		for _, b := range p.Bindings {
+			if b.Namespace == "control" && b.ServiceAccount == worker {
+				return true
+			}
+		}
+	}
+	return false
 }

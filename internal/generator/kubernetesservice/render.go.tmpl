@@ -105,6 +105,8 @@ func completeExternalPeers(input []byte, values endpointFlags)([]byte,error){
  if json.Unmarshal(document["items"],&items)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
  used:=map[string]bool{}
  for _,item:=range items{
+  allocated,err:=completeAllocationEndpointItem(item,bindings);if err!=nil{return nil,err}
+  for _,name:=range allocated{used[name]=true}
   var kind string;if json.Unmarshal(item["kind"],&kind)!=nil{return nil,fmt.Errorf("invalid generated deployment")};if kind!="NetworkPolicy"{continue}
   var spec map[string]json.RawMessage;if json.Unmarshal(item["spec"],&spec)!=nil{return nil,fmt.Errorf("invalid generated network policy")}
   var rules []map[string]json.RawMessage;if json.Unmarshal(spec["egress"],&rules)!=nil{return nil,fmt.Errorf("invalid generated network policy")}
@@ -131,6 +133,81 @@ func completeExternalPeers(input []byte, values endpointFlags)([]byte,error){
  if len(used)==0{return input,nil}
  document["items"],_=json.Marshal(items)
  result,err:=json.MarshalIndent(document,"","  ");if err!=nil{return nil,fmt.Errorf("cannot render network policy")};return result,nil
+}
+
+// completeAllocationEndpointItem uses the same checked operator bindings for
+// admission and the generated allocator environment. No DNS lookup occurs here.
+func completeAllocationEndpointItem(item map[string]json.RawMessage,bindings map[string][]netip.AddrPort)([]string,error){
+ var metadata struct{Annotations map[string]string `json:"annotations"`}
+ if json.Unmarshal(item["metadata"],&metadata)!=nil{return nil,fmt.Errorf("invalid generated metadata")}
+ declaration,selected:=metadata.Annotations["stego.dev/allocation-network-endpoints"]
+ if !selected{return nil,nil}
+ var refs map[string][]string
+ if json.Unmarshal([]byte(declaration),&refs)!=nil||len(refs)==0||len(refs)>16{return nil,fmt.Errorf("invalid generated allocation endpoint references")}
+ names:=map[string]bool{}
+ profiles:=map[string][]map[string]string{}
+ env:=map[string][]string{}
+ pattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+ for profile,required:=range refs{
+  if !pattern.MatchString(profile)||len(required)==0||len(required)>16{return nil,fmt.Errorf("invalid allocation endpoint profile")}
+  seen:=map[string]bool{}
+  targets:=map[string]netip.AddrPort{}
+  for _,name:=range required{
+   if !pattern.MatchString(name)||seen[name]||len(bindings[name])==0{return nil,fmt.Errorf("missing or invalid declared allocation endpoint")}
+   seen[name]=true;names[name]=true
+   if env[name]==nil{for _,endpoint:=range bindings[name]{env[name]=append(env[name],endpoint.String())}}
+   for _,endpoint:=range bindings[name]{targets[endpoint.String()]=endpoint}
+  }
+  keys:=make([]string,0,len(targets));for key:=range targets{keys=append(keys,key)};sort.Strings(keys)
+  for _,key:=range keys{endpoint:=targets[key];profiles[profile]=append(profiles[profile],map[string]string{"cidr":netip.PrefixFrom(endpoint.Addr(),endpoint.Addr().BitLen()).String(),"port":strconv.Itoa(int(endpoint.Port()))})}
+ }
+ var kind string
+ if json.Unmarshal(item["kind"],&kind)!=nil{return nil,fmt.Errorf("invalid allocation endpoint resource")}
+ var spec map[string]json.RawMessage
+ if json.Unmarshal(item["spec"],&spec)!=nil||spec==nil{return nil,fmt.Errorf("invalid allocation endpoint resource specification")}
+ switch kind{
+ case "ValidatingAdmissionPolicy":
+  var variables []map[string]json.RawMessage
+  if json.Unmarshal(spec["variables"],&variables)!=nil{return nil,fmt.Errorf("invalid allocation admission variables")}
+  found:=0
+  for _,variable:=range variables{
+   var name,expression string
+   if json.Unmarshal(variable["name"],&name)!=nil||json.Unmarshal(variable["expression"],&expression)!=nil{return nil,fmt.Errorf("invalid allocation admission variable")}
+   if name!="networkEndpoints"{continue}
+   if expression!="stego_unrendered_allocation_endpoints"{return nil,fmt.Errorf("allocation endpoint variable differs")}
+   encoded,err:=json.Marshal(profiles);if err!=nil{return nil,err}
+   variable["expression"],_=json.Marshal(string(encoded));found++
+  }
+  if found!=1{return nil,fmt.Errorf("allocation endpoint variable is missing or repeated")}
+  spec["variables"],_=json.Marshal(variables)
+ case "Deployment":
+  var podTemplate,pod map[string]json.RawMessage
+  if json.Unmarshal(spec["template"],&podTemplate)!=nil||podTemplate==nil||json.Unmarshal(podTemplate["spec"],&pod)!=nil||pod==nil{return nil,fmt.Errorf("invalid allocation endpoint Pod")}
+  var containers []map[string]json.RawMessage
+  if json.Unmarshal(pod["containers"],&containers)!=nil{return nil,fmt.Errorf("invalid allocation endpoint containers")}
+  encoded,err:=json.Marshal(env);if err!=nil||len(encoded)>8192{return nil,fmt.Errorf("allocation endpoint environment exceeds its limit")}
+  found:=0
+  for _,container:=range containers{
+   if container["env"]==nil{continue}
+   var entries []map[string]json.RawMessage
+   if json.Unmarshal(container["env"],&entries)!=nil{return nil,fmt.Errorf("invalid allocation endpoint environment")}
+   for _,entry:=range entries{
+    var name,value string
+    if json.Unmarshal(entry["name"],&name)!=nil{return nil,fmt.Errorf("invalid allocation endpoint environment name")}
+    if name!="STEGO_ALLOCATION_NETWORK_ENDPOINTS"{continue}
+    if json.Unmarshal(entry["value"],&value)!=nil||value!="stego_unrendered_allocation_endpoints"||entry["valueFrom"]!=nil{return nil,fmt.Errorf("allocation endpoint environment differs")}
+    entry["value"],_=json.Marshal(string(encoded));found++
+   }
+   container["env"],_=json.Marshal(entries)
+  }
+  if found!=1{return nil,fmt.Errorf("allocation endpoint environment is missing or repeated")}
+  pod["containers"],_=json.Marshal(containers);podTemplate["spec"],_=json.Marshal(pod);spec["template"],_=json.Marshal(podTemplate)
+ default:return nil,fmt.Errorf("unknown allocation endpoint resource")
+ }
+ item["spec"],_=json.Marshal(spec)
+ encoded,err:=json.Marshal(item);if err!=nil||len(encoded)>200000{return nil,fmt.Errorf("rendered allocation endpoint resource exceeds its limit")}
+ result:=make([]string,0,len(names));for name:=range names{result=append(result,name)};sort.Strings(result)
+ return result,nil
 }
 
 func main(){if err:=render(os.Args[1:],os.Stdout);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}

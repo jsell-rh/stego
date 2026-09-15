@@ -143,6 +143,10 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	allocation, err := allocationConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var files []gen.File
 	for _, w := range declarations {
 		namespace := path.Join(ctx.OutputNamespace, "workers", w.Name)
@@ -154,6 +158,15 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 		}
 		files = append(files, gen.File{Path: path.Join(namespace, "main.go"), Content: code})
 		env := []any{object{"name": "GOMEMLIMIT", "value": "384MiB"}, object{"name": "STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK", "value": "0"}, object{"name": "STEGO_CONTROLLER_MONITOR_ADDR", "value": "127.0.0.1:9081"}, object{"name": "OTEL_SERVICE_NAME", "value": w.Context.ServiceName}}
+		endpointRefs := ""
+		if allocationWorkerNeedsEndpoints(allocation, w.Context.ServiceName) {
+			encoded, err := json.Marshal(allocationEndpointReferences(allocation))
+			if err != nil {
+				return nil, err
+			}
+			endpointRefs = string(encoded)
+			env = append(env, object{"name": allocationEndpointEnvironment, "value": allocationEndpointPlaceholder})
+		}
 		pod, container := workloadPod(w.Context, env)
 		container["name"] = "worker"
 		probe := func(mode string, period, threshold int) object {
@@ -168,12 +181,12 @@ func workerFiles(ctx gen.Context) ([]gen.File, error) {
 			object{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": metadata, "spec": rules},
 			object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": object{"type": "Recreate"}, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
 		}
+		if endpointRefs != "" {
+			deployment := items[2].(object)
+			deployment["metadata"] = object{"name": w.Context.ServiceName, "namespace": "{{.Namespace}}", "annotations": object{allocationEndpointAnnotation: endpointRefs}}
+		}
 		access, _ := kubernetesAccess(w.Context)
 		items = append(access, items...)
-		allocation, err := allocationConfig(ctx)
-		if err != nil {
-			return nil, err
-		}
 		if allocation.Allocator == w.Context.ServiceName {
 			protected, err := allocationObjects(allocation)
 			if err != nil {

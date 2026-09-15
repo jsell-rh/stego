@@ -251,6 +251,11 @@ func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
 func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	t.Helper()
 	c := allocationContext()
+	if filter == "^TestAllocationEndpoint" {
+		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+		p["network_isolation"] = true
+		p["network_endpoints"] = []any{"kubernetes", "provider"}
+	}
 	files, err := allocationFiles(c)
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +284,9 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_deny_test.go", Content: allocationNetworkDenyTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_peers_test.go", Content: allocationNetworkPeersTests})
+	if filter == "^TestAllocationEndpoint" {
+		files = append(files, gen.File{Path: "deploy/allocation/allocation_endpoint_runtime_test.go", Content: allocationEndpointRuntimeTests})
+	}
 	dir := t.TempDir()
 	for _, f := range files {
 		name := filepath.Join(dir, "out", f.Path)
