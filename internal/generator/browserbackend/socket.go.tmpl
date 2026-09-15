@@ -67,6 +67,7 @@ func(b *Backend)socket(w http.ResponseWriter,r *http.Request){
   if !stopRequest()||r.Context().Err()!=nil{return context.Canceled}
   if ctx.Err()!=nil{return ctx.Err()}
   accepted=true
+  if err:=http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5*time.Second));err!=nil{failure(w,503);return err}
   ping,pong:=client.SocketControlHandlers(cancel)
   browser,err:=websocket.Accept(socketWriter{w},r,&websocket.AcceptOptions{CompressionMode:websocket.CompressionDisabled,OnPingReceived:ping,OnPongReceived:pong});if err!=nil{return err}
   defer browser.CloseNow();browser.SetReadLimit(client.SocketMessageBytes)

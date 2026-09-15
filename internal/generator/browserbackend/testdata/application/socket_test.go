@@ -1,11 +1,13 @@
 package browser
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	client "example.com/browser-test/out/browser/client"
 	"github.com/coder/websocket"
 	"github.com/felixge/httpsnoop"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,12 +18,29 @@ import (
 	"time"
 )
 
+// A wrapper can retain HTTP deadlines at the instant of a hijack.
+// The generated socket writer must clear them after the connection transfers.
+type tightDeadlineWriter struct{ http.ResponseWriter }
+
+func (w tightDeadlineWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+func (w tightDeadlineWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := conn.SetDeadline(time.Now().Add(80 * time.Millisecond)); err != nil {
+		conn.Close()
+		return nil, nil, err
+	}
+	return conn, rw, nil
+}
+
 func socketServer(t *testing.T, f *fixture) (*Backend, *httptest.Server, <-chan int) {
 	t.Helper()
 	b := f.start(t)
 	complete := make(chan int, 8)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		result := httpsnoop.CaptureMetrics(b, w, r)
+		result := httpsnoop.CaptureMetrics(b, tightDeadlineWriter{w}, r)
 		complete <- result.Code
 	}))
 	server.Config.ReadTimeout = 80 * time.Millisecond
