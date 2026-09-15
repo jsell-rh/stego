@@ -517,3 +517,25 @@ The separate external browser gate rejected a fixture network profile mismatch
 before it created a Job. Hypershell `348f630` uses the operator's existing network
 profile with external SQL credentials still selected, and checks that profile
 before taking the shared test Lease. The correction needs live qualification.
+
+## Gateway grant policy and provider adoption
+
+The application policy permits people and registered API automation to receive
+explicit Gateway owner or viewer grants. The stored issuer and subject select
+the identity. An interactive login is not required. An absent Keycloak
+`serviceAccountClientId` field is not proof of a human identity.
+
+Hypershell commit `2c8d2c2` uses generated `ReconcileUserClientRoles` for Gateway
+grants.
+Its adapter supplies the trusted Gateway binding and maps its two domain roles
+to OpenShell roles. The common provider owns role lookup, bounded requests,
+removal before addition, inherited-access checks, and final role confirmation.
+The adapter fell from 137 to 51 lines; the three main adapter files total 1,356
+lines. This change does not add Hypershell policy to the provider.
+
+The small adapter suite passed with the race detector in 1.326 seconds. Its 19
+Gateway grant cases cover both identity types and failed access changes. The
+real application login test now adds API automation registration, REST grants,
+provider role checks, denied requests, and removal across restart. That extension
+still needs CI qualification. Remaining adoption includes client lifecycle,
+scopes, mappers, durable legacy bindings, and checked enablement.
