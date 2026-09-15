@@ -1,0 +1,33 @@
+{
+  "api": {
+    "attempt": 1,
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950955027",
+    "commit": "5dc5742964063f2e8a5eeb65bb063398bcda593b",
+    "required_passed": 30,
+    "source_files_checked": 886,
+    "generated_files_checked": 229,
+    "job_uid": "e3099a13-2b9e-4559-8cd2-d1d1de4c32e0",
+    "cleanup": {
+      "job_absent": "gateway-api-298493cc164e",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    },
+    "artifact_sha256": {
+      "source-sha256.json": "959d0e9fa060fa41f772b3f8eb74a6e5e4d1bedd31cb7aa681efaffcfed66f43",
+      "committed.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "first.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "second.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "after.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "tests.jsonl": "fabdd673f766f5e45cb1dc898ebc0e955323ea1248a569ea7462eb093e5da96b",
+      "job-final.json": "0f415a0b8d3b38496c5e2b0e1715981c8831778ea409587c0e8d42822b49d766",
+      "cleanup.json": "b7adc2a640094f624aafc6e576be70d4db280358bc466f917e7f89b2d82f271e"
+    }
+  },
+  "browser_required": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950955188",
+    "attempt": 2,
+    "commit": "5dc5742964063f2e8a5eeb65bb063398bcda593b",
+    "scope": "The first attempt was cancelled while pending after a credential timing review. The same commit was requeued with a fresh repository secret snapshot. The live viewer result remains required."
+  },
+  "scope": "The API gate compiles the complete acceptance package and verifies 30 named workflows. It does not run the new viewer checks against a live Gateway."
+}

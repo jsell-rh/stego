@@ -3970,3 +3970,15 @@ active API Job and Lease were preserved. Existing queued workflow revisions
 still use their repository secret snapshot. Operator renewal remains necessary;
 this change does not establish unattended CI authentication. See the
 [application contract](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/ci-credentials.md).
+
+The viewer-source API run `34950955027` passed all 30 required checks at
+Hypershell `5dc5742`. Verification matched 886 source files, 229 generated files,
+all generation records, and cleanup. It compiles but does not execute the new
+live viewer checks. The second browser attempt remains required. See the
+[partial viewer evidence](hypershell-viewer-recovery.json).
+
+Full application CI `34950339394` finished at `3f188b2`. Core acceptance passed
+in 1301.692 seconds. Ordinary browser, console, and service-image jobs passed.
+The overall run failed on the unfinished CNPG and Sandbox jobs. The availability
+[evidence](hypershell-workload-availability.json) records this result without
+claiming complete release readiness.

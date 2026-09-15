@@ -349,5 +349,22 @@
       "stored_envelopes": 1
     },
     "manual_cleanup": null
+  },
+  "core_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950339394",
+    "commit": "3f188b2c425e7c72329b4308d2239ada977dd3b8",
+    "core_job_result": "success",
+    "core_seconds": 1301.692,
+    "other_passing_jobs": [
+      "acceptance (browser)",
+      "web-console",
+      "service-image"
+    ],
+    "overall_result": "failure",
+    "failed_jobs": [
+      "cnpg-gateway-workflow",
+      "sandbox-workload"
+    ],
+    "core_log_sha256": "35d18a56cdccd3297550c1987b2ccdae65ec0d8a212fb5ceaa8c64d8f78c6e21"
   }
 }
