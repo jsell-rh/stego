@@ -163,3 +163,13 @@ instrumentation, RPC signals, and exact ready, stop, and failure event counts.
 Cases included startup error, registration error, cleanup error, panic,
 `Goexit`, and clean shutdown. The fixture did not connect to PostgreSQL.
 The full compiler and application CI results remain separate acceptance gates.
+
+At `805a152`, [CI 34978343020](https://github.com/jsell-rh/stego/actions/runs/34978343020)
+passed the full RPC generator package in 124.686 seconds, with race detection.
+Both example jobs and SQL provisioning also passed. The compiler job failed:
+the command-level RPC fixture reused a factory with the custom `telemetry`
+namespace, but its archetype generates `tracing`. The fixture now maps that
+import to the archetype namespace. The corrected command check passed in
+4.481 seconds, including generation, dependency resolution, build, drift, and
+rejection of an invalid factory without output changes. A new full CI result
+is required; the failed run remains recorded.

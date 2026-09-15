@@ -17,6 +17,8 @@ func TestRPCProcessCommandsWithoutStorage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The archetype uses the registry namespace. The generator fixture renames it.
+	factory = bytes.ReplaceAll(factory, []byte("example.com/grpc-test/out/telemetry"), []byte("example.com/grpc-test/out/tracing"))
 	project := t.TempDir()
 	t.Chdir(project)
 	t.Setenv("STEGO_REGISTRY", registry)
