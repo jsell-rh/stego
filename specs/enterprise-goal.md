@@ -219,8 +219,10 @@ behavior and the reference ingress policies. This is an open H1, H2, and H3
 requirement, not a passing isolation result. The common fix belongs in STEGO;
 Hypershell must declare domain peers and ports. On 2026-09-15, the user selected
 only operator-approved Gateway server destinations. Sandbox traffic retains a
-separate policy. The existing two-Role public test
-permission plan must be recomputed after network policy permissions change.
+separate policy. The two-Role public test permission plan was recomputed with compiler `7ebd678`.
+The [live permission update](hypershell-public-permission-update.json) passed all
+eighteen resource checks. Public workflow `34983965151` is active. This update
+does not establish a public connection or network isolation result.
 
 STEGO kubernetes-service 1.11.0 adds an explicit allocator-owned deny-all
 NetworkPolicy option. Full compiler CI, generated runtime and manifest checks,

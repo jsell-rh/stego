@@ -1,0 +1,281 @@
+{
+  "checked_at": "2026-09-15T14:47:19.294135+00:00",
+  "result": "Two-Role live update verified; complete public Gateway test pending.",
+  "consumer_revision": "0befe5884117ede63c4caaf018c14bf6b60b3305",
+  "compiler_revision": "7ebd67831f3faf99b0e84a4962a80bf41e4cb9ac",
+  "namespace": "stego-service-ci",
+  "namespace_uid": "0666fe42-3306-4de3-acd8-d0acebcf1db6",
+  "installation_before": {
+    "uid": "7557d489-1af4-4348-b499-00db1b85fc57",
+    "resource_version": "6120574"
+  },
+  "installation_after": {
+    "uid": "20de737b-ac59-43dc-b070-1bc5434446cb",
+    "resource_version": "6320007",
+    "immutable": true,
+    "policy_type_checks": "success"
+  },
+  "changes": [
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+      "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+      "added_grants": [
+        [
+          "",
+          "secrets",
+          "get",
+          "openshell-public-tls"
+        ],
+        [
+          "cert-manager.io",
+          "certificates",
+          "get",
+          "openshell-public-tls"
+        ],
+        [
+          "cert-manager.io",
+          "certificates/status",
+          "update",
+          "openshell-public-tls"
+        ]
+      ]
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+      "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+      "added_grants": [
+        [
+          "route.openshift.io",
+          "routes",
+          "create",
+          null
+        ],
+        [
+          "route.openshift.io",
+          "routes",
+          "delete",
+          null
+        ],
+        [
+          "route.openshift.io",
+          "routes",
+          "get",
+          null
+        ],
+        [
+          "route.openshift.io",
+          "routes",
+          "patch",
+          null
+        ]
+      ]
+    }
+  ],
+  "unchanged_cluster_resources": 16,
+  "verified_resources": [
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-gateway-workload",
+      "uid": "095f43f8-c8db-4bd7-9a10-73d4a0a9ab19",
+      "resource_version": "6120564",
+      "normalized_sha256": "9389a8875c25be48c3779dcf1cb9d5b5f250cf3ea60faed227d42c02a1fd5e38"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation",
+      "uid": "103f4a86-d52d-47e9-8628-257be5fdfdb9",
+      "resource_version": "6120560",
+      "normalized_sha256": "2dc1ba23a9710322546104f50184c1a02c3e3e66e53d905063cd37cb7031bbd4"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-gateway-inspector",
+      "uid": "f5c8791f-e9cf-45b1-9f8d-772431d780d7",
+      "resource_version": "6319920",
+      "normalized_sha256": "8615704b34cad8a1a8f5fc7378d895cd55f88b23dccba1ea2137dd8eb46dc75b"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.fixture-state-inspector",
+      "uid": "57b5124e-968e-432a-ab5e-c792f1ad0c70",
+      "resource_version": "6120550",
+      "normalized_sha256": "fde3a52a7e64a54a47d8130737c9d4dbb54575decbd8d5047ac8a07f29415a5f"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-reviews",
+      "uid": "c77ff8f0-256c-4274-aedb-6da027eeb609",
+      "resource_version": "6120557",
+      "normalized_sha256": "1d8393ad86ec709baa486fd0fb7611eccb24b1fa483c856fcd38c9e2259ddc50"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-runtime",
+      "uid": "f2bbfaba-3d34-4bd3-96fc-7ed89a28c3b8",
+      "resource_version": "6120555",
+      "normalized_sha256": "cdf58bff875646c0cf7674890ab84758323a2f87120c3db7bfb0e9c889659921"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-state",
+      "uid": "b6689010-e1c2-4081-8e7e-0e008c5e2ce1",
+      "resource_version": "6120553",
+      "normalized_sha256": "d3c826a9e43d18c3ec5ec3e8adda97b5109f64809ad0bfec8fb2e989ef63368a"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.gateway-worker",
+      "uid": "54389195-79ab-4448-b15e-a2e8111f9ec4",
+      "resource_version": "6319929",
+      "normalized_sha256": "47246be66f9dfaf060439985371afd47961f90af1164db981d4bc3243e4ed118"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.proof",
+      "uid": "fcb78ed6-91db-42f5-bbcd-9282a11eff6e",
+      "resource_version": "6120558",
+      "normalized_sha256": "7fea8a415126cb6f4cc847a0efda482f7c49f8c131077876d2c4085e4b530f41"
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "stego-service-ci.hypershell-namespace-allocation.sandbox-count",
+      "uid": "6a0a11c7-dd86-4a24-a1ce-5259ab0a9ab5",
+      "resource_version": "6120551",
+      "normalized_sha256": "f26efe9a4ec7949e502be1e2a85e8da49f2b7abe18a528d6d10a34c7613e1546"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-service-ci.hypershell-gateway-workload",
+      "uid": "400775cb-7c10-485d-88aa-a8488d080e9f",
+      "resource_version": "6120565",
+      "normalized_sha256": "4ce15b9b05c3d5e916abca29b965787d9e0963c8d1151d747360800c9e8c55ef"
+    },
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation",
+      "uid": "88d5486c-40d6-47b0-8a90-75e8cc7696f1",
+      "resource_version": "6120562",
+      "normalized_sha256": "e7e3ef127a125bd593a0c0f21cb1c6dde329441bffcde971c919918064114bfd"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+      "uid": "c466fcde-1874-4bc9-bc02-264d62e1c517",
+      "resource_version": "6120538",
+      "normalized_sha256": "2f9ee0032d2f7956d7a597146f3d88833841c5d9c6bc0d2eef74af3738a11e30"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+      "uid": "398d815d-25ef-4320-be4b-f0c274e2d6e6",
+      "resource_version": "6120534",
+      "normalized_sha256": "df7cca6551bd15107ae63be1887017228da54209cd30894e6abb34e20c9f936b"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicy",
+      "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+      "uid": "a3b714c5-17a2-48ef-bf62-0dad6d5221ad",
+      "resource_version": "6120543",
+      "normalized_sha256": "ae15a88fe451a0be9912b385f848681600530ef7636d6c2e4e0e23b2fad6b10a"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.allocation",
+      "uid": "c5d82f5e-71d2-42a9-9d4f-70925f87d49c",
+      "resource_version": "6120532",
+      "normalized_sha256": "42ac4cf81cb2e96c8ebb3e1c8357b9fbaee439fdc1c93c5edc6fc49946188ef9"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.ownership",
+      "uid": "ba1ab5a0-be60-45d7-acc2-af41c2f2924f",
+      "resource_version": "6120537",
+      "normalized_sha256": "1fa62ceb818d7fcf58e24daab6cdb60ae19f7b10cbe50c95400ba72abd392ee2"
+    },
+    {
+      "kind": "ValidatingAdmissionPolicyBinding",
+      "name": "stego-service-ci.hypershell-namespace-allocation.resources",
+      "uid": "ee65ddc5-aa8b-40da-abf2-52e1e09fea86",
+      "resource_version": "6120546",
+      "normalized_sha256": "33154dbf0a57cb321d8625cdbb4b77cc860d049e438e4a9cafeff97dc5c3c6d7"
+    }
+  ],
+  "pre_update_cleanup": {
+    "namespace_uid": "0666fe42-3306-4de3-acd8-d0acebcf1db6",
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "holder": "browser-permissions-20260915",
+    "workloads": 0,
+    "allocated_namespaces": 0,
+    "allocated_cluster_bindings": 0
+  },
+  "lease_released_after_verification": true,
+  "write_guards": [
+    "Shared live-test Lease and unchanged namespace identity.",
+    "All eighteen complete resource specifications and UIDs checked.",
+    "Only the two rule lists changed, with UID, fresh resourceVersion, and old-rules tests.",
+    "Admission type checks passed before record replacement.",
+    "Immutable record replaced with UID and resourceVersion delete preconditions.",
+    "New record and all resources verified before Lease release."
+  ],
+  "failed_runs": [
+    {
+      "id": 34982937408,
+      "result": "Browser preflight rejected the old installation before test Job creation."
+    },
+    {
+      "id": 34982937973,
+      "result": "API test could not acquire the retained Lease. No test Job was created."
+    }
+  ],
+  "public_test": {
+    "run_id": 34983965151,
+    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34983965151",
+    "state": "started; no result yet",
+    "configuration": {
+      "issuer_uid": "c38c5364-505a-44df-b9ce-04b56a4fcd86",
+      "issuer_resource_version": "3813134",
+      "router_service_uid": "dbf2ab24-8773-4c6b-817e-6053437714aa",
+      "router_service_resource_version": "3060",
+      "router_hostname": "adbf2ab2487734c6b817e6053437714a-122f9c992f951afc.elb.us-east-1.amazonaws.com",
+      "domain": "apps.rosa.jshell.8u58.p3.openshiftapps.com",
+      "router": "default",
+      "endpoints": [
+        "34.206.133.57:443"
+      ],
+      "ca_pem_sha256": "0e82d401a38ffb9242173f8e8e0f5e7b551b4d34de2040431c2c19baaa8ddf34",
+      "config_sha256": "29dcabe57f51eb04b188d3ea53b412aaeaf323894be27dc13263a958cee0796d"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/plan.json",
+      "sha256": "cb196a1a14a64029111c29edde9c185eff6332ae43c27ee971f6f0b104432b66"
+    },
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/journal.json",
+      "sha256": "f8ca4745c4feff8b0e8e278dd327cbef28d40000b825f419151aa75e34d62560"
+    },
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/installed-record.json",
+      "sha256": "86e45ad5b0e92d9f3eeb0545cd2a0e7c3b22809b386bfcf145f5dd9caec92b43"
+    },
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/update.py",
+      "sha256": "f1d15f0bbd3746c9499050eb2d38e11d85dd6f29be1159ddd1f6996c98569c3d"
+    },
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/failed-run-cleanup-audit.json",
+      "sha256": "647458a3095158ddac08fc935f9aaf831b543cfba9bfbe6ede34af52a367e5e1"
+    },
+    {
+      "path": "/tmp/hypershell-browser-permission-update-20260915/rendered/cluster-installation.json",
+      "sha256": "fd247230c2681c1defcd06f16dc1fdbd0eb12bd94317d4102bff823ec227c815"
+    }
+  ],
+  "limits": [
+    "This update proves installation identity and permissions. It does not prove the public Gateway workflow.",
+    "The production Gateway network isolation option remains off. Allowed destinations and live traffic checks remain required."
+  ]
+}
