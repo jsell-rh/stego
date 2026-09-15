@@ -830,6 +830,58 @@
       }
     }
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/eac3925262979e80d835a4b46faf1d77e797d8e9/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "defeee2fb8f2c5a0849776364173f976e5239c7ca6b3791149fc1138a6469b8a"
+  "latest_full_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954",
+    "commit": "3757c278105daba5e0b7a19879c9bd35efcb27bc",
+    "status": "completed",
+    "conclusion": "failure",
+    "jobs": [
+      {
+        "name": "service-image",
+        "conclusion": "success",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:40:28Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384358"
+      },
+      {
+        "name": "sandbox-workload",
+        "conclusion": "failure",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:37:06Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384475"
+      },
+      {
+        "name": "web-console",
+        "conclusion": "success",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:39:07Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384521"
+      },
+      {
+        "name": "cnpg-gateway-workflow",
+        "conclusion": "failure",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:37:09Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384544"
+      },
+      {
+        "name": "acceptance (core)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:57:17Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384659"
+      },
+      {
+        "name": "acceptance (browser)",
+        "conclusion": "success",
+        "started_at": "2026-09-15T07:36:30Z",
+        "completed_at": "2026-09-15T07:40:11Z",
+        "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025954/job/104294384757"
+      }
+    ],
+    "github_response_sha256": "9223ca167a050b496b20521c82111146a7feef34113e1ad33016335108d3b57c",
+    "scope": "The core, browser, console, and image jobs passed. The overall run failed because the CNPG and Sandbox jobs failed."
+  },
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/b6c8c3c2831f8c7092e2b3b5e66e7f8bed57c937/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "fb8c08e537e44788be9970c1f8d12e768403268c4bb6763adce2fea2cac20d77"
 }

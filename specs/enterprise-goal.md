@@ -3810,3 +3810,8 @@ private fixture, operator resources, and both recorded persistent volumes. The
 shared Lease was released. After the new worker node became ready, the same
 frozen source started a second bounded attempt. The failed result is retained
 in the [attempt record](hypershell-cnpg-installation-attempts.json).
+
+Full CI run `34942025954` for `3757c27` completed. The core suite, ordinary
+browser suite, web console, and service image jobs passed. The overall run
+failed because its CNPG and Sandbox jobs failed. The current operator-assisted
+CNPG run is separate evidence and cannot change that CI result.
