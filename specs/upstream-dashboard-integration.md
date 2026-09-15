@@ -73,10 +73,24 @@ configured. CI must run those tests with its required PostgreSQL fixture. They
 cover login, identity-header removal, restart, writes, upstream denial, refresh,
 and logout across backend instances. They use a test application server.
 
+CI has now completed those checks. All four jobs passed for both
+[the transport change](https://github.com/jsell-rh/stego/actions/runs/35020649258)
+at `e30174aa54da00d0b0835125c8f678a26d67b0b7` and
+[the session change](https://github.com/jsell-rh/stego/actions/runs/35021067251)
+at `7d05c2d94f71f44cbee94b44fa9b1b125b8d71ab`. The compiler job ran all tests
+with the race detector and required PostgreSQL. The session checks were not
+skipped in that environment.
+
 The ordinary browser backend's generated files were also compared with the
 previous templates. They were byte-identical for the existing test declaration.
 Results and comparison sources are in
 `/home/jsell/.local/state/stego/runs/dashboard-browser-20260915`.
+
+The upstream `GetWhoAmI` handler asks the Gateway for identity. A separate user
+header would permit a display-only fallback after an RPC error. The proxy
+therefore forwards the bearer token and omits that header. The terminal UI has
+no automatic reconnect; a new connection starts a new shell. The WebSocket
+integration must account for this behavior when it ends an expired session.
 
 ## Remaining acceptance work
 
