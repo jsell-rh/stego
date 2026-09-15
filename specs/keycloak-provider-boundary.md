@@ -293,10 +293,20 @@ with and without telemetry. They cover drift, missing fields, ownership,
 unsafe callbacks, conflicts, ignored writes, and repeated reconciliation.
 Sources and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-native-20260915`.
-The live extension is pending. It uses the real Keycloak login form to check
-authorization-code login, PKCE rejection, callback rejection, signed token
-claims, code reuse denial, and device authorization policy for two profiles.
-It drives bounded HTTP protocol requests; it is not a browser UI test.
+The live extension passed at `fae5f39f680e1c33ffa399b46a5ae9521d255bd8` in
+[run 35032789086](https://github.com/jsell-rh/stego/actions/runs/35032789086).
+It uses the real Keycloak login form to check authorization-code login, PKCE
+rejection, callback rejection, signed token claims, code reuse denial, and
+device authorization policy for two profiles. It also verifies attribute repair
+and rejects callback path, query, and fragment changes. The runtime took 45.19
+seconds. Container cleanup passed. The three other completed jobs passed; the
+full compiler job was still running when this record was written. Sources and
+results are retained under `default-port-ci` in the native result directory.
+
+This test drives bounded HTTP protocol requests; it is not a browser UI test.
+The device checks cover authorization requests, required PKCE, and the disabled
+policy. They do not cover user approval or device-token exchange. Production
+enablement, ownership migration, and Hypershell adoption remain open.
 
 The first native gate at `0704838` failed before enablement. A diagnostic run at
 `bc7c635` identified `backchannel.logout.revoke.offline.tokens` as the differing
@@ -319,7 +329,7 @@ claims, wrong-verifier rejection, and code reuse denial for the first profile.
 It then rejected a device-authorization request without PKCE parameters. The
 test now supplies S256 parameters and retains the missing-PKCE denial check.
 This preserves the required PKCE policy. Cleanup passed, and the partial result
-is retained under `browser-driver-ci`. The complete native gate is still pending.
+is retained under `browser-driver-ci`. The later passing result is listed above.
 
 The native profile converts port wildcards to Keycloak's loopback registration
 with no port. The pinned provider permits any callback port for `localhost`,
@@ -346,3 +356,8 @@ loopback check, so the saved URI must omit the port. This run failed closed and
 completed container cleanup. The corrected conversion now omits the port.
 The positive login test remains required; negative callback tests alone cannot
 prove a usable registration.
+
+A small test also found a shutdown error race. The HTTP client could stop before
+the operation context received cancellation from the provider lifetime. The
+provider now checks its lifetime before it returns a transport error. Generated
+tests passed with the race detector, with and without telemetry, after this fix.
