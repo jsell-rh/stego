@@ -31,7 +31,7 @@ const CSRFHeader="X-CSRF-Token"
 type asset struct{Source,Path,Hash string}
 type configuration struct{RuntimeConfigOffset int;Prefix,RolesClaim,LogoutScope,TelemetryService string;Routes []string;Assets []asset;ScriptHashes []string}
 type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFile,KeyFile string}
-type Backend struct{telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
+type Backend struct{ {{if .LocalApplication}}sockets socketSet;{{end}}telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 
 // NewBrowserBackend uses compiler-owned database, HTTP, and telemetry resources.
 // Apply schema.sql before startup. OAuth tokens remain in encrypted server state.
@@ -55,8 +55,8 @@ func newBackend(ctx context.Context,db *sql.DB,o options)(*Backend,error){
  for _,route:=range b.config.Routes{pattern:=regexp.QuoteMeta(route);pattern=strings.ReplaceAll(pattern,`\{id\}`,`[^/]+`);compiled,err:=regexp.Compile("^"+pattern+"$");if err!=nil{b.Close();return nil,errors.New("invalid generated browser route")};b.routes=append(b.routes,compiled)}
  return b,nil
 }
-func(b *Backend)Close(){b.close.Do(func(){b.provider.close();b.upstream.Close()})}
-func(b *Backend)Run(ctx context.Context)error{
+func(b *Backend)Close(){b.close.Do(func(){ {{if .LocalApplication}}b.sockets.close();b.sockets.wg.Wait();{{end}}b.provider.close();b.upstream.Close()})}
+func(b *Backend)Run(ctx context.Context)error{ {{if .LocalApplication}}defer func(){b.sockets.close();b.sockets.wg.Wait()}();{{end}}
  ticker:=time.NewTicker(time.Minute);defer ticker.Stop()
  for {select{case <-ctx.Done():return nil;case <-ticker.C:
   work,cancel:=context.WithTimeout(ctx,5*time.Second);_ = b.store.sweep(work);cancel()
@@ -74,7 +74,8 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store");w.Header().Set("X-Content-Type-Options","nosniff");w.Header().Set("Referrer-Policy","no-referrer")
  w.Header().Set("Content-Security-Policy","default-src 'none'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'")
  w.Header().Set("Strict-Transport-Security","max-age=31536000")
- select{case b.permits<-struct{}{}:defer func(){<-b.permits}();default:failure(w,503);return}
+ {{if .LocalApplication}}if socketRequest(r){b.socket(w,r);return}
+ {{end}}select{case b.permits<-struct{}{}:defer func(){<-b.permits}();default:failure(w,503);return}
  original:=r;defer func(){original.Pattern=r.Pattern}()
  ctx,cancel:=context.WithTimeout(r.Context(),20*time.Second);defer cancel();r=r.WithContext(ctx)
  if r.TLS==nil||r.Host!=b.origin.Host||r.URL.RawPath!=""||len(r.URL.Path)>4096||len(r.URL.RawQuery)>8192||strings.ContainsAny(r.URL.Path,"\\\x00\r\n"){failure(w,400);return}

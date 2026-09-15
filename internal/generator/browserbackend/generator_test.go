@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
@@ -100,6 +101,34 @@ func TestInvalidConfig(t *testing.T) {
 func TestGeneratedRuntime(t *testing.T) { testGeneratedRuntime(t, new(Generator), fixture(), false) }
 func TestGeneratedLocalApplicationRuntime(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/socket") {
+			if r.Header.Get("Authorization") != "Bearer initial-access-value" || r.Header.Get("Cookie") != "" || r.Header.Get("X-Forwarded-User") != "" {
+				w.WriteHeader(401)
+				return
+			}
+			if r.URL.Query().Get("denied") == "1" {
+				w.WriteHeader(403)
+				return
+			}
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.CloseNow()
+			for {
+				kind, data, err := conn.Read(r.Context())
+				if err != nil {
+					return
+				}
+				if string(data) == "exit" {
+					_ = conn.Close(websocket.StatusNormalClosure, "17")
+					return
+				}
+				if err := conn.Write(r.Context(), kind, data); err != nil {
+					return
+				}
+			}
+		}
 		w.Header().Set("Set-Cookie", "upstream=private")
 		w.Header().Set("X-Private", "private")
 		w.Header().Set("Content-Type", "application/json")
@@ -192,15 +221,25 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 		}
 	}
 	if local {
-		data, err := os.ReadFile("testdata/application/runtime_test.go")
+		entries, err := os.ReadDir("testdata/application")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(project, "out/browser/application_test.go"), data, 0644); err != nil {
-			t.Fatal(err)
+		for _, entry := range entries {
+			data, err := os.ReadFile(filepath.Join("testdata/application", entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(project, "out/browser/application_"+entry.Name()), data, 0644); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=90s", "-v", "./..."}} {
+	checks := [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=90s", "-v", "./..."}}
+	if local && os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {
+		checks = append(checks, []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.4.0", "./..."})
+	}
+	for _, args := range checks {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		cmd := exec.CommandContext(ctx, "go", args...)
 		cmd.Dir = project

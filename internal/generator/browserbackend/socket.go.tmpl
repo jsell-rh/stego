@@ -1,0 +1,119 @@
+package {{.Package}}
+
+import (
+ "bufio"
+ "context"
+ "encoding/base64"
+ "errors"
+ "net"
+ "net/http"
+ "strings"
+ "sync"
+ "time"
+ "unicode/utf8"
+ "github.com/coder/websocket"
+ client {{printf "%q" .Client}}
+)
+
+const socketCapacity=4
+const socketSessionCapacity=2
+const socketSessionInterval=5*time.Second
+
+type socketLease struct{key string;cancel context.CancelFunc}
+type socketSet struct{mu sync.Mutex;wg sync.WaitGroup;closed bool;leases map[*socketLease]bool}
+func(s *socketSet)acquire(ctx context.Context,id string)(context.Context,func(),error){
+ hash,err:=sessionHash(id);if err!=nil{return nil,nil,err}
+ key:=string(hash)
+ s.mu.Lock();defer s.mu.Unlock()
+ count:=0;for lease:=range s.leases{if lease.key==key{count++}}
+ if s.closed||len(s.leases)>=socketCapacity||count>=socketSessionCapacity{return nil,nil,errBusy}
+ ctx,cancel:=context.WithCancel(ctx);lease:=&socketLease{key:key,cancel:cancel}
+ if s.leases==nil{s.leases=map[*socketLease]bool{}};s.leases[lease]=true;s.wg.Add(1)
+ var once sync.Once
+ return ctx,func(){once.Do(func(){cancel();s.mu.Lock();delete(s.leases,lease);s.mu.Unlock();s.wg.Done()})},nil
+}
+func(s *socketSet)end(id string){
+ hash,err:=sessionHash(id);if err!=nil{return}
+ s.mu.Lock();defer s.mu.Unlock();for lease:=range s.leases{if lease.key==string(hash){lease.cancel()}}
+}
+func(s *socketSet)close(){s.mu.Lock();defer s.mu.Unlock();s.closed=true;for lease:=range s.leases{lease.cancel()}}
+
+// The HTTP server's request deadlines must not become socket deadlines.
+// Socket contexts and write deadlines replace them after a valid upgrade.
+type socketWriter struct{http.ResponseWriter}
+func(w socketWriter)Hijack()(net.Conn,*bufio.ReadWriter,error){
+ conn,rw,err:=http.NewResponseController(w.ResponseWriter).Hijack();if err!=nil{return nil,nil,err}
+ if err:=conn.SetDeadline(time.Time{});err!=nil{conn.Close();return nil,nil,err};return conn,rw,nil
+}
+func socketRequest(r *http.Request)bool{return len(r.Header.Values("Upgrade"))!=0||len(r.Header.Values("Sec-WebSocket-Key"))!=0}
+func(b *Backend)socket(w http.ResponseWriter,r *http.Request){
+ r.Pattern=b.config.Prefix+"/{resource}/socket"
+ if r.TLS==nil||r.Host!=b.origin.Host||r.Method!="GET"||r.ProtoMajor!=1||r.ProtoMinor<1||r.ContentLength!=0||r.URL.RawPath!=""||len(r.URL.Path)>4096||len(r.URL.RawQuery)>8192||strings.ContainsAny(r.URL.Path,"\\\x00\r\n")||!strings.HasPrefix(r.URL.Path,b.config.Prefix+"/"){failure(w,400);return}
+ if !b.applicationCSRF(r){failure(w,403);return}
+ if len(r.Header.Values("Authorization"))!=0||len(r.Header.Values("Sec-WebSocket-Protocol"))!=0||len(r.Header.Values("Sec-WebSocket-Version"))!=1||r.Header.Get("Sec-WebSocket-Version")!="13"||len(r.Header.Values("Upgrade"))!=1||!strings.EqualFold(r.Header.Get("Upgrade"),"websocket")||len(r.Header.Values("Sec-WebSocket-Key"))!=1{failure(w,400);return}
+ key,err:=base64.StdEncoding.DecodeString(r.Header.Get("Sec-WebSocket-Key"));if err!=nil||len(key)!=16||base64.StdEncoding.EncodeToString(key)!=r.Header.Get("Sec-WebSocket-Key"){failure(w,400);return}
+ connection:=false;for _,value:=range r.Header.Values("Connection"){for _,token:=range strings.Split(value,","){if strings.EqualFold(strings.TrimSpace(token),"upgrade"){connection=true}}};if !connection{failure(w,400);return}
+ id:=cookieID(r,SessionCookie);if id==""{reauthenticate(w);return}
+ // Detach the stream lifetime from the HTTP request after the handshake.
+ work,release,err:=b.sockets.acquire(context.WithoutCancel(r.Context()),id);if err!=nil{sessionError(w,err);return};defer release()
+ handshake,cancelHandshake:=context.WithTimeout(r.Context(),5*time.Second)
+ value,err:=b.active(handshake,id);cancelHandshake();if err!=nil{sessionError(w,err);return}
+ expiry:=min(value.Expires,value.AccessExpires)
+ work,cancel:=context.WithDeadline(work,time.Unix(expiry,0));defer cancel()
+ stopRequest:=context.AfterFunc(r.Context(),cancel);defer stopRequest()
+ accepted:=false
+ status,err:=b.upstream.Socket(work,r.URL.RequestURI(),value.Access,func(ctx context.Context,upstream *websocket.Conn)error{
+  // A hijack can cancel r.Context. The session and backend now own the stream.
+  if !stopRequest()||r.Context().Err()!=nil{return context.Canceled}
+  if ctx.Err()!=nil{return ctx.Err()}
+  accepted=true
+  ping,pong:=client.SocketControlHandlers(cancel)
+  browser,err:=websocket.Accept(socketWriter{w},r,&websocket.AcceptOptions{CompressionMode:websocket.CompressionDisabled,OnPingReceived:ping,OnPongReceived:pong});if err!=nil{return err}
+  defer browser.CloseNow();browser.SetReadLimit(client.SocketMessageBytes)
+  return b.relaySocket(ctx,id,value,browser,upstream)
+ })
+ if accepted{return}
+ if err==nil{failure(w,502);return}
+ if errors.Is(err,client.ErrSocketCapacity){failure(w,503);return}
+ if status==401{if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};b.sockets.end(id);clearCookie(w,SessionCookie);reauthenticate(w);return}
+ if status==403||status==404{failure(w,status);return}
+ failure(w,502)
+}
+
+type socketBudget struct{messages,bytes int}
+func(b *socketBudget)accept(size int)bool{
+ if size<0||size>client.SocketMessageBytes||b.messages>=client.SocketMessages||size>client.SocketBytes-b.bytes{return false}
+ b.messages++;b.bytes+=size;return true
+}
+type socketResult struct{upstream bool;err error}
+func(b *Backend)relaySocket(ctx context.Context,id string,initial session,browser,upstream *websocket.Conn)error{
+ ctx,cancel:=context.WithCancel(ctx);defer cancel()
+ stop:=context.AfterFunc(ctx,func(){_ = upstream.CloseNow();_ = browser.CloseNow()});defer stop()
+ results:=make(chan socketResult,3)
+ relay:=func(from,to *websocket.Conn,source bool){
+  var budget socketBudget
+  for{
+   kind,data,err:=from.Read(ctx);if err!=nil{results<-socketResult{source,err};return}
+   if !budget.accept(len(data))||kind==websocket.MessageText&&!utf8.Valid(data){results<-socketResult{source,errors.New("WebSocket stream limit")};return}
+   write,cancelWrite:=context.WithTimeout(ctx,5*time.Second);err=to.Write(write,kind,data);cancelWrite();if err!=nil{results<-socketResult{source,err};return}
+  }
+ }
+ go relay(upstream,browser,true)
+ go relay(browser,upstream,false)
+ go func(){
+  ticker:=time.NewTicker(socketSessionInterval);defer ticker.Stop()
+  for{select{case <-ctx.Done():results<-socketResult{err:ctx.Err()};return;case <-ticker.C:
+   check,done:=context.WithTimeout(ctx,2*time.Second);value,state,_,err:=b.store.read(check,id);done()
+   if err!=nil||value.Kind!="active"||(state!="active"&&state!="refreshing")||value.Subject!=initial.Subject||value.Access!=initial.Access{results<-socketResult{err:errSession};return}
+  }}
+ }()
+ first:=<-results
+ // Preserve the application's normal exit message, including a terminal exit
+ // code. Error details and session values are not sent as close reasons.
+ var closed websocket.CloseError
+ normal:=errors.As(first.err,&closed)&&closed.Code==websocket.StatusNormalClosure
+ if normal&&first.upstream{_ = browser.Close(websocket.StatusNormalClosure,closed.Reason)}
+ cancel();_ = upstream.CloseNow();_ = browser.CloseNow()
+ <-results;<-results
+ if normal{return nil};return errors.New("WebSocket stream ended")
+}

@@ -1,0 +1,58 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "net/http"
+ "net/url"
+ "strings"
+ "sync/atomic"
+ "time"
+ "github.com/coder/websocket"
+ {{if .Tracing}}tracing {{printf "%q" .Tracing}}{{end}}
+)
+
+const SocketMessageBytes = 1 << 20
+const SocketBytes = 64 << 20
+const SocketMessages = 65536
+const SocketTimeout = 5*time.Minute
+// SocketControlHandlers limit control traffic without logging its payload.
+func SocketControlHandlers(cancel context.CancelFunc)(func(context.Context,[]byte)bool,func(context.Context,[]byte)){
+ var count atomic.Int64
+ accept:=func()bool{if count.Add(1)>1024{cancel();return false};return true}
+ return func(context.Context,[]byte)bool{return accept()},func(context.Context,[]byte){accept()}
+}
+var ErrSocketCapacity = errors.New("WebSocket capacity exceeded")
+
+// Socket opens one authenticated connection to the configured application.
+// The callback owns the connection only until it returns. It must honor ctx.
+// The transport closes the connection on cancellation, shutdown, or return.
+// Only a server-held token is accepted. Browser headers are not forwarded.
+func(c *Client)Socket(ctx context.Context,relative,token string,consume func(context.Context,*websocket.Conn)error)(int,error){
+ if c==nil||c.closed.Load()||ctx==nil{return 0,errors.New("WebSocket client is unavailable")}
+ cancel:=func(){};defer func(){cancel()}()
+ {{if .Tracing}}
+ ctx,inject,finish:=tracing.TraceClientHTTP(ctx,http.MethodGet)
+ status:=0;kind:="aborted"
+ defer func(){if kind!="aborted"{if ctx.Err()==context.DeadlineExceeded{kind="deadline"}else if ctx.Err()==context.Canceled{kind="canceled"}};finish(status,kind)}()
+ fail:=func(class string,err error)(int,error){kind=class;return status,err}
+ {{else}}status:=0;fail:=func(_ string,err error)(int,error){return status,err}{{end}}
+ u,err:=url.Parse(relative)
+ if err!=nil||len(relative)>12288||!strings.HasPrefix(relative,"/")||strings.HasPrefix(relative,"//")||u.IsAbs()||u.Host!=""||u.User!=nil||u.Fragment!=""||!safePath(u.EscapedPath())||consume==nil||token==""||len(token)>16384||strings.ContainsAny(token,"\r\n\x00"){return fail("invalid_request",errors.New("invalid WebSocket request"))}
+ select{case c.streamPermits<-struct{}{}:defer func(){<-c.streamPermits}();default:return fail("capacity",ErrSocketCapacity)}
+ work,stopWork:=context.WithTimeout(ctx,SocketTimeout);cancel=stopWork;ctx=work
+ stop:=context.AfterFunc(c.lifetime,cancel);defer stop()
+ headers:=http.Header{"Authorization":{"Bearer "+token},"Origin":{c.base.Scheme+"://"+c.base.Host}}
+ {{if .Tracing}}headers=inject(headers){{end}}
+ ping,pong:=SocketControlHandlers(cancel)
+ conn,response,err:=websocket.Dial(work,strings.TrimRight(c.base.String(),"/")+relative,&websocket.DialOptions{HTTPClient:c.http,HTTPHeader:headers,CompressionMode:websocket.CompressionDisabled,OnPingReceived:ping,OnPongReceived:pong})
+ if response!=nil{status=response.StatusCode}
+ if err!=nil{return fail("transport",errors.New("WebSocket application handshake failed"))}
+ defer conn.CloseNow()
+ conn.SetReadLimit(SocketMessageBytes)
+ stopConnection:=context.AfterFunc(work,func(){_ = conn.CloseNow()});defer stopConnection()
+ if err:=consume(work,conn);err!=nil{return fail("callback",errors.New("WebSocket application stream ended"))}
+ if work.Err()!=nil{return fail("canceled",errors.New("WebSocket application stream canceled"))}
+ {{if .Tracing}}kind=""{{end}}
+ return status,nil
+}

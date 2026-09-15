@@ -289,6 +289,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort != 0}
 	entries, _ := sources.ReadDir(".")
 	for _, entry := range entries {
+		if entry.Name() == "socket.go.tmpl" && g.LocalApplicationPort == 0 {
+			continue
+		}
 		source, err := sources.ReadFile(entry.Name())
 		if err != nil {
 			return nil, nil, err
@@ -319,10 +322,20 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, client)
+	if g.LocalApplicationPort != 0 {
+		socket, err := httpclient.RenderWebSocket(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]))
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, socket)
+	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
 	wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewBrowserBackend()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, browserBackend)", mountPattern)}, GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}
+	if g.LocalApplicationPort != 0 {
+		wiring.GoModRequires["github.com/coder/websocket"] = httpclient.WebSocketVersion
+	}
 	return files, wiring, nil
 }
 

@@ -62,8 +62,7 @@ check. This follows the origin-validation approach described in the
 [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 The compiler fixes the application port. Runtime API address overrides fail.
-No service YAML setting enables this mode yet. WebSocket upgrades return 501
-until their session and resource controls are implemented. The current HTTP
+No service YAML setting enables this mode yet. The current HTTP
 body limits also remain in effect; full file-transfer behavior is not proved.
 
 Local generation and build checks passed. Two generated checks passed with the
@@ -91,6 +90,42 @@ header would permit a display-only fallback after an RPC error. The proxy
 therefore forwards the bearer token and omits that header. The terminal UI has
 no automatic reconnect; a new connection starts a new shell. The WebSocket
 integration must account for this behavior when it ends an expired session.
+
+## WebSocket integration
+
+The internal application renderer now includes a WebSocket proxy. It requires
+the browser's exact HTTPS origin and a valid session. It completes the upstream
+authentication check before it accepts the browser upgrade. It sends only the
+server-held bearer token and compiler-owned origin, plus trace context. The
+transport does not follow redirects or negotiate compression or subprotocols.
+
+Socket capacity is separate from ordinary HTTP capacity. A backend permits four
+sockets, with two per browser session. Each direction permits 64 MiB and 65,536
+messages. A message is limited to 1 MiB. Each connection permits 1,024 received
+control frames. Writes have a five-second deadline. A socket ends at the first
+of token expiry, session expiry, or five minutes. It does not refresh the token
+on an existing upstream connection.
+
+Local logout cancels the session's sockets. A five-second database check detects
+remote logout, token replacement, and loss of session storage. Each database
+check has a two-second deadline. Backend close and runtime stop cancel socket
+work and wait for its release. After a valid upgrade, socket controls replace
+the ordinary HTTP read and write deadlines. Normal upstream close messages are
+preserved, including terminal exit codes.
+
+The small local checks passed with the race detector. They covered the transport,
+admission limits, control and data limits, redirect rejection, and shutdown.
+Session checks require CI PostgreSQL. The generated application also has a CI
+vulnerability check for its runtime dependencies. These results do not establish
+the live upstream dashboard workflow.
+
+Result directory:
+`/home/jsell/.local/state/stego/runs/dashboard-socket-20260915`.
+
+The generated HTTP shutdown still needs a check that waits for the outer request
+and telemetry handlers after socket work ends. Go HTTP shutdown does not wait
+for hijacked connections. Keep the application mode unavailable in service YAML
+until this lifecycle work and the deployment checks are complete.
 
 ## Remaining acceptance work
 

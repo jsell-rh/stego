@@ -19,6 +19,7 @@ require (
 )
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/dprotaso/go-yit v0.0.0-20220510233725-9ba8df137936 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect

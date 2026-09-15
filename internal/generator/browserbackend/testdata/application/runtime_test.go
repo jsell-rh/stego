@@ -80,7 +80,7 @@ func TestApplicationLoginAndDeniedRequests(t *testing.T) {
 	require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, http.Header{"Authorization": {"Bearer browser-token"}}).Code == 400, "browser bearer was accepted")
 	require(t, send(f.backend, "GET", "/unknown", "", []*http.Cookie{c}, nil).Code == 404, "undeclared UI route was accepted")
 	require(t, send(f.backend, "POST", "/records/record-1", "", []*http.Cookie{c}, http.Header{"Origin": {origin}}).Code == 405, "write reached a UI route")
-	require(t, send(f.backend, "GET", apiPrefix+"/terminal", "", []*http.Cookie{c}, http.Header{"Upgrade": {"websocket"}, "Sec-Websocket-Key": {"a-key"}}).Code == 501, "unsupported upgrade was accepted")
+	require(t, send(f.backend, "GET", apiPrefix+"/terminal", "", []*http.Cookie{c}, http.Header{"Upgrade": {"websocket"}, "Sec-Websocket-Key": {"a-key"}}).Code == 403, "upgrade without an origin was accepted")
 	require(t, send(f.backend, "GET", apiPrefix+"/unauthorized", "", []*http.Cookie{c}, nil).Code == 401, "upstream denial was lost")
 	require(t, send(f.backend, "GET", apiPrefix+"/auth/whoami", "", []*http.Cookie{c}, nil).Code == 401, "denied session remained active")
 }
