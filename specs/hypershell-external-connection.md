@@ -23,12 +23,14 @@ network-policy rendering, bounded clients, and telemetry. Hypershell supplies
 Gateway assignment, hostname policy, API observation mapping, and OIDC rules.
 The application must not contain a second common controller implementation.
 
-The current workload code checks updated and ready replicas, but does not
-require available replicas or recheck owner labels at the readiness read.
-`kubernetes-client` 1.6.0 adds a shared availability check. Small generated
+The workload controller uses the shared availability check from
+`kubernetes-client` 1.6.0. Small generated
 runtime tests cover stale generations, incomplete rollouts, owner mismatch,
 missing status, exact integer handling, and malformed observations. Compiler
-CI and application adoption remain required.
+CI passed at `5e9c89d`. Hypershell adopted the helper at `3f188b2`, whose API
+gate passed all 30 required tests and repeated generation. The complete live
+browser result remains required. See the
+[verified evidence](hypershell-workload-availability.json).
 
 Two application decisions are pending: whether the first public route uses TLS
 passthrough, and whether `route_address` becomes a controller-owned field.

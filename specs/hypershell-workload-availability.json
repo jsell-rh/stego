@@ -1,0 +1,31 @@
+{
+  "compiler": {
+    "commit": "5e9c89d9201db4532de1787dcff234e3988cfa00",
+    "run": "https://github.com/jsell-rh/stego/actions/runs/34950180723",
+    "result": "success"
+  },
+  "api": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950339329",
+    "commit": "3f188b2c425e7c72329b4308d2239ada977dd3b8",
+    "required_passed": 30,
+    "source_files_checked": 886,
+    "generated_files_checked": 229,
+    "job_uid": "f17ac05f-5fba-42c8-acf7-0ad5263359f7",
+    "cleanup": {
+      "job_absent": "gateway-api-da75dd6e9f13",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    },
+    "artifact_sha256": {
+      "source-sha256.json": "8515781d8a06e3f589508a752232ad8374c2c3d033390eec87dbb59c114604f1",
+      "committed.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "first.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "second.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "after.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "tests.jsonl": "c5909d304d8b0653eef396fab0ddb7397fd93029198c22cf69063cb4f00f3ca0",
+      "job-final.json": "9b213960c808dc241dfdd9f1651d2a3dcd718f50428e9cdeafa5bdad4b77b146",
+      "cleanup.json": "77a3849cf7644a4dfb097d809ec7127be28561aab4061c048ca20e81371c8e0e"
+    }
+  },
+  "scope": "Generated Deployment availability and its Hypershell adapter. The API gate verifies 30 required workflows and repeated generation. Live Deployment recovery with this compiler still requires the rendered browser result."
+}

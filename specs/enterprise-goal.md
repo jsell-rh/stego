@@ -3899,3 +3899,24 @@ controller omits available replicas and owner validation at its final read.
 The new shared `DeploymentAvailable` helper covers those checks. Its small
 generated runtime test passed. Application adoption and live verification are
 still required. The TLS and address-ownership questions remain pending.
+
+Full compiler CI `34950180723` passed for `5e9c89d`. Hypershell `3f188b2` uses the
+shared Deployment availability check. Its API run `34950339329` passed all 30
+required workflows. Verification matched all 886 source files, 229 generated
+files, four generation records, and cleanup. The complete rendered browser
+result remains required. See [the evidence](hypershell-workload-availability.json).
+
+The earlier Hypershell full CI run `34947673554` completed at `ee79099`. Core
+acceptance passed in 1357.045 seconds after the count access-loss correction.
+Ordinary browser, console, and service-image jobs also passed. The overall run
+failed on the unfinished CNPG and Sandbox jobs.
+
+A review found that the old Gateway viewer workflow helper had no caller. The
+current namespace recovery test now calls it through the generated browser
+backend and actual Gateway RPC. It requires viewer grants and workspace
+membership to survive recovery, filtered lists, redacted provider credentials,
+denied writes, and both access-removal paths. Hypershell `5dc5742` adds these
+checks without new runtime code or Kubernetes permissions. The complete
+acceptance package compiles; live viewer evidence remains required. The
+external TLS and address-ownership decisions are still pending. The enterprise
+goal remains active.
