@@ -4016,3 +4016,23 @@ workflow. Public Gateway connectivity, actual RDS, unattended CNPG CI, Sandbox
 isolation, and the wider enterprise requirements remain open. CI credentials
 were renewed without changing the active Job or Lease. The environment-backed
 workflow results at `f900d5a` remain separate required checks.
+
+Full application CI `34952975998` completed at `f900d5a`. Core acceptance passed
+in 1316.744 seconds. Ordinary browser, console, and service-image jobs passed.
+The overall run failed on the unfinished CNPG and Sandbox jobs. The live
+environment-backed browser result remains required.
+
+The CNPG preparation review found that its outer runner could install the
+operator and database before detecting an unsuitable CI credential. Hypershell
+`eb53ea7` now requires 45 minutes before installation and retains the inner
+35-minute browser check. The regression failed before the fix and passed after
+it. Eight credential checks, six CNPG workflow checks, six server fixture
+checks, and four operator checks passed. These are CI fixture changes; no
+production runtime or permission changed.
+
+The [next CNPG source](hypershell-cnpg-preflight.json) is frozen and verified
+against all 891 committed files. It includes viewer recovery, live account
+cleanup, cleanup read retry, and the early credential check. No CNPG resources
+have been created for this run. The active browser and newer queued API must
+finish before the next server installation. Two redundant waiting runs were
+cancelled; neither is recorded as a pass.

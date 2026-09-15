@@ -1,0 +1,19 @@
+{
+  "source_base_commit": "eb53ea742926fd8e0a1f1aa524d7dcafe6172830",
+  "compiler_revision": "5e9c89d9201db4532de1787dcff234e3988cfa00",
+  "changed_files": [
+    ".stego/state.yaml",
+    "out/deploy/allocation/allocation.go",
+    "out/deploy/render/worker-gateway-workload.json.tmpl",
+    "out/deploy/render/worker-namespace-allocation.json.tmpl",
+    "service.yaml"
+  ],
+  "cnpg_installation": {
+    "namespace": "stego-cnpg-database-20260915-v5",
+    "cluster": "gateway-database",
+    "scope": "One namespace and Pod selector on TCP port 5432; no added Kubernetes permission."
+  },
+  "source_files_checked": 891,
+  "manifest_sha256": "46afa21d7b2930125bef138a2828eabdf1d20e114f36a4c84f0d62c9a79b3594",
+  "scope": "Frozen source and allowed render changes verified. No CNPG resources created and no live result claimed."
+}
