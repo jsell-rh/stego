@@ -4082,3 +4082,10 @@ browser, console, and service-image jobs passed. The overall run failed because
 the CNPG and Sandbox entry points still require their restricted cluster
 execution paths. The separate API Job remains active. The renewed CI credential
 has its original permissions and enough time for the next CNPG attempt.
+
+The [restricted API run at the CNPG source revision](hypershell-cnpg-source-api.json)
+`34955320269` passed all 30 required tests at `eb53ea7`. Verification matched all
+891 source files, 229 generated files, and all generation records. The Job, Pods,
+and private fixtures are absent, and the shared Lease was released. The frozen
+CNPG workflow has now started in `stego-cnpg-database-20260915-v5`. It remains a
+separate live result; the API pass does not establish CNPG recovery or cleanup.

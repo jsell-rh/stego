@@ -1,0 +1,15 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34955320269",
+  "commit": "eb53ea742926fd8e0a1f1aa524d7dcafe6172830",
+  "required_passed": 30,
+  "source_files_checked": 891,
+  "generated_files_checked": 229,
+  "job_uid": "e795a7ce-8d12-471b-8d3d-38237a78b80d",
+  "cleanup": {
+    "job_absent": "gateway-api-6106f43a1ea6",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "scope": "Restricted API gate at the frozen CNPG source revision. The CNPG browser run is a separate requirement."
+}
