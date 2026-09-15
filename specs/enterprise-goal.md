@@ -230,6 +230,8 @@ The user selected the upstream OpenShell dashboard for the per-Gateway console.
 STEGO will generate its common authentication, deployment, and lifecycle support;
 Hypershell will supply Gateway-specific configuration and access rules. Keep the
 dashboard backend upstream. Preserve its WebSocket terminal contract.
+The [integration record](upstream-dashboard-integration.md) records the first
+local transport checks and the remaining application acceptance work.
 
 The [default-branch adoption record](hypershell-main-adoption-20260915.json)
 records the fast-forward from the older Hypershell default branch. The primary

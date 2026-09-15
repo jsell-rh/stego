@@ -1,0 +1,27 @@
+
+// NewLocalApplication sends bounded HTTP requests to the compiler-selected
+// application in this network namespace. It does not resolve DNS, use an
+// environment proxy, or follow redirects. Do and Stream retain their limits,
+// cancellation, and tracing. Network services must use New with HTTPS.
+func NewLocalApplication() *Client {
+ const address = {{printf "%q" .LocalAddress}}
+ base := &url.URL{Scheme:"http",Host:address}
+ dialer := &net.Dialer{Timeout:RequestTimeout,KeepAlive:30*time.Second}
+ transport := &http.Transport{
+  Proxy:nil,
+  DialContext:func(ctx context.Context,network,target string)(net.Conn,error){
+   if network!="tcp"||target!=address{return nil,errors.New("local application address cannot change")}
+   return dialer.DialContext(ctx,"tcp4",address)
+  },
+  ResponseHeaderTimeout:RequestTimeout,MaxResponseHeaderBytes:32<<10,
+  MaxConnsPerHost:MaxConcurrentRequests+DefaultStreamLimit,
+  MaxIdleConns:MaxConcurrentRequests+DefaultStreamLimit,
+  MaxIdleConnsPerHost:MaxConcurrentRequests+DefaultStreamLimit,
+  IdleConnTimeout:30*time.Second,DisableCompression:true,
+ }
+ lifetime,stop:=context.WithCancel(context.Background())
+ return &Client{timeout:RequestTimeout,lifetime:lifetime,stop:stop,base:base,transport:transport,
+  permits:make(chan struct{},MaxConcurrentRequests),streamPermits:make(chan struct{},DefaultStreamLimit),
+  http:&http.Client{Transport:transport,Timeout:RequestTimeout,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}},
+ }
+}
