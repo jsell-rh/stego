@@ -41,10 +41,11 @@ The current code has two valid but different ownership boundaries:
    unexpected realm roles and roles for other clients before it adds the
    desired roles. The provider must verify the service-account user binding
    before it uses this operation.
-2. A human user can have access to several applications. Reconciliation may
+2. A shared user can have access to several applications. Reconciliation may
    change only roles for the selected, owned client. Other client roles and
    realm roles must remain unchanged. The user is selected by verified issuer
-   and subject, not by a display name.
+   and subject, not by a display name. The application decides which verified
+   API principals can receive these grants.
 
 Do not combine these operations into an unrestricted role-replacement method.
 Both operations must remove excess access before they add access. They must
@@ -56,9 +57,10 @@ Its absence is not proof of a human user: the reviewed
 [26.7.3 user representation](https://github.com/keycloak/keycloak/blob/26.7.3/server-spi-private/src/main/java/org/keycloak/models/utils/ModelToRepresentation.java)
 and [user profile](https://github.com/keycloak/keycloak/blob/26.7.3/server-spi-private/src/main/java/org/keycloak/userprofile/DefaultUserProfile.java)
 do not set that field on this read path. A client-scoped role operation and an
-owned-service-account role operation must remain separate. Before adoption,
-prove rejection of a real service-account subject from the human grant path.
-Do not copy the existing field check as the complete identity proof.
+owned-service-account role operation must remain separate. A human-only grant
+policy needs positive identity evidence before adoption. Do not copy the
+existing field check as the complete identity proof or impose a human-only
+policy inside the common client-scoped role operation.
 
 ## First extraction gate
 
@@ -189,8 +191,15 @@ operation fails the service-account identity check.
 The small generated tests passed with the race detector and telemetry enabled.
 They cover ownership, wrong subjects, inherited access, ignored writes, partial
 failure recovery, preserved shared-user access, full service-account cleanup,
-and repeated reconciliation without writes. The new real-Keycloak role checks
-are pending CI. Sources and results are stored in
+and repeated reconciliation without writes. The real-Keycloak role checks passed
+at `96386e526db236aedf3b5dd9503ec66a11d4d9ff` in
+[run 35028368052](https://github.com/jsell-rh/stego/actions/runs/35028368052).
+They used two different application role policies. They checked preserved
+shared-user access, rejection of excess inherited roles, group and role removal
+for owned service accounts, and rejection of the wrong subject. The complete
+provider test took 39.96 seconds, and container cleanup passed. The full compiler
+job is still running. This does not prove application login or token claims.
+Sources, generated output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-roles-20260915`.
 
 This is the start of the extraction. Enablement, scope reconciliation, and
