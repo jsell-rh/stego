@@ -306,3 +306,10 @@ resets this setting when there is no back-channel URL. Creation now confirms
 ownership and disablement before it applies and verifies the complete policy.
 The same review confirmed that flow-override updates require explicit removal
 entries; an empty map does not clear existing bindings.
+
+The corrected native profile passed its creation and repair checks at `5b0b235`.
+The live driver then stopped because it used the administrator transport for
+OAuth login. That transport correctly rejects redirects. The test now uses its
+own bounded TLS client to inspect OAuth redirects without following them. The
+production transport remains unchanged. The failed result and verified cleanup
+are stored under `creation-fix-ci` in the native result directory.

@@ -184,7 +184,7 @@ func TestProviderLive(t *testing.T) {
 	}
 	defer scopeAdmin.Close()
 	testLiveRolePolicies(t, client, scopeAdmin, ctx)
-	testLiveNativeClients(t, client, ctx)
+	testLiveNativeClients(t, client, ctx, options.CAFile)
 	for _, application := range []struct{ name, key, value string }{{"new-catalog", "stego.owner.product", "object-3"}, {"new-worker", "stego.owner.pipeline", "run-4"}} {
 		binding := ClientBinding{ID: "stego-" + application.name, ClientID: application.name, Attributes: map[string]string{application.key: application.value}}
 		policy := ServiceAccountPolicy{DisplayName: "Created worker", AccessTokenLifetimeSeconds: 300}

@@ -5,19 +5,25 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/net/html"
 )
 
-func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context) {
+func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile string) {
 	t.Helper()
 	for _, item := range []struct {
 		name, redirect, callback, role, claim string
@@ -74,7 +80,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context) {
 		if err != nil || response.StatusCode != 204 {
 			t.Fatal("enable native fixture", err)
 		}
-		browser := newNativeBrowser(t, c, ctx)
+		browser := newNativeBrowser(t, c, ctx, caFile)
 		authPath := "/realms/provider-test/protocol/openid-connect/auth"
 		for _, bad := range []string{"missing-pkce", "foreign-redirect"} {
 			query := url.Values{"client_id": {b.ClientID}, "response_type": {"code"}, "scope": {"openid"}, "redirect_uri": {item.callback}, "state": {"invalid-request-test"}}
@@ -180,7 +186,7 @@ type nativeBrowser func(string, string, url.Values) (int, http.Header, []byte)
 
 // This test drives protocol requests, not a browser UI. Cookies remain in this
 // fixture. Every request stays at the verified issuer; redirects are not followed.
-func newNativeBrowser(t *testing.T, c *Client, ctx context.Context) nativeBrowser {
+func newNativeBrowser(t *testing.T, c *Client, ctx context.Context, caFile string) nativeBrowser {
 	t.Helper()
 	issuer, err := url.Parse(c.Issuer())
 	if err != nil {
@@ -190,6 +196,14 @@ func newNativeBrowser(t *testing.T, c *Client, ctx context.Context) nativeBrowse
 	if err != nil {
 		t.Fatal(err)
 	}
+	roots := x509.NewCertPool()
+	ca, err := os.ReadFile(caFile)
+	if err != nil || len(ca) > 65536 || !roots.AppendCertsFromPEM(ca) {
+		t.Fatal("invalid native fixture CA")
+	}
+	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots}, TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 5 * time.Second, MaxResponseHeaderBytes: 32 << 10, MaxConnsPerHost: 2, MaxIdleConns: 2, MaxIdleConnsPerHost: 2, DisableCompression: true}
+	t.Cleanup(transport.CloseIdleConnections)
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return func(method, path string, form url.Values) (int, http.Header, []byte) {
 		t.Helper()
 		reference, e := url.Parse(path)
@@ -210,20 +224,26 @@ func newNativeBrowser(t *testing.T, c *Client, ctx context.Context) nativeBrowse
 			body = []byte(form.Encode())
 			headers.Set("Content-Type", "application/x-www-form-urlencoded")
 		}
-		result, e := c.http.Do(ctx, method, u.RequestURI(), headers, body)
+		requestWithBody, e := http.NewRequestWithContext(ctx, method, u.String(), strings.NewReader(string(body)))
+		if e != nil {
+			t.Fatal("invalid native fixture request")
+		}
+		requestWithBody.Header = headers
+		result, e := client.Do(requestWithBody)
 		if e != nil {
 			t.Fatal("native fixture request failed", e)
 		}
-		if len(result.Body) > 1<<20 {
-			t.Fatal("native fixture response is too large")
+		defer result.Body.Close()
+		responseBody, e := io.ReadAll(io.LimitReader(result.Body, (1<<20)+1))
+		if e != nil || len(responseBody) > 1<<20 {
+			t.Fatal("native fixture response read failed")
 		}
-		response := http.Response{Header: result.Header}
-		cookies := response.Cookies()
+		cookies := result.Cookies()
 		if len(cookies) > 32 {
 			t.Fatal("too many native fixture cookies")
 		}
 		jar.SetCookies(u, cookies)
-		return result.StatusCode, result.Header, result.Body
+		return result.StatusCode, result.Header, responseBody
 	}
 }
 func nativeAuthorizationCode(t *testing.T, browser nativeBrowser, path, clientID, redirect string) (string, string, string) {
