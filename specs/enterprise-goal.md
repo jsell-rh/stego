@@ -3507,3 +3507,22 @@ The full enterprise goal remains active. Complete owned-session termination in
 STEGO next, then prove it through the Gateway workflow. Installation CNPG, RDS,
 remaining recovery cases, Sandbox execution, and complete CI remain required.
 This PostgreSQL sidecar restart is not a CNPG or RDS failover result.
+
+
+The [committed-source API CI result](hypershell-controller-local-ci.json) now
+passes all 27 required checks at Hypershell `0489e07`. It covers retired-field
+rejection, atomic Gateway and owner creation, denied access, filtered lists,
+REST and gRPC, the generated SDK and CLI, event delivery, restart, retained SQL
+registration, and cleanup. The committed, first, second, and post-test generation
+records match. Every frozen source file matches the pushed checkout. The CI Job,
+Pods, and private fixtures are absent, and the shared Lease is free.
+
+
+For the next session-isolation change, use verified role OIDs and a bounded
+session count. PostgreSQL permits a member of the affected role to terminate
+its sessions. A positive `pg_terminate_backend` timeout can confirm termination;
+a zero timeout confirms only signal delivery. Do not add global signal rights.
+Read fresh session state after termination and preserve unrelated connections.
+See the [PostgreSQL signal contract](https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-ADMIN-SIGNAL)
+and [session visibility and snapshot rules](https://www.postgresql.org/docs/18/monitoring-stats.html#MONITORING-STATS-VIEWS).
+These are requirements for the next implementation, not a passing result.

@@ -1,0 +1,138 @@
+{
+  "scope": "Committed-source Gateway API proof for the controller-local database release and durable SQL state registration.",
+  "application_commit": "0489e074efe8b663429749c57bc870d85545b99e",
+  "compiler_commit": "16e09a2c5d483fce29b76308f0f3272e6bd5ca75",
+  "ci_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34923550817",
+  "ci_conclusion": "success",
+  "source_matches_application_checkout": true,
+  "verification": {
+    "required": [
+      "TestGatewayDeletionBeforeWorkloadStartup",
+      "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+      "TestGeneratedWorkloadWorkerStartupPrivacy",
+      "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+      "TestGatewayCreationCommitsOwnerAndEvent",
+      "TestGatewayRequestsRejectRetiredDatabaseField",
+      "TestGeneratedGoSDKGatewayWorkflow",
+      "TestGeneratedCLIWorkflow",
+      "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+      "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+      "TestEventFailureRollsBackGatewayAndOwner",
+      "TestAccessFiltersRunBeforeCountAndPagination",
+      "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+      "TestGatewayWorkflowThroughGeneratedRESTProcess",
+      "TestGatewayWorkflowAcrossRESTAndGRPC",
+      "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+      "TestGatewayWatchThroughGeneratedRuntime",
+      "TestPlacementWorkflowThroughGeneratedRuntime",
+      "TestControllerLocalSchemaHasNoDatabaseCatalog",
+      "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+      "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+      "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+      "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+      "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+      "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+      "TestGeneratedCLICatalogWorkflow",
+      "TestGeneratedCLIApplyWorkflow"
+    ],
+    "passed": [
+      "TestAccessFiltersRunBeforeCountAndPagination",
+      "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+      "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+      "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites/empty",
+      "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites/populated",
+      "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+      "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+      "TestControllerLocalSchemaHasNoDatabaseCatalog",
+      "TestEventFailureRollsBackGatewayAndOwner",
+      "TestEventFailureRollsBackGatewayAndOwner/gateway.created",
+      "TestEventFailureRollsBackGatewayAndOwner/rolebinding.created",
+      "TestGatewayCreationCommitsOwnerAndEvent",
+      "TestGatewayDeletionBeforeWorkloadStartup",
+      "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+      "TestGatewayRequestsRejectRetiredDatabaseField",
+      "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+      "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+      "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+      "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+      "TestGatewayWatchThroughGeneratedRuntime",
+      "TestGatewayWorkflowAcrossRESTAndGRPC",
+      "TestGatewayWorkflowThroughGeneratedRESTProcess",
+      "TestGeneratedCLIApplyWorkflow",
+      "TestGeneratedCLICatalogWorkflow",
+      "TestGeneratedCLIWorkflow",
+      "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+      "TestGeneratedGoSDKGatewayWorkflow",
+      "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+      "TestGeneratedWorkloadWorkerStartupPrivacy",
+      "TestGeneratedWorkloadWorkerStartupPrivacy/gateway-workload",
+      "TestGeneratedWorkloadWorkerStartupPrivacy/namespace-allocation",
+      "TestGeneratedWorkloadWorkerStartupPrivacy/sandbox-count",
+      "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+      "TestPlacementWorkflowThroughGeneratedRuntime"
+    ],
+    "failed": [],
+    "missing": [],
+    "exit_code": 0
+  },
+  "generation_record_sha256": {
+    "committed.sha256": "d7d18721e81f6d54b9ef1d155d843bc551af2a2f0b85f322e3201d37bbffe973",
+    "first.sha256": "d7d18721e81f6d54b9ef1d155d843bc551af2a2f0b85f322e3201d37bbffe973",
+    "second.sha256": "d7d18721e81f6d54b9ef1d155d843bc551af2a2f0b85f322e3201d37bbffe973",
+    "after.sha256": "d7d18721e81f6d54b9ef1d155d843bc551af2a2f0b85f322e3201d37bbffe973"
+  },
+  "artifact_sha256": {
+    "verification.json": "cc83e60213fe0c755317e8b298f9b9eadd801b1c6290c911e721405c75e7f17a",
+    "cleanup.json": "3e1dfe8510045d83d2d2a0bb72aac893d33576cfeae1f4f7fffaef824212192a",
+    "source-sha256.json": "7477b648ef1fc3d148ec22644408b879d3c91ca0fac8478b42ea5d0cd7e2bee0",
+    "tests.jsonl": "9adcf795f0d438a0b9a5923dd3edf19f9cfd9ab9e6236ba5bb070f9cf40dd4b9",
+    "test.log": "f58baed1d01e48e03cf83a7c1d8ef4f7630c06553c49c4200839176020ead4fb",
+    "job-final.json": "529605476e7c8ac6034b18d800682fbc6cd092920e699030a88f08ece4baa07c",
+    "generated.tar": "132f6ec91473e3609ba4f01cb2791882e858ffb028d98a50a64d95659c605556"
+  },
+  "cleanup": {
+    "job_absent": "gateway-api-192dcd36e9f4",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "live_test_lease_released": true,
+  "job": {
+    "namespace": "stego-ci",
+    "name": "gateway-api-192dcd36e9f4",
+    "uid": "6159be7d-45f4-4bd0-8ef8-01676ae8632c",
+    "activeDeadlineSeconds": 1200,
+    "backoffLimit": 0,
+    "status": {
+      "completionTime": "2026-09-15T03:10:31Z",
+      "conditions": [
+        {
+          "lastProbeTime": "2026-09-15T03:10:31Z",
+          "lastTransitionTime": "2026-09-15T03:10:31Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "SuccessCriteriaMet"
+        },
+        {
+          "lastProbeTime": "2026-09-15T03:10:31Z",
+          "lastTransitionTime": "2026-09-15T03:10:31Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "Complete"
+        }
+      ],
+      "ready": 0,
+      "startTime": "2026-09-15T03:04:03Z",
+      "succeeded": 1,
+      "terminating": 0,
+      "uncountedTerminatedPods": {}
+    }
+  },
+  "browser_evidence": "https://github.com/jsell-rh/hypershell-stego/blob/0bdfa98/acceptance/sql-registration-browser-evidence.json",
+  "limits": [
+    "The supplied-server browser workflow and this API result do not establish installation CNPG or RDS failover.",
+    "Gateway, CNPG Gateway, and Sandbox workload CI still require restricted runners.",
+    "Existing SQL sessions are not terminated after an isolation failure. This remains a common runtime security requirement."
+  ]
+}
