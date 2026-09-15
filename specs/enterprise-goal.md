@@ -104,7 +104,10 @@ detection. Both Gateways passed all 28 connection checks before and after
 recovery, including denial of a reachable listener in an unrelated namespace.
 The listener had no ingress NetworkPolicy, token, or Secret mount. Generation
 hashes matched. Both test namespaces and owned resources were removed, the
-wrapper exited successfully, and the Lease was released. Restricted CI still
+wrapper exited successfully, and the Lease was released. Ordinary CI
+[35005977361](https://github.com/jsell-rh/hypershell-stego/actions/runs/35005977361)
+also passed, with core acceptance in 1357.772 seconds. Browser, console, and
+image checks passed; CNPG and Sandbox skipped. Restricted CI still
 has no unrelated listener and records that the extra check did not run there.
 
 CNPG source `6062269` corrects the frozen-source verifier. It accepts the exact

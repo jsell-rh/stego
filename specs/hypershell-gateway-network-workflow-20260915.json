@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T18:36:35.567036+00:00",
+  "checked_at": "2026-09-15T18:37:40.479443+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
@@ -95,7 +95,8 @@
       "run_id": 35005977361,
       "source": "ee3d41d7398a3b7f0d5029263988c66ceb201fc6",
       "scope": "Unrelated namespace probe and earlier CNPG cleanup correction. Ordinary CI does not run the direct cluster workflow.",
-      "status": "running"
+      "status": "completed successfully; core, ordinary browser, web console, and images passed; CNPG and Sandbox skipped",
+      "core_acceptance_seconds": 1357.772
     }
   ],
   "cnpg": {
@@ -388,6 +389,10 @@
     {
       "path": "/tmp/hypershell-cnpg-network-preflight-prepare-20260915.log",
       "sha256": "d03d02bad096bb770e70fefa0eda7e50f66fbc10e27516c4d1c1bd742feb83c5"
+    },
+    {
+      "path": "/tmp/hypershell-unrelated-peer-core-35005977361.log",
+      "sha256": "99af07998ba3484627e37d06e4a50e567acbbf94211a734d15e97a789f48dace"
     }
   ],
   "second_live_attempt": {
