@@ -30,3 +30,7 @@ scans, and SQL provisioning.
 passed the API and console vulnerability scans at `1df3d36`. Its complete
 application result is still pending. The duplicate manual run 35012427295
 was canceled before any job started.
+
+[Gateway API cluster CI 35012419987](https://github.com/jsell-rh/hypershell-stego/actions/runs/35012419987)
+passed all 32 required tests with race detection. All 238 generation hashes
+stayed equal. The Job, Pods, and private database fixture were removed.

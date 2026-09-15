@@ -1,0 +1,26 @@
+{
+  "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
+  "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+  "grpc_version": "v1.83.2",
+  "ci_run": 35012419987,
+  "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35012419987",
+  "status": "passed",
+  "required_tests": 32,
+  "passed_test_records": 40,
+  "missing": [],
+  "failed": [],
+  "regeneration": {
+    "files": 238,
+    "committed_first_second_after_equal": true
+  },
+  "cleanup": {
+    "job_absent": "gateway-api-bb854fa6555b",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "verification_sha256": "ccb8905e9ed0b376452ad7bfce43988c417a1613bc999adc46fb0bf13ae24fd5",
+  "limits": [
+    "This API gate does not run the public Gateway network address-change workflow.",
+    "The separate complete CNPG workflow used the earlier compiler revision."
+  ]
+}
