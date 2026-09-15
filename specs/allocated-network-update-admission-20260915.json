@@ -12,7 +12,13 @@
   "compiler_ci": {
     "run_id": 34998601541,
     "url": "https://github.com/jsell-rh/stego/actions/runs/34998601541",
-    "status": "in_progress"
+    "status": "completed",
+    "conclusion": "success",
+    "race_detection": true,
+    "kubernetes_service_package_seconds": 15.869,
+    "examples": "both passed",
+    "postgres_provisioning": "passed",
+    "log_sha256": "fc49912c25fe3144c1e6e8f9992ebccc39f48aac772ce93cb16cbcb2f56f7771"
   },
   "live_admission": {
     "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
