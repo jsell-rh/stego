@@ -221,3 +221,8 @@ A [source review](https://github.com/jsell-rh/hypershell-stego/blob/codex/approv
 `console_address`, but the current workload and identity controllers do not
 create that console or its identity client. The passing management-console
 workflow does not close this H1, H2, and H3 requirement.
+
+The user selected the upstream OpenShell dashboard for the per-Gateway console.
+STEGO will generate its common authentication, deployment, and lifecycle support;
+Hypershell will supply Gateway-specific configuration and access rules. Keep the
+dashboard backend upstream. Preserve its WebSocket terminal contract.
