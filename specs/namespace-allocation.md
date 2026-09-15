@@ -126,15 +126,17 @@ before a binding write. A later call can create a missing policy. It cannot
 patch or adopt a changed policy.
 
 The allocator receives `get` access to this exact policy name and `create`
-access constrained by generated admission rules. It gets no policy list, patch,
+access constrained by generated admission rules. Version 1.12.0 also gives it policy list access. It gets no policy patch,
 update, or delete permission. Admission limits creation to the selected profiles,
-owned namespaces, fixed name, and deny-all shape. Other actors cannot create,
-change, or delete the reserved policy in an allocated namespace. Namespace
+owned namespaces, fixed name, and deny-all shape. For isolated profiles, other actors cannot create,
+change, or delete any NetworkPolicy. The reserved policy name also remains
+protected in the other profiles of that installation. Namespace
 cleanup can delete it. The operator must retain the admission policies.
 
 `RequireNamespace` also checks this policy when the profile selects isolation.
 The resource worker must explicitly declare `get` access to NetworkPolicy
-`stego-allocation` in its namespaced role. STEGO does not add this access to
+`stego-allocation` and `list` access to NetworkPolicies in its namespaced role.
+STEGO does not add this access to
 all application roles. `NamespaceUID` remains an identity-only observation.
 `NamespaceGone` retains its cleanup meaning.
 
@@ -144,9 +146,9 @@ Keep it enabled until its allocations are removed. Removing it can remove the
 admission protection during regeneration. It is not a network migration method.
 
 This step does not revoke existing access bindings, close existing connections,
-or prove that the network plugin has applied the policy. Other NetworkPolicies
-can permit traffic. The complete policy set and allowed destinations need their
-own declaration, protection, and live tests. A running Gateway cannot use a
+or prove that the network plugin has applied the policy. Kubernetes combines allow rules across policies. Version 1.12.0 checks the
+complete policy set and protects it through generated admission rules. Allowed
+destinations still need their own declaration and live tests. A running Gateway cannot use a
 deny-all policy alone: DNS, database, identity, API, and service traffic still
 need explicit allowed paths. Keep application adoption behind that full gate.
 
@@ -170,6 +172,28 @@ resources. Its deny policy was third, after the Namespace and quota and before
 all bindings. The unchanged production declaration still wrote eight resources
 and no policy. Both diagnostics used a local TLS API fixture. Neither tested
 live admission, allowed service traffic, or network enforcement.
+
+Version 1.12.0 closes a runtime gap reproduced after the first implementation:
+an additional unlabelled allow-all policy did not prevent a binding write.
+`Ensure` and `RequireNamespace` now read an unfiltered list with `limit=2`.
+They require one policy, a complete list version, and no continuation token.
+The named read and list must have the same policy UID and resource version.
+The full shape check then uses the listed object. Extra, missing, malformed,
+or changed objects stop work. Labels cannot hide an additional policy.
+
+The `.resources` admission condition now includes all NetworkPolicy requests.
+Its validation selects the isolated profiles. It rejects other actors' writes
+to additional names in those namespaces. Namespace deletion retains its cleanup
+exception. The runtime does not delete an unexpected policy or revoke old access
+bindings. Repair requires an operator procedure; it is not automatic adoption.
+
+The regression failed before this change. Focused tests passed after the change,
+including list denial, an extra unlabelled policy, eleven incomplete or changed
+snapshot cases, and the earlier lifecycle cases. One failed test run exposed a
+fixture error: a changed response also changed stored test state. The fixture
+now copies its response before fault injection. The passing run follows that
+correction. Manifest checks and Python syntax checks passed. Real API-server
+admission and CNI checks remain pending.
 
 For the live admission fixture, set `STEGO_ALLOCATION_NETWORK=1` when producing
 both the original and next manifests. Use `--network-isolation` with

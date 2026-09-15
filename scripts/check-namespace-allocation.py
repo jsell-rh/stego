@@ -126,9 +126,14 @@ def check_network_policy():
     for label, changed in invalid:
         check(label, ["create", "--dry-run=server", "-f", "-"], changed)
     check("another actor creates reserved policy", ["create", "--dry-run=server", "-f", "-"], policy, as_user=None)
+    additional = copy.deepcopy(policy)
+    additional["metadata"]["name"] = "additional-allow"
+    additional["metadata"]["labels"] = {}
+    additional["spec"]["ingress"] = [{}]
+    check("another actor adds an unlabelled allow policy", ["create", "--dry-run=server", "-f", "-"], additional, as_user=None)
     check("create fixed deny policy", ["create", "-f", "-"], policy, good=True)
     check("allocator reads fixed deny policy", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
-    check("allocator cannot list network policies", ["get", "networkpolicies", "-n", owned])
+    check("allocator lists the complete policy set", ["get", "networkpolicies", "-n", owned], good=True)
     change = json.dumps({"spec": {"ingress": [{}]}})
     check("another actor changes deny policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
     for identity in (actor, None):
@@ -438,6 +443,8 @@ try:
             if doc.get("status", {}).get("typeChecking", {}).get("expressionWarnings"):
                 raise RuntimeError("next policy has type warnings")
         if args.network_isolation:
+            extra = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "extra", "namespace": owned}, "spec": {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [{}]}}
+            check("regenerated policy blocks an extra allow policy", ["create", "--dry-run=server", "-f", "-"], extra, as_user=None)
             check("deny policy survives regeneration", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
             check("regenerated policy blocks another actor", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": {"egress": [{}]}}), "--dry-run=server"], as_user=None)
         check(

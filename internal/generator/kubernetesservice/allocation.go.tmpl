@@ -180,6 +180,14 @@ func (a *Allocator) requireNetwork(ctx context.Context,name string,owner kube.Ow
   current,code,err=a.client.Request(ctx,http.MethodGet,collection+"/stego-allocation",nil)
   if err!=nil{return err};if code==http.StatusNotFound{return ErrPending}
  }
+ // Read all policy names. A label selector could hide a policy that permits traffic.
+ page,status,err:=a.client.Request(ctx,http.MethodGet,collection+"?limit=2",nil)
+ if err!=nil{return err}
+ entries,ok:=kube.Nested(page,"items").([]any)
+ if status!=http.StatusOK||!ok||len(entries)!=1||kube.String(page,"metadata","resourceVersion")==""||kube.String(page,"metadata","continue")!=""{return errors.New("allocation network policy snapshot is incomplete or has an unexpected policy")}
+ observed,ok:=entries[0].(map[string]any)
+ if !ok||kube.String(observed,"metadata","name")!="stego-allocation"||kube.String(observed,"metadata","uid")!=kube.String(current,"metadata","uid")||kube.String(observed,"metadata","resourceVersion")!=kube.String(current,"metadata","resourceVersion"){return errors.New("allocation network policy changed during observation")}
+ current=kube.Object(observed)
  if !owner.Matches(current)||kube.String(current,"metadata","name")!="stego-allocation"||kube.String(current,"metadata","namespace")!=name||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""||kube.String(current,"metadata","deletionTimestamp")!=""{return errors.New("allocation network policy is not owned and active")}
  var spec struct{
   PodSelector *struct{ MatchLabels map[string]string; MatchExpressions []json.RawMessage }
@@ -248,7 +256,8 @@ func (a *Allocator) sealIdentity(ctx context.Context,p profile,name string,owner
 
 // RequireNamespace checks allocation identity without creating or changing it.
 // A resource worker needs read-only Namespace access. An isolated profile also
-// needs get access to the named stego-allocation NetworkPolicy.
+// needs get access to the named stego-allocation NetworkPolicy and list access
+// to all NetworkPolicies in that namespace.
 func (a *Allocator) RequireNamespace(ctx context.Context,profileName,name,ownerID string)error{
  if _,err:=a.NamespaceUID(ctx,profileName,name,ownerID);err!=nil{return err}
  p,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return err}

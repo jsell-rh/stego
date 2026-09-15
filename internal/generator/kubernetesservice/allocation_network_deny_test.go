@@ -57,7 +57,7 @@ func TestAllocationNetworkIsolationManifest(t *testing.T) {
 							if !reflect.DeepEqual(rule["resourceNames"], []any{"stego-allocation"}) {
 								t.Fatal("network read is not restricted by name")
 							}
-						} else if !reflect.DeepEqual(rule["verbs"], []any{"create"}) {
+						} else if !reflect.DeepEqual(rule["verbs"], []any{"create", "list"}) {
 							t.Fatal("allocator can change or delete a policy")
 						}
 					}
@@ -84,8 +84,19 @@ func TestAllocationNetworkIsolationManifest(t *testing.T) {
 					}
 				}
 				for _, raw := range spec["matchConditions"].([]any) {
-					if strings.Contains(raw.(object)["expression"].(string), "request.resource.resource == 'networkpolicies'") {
+					condition := raw.(object)["expression"].(string)
+					if strings.Contains(condition, "request.resource.resource == 'networkpolicies'") {
 						reserved++
+						if !strings.HasPrefix(condition, "(request.resource.resource == 'networkpolicies' || ") {
+							t.Fatal("admission can omit an added network policy")
+						}
+						if strings.Contains(condition, "namespaceObject") {
+							t.Fatal("namespace data used before admission validation")
+						}
+						validation := spec["validations"].([]any)[0].(object)["expression"].(string)
+						if !strings.Contains(validation, `namespaceObject.metadata.labels['stego.dev/allocation-profile'] in ["tenant"]`) || strings.Contains(validation, `"other"`) {
+							t.Fatal("network guard does not select the isolated profile")
+						}
 					}
 				}
 			}

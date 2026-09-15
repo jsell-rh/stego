@@ -50,6 +50,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	namespaceCases, quotaCases, bindingCases, clusterCases := []string{}, []string{}, []string{}, []string{}
 	networkCases := []string{}
+	isolatedNames := []string{}
 	scope := map[string]string{}
 	var items []any
 	bindNames := []string{base + ".proof"}
@@ -83,6 +84,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		namespaceCases = append(namespaceCases, nsCase)
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
 		if p.NetworkIsolation {
+			isolatedNames = append(isolatedNames, celString(p.Name))
 			deny := "has(variables.o.spec) && has(variables.o.spec.podSelector) && (!has(variables.o.spec.podSelector.matchLabels) || size(variables.o.spec.podSelector.matchLabels) == 0) && (!has(variables.o.spec.podSelector.matchExpressions) || size(variables.o.spec.podSelector.matchExpressions) == 0) && has(variables.o.spec.policyTypes) && size(variables.o.spec.policyTypes) == 2 && 'Ingress' in variables.o.spec.policyTypes && 'Egress' in variables.o.spec.policyTypes && (!has(variables.o.spec.ingress) || size(variables.o.spec.ingress) == 0) && (!has(variables.o.spec.egress) || size(variables.o.spec.egress) == 0)"
 			networkCases = append(networkCases, "("+within+" && request.operation != 'DELETE' && variables.o.metadata.name == 'stego-allocation' && "+deny+")")
 		}
@@ -182,8 +184,10 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	message := "Only the allocator can change allocation limits and bindings"
 	if len(networkCases) > 0 {
 		resourceRules = append(resourceRules, allocationRule("networking.k8s.io", "networkpolicies"))
-		reserved = "(request.resource.resource == 'networkpolicies' ? (!has(request.name) || request.name == 'stego-allocation') : (" + reserved + "))"
-		message = "Only the allocator can change allocation limits, bindings, and the reserved network policy"
+		reserved = "(request.resource.resource == 'networkpolicies' || (" + reserved + "))"
+		isolated := marked("namespaceObject") + " && 'stego.dev/allocation-profile' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocation-profile'] in [" + strings.Join(isolatedNames, ",") + "]"
+		resourceRule = "(request.resource.resource == 'networkpolicies' && has(request.name) && request.name != 'stego-allocation' && !(" + isolated + ")) || (" + resourceRule + ")"
+		message = "Only the allocator can change allocation limits, bindings, and isolated network policies"
 	}
 	guarded = append(guarded, allocationPolicy(base+".resources", resourceRules, reserved, variables, []any{validate(resourceRule, message)})...)
 	// Install the policies before the allocator receives permissions.
@@ -204,7 +208,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	if len(networkCases) > 0 {
 		rules = append(rules,
 			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"get"}, "resourceNames": []string{"stego-allocation"}},
-			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"create"}})
+			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"create", "list"}})
 	}
 	if len(identityMaps) > 0 {
 		rules[0].(object)["verbs"] = []string{"get", "list", "create", "patch", "delete"}

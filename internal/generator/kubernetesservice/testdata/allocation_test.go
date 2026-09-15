@@ -27,8 +27,10 @@ type api struct {
 	failQuota       bool
 	failNetwork     bool
 	failNetworkRead bool
+	failNetworkList bool
 	mutateNetwork   func(kube.Object)
 	incomplete      bool
+	networkList     func(kube.Object)
 }
 
 func fixture(t *testing.T) (*Allocator, *api) {
@@ -43,6 +45,10 @@ func fixture(t *testing.T) (*Allocator, *api) {
 		}
 
 		if r.Method == "GET" && r.URL.Query().Get("limit") != "" {
+			if state.failNetworkList && strings.HasSuffix(r.URL.Path, "/networkpolicies") {
+				w.WriteHeader(403)
+				return
+			}
 			entries := []kube.Object{}
 			for key, object := range state.objects {
 				if !strings.HasPrefix(key, r.URL.Path+"/") || strings.Contains(strings.TrimPrefix(key, r.URL.Path+"/"), "/") {
@@ -50,6 +56,9 @@ func fixture(t *testing.T) (*Allocator, *api) {
 				}
 				match := true
 				for _, label := range strings.Split(r.URL.Query().Get("labelSelector"), ",") {
+					if label == "" {
+						continue
+					}
 					key, value, ok := strings.Cut(label, "=")
 					if !ok || kube.String(object, "metadata", "labels", key) != value {
 						match = false
@@ -72,7 +81,30 @@ func fixture(t *testing.T) (*Allocator, *api) {
 			if state.incomplete {
 				meta["continue"] = "more"
 			}
-			_ = json.NewEncoder(w).Encode(kube.Object{"apiVersion": "v1", "kind": "List", "metadata": meta, "items": entries})
+			page := kube.Object{"apiVersion": "v1", "kind": "List", "metadata": meta, "items": entries}
+			if strings.HasSuffix(r.URL.Path, "/networkpolicies") {
+				if r.URL.RawQuery != "limit=2" {
+					t.Error("network snapshot must be bounded and unfiltered")
+				}
+				if state.networkList != nil {
+					// Change this response, not the stored object used by the next GET.
+					encoded, err := json.Marshal(entries)
+					if err != nil {
+						t.Error(err)
+						w.WriteHeader(500)
+						return
+					}
+					var snapshot []kube.Object
+					if err = json.Unmarshal(encoded, &snapshot); err != nil {
+						t.Error(err)
+						w.WriteHeader(500)
+						return
+					}
+					page["items"] = snapshot
+					state.networkList(page)
+				}
+			}
+			_ = json.NewEncoder(w).Encode(page)
 			return
 		}
 		current, exists := state.objects[r.URL.Path]

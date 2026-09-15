@@ -230,6 +230,13 @@ remain separate from the full network gate. Live admission, allowed traffic,
 denied traffic, and Hypershell adoption are pending. Keep the application
 requirement open. Do not add domain policy construction to Hypershell.
 
+STEGO kubernetes-service 1.12.0 rejects additional NetworkPolicies and incomplete
+policy snapshots in isolated profiles. This follows a reproduced allow-all
+policy gap in the initial option. The admission generator now protects the
+complete policy set for those profiles. Focused tests passed; live admission
+and allowed traffic checks remain open. This change does not enable the
+production Hypershell profile or supply its permitted destinations.
+
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
 On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer

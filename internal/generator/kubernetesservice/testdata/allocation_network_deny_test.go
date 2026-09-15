@@ -134,7 +134,7 @@ func TestAllocationNetworkRejectsInvalidPolicy(t *testing.T) {
 }
 
 func TestAllocationNetworkAPIFailure(t *testing.T) {
-	for _, name := range []string{"create denied", "read denied", "read denied after create", "canceled"} {
+	for _, name := range []string{"create denied", "read denied", "read denied after create", "list denied", "canceled"} {
 		t.Run(name, func(t *testing.T) {
 			a, s := fixture(t)
 			a.config.Profiles[0].NetworkIsolation = true
@@ -147,6 +147,8 @@ func TestAllocationNetworkAPIFailure(t *testing.T) {
 				s.failNetworkRead = true
 			case "read denied after create":
 				s.mutateNetwork = func(kube.Object) { s.failNetworkRead = true }
+			case "list denied":
+				s.failNetworkList = true
 			case "canceled":
 				cancel()
 			}
@@ -159,6 +161,72 @@ func TestAllocationNetworkAPIFailure(t *testing.T) {
 				if strings.Contains(write, "rolebindings") {
 					t.Fatal("failed policy check wrote a binding")
 				}
+			}
+		})
+	}
+}
+
+func TestAllocationNetworkRejectsAdditionalPolicy(t *testing.T) {
+	a, s := fixture(t)
+	a.config.Profiles[0].NetworkIsolation = true
+	s.mutateNetwork = func(kube.Object) {
+		s.objects[strings.TrimSuffix(networkPath, "stego-allocation")+"allow-all"] = kube.Object{
+			"metadata": kube.Object{"name": "allow-all", "namespace": networkName, "uid": "foreign", "resourceVersion": "1"},
+			"spec":     kube.Object{"podSelector": kube.Object{}, "policyTypes": []string{"Ingress", "Egress"}, "ingress": []any{kube.Object{}}, "egress": []any{kube.Object{}}},
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err == nil {
+		t.Fatal("additional policy permitted an access grant")
+	}
+	if err := a.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+		t.Fatal("additional policy permitted work")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.writes) != 3 {
+		t.Fatal("additional policy caused a binding write", s.writes)
+	}
+}
+
+func TestAllocationNetworkRejectsIncompleteSnapshot(t *testing.T) {
+	cases := map[string]func(kube.Object){
+		"continued":                func(p kube.Object) { p["metadata"].(kube.Object)["continue"] = "next" },
+		"missing snapshot version": func(p kube.Object) { delete(p["metadata"].(kube.Object), "resourceVersion") },
+		"missing items":            func(p kube.Object) { delete(p, "items") },
+		"null items":               func(p kube.Object) { p["items"] = nil },
+		"empty items":              func(p kube.Object) { p["items"] = []any{} },
+		"invalid item":             func(p kube.Object) { p["items"] = []any{"invalid"} },
+		"changed UID":              func(p kube.Object) { p["items"].([]kube.Object)[0]["metadata"].(map[string]any)["uid"] = "replacement" },
+		"changed version": func(p kube.Object) {
+			p["items"].([]kube.Object)[0]["metadata"].(map[string]any)["resourceVersion"] = "2"
+		},
+		"changed name": func(p kube.Object) {
+			p["items"].([]kube.Object)[0]["metadata"].(map[string]any)["name"] = "replacement"
+		},
+		"changed namespace": func(p kube.Object) { p["items"].([]kube.Object)[0]["metadata"].(map[string]any)["namespace"] = "other" },
+		"changed rule": func(p kube.Object) {
+			p["items"].([]kube.Object)[0]["spec"].(map[string]any)["ingress"] = []any{map[string]any{}}
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, s := fixture(t)
+			a.config.Profiles[0].NetworkIsolation = true
+			s.networkList = change
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err == nil {
+				t.Fatal("invalid snapshot permitted a grant")
+			}
+			if err := a.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+				t.Fatal("invalid snapshot permitted work")
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if len(s.writes) != 3 {
+				t.Fatal("invalid snapshot caused a binding write")
 			}
 		})
 	}
