@@ -3687,3 +3687,10 @@ The complete core, ordinary browser, console, and service-image CI jobs at
 `48eae25` passed. Full CI still fails on the unfinished CNPG and Sandbox checks.
 Installation CNPG, actual RDS, remaining recovery cases, and the broader
 enterprise requirements remain open. The goal remains active.
+
+Hypershell `90d3ed9` retires the three partial file-list test entry points used
+during catalog removal. One list named a file that no longer exists. Active
+runners did not use these lists. The acceptance index now points to complete
+contract, API, and browser workflows and separates historical conversion records
+from current evidence. This removes a stale acceptance path; it adds no new
+runtime proof. The SQL cleanup denial workflow remains queued.
