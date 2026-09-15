@@ -3874,3 +3874,10 @@ and subresource operations. A small local renderer test passed. Full compiler
 CI and live admission checks remain required before Hypershell adoption. See
 [pinned resource admission](pinned-resource-admission.md). The existing live
 browser CI run was not interrupted. The enterprise goal remains active.
+
+The Hypershell cleanup retry source `2bc2b2c` passed browser CI run
+[34947486151](https://github.com/jsell-rh/hypershell-stego/actions/runs/34947486151).
+The application took 396.86 seconds. Verification matched 882 source files,
+229 generated files, three generation records, access checks, and automated
+cleanup. The SQL denial, namespace recovery, encryption, and session checks
+passed. This is supplied PostgreSQL evidence; unattended CNPG CI remains open.

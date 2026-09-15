@@ -894,5 +894,84 @@
     "workflow_seconds": 462.01
   },
   "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/c86526bf0b63604ed2c03e857d1be9c9973cd904/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "ff7b83d5b32918bff2a897a44669836ed36b4b08b884e309347c952b1e56b75f"
+  "source_record_sha256": "ff7b83d5b32918bff2a897a44669836ed36b4b08b884e309347c952b1e56b75f",
+  "cleanup_retry_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34947486151",
+    "application_commit": "2bc2b2c37361d88c454b2e60edaf0d0a6cfa3e46",
+    "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+    "result": "success",
+    "workflow_seconds": 396.86,
+    "source_files_checked": 882,
+    "generated_files_checked": 229,
+    "ci_access_checks": 16,
+    "application_access_checks": 57,
+    "admission_probes": 6,
+    "operator_cluster_resources": 18,
+    "job_uid": "3d452621-8817-42b6-8ede-aaaca4938b5f",
+    "cleanup": {
+      "namespace_retained": "stego-service-ci",
+      "test_resources_absent": true,
+      "allocations_absent": true
+    },
+    "generation_sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c",
+    "artifact_sha256": {
+      "deployment.log": "f31e0044f44b3e3cfab413a8b4d298a2e8ac0266164e1cc353be2ac4d3e593fd",
+      "evidence.tar": "618d63af4bb71c4510d0b5fbaabf587f7cf43144515f11623bd901814314d3ba",
+      "job-status.json": "ffdd5f4de889505d0c2c8fb6d7147b0396ea3584ddd72c69e496037c29122d10",
+      "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
+      "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13"
+    },
+    "session_checks": [
+      "terminated its existing session; the other Gateway session remained open",
+      "preserved credentials, keys, and provider data"
+    ],
+    "namespace_replacement": {
+      "controller_pods_unchanged": {
+        "hypershell-gateway-identity": "0488e211-ed84-4096-b618-00a9c4c35291",
+        "hypershell-gateway-workload": "42a20aca-03d2-4c0c-8eb3-fb7f37917550",
+        "hypershell-namespace-allocation": "a8828ff9-7a97-455b-b569-2285f5779de6"
+      },
+      "database_and_role_oids_unchanged": true,
+      "gateway_id": "3JMCkejyFh7EPDmms4PhZWB7v2e",
+      "namespace": "openshell-5845d555f9ac70a9",
+      "new_deployment_uid": "2e254094-e800-44a9-9b04-5fbd34a4bf72",
+      "new_namespace_uid": "a0984f70-573c-4451-9a1c-adfe5d7156fc",
+      "old_deployment_uid": "c4c919a3-9ce3-4712-a6b0-538d7da3ba8a",
+      "old_namespace_uid": "2560fcc9-ebe2-4ab6-8a22-472a356e1788",
+      "other_gateway_sql_unchanged": true,
+      "provider_data_unchanged": true,
+      "seconds": 45.031687488,
+      "source_data_unchanged": true,
+      "source_secret_uid": "7d4ca72e-05d6-45f0-a347-e1f28809fa81",
+      "sql_credentials_unchanged": true,
+      "state_namespace_uid": "db796cc3-2f10-4dd4-9acb-010ba8fc7ffb",
+      "ungranted_rpc_denied": true
+    },
+    "sql_cleanup_denial": {
+      "cleanup_pending": true,
+      "gateway_id": "3JMCkejyFh7EPDmms4PhZWB7v2e",
+      "ledger_state": "deleting",
+      "other_gateway_ready": true,
+      "source_data_unchanged": true,
+      "source_secret_uid": "7d4ca72e-05d6-45f0-a347-e1f28809fa81",
+      "sql_object_ids_unchanged": true,
+      "sqlstate": "42501"
+    },
+    "credential_encryption": {
+      "after_namespace_recovery": true,
+      "algorithm": "AES-256-GCM",
+      "altered_value_context_rejected": true,
+      "altered_value_rejected": true,
+      "altered_wrapped_key_rejected": true,
+      "altered_wrapping_context_rejected": true,
+      "authenticated_plaintext_matches": true,
+      "envelope_version": 1,
+      "gateway_id": "3JMCkejyFh7EPDmms4PhZWB7v2e",
+      "no_plaintext_or_base64_in_object_payloads": true,
+      "object_rows": 4,
+      "other_gateway_key_rejected": true,
+      "retained_key_unwrapped_data_key": true,
+      "stored_envelopes": 1
+    }
+  }
 }
