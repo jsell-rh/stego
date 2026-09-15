@@ -27,8 +27,13 @@ identities. With this change, it passes for success, failure, cancellation,
 panic, and `runtime.Goexit`. It verifies one runtime, setup and cleanup SQL
 signals, nested controller signals, preserved error identity, private-data
 exclusion, and released ownership. Existing signal, probe, and failure checks
-also pass in generated forms with and without telemetry. Full compiler CI and
-complete Hypershell application results remain required.
+also pass in generated forms with and without telemetry. Complete Hypershell
+application results remain required.
+
+[Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34964671704)
+passed at `f97b315`, including the generated controller race suite in 36.465
+seconds and real PostgreSQL provisioning. This verifies the shared compiler
+change; it does not replace the complete application gates.
 
 Hypershell `677973f` adopts compiler `f97b315`. Its startup test reproduced the
 missing local and OTLP events on the previous source. The updated test passed

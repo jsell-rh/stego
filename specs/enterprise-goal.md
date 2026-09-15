@@ -65,6 +65,7 @@ its recorded source and test scope:
 | Complete supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [CNPG evidence](hypershell-cnpg-complete.json): failover, retained data and identities, and automatic cleanup. The operator installed the server; this is not unattended CI. |
 | Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
 | Private PostgreSQL client telemetry | Compiler `f2b09c0` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961995199) passed, including generated runtime race checks and real SQL provisioning. Complete application evidence remains required. |
+| Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the focused TLS OTLP startup check; complete application gates remain queued. |
 | Full Hypershell CI at the browser source | Hypershell `916f3a7` | [Run 34961014648](https://github.com/jsell-rh/hypershell-stego/actions/runs/34961014648) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs failed. |
 
 The following runs are active or queued as of 2026-09-15. Confirm their current
@@ -75,7 +76,6 @@ timed out or a log is incomplete.
 | --- | --- | --- |
 | Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), active; Job `stego-service-ci/service-check`, UID `46488241-4c08-4449-aa9e-8cb17c8fdac1` |
 | Full CI with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260), active |
-| Worker setup and cleanup telemetry | Compiler `f97b315` | [34964671704](https://github.com/jsell-rh/stego/actions/runs/34964671704), active; [contract and focused results](worker-startup-observability.md) |
 | API gate with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891352](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352), queued |
 | Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), queued |
 | Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), queued |
