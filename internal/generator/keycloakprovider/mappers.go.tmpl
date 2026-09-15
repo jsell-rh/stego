@@ -1,0 +1,162 @@
+package {{.Package}}
+
+import (
+ "context"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "net/http"
+ "regexp"
+ "sort"
+ "strings"
+)
+
+const MaxProtocolMappers = 128
+const MaxTokenAudiences = 16
+const MaxRoleClaims = 16
+
+var ErrMapperPolicy = errors.New("Keycloak token mapper policy is not confirmed")
+var claimSegment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,63}$`)
+
+// ClientRoleClaim places one client's effective roles in a string array.
+type ClientRoleClaim struct { Client ClientBinding; Claim string }
+// TokenClaimsPolicy selects access-token claims. The subject is always present.
+// ClientMetadata adds the client ID, host, and address from service-account
+// session notes. It does not read user attributes. Custom audiences are literal
+// resource names; the provider never fetches them as URLs.
+type TokenClaimsPolicy struct {
+ AudienceClients []ClientBinding
+ CustomAudiences []string
+ ClientRoles []ClientRoleClaim
+ RealmRolesClaim string
+ ClientMetadata bool
+}
+type protocolMapper struct {
+ ID string `json:"id,omitempty"`
+ Name string `json:"name"`
+ Protocol string `json:"protocol"`
+ Type string `json:"protocolMapper"`
+ Config map[string]string `json:"config"`
+}
+
+func validRoleClaim(claim string)bool{
+ if len(claim)==0||len(claim)>128{return false};parts:=strings.Split(claim,".");if len(parts)>8{return false}
+ for _,part:=range parts{if !claimSegment.MatchString(part)||part=="__proto__"||part=="prototype"||part=="constructor"{return false}}
+ switch strings.ToLower(parts[0]){case "iss","sub","aud","exp","nbf","iat","jti","typ","azp","scope","sid","auth_time","acr","amr","nonce","at_hash","c_hash","s_hash","cnf","act","may_act","client_id","clienthost","clientaddress","session_state","authorization","allowed-origins":return false};return true
+}
+func(p TokenClaimsPolicy)validate()error{
+ if len(p.AudienceClients)+len(p.CustomAudiences)>MaxTokenAudiences||len(p.ClientRoles)>MaxRoleClaims{return errors.New("too many Keycloak token claims")}
+ audiences:=map[string]bool{};ids:=map[string]bool{}
+ for _,b:=range p.AudienceClients{
+  if err:=b.validate();err!=nil{return err};if audiences[b.ClientID]||ids[b.ID]{return errors.New("repeated Keycloak audience")};audiences[b.ClientID]=true;ids[b.ID]=true
+ }
+ for _,aud:=range p.CustomAudiences{if !textValue(aud,255)||audiences[aud]{return errors.New("invalid or repeated Keycloak audience")};audiences[aud]=true}
+ var claims []string
+ if p.RealmRolesClaim!=""{claims=append(claims,p.RealmRolesClaim)}
+ clientIDs,clientNames:=map[string]bool{},map[string]bool{}
+ for _,entry:=range p.ClientRoles{
+  if err:=entry.Client.validate();err!=nil{return err}
+  if clientIDs[entry.Client.ID]||clientNames[entry.Client.ClientID]{return errors.New("repeated Keycloak role claim client")};clientIDs[entry.Client.ID]=true;clientNames[entry.Client.ClientID]=true
+  claims=append(claims,entry.Claim)
+ }
+ for i,claim:=range claims{
+  if !validRoleClaim(claim){return errors.New("invalid Keycloak role claim path")}
+  for _,other:=range claims[:i]{if claim==other||strings.HasPrefix(claim,other+".")||strings.HasPrefix(other,claim+"."){return errors.New("overlapping Keycloak role claims")}}
+ };return nil
+}
+func mapperName(kind,key string)string{
+ sum:=sha256.Sum256([]byte(key));return "stego."+kind+"."+hex.EncodeToString(sum[:])
+}
+func accessClaimConfig()map[string]string{
+ return map[string]string{"access.token.claim":"true","id.token.claim":"false","userinfo.token.claim":"false","introspection.token.claim":"false","lightweight.claim":"false"}
+}
+func desiredMappers(p TokenClaimsPolicy)[]protocolMapper{
+ result:=[]protocolMapper{ {Name:"stego.subject",Protocol:"openid-connect",Type:"oidc-sub-mapper",Config:map[string]string{"access.token.claim":"true","introspection.token.claim":"false"}}}
+ add:=func(name,kind string,config map[string]string){result=append(result,protocolMapper{Name:name,Protocol:"openid-connect",Type:kind,Config:config})}
+ audience:=func(value,key string){config:=accessClaimConfig();config[key]=value;add(mapperName("audience",key+":"+value),"oidc-audience-mapper",config)}
+ for _,b:=range p.AudienceClients{audience(b.ClientID,"included.client.audience")}
+ for _,aud:=range p.CustomAudiences{audience(aud,"included.custom.audience")}
+ roles:=func(claim,clientID string){
+  config:=accessClaimConfig();config["claim.name"]=claim;config["multivalued"]="true";config["jsonType.label"]="String"
+  kind:="oidc-usermodel-realm-role-mapper"
+  if clientID!=""{kind="oidc-usermodel-client-role-mapper";config["usermodel.clientRoleMapping.clientId"]=clientID}
+  add(mapperName("roles",claim),kind,config)
+ }
+ if p.RealmRolesClaim!=""{roles(p.RealmRolesClaim,"")}
+ for _,entry:=range p.ClientRoles{roles(entry.Claim,entry.Client.ClientID)}
+ if p.ClientMetadata{for _,entry:=range []struct{note,claim string}{ {"clientId","client_id"},{"clientHost","clientHost"},{"clientAddress","clientAddress"}}{
+  config:=accessClaimConfig();config["user.session.note"]=entry.note;config["claim.name"]=entry.claim;config["jsonType.label"]="String"
+  add("stego.metadata."+entry.claim,"oidc-usersessionmodel-note-mapper",config)
+ }}
+ sort.Slice(result,func(i,j int)bool{return result[i].Name<result[j].Name});return result
+}
+func sameMapper(a,b protocolMapper)bool{
+ if a.Name!=b.Name||a.Protocol!=b.Protocol||a.Type!=b.Type||len(a.Config)!=len(b.Config){return false}
+ for key,value:=range a.Config{if other,ok:=b.Config[key];!ok||other!=value{return false}};return true
+}
+func mapperDifference(a,b []protocolMapper)[]protocolMapper{
+ desired:=map[string]protocolMapper{};for _,value:=range b{desired[value.Name]=value}
+ result:=[]protocolMapper{};for _,value:=range a{if other,ok:=desired[value.Name];!ok||!sameMapper(value,other){result=append(result,value)}}
+ sort.Slice(result,func(i,j int)bool{return result[i].Name<result[j].Name});return result
+}
+func(c *Client)readMappers(ctx context.Context,b ClientBinding)([]protocolMapper,error){
+ response,err:=c.admin(ctx,http.MethodGet,"/clients/"+b.ID+"/protocol-mappers/models",nil);if err!=nil{return nil,err}
+ if response.StatusCode!=http.StatusOK{return nil,statusError(response.StatusCode)}
+ var result []protocolMapper
+ if decode(response.Body,&result)!=nil||result==nil||len(result)>MaxProtocolMappers{return nil,ErrResponse}
+ ids,names:=map[string]bool{},map[string]bool{}
+ for _,value:=range result{
+  if !identifier.MatchString(value.ID)||!textValue(value.Name,255)||!textValue(value.Protocol,128)||!textValue(value.Type,128)||ids[value.ID]||names[value.Name]||value.Config==nil||len(value.Config)>64{return nil,ErrResponse}
+  ids[value.ID]=true;names[value.Name]=true
+  for key,v:=range value.Config{if !textValue(key,255)||(v!=""&&!textValue(v,4096)){return nil,ErrResponse}}
+ };return result,nil
+}
+func(c *Client)mapperBindings(ctx context.Context,p TokenClaimsPolicy)error{
+ for _,b:=range p.AudienceClients{if _,_,err:=c.boundClient(ctx,b);err!=nil{return err}}
+ for _,entry:=range p.ClientRoles{if _,_,err:=c.boundClient(ctx,entry.Client);err!=nil{return err}};return nil
+}
+func(c *Client)mapperGuard(ctx context.Context,b ClientBinding,p TokenClaimsPolicy,disabled bool)error{
+ if err:=c.boundScopedClient(ctx,b,disabled);err!=nil{return err}
+ assigned,err:=c.assignedClientScopes(ctx,b);if err!=nil{return err};if len(assigned)!=0{return ErrMapperPolicy}
+ return c.mapperBindings(ctx,p)
+}
+
+// InspectTokenMappers checks exact mapper settings and the absence of shared
+// scopes. It can inspect an enabled client. It does not prove issued claims.
+func(c *Client)InspectTokenMappers(ctx context.Context,b ClientBinding,p TokenClaimsPolicy)error{
+ if err:=b.validate();err!=nil{return err};if err:=p.validate();err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ if err=c.mapperGuard(work,b,p,false);err!=nil{return err}
+ current,err:=c.readMappers(work,b);if err!=nil{return err};desired:=desiredMappers(p)
+ if len(mapperDifference(current,desired))!=0||len(mapperDifference(desired,current))!=0{return ErrMapperPolicy}
+ return c.mapperGuard(work,b,p,false)
+}
+
+// ReconcileTokenMappers controls all direct mappers of an owned, disabled
+// client. Shared scopes must already be absent. It removes unknown or changed
+// mappers and confirms removal before adding missing mappers. Exact matches
+// retain their provider IDs. This method never enables the client.
+func(c *Client)ReconcileTokenMappers(ctx context.Context,b ClientBinding,p TokenClaimsPolicy)error{
+ if err:=b.validate();err!=nil{return err};if err:=p.validate();err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ guard:=func()error{return c.mapperGuard(work,b,p,true)}
+ if err=guard();err!=nil{return err}
+ desired:=desiredMappers(p);current,err:=c.readMappers(work,b);if err!=nil{return err}
+ path:="/clients/"+b.ID+"/protocol-mappers/models"
+ for _,value:=range mapperDifference(current,desired){
+  if err=guard();err!=nil{return err}
+  response,e:=c.admin(work,http.MethodDelete,path+"/"+value.ID,nil);if e!=nil{return e}
+  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ }
+ current,err=c.readMappers(work,b);if err!=nil{return err};if len(mapperDifference(current,desired))!=0{return ErrMapperPolicy}
+ for _,value:=range mapperDifference(desired,current){
+  if err=guard();err!=nil{return err}
+  body,e:=json.Marshal(value);if e!=nil{return ErrResponse}
+  response,e:=c.admin(work,http.MethodPost,path,body);if e!=nil{return e}
+  if response.StatusCode!=http.StatusCreated{return statusError(response.StatusCode)}
+ }
+ current,err=c.readMappers(work,b);if err!=nil{return err}
+ if len(mapperDifference(current,desired))!=0||len(mapperDifference(desired,current))!=0{return ErrMapperPolicy}
+ return guard()
+}

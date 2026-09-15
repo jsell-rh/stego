@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +21,9 @@ type roleFixture struct {
 	enabled                                                 map[string]bool
 	serviceSubject                                          string
 	ignoreDelete, ignoreAdd, failAdd, inherited, malformed  bool
+	mappers                                                 []protocolMapper
+	mapperSerial                                            int
+	malformedMappers, scopeOnMapperDelete                   bool
 	writes                                                  []string
 	scopes                                                  map[string][]assignedScope
 	ignoreScopeDelete, malformedScopes, changeOwnerOnDelete bool
@@ -78,6 +82,61 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 			client, ok := f.clients[parts[1]]
 			if !ok {
 				w.WriteHeader(404)
+				return
+			}
+			if len(parts) >= 4 && parts[2] == "protocol-mappers" && parts[3] == "models" {
+				if parts[1] != "worker" {
+					t.Error("unexpected mapper owner")
+					w.WriteHeader(500)
+					return
+				}
+				if len(parts) == 4 && r.Method == "GET" {
+					if f.malformedMappers {
+						send(nil)
+					} else {
+						send(f.mappers)
+					}
+					return
+				}
+				if len(parts) == 5 && r.Method == "DELETE" {
+					f.writes = append(f.writes, "DELETE "+path)
+					if !f.ignoreDelete {
+						keep := []protocolMapper{}
+						for _, m := range f.mappers {
+							if m.ID != parts[4] {
+								keep = append(keep, m)
+							}
+						}
+						f.mappers = keep
+					}
+					if f.scopeOnMapperDelete {
+						f.scopes["default-client-scopes"] = []assignedScope{{ID: "injected", Name: "injected", Protocol: "openid-connect"}}
+					}
+					w.WriteHeader(204)
+					return
+				}
+				if len(parts) == 4 && r.Method == "POST" {
+					f.writes = append(f.writes, "POST "+path)
+					var m protocolMapper
+					if json.NewDecoder(r.Body).Decode(&m) != nil || m.ID != "" {
+						t.Error("invalid mapper creation")
+						w.WriteHeader(400)
+						return
+					}
+					if f.failAdd {
+						w.WriteHeader(503)
+						return
+					}
+					if !f.ignoreAdd {
+						f.mapperSerial++
+						m.ID = fmt.Sprintf("mapper-%d", f.mapperSerial)
+						f.mappers = append(f.mappers, m)
+					}
+					w.WriteHeader(201)
+					return
+				}
+				t.Error("unexpected mapper request")
+				w.WriteHeader(500)
 				return
 			}
 			if len(parts) >= 3 && (parts[2] == "default-client-scopes" || parts[2] == "optional-client-scopes") {

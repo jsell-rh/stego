@@ -123,3 +123,23 @@ caller must configure and verify explicit protocol mappers before enablement.
 Removing shared scopes also removes their token mappers. Ownership checks cannot
 make several administrator requests atomic. The controller must retain exclusive
 reconciliation, and operator permissions must prevent concurrent policy writes.
+
+`ReconcileTokenMappers` installs typed access-token claims after shared scopes
+have been removed. `TokenClaimsPolicy` selects client audiences, literal resource
+audiences, client role arrays, a realm role array, and optional service-account
+client metadata. The subject mapper is always present. The policy cannot replace
+standard identity claims, overlap claim paths, or select arbitrary mapper code.
+It permits at most 16 audiences and 16 client role claims. Reads permit at most
+128 mappers, with bounded configuration maps and the existing response limit.
+
+The provider removes unknown or changed mappers before it adds missing mappers.
+It confirms removal and the exact stored configuration. Correct mappers retain
+their IDs. Each mutation checks the owner, disablement, absence of shared scopes,
+and target client bindings. `InspectTokenMappers` checks without writes and can
+inspect an enabled client. Neither method enables a client or proves an issued
+token. Application policy must still select the required audiences and roles.
+
+The mapper configuration follows the Keycloak 26.7.3
+[audience mapper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java),
+[client role mapper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/UserClientRoleMappingMapper.java),
+and [claim helper](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java).

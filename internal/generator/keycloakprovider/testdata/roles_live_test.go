@@ -168,6 +168,7 @@ func testLiveRolePolicies(t *testing.T, c *Client, ctx context.Context) {
 			t.Fatal("full service-account update changed the shared user", err)
 		}
 		testLiveScopePolicy(t, c, ctx, owner, target, policy)
+		testLiveMapperPolicy(t, c, ctx, owner, target, subject.ID, policy)
 		if err = c.DeleteClient(ctx, owner); err != nil {
 			t.Fatal(err)
 		}

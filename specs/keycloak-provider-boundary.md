@@ -219,8 +219,27 @@ results are stored in
 The scope endpoints follow the
 [Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html#_scope_mappings).
 
-This is the start of the extraction. Enablement and protocol mapper
-reconciliation remain to be implemented.
+## Token mapper mechanisms
+
+Version 0.5.0 adds typed token mapper configuration and inspection. The policy
+selects audiences, role claim paths, and service-account client metadata. It
+cannot select arbitrary mapper code or replace standard identity claims. Shared
+scopes must be absent. The provider confirms removal before addition and checks
+the exact final configuration. Correct mappers retain their provider IDs.
+
+Small generated tests passed with the race detector, with and without telemetry.
+They cover claim validation, inherited scope rejection, binding checks, ignored
+writes, partial failure recovery, and stable mapper IDs. The first check failed
+because adjacent Go braces were read as a template action. The correction and
+both results are retained in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-mappers-20260915`.
+The live extension is pending. It will check signed token identity, exact
+audiences and roles, lifetime, and metadata for two different policies.
+Production enablement is not part of this change. The test uses a separate,
+explicit fixture action to enable its disposable client.
+
+This is the start of the extraction. Native client configuration and verified
+enablement remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
 client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.
