@@ -61,49 +61,42 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
-| Full compiler CI | STEGO `fe07b0a` | [Run 34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977) passed. It includes the browser observable metric correction, compiler checks with race detection, SQL provisioning, and both example services. Consumer adoption remains pending; see the [runtime record](browser-telemetry.md). |
-| Core application acceptance | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447) passed core acceptance with race detection in 1342.182 seconds. The fresh API token audience check after grant synchronization passed in 47.11 seconds. Regeneration, ordinary browser, console, and image checks passed on the same source as the complete public workflow. The manual workflow skipped CNPG and Sandbox. |
+| Full compiler CI | STEGO `fe07b0a` | [Run 34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977) passed. It includes the browser observable metric correction, compiler checks with race detection, SQL provisioning, and both example services. The main variant branch adopted the checked browser runtime; see the [runtime record](browser-telemetry.md). |
+| Core application acceptance | Hypershell `0c2e7fe`, compiler `fe07b0a` | [Run 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003) passed core acceptance with race detection in 1330.563 seconds. Rendered browser, 229 UI tests, bundle reproduction, regeneration, and image checks passed. The manual workflow skipped CNPG and Sandbox. The main variant branch adopted the checked candidate through `4d1334b`. |
 | Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
-| Unattended CNPG | Hypershell `3a50db7` | [Recovery record](hypershell-cnpg-ci-recovery-20260915.json) records a failed application startup, cleanup defects, source corrections, and verified manual cleanup. No complete unattended workflow passed. |
+| Unattended CNPG | Hypershell `8e942ac`, compiler `0b0c932` | [Run 34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789) passed the complete rendered application test in 470.24 seconds with race detection. Primary replacement preserved SQL identities, credentials, keys, and data. Automatic cleanup removed runtime, private fixtures, claims, and volumes and released the Lease. See the [complete record](hypershell-cnpg-ci-complete-20260915.json). Earlier failures remain in the [recovery record](hypershell-cnpg-ci-recovery-20260915.json). |
 | Allocated namespace policy | STEGO kubernetes-service 1.12.0 | [Policy-set evidence](hypershell-network-policy-set.json) covers generated deny-all behavior and 59 live admission checks. No Pods ran in that admission test. Allowed traffic and CNI enforcement remain unproved. Hypershell has not enabled the policy. |
 
-The current verification handles are:
+The latest verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
 | Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), completed successfully |
-| Browser runtime consumer candidate | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), active on `codex/browser-metric-bounds-20260915`; rendered browser and console jobs passed, including bundle reproduction. The core job and adoption into the main variant branch remain pending. See the [rendered record](hypershell-browser-observable-metrics-rendered.json). |
+| Browser runtime adoption | Hypershell `0c2e7fe` | [34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003), completed successfully; the main variant branch adopted the checked candidate through `4d1334b`. See the [rendered record](hypershell-browser-observable-metrics-rendered.json). |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
-| Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), active; job `104467182418` uses the registered contract workflow with `cnpg_only=true` |
+| Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
-Poll these handles before taking further action. A timeout or incomplete log is
-not a terminal result. Inspect the test Job and verify cleanup before a new live
-cluster test. Keep one live cluster test at a time under the shared Lease.
+These runs are complete. Before a new live cluster test, verify that the prior
+test resources remain absent and the shared Lease is free. Keep one live cluster
+test at a time. A timeout or incomplete log is not a terminal result.
 The default manual contract workflow skips CNPG and Sandbox. The explicit
 `cnpg_only=true` selection runs CNPG and skips ordinary checks. Skips are not passes.
 
 The next required work is:
 
-1. Check current full CI for the public workflow's source. The complete public
-   result is recorded; preserve its limits when assessing broader requirements.
-   Check application CI for the browser observable metric candidate, including
-   its rendered workflow and bundle reproduction, then adopt the checked result.
-2. Run the complete unattended CNPG workflow with sufficient credential lifetime.
-   Prove application behavior, automatic cleanup, and volume removal together.
-   The earlier manual recovery does not meet this gate.
-3. Supply allowed Gateway network paths through STEGO and prove them in the same
+1. Supply allowed Gateway network paths through STEGO and prove them in the same
    application workflow. Include two Gateways, an unrelated namespace, allowed
    and denied fresh connections, endpoint changes, restart, regeneration, and
    cleanup. The [DNS provider choice](allocated-network-dns.md) remains open.
    The controller's public egress fault test does not prove Gateway isolation.
-4. Complete separate Sandbox allocation and its permission and network boundary.
+2. Complete separate Sandbox allocation and its permission and network boundary.
    The current controller rejects Sandbox runtime configuration with the shared
    allocator. The user deferred the live Kata test because no suitable cluster
    is available. This deferral does not establish runtime isolation.
-5. Audit C1 through C7 and H1 through H3 against current source and complete
+3. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Remaining work includes the full Hypershell port, backup and
    restore, supported deployment recovery, complete telemetry coverage, and
    measured capacity. Keep the original requirements active until their full

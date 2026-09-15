@@ -37,9 +37,11 @@ Application [CI 34994298003](https://github.com/jsell-rh/hypershell-stego/action
 passed its rendered browser test in 99.67 seconds. The console job passed 229
 tests, types, architecture checks, lint, bundle reproduction, and generation.
 The [rendered record](hypershell-browser-observable-metrics-rendered.json)
-retains the source, results, image hashes, and workload limits. The parent
-workflow's core test is still active. Adoption into the main variant branch
-remains pending. The earlier public pass does not test this correction.
+retains the source, results, image hashes, and workload limits. The full parent
+workflow passed, including core acceptance with race detection in 1330.563
+seconds and all generated image checks. The main variant branch adopted the
+checked candidate through `4d1334b` and was pushed. The earlier public pass does
+not test this correction.
 
 ## Earlier implementation and verification
 

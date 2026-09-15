@@ -1,0 +1,209 @@
+{
+  "checked_on": "2026-09-15",
+  "run": 34993409789,
+  "job": 104467182418,
+  "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789",
+  "conclusion": "success",
+  "source": "8e942acf2f51e198c13ed785f0e969acb3eb9a20",
+  "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+  "test": "TestGeneratedKubernetesBrowserGatewayWorkflow",
+  "test_seconds": 470.24,
+  "package_seconds": 471.29,
+  "race_detection": true,
+  "run_record": {
+    "source_base_commit": "8e942acf2f51e198c13ed785f0e969acb3eb9a20",
+    "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+    "holder": "stego-cnpg-live-5749ed4a7f922674",
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+    "phase": "complete",
+    "cluster_uid": "b30d9e21-e236-4535-93be-5b8f7150f83f",
+    "restart": {
+      "cluster_spec_unchanged": true,
+      "cluster_uid": "b30d9e21-e236-4535-93be-5b8f7150f83f",
+      "gateway_credentials_and_keys_unchanged": true,
+      "installation_data_unchanged": true,
+      "namespace": "stego-cnpg-database-ci",
+      "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+      "new_primary": "gateway-database-2",
+      "new_primary_pod_uid": "ed24ab0c-2ec5-470b-b79c-d5fc67f8b12f",
+      "old_pod_uid": "552d88c8-5d9b-4bd0-a275-73ccc39a5a93",
+      "old_primary": "gateway-database-1",
+      "primary_changed": true,
+      "provider_data_unchanged": true,
+      "ready_instances": 2,
+      "seconds": 69.335733556,
+      "sql_object_ids_unchanged": true
+    },
+    "volumes": [
+      {
+        "name": "pvc-008a875a-f91a-4b3a-9758-796c64f85de7",
+        "uid": "67c5bc8e-62d7-49cc-bbd8-45d8aba0696a"
+      },
+      {
+        "name": "pvc-e10f379a-445c-4b32-9e9e-274866237c88",
+        "uid": "23f56f1e-ca3b-4f02-837b-17b5ee8fc161"
+      }
+    ]
+  },
+  "cleanup": {
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true
+  },
+  "application_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "allocation_cleanup": {
+    "allocations_before": 0,
+    "allocations_absent": true
+  },
+  "generation": {
+    "file_count": 238,
+    "before_after_regeneration_and_after_tests_equal": true,
+    "manifest_sha256": "2a1dc8fb93f4575f50af5e52e2e4670aa9d907d60889b6a85c248dd9f77f093c"
+  },
+  "source_verification": {
+    "manifest_sha256": "3cda4595a0c5353ac8e49fd6a54b718d2137a18c752215b90617433e29bef65d",
+    "verified_unchanged_files": [
+      "acceptance/browser_workflow_test.go",
+      "scripts/check-cnpg-ci.py",
+      "scripts/run-browser-deployment-pod.sh"
+    ]
+  },
+  "checks": [
+    "Restricted CI created the bounded operator and database runtime from the retained operator installation.",
+    "Rendered Gateway creation and owner grant, REST and gRPC access, filtered lists, denied requests, and generated event delivery.",
+    "Two Gateways with verified TLS and separate SQL databases and logins; cross-database access denied.",
+    "Actual Gateway RPC, denied identities, and provider data after Gateway Pod replacement.",
+    "Unsafe SQL permissions disabled the affected login and its existing session; repair preserved credentials, keys, and data.",
+    "CNPG primary replacement preserved database object IDs, credentials, keys, provider data, and installation data.",
+    "Controller restart and lost namespace recovery preserved data and access rules.",
+    "API and browser backend restart, session key rotation, renewal, and confirmed identity-provider logout.",
+    "Six worker instances exported metrics and correlated logs and traces.",
+    "Three service-account identities used the actual Gateway; Gateway deletion closed accounts and denied further issuance.",
+    "Denied SQL cleanup retained pending state; subsequent normal deletion removed Gateway resources and retained the supplied server.",
+    "Automatic fixture cleanup removed runtime, private fixtures, claims, and volumes; the static installation remained."
+  ],
+  "reports": {
+    "cnpg-restart.json": {
+      "sha256": "59076df29cac19d0037572673d5da19453038ef068c3b9ae28c4b2715f52937b",
+      "result": {
+        "cluster_spec_unchanged": true,
+        "cluster_uid": "b30d9e21-e236-4535-93be-5b8f7150f83f",
+        "gateway_credentials_and_keys_unchanged": true,
+        "installation_data_unchanged": true,
+        "namespace": "stego-cnpg-database-ci",
+        "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+        "new_primary": "gateway-database-2",
+        "new_primary_pod_uid": "ed24ab0c-2ec5-470b-b79c-d5fc67f8b12f",
+        "old_pod_uid": "552d88c8-5d9b-4bd0-a275-73ccc39a5a93",
+        "old_primary": "gateway-database-1",
+        "primary_changed": true,
+        "provider_data_unchanged": true,
+        "ready_instances": 2,
+        "seconds": 69.335733556,
+        "sql_object_ids_unchanged": true
+      }
+    },
+    "postgres-server.json": {
+      "sha256": "62a869e3920fa956ce654fc8312931b01ccdd98a2eb86554c8fc4fe75edecf98",
+      "result": {
+        "provisioning_createdb": true,
+        "provisioning_createrole": true,
+        "provisioning_superuser": false,
+        "server_version_num": 180006,
+        "tls": true
+      }
+    },
+    "gateway-account-deletion.json": {
+      "sha256": "0bb8f24701a4dfe96d8a926a5566c1f0e8215a1b31eff57f609d23016cbb0167",
+      "result": {
+        "account_ids": [
+          "3JN9CCbTgY8YsbjCcIWtvaFjbOl",
+          "3JN9C86wptnSyzVLjgEJTrpB4q4",
+          "3JN9CBm18VNsr1EGnArkKjxFKzE"
+        ],
+        "accounts_used_actual_gateway": 3,
+        "checked_after_delete_response": true,
+        "cleanup_audits": 3,
+        "gateway_id": "3JN8eS6D4OGVjVrJU4B3HP5vFKk",
+        "metadata_closed": 3,
+        "provider_clients_absent": 3,
+        "token_issuance_denied": 3
+      }
+    },
+    "sql-cleanup-denial.json": {
+      "sha256": "1cac9f248f51f6d231454de0c5e7070a4de8310bb7bf78aa6d1d165a7445a4b9",
+      "result": {
+        "cleanup_pending": true,
+        "gateway_id": "3JN8eS6D4OGVjVrJU4B3HP5vFKk",
+        "ledger_state": "deleting",
+        "other_gateway_ready": true,
+        "source_data_unchanged": true,
+        "source_secret_uid": "bf5389f9-a5e6-403b-8028-3fd9b2b84aa2",
+        "sql_object_ids_unchanged": true,
+        "sqlstate": "42501"
+      }
+    },
+    "postgres-signals.json": {
+      "sha256": "730ed1bddca73792a77e05af0e5badfc2c81a2a8d13b7253aa63c396d9800525",
+      "result": {
+        "7725e56d-f944-4f5f-8f4c-1eb2a22d3c6e": {
+          "ensure/failure": true,
+          "ensure/success": true,
+          "read/success": true,
+          "server-identity/busy": true,
+          "server-identity/success": true
+        },
+        "c3397d0c-01d2-421b-bbed-1e203329714d": {
+          "delete/failure": true,
+          "delete/success": true,
+          "ensure/success": true
+        }
+      }
+    },
+    "verify.json": {
+      "sha256": "cc524720d73b847c2b1a735d07987060739103059f8a7a3c660c4a977cceb3aa",
+      "result": {
+        "verified": true,
+        "publicConnectionVerified": false
+      }
+    }
+  },
+  "independent_cluster_checks": {
+    "application_jobs_pods_deployments_absent": true,
+    "database_jobs_pods_clusters_claims_absent": true,
+    "operator_jobs_pods_absent": true,
+    "recorded_volumes_absent": true,
+    "private_fixture_secrets_absent": true,
+    "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+    "shared_lease_holder_empty": true
+  },
+  "artifacts": {
+    "name": "cnpg-gateway-34993409789-1",
+    "deployment_log_sha256": "a2c7350fda9e03921e8e55f18b8ede5838a71dff4c5fc4f4c2df0401fc1a752a",
+    "evidence_tar_sha256": "fffe90d24cb0036ce70975914c325cffb6ce7dcb05cac01da680b54a29aee492",
+    "images": {
+      "verify.json.png": {
+        "sha256": "067c472c1f1cca3f4c1d1a3a5a29d99cabd21b8e603f53686727ee2c5ff50038",
+        "visually_checked": true
+      },
+      "accounts-delete.json.png": {
+        "sha256": "d35e880b24fc0775030548ffa16a74ca69e4063d2552cb440fa0d18d2208dffe",
+        "visually_checked": true
+      }
+    }
+  },
+  "limits": [
+    "The test used a retained operator-owned CNPG CI installation and a disposable server created by the CI runner.",
+    "It proves the supplied-server Gateway workflow and unattended CI cleanup. It does not establish all production installation and upgrade behavior.",
+    "Gateway RPC used internal verified TLS. Public Route and certificate rotation checks belong to the separate public workflow.",
+    "Allocated Gateway namespace network isolation was not enabled.",
+    "This source precedes the browser observable metric correction. The new runtime has separate compiler and rendered application evidence.",
+    "Sandbox isolation, backup and restore, measured capacity, and the full Hypershell port remain open."
+  ]
+}

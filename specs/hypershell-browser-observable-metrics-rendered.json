@@ -51,10 +51,22 @@
     "console_sha256": "0d9a875cd433bcb442749dc8c2d8376cf5ee8d395dbfd1b08f0ef5dd9681806e"
   },
   "limits": [
-    "This record covers the completed browser and console jobs. It does not establish the result of the full parent workflow.",
+    "The manual contract workflow passed. Its skipped CNPG and Sandbox jobs are not passes.",
     "The ordinary browser test does not deploy the Gateway Kubernetes workload. Its main Gateway remains in provisioning in the saved image.",
     "The service-account image uses the separate account fixture. It does not prove public Gateway RPC or workload reconciliation.",
     "Allocated namespace network isolation, unattended CNPG, and Sandbox behavior require separate application evidence.",
     "The earlier complete public workflow used compiler 0b0c932. It does not prove this compiler revision."
-  ]
+  ],
+  "full_contract_workflow": {
+    "conclusion": "success",
+    "core_job": 104466552271,
+    "core_package_seconds": 1330.563,
+    "race_detection": true,
+    "browser": "success",
+    "console": "success",
+    "service_images": "success",
+    "cnpg": "skipped",
+    "sandbox": "skipped",
+    "core_log_sha256": "5f808c22fb9ff56ceb06f437b8123060aecbd050fe850efdab0b2f6054b2e9c8"
+  }
 }
