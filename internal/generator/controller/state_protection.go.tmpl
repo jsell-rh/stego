@@ -85,12 +85,20 @@ func(p *StateProtector)Seal(key StateKey,version int64,plain []byte)([]byte,erro
  return value.Seal(header,nil,plain,aad),nil
 }
 
+// CheckStateEnvelope checks framing and bounds without a decryption key.
+// It cannot prove authentication or that a writer encrypted the contents.
+// Use Open before any protected contents are used.
+func CheckStateEnvelope(sealed []byte)error{
+ if len(sealed)<stateHeaderSize+28||len(sealed)>MaxProtectedStateBytes||sealed[0]!=1{return ErrStateProtection}
+ return nil
+}
+
 // Open rejects changes to the record key, version, envelope, or ciphertext.
 // The caller supplies the version from its trusted store. Encryption alone
 // cannot detect restoration of an entire database to an older valid snapshot.
 func(p *StateProtector)Open(key StateKey,version int64,sealed []byte)(ProtectedState,error){
  empty:=ProtectedState{}
- if p==nil||len(sealed)<stateHeaderSize+28||len(sealed)>MaxProtectedStateBytes||sealed[0]!=1{return empty,ErrStateProtection}
+ if p==nil||CheckStateEnvelope(sealed)!=nil{return empty,ErrStateProtection}
  id:=[16]byte(sealed[1:17]);master,ok:=p.keys[id];if !ok{return empty,ErrStateProtection}
  aad,err:=stateAdditionalData(key,version);if err!=nil{return empty,err}
  aad=append(aad,sealed[:stateHeaderSize]...)

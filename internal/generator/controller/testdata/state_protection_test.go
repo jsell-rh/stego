@@ -21,6 +21,9 @@ func TestStateProtectionBindingAndCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := CheckStateEnvelope(sealed); err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Contains(sealed, plain) {
 		t.Fatal("state stored plaintext")
 	}
@@ -129,6 +132,9 @@ func TestStateProtectionRotationAndLimits(t *testing.T) {
 		}
 	}
 	for _, bad := range [][]byte{nil, {1}, make([]byte, MaxProtectedStateBytes+1)} {
+		if err := CheckStateEnvelope(bad); err == nil {
+			t.Fatal("invalid envelope framing accepted")
+		}
 		if _, err := current.Open(key, 1, bad); err == nil {
 			t.Fatal("invalid envelope accepted")
 		}

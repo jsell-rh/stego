@@ -254,3 +254,7 @@ keys. Keep keys outside the state database. Plaintext requires explicit `Reveal`
 formatting is redacted and implicit JSON export fails. The codec does not save
 records or grant access. Combine it with `ResourceStateStore` and authorized
 resource transactions. Re-encryption requires a new record version.
+
+`CheckStateEnvelope` checks the format and size without a decryption key.
+It does not authenticate the record or prove that its contents are encrypted.
+A controller must call `Open` before it uses the contents.
