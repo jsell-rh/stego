@@ -55,326 +55,59 @@ databases. Keep these decisions in the acceptance scope. The
 [complete historical record](enterprise-history.md) preserves earlier decisions,
 changes, failed attempts, and results without changing their original status.
 
-The following current results were independently checked. Each applies only to
-its recorded source and test scope:
+Current evidence was checked on 2026-09-15. Each result applies only to its
+recorded source and scope. A failed workflow can retain evidence for completed
+checks, but it cannot establish a complete application pass.
 
-| Result | Source | Evidence and limits |
+| Check | Source | Verified result and limits |
 | --- | --- | --- |
-| Complete Gateway API gate, 31 required tests | Hypershell `752d92e`, compiler `a355306` | [API evidence](hypershell-shared-jwt-api.json): 911 source files, 231 generated files, four matching generation records, and complete cleanup. Includes all four worker startup failures with local and TLS OTLP records, pool metrics, cancellation, API restart, and collector failure and recovery. |
-| Complete generated browser workflow and private SQL telemetry | Hypershell `752d92e`, compiler `a355306` | [Browser evidence](hypershell-shared-jwt-browser.json): correlated SQL logs, traces, and metrics across worker restart, cleanup denial, and recovery; all three console pool checkpoints; SQL isolation; access rules; namespace recovery; account cleanup; encryption; session checks; and automatic cleanup. |
-| Complete supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [CNPG evidence](hypershell-cnpg-complete.json): failover, retained data and identities, and automatic cleanup. The operator installed the server; this is not unattended CI. |
-| Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
-| Private PostgreSQL client telemetry | Compiler `f2b09c0` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961995199) passed, including generated runtime race checks and real SQL provisioning. Complete application evidence remains required. |
-| Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the TLS OTLP startup check within the complete API gate; the complete browser gate also passed. |
-| Full Hypershell CI at the browser source | Hypershell `677973f` | [Run 34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs lack installation fixtures and restricted runners. |
+| Full compiler CI | STEGO `d00bdc3` | [Run 34985081259](https://github.com/jsell-rh/stego/actions/runs/34985081259) passed. It includes compiler checks, SQL provisioning, and both example services. Later STEGO commits change documentation only. |
+| Core application acceptance | Hypershell `3a50db7`, compiler `0b0c932` | [Run 34985981930](https://github.com/jsell-rh/hypershell-stego/actions/runs/34985981930) passed core acceptance with race detection, ordinary browser, console, and image checks. The overall run failed because of CNPG. Sandbox was skipped. See the [core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json). |
+| Public Gateway checks | Hypershell `cc8e545`, compiler `0b0c932` | [Run 34989405950](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989405950) passed public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, and namespace recovery. The full workflow failed because the telemetry fixture rejected extra expected worker instances. Cleanup passed. See the [progress record](hypershell-public-gateway-progress-20260915.json). |
+| Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The public profile requires two allocator, two identity, and four workload instances. The internal profile requires two of each. Every instance still needs metrics and correlated logs and traces. Full runtime verification remains required. |
+| Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
+| Unattended CNPG | Hypershell `3a50db7` | [Recovery record](hypershell-cnpg-ci-recovery-20260915.json) records a failed application startup, cleanup defects, source corrections, and verified manual cleanup. No complete unattended workflow passed. |
+| Allocated namespace policy | STEGO kubernetes-service 1.12.0 | [Policy-set evidence](hypershell-network-policy-set.json) covers generated deny-all behavior and 59 live admission checks. No Pods ran in that admission test. Allowed traffic and CNI enforcement remain unproved. Hypershell has not enabled the policy. |
 
-The following results were checked on 2026-09-15. Confirm the active run
-state before taking further action. Do not restart a run because observation
-timed out or a log is incomplete.
+The current verification handles are:
 
-| Required check | Source | Run |
+| Check | Source | Handle |
 | --- | --- | --- |
-| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), failed only the absent CNPG and Sandbox fixtures; core, ordinary browser, console, and image jobs passed |
-| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), CNPG job failed before application execution; Pod readiness timed out, then cleanup used a forbidden namespace list. Manual recovery is complete; [failure and cleanup evidence](hypershell-cnpg-ci-first-run.json) is recorded. |
+| Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), active when checked |
+| Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), queued behind the earlier core run when checked |
+| Earlier core run | Hypershell `cc8e545` | [34989401887](https://github.com/jsell-rh/hypershell-stego/actions/runs/34989401887), core active; ordinary browser, console, and images passed |
 
-The complete browser result at `59a6d32` is verified in the
-[controller endpoint record](hypershell-controller-endpoint-browser.json).
-It used an external PostgreSQL container and the internal Service endpoint.
-The console archive differed from a fresh build at that source. Hypershell
-`01fa021` corrects the archive from two matching CI builds; the
-[archive record](hypershell-console-endpoint-assets.json) preserves their hashes.
-The fresh console job and ordinary browser job passed at `7d6b6d2` in full CI
-[34975653596](https://github.com/jsell-rh/hypershell-stego/actions/runs/34975653596).
-Core acceptance and the service image passed. The expanded controller grant
-and atomic endpoint test passed with race detection in 8.06 seconds. The
-[transaction record](hypershell-endpoint-transaction-ci.json) preserves its
-source and log hashes. CNPG failed before test creation and Sandbox was skipped.
-The complete run reports failure.
+Poll these handles before taking further action. A timeout or incomplete log is
+not a terminal result. Inspect the test Job and verify cleanup before a new live
+cluster test. Keep one live cluster test at a time under the shared Lease.
+The manually dispatched contract workflow skips CNPG and Sandbox; those skipped
+jobs are not passes.
 
-The current public workflow implementation is Hypershell `74fcbba`, with compiler
-`635f5da`. Common TLS Secret checks, Route admission, a credential-free pinned
-TLS RPC probe, and optional external network destinations are in STEGO.
-For compiler `4f692d0`, [full CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
-passed the compiler, SQL provisioning, and both independent example services.
-The earlier private-block defect in the TLS Secret helper is corrected in
-`0953fcc` and retained in this source.
+The next required work is:
 
-Hypershell commits workload status and endpoint observations in one generated
-serializable transaction. It uses the original API revision and requires both
-exact observation grants. New SQL tests cover rollback, stale writes, and
-restart; their core CI result passed at `7d6b6d2` as recorded above. The controller
-creates the Route, checks admission, matches the public certificate, checks
-health and denied identity calls, and rechecks the Route revision before it
-publishes the address. A failed observation clears the address with status.
+1. Complete the public Gateway workflow on the corrected source. Retain all
+   public reports, rendered browser evidence, service-account checks, confirmed
+   identity-provider logout, normal deletion, and cleanup. Check current full CI.
+2. Run the complete unattended CNPG workflow with sufficient credential lifetime.
+   Prove application behavior, automatic cleanup, and volume removal together.
+   The earlier manual recovery does not meet this gate.
+3. Supply allowed Gateway network paths through STEGO and prove them in the same
+   application workflow. Include two Gateways, an unrelated namespace, allowed
+   and denied fresh connections, endpoint changes, restart, regeneration, and
+   cleanup. The [DNS provider choice](allocated-network-dns.md) remains open.
+   The controller's public egress fault test does not prove Gateway isolation.
+4. Complete separate Sandbox allocation and its permission and network boundary.
+   The current controller rejects Sandbox runtime configuration with the shared
+   allocator. The user deferred the live Kata test because no suitable cluster
+   is available. This deferral does not establish runtime isolation.
+5. Audit C1 through C7 and H1 through H3 against current source and complete
+   workflows. Remaining work includes the full Hypershell port, backup and
+   restore, supported deployment recovery, complete telemetry coverage, and
+   measured capacity. Keep the original requirements active until their full
+   evidence exists.
 
-The same browser workflow now has an explicit public profile. It routes the
-existing RPC, access, data, restart, namespace recovery, and service account
-checks through the public endpoint. It also checks the rendered connection
-command and removes the worker's public egress binding to require address
-withdrawal and recovery without data loss. Local input checks, compilation,
-and generated network rendering pass. No live public result exists. The public certificate renewal test is now in
-the source. It uses a conditional Certificate status update, checks a new key
-and certificate through fresh TLS connections, and requires unchanged SQL
-identities, credentials, provider data, and internal TLS. Its request tests and
-frozen generated fixture checks pass. The live renewal result remains required.
-See the
-[public connection contract](hypershell-external-connection.md) and
-[application test inputs](https://github.com/jsell-rh/hypershell-stego/blob/7cb0e2f/acceptance/public-gateway-tls.md).
-
-Hypershell `cfc201f` corrects the public fault test baseline and verifies the
-actual worker NetworkPolicy change. It permits removal only of the selected
-IP/443 rules and requires exact restoration. Required destinations, ingress,
-selector, and policy UID must remain unchanged. It now compares SQL object OIDs
-as well as credentials and provider data captured before the fault. Focused
-policy checks pass; the live result remains required.
-
-Hypershell `7cb0e2f` makes missing or failed evidence collection fail the service
-run. The wrapper requires records for the selected profile and bounds log,
-archive, and acknowledgment requests. Fourteen local command fixtures pass.
-Partial evidence from failed tests remains available for diagnosis. These
-collection checks do not establish an application pass.
-
-Compiler `805a152` fixes the separate RPC process startup context and cleanup
-telemetry. The bounded regression first reproduced missing startup database
-signals. The corrected check passed startup and cleanup errors, panic,
-`runtime.Goexit`, clean shutdown, and fixed lifecycle events through TLS OTLP.
-Hypershell `7494ff5` adopts the generated runtime; `0600ba2` records console
-regeneration with the same compiler. Repeated generation, drift, and provisioner
-compilation pass. At `805a152`, the RPC generator package, SQL provisioning,
-and both example jobs passed. Full CI failed because the command fixture used
-the wrong telemetry namespace. Compiler `635f5da` corrects that fixture; its
-bounded command check passes. Hypershell `74fcbba` adopts this pin, with repeated
-generation and drift checks. [Full CI](https://github.com/jsell-rh/stego/actions/runs/34978866375)
-passed the compiler, SQL provisioning, and both example jobs at `635f5da`.
-The new deployed application result remains required. See the [RPC process contract](grpc-processes.md).
-
-At Hypershell `74fcbba`, API run `34978962793` and browser run `34978962567`
-stopped at the credential check before test creation. Their logs require a
-valid one-hour token and verified HTTPS context. Full application CI
-`34978963236` is queued behind the running `7cb0e2f` core check in `34977883303`.
-Retain that active run until it has a result.
-
-Hypershell `dacdd88` prepares the next operator permission update. Its bounded
-planner compared the saved installation from the passing `34972072109` browser
-run with a fresh frozen inspection render. Exactly two ClusterRoles need new
-permissions: Gateway Route access and named public certificate inspection and
-renewal. Sixteen cluster resources, including policies and bindings, are
-unchanged. The [plan record](hypershell-public-permission-plan.json) preserves
-identities and hashes. Six local tests pass and the CI fixture job includes them.
-No cluster change was made. Fresh resource and Lease checks are required before
-an operator update; the context still returned `Unauthorized` on 2026-09-15.
-
-CNPG job `104403102945` in run `34975653596` stopped before test creation because
-its CI credential had too little time left. This is not a CNPG runtime result.
-API run `34975653347` and browser run `34975653307` stopped before test creation
-because the CI credential had too little time left. The operator context still returned `Unauthorized` on 2026-09-15. Its login
-refresh is still pending. The next cluster run also needs the installed policy to match
-the current generated policy, plus explicit public issuer, trust, router, and
-network inputs. The PostgreSQL version and provisioning-role check has compiled
-but has no new cluster result. Do not replace these missing results with the
-older internal-Service browser pass. Keep the complete restricted CNPG gate
-and original C1–C7 and H1–H3 requirements active.
-
-The original module coverage audit also found stale example output and no CI
-jobs for either nested example module. The [example project checks](example-project-checks.md)
-restore current generation and add CI gates for both projects. Their build and
-test results remain required; the root compiler suite does not cover them.
-The first example gates failed on generated dependency vulnerabilities. The
-corrected modules in `6e2b514` passed both example jobs in
-[CI 34966021202](https://github.com/jsell-rh/stego/actions/runs/34966021202). The
-overall run failed a stale REST registry version assertion, now corrected.
-
-The [SSO authentication audit](sso-auth-audit.md) reproduced acceptance of tokens
-with the wrong issuer, wrong audience, and no expiry. Compiler `94f9fa0` replaces
-that separate verifier with the shared JWT runtime and a bounded key source.
-Expanded generated race tests pass. Both examples were regenerated in `a355306`.
-[Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920)
-passed, including both examples, generated authentication race checks, and real
-SQL provisioning. Hypershell `752d92e` adopts this verified compiler; its complete API and browser gates passed;
-full CI failed its old CNPG and Sandbox fixture jobs as recorded above. Key-source telemetry and performance
-evidence remain separate open requirements. These checks do not close all of
-C4 or C6.
-
-The restricted CNPG CI path is committed in Hypershell `a0402c8`, with its
-lifetime policy correction in `b6e0434`. The
-[initial static evidence](hypershell-cnpg-ci-installation.json) verifies 45
-objects and ready webhook trust. The
-[policy repair evidence](hypershell-cnpg-ci-lifetime-admission.json) preserves
-four unwanted requests accepted by the old policy, the applied repair, and all
-18 passing Job admission probes. The current installation adds one default deny
-network policy and a stricter lifetime Job policy. Independent reads found no
-runtime resources and a free Lease. The complete restricted workflow above
-remains required; these dry-run checks are not a CNPG application pass.
-
-The first queued CNPG workflow was canceled before execution so that the
-corrected source could run. Duplicate ordinary API and browser jobs from these
-CI-only pushes were also canceled before execution. They are not passes. The
-[CI contract](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/cnpg-ci.md)
-records all run IDs and the remaining acceptance checks.
-
-Hypershell `9b8b38e` adds a bounded diagnostic for allocated namespace policy
-writes. It reproduced allocation success with zero NetworkPolicies. The
-[network audit](hypershell-allocated-network-audit.json) records this missing
-behavior and the reference ingress policies. This is an open H1, H2, and H3
-requirement, not a passing isolation result. The common fix belongs in STEGO;
-Hypershell must declare domain peers and ports. On 2026-09-15, the user selected
-only operator-approved Gateway server destinations. Sandbox traffic retains a
-separate policy. The two-Role public test permission plan was recomputed with compiler `7ebd678`.
-The [live permission update](hypershell-public-permission-update.json) passed all
-eighteen resource checks. Public workflow `34983965151` is active. This update
-does not establish a public connection or network isolation result.
-
-STEGO kubernetes-service 1.11.0 adds an explicit allocator-owned deny-all
-NetworkPolicy option. Full compiler CI, generated runtime and manifest checks,
-and a frozen Hypershell declaration check passed. Hypershell adopted the compiler
-in `1e89428`; its network option remains off.
-The [mechanism and limits](namespace-allocation.md#fixed-network-deny-policy)
-remain separate from the full network gate. The current policy-set admission check passed. Allowed traffic, denied traffic,
-and production network activation are pending. Keep the application
-requirement open. Do not add domain policy construction to Hypershell.
-
-STEGO kubernetes-service 1.12.0 rejects additional NetworkPolicies and incomplete
-policy snapshots in isolated profiles. This follows a reproduced allow-all
-policy gap in the initial option. The admission generator now protects the
-complete policy set for those profiles. Full compiler CI and 59 live admission checks passed. The
-[policy-set record](hypershell-network-policy-set.json) includes cleanup evidence.
-Allowed traffic and CNI checks remain open. This change does not enable the
-production Hypershell profile or supply its permitted destinations.
-
-Known release gaps include unattended CNPG CI, public Gateway connectivity,
-external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
-On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer
-and controller ownership of `route_address`. These accepted choices have source changes but still need
-a complete [public connection check](hypershell-external-connection.md).
-The user approved PostgreSQL containers for the external database gate. No RDS
-test instance exists. Terraform creates RDS outside Hypershell. AWS-specific
-operation remains unverified; it is not a required live test for this gate.
-
-On the same date, the user deferred the live Kata Sandbox test because no
-suitable cluster is available. CI must show this test as skipped, not passed.
-Keep ordinary code, protocol, authorization, and count-controller checks active.
-Current VM isolation and runtime capacity remain unverified. The earlier kind
-fixture is withdrawn and must not be run. Resume the live test when a suitable
-cluster and restricted identity are available. These gaps do not replace the original
-C1–C7 and H1–H3 requirements. Completion also requires a requirement-by-requirement
-audit against the original assessment, component contracts, and current output.
-
-The [admission attempt record](pinned-resource-admission.md) preserves four
-failed probes. That renderer is withdrawn from generated output. Do not restore
-it until its complete live gate passes. Do not restart the cluster API server
-to make a probe pass. The
-[external PostgreSQL gate](rds-acceptance.md) uses a supplied container server
-to test permissions, isolation, verified TLS, recovery, and cleanup. The
-[shared observability requirement](shared-observability.md) still includes
-complete process and controller coverage, failure isolation, and measured cost.
-Service startup and other unbound entry points retain separate open checks.
-
-Keep both repos up to date on remote with atomic commits. The user authorized
-direct pushes; do not wait for pull request merges. Follow [AGENTS.md](../AGENTS.md):
-no Playwright, no local performance or stress tests, small ordinary local checks,
-and bounded CI or jshell tests with one live test at a time. Use the saved jshell
-context explicitly and preserve unrelated workloads. Inspect interrupted runs
-before starting another run. Keep credentials out of output. The operator login was restored on 2026-09-15. The restricted CI credential and
-GitHub environment secret were renewed and expire at 16:34:40 UTC on that date.
-Check the remaining credential lifetime before a queued run starts. Use the
-operator context to renew the CI credential while that login remains valid.
-
-Keep this file limited to current requirements and result links. Put detailed
-measurements and failed attempts in their feature evidence files. Preserve the
-full historical record. Ask the user about critical application or trust-boundary
-choices; resolve routine implementation choices within the authorized scope.
-
-The [internal Gateway TLS correction](hypershell-internal-tls-trust.json) replaces
-trust taken from the workload Secret with explicit operator trust. Six invalid
-cases were reproduced before the correction. Focused application checks and
-frozen inspection pass. Compiler `0b0c932` supplies the common bounded trust
-parser. Full compiler CI `34984419930` passed all four jobs. A fresh complete public
-application run is queued as `34984874811` at Hypershell `5ea4ead`. API run
-`34984842021` and full CI `34984842133` are also queued. The earlier public run `34983965151` has frozen source that
-precedes this correction.
-
-Compiler CI `34982993813` at docs commit `34bf5b2` failed the generated RPC
-cleanup telemetry case `close-goexit`: the test could not reach the RPC server
-before its deadline. The fixture released the RPC port before it selected the
-monitor port. It now reserves both ports during selection and reports an early
-child-process exit. The focused `close-goexit` case passed in 6.279 seconds.
-The old failure log does not identify its cause; do not claim this change proves
-that cause. Full CI for the test change remains required. The logs are
-`/tmp/stego-34bf5b2-failure-20260915.log` and
-`/tmp/stego-rpc-cleanup-goexit-port-20260915.log`. Earlier passing runs remain
-valid only for their recorded executions.
-
-Public workflow `34983965151` failed because OpenShift denied the controller's
-explicit Route host. The Gateway Pod and certificates were ready. A server dry
-run under the controller identity reproduced the denial. Hypershell adds the
-required `create` permission for `routes/custom-host` through its existing STEGO
-allocation declaration. No application policy engine was added. The
-[Route host record](hypershell-public-route-host.json) contains complete cleanup,
-seven passing planner checks, and the verified one-Role operator update. A new
-complete workflow is required. Pending runs `34984874811`, `34984842021`, and
-`34984842133` were canceled before execution because their source lacked this
-permission. The old active core run was retained.
-
-Full compiler CI `34985081259` passed after the RPC fixture port correction in
-`d00bdc3`. This confirms that run, including both example services. It does not
-prove the cause of the earlier intermittent failure.
-
-Public retry `34985980374` uses Hypershell `3a50db7`, including independent
-internal TLS trust and Route host creation. It failed before Job creation on a held Lease. Browser and API
-attempts `34985869470`, `34985869467`, and `34985884009` stopped in the
-stale-credential fixture before cluster access. That fixture now supplies the
-new required CA path; all eight credential checks pass. API `34985981920` also stopped on that Lease. Full CI `34985981930` is active
-at the corrected source. Duplicate run `34985981945` started its cluster step
-after the last status check and before cancellation completed. It retained the
-Lease during preparation. The earlier snapshot did not prove that the cluster
-step stayed unstarted. A later audit found no test workloads, test data, or
-allocations and verified all eighteen installation resources. The Lease was
-then released. Public run `34986369202` is queued after cleanup. Future push checks use the public
-profile with the explicit operator configuration.
-
-CNPG job `104438635923` in run `34985981930` failed before application testing.
-Its two database instances were ready, but application startup exceeded five
-minutes after cluster autoscaling. Application cleanup passed; outer cleanup
-failed on a token file already removed by the browser child. A later recovery
-also exposed an incorrect raw Cluster delete URL. Both faults are corrected and
-covered by focused tests. The startup wait is now ten minutes within the same
-30-minute Job deadline. The [recovery record](hypershell-cnpg-ci-recovery-20260915.json)
-proves manual cleanup of test runtime and volumes and Lease release. It does
-not prove automatic cleanup or a complete CNPG application pass. Public run
-`34986369202` was canceled while the CNPG Lease remained held. Its replacement,
-`34987757894`, failed an invalid-identity RPC check after Gateway readiness and
-SQL isolation passed. Its cleanup passed; all four allocations were removed.
-
-The [external DNS review](allocated-network-dns.md) records a pending provider
-choice for approved external destinations. jshell exposes the OpenShift egress
-firewall API, but that does not prove DNS-change behavior. Continue the current
-public workflow while the provider choice is open.
-
-Full CI `34985981930` completed with a core acceptance pass at Hypershell
-`3a50db7` and compiler `0b0c932`. The acceptance package passed with race
-detection in 1203.850 seconds. REST/gRPC Gateway workflows, controller write
-grants across placement and restart, and telemetry recovery checks passed.
-Ordinary browser, console, and service-image jobs also passed. The overall run
-failed because of CNPG; Sandbox was skipped. The updated
-[core record](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/gateway-core-ci-20260915.json)
-keeps the earlier run and this later result separate. Public run `34987757894`
-subsequently failed its invalid-identity RPC check; the full public gate remains open.
-
-The API login fixture enabled all client scopes, so an owner API token can have
-a Gateway audience. This is a possible cause of the latest public failure; the
-old log did not identify the failed negative case. Hypershell `cc8e545` restricts
-the API fixture and checks token audiences before the negative RPC call. It
-also checks a fresh API token after grant synchronization. The acceptance
-package compiled. Public CI `34989405950` passed the corrected audience checks,
-RPC denial checks, public network recovery, and certificate rotation. It then
-failed a telemetry fixture that allowed only two instances per worker. The
-public fault test starts the workload worker four times. Cleanup removed all
-four allocations and released the Lease.
-
-Hypershell `842a71c` corrects both controller and PostgreSQL telemetry counts.
-It still requires metrics and correlated logs and traces from each expected
-instance. Nine focused cases passed. The [progress record](hypershell-public-gateway-progress-20260915.json)
-retains the completed checks and the overall failure. Public CI `34991226917`
-and core/browser CI `34991229447` check this correction. Inspect these handles;
-the full public gate, allocated network isolation, and unattended CNPG gate
-remain open.
+Public TLS uses the operator-selected issuer and router passthrough. Internal
+Gateway TLS uses a separate operator-supplied trust file. The
+[Route permission record](hypershell-public-route-host.json) retains the bounded
+role update and installation identities. Neither these checks nor the current
+partial public result establishes full production readiness.
