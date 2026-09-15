@@ -9,6 +9,9 @@
 # Test binary, built with `go test -c`
 *.test
 
+# Persistent local compiler locks
+**/.stego/apply.lock
+
 # Output of the go coverage tool
 *.out
 

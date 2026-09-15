@@ -35,3 +35,8 @@ The fix belongs in the shared generators. `rest-api` 3.1.0 selects `kin-openapi`
 [GO-2025-3533](https://pkg.go.dev/vuln/GO-2025-3533), and
 [GO-2025-3553](https://pkg.go.dev/vuln/GO-2025-3553). Regeneration and repeat CI
 must verify the resulting services; an upgraded version string is not sufficient.
+
+Both examples were regenerated with clean compiler `5d24fad`. Their module files
+now select the corrected dependency versions. Dependency resolution, repeated
+apply, and drift checks pass. Repeat CI must still establish vulnerability,
+build, and fill-test results for these files.
