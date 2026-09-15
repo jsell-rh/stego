@@ -103,12 +103,15 @@ func testGeneratedProcess(t *testing.T, modes []string, checkRPC bool) {
 				t.Fatal(err)
 			}
 			address := listener.Addr().String()
-			listener.Close()
 			monitor, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
+				listener.Close()
 				t.Fatal(err)
 			}
 			monitorAddress := monitor.Addr().String()
+			// Keep the first port reserved until both addresses are selected.
+			// Otherwise the monitor can receive the same free port as RPC.
+			listener.Close()
 			monitor.Close()
 			closed := filepath.Join(dir, "closed-"+mode)
 			var logs output
@@ -148,6 +151,12 @@ func testGeneratedProcess(t *testing.T, modes []string, checkRPC bool) {
 				}
 				deadline := time.Now().Add(8 * time.Second)
 				for {
+					select {
+					case processErr := <-done:
+						exited = true
+						t.Fatalf("RPC process exited before serving: %v", processErr)
+					default:
+					}
 					response, err := call("alice", "records")
 					if err == nil && response.Text == "hello" {
 						break

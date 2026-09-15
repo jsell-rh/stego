@@ -295,6 +295,11 @@ precedes this correction.
 
 Compiler CI `34982993813` at docs commit `34bf5b2` failed the generated RPC
 cleanup telemetry case `close-goexit`: the test could not reach the RPC server
-before its deadline. This result needs investigation; it is not a pass. The
-log is `/tmp/stego-34bf5b2-failure-20260915.log`. Earlier passing runs remain
+before its deadline. The fixture released the RPC port before it selected the
+monitor port. It now reserves both ports during selection and reports an early
+child-process exit. The focused `close-goexit` case passed in 6.279 seconds.
+The old failure log does not identify its cause; do not claim this change proves
+that cause. Full CI for the test change remains required. The logs are
+`/tmp/stego-34bf5b2-failure-20260915.log` and
+`/tmp/stego-rpc-cleanup-goexit-port-20260915.log`. Earlier passing runs remain
 valid only for their recorded executions.
