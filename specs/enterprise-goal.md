@@ -4190,3 +4190,28 @@ the compiler, generated-runtime, and SQL provisioning checks but failed a stale
 registry version assertion. Commit `5c5e7c9` corrects that assertion. Its focused
 check passed; full CI `34961472255` is active. Hypershell `916f3a7` still needs its
 separate API and browser pool-metric results. No pending run is counted as a pass.
+
+The [route-composition API result](hypershell-route-api.json) passed all 30
+required tests at `8551ad3`. Verification matched 897 source files, 229 generated
+files, and all generation records. Independent reads confirmed that its Job,
+Pods, and private fixtures were absent. The next serialized pool-metric API
+Job holds the Lease. Full CI `34960101322` passed core acceptance in 1269.092
+seconds, ordinary browser tests, the console, and the service image. Its overall
+result remains failure because the CNPG and Sandbox jobs failed.
+
+Full pool-factory compiler CI `34961472255` passed at `5c5e7c9`. Review then
+found that the generated PostgreSQL provisioning client used global telemetry
+providers and the default logger. These did not use the worker's private runtime.
+Compiler `f2b09c0` connects the client to the runtime in its operation context.
+The [signal contract](postgres-client-observability.md) separates lifecycle
+timings from driver timings and retains fixed private-data rules. Focused
+generated TLS export, correlation, sampling, disabled-export, and blocked-collector
+checks passed. Full compiler CI `34961995199` is active; SQL provisioning passed.
+
+Hypershell `2af1b46` adopts this compiler. Repeated generation and drift checks,
+bounded acceptance compilation, and the collector correlation regression passed.
+Its complete browser test requires SQL creation signals from both worker
+instances, plus failed and successful deletion signals linked to controller
+spans. API `34962176232`, browser `34962176339`, and full CI `34962176260` are
+queued behind the retained pool-metric runs. The application result remains
+required. Hypershell adds no SQL telemetry runtime or operation wrapper.

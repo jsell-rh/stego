@@ -1,0 +1,35 @@
+{
+  "attempt": 1,
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34960101313",
+  "commit": "8551ad34ecf394e7b77bc4235e48416e02ce710d",
+  "required_passed": 30,
+  "source_files_checked": 897,
+  "generated_files_checked": 229,
+  "job_uid": "4b7705e4-7cfd-4325-868b-0401aacdfea1",
+  "cleanup": {
+    "job_absent": "gateway-api-10c5ac483ea3",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "independent_cleanup": {
+    "checked_on": "2026-09-15",
+    "selector": "stego.test/run=gateway-api-10c5ac483ea3",
+    "owned_jobs_pods_and_fixtures_absent": true,
+    "next_lease_holder": "gateway-api-c93d23b2bd51"
+  },
+  "full_ci": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34960101322",
+    "result": "failure",
+    "core_acceptance_seconds": 1269.092,
+    "passed_jobs": [
+      "acceptance (core)",
+      "acceptance (browser)",
+      "web-console",
+      "service-image"
+    ],
+    "failed_jobs": [
+      "cnpg-gateway-workflow",
+      "sandbox-workload"
+    ]
+  }
+}
