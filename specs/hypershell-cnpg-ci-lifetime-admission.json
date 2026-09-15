@@ -1,0 +1,242 @@
+{
+  "mode": "server-dry-run",
+  "configuration_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+  "before_policy_revision": "dab02cfaee5bdfeeb949b7d882ddc8ff636c95c3",
+  "probes": [
+    {
+      "name": "command",
+      "allowed": true,
+      "expected_after_fix": false
+    },
+    {
+      "name": "environment",
+      "allowed": true,
+      "expected_after_fix": false
+    },
+    {
+      "name": "probe-command",
+      "allowed": true,
+      "expected_after_fix": false
+    },
+    {
+      "name": "network-label",
+      "allowed": true,
+      "expected_after_fix": false
+    }
+  ],
+  "jobs_created": false,
+  "initial_job_probes": {
+    "configuration_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+    "mode": "server-dry-run",
+    "probes": [
+      {
+        "name": "operator-job-accepted",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": true
+      },
+      {
+        "name": "operator-job-missing-deadline",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-suspended",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-delayed-cleanup",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-changed-command",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-changed-scope",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-lifecycle-command",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-environment-source",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-probe-command",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "operator-job-executable-mount",
+        "policy": "stego-cnpg-operator-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "database-job-accepted",
+        "policy": "stego-cnpg-database-ci.bounded-jobs",
+        "allowed": true
+      },
+      {
+        "name": "database-job-missing-deadline",
+        "policy": "stego-cnpg-database-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "database-job-suspended",
+        "policy": "stego-cnpg-database-ci.bounded-jobs",
+        "allowed": false
+      },
+      {
+        "name": "database-job-delayed-cleanup",
+        "policy": "stego-cnpg-database-ci.bounded-jobs",
+        "allowed": false
+      }
+    ]
+  },
+  "repair": {
+    "source_revision": "b6e0434864d60945a21d20b7526fdaf106da8700",
+    "plan_sha256": "54694be9e4e342aeeea1ce3d2fea8ff1008a46da15d8465132cb2b19715d4e0a",
+    "installation_id": "57997a20e039ad44d9430c6210f75d98",
+    "configuration_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+    "phase": "complete",
+    "resources": [
+      {
+        "kind": "NetworkPolicy",
+        "name": "default-deny",
+        "namespace": "stego-cnpg-database-ci",
+        "uid": "d73d8bb0-fa02-418c-96b6-3d40eb20b1e8",
+        "spec": {
+          "podSelector": {},
+          "policyTypes": [
+            "Ingress",
+            "Egress"
+          ]
+        }
+      },
+      {
+        "kind": "ValidatingAdmissionPolicy",
+        "name": "stego-cnpg-database-ci.bounded-jobs",
+        "uid": "1ce76068-9e47-4a54-8723-6bdd0e64886c",
+        "generation": 2
+      }
+    ],
+    "previous_policy_sha256": "93bedd1b1ee670205202c2fccfa68cf9f09713f2ce108e197afe9c93c339cda3",
+    "independent_verification": {
+      "policy_matches_source_plan": true,
+      "policy_generation": 2,
+      "policy_spec_sha256": "fa6695412e7788e0dcae932cfd5607c3217877ccf07f35a3a94fc5a3d5784069",
+      "type_errors": [],
+      "default_deny_matches_source_plan": true,
+      "cnpg_runtime_absent": true,
+      "application_runtime_and_fixtures_absent": true,
+      "shared_lease_free": true
+    },
+    "after_probes": {
+      "source_revision": "b6e0434864d60945a21d20b7526fdaf106da8700",
+      "configuration_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+      "mode": "server-dry-run",
+      "probes": [
+        {
+          "name": "operator-job-accepted",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": true
+        },
+        {
+          "name": "operator-job-missing-deadline",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-suspended",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-delayed-cleanup",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-changed-command",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-changed-scope",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-lifecycle-command",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-environment-source",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-probe-command",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "operator-job-executable-mount",
+          "policy": "stego-cnpg-operator-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-accepted",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": true
+        },
+        {
+          "name": "database-job-missing-deadline",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-suspended",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-delayed-cleanup",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-command",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-environment",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-probe-command",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        },
+        {
+          "name": "database-job-network-label",
+          "policy": "stego-cnpg-database-ci.bounded-jobs",
+          "allowed": false
+        }
+      ],
+      "jobs_created": false
+    }
+  },
+  "full_workflow_verified": false
+}
