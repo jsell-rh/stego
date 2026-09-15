@@ -14,5 +14,12 @@
   "source_identity_verified": true,
   "frontend_inputs_match_current_source": true,
   "regeneration_passed": true,
-  "new_archive_browser_gate_passed": false
+  "new_archive_browser_gate_passed": false,
+  "independent_rebuild": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34973910193",
+    "source": "40924681c8237d8f91a61e9f4fd82a506baa4342",
+    "source_archive_sha256": "ba7106d8244244befa87fa9bd3c8bb989a4622ab891ad85671930c61f5a65c93",
+    "source_identity_verified": true,
+    "archive_matches_first_build_and_committed_bytes": true
+  }
 }
