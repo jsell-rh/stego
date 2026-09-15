@@ -283,3 +283,17 @@ Keep this file limited to current requirements and result links. Put detailed
 measurements and failed attempts in their feature evidence files. Preserve the
 full historical record. Ask the user about critical application or trust-boundary
 choices; resolve routine implementation choices within the authorized scope.
+
+The [internal Gateway TLS correction](hypershell-internal-tls-trust.json) replaces
+trust taken from the workload Secret with explicit operator trust. Six invalid
+cases were reproduced before the correction. Focused application checks and
+frozen inspection pass. Compiler `0b0c932` supplies the common bounded trust
+parser. Full compiler CI `34984419930` and a fresh complete application run
+remain required. The earlier public run `34983965151` has frozen source that
+precedes this correction.
+
+Compiler CI `34982993813` at docs commit `34bf5b2` failed the generated RPC
+cleanup telemetry case `close-goexit`: the test could not reach the RPC server
+before its deadline. This result needs investigation; it is not a pass. The
+log is `/tmp/stego-34bf5b2-failure-20260915.log`. Earlier passing runs remain
+valid only for their recorded executions.

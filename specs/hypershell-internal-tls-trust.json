@@ -1,0 +1,73 @@
+{
+  "checked_at": "2026-09-15T14:54:26.976594+00:00",
+  "consumer_parent": "2fe6d3e",
+  "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
+  "component": "kubernetes-client 1.9.0",
+  "result": "Focused checks passed; complete application and compiler CI pending.",
+  "before": {
+    "test": "TestInternalTLSSecretCannotSupplyItsOwnTrust",
+    "unexpected_acceptances": [
+      "foreign issuer supplied in the same Secret",
+      "missing operator trust",
+      "wrong namespace",
+      "missing UID",
+      "deletion in progress",
+      "private key appended to the certificate field"
+    ],
+    "exit_status": 1
+  },
+  "after": {
+    "selected_go_tests": "pass",
+    "internal_package_seconds": 0.029,
+    "acceptance_package_seconds": 0.018,
+    "fixture_input_tests": 5,
+    "browser_ci_boundary_tests": 6,
+    "cnpg_ci_boundary_tests": 10,
+    "frozen_inspection": "pass",
+    "application_drift": "pass",
+    "console_drift": "pass"
+  },
+  "behavior": [
+    "Internal Gateway TLS requires an operator-supplied absolute CA file.",
+    "Missing or invalid trust prevents controller startup.",
+    "Both Gateway server TLS paths use the generated Secret verifier.",
+    "Both explicit CA file paths use the generated certificate-only parser.",
+    "The internal RPC acceptance client uses operator trust instead of Secret ca.crt.",
+    "Browser and CNPG CI mount the selected public CA separately from workload Secrets."
+  ],
+  "ci": {
+    "compiler_run": 34984419930,
+    "compiler_result": "pending",
+    "previous_public_run": 34983965151,
+    "previous_public_source": "0befe5884117ede63c4caaf018c14bf6b60b3305",
+    "previous_public_state": "active; does not contain this change"
+  },
+  "logs": [
+    {
+      "path": "/tmp/hypershell-internal-tls-before-20260915.log",
+      "sha256": "41aec2eb370cbc15f49656b58a869697551827a46d522f94236ad80409cb9edc"
+    },
+    {
+      "path": "/tmp/hypershell-internal-tls-after-20260915.log",
+      "sha256": "df7f11055d2dd3ecc769a15379c9cd0610dddb090a124db832503cc03d1207e6"
+    },
+    {
+      "path": "/tmp/hypershell-internal-tls-selected-20260915.log",
+      "sha256": "c9585210790bb8a34950198fcc0620f0c7a0c6f0bc070a7f136db73c2070db17"
+    },
+    {
+      "path": "/tmp/hypershell-internal-tls-inspection-20260915.log",
+      "sha256": "50b7cee7004c3510ae6789bc2a95e1aaac0ceb251efe3a2d5cf4b942caa74959"
+    },
+    {
+      "path": "/tmp/hypershell-explicit-tls-console-repeat-20260915.log",
+      "sha256": "c08225d074946e2b6b4609efa986067a8c1ec46df58ab31e7382ab6f49e4db62"
+    }
+  ],
+  "limits": [
+    "The complete Gateway run must be repeated with this compiler and operator trust.",
+    "This check does not establish certificate revocation or production CA rotation behavior.",
+    "Sandbox client-certificate distribution and the deferred Kata test remain separate open requirements.",
+    "Gateway network isolation and allowed destinations remain incomplete."
+  ]
+}
