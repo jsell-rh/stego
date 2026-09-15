@@ -1,0 +1,237 @@
+{
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259",
+  "github_job": 104386282681,
+  "application_commit": "b6e0434864d60945a21d20b7526fdaf106da8700",
+  "compiler_revision": "a355306caea077ae8771884e4ca7b5eb5605eeca",
+  "result": "failure",
+  "application_executed": false,
+  "complete_cnpg_workflow_verified": false,
+  "job_uid": "ee349c94-b415-4f67-8021-809fb0117feb",
+  "database_ready": {
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+    "cluster_uid": "b8a3c822-af36-4345-bd88-35fa18c0765a",
+    "ready_instances": 2
+  },
+  "admission_checks": [
+    {
+      "name": "operator-job-accepted",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": true
+    },
+    {
+      "name": "operator-job-missing-deadline",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-job-suspended",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-job-delayed-cleanup",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-job-accepted",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": true
+    },
+    {
+      "name": "database-job-missing-deadline",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-job-suspended",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-job-delayed-cleanup",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-lifetime-command",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-lifetime-environment",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-lifetime-probe-command",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "database-lifetime-network-label",
+      "policy": "stego-cnpg-database-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-command",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-scope",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-environment-source",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-lifecycle",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-probe-command",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "operator-executable-mount",
+      "policy": "stego-cnpg-operator-ci.bounded-jobs",
+      "allowed": false
+    },
+    {
+      "name": "cluster-accepted",
+      "policy": "stego-cnpg-database-ci.bounded-cluster",
+      "allowed": true
+    },
+    {
+      "name": "cluster-instance-count",
+      "policy": "stego-cnpg-database-ci.bounded-cluster",
+      "allowed": false
+    },
+    {
+      "name": "cluster-storage-size",
+      "policy": "stego-cnpg-database-ci.bounded-cluster",
+      "allowed": false
+    },
+    {
+      "name": "cluster-missing-owner",
+      "policy": "stego-cnpg-database-ci.bounded-cluster",
+      "allowed": false
+    }
+  ],
+  "failure_scope": [
+    "The application Pod could not schedule until more capacity was available. It then exceeded the bounded Pod readiness wait. No application test ran.",
+    "Application cleanup passed. CNPG cleanup tried to list namespaces with the CI identity and received a denial. SQL resources and the Lease remained."
+  ],
+  "repair": {
+    "commit": "59a6d32087529a27a1e22f3a5726d4456a6ac08d",
+    "behavior": "Verify allocation absence with the existing bounded allocator client in read-only mode. Require a fresh result. Keep CI role and binding checks.",
+    "focused_tests": 10,
+    "permissions_expanded": false,
+    "startup_deadline_changed": false
+  },
+  "recovery": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259",
+    "job_uid": "ee349c94-b415-4f67-8021-809fb0117feb",
+    "holder": "stego-cnpg-live-4156f269887a602c",
+    "cluster_uid": "b8a3c822-af36-4345-bd88-35fa18c0765a",
+    "source_commit": "b6e0434864d60945a21d20b7526fdaf106da8700",
+    "result": "failed_before_application",
+    "phase": "complete",
+    "deleted": [
+      {
+        "kind": "Secret",
+        "namespace": "stego-service-ci",
+        "name": "cnpg-credentials",
+        "uid": "5e5a0fb2-be73-4011-b609-eaa7153496f0"
+      },
+      {
+        "kind": "Secret",
+        "namespace": "stego-cnpg-database-ci",
+        "name": "fixture-postgres",
+        "uid": "24c4e851-fda1-49e5-90f0-0df42b1d37d3"
+      },
+      {
+        "kind": "Job",
+        "namespace": "stego-cnpg-database-ci",
+        "name": "database-lifetime",
+        "uid": "997f5efc-b5c7-4d32-a167-4eb7d0a61cf0"
+      },
+      {
+        "kind": "Job",
+        "namespace": "stego-cnpg-operator-ci",
+        "name": "cnpg-operator",
+        "uid": "69d8a203-226b-40aa-b2af-d7a596ddb4fc"
+      }
+    ],
+    "allocations": {
+      "allocations_before": 0,
+      "allocations_absent": true
+    },
+    "volumes": [
+      {
+        "name": "pvc-2e07b932-2796-4c2b-a56e-701529a9af32",
+        "uid": "478b95c6-47df-4502-ac0c-cb25bdc6a911"
+      },
+      {
+        "name": "pvc-7156e122-1206-4cc1-93a8-cfb5f7181a43",
+        "uid": "940af2ae-c10c-4ba2-b68c-54bb7ecb73c6"
+      }
+    ],
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true,
+    "lease_released": true
+  },
+  "recovery_first_attempt": {
+    "result": "failure",
+    "scope": "The first identity-checked Cluster delete returned a private request error. A new read found the original UID without a deletion timestamp. A subsequent delete with current UID and resource-version preconditions succeeded. The original error cause was not captured.",
+    "record_sha256": "3cd91bb39abbf2ddbf46088d6a7738c31309b0e23e96106739192812eac8a2fc"
+  },
+  "separate_cluster_delete": {
+    "kind": "Cluster",
+    "namespace": "stego-cnpg-database-ci",
+    "name": "gateway-database",
+    "uid": "b8a3c822-af36-4345-bd88-35fa18c0765a",
+    "uid_and_resource_version_preconditions": true,
+    "foreground": true
+  },
+  "independent_cleanup": {
+    "checked_on": "2026-09-15",
+    "counts": {
+      "stego-cnpg-operator-ci/jobs": 0,
+      "stego-cnpg-operator-ci/pods": 0,
+      "stego-cnpg-database-ci/jobs": 0,
+      "stego-cnpg-database-ci/pods": 0,
+      "stego-cnpg-database-ci/clusters.postgresql.cnpg.io": 0,
+      "stego-cnpg-database-ci/pvc": 0,
+      "database_volumes": 0
+    },
+    "installation_config_uid": "de0b2ff3-986f-44bf-b792-d730a834ca6b",
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "lease_holder": ""
+  },
+  "artifact_sha256": {
+    "cnpg-ci-run.json": "14c5921298380971626ac9040c9d3ceb02052551fb53f91c57cba02d990bf98d",
+    "cnpg-ci-access.json": "c2fe4b9233ff7922b3e6faea34beaa3f9996f8dd93fda73ea8b0ddbae34896ae",
+    "cnpg-ci-admission.json": "5758ee9886961e1a15eb4816f990daebb97662b47909f11ca00fae5c9a34ba62",
+    "cnpg-server-created.json": "fef38c387c1c805b80a9c82dedcc0b886ae1fc576d0a47aef2c24ba695f5be30",
+    "cnpg-server-ready.json": "fc5e74b331bbb3003363f0fef9906dc6c4bad4c4e3e1c63fced9b88ff7327714",
+    "browser-run.log": "f8e6c66b162703dce74340e1d1f1a5ca87170be82821098cd0d05bc6a7001ea1",
+    "browser/job-status.json": "841fc37978a26dabf6e9351c3830d248aabf8d4e9ca94bd216f783212e969e3e",
+    "browser/cleanup.json": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232",
+    "browser/allocation-cleanup.json": "98019addd0645186f61a2ae88c9f405e38c37078303510d4585e326c9b0c06e8"
+  },
+  "limits": [
+    "The run used the old pods/exec permission probe. Its result does not prove exec subresource denial; the later explicit probe returned no.",
+    "Manual recovery is not evidence of successful automatic cleanup.",
+    "The core CI job was still active when this CNPG job result was collected."
+  ]
+}

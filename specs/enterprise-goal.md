@@ -75,14 +75,17 @@ timed out or a log is incomplete.
 | Required check | Source | Run |
 | --- | --- | --- |
 | Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), failed only the absent CNPG and Sandbox fixtures; core, ordinary browser, console, and image jobs passed |
-| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), CNPG job failed before application execution; Pod readiness timed out, then cleanup used a forbidden namespace list. Recovery is in progress. |
+| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), CNPG job failed before application execution; Pod readiness timed out, then cleanup used a forbidden namespace list. Manual recovery is complete; [failure and cleanup evidence](hypershell-cnpg-ci-first-run.json) is recorded. |
 
 Hypershell `59a6d32` includes controller-owned address observations and a corrected
 CNPG cleanup check through the existing allocator client. Its API run
 [34972072027](https://github.com/jsell-rh/hypershell-stego/actions/runs/34972072027)
 refused to start while recovery held the live-test Lease. It is not an application
-result. Browser run `34972072109` and full CI `34972073256` are queued. Verify
-cleanup and credentials before another live attempt.
+result. Its second attempt was canceled while pending to add the required
+endpoint ownership check. API run `34972191691` uses Hypershell `4977b62` and
+requires 32 checks. Browser run `34972072109` is active, and full CI `34972073256`
+is queued. The failed CNPG run has no remaining runtime or volumes, and its
+Lease was released. Verify credentials before another live attempt.
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
