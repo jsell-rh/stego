@@ -3,6 +3,7 @@ package client
 
 import (
  "context"
+ "crypto/sha256"
  "crypto/tls"
  "crypto/x509"
  "encoding/json"
@@ -93,17 +94,55 @@ func cleanupOwnerName(owner string)bool{
 type Options struct{Address,CAFile,TokenFile string}
 type Client struct{connection *grpc.ClientConn;permits,streams chan struct{}}
 func New(options Options)(*Client,error){
- host,port,err:=net.SplitHostPort(options.Address)
- number,portErr:=strconv.Atoi(port)
- if err!=nil||host==""||portErr!=nil||number<1||number>65535||strings.ContainsAny(host,"/\\@?#% \t\r\n"){return nil,errors.New("RPC address must be host:port")}
+ if err:=clientAddress(options.Address);err!=nil{return nil,err}
  ca,err:=readFile(options.CAFile,65536,false);if err!=nil{return nil,err}
  roots:=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return nil,errors.New("invalid RPC trust roots")}
  token:=fileToken{path:options.TokenFile};if _,err:=token.read();err!=nil{return nil,err}
- connection,err:=grpc.NewClient("passthrough:///"+options.Address,
-  grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots})),
-  grpc.WithPerRPCCredentials(token),grpc.WithDisableRetry(),grpc.WithDisableServiceConfig(),grpc.WithMaxHeaderListSize(32<<10),
+ return newClient(options.Address,&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots},token)
+}
+
+// TLSProbeOptions requires trusted roots and the expected leaf DER certificate
+// SHA-256 digest. The digest does not replace hostname or chain verification.
+type TLSProbeOptions struct {
+ Address string
+ Roots *x509.CertPool
+ PeerCertificateSHA256 [sha256.Size]byte
+}
+
+// TLSProbe makes bounded unary calls without application credentials. It
+// removes caller metadata before adding its own generated telemetry metadata.
+// It does not accept per-call transport options or support response streams.
+type TLSProbe struct { client *Client }
+func NewTLSProbe(options TLSProbeOptions)(*TLSProbe,error){
+ if err:=clientAddress(options.Address);err!=nil{return nil,err}
+ if options.Roots==nil||options.PeerCertificateSHA256==([sha256.Size]byte{}){return nil,errors.New("RPC probe requires trust and an expected peer certificate")}
+ expected:=options.PeerCertificateSHA256
+ config:=&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:options.Roots.Clone(),VerifyConnection:func(state tls.ConnectionState)error{
+  if len(state.VerifiedChains)==0||len(state.PeerCertificates)==0||sha256.Sum256(state.PeerCertificates[0].Raw)!=expected{return errors.New("RPC probe peer certificate differs")}
+  return nil
+ }}
+ c,err:=newClient(options.Address,config,nil);if err!=nil{return nil,err}
+ return &TLSProbe{client:c},nil
+}
+func(p *TLSProbe)Close(){p.client.Close()}
+func(p *TLSProbe)Invoke(ctx context.Context,method string,request,response any)error{
+ if ctx==nil{return status.Error(codes.InvalidArgument,"RPC probe requires a context")}
+ return p.client.Invoke(metadata.NewOutgoingContext(ctx,metadata.MD{}),method,request,response)
+}
+func clientAddress(address string)error{
+ host,port,err:=net.SplitHostPort(address)
+ number,portErr:=strconv.Atoi(port)
+ if err!=nil||host==""||portErr!=nil||number<1||number>65535||strings.ContainsAny(host,"/\\@?#% \t\r\n"){return errors.New("RPC address must be host:port")}
+ return nil
+}
+func newClient(address string,config *tls.Config,token credentials.PerRPCCredentials)(*Client,error){
+ options:=[]grpc.DialOption{
+  grpc.WithTransportCredentials(credentials.NewTLS(config)),
+  grpc.WithDisableRetry(),grpc.WithDisableServiceConfig(),grpc.WithMaxHeaderListSize(32<<10),
   grpc.WithContextDialer(func(ctx context.Context,address string)(net.Conn,error){return (&net.Dialer{Timeout:CallTimeout}).DialContext(ctx,"tcp",address)}),
- )
+ }
+ if token!=nil{options=append(options,grpc.WithPerRPCCredentials(token))}
+ connection,err:=grpc.NewClient("passthrough:///"+address,options...)
  if err!=nil{return nil,errors.New("RPC client configuration failed")}
  return &Client{connection:connection,permits:make(chan struct{},MaxConcurrentCalls),streams:make(chan struct{},MaxConcurrentStreams)},nil
 }

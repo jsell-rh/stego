@@ -28,7 +28,10 @@ func TestGeneratedGRPCApplication(t *testing.T) {
 		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
 	}
 }
-func testGeneratedGRPCApplication(t *testing.T, watch bool) {
+func TestGeneratedTLSProbe(t *testing.T) {
+	testGeneratedGRPCApplication(t, false, "^TestTLSProbe$")
+}
+func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) {
 	ctx := gen.Context{ServiceName: "records", ModuleName: "example.com/grpc-test", OutDirName: "out", EventsContract: "example.com/grpc-test/out/contracts/events", StorageContract: "example.com/grpc-test/out/contracts/storage", AuthPackage: "example.com/grpc-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "grpc-application": "grpcapi", "outbox": "queue"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}, Inputs: map[string][]byte{"api/records.proto": []byte(schema)}}
 	if watch {
 		ctx.PeerNamespaces["otel-tracing"] = "telemetry"
@@ -76,7 +79,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 			t.Fatal(err)
 		}
 	}
-	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go"}
+	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go"}
 	if watch {
 		tests = append(tests, "client_telemetry_test.go")
 	}
@@ -93,6 +96,9 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool) {
 		}
 	}
 	for _, args := range [][]string{{"mod", "tidy", "-go=" + new(grpcapplication.Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
+		if len(selected) != 0 && args[0] == "test" {
+			args = append(args[:len(args)-1], "-run", selected[0], "./...")
+		}
 		cmd := exec.Command("go", args...)
 		cmd.Dir = project
 		cmd.Env = append(os.Environ(), "GOWORK=off")
