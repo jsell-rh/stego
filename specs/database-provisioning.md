@@ -82,6 +82,20 @@ job passed in [run 34885672242](https://github.com/jsell-rh/stego/actions/runs/3
 [fresh schema generation gate](../registry/components/postgres-adapter/schema-generation.md).
 Eight generated PostgreSQL tests passed in jshell. They cover rejection before
 initialization, restart, concurrent calls, interrupted connections, marker
-permissions, and bounded lock waits. Hypershell has not adopted the gate yet.
-Its application setup must commit with the generated schema before the new
-catalog-free API can use this mechanism as its release boundary.
+permissions, and bounded lock waits.
+
+Hypershell adopted this gate in
+[`6e5116e`](https://github.com/jsell-rh/hypershell-stego/commit/6e5116e718bb602388f6f3945e5afa4351ace246).
+The API has no database catalog or Gateway database field. REST and gRPC reject
+the retired field, including an empty value. The application declares
+`controller-local-v1`; its initial schema, role data, and event outbox commit
+together. Legacy schema checks run before writes.
+
+The application check at
+[`425871f`](https://github.com/jsell-rh/hypershell-stego/commit/425871f64846cff7ac24d0d9b2a7db0c609e9f4f)
+has passing results for 81 selected application tests. These include both SQL
+and workload cleanup records, parent deletion, restart, and access rules.
+The [application evidence](https://github.com/jsell-rh/hypershell-stego/blob/425871f64846cff7ac24d0d9b2a7db0c609e9f4f/acceptance/controller-local-extended-evidence.json)
+also records the failed attempts and test limits. Old live fixtures still
+prevent the full acceptance package from building. These results do not prove
+the complete Gateway Pod, browser, or supplied SQL server workflow.
