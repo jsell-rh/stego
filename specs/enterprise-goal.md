@@ -96,10 +96,12 @@ The [SSO authentication audit](sso-auth-audit.md) reproduced acceptance of token
 with the wrong issuer, wrong audience, and no expiry. Compiler `94f9fa0` replaces
 that separate verifier with the shared JWT runtime and a bounded key source.
 Expanded generated race tests pass. Both examples were regenerated in `a355306`.
-[Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920) is
-active. Verify this result and fix failures before adopting this compiler in
-Hypershell. Key-source telemetry and performance evidence remain separate open
-requirements; these focused trust checks do not close all of C4 or C6.
+[Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920)
+passed, including both examples, generated authentication race checks, and real
+SQL provisioning. Hypershell is adopting this verified compiler; its new API,
+browser, and full CI gates remain required. Key-source telemetry and performance
+evidence remain separate open requirements. These checks do not close all of
+C4 or C6.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and

@@ -51,3 +51,11 @@ Both example services were regenerated with clean compiler `94f9fa0`. Validation
 dependency resolution, repeated apply, and drift checks passed. Their generated
 output now includes the shared key source. The SSO example uses jwt/v5 and the
 error-returning constructor. Full CI remains required for these exact files.
+
+[Full CI 34966748920](https://github.com/jsell-rh/stego/actions/runs/34966748920)
+passed at `a355306`. The shared JWT generator race checks passed in 7.613 seconds;
+the SSO checks passed in 4.566 seconds. Both examples passed generation, module
+verification, vulnerability scans, race tests, and service builds. Real SQL
+provisioning also passed. This closes the reproduced SSO trust defect and the
+example dependency checks at that source. The wider enterprise requirements,
+key-source telemetry, and performance evidence remain open.
