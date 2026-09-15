@@ -1,0 +1,20 @@
+{
+  "review_date": "2026-09-15",
+  "read_only": true,
+  "repository": "https://github.com/openshift/ovn-kubernetes",
+  "branch": "release-4.22",
+  "reviewed_commit": "e2082ef4a1aaad8fa5acc7b24880394b60a4e8ae",
+  "dns_source_blob": "782259d003e82feb9cab8ca1f389880ad67ef385",
+  "utility_source_sha256": "6cc597b59a697164c117ae4567c90d47a90f14a1bc3e7fc8caba5d85f5064fe4",
+  "source_findings": [
+    "DNS.updateOne retains the previous IP list when a retry has no valid answers.",
+    "The retry interval can increase to two minutes. That interval does not expire the retained address list.",
+    "EgressDNS.updateEntryForName reads the retained list and writes it to the address set."
+  ],
+  "installed_image": "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:0ac13d5f94f47a6276e6b37fa49eeef84e548b3b71eef6ff7bec8a4005b77e0c",
+  "installed_source_commit_verified": false,
+  "image_metadata_check": "The registry denied unauthenticated image metadata access. No credential was read or changed.",
+  "conclusion": "Do not infer bounded old-address removal after DNS failure from provider support or retry intervals. Qualify the exact installed implementation and its traffic behavior.",
+  "cluster_changes": false,
+  "live_dns_test": false
+}

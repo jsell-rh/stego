@@ -68,3 +68,17 @@ The generated policy must preserve approved replies without permitting unrelated
 outgoing connections. The EgressFirewall status schema has no observed-generation
 field, so a status string alone cannot prove that a changed rule is enforced.
 Keep live address replacement, removal, and denied connection checks in the gate.
+
+A [source review](allocated-network-dns-source-review-20260915.json) of
+OpenShift branch `release-4.22`, commit `e2082ef4`, found that the legacy DNS
+path retains the previous IP list when a failed lookup returns no valid
+answers. Its retry interval can increase to two minutes; that limit does not
+expire the retained addresses. See the
+[DNS cache update](https://github.com/openshift/ovn-kubernetes/blob/e2082ef4a1aaad8fa5acc7b24880394b60a4e8ae/go-controller/pkg/util/dns.go#L110)
+and the
+[address-set update](https://github.com/openshift/ovn-kubernetes/blob/e2082ef4a1aaad8fa5acc7b24880394b60a4e8ae/go-controller/pkg/ovn/dns_name_resolver/dns.go#L151).
+This is source evidence, not a live DNS result. The installed image digest was
+read, but its source commit remains unverified because registry access was
+denied. No registry credential was read. Provider qualification must establish
+what happens to old addresses after failed or empty DNS answers. A retry
+interval alone is not an address-removal guarantee.
