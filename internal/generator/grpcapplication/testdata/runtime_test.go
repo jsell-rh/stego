@@ -110,6 +110,7 @@ func TestRuntime(t *testing.T) {
 	go func() { done <- runtime.Run(ctx) }()
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
+	checkMissingAuthority(t, runtime.Addr().String(), roots)
 	connection, err := grpc.NewClient(runtime.Addr().String(), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots})))
 	if err != nil {
 		t.Fatal(err)

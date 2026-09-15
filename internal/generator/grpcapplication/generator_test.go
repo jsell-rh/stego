@@ -28,6 +28,10 @@ func TestGeneratedGRPCApplication(t *testing.T) {
 		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
 	}
 }
+func TestGeneratedAuthorityRejection(t *testing.T) {
+	testGeneratedGRPCApplication(t, false, "^TestRuntime$")
+}
+
 func TestGeneratedTLSProbe(t *testing.T) {
 	testGeneratedGRPCApplication(t, false, "^TestTLSProbe$")
 }
@@ -79,7 +83,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 			t.Fatal(err)
 		}
 	}
-	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go"}
+	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go", "authority_test.go"}
 	if watch {
 		tests = append(tests, "client_telemetry_test.go")
 	}
