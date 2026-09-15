@@ -3950,3 +3950,23 @@ This closes the live application check for shared Deployment availability.
 The screenshots still show no public connection command. External connectivity,
 the later viewer and live-account checks, unattended CNPG CI, actual RDS,
 Sandbox isolation, and the wider enterprise requirements remain open.
+
+The serial CI queue exposed a credential lifetime risk. GitHub reads repository
+secrets when a run is queued; rotation does not change that snapshot. Hypershell
+`f900d5a` now uses the `jshell-ci` environment, whose secret is read when the job
+starts. The operator created that environment and supplied the same restricted
+one-hour CI identity. No cluster permission or token renewal right was added.
+
+The runner checks require at least 25 minutes for the API gate and 35 minutes
+for the browser gate before acquiring the shared Lease. Six small tests cover
+invalid identities and lifetimes, private error handling, time boundaries, and
+both runner entry points. Near-expiry credentials stop before cluster calls.
+Related CI boundary checks passed. The fresh credential passed the read-only
+lifetime check; live environment-backed CI evidence remains required.
+
+Viewer run `34950955188` was cancelled while pending, then rerun on the same
+`5dc5742` commit after token rotation. Its second attempt remains required. The
+active API Job and Lease were preserved. Existing queued workflow revisions
+still use their repository secret snapshot. Operator renewal remains necessary;
+this change does not establish unattended CI authentication. See the
+[application contract](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/ci-credentials.md).
