@@ -38,6 +38,15 @@ type output struct {
 func (o *output) Write(p []byte) (int, error) { o.Lock(); defer o.Unlock(); return o.b.Write(p) }
 func (o *output) String() string              { o.Lock(); defer o.Unlock(); return o.b.String() }
 func TestGeneratedProcess(t *testing.T) {
+	testGeneratedProcess(t, []string{"normal", "restart", "open-error", "open-panic", "open-goexit", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+}
+func TestGeneratedProcessStartupTelemetry(t *testing.T) {
+	testGeneratedProcess(t, []string{"open-error", "open-panic", "open-goexit"}, false)
+}
+func TestGeneratedProcessCleanupTelemetry(t *testing.T) {
+	testGeneratedProcess(t, []string{"restart", "register-error", "close-error", "close-panic", "close-goexit"}, true)
+}
+func testGeneratedProcess(t *testing.T, modes []string, checkRPC bool) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "records")
 	build := exec.Command("go", "build", "-race", "-mod=readonly", "-o", binary, "../out/grpcapi/processes/records")
@@ -86,8 +95,9 @@ func TestGeneratedProcess(t *testing.T) {
 		tokens = append(tokens, signed)
 		return signed
 	}
-	for _, mode := range []string{"normal", "restart", "open-error", "open-panic", "open-goexit", "register-error", "close-error", "close-panic", "close-goexit"} {
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
+			offset := collector.offset()
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
 				t.Fatal(err)
@@ -202,6 +212,7 @@ func TestGeneratedProcess(t *testing.T) {
 			if (processErr != nil) != wantFailure {
 				t.Fatal("unexpected process result", mode, processErr)
 			}
+			collector.checkLifecycle(t, offset, wantFailure, !startupFailure)
 			if wantFailure && !strings.Contains(logs.String(), `"event.name":"rpc.process.failed"`) {
 				t.Fatal("safe failure event missing")
 			}
@@ -214,5 +225,7 @@ func TestGeneratedProcess(t *testing.T) {
 
 		})
 	}
-	collector.check(t, tokens)
+	if checkRPC {
+		collector.check(t, tokens)
+	}
 }

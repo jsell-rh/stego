@@ -5,6 +5,7 @@ import (
 	"errors"
 	pb "example.com/grpc-test/out/grpcapi/pb/sample/v1"
 	process "example.com/grpc-test/out/grpcapi/process"
+	tracing "example.com/grpc-test/out/telemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,6 +15,8 @@ import (
 )
 
 func Open(ctx context.Context) (process.Application, error) {
+	_, done := tracing.TraceDatabase(ctx, "connect")
+	done("success")
 	deadline, ok := ctx.Deadline()
 	if !ok || time.Until(deadline) > 10*time.Second {
 		return nil, errors.New("private-process missing deadline")

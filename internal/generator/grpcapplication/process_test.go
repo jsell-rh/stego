@@ -87,6 +87,12 @@ func TestGRPCProcessValidation(t *testing.T) {
 	}
 }
 func TestGeneratedGRPCProcesses(t *testing.T) {
+	testGeneratedGRPCProcesses(t, "")
+}
+func TestGeneratedGRPCProcessLifecycleTelemetry(t *testing.T) {
+	testGeneratedGRPCProcesses(t, "^TestGeneratedProcess(Startup|Cleanup)Telemetry$")
+}
+func testGeneratedGRPCProcesses(t *testing.T, selected string) {
 	ctx := processContext(t)
 	ctx.StorageContract = ""
 	delete(ctx.ComponentConfig, "factory_package")
@@ -142,7 +148,11 @@ func TestGeneratedGRPCProcesses(t *testing.T) {
 		}
 		write(target, data)
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-v", "-race", "-mod=readonly", "-count=1", "-timeout=3m", "./..."}} {
+	commands := [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-v", "-race", "-mod=readonly", "-count=1", "-timeout=3m", "./..."}}
+	if selected != "" {
+		commands = [][]string{{"mod", "tidy"}, {"test", "-v", "-p=1", "-mod=readonly", "-count=1", "-timeout=45s", "-run", selected, "./integration"}}
+	}
+	for _, args := range commands {
 		command := exec.Command("go", args...)
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")

@@ -35,6 +35,87 @@ func (c *processCollector) store(p proto.Message) error {
 	return nil
 }
 
+func (c *processCollector) offset() int {
+	c.Lock()
+	defer c.Unlock()
+	return len(c.batches)
+}
+
+func (c *processCollector) checkLifecycle(t *testing.T, offset int, failed, ready bool) {
+	t.Helper()
+	c.Lock()
+	defer c.Unlock()
+	spans, records := map[string]bool{}, map[string]bool{}
+	events := map[string]int{}
+	var count uint64
+	for _, batch := range c.batches[offset:] {
+		encoded, err := proto.Marshal(batch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(encoded, []byte("private-process")) {
+			t.Fatal("private error entered lifecycle telemetry")
+		}
+		switch value := batch.(type) {
+		case *traces.ExportTraceServiceRequest:
+			for _, resource := range value.ResourceSpans {
+				for _, scope := range resource.ScopeSpans {
+					for _, span := range scope.Spans {
+						if span.Name == "postgresql connect" {
+							spans[hex.EncodeToString(span.TraceId)+hex.EncodeToString(span.SpanId)] = true
+						}
+					}
+				}
+			}
+		case *logs.ExportLogsServiceRequest:
+			for _, resource := range value.ResourceLogs {
+				for _, scope := range resource.ScopeLogs {
+					for _, record := range scope.LogRecords {
+						events[record.EventName]++
+						if record.EventName == "db.client.operation.completed" && len(record.TraceId) == 16 && len(record.SpanId) == 8 {
+							records[hex.EncodeToString(record.TraceId)+hex.EncodeToString(record.SpanId)] = true
+						}
+					}
+				}
+			}
+		case *metrics.ExportMetricsServiceRequest:
+			for _, resource := range value.ResourceMetrics {
+				for _, scope := range resource.ScopeMetrics {
+					for _, metric := range scope.Metrics {
+						if metric.Name == "stego.db.connection.duration" {
+							for _, point := range metric.GetHistogram().GetDataPoints() {
+								count += point.Count
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	matched := false
+	for key := range records {
+		if spans[key] {
+			matched = true
+		}
+	}
+	if !matched || count == 0 {
+		t.Fatal("startup database operation did not export correlated logs, traces, and metrics")
+	}
+	if events["service.stopping"] != 1 {
+		t.Fatal("process did not export one stop event")
+	}
+	wantFailure, wantReady := 0, 0
+	if failed {
+		wantFailure = 1
+	}
+	if ready {
+		wantReady = 1
+	}
+	if events["service.failed"] != wantFailure || events["service.ready"] != wantReady {
+		t.Fatal("incorrect process lifecycle events", events)
+	}
+}
+
 type processTraces struct {
 	traces.UnimplementedTraceServiceServer
 	c *processCollector

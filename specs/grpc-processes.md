@@ -43,8 +43,10 @@ API repository or connect to a database. The primary API bridge remains a
 separate generated package. A process can use domain dependencies that require
 a database, but the process runtime does not require one.
 
-`Open` receives an initialization context with a ten-second deadline. It must
-close partial resources before returning an error. A successful return transfers
+`Open` receives an initialization context with a ten-second deadline and the
+process telemetry runtime. Generated database, HTTP, and RPC clients can use
+that context for telemetry during initialization. The process retains ownership
+of the telemetry runtime. `Open` must close partial resources before returning an error. A successful return transfers
 application ownership to STEGO. Registration runs once before the listener
 opens. Registration must not retain the registrar. Cleanup follows RPC shutdown
 and runs before telemetry closes. Domain policy and safe public RPC errors remain
@@ -62,7 +64,11 @@ they do not make domain effects atomic or recover uncertain external writes.
 The entry point catches callback panic and `runtime.Goexit` without printing
 private values. Failed startup, serving, or cleanup produces a fixed failure
 event and a nonzero exit. A blocked stderr writer has at most 100 milliseconds
-to emit that final event. Domain code must not log credentials itself.
+to emit that final event. When telemetry initialization succeeds, failure also
+produces the fixed `service.failed` event before telemetry closes. Separate
+cleanup defers preserve the remaining cleanup and telemetry flush if an
+application callback panics or calls `runtime.Goexit`. The shutdown limit still
+applies. Domain code must not log credentials itself.
 
 The process supplies loopback health probes. `STEGO_RPC_MONITOR_ADDR` defaults
 to `127.0.0.1:9082`. It accepts only a literal loopback IP and a canonical port
@@ -143,3 +149,17 @@ Hypershell then passed the rendered Gateway and account workflow with a separate
 generated provisioner Deployment. It replaced the provisioner after account
 creation, then verified token issuance, revoke, and delete. See the
 [application deployment record](https://github.com/jsell-rh/hypershell-stego/blob/863d8a9/acceptance/rpc-deployment.md).
+
+On 2026-09-15, a bounded regression check found that `Open` did not receive the
+telemetry runtime in its context. The check failed for startup error, panic,
+and `runtime.Goexit`: its database operation had no correlated signals. The
+process now binds the runtime before it creates the initialization context.
+Cleanup also retains the telemetry flush after callback panic or `Goexit`.
+
+The corrected lifecycle and compiler validation checks passed in 20.355 seconds.
+They used one Go execution thread and a 384 MiB Go memory target. The generated
+subprocess used race detection. The TLS collector checked startup database
+instrumentation, RPC signals, and exact ready, stop, and failure event counts.
+Cases included startup error, registration error, cleanup error, panic,
+`Goexit`, and clean shutdown. The fixture did not connect to PostgreSQL.
+The full compiler and application CI results remain separate acceptance gates.
