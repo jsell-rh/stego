@@ -4237,7 +4237,7 @@ telemetry application gate. The restricted CI credential was renewed through
 12:19:07 UTC with its existing permissions.
 
 
-## Public Gateway work before 2026-09-15 14:00 UTC
+## Public Gateway work before 2026-09-15 13:41 UTC
 
 The following entries retain their status at the time of writing. The current
 goal record supersedes their pending-run descriptions.
@@ -4292,4 +4292,3 @@ browser `34974186012` remain required. The latest browser source also records
 the PostgreSQL server version and provisioning role; that check has compiled
 but has not run on the cluster. The existing browser pass still has the limits
 in its evidence record. See [the archive evidence](hypershell-console-endpoint-assets.json).
-
