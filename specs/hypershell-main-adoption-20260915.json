@@ -1,0 +1,22 @@
+{
+  "repository": "jsell-rh/hypershell-stego",
+  "default_branch": "main",
+  "previous_default_commit": "f3e8fa8",
+  "previous_primary_checkout_commit": "dee2148",
+  "adopted_commit": "e1cb5e3a5ca55f1835229e01804cd2a3e28428a0",
+  "candidate_branch": "codex/approved-network-peers-20260915",
+  "primary_checkout_branch": "codex/namespace-allocation-20260912",
+  "primary_checkout": "/home/jsell/code/hypershell-stego",
+  "fast_forward_only": true,
+  "remote_default_commit_verified": true,
+  "primary_checkout_clean": true,
+  "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+  "cnpg_tested_source": "bfba203f97299bb08487346f9e5b99541805629f",
+  "changes_after_tested_source": "Acceptance records only.",
+  "evidence": [
+    "hypershell-cnpg-security-complete-20260915.json",
+    "hypershell-endpoint-change-live-20260915.json",
+    "hypershell-api-security-ci-20260915.json"
+  ],
+  "full_goal_complete": false
+}

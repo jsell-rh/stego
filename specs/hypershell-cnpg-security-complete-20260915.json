@@ -1,0 +1,107 @@
+{
+  "source_commit": "bfba203f97299bb08487346f9e5b99541805629f",
+  "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+  "directory": "/home/jsell/.local/state/stego/runs/cnpg-security-20260915",
+  "exec_session": 79654,
+  "exit_status": 0,
+  "phase": "complete",
+  "application_seconds": 477.97,
+  "race_test_seconds": 479.024,
+  "initial_acceptance_seconds": 37.693,
+  "network": {
+    "stages": [
+      "initial",
+      "after-recovery"
+    ],
+    "checks": 24,
+    "all_passed": true,
+    "all_first_attempt": true,
+    "independent_egress": false,
+    "fresh_connections": true
+  },
+  "regeneration": {
+    "files": 238,
+    "before_after_equal": true
+  },
+  "restart": {
+    "cluster_spec_unchanged": true,
+    "cluster_uid": "30fa63eb-7745-4b59-aa3a-c2b0de5c1987",
+    "gateway_credentials_and_keys_unchanged": true,
+    "installation_data_unchanged": true,
+    "namespace": "stego-cnpg-database-ci",
+    "namespace_uid": "d57b0776-5a99-45d6-a1cc-7b031a555359",
+    "new_primary": "gateway-database-2",
+    "new_primary_pod_uid": "08a9897b-a08b-4015-aef4-2e60048d8a7f",
+    "old_pod_uid": "b4842ac5-b52c-4884-bc16-9dc2067b0236",
+    "old_primary": "gateway-database-1",
+    "primary_changed": true,
+    "provider_data_unchanged": true,
+    "ready_instances": 2,
+    "seconds": 67.164842414,
+    "sql_object_ids_unchanged": true
+  },
+  "application_cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "outer_allocation_check": {
+    "allocations_before": 0,
+    "allocations_absent": true
+  },
+  "automatic_cleanup": {
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "installation_retained": true
+  },
+  "independent_cleanup": {
+    "runtime_absent": true,
+    "volumes_absent": true,
+    "private_fixture_absent": true,
+    "allocations_absent": true,
+    "lease_free": true,
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "read_only": true
+  },
+  "worker_telemetry": {
+    "allocator_instances": 2,
+    "identity_instances": 2,
+    "workload_instances": 2,
+    "all_required_signals_verified": true
+  },
+  "browser": {
+    "verified": true,
+    "publicConnectionVerified": false
+  },
+  "setup_intervention": {
+    "phase": "ready",
+    "reason": "The test replica uses capacity required by the pending application Job.",
+    "cluster_uid": "30fa63eb-7745-4b59-aa3a-c2b0de5c1987",
+    "primary": "gateway-database-1",
+    "replica_name": "gateway-database-2",
+    "replica_uid": "44f12dd7-f2ec-4fb9-b15b-fcbbbad54a64",
+    "replica_node": "ip-10-0-1-214.ec2.internal",
+    "application_job_uid": "2f725233-19de-46da-ad49-91cb3c1abed3",
+    "source_changes": false,
+    "resource_limit_changes": false,
+    "unrelated_resource_changes": false,
+    "primary_uid": "b4842ac5-b52c-4884-bc16-9dc2067b0236",
+    "replacement_replica_uid": "08a9897b-a08b-4015-aef4-2e60048d8a7f",
+    "replacement_replica_node": "ip-10-0-1-187.ec2.internal",
+    "ready_instances": 2,
+    "application_pod_uid": "5218d77f-f023-4df5-9070-0990adc193bf",
+    "application_node": "ip-10-0-1-214.ec2.internal"
+  },
+  "evidence_sha256": "9011ddf6e8c05a98f02f5ba8159fd34e005dab1458e97b3d58823303984ead23",
+  "evidence_retention": {
+    "raw_local_archive_available": true,
+    "persistent_storage": true
+  },
+  "limits": [
+    "The scheduler required operator assistance to recreate only the test replica before the application started. This is not an unattended scheduling result.",
+    "This restricted CI profile does not test an unrelated receiver with no ingress policy.",
+    "Public Gateway routing, external DNS changes, and RDS failover are not proved by this run.",
+    "The separate per-Gateway dashboard is not implemented. Kata Sandbox tests remain deferred."
+  ]
+}

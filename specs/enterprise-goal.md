@@ -61,6 +61,7 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
+| Patched CNPG Gateway workflow | Hypershell `bfba203`, compiler `b0bd9a4` | The [complete workflow](hypershell-cnpg-security-complete-20260915.json) passed in 477.97 seconds with race detection. All 24 network checks passed on the first attempt, and 238 generation hashes stayed equal. Primary replacement took 67.16 seconds and preserved SQL identities, credentials, keys, and data. Six controller instances supplied all required telemetry. Automatic cleanup and independent absence checks passed. Raw evidence is in persistent storage. One test replica needed operator-assisted placement before the application started; this is not an unattended scheduling result. |
 | Gateway workflow with address replacement | Hypershell `93f590b`, compiler `b0bd9a4` | The [complete public workflow](hypershell-endpoint-change-live-20260915.json) passed in 536.80 seconds with race detection. All 54 fresh-connection checks passed before address replacement, after replacement, and after namespace recovery. The old address was denied and the replacement was allowed. All 238 generation hashes stayed equal. Ten worker instances supplied metrics and correlated logs and traces. Public TLS, certificate rotation, SQL faults, access rules, encrypted recovery, account deletion, and logout passed. Automatic cleanup and independent absence checks passed. Raw evidence is in persistent storage. External DNS and RDS failover remain unproved. |
 | Full compiler CI | STEGO `b0bd9a4` | [Run 35012238080](https://github.com/jsell-rh/stego/actions/runs/35012238080) passed compiler race tests, both generated examples, dependency scans, and SQL provisioning. The patched API and console also passed vulnerability scans. [The API cluster gate](hypershell-api-security-ci-20260915.json) passed all 32 required tests. Ordinary Hypershell CI passed all four application jobs; its CNPG job declined an insufficient credential before execution. |
 | Core application acceptance | Hypershell `0c2e7fe`, compiler `fe07b0a` | [Run 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003) passed core acceptance with race detection in 1330.563 seconds. Rendered browser, 229 UI tests, bundle reproduction, regeneration, and image checks passed. The manual workflow skipped CNPG and Sandbox. The main variant branch adopted the checked candidate through `4d1334b`. |
@@ -184,7 +185,10 @@ confirmed resource absence and a free Lease.
 
 
 This result closes the fixed-address replacement gate. External database DNS
-behavior remains unproved and keeps the full network gate open. The main variant branch still uses the earlier checked candidate.
+behavior remains unproved and keeps the full network gate open. Hypershell `main` and the primary variant checkout now contain candidate
+`e1cb5e3`. The candidate differs from tested source `bfba203` only in acceptance
+records. Both the complete public fixed-address workflow and the patched CNPG
+workflow passed before promotion.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.
@@ -226,3 +230,9 @@ The user selected the upstream OpenShell dashboard for the per-Gateway console.
 STEGO will generate its common authentication, deployment, and lifecycle support;
 Hypershell will supply Gateway-specific configuration and access rules. Keep the
 dashboard backend upstream. Preserve its WebSocket terminal contract.
+
+The [default-branch adoption record](hypershell-main-adoption-20260915.json)
+records the fast-forward from the older Hypershell default branch. The primary
+local variant branch was also fast-forwarded and pushed. The full goal remains
+active. The patched CNPG result does not add public routing, external DNS,
+RDS failover, or Kata evidence beyond the separate recorded gates.
