@@ -1,0 +1,53 @@
+{
+  "status": "running",
+  "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
+  "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+  "frozen_source": "/tmp/hypershell-endpoint-security-frozen-20260915",
+  "source_record_sha256": "2ec38e3f46b0336062a721d4785016bde2e9664e44186475202fc1e514760813",
+  "directory": "/tmp/hypershell-endpoint-security-retry-live-20260915",
+  "log": "/tmp/hypershell-endpoint-security-retry-live-20260915.log",
+  "exec_session": 60341,
+  "namespace": "stego-service-20260915-6fe6df",
+  "pod": "service-check-mmf9k",
+  "journal": {
+    "phase": "prepared",
+    "control_uid": "5416910f-5308-471b-a084-e9dc4870e970",
+    "pod_uid": "d86aa267-571d-41b3-8260-6b79b3ff9aa9",
+    "policy_uid": "9212e633-638c-4836-bb37-ed02405a920b",
+    "nonce": "9e4b9082110a484b9df28d1ba08ad798"
+  },
+  "expected_network_checks": 54,
+  "stages": [
+    "initial",
+    "after-endpoint-replacement",
+    "after-recovery"
+  ],
+  "previous_attempts": [
+    {
+      "source_commit": "1df3d363afc02c8dd35cf009a01bfcae84b89030",
+      "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
+      "exec_session": 68863,
+      "exit_status": 1,
+      "phase": "failed_before_namespace_creation",
+      "failure": "TLS handshake timeout while reading the Kubernetes Service during preflight.",
+      "kubernetes_endpoints_bytes": 1207,
+      "kubernetes_service_bytes": 0,
+      "cleanup": {
+        "namespace_absent": "stego-service-20260915-c0b4bf",
+        "owned_resources_absent": true
+      },
+      "lease_released": true,
+      "test_job_created": false
+    }
+  ],
+  "cancelled_duplicate_browser_ci": {
+    "run": 35012419869,
+    "reason": "Replaced during setup by the complete public Gateway address-change workflow.",
+    "application_started": false
+  },
+  "limits": [
+    "No final application or cleanup result is available yet.",
+    "This fixed-address test does not prove DNS tracking or RDS failover.",
+    "No DNS provider or Technology Preview feature was enabled."
+  ]
+}

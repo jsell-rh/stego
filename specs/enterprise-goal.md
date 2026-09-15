@@ -164,8 +164,12 @@ original specification before the update, confirms admission type checking,
 and restarts both workers with the replacement binding. It requires traffic
 records and telemetry from each new instance. Fifty Python checks, 25 shell
 checks, and selected Go checks passed. The complete live address-change test
-is still pending. These checks do not prove traffic enforcement or external DNS
-behavior.
+is [active on the patched source](hypershell-endpoint-change-live-20260915.json).
+Its first attempt stopped on a read-only TLS handshake timeout before namespace
+creation. Cleanup verified absence and released the Lease. The retry uses the
+same frozen source and a new result directory. Its final application and cleanup
+results remain required. Preparation checks do not prove traffic enforcement or
+external DNS behavior.
 
 This result does not close the full network gate. Approved and retired endpoint
 addresses need live traffic checks. External database DNS behavior also remains
