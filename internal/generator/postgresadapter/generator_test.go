@@ -82,11 +82,18 @@ func TestEmptyEntities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if files != nil {
-		t.Errorf("expected nil files, got %d", len(files))
+	if len(files) != 1 || files[0].Path != "internal/storage/database.go" {
+		t.Fatal("missing pool-only output")
 	}
-	if wiring != nil {
-		t.Errorf("expected nil wiring, got %v", wiring)
+	if wiring == nil || wiring.DatabaseOpener == nil || wiring.DatabaseOpener.Function != "OpenDatabase" || len(wiring.Constructors) != 0 || len(wiring.PostDBCalls) != 0 || wiring.DBBackend != "" {
+		t.Fatal("invalid pool-only wiring")
+	}
+	ctx.OutputNamespace = "../invalid"
+	if g.ValidateContext(ctx) == nil {
+		t.Fatal("pool-only namespace escaped validation")
+	}
+	if files, _, err := g.Generate(ctx); err == nil || len(files) != 0 {
+		t.Fatal("invalid pool-only namespace rendered output")
 	}
 }
 

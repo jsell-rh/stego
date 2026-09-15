@@ -55,7 +55,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		}
 	}
 	if len(ctx.Entities) == 0 {
-		return nil
+		return gen.ValidateGoPackageNamespace(ctx.OutputNamespace)
 	}
 
 	for _, entity := range ctx.Entities {
@@ -158,7 +158,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		migrations = value.(string)
 	}
 	if len(ctx.Entities) == 0 {
-		return nil, nil, nil
+		file, err := generateDatabaseOpener(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, DatabaseOpener: &gen.DatabaseOpenerSpec{Namespace: ctx.OutputNamespace, Function: "OpenDatabase"}, GoModRequires: map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}}
+		return []gen.File{file}, wiring, nil
 	}
 	// Build upsert key lookup: entity name → list of upsert key field sets.
 	// Each collection with an upsert_key contributes a composite unique index.

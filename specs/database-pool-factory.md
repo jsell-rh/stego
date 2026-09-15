@@ -1,10 +1,10 @@
-The generated browser backend exposed a database factory selection error.
-It consumes a SQL pool and declares the PostgreSQL adapter as a peer, but it
-does not consume the adapter's storage constructor. Assembly therefore skipped
-the adapter's declared factory and emitted `sql.Open` directly. This bypassed
-the adapter's pool limits, connection deadline, transport checks, and driver
-telemetry. The new pool metrics made this missing boundary visible in the
-generated browser process.
+The generated browser backend exposed two database factory gaps. It consumes
+a SQL pool and declares the PostgreSQL adapter as a peer, but has no entities.
+The adapter returned no files or factory metadata for this case. Assembly also
+skipped a declared factory when its storage constructor was unused. The browser
+therefore used `sql.Open` directly. This bypassed the adapter's pool limits,
+connection deadline, transport checks, and driver telemetry. Review of the new
+pool metric wiring found this missing boundary in the generated browser process.
 
 Assembly now selects the one declared database factory whenever a consumed
 component requires a database. It imports the factory package with its assigned
@@ -21,5 +21,10 @@ the startup ping deadline, and closes the pool on startup failure. Environment
 and private-file database settings are both covered. These focused checks pass.
 
 The factory implementation remains shared in STEGO's PostgreSQL adapter.
+Adapter version 4.4.1 emits the pool factory and its metadata when there are no
+entities. It emits no storage models, constructor, or migration calls in that
+case. The namespace remains subject to validation. The complete browser
+composition regression failed before this change and now passes.
+
 Hypershell does not need new pool code. Full compiler CI and the regenerated
-browser workflow must verify this change before the application gate closes.
+browser workflow must verify both changes before the application gate closes.

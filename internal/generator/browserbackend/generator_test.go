@@ -211,3 +211,36 @@ func TestRuntimeConfigBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBrowserAssemblyUsesDeclaredPool(t *testing.T) {
+	ctx := fixture()
+	_, backend, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.OutputNamespace = ctx.PeerNamespaces["postgres-adapter"]
+	ctx.ComponentConfig = map[string]any{"migrations": "external"}
+	files, pool, err := new(postgresadapter.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pool == nil || pool.DatabaseOpener == nil {
+		t.Fatal("the browser has no declared pool factory without entities")
+	}
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: ctx.OutDirName, GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: backend}, {Name: "postgres-adapter", Wiring: pool}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var main string
+	for _, file := range shared {
+		if file.Path == "main.go" {
+			main = string(file.Content)
+		}
+	}
+	if !strings.Contains(main, "store.OpenDatabase(dsn)") || strings.Contains(main, `sql.Open("pgx"`) || strings.Contains(main, "gorm.Open(") {
+		t.Fatal("the browser bypassed its SQL pool factory")
+	}
+	if len(files) != 1 || files[0].Path != "store/database.go" {
+		t.Fatal("the browser database generated unrelated storage code")
+	}
+}
