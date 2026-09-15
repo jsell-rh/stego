@@ -90,7 +90,7 @@ jobs:
         env:
           STEGO_REQUIRE_NODE: '1'
           STEGO_REQUIRE_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres?sslmode=disable
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
 
   postgres-provisioning:
     runs-on: ubuntu-latest
@@ -119,7 +119,7 @@ jobs:
         env:
           STEGO_REQUIRE_POSTGRES: '1'
           STEGO_REQUIRE_PROVISIONING_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres?sslmode=disable
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
 
   keycloak-provider:
     runs-on: ubuntu-latest
