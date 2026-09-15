@@ -98,7 +98,7 @@ func(c *Client)administratorToken(ctx context.Context)(Secret,error){
  form:=url.Values{"grant_type":{"client_credentials"},"client_id":{c.clientID},"client_secret":{secret}}
  started:=time.Now()
  response,err:=c.http.Do(ctx,http.MethodPost,"/realms/"+c.realm+"/protocol/openid-connect/token",http.Header{"Content-Type":{"application/x-www-form-urlencoded"}},[]byte(form.Encode()))
- if err!=nil{return Secret{},operationError(ctx,err)}
+ if err!=nil{return Secret{},c.operationError(ctx,err)}
  if response.StatusCode!=http.StatusOK{return Secret{},statusError(response.StatusCode)}
  var token struct{AccessToken string `json:"access_token"`;ExpiresIn int `json:"expires_in"`;TokenType string `json:"token_type"`}
  if decode(response.Body,&token)!=nil||(!credentialValue(token.AccessToken)||!bearerToken.MatchString(token.AccessToken))||token.ExpiresIn<1||token.ExpiresIn>3600||!strings.EqualFold(token.TokenType,"Bearer"){return Secret{},ErrResponse}
@@ -112,7 +112,7 @@ func(c *Client)admin(ctx context.Context,method,suffix string,body []byte)(trans
  headers:=http.Header{"Authorization":{"Bearer "+token.Reveal()}}
  if body!=nil{headers.Set("Content-Type","application/json")}
  result,err:=c.http.Do(ctx,method,"/admin/realms/"+c.realm+suffix,headers,body)
- if err!=nil{return transport.Response{},operationError(ctx,err)}
+ if err!=nil{return transport.Response{},c.operationError(ctx,err)}
  // Never replay a mutation after an ambiguous response. A later reconcile
  // can obtain a new token and read the current resource state.
  if result.StatusCode==http.StatusUnauthorized{
@@ -120,7 +120,13 @@ func(c *Client)admin(ctx context.Context,method,suffix string,body []byte)(trans
  }
  return result,nil
 }
-func operationError(ctx context.Context,err error)error{if ctx.Err()!=nil{return ctx.Err()};return err}
+func(c *Client)operationError(ctx context.Context,err error)error{
+ if ctx.Err()!=nil{return ctx.Err()}
+ // The HTTP client can stop before the AfterFunc cancels this operation.
+ // Report the provider lifetime cancellation without a scheduling dependency.
+ if c.lifetime.Err()!=nil{return context.Canceled}
+ return err
+}
 func statusError(code int)error{
  switch code{case http.StatusNotFound:return ErrNotFound;case http.StatusConflict:return ErrConflict}
  return fmt.Errorf("Keycloak operation returned HTTP %d",code)
