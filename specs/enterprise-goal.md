@@ -3742,3 +3742,24 @@ generation passed. The complete browser and API checks are queued. This source
 also includes the stored-credential encryption test. The earlier pending
 browser run with the known fixture error was cancelled before it had any Jobs.
 See the [combined evidence](hypershell-browser-ci.json). The goal remains active.
+
+The encryption candidate `ee1f23e` passed its separate API check with all 30
+required tests. All 872 source files and 228 generated files match the pushed
+commit. Generation and cleanup passed. This builds the live encryption test;
+it does not prove the storage assertions. The corrected `70b2dd7` browser run
+is active, and its API run is queued.
+
+Hypershell `f63d2bd` removes the obsolete CNPG catalog runner and changes the
+operator helper to require an explicit installation database namespace. It
+no longer accepts or derives a database catalog ID. Four small local boundary
+tests pass and are now in CI. The helper retains its bounded operator lifetime,
+scoped watch and webhooks, existing-resource refusal, and cleanup ordering.
+No CNPG resources were installed during the active browser run.
+
+The full CNPG application path remains open. It must reuse the complete
+browser workflow with an installation-supplied server and limited SQL account,
+verified TLS, and namespace and Pod network selectors. It must prove a real
+CNPG restart or failover, retained Gateway and installation data, and complete
+cleanup. The common generated SQL and controller runtime remain the same.
+See the [installation contract](https://github.com/jsell-rh/hypershell-stego/blob/f63d2bd4ea2ed06efc634c0a1d318e1a686d1ccc/acceptance/cnpg-installation.md).
+The broader enterprise goal remains active.
