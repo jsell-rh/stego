@@ -1,0 +1,284 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "context"
+ "encoding/json"
+ "errors"
+ "net/http"
+ "net/url"
+ "regexp"
+ "sort"
+)
+
+const MaxDesiredRoles = 64
+const MaxRoleMappings = 512
+const MaxRoleClients = 16
+const MaxServiceAccountGroups = 64
+
+var roleName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
+var userSubject = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,254}$`)
+var ErrRolePolicy = errors.New("Keycloak role policy is not confirmed")
+
+// RoleRepresentation has the identity and scope needed to check a role.
+// Composite grants are not accepted as desired roles. State their leaf roles
+// explicitly so a changed composite cannot silently expand the desired policy.
+type RoleRepresentation struct {
+ ID string `json:"id"`
+ Name string `json:"name"`
+ Composite bool `json:"composite"`
+ ClientRole bool `json:"clientRole"`
+ ContainerID string `json:"containerId"`
+}
+type ClientRoleGrant struct { Client ClientBinding; Names []string }
+type ServiceAccountRolePolicy struct { Realm []string; Clients []ClientRoleGrant }
+
+func validateRoleNames(names []string)error{
+ if len(names)>MaxDesiredRoles{return errors.New("too many desired Keycloak roles")}
+ seen:=map[string]bool{}
+ for _,name:=range names{if !roleName.MatchString(name)||seen[name]{return errors.New("invalid or repeated Keycloak role name")};seen[name]=true}
+ return nil
+}
+func validateServiceAccountRoles(p ServiceAccountRolePolicy)error{
+ if err:=validateRoleNames(p.Realm);err!=nil{return err}
+ if len(p.Clients)>MaxRoleClients{return errors.New("too many Keycloak role clients")}
+ ids,names:=map[string]bool{},map[string]bool{};total:=len(p.Realm)
+ for _,grant:=range p.Clients{
+  if err:=grant.Client.validate();err!=nil{return err}
+  if ids[grant.Client.ID]||names[grant.Client.ClientID]{return errors.New("repeated Keycloak role client")}
+  ids[grant.Client.ID]=true;names[grant.Client.ClientID]=true
+  if err:=validateRoleNames(grant.Names);err!=nil{return err};total+=len(grant.Names)
+ }
+ if total>MaxDesiredRoles{return errors.New("too many desired Keycloak roles")};return nil
+}
+func parseRole(raw []byte,clientID string)(RoleRepresentation,error){
+ var role RoleRepresentation
+ if decode(raw,&role)!=nil||!identifier.MatchString(role.ID)||!textValue(role.Name,255)||!identifier.MatchString(role.ContainerID){return RoleRepresentation{},ErrResponse}
+ var flags struct{Composite *bool `json:"composite"`;ClientRole *bool `json:"clientRole"`}
+ if json.Unmarshal(raw,&flags)!=nil||flags.Composite==nil||flags.ClientRole==nil||*flags.ClientRole!=(clientID!="")||(clientID!=""&&role.ContainerID!=clientID){return RoleRepresentation{},ErrResponse}
+ return role,nil
+}
+func parseRoles(raw []byte,clientID string)([]RoleRepresentation,error){
+ var entries []json.RawMessage
+ if decode(raw,&entries)!=nil||entries==nil||len(entries)>MaxRoleMappings{return nil,ErrResponse}
+ result:=make([]RoleRepresentation,0,len(entries));ids,names:=map[string]bool{},map[string]bool{}
+ for _,entry:=range entries{
+  role,err:=parseRole(entry,clientID);if err!=nil||ids[role.ID]||names[role.Name]{return nil,ErrResponse}
+  ids[role.ID]=true;names[role.Name]=true;result=append(result,role)
+ }
+ return result,nil
+}
+func sameRoles(a,b []RoleRepresentation)bool{return len(a)==len(b)&&len(roleDifference(a,b))==0}
+func roleDifference(a,b []RoleRepresentation)[]RoleRepresentation{
+ wanted:=map[string]RoleRepresentation{};for _,role:=range b{wanted[role.ID]=role}
+ var result []RoleRepresentation
+ for _,role:=range a{if expected,ok:=wanted[role.ID];!ok||expected.Name!=role.Name||expected.ContainerID!=role.ContainerID||expected.ClientRole!=role.ClientRole||expected.Composite!=role.Composite{result=append(result,role)}}
+ sort.Slice(result,func(i,j int)bool{return result[i].ID<result[j].ID});return result
+}
+func(c *Client)getRole(ctx context.Context,clientID,name string)(RoleRepresentation,error){
+ path:="/roles/"+url.PathEscape(name);if clientID!=""{path="/clients/"+clientID+"/roles/"+url.PathEscape(name)}
+ response,err:=c.admin(ctx,http.MethodGet,path,nil);if err!=nil{return RoleRepresentation{},err}
+ if response.StatusCode!=http.StatusOK{return RoleRepresentation{},statusError(response.StatusCode)}
+ role,err:=parseRole(response.Body,clientID);if err!=nil{return RoleRepresentation{},err}
+ if role.Name!=name{return RoleRepresentation{},ErrResponse};if role.Composite{return RoleRepresentation{},ErrRolePolicy};return role,nil
+}
+func(c *Client)resolveRoles(ctx context.Context,clientID string,names []string)([]RoleRepresentation,error){
+ result:=make([]RoleRepresentation,0,len(names));seen:=map[string]bool{}
+ for _,name:=range names{role,err:=c.getRole(ctx,clientID,name);if err!=nil{return nil,err};if seen[role.ID]{return nil,ErrResponse};seen[role.ID]=true;result=append(result,role)}
+ return result,nil
+}
+func(c *Client)readRoles(ctx context.Context,path,clientID string)([]RoleRepresentation,error){
+ response,err:=c.admin(ctx,http.MethodGet,path,nil);if err!=nil{return nil,err}
+ if response.StatusCode!=http.StatusOK{return nil,statusError(response.StatusCode)}
+ return parseRoles(response.Body,clientID)
+}
+func(c *Client)writeRoles(ctx context.Context,method,path string,roles []RoleRepresentation)error{
+ if len(roles)==0{return nil}
+ // Send identifiers and names only. Other representation fields are checks,
+ // not an instruction to change a role definition.
+ type assignment struct{ID string `json:"id"`;Name string `json:"name"`}
+ values:=make([]assignment,0,len(roles));for _,role:=range roles{values=append(values,assignment{role.ID,role.Name})}
+ body,err:=json.Marshal(values);if err!=nil{return ErrResponse}
+ response,err:=c.admin(ctx,method,path,body);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)};return nil
+}
+func explicitFlag(raw []byte,key string,value bool)bool{
+ var fields map[string]json.RawMessage;if json.Unmarshal(raw,&fields)!=nil{return false}
+ expected:="false";if value{expected="true"};return string(bytes.TrimSpace(fields[key]))==expected
+}
+
+// EnsureClientRoles creates missing leaf roles in an owned, disabled client.
+// It does not remove other role definitions or grant any role to a user.
+func(c *Client)EnsureClientRoles(ctx context.Context,b ClientBinding,names []string)([]RoleRepresentation,error){
+ if err:=b.validate();err!=nil{return nil,err};if err:=validateRoleNames(names);err!=nil{return nil,err}
+ work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
+ _,raw,err:=c.boundClient(work,b);if err!=nil{return nil,err};if !explicitFlag(raw,"enabled",false){return nil,ErrRolePolicy}
+ for _,name:=range names{
+  if _,err=c.getRole(work,b.ID,name);err==nil{continue}else if !errors.Is(err,ErrNotFound){return nil,err}
+  _,raw,err=c.boundClient(work,b);if err!=nil{return nil,err};if !explicitFlag(raw,"enabled",false){return nil,ErrRolePolicy}
+  body,_:=json.Marshal(struct{Name string `json:"name"`;Composite bool `json:"composite"`}{Name:name})
+  response,e:=c.admin(work,http.MethodPost,"/clients/"+b.ID+"/roles",body);if e!=nil{return nil,e}
+  if response.StatusCode!=http.StatusCreated{return nil,statusError(response.StatusCode)}
+ }
+ result,err:=c.resolveRoles(work,b.ID,names);if err!=nil{return nil,err}
+ _,raw,err=c.boundClient(work,b);if err!=nil{return nil,err};if !explicitFlag(raw,"enabled",false){return nil,ErrRolePolicy}
+ return result,nil
+}
+
+func(c *Client)requireUser(ctx context.Context,subject string,grant bool)error{
+ response,err:=c.admin(ctx,http.MethodGet,"/users/"+url.PathEscape(subject),nil);if err!=nil{return err}
+ if response.StatusCode!=http.StatusOK{return statusError(response.StatusCode)}
+ var user UserRepresentation
+ if decode(response.Body,&user)!=nil||user.ID!=subject{return ErrResponse}
+ if !explicitFlag(response.Body,"enabled",false)&&!explicitFlag(response.Body,"enabled",true){return ErrResponse}
+ if grant&&!user.Enabled{return ErrRolePolicy};return nil
+}
+
+// ReconcileUserClientRoles changes only direct roles for this owned client.
+// It preserves realm roles, groups, and roles for other clients. The caller
+// supplies a verified provider subject; this method does not classify a user
+// as human from an absent serviceAccountClientId field.
+func(c *Client)ReconcileUserClientRoles(ctx context.Context,b ClientBinding,subject string,names []string)error{
+ if err:=b.validate();err!=nil{return err};if !userSubject.MatchString(subject){return errors.New("invalid Keycloak user identifier")};if err:=validateRoleNames(names);err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ if _,_,err=c.boundClient(work,b);err!=nil{if errors.Is(err,ErrNotFound)&&len(names)==0{return nil};return err}
+ if err=c.requireUser(work,subject,len(names)>0);err!=nil{if errors.Is(err,ErrNotFound)&&len(names)==0{return nil};return err}
+ desired,err:=c.resolveRoles(work,b.ID,names);if err!=nil{return err}
+ path:="/users/"+url.PathEscape(subject)+"/role-mappings/clients/"+b.ID
+ current,err:=c.readRoles(work,path,b.ID);if err!=nil{return err}
+ remove:=roleDifference(current,desired)
+ if len(remove)>0{
+  if _,_,err=c.boundClient(work,b);err!=nil{return err}
+  if err=c.writeRoles(work,http.MethodDelete,path,remove);err!=nil{return err}
+  current,err=c.readRoles(work,path,b.ID);if err!=nil{return err}
+ }
+ // Excess direct or inherited access must be gone before an addition.
+ if len(roleDifference(current,desired))!=0{return ErrRolePolicy}
+ effective,err:=c.readRoles(work,path+"/composite",b.ID);if err!=nil{return err}
+ if len(roleDifference(effective,desired))!=0{return ErrRolePolicy}
+ add:=roleDifference(desired,current)
+ if len(add)>0{
+  if _,_,err=c.boundClient(work,b);err!=nil{return err}
+  if err=c.requireUser(work,subject,true);err!=nil{return err}
+  if err=c.writeRoles(work,http.MethodPost,path,add);err!=nil{return err}
+ }
+ current,err=c.readRoles(work,path,b.ID);if err!=nil{return err}
+ effective,err=c.readRoles(work,path+"/composite",b.ID);if err!=nil{return err}
+ if !sameRoles(current,desired)||!sameRoles(effective,desired){return ErrRolePolicy}
+ // A role can have changed its definition while assignments were changed.
+ confirmed,err:=c.resolveRoles(work,b.ID,names);if err!=nil{return err};if !sameRoles(confirmed,desired){return ErrRolePolicy}
+ _,_,err=c.boundClient(work,b);return err
+}
+
+type roleSet struct { Realm []RoleRepresentation; Clients map[string][]RoleRepresentation }
+func roleSetSubset(current,desired roleSet)bool{
+ if len(roleDifference(current.Realm,desired.Realm))!=0{return false}
+ for id,roles:=range current.Clients{if len(roleDifference(roles,desired.Clients[id]))!=0{return false}};return true
+}
+func sameRoleSets(a,b roleSet)bool{return roleSetSubset(a,b)&&roleSetSubset(b,a)}
+func roleClientIDs(sets ...roleSet)[]string{
+ seen:=map[string]bool{};for _,set:=range sets{for id:=range set.Clients{seen[id]=true}}
+ ids:=make([]string,0,len(seen));for id:=range seen{ids=append(ids,id)};sort.Strings(ids);return ids
+}
+func(c *Client)resolveRolePolicy(ctx context.Context,p ServiceAccountRolePolicy)(roleSet,error){
+ result:=roleSet{Clients:map[string][]RoleRepresentation{}}
+ var err error
+ result.Realm,err=c.resolveRoles(ctx,"",p.Realm);if err!=nil{return roleSet{},err}
+ for _,grant:=range p.Clients{
+  if _,_,err=c.boundClient(ctx,grant.Client);err!=nil{return roleSet{},err}
+  roles,e:=c.resolveRoles(ctx,grant.Client.ID,grant.Names);if e!=nil{return roleSet{},e}
+  if len(roles)>0{result.Clients[grant.Client.ID]=roles}
+ }
+ ids:=map[string]bool{};for _,role:=range result.Realm{ids[role.ID]=true}
+ for _,roles:=range result.Clients{for _,role:=range roles{if ids[role.ID]{return roleSet{},ErrResponse};ids[role.ID]=true}}
+ return result,nil
+}
+func(c *Client)readRoleSet(ctx context.Context,path string)(roleSet,error){
+ response,err:=c.admin(ctx,http.MethodGet,path,nil);if err!=nil{return roleSet{},err}
+ if response.StatusCode!=http.StatusOK{return roleSet{},statusError(response.StatusCode)}
+ var wire struct{
+  Realm json.RawMessage `json:"realmMappings"`
+  Clients map[string]struct{ID string `json:"id"`;Client string `json:"client"`;Mappings json.RawMessage `json:"mappings"`} `json:"clientMappings"`
+ }
+ if decode(response.Body,&wire)!=nil||bytes.Equal(bytes.TrimSpace(response.Body),[]byte("null"))||len(wire.Clients)>MaxRoleMappings{return roleSet{},ErrResponse}
+ var fields map[string]json.RawMessage
+ if json.Unmarshal(response.Body,&fields)!=nil||fields==nil{return roleSet{},ErrResponse}
+ for key:=range fields{if key!="realmMappings"&&key!="clientMappings"{return roleSet{},ErrResponse}}
+ result:=roleSet{Clients:map[string][]RoleRepresentation{}}
+ if len(wire.Realm)>0&&!bytes.Equal(bytes.TrimSpace(wire.Realm),[]byte("null")){result.Realm,err=parseRoles(wire.Realm,"");if err!=nil{return roleSet{},err}}
+ count:=len(result.Realm);ids:=map[string]bool{};roleIDs:=map[string]bool{}
+ for _,role:=range result.Realm{roleIDs[role.ID]=true}
+ for name,mapping:=range wire.Clients{
+  if !textValue(name,255)||mapping.Client!=name||!identifier.MatchString(mapping.ID)||ids[mapping.ID]{return roleSet{},ErrResponse};ids[mapping.ID]=true
+  roles,e:=parseRoles(mapping.Mappings,mapping.ID);if e!=nil{return roleSet{},e};count+=len(roles)
+  for _,role:=range roles{if roleIDs[role.ID]{return roleSet{},ErrResponse};roleIDs[role.ID]=true}
+  if len(roles)>0{result.Clients[mapping.ID]=roles}
+ }
+ if count>MaxRoleMappings{return roleSet{},ErrResponse};return result,nil
+}
+func(c *Client)serviceAccountGroups(ctx context.Context,subject string)([]string,error){
+ response,err:=c.admin(ctx,http.MethodGet,"/users/"+subject+"/groups?briefRepresentation=true&first=0&max=65",nil);if err!=nil{return nil,err}
+ if response.StatusCode!=http.StatusOK{return nil,statusError(response.StatusCode)}
+ var groups []struct{ID string `json:"id"`}
+ if decode(response.Body,&groups)!=nil||groups==nil||len(groups)>MaxServiceAccountGroups{return nil,ErrResponse}
+ ids:=make([]string,0,len(groups));seen:=map[string]bool{}
+ for _,group:=range groups{if !identifier.MatchString(group.ID)||seen[group.ID]{return nil,ErrResponse};seen[group.ID]=true;ids=append(ids,group.ID)}
+ sort.Strings(ids);return ids,nil
+}
+func(c *Client)boundServiceAccount(ctx context.Context,b ClientBinding,subject string)error{
+ value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
+ if value.Protocol!="openid-connect"||!explicitFlag(raw,"enabled",false)||!explicitFlag(raw,"publicClient",false)||!explicitFlag(raw,"serviceAccountsEnabled",true){return ErrRolePolicy}
+ user,err:=c.serviceAccountUser(ctx,b);if err!=nil{return err};if user.ID!=subject{return ErrOwnership};return nil
+}
+func(c *Client)readEffectiveRoles(ctx context.Context,path string,clientIDs []string)(roleSet,error){
+ result:=roleSet{Clients:map[string][]RoleRepresentation{}}
+ var err error
+ result.Realm,err=c.readRoles(ctx,path+"/realm/composite","");if err!=nil{return roleSet{},err}
+ for _,id:=range clientIDs{roles,e:=c.readRoles(ctx,path+"/clients/"+id+"/composite",id);if e!=nil{return roleSet{},e};if len(roles)>0{result.Clients[id]=roles}}
+ return result,nil
+}
+
+// ReconcileServiceAccountRoles controls all direct roles and removes all group
+// memberships of one owned service-account user. It requires a disabled,
+// confidential OIDC client and the saved service-account subject. It never
+// changes a role definition or another user's roles. The application must
+// supply every desired realm and client role explicitly.
+func(c *Client)ReconcileServiceAccountRoles(ctx context.Context,b ClientBinding,subject string,p ServiceAccountRolePolicy)error{
+ if err:=b.validate();err!=nil{return err};if !identifier.MatchString(subject){return errors.New("invalid Keycloak service-account subject")};if err:=validateServiceAccountRoles(p);err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ guard:=func()error{return c.boundServiceAccount(work,b,subject)}
+ if err=guard();err!=nil{return err}
+ desired,err:=c.resolveRolePolicy(work,p);if err!=nil{return err}
+ path:="/users/"+subject+"/role-mappings"
+ current,err:=c.readRoleSet(work,path);if err!=nil{return err}
+ groups,err:=c.serviceAccountGroups(work,subject);if err!=nil{return err}
+ checkedClients:=roleClientIDs(current,desired)
+ // Remove every source of excess access before any addition. Each mutation
+ // retains the ownership and disabled-client checks.
+ for _,id:=range groups{
+  if err=guard();err!=nil{return err}
+  response,e:=c.admin(work,http.MethodDelete,"/users/"+subject+"/groups/"+id,nil);if e!=nil{return e}
+  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ }
+ remove:=func(suffix string,roles []RoleRepresentation)error{
+  if len(roles)==0{return nil};if e:=guard();e!=nil{return e};return c.writeRoles(work,http.MethodDelete,path+suffix,roles)
+ }
+ if err=remove("/realm",roleDifference(current.Realm,desired.Realm));err!=nil{return err}
+ for _,id:=range roleClientIDs(current){if err=remove("/clients/"+id,roleDifference(current.Clients[id],desired.Clients[id]));err!=nil{return err}}
+ groups,err=c.serviceAccountGroups(work,subject);if err!=nil{return err};if len(groups)!=0{return ErrRolePolicy}
+ current,err=c.readRoleSet(work,path);if err!=nil{return err};if !roleSetSubset(current,desired){return ErrRolePolicy}
+ effective,err:=c.readEffectiveRoles(work,path,checkedClients);if err!=nil{return err};if !roleSetSubset(effective,desired){return ErrRolePolicy}
+ // With no groups and only explicit leaf roles, there is no unlisted group
+ // or composite source of roles for another client.
+ confirmed,err:=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrRolePolicy}
+ add:=func(suffix string,roles []RoleRepresentation)error{
+  if len(roles)==0{return nil};if e:=guard();e!=nil{return e};return c.writeRoles(work,http.MethodPost,path+suffix,roles)
+ }
+ if err=add("/realm",roleDifference(desired.Realm,current.Realm));err!=nil{return err}
+ for _,id:=range roleClientIDs(desired){if err=add("/clients/"+id,roleDifference(desired.Clients[id],current.Clients[id]));err!=nil{return err}}
+ groups,err=c.serviceAccountGroups(work,subject);if err!=nil{return err};if len(groups)!=0{return ErrRolePolicy}
+ current,err=c.readRoleSet(work,path);if err!=nil{return err};if !sameRoleSets(current,desired){return ErrRolePolicy}
+ effective,err=c.readEffectiveRoles(work,path,checkedClients);if err!=nil{return err};if !sameRoleSets(effective,desired){return ErrRolePolicy}
+ confirmed,err=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrRolePolicy}
+ return guard()
+}

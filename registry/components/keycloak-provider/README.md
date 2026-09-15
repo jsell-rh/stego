@@ -6,11 +6,11 @@ cancellation, and telemetry. It has no component settings or startup hook.
 The application constructs it with `New(Options)` and closes it when its owning
 service stops.
 
-Version 0.2.0 provides typed client lookup, bounded inventory pages, ownership
+Version 0.3.0 provides typed client lookup, bounded inventory pages, ownership
 inspection, disablement, confirmed deletion, client-secret reads, service-account
-user lookup, and disabled service-account creation and base configuration.
-It does not yet provide enablement, role reconciliation, scope reconciliation,
-or protocol mapper reconciliation.
+user lookup, disabled service-account creation and base configuration, and
+checked role reconciliation. It does not yet provide enablement, scope
+reconciliation, or protocol mapper reconciliation.
 It is not the complete provider extraction described in
 [the acceptance gate](../../../specs/keycloak-provider-boundary.md).
 
@@ -47,6 +47,39 @@ credentials, roles, scope assignments, or protocol mappers. Scope drift can
 cause this check to fail after a base-setting update. The client stays disabled.
 The base profile is not proof of effective roles or token claims. Those checks
 remain required before enablement.
+
+`EnsureClientRoles` creates missing role definitions in an owned, disabled
+client. `ReconcileUserClientRoles` changes direct roles for one owned client
+and one verified provider subject. It preserves realm roles, groups, and roles
+for other clients. It confirms removal before adding access and checks direct
+and effective roles. Excess inherited access causes failure; this operation
+does not remove a shared user's group membership.
+
+`ReconcileServiceAccountRoles` requires the saved subject from the client's
+service-account endpoint and an owned, disabled, confidential OIDC client. It
+controls the user's full role set. It removes group memberships and excess
+realm and client roles before adding any specified role. It checks ownership
+and disablement before each mutation, confirms removal, and checks the final
+direct and effective roles. It never enables the client.
+
+`ServiceAccountRolePolicy` accepts explicit realm roles and client roles. Each
+client grant requires its own expected client binding. Desired roles must be
+leaf roles; list them explicitly instead of relying on a composite role that
+can change its meaning. Unexpected composite and group access must be removed
+or cause failure. The role names and grant policy come from the application.
+
+Role policy permits at most 64 desired roles across at most 16 clients. Reads
+permit at most 512 direct roles and 64 group memberships. Role names match
+`[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`. Shared-user subjects match
+`[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,254}`, including common federated subject syntax.
+The full operation retains the 15-second deadline. A timeout can leave a
+partial removal; a later reconciliation must inspect current state.
+
+The shared-user operation does not classify a user as human. Keycloak can omit
+`serviceAccountClientId` from a user response, including a service-account user.
+The application must retain its verified identity and human grant policy.
+Full role replacement is available only through the separate service-account
+operation, with its client-to-user binding check.
 
 The client permits 16 concurrent operations. Each operation has a 15-second
 deadline; the underlying HTTP requests retain their five-second limit. Inventory

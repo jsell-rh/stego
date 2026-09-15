@@ -170,8 +170,31 @@ All five CI jobs passed for this revision. Sources, generated
 output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-creation-20260915`.
 
-This is the start of the extraction. Enablement, role and scope reconciliation,
-and protocol mapper reconciliation remain to be implemented.
+## Role mechanisms
+
+Version 0.3.0 adds client role creation and two separate role operations.
+`ReconcileUserClientRoles` changes only direct roles for the selected owned
+client. It preserves groups, realm roles, and roles for other clients. Excess
+inherited roles cause failure. It does not classify the subject as human.
+`ReconcileServiceAccountRoles` requires the saved user identity from the owned
+client's service-account endpoint and a disabled confidential client. It removes
+all group memberships and excess direct roles before it adds specified roles.
+
+Both operations confirm removal before addition and check direct and effective
+roles. The application supplies realm and client role names. Desired roles must
+be explicit leaf roles. The full operation checks each target client's binding,
+as well as the service-account binding. A human subject supplied to the full
+operation fails the service-account identity check.
+
+The small generated tests passed with the race detector and telemetry enabled.
+They cover ownership, wrong subjects, inherited access, ignored writes, partial
+failure recovery, preserved shared-user access, full service-account cleanup,
+and repeated reconciliation without writes. The new real-Keycloak role checks
+are pending CI. Sources and results are stored in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-roles-20260915`.
+
+This is the start of the extraction. Enablement, scope reconciliation, and
+protocol mapper reconciliation remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
 client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.

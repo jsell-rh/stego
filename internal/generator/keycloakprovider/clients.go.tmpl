@@ -117,6 +117,9 @@ func(c *Client)ResolveServiceAccountUser(ctx context.Context,b ClientBinding)(Us
  work,done,err:=c.begin(ctx);if err!=nil{return UserRepresentation{},err};defer done()
  value,_,err:=c.boundClient(work,b);if err!=nil{return UserRepresentation{},err}
  if !value.ServiceAccountsEnabled{return UserRepresentation{},errors.New("Keycloak client has no enabled service account")}
+ return c.serviceAccountUser(work,b)
+}
+func(c *Client)serviceAccountUser(work context.Context,b ClientBinding)(UserRepresentation,error){
  response,err:=c.admin(work,http.MethodGet,"/clients/"+b.ID+"/service-account-user",nil);if err!=nil{return UserRepresentation{},err}
  if response.StatusCode!=http.StatusOK{return UserRepresentation{},statusError(response.StatusCode)}
  var user UserRepresentation

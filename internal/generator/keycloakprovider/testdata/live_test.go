@@ -71,7 +71,14 @@ func liveProvider(t *testing.T) (*Client, Options) {
 	for _, item := range []struct{ name, key, value string }{{"catalog", "product.owner", "object-1"}, {"batch-worker", "pipeline.job", "run-2"}, {"foreign-service", "product.owner", "someone-else"}} {
 		clients = append(clients, map[string]any{"clientId": item.name, "enabled": true, "protocol": "openid-connect", "publicClient": false, "secret": "provider-test-client-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": false, "attributes": map[string]string{item.key: item.value}})
 	}
-	realm := map[string]any{"realm": "provider-test", "enabled": true, "sslRequired": "all", "clients": clients, "users": []any{map[string]any{"username": "service-account-operator", "enabled": true, "serviceAccountClientId": "operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients"}}}}}
+	users := []any{map[string]any{"username": "service-account-operator", "enabled": true, "serviceAccountClientId": "operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "manage-users", "view-users", "view-realm"}}}}
+	for _, id := range []string{"shared-catalog", "shared-pipeline"} {
+		users = append(users, map[string]any{"id": id, "username": id, "enabled": true, "realmRoles": []string{"shared-global"}, "clientRoles": map[string]any{"foreign-service": []string{"foreign-view"}}, "groups": []string{"/outside"}})
+	}
+	realm := map[string]any{"realm": "provider-test", "enabled": true, "sslRequired": "all", "clients": clients, "users": users,
+		"roles":  map[string]any{"realm": []any{map[string]any{"name": "shared-global"}, map[string]any{"name": "worker-base"}}, "client": map[string]any{"foreign-service": []any{map[string]any{"name": "foreign-view"}}}},
+		"groups": []any{map[string]any{"name": "outside", "clientRoles": map[string]any{"foreign-service": []string{"foreign-view"}}}},
+	}
 	data, err := json.Marshal(realm)
 	if err != nil {
 		t.Fatal(err)
@@ -145,6 +152,7 @@ func TestProviderLive(t *testing.T) {
 	runtime, recorder := tracing.ProviderTestRuntime()
 	defer runtime.Close()
 	ctx := runtime.Context(context.Background())
+	testLiveRolePolicies(t, client, ctx)
 	for _, application := range []struct{ name, key, value string }{{"new-catalog", "stego.owner.product", "object-3"}, {"new-worker", "stego.owner.pipeline", "run-4"}} {
 		binding := ClientBinding{ID: "stego-" + application.name, ClientID: application.name, Attributes: map[string]string{application.key: application.value}}
 		policy := ServiceAccountPolicy{DisplayName: "Created worker", AccessTokenLifetimeSeconds: 300}
@@ -275,7 +283,7 @@ func TestProviderLive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, private := range []string{"provider-test-admin-secret", "provider-test-client-secret", foreign.ID, options.ServerURL} {
+		for _, private := range []string{"provider-test-admin-secret", "provider-test-client-secret", foreign.ID, options.ServerURL, "shared-catalog", "shared-pipeline", "catalog-read", "pipeline-execute"} {
 			if strings.Contains(string(data), private) {
 				t.Fatal("real provider telemetry exposed request data")
 			}
