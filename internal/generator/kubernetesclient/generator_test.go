@@ -21,6 +21,9 @@ import (
 //go:embed testdata/route_test.go
 var routeTests []byte
 
+//go:embed testdata/tls_secret_test.go
+var tlsSecretTests []byte
+
 //go:embed testdata/readiness_test.go
 var readinessTests []byte
 
@@ -55,6 +58,9 @@ func TestGeneratedKubernetesClient(t *testing.T) {
 func TestGeneratedRouteAdmission(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestPassthroughRoute")
 }
+func TestGeneratedServerTLSSecret(t *testing.T) {
+	testGeneratedKubernetesClient(t, false, "^TestServerTLSSecret")
+}
 func TestGeneratedDeploymentAvailability(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestDeploymentAvailability$")
 }
@@ -80,6 +86,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string
 	files = append(files, gen.File{Path: "kubernetes/client_test.go", Content: runtimeTests})
 	files = append(files, gen.File{Path: "kubernetes/readiness_test.go", Content: readinessTests})
 	files = append(files, gen.File{Path: "kubernetes/route_test.go", Content: routeTests})
+	files = append(files, gen.File{Path: "kubernetes/tls_secret_test.go", Content: tlsSecretTests})
 	files = append(files, gen.File{Path: "kubernetes/rotation_test.go", Content: rotationTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_capacity_test.go", Content: watchCapacityTests})
 	files = append(files, gen.File{Path: "kubernetes/watch_set_test.go", Content: watchSetTests})
