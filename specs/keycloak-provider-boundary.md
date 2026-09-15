@@ -166,7 +166,7 @@ It created two clients with different application ownership policies. It checked
 creation, rejection of token requests while disabled, provider-ID and client-name
 conflicts, configuration changes, credential preservation, client reconstruction,
 and deletion. The test took 41.97 seconds, and container cleanup passed.
-The full compiler job for this revision is still running. Sources, generated
+All five CI jobs passed for this revision. Sources, generated
 output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-creation-20260915`.
 
