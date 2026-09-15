@@ -28,19 +28,19 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260915115432-5d24fadf7718
+        module_version: v0.0.0-20260915120338-94f9fa00af43
         vcs: git
-        revision: 5d24fadf7718468c98dc323eeb3b41c990dcc48e
+        revision: 94f9fa00af4301bb4d5c639efd2a801b5ec2c43a
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: b6a5be8ed10b06873bfe8d8c54cff29c9f288021f42b3ab8a590939f851e9809
+    registry_content_sha256: 748f3d5507f9407366dda8fff67b264696d9090f1d1b89c98fdd1dea27e9b0bb
     components:
         health-check:
             version: 1.0.0
             sha: env-override
         jwt-auth:
-            version: 2.2.2
+            version: 2.3.0
             sha: env-override
         kafka-producer:
             version: 1.0.4
@@ -129,8 +129,9 @@ last_applied:
         internal/api/router.go: 08c97fe08ce92b73b8f57cf02fc3d3cf5f96a144be10681e1f009d1f5c41e7a7
         internal/api/validation.go: 253e7e3b01729f58b834bec96802d022edc584d786d4691c5ddb33750de62a16
         internal/auth/grants.go: 91a304d5e8a6f764287a39cfc58d6b7c5d63359853dde87d9b9cd809de83dca8
-        internal/auth/jwks.go: 51c74464e07a8273c6613f13a717d3f66207e05b1b35ede365e86d0b4e03c5de
-        internal/auth/middleware.go: f67fe8f9f98bc8c65a07206f1c34b05b5b12ed9354a7c30c02af1073740d86de
+        internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09
+        internal/auth/key_source.go: c445bf904bf9e1f039b324d78f6476cbc59028ca482096db009e4a6d5f5495c6
+        internal/auth/middleware.go: dac38a67d51928e573b88bf6b3b6359d1f9a7ece93ca18fb704fbd5e66423db9
         internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
         internal/events/runtime.go: 8f36c84a8ededf06068d90a52744a75b6cf4952d3f4d62d5209a4ad6ae85adcd
         internal/outbox/migrations/000001_outbox.sql: dd2a63ebf5b005cdb0a6e56433c4cc3fd4f0f0bde4c52e04c8433c08125b5437

@@ -87,16 +87,9 @@ func (claims jwtClaims) Validate() error {
 
 // NewVerifier validates configuration before any requests can be accepted.
 func NewVerifier(config Config) (*Verifier, error) {
-	rolesPath, err := claimPath(config.RolesClaim)
+	rolesPath, err := validateTrust(config)
 	if err != nil {
 		return nil, err
-	}
-	issuer, err := url.Parse(config.Issuer)
-	if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" {
-		return nil, errors.New("authentication issuer must be an HTTPS URL")
-	}
-	if config.Audience == "" || strings.TrimSpace(config.Audience) != config.Audience {
-		return nil, errors.New("authentication audience is required")
 	}
 	key := config.PublicKey
 	if key == nil || key.N == nil || key.N.Sign() <= 0 || key.N.BitLen() < 2048 || key.N.BitLen() > 8192 || key.N.Bit(0) == 0 || key.E != 65537 {
@@ -114,6 +107,21 @@ func NewVerifier(config Config) (*Verifier, error) {
 		key:       &rsa.PublicKey{N: new(big.Int).Set(key.N), E: key.E},
 		rolesPath: rolesPath,
 	}, nil
+}
+
+func validateTrust(config Config) ([]string, error) {
+	rolesPath, err := claimPath(config.RolesClaim)
+	if err != nil {
+		return nil, err
+	}
+	issuer, err := url.Parse(config.Issuer)
+	if err != nil || issuer.Scheme != "https" || issuer.Host == "" || issuer.User != nil || issuer.Fragment != "" {
+		return nil, errors.New("authentication issuer must be an HTTPS URL")
+	}
+	if config.Audience == "" || strings.TrimSpace(config.Audience) != config.Audience {
+		return nil, errors.New("authentication audience is required")
+	}
+	return rolesPath, nil
 }
 
 // Verify checks a token before it exposes any identity claims.

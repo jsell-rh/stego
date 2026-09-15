@@ -6,7 +6,6 @@ go 1.26.8
 
 require (
 	github.com/getkin/kin-openapi v0.144.0
-	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/uuid v1.6.0
 	github.com/yaacov/tree-search-language/v5 v5.2.12
 	gorm.io/datatypes v1.2.5
@@ -38,6 +37,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.11.0

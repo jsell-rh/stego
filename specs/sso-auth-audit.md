@@ -46,3 +46,8 @@ focused checks passed after those additions: shared JWT runtime 2.881 seconds
 and SSO runtime 2.157 seconds. Both generated runtimes ran with the race detector.
 Full CI and regenerated example results remain required. These checks do not
 establish complete observability or performance coverage.
+
+Both example services were regenerated with clean compiler `94f9fa0`. Validation,
+dependency resolution, repeated apply, and drift checks passed. Their generated
+output now includes the shared key source. The SSO example uses jwt/v5 and the
+error-returning constructor. Full CI remains required for these exact files.

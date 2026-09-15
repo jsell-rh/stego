@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	jwt "github.com/golang-jwt/jwt/v4"
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
 type ctxKey int
@@ -27,34 +27,6 @@ type Payload struct {
 	Email     string // from "email"
 	ClientID  string // from "clientId"
 	Issuer    string // from "iss"
-}
-
-// Identity represents the caller's identity in the stego.common.Identity
-// format. This is the auth-provider port's API contract used by the
-// rest-api component to populate slot request Caller fields.
-type Identity struct {
-	UserID     string            `json:"user_id"`
-	Role       string            `json:"role"`
-	Attributes map[string]string `json:"attributes"`
-}
-
-// IdentityFromContext retrieves the Identity from the request context.
-// Maps the rh-sso-auth Payload to the stego.common.Identity contract:
-// UserID is the extracted username, Role is empty (SSO tokens use
-// realm/client roles, not a single role claim).
-// Returns a zero Identity if no token is present.
-func IdentityFromContext(ctx context.Context) Identity {
-	p := GetAuthPayloadFromContext(ctx)
-	return Identity{
-		UserID: p.Username,
-		Attributes: map[string]string{
-			"email":      p.Email,
-			"first_name": p.FirstName,
-			"last_name":  p.LastName,
-			"client_id":  p.ClientID,
-			"issuer":     p.Issuer,
-		},
-	}
 }
 
 // TokenFromContext retrieves the raw parsed JWT token from the request context.

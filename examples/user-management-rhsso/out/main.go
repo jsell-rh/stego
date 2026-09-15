@@ -128,7 +128,11 @@ func run() (stegoErr error) {
 		return err
 	}
 	defer runtime.Close()
-	jWTHandler := auth.NewJWTHandler().WithKeysURL(os.Getenv("JWK_CERT_URL")).WithKeysFile(os.Getenv("JWK_CERT_FILE")).WithAuthEnabled(os.Getenv("AUTH_ENABLED"))
+	stegoStage = "component[7].constructor[0]"
+	jWTHandler, err := auth.NewJWTHandler()
+	if err != nil {
+		return err
+	}
 	defer jWTHandler.Stop()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
