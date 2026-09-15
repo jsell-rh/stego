@@ -24,10 +24,41 @@
     }
   },
   "browser_required": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950955188",
-    "attempt": 2,
-    "commit": "5dc5742964063f2e8a5eeb65bb063398bcda593b",
-    "scope": "The first attempt was cancelled while pending after a credential timing review. The same commit was requeued with a fresh repository secret snapshot. The live viewer result remains required."
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34951393842",
+    "attempt": 1,
+    "commit": "10a0827744d1bb5fda0a8dafaaef66ecddf27639",
+    "scope": "The complete browser run must execute both viewer recovery and live account deletion. The API results do not prove those live checks."
   },
-  "scope": "The API gate compiles the complete acceptance package and verifies 30 named workflows. It does not run the new viewer checks against a live Gateway."
+  "scope": "The API gate compiles the complete acceptance package and verifies 30 named workflows. It does not run the new viewer checks against a live Gateway.",
+  "account_source_api": {
+    "attempt": 1,
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34951393810",
+    "commit": "10a0827744d1bb5fda0a8dafaaef66ecddf27639",
+    "required_passed": 30,
+    "source_files_checked": 887,
+    "generated_files_checked": 229,
+    "job_uid": "9adb946b-10db-40a4-8570-f5afbf1fcffd",
+    "cleanup": {
+      "job_absent": "gateway-api-15c4571d65e9",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    },
+    "artifact_sha256": {
+      "source-sha256.json": "8e8d29f50742a97f7a7b21d460de0ab85ffa467f67da52d99904c55a450fdc9c",
+      "committed.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "first.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "second.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "after.sha256": "fe2bc18bcaebad08f360d705734f6f130c66eccea51f748d41cd6b6f04034753",
+      "tests.jsonl": "2c8757c33a88e65d635bfd152b312d820080ff75205ba31b459d2dd7b8090f53",
+      "job-final.json": "d7ab8da0706fe56cf5850cf43b29bf27caba499106be9da5ff0e48453cfa6cfa",
+      "cleanup.json": "17f9914c081d039161d6e1e8dec1560bd02752b161f585c243b7b54d681cb5dc"
+    }
+  },
+  "superseded_browser": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34950955188",
+    "commit": "5dc5742964063f2e8a5eeb65bb063398bcda593b",
+    "attempt": 2,
+    "conclusion": "cancelled",
+    "reason": "Cancelled while pending. The newer account-source browser run contains identical viewer and namespace recovery checks plus live account deletion checks. No browser pass is claimed for this attempt."
+  }
 }

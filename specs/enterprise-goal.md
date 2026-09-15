@@ -3982,3 +3982,16 @@ in 1301.692 seconds. Ordinary browser, console, and service-image jobs passed.
 The overall run failed on the unfinished CNPG and Sandbox jobs. The availability
 [evidence](hypershell-workload-availability.json) records this result without
 claiming complete release readiness.
+
+The account-source API run `34951393810` passed all 30 required checks at
+Hypershell `10a0827`. Verification matched 887 source files, 229 generated
+files, generation records, and cleanup. The live browser run `34951393842`
+must still prove viewer recovery and live account deletion. It contains the
+unchanged viewer checks from `5dc5742`. The redundant older viewer attempt was
+cancelled while pending; neither cancelled attempt is a pass. See the
+[partial evidence](hypershell-viewer-recovery.json).
+
+The [RDS gate](rds-acceptance.md) now records the installation password grant,
+maintenance-database isolation, and failover checks required on an actual RDS
+server. The test target remains to be selected. Generic PostgreSQL evidence
+does not establish this gate.
