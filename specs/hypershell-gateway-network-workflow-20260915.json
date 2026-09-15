@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-09-15T17:49:29.303651+00:00",
+  "checked_at": "2026-09-15T17:53:42.612647+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
@@ -21,7 +21,8 @@
     "state_recovery_policy_snapshot_seconds": 0.046,
     "receiver_public_fixture_tests": 5,
     "receiver_cnpg_fixture_tests": 13,
-    "receiver_fixture_acceptance_compile_seconds": 0.027
+    "receiver_fixture_acceptance_compile_seconds": 0.027,
+    "cnpg_cleanup_boundary_tests": 12
   },
   "first_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-live-20260915",
@@ -50,7 +51,8 @@
     "The operator and test Job use the same saved Kubernetes endpoints.",
     "The installer checks all policies before bindings and records server errors and a pending resource identity.",
     "State recovery fixtures now return the named policy and complete set, with explicit missing, changed, and extra policy denial cases.",
-    "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The active frozen run does not include this correction."
+    "Candidate 8b17fb4 admits telemetry and token-free network probes at the selected fixture destinations. Namespace and Pod selectors retain test scope. The active frozen run does not include this correction.",
+    "Candidate 7e23873 passes saved Kubernetes endpoint bindings to the final CNPG allocation check. Missing or empty input prevents a cleanup success result before credential use."
   ],
   "ci": [
     {
@@ -76,14 +78,14 @@
       "run_id": 35003173222,
       "source": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
       "scope": "Enabled network declaration with state and receiver fixture corrections. Ordinary CI does not run the live isolation workflow.",
-      "status": "running; web console passed"
+      "status": "core running; ordinary browser, web console, and images passed"
     }
   ],
   "cnpg": {
-    "source": "47a16b33cb12e10c806faacd491b1c053c968f89",
-    "fixture_directory": "/tmp/hypershell-cnpg-network-frozen-20260915",
+    "source": "7e23873000bfceb405e23b8173220e2e06c56017",
+    "fixture_directory": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915",
     "generation": "passed",
-    "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. A separate generated baseline verifies inspection-role additions. No CNPG isolation traffic check has run."
+    "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
   },
   "remaining": [
     "Complete the current public workflow and inspect traffic results.",
@@ -161,6 +163,14 @@
     {
       "path": "/tmp/hypershell-gateway-network-receivers-frozen-20260915/acceptance/browser-inspection-source.json",
       "sha256": "79337c92d1f14a423c4606166f02deda80c7b7eb734cb2608ac4df2603247e3f"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-prepare-cleanup-20260915.log",
+      "sha256": "6f6e5c712f053c3996eb3a9b1ecfff852dafa306598a435cf1a2b54a4fcff188"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915/acceptance/browser-inspection-source.json",
+      "sha256": "91fe1ab3e3995433012e56a2ffd5840319cf5d2cdbed06de3747a468079a7d4f"
     }
   ],
   "second_live_attempt": {

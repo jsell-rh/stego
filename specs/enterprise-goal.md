@@ -98,8 +98,9 @@ the probes. All three runs completed cleanup and released the Lease.
 The corrected frozen public workflow is now running in
 `stego-service-20260915-5a777b`. See the
 [workflow record](hypershell-gateway-network-workflow-20260915.json).
-The CNPG fixture change `47a16b3` passed generation and comparison checks;
-its live isolation workflow has not run. The main variant branch still uses the
+CNPG candidate `7e23873` passed generation and comparison checks. Its final
+allocation check now uses the saved Kubernetes endpoint bindings, with 12
+cleanup boundary checks passed. Its live isolation workflow has not run. The main variant branch still uses the
 earlier checked candidate. Traffic isolation remains unproved.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
