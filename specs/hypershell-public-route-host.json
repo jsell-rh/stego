@@ -223,5 +223,23 @@
     "The operator installation check is not a complete application pass.",
     "The new run must include the independent internal TLS trust correction.",
     "Gateway namespace network isolation remains open."
-  ]
+  ],
+  "consumer_revision": "60607faed8cf59fd1030ecd81e452c8084ba7853",
+  "retry": {
+    "source": "3a50db7ea813ae8d160f79a86359970b457f03a8",
+    "public_run": 34985980374,
+    "state": "pending",
+    "api_run": 34985981920,
+    "full_ci_run": 34985981930,
+    "boundary_failure_runs": [
+      34985869470,
+      34985869467,
+      34985884009
+    ],
+    "boundary_failure": "The stale-credential fixture lacked the new required CA path; no cluster step ran.",
+    "boundary_fix": "3a50db7",
+    "credential_tests_passed": 8,
+    "duplicate_internal_run": 34985981945,
+    "duplicate_internal_cancellation": "Requested before the cluster step, with an empty Lease and no test Job."
+  }
 }
