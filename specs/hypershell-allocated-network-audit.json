@@ -1,0 +1,43 @@
+{
+  "result": "network isolation gap reproduced",
+  "date": "2026-09-15",
+  "application_revision": "dacdd889399422945db5b804afdb21d067101ad6",
+  "compiler_revision": "635f5dad071323f579dee32e0f89beddb55f6959",
+  "source_sha256": {
+    "service.yaml": "4bd64f1a0ef1e1f5054273bbe8f4372cd466a1b7ae7fc75cb828eb0eed5a09a0",
+    "out/deploy/allocation/allocation.go": "25d6abe73097e453f18e6d0c98a8fac3626aac495f45982014fa23f5b0e0f9bc",
+    "internal/gatewayworkload/kubernetes.go": "c12274c2fea47b1f01471630964048d4e8c2759df992f23ea0c8b1ad4a772d76",
+    "internal/gatewayworkload/resources.go": "c8986954c6646161aac6f975b965788c4014df67e19865f25f9de2ff5af76693"
+  },
+  "command": "GOMAXPROCS=1 GOMEMLIMIT=384MiB timeout 40s go run -p=1 -mod=readonly scripts/allocated-network-audit.go",
+  "diagnostic_exit": 1,
+  "diagnostic_source_sha256": "a226569e342c53c703f990fae46633aefe07ba410b05dc1a9b84c408776150f1",
+  "diagnostic_result_sha256": "77e3f512f2906f6b4dd1ddafb0c55c9bc75f8877922ef427e066d1a4a95cf655",
+  "observation": {
+    "ensure_succeeded": true,
+    "network_policy_writes": 0,
+    "scope": "Generated allocator against a TLS API fixture; no real cluster",
+    "writes": [
+      "Namespace /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa",
+      "ResourceQuota /api/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/resourcequotas/stego-allocation",
+      "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-proof",
+      "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-0",
+      "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-1",
+      "ClusterRoleBinding /apis/rbac.authorization.k8s.io/v1/clusterrolebindings/control.hypershell-namespace-allocation.openshell-aaaaaaaaaaaaaaaa.2",
+      "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-3",
+      "RoleBinding /apis/rbac.authorization.k8s.io/v1/namespaces/openshell-aaaaaaaaaaaaaaaa/rolebindings/stego-3006207eec06d2741192d17dd18b611c-4"
+    ]
+  },
+  "reference_revision": "14256be29bcfe4fff38bcaf4a41511cb394ea8e1",
+  "reference_network_manifest": "components/control-plane/manifests/gateway/networkpolicy.yaml",
+  "reference_network_manifest_sha256": "ce3a0348b946158bb96bf211dcc810d25ec1c19e0884c1eff20b6c29fcb1141b",
+  "required_decision": "Gateway server egress policy; operator-approved destinations are recommended.",
+  "limits": [
+    "The diagnostic used a TLS API fixture, not a real cluster.",
+    "No network connectivity or CNI enforcement test ran.",
+    "The diagnostic failure reports missing policy writes; it is not a passing isolation test.",
+    "The complete public Gateway and shared-cluster isolation gates remain open."
+  ],
+  "diagnostic_source": "scripts/allocated-network-audit.go",
+  "diagnostic_result_path": "/tmp/hypershell-allocation-network-audit-20260915/committed-result.json"
+}

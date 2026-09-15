@@ -212,6 +212,15 @@ CI-only pushes were also canceled before execution. They are not passes. The
 [CI contract](https://github.com/jsell-rh/hypershell-stego/blob/codex/namespace-allocation-20260912/acceptance/cnpg-ci.md)
 records all run IDs and the remaining acceptance checks.
 
+Hypershell `9b8b38e` adds a bounded diagnostic for allocated namespace policy
+writes. It reproduced allocation success with zero NetworkPolicies. The
+[network audit](hypershell-allocated-network-audit.json) records this missing
+behavior and the reference ingress policies. This is an open H1, H2, and H3
+requirement, not a passing isolation result. The common fix belongs in STEGO;
+Hypershell must declare domain peers and ports. The Gateway egress choice has
+been sent to the user and remains pending. The existing two-Role public test
+permission plan must be recomputed after network policy permissions change.
+
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
 On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer
