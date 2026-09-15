@@ -27,6 +27,14 @@ func TestCommandsRejectCollectionRoutesBeforeWriting(t *testing.T) {
 	})
 }
 
+func TestCommandsRejectDiscoveryProbeCollisionsBeforeWriting(t *testing.T) {
+	for _, prefix := range []string{"/livez", "/readyz"} {
+		t.Run(prefix, func(t *testing.T) {
+			assertCommandsRejectPathsBeforeWriting(t, "base_path: "+prefix+"\n", "  widgets: {entity: Widget, operations: [read]}\n")
+		})
+	}
+}
+
 func assertCommandsRejectPathsBeforeWriting(t *testing.T, base, collections string) {
 	t.Helper()
 	registry, err := filepath.Abs("../../registry")

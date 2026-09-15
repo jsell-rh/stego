@@ -4109,3 +4109,12 @@ installation checks and six workflow checks passed. The
 Hypershell `ccfa4a9`, with compiler `5e9c89d`. The run started in
 `stego-cnpg-database-20260915-v7` after final cleanup verification. Its complete
 application and automated cleanup results remain required.
+
+The next compiler review reproduced a composition gap: `/livez` and `/readyz`
+passed base-path validation, but REST metadata and health probes registered the
+same public route. The compiler now checks declared routes across components
+before rendering and verifies that emitted routes match the retained declaration.
+Direct assembly also checks literal registrations. The
+[composition contract](http-route-composition.md) records the scope, regressions,
+and remaining policy limits. Full compiler CI remains required. The active CNPG
+workflow continues with its frozen compiler and source.

@@ -26,6 +26,13 @@ import (
 var sources embed.FS
 
 type Generator struct{}
+
+const mountPattern = "/"
+
+func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
+	return []gen.HTTPRoute{{Pattern: mountPattern}}, nil
+}
+
 type asset struct{ Source, Path, Hash string }
 type settings struct {
 	RuntimeConfigOffset                               int
@@ -290,7 +297,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewBrowserBackend()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{`mux.Handle("/", browserBackend)`}, GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}
+	wiring := &gen.Wiring{NeedsDB: true, Imports: []string{ctx.OutputNamespace}, Constructors: []string{path.Base(ctx.OutputNamespace) + ".NewBrowserBackend()"}, ConstructorResources: map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, browserBackend)", mountPattern)}, GoModRequires: map[string]string{"github.com/coreos/go-oidc/v3": "v3.21.0"}}
 	return files, wiring, nil
 }
 

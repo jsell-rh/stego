@@ -17,6 +17,12 @@ var source string
 
 type Generator struct{}
 
+const livePattern, readyPattern = "GET /livez", "GET /readyz"
+
+func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
+	return []gen.HTTPRoute{{Pattern: livePattern, Discovery: true}, {Pattern: readyPattern, Discovery: true}}, nil
+}
+
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
@@ -69,6 +75,6 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		ConstructorReturnsError: map[int]bool{0: true},
 		BackgroundTasks:         []int{0},
 		NeedsDB:                 database,
-		DiscoveryRoutes:         []string{"topMux.HandleFunc(\"GET /livez\", " + name + ".Live)", "topMux.HandleFunc(\"GET /readyz\", " + name + ".Ready)"},
+		DiscoveryRoutes:         []string{fmt.Sprintf("topMux.HandleFunc(%q, %s.Live)", livePattern, name), fmt.Sprintf("topMux.HandleFunc(%q, %s.Ready)", readyPattern, name)},
 	}, nil
 }

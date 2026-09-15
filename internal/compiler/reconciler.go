@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -160,6 +161,15 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		files, wiring, err := generator.Generate(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("generator %q: %w", compName, err)
+		}
+		if declared, ok := resolved.HTTPRoutes[compName]; ok {
+			actual, err := gen.WiringHTTPRoutes(wiring)
+			if err != nil {
+				return nil, fmt.Errorf("generator %q HTTP routes: %w", compName, err)
+			}
+			if !slices.Equal(declared, actual) {
+				return nil, fmt.Errorf("generator %q HTTP routes differ from its preflight declaration", compName)
+			}
 		}
 
 		// Validate namespace.

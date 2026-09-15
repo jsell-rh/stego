@@ -22,6 +22,12 @@ var fieldsSource string
 
 type Generator struct{}
 
+const mountPattern = "/"
+
+func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
+	return []gen.HTTPRoute{{Pattern: mountPattern}}, nil
+}
+
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
@@ -115,7 +121,7 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 	}
 	files = append(files, client)
 	ns := path.Base(ctx.OutputNamespace)
-	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{`mux.Handle("/", handler)`}}
+	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, handler)", mountPattern)}}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}

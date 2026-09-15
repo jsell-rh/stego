@@ -13,6 +13,36 @@ type httpRoute struct {
 	method, path, handler string
 }
 
+func (*Generator) HTTPRoutes(ctx gen.Context) ([]gen.HTTPRoute, error) {
+	if len(ctx.Collections) == 0 {
+		return nil, nil
+	}
+	collections := map[string]types.Collection{}
+	for _, collection := range ctx.Collections {
+		if _, exists := collections[collection.Entity]; !exists {
+			collections[collection.Entity] = collection
+		}
+	}
+	var routes []gen.HTTPRoute
+	for _, collection := range ctx.Collections {
+		base, err := collectionBasePath(collection, collections)
+		if err != nil {
+			return nil, err
+		}
+		for _, operation := range collection.Operations {
+			route, err := collectionHTTPRoute(operation, ctx.BasePath+base)
+			if err != nil {
+				return nil, err
+			}
+			routes = append(routes, gen.HTTPRoute{Pattern: route.pattern()})
+		}
+	}
+	for _, route := range discoveryHTTPRoutes(ctx.BasePath) {
+		routes = append(routes, gen.HTTPRoute{Pattern: route.pattern(), Discovery: true})
+	}
+	return routes, nil
+}
+
 func (r httpRoute) pattern() string { return r.method + " " + r.path }
 
 func collectionHTTPRoute(operation types.Operation, base string) (httpRoute, error) {

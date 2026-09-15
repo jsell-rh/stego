@@ -13,6 +13,7 @@ type resolvedCompilation struct {
 	Components                       map[string]*types.Component
 	Names                            []string
 	Contexts                         map[string]gen.Context
+	HTTPRoutes                       map[string][]gen.HTTPRoute
 	InputSnapshots                   map[string]fileSnapshot
 	OutDir, OutDirName, SlotsPackage string
 }
@@ -140,6 +141,19 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 				return nil, fmt.Errorf("component %q preflight: %w", name, err)
 			}
 		}
+	}
+	resolved.HTTPRoutes = map[string][]gen.HTTPRoute{}
+	for _, name := range componentNames {
+		if provider, ok := input.Generators[name].(gen.HTTPRouteProvider); ok {
+			routes, err := provider.HTTPRoutes(resolved.Contexts[name])
+			if err != nil {
+				return nil, fmt.Errorf("component %q HTTP routes: %w", name, err)
+			}
+			resolved.HTTPRoutes[name] = append([]gen.HTTPRoute(nil), routes...)
+		}
+	}
+	if err := gen.ValidateHTTPRouteGroups(resolved.HTTPRoutes); err != nil {
+		return nil, err
 	}
 	return resolved, nil
 }

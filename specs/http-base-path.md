@@ -59,4 +59,6 @@ expected 3.0.2. The test now expects 3.0.4 and passes its focused check.
 [Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34956597204)
 passed at `9bda756`, including race tests and SQL provisioning. This check covers
 REST collections and their discovery routes. It does not establish that all
-routes from other components can be composed without conflicts.
+routes from other components can be composed without conflicts. The later
+[route composition check](http-route-composition.md) adds declarations across
+components, including health probes, and checks the emitted registrations.

@@ -59,6 +59,17 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	if err := validateBuildTarget(input.ModuleName, input.GoVersion); err != nil {
 		return nil, err
 	}
+	routeGroups := map[string][]gen.HTTPRoute{}
+	for _, component := range input.Wirings {
+		routes, err := gen.WiringHTTPRoutes(component.Wiring)
+		if err != nil {
+			return nil, fmt.Errorf("component %q HTTP routes: %w", component.Name, err)
+		}
+		routeGroups[component.Name] = append(routeGroups[component.Name], routes...)
+	}
+	if err := gen.ValidateHTTPRouteGroups(routeGroups); err != nil {
+		return nil, err
+	}
 
 	mainGo, err := generateMainGo(input)
 	if err != nil {
