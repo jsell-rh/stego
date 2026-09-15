@@ -80,9 +80,32 @@ Hypershell `ace5823` calls this runtime and removes its separate verifier.
 The application keeps only certificate creation and installation policy.
 Focused generated and application checks pass; repeated generation passes.
 [Full compiler CI](https://github.com/jsell-rh/stego/actions/runs/34973403349)
-is required for this revision. The
+passed. A later regression check found that the standard TLS parser can skip a
+private-key block in `tls.crt`. The helper could then return that private block
+with the certificate data. Compiler `0953fcc`, version 1.8.1, rejects private
+blocks, extra text, and malformed block prefixes. The regression failed before
+the correction and passes after it. Hypershell `0bfce85` adopts the correction
+and tests it through the Kubernetes client fixture. Full compiler run
+`34973613718` remains required. The
 [TLS Secret contract](../registry/components/kubernetes-client/tls-secrets.md)
 defines trust, ownership, data limits, and error privacy.
+
+The complete browser gate at `59a6d32` passed in 385.91 seconds. Its
+[evidence](hypershell-controller-endpoint-browser.json) includes 924 checked
+source files, 232 generated files, three matching generation records, access
+rules, SQL isolation and repair, restart, namespace replacement, encryption,
+account deletion, telemetry, and automatic cleanup. Independent reads found no
+test Jobs, Pods, Deployments, or selected fixtures; the shared Lease was free.
+This run used an external PostgreSQL container and the internal Service address.
+The reviewed connection panel still shows loading placeholders.
+
+The console gate at `25927c2` failed because a fresh asset build differed from
+the committed archive. Its frontend inputs match `59a6d32`. The browser pass
+therefore applies to the committed archive, not a reproduced asset build. A CI
+candidate build and a new application run are required after the archive changes.
+The 32-test API attempts at `25927c2` and `0bfce85` did not start application
+Jobs because the CI credential had too little time left. They are failures,
+not missing passes or evidence of API behavior.
 
 The next workflow change must join Route creation, public TLS and RPC checks,
 and current endpoint publication. Status and address must describe the same

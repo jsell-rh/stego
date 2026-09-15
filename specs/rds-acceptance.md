@@ -42,6 +42,13 @@ a separate non-superuser provisioning account. Existing
 revisions. They include SQL isolation, permission failure and recovery, retained
 credentials, and deletion. Public Gateway connectivity remains a separate gate.
 
+The later [browser run at `59a6d32`](hypershell-controller-endpoint-browser.json)
+also passed. Its evidence records the pinned PostgreSQL container and resource
+limits, source and generation checks, SQL and account cleanup, and independent
+cluster cleanup reads. It does not record a queried PostgreSQL server version.
+The console archive needs a fresh build after a later drift failure. Keep both
+limits visible; the run does not close every required item in this document.
+
 ## Limits of the evidence
 
 Container tests prove the external PostgreSQL contract. They do not prove

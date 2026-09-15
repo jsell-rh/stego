@@ -106,6 +106,20 @@ weakening the gate. The [pool metric contract](database-pool-metrics.md) and
 requirements. A queued test, successful compilation, or partial workflow is not
 a passing application result.
 
+The browser result at `59a6d32` is now verified. See
+[the complete record](hypershell-controller-endpoint-browser.json). Public access
+remains unverified. A new console gate also found archive drift; the application
+must rebuild the archive in CI and repeat its console and browser gates.
+Superseded queued runs were canceled where no jobs had started. The active
+browser run was preserved. The newer 32-test API attempts failed their credential
+lifetime check before Job creation. The operator login refresh is still pending.
+
+Compiler `0953fcc` corrects a reproduced private-block defect in the new TLS
+Secret helper. Hypershell `0bfce85` adopts it; focused checks and generation pass.
+Full compiler run `34973613718` remains required. Earlier compiler `74d9a70`
+passed CI but does not contain this correction. This result does not close C4
+or establish a verified public Gateway connection.
+
 The original module coverage audit also found stale example output and no CI
 jobs for either nested example module. The [example project checks](example-project-checks.md)
 restore current generation and add CI gates for both projects. Their build and
