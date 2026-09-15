@@ -61,12 +61,12 @@ its recorded source and test scope:
 | Result | Source | Evidence and limits |
 | --- | --- | --- |
 | Complete Gateway API gate, 31 required tests | Hypershell `677973f`, compiler `f97b315` | [API evidence](hypershell-worker-startup-api.json): 907 source files, 230 generated files, four matching generation records, and complete cleanup. Includes all four worker startup failures with local and TLS OTLP records, pool metrics, cancellation, API restart, and collector failure and recovery. |
-| Complete generated browser workflow and private SQL telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [Browser evidence](hypershell-postgres-telemetry-browser.json): correlated SQL logs, traces, and metrics across worker restart, cleanup denial, and recovery; all three console pool checkpoints; SQL isolation; access rules; namespace recovery; account cleanup; encryption; session checks; and automatic cleanup. |
+| Complete generated browser workflow and private SQL telemetry | Hypershell `677973f`, compiler `f97b315` | [Browser evidence](hypershell-worker-startup-browser.json): correlated SQL logs, traces, and metrics across worker restart, cleanup denial, and recovery; all three console pool checkpoints; SQL isolation; access rules; namespace recovery; account cleanup; encryption; session checks; and automatic cleanup. |
 | Complete supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [CNPG evidence](hypershell-cnpg-complete.json): failover, retained data and identities, and automatic cleanup. The operator installed the server; this is not unattended CI. |
 | Shared pool factory | Compiler `5c5e7c9` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961472255) passed. The earlier `e5b9931` run failed a stale registry version assertion; its failure remains recorded. |
 | Private PostgreSQL client telemetry | Compiler `f2b09c0` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34961995199) passed, including generated runtime race checks and real SQL provisioning. Complete application evidence remains required. |
-| Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the TLS OTLP startup check within the complete API gate; the browser gate remains active. |
-| Full Hypershell CI at the browser source | Hypershell `2af1b46` | [Run 34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs lack installation fixtures and restricted runners. |
+| Worker setup and cleanup telemetry | Compiler `f97b315` | [Full CI](https://github.com/jsell-rh/stego/actions/runs/34964671704) passed, including generated controller race checks and real SQL provisioning. Four generated Hypershell workers passed the TLS OTLP startup check within the complete API gate; the complete browser gate also passed. |
+| Full Hypershell CI at the browser source | Hypershell `677973f` | [Run 34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409) passed core acceptance, ordinary browser tests, console, and service image. Overall result is failure because CNPG and Sandbox jobs lack installation fixtures and restricted runners. |
 
 The following runs are active or queued as of 2026-09-15. Confirm their current
 state before taking further action. Do not restart a run because observation
@@ -74,11 +74,9 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), active; Job `stego-service-ci/service-check`, UID `90da2d62-2964-43f1-8790-0eaf9a443cf7` |
-| Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), active |
-| API gate with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271359](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271359), queued |
+| API gate with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271359](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271359), active; Job `gateway-api-87029b6a0b06`, UID `d7a20814-bb32-45e9-9da6-d372ff48b424` |
 | Browser workflow with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271404](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271404), queued |
-| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), queued |
+| Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), active |
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
@@ -106,6 +104,10 @@ browser, and full CI gates above remain required. Key-source telemetry and perfo
 evidence remain separate open requirements. These checks do not close all of
 C4 or C6.
 
+The new restricted CNPG CI path is committed in Hypershell `a0402c8`. It uses
+fixed operator-installed policy and bounded runtime owners. Its static
+installation and live workflow remain unverified.
+
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and
 restore evidence, and measured capacity. The public route trust and ownership
@@ -130,7 +132,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The restricted CI
-credential was last renewed through 2026-09-15 13:03:44 UTC; check its remaining
+credential was last renewed through 2026-09-15 13:23:24 UTC; check its remaining
 lifetime before a queued run starts.
 
 Keep this file limited to current requirements and result links. Put detailed

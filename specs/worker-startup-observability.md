@@ -48,4 +48,17 @@ seconds. This run includes the four actual worker startup failures and their
 correlated local and TLS OTLP records, in 7.24 seconds. Verification matched
 907 source files, 230 generated files, and four identical generation records.
 Automatic cleanup and independent cluster reads found no test resources. The
-complete browser run `34964891373` and full CI `34964891409` remain active.
+browser result is recorded below.
+
+The [complete browser evidence](hypershell-worker-startup-browser.json) records a pass for
+run `34964891373` at the same source. The workflow took 398.22 seconds. It
+verified 907 source files, 231 generated files, three equal generation records,
+worker replacement telemetry, SQL isolation and recovery, access rules, account
+cleanup, encryption, and session behavior. The four worker startup checks passed
+in 6.44 seconds. Automatic cleanup and independent reads found no browser test
+resources. The Gateway page shows Healthy; its public connection panel still
+shows loading placeholders. Public Gateway connectivity remains unverified.
+
+Full CI `34964891409` passed core acceptance, ordinary browser tests, console,
+and service image. Its overall result is failure: CNPG and Sandbox jobs require
+installation fixtures and restricted runners. These gates remain required.
