@@ -38,6 +38,7 @@ func validLoopbackRedirect(raw string)bool{
  if err!=nil||u.Scheme!="http"||u.Host==""||u.User!=nil||u.Opaque!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||strings.ContainsAny(raw,"?#\\"){return false}
  host:=u.Hostname()
  if host!="localhost"{address,e:=netip.ParseAddr(host);if e!=nil||address.Zone()!=""||!address.IsLoopback()||address.String()!=host{return false}}
+ if strings.HasSuffix(authority,":*")&&host!="localhost"&&host!="127.0.0.1"&&host!="::1"{return false}
  if u.Host!=net.JoinHostPort(host,u.Port()){return false}
  port,e:=strconv.Atoi(u.Port());if e!=nil||port<1||port>65535||strconv.Itoa(port)!=u.Port(){return false}
  // Reject escaped separators and traversal. Only the port may be a wildcard.
@@ -48,13 +49,27 @@ func validLoopbackRedirect(raw string)bool{
  return true
 }
 
+// Keycloak accepts any requested port for these loopback hosts when the saved
+// URI uses port 80. A literal wildcard would also permit other callback paths.
+func providerLoopbackRedirect(raw string)string{
+ authority,tail,hasPath:=strings.Cut(strings.TrimPrefix(raw,"http://"),"/")
+ if !strings.HasSuffix(authority,":*"){return raw}
+ result:="http://"+strings.TrimSuffix(authority,":*")+":80"
+ if hasPath{result+="/"+tail}
+ return result
+}
+
 func nativeClientConfiguration(b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
  desired,err:=oidcClientConfiguration(b,p.DisplayName,p.AccessTokenLifetimeSeconds);if err!=nil{return ClientRepresentation{},err}
  if len(p.LoopbackRedirectURIs)<1||len(p.LoopbackRedirectURIs)>16{return ClientRepresentation{},errors.New("native client requires one through sixteen loopback redirects")}
  seen:=map[string]bool{}
- for _,uri:=range p.LoopbackRedirectURIs{if !validLoopbackRedirect(uri)||seen[uri]{return ClientRepresentation{},errors.New("invalid or repeated native loopback redirect")};seen[uri]=true}
+ for _,uri:=range p.LoopbackRedirectURIs{
+  normalized:=providerLoopbackRedirect(uri)
+  if !validLoopbackRedirect(uri)||seen[normalized]{return ClientRepresentation{},errors.New("invalid or repeated native loopback redirect")};seen[normalized]=true
+  desired.RedirectURIs=append(desired.RedirectURIs,normalized)
+ }
  desired.PublicClient=true;desired.StandardFlowEnabled=true
- desired.RedirectURIs=append([]string{},p.LoopbackRedirectURIs...);slices.Sort(desired.RedirectURIs)
+ slices.Sort(desired.RedirectURIs)
  desired.Attributes["pkce.code.challenge.method"]="S256"
  desired.Attributes["oauth2.device.authorization.grant.enabled"]=strconv.FormatBool(p.EnableDeviceAuthorization)
  desired.Attributes["backchannel.logout.session.required"]="true"

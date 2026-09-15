@@ -320,3 +320,11 @@ It then rejected a device-authorization request without PKCE parameters. The
 test now supplies S256 parameters and retains the missing-PKCE denial check.
 This preserves the required PKCE policy. Cleanup passed, and the partial result
 is retained under `browser-driver-ci`. The complete native gate is still pending.
+
+Version 0.6.2 converts native port wildcards to Keycloak's port-80 loopback
+registration. The pinned provider permits any callback port for `localhost`,
+`127.0.0.1`, and `[::1]` with this registration, while it matches the path
+exactly. A literal trailing wildcard also permits other paths. The provider
+must therefore not receive a literal wildcard. The live gate now checks wrong
+paths, query strings, and fragments. See the pinned
+[redirect check](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/utils/RedirectUtils.java).

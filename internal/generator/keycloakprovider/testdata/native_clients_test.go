@@ -17,7 +17,7 @@ func nativeRecord() map[string]any {
 		"frontchannelLogout": false, "surrogateAuthRequired": false, "authenticationFlowBindingOverrides": map[string]string{},
 		"id": "native-id", "clientId": "catalog-cli", "name": "Catalog CLI", "protocol": "openid-connect", "clientAuthenticatorType": "client-secret",
 		"enabled": false, "publicClient": true, "bearerOnly": false, "consentRequired": false, "serviceAccountsEnabled": false, "standardFlowEnabled": true, "implicitFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": false,
-		"redirectUris": []string{"http://127.0.0.1:*", "http://localhost:*"}, "webOrigins": []string{}, "defaultClientScopes": []string{}, "optionalClientScopes": []string{},
+		"redirectUris": []string{"http://127.0.0.1:80", "http://localhost:80"}, "webOrigins": []string{}, "defaultClientScopes": []string{}, "optionalClientScopes": []string{},
 		"attributes": map[string]string{"stego.owner.product": "catalog", "access.token.lifespan": "300", "client_credentials.use_refresh_token": "false", "oauth2.device.authorization.grant.enabled": "true", "oidc.ciba.grant.enabled": "false", "standard.token.exchange.enabled": "false", "oauth2.jwt.authorization.grant.enabled": "false", "external.token.enabled": "false", "pkce.code.challenge.method": "S256", "backchannel.logout.session.required": "true", "backchannel.logout.revoke.offline.tokens": "true", "realm_client": "false"},
 	}
 }
@@ -28,14 +28,14 @@ func TestNativeClientRedirectValidation(t *testing.T) {
 			t.Fatal("valid loopback redirect rejected", uri)
 		}
 	}
-	for _, uri := range []string{"http://::1:8000/", "http://localhost:8000/%2a", "http://localhost:8000/%252f", "https://app.example/callback", "http://example.com:8000/callback", "http://127.0.0.1.evil:8000/", "http://0.0.0.0:8000/", "http://127.1:8000/", "http://2130706433:8000/", "http://[::]:8000/", "http://localhost:0/", "http://localhost:65536/", "http://localhost:08000/", "http://localhost/", "http://localhost:*/other*", "http://localhost:8000/?next=elsewhere", "http://localhost:8000/?", "http://localhost:8000/#", "http://user@localhost:8000/", "http://localhost:8000/../elsewhere", "http://localhost:8000/%2e%2e/elsewhere", "http://localhost:8000/a%2fb", "http://localhost:8000/%00", "http://localhost:8000/a\\b", "http://[::1%25zone]:8000/"} {
+	for _, uri := range []string{"http://127.0.0.2:*/callback", "http://::1:8000/", "http://localhost:8000/%2a", "http://localhost:8000/%252f", "https://app.example/callback", "http://example.com:8000/callback", "http://127.0.0.1.evil:8000/", "http://0.0.0.0:8000/", "http://127.1:8000/", "http://2130706433:8000/", "http://[::]:8000/", "http://localhost:0/", "http://localhost:65536/", "http://localhost:08000/", "http://localhost/", "http://localhost:*/other*", "http://localhost:8000/?next=elsewhere", "http://localhost:8000/?", "http://localhost:8000/#", "http://user@localhost:8000/", "http://localhost:8000/../elsewhere", "http://localhost:8000/%2e%2e/elsewhere", "http://localhost:8000/a%2fb", "http://localhost:8000/%00", "http://localhost:8000/a\\b", "http://[::1%25zone]:8000/"} {
 		if validLoopbackRedirect(uri) {
 			t.Fatal("unsafe redirect accepted", uri)
 		}
 	}
 	calls := 0
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(500) })
-	for _, uris := range [][]string{nil, {"http://localhost:*", "http://localhost:*"}, make([]string, 17)} {
+	for _, uris := range [][]string{nil, {"http://localhost:*", "http://localhost:*"}, {"http://localhost:*/callback", "http://localhost:80/callback"}, make([]string, 17)} {
 		b, p := nativeInputs()
 		p.LoopbackRedirectURIs = uris
 		if _, err := c.CreateDisabledNativeClient(context.Background(), b, p); err == nil {
@@ -44,6 +44,20 @@ func TestNativeClientRedirectValidation(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatal("invalid policy caused a request")
+	}
+}
+
+func TestNativeCallbackRegistration(t *testing.T) {
+	b, p := nativeInputs()
+	p.LoopbackRedirectURIs = []string{"http://127.0.0.1:*/callback", "http://[::1]:*/return", "http://localhost:*", "http://127.0.0.2:38123/fixed"}
+	original := append([]string{}, p.LoopbackRedirectURIs...)
+	desired, err := nativeClientConfiguration(b, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"http://127.0.0.1:80/callback", "http://127.0.0.2:38123/fixed", "http://[::1]:80/return", "http://localhost:80"}
+	if !reflect.DeepEqual(desired.RedirectURIs, want) || !reflect.DeepEqual(p.LoopbackRedirectURIs, original) {
+		t.Fatal("callback registration differs or changed caller policy")
 	}
 }
 

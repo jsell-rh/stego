@@ -82,10 +82,19 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 		}
 		browser := newNativeBrowser(t, c, ctx, caFile)
 		authPath := "/realms/provider-test/protocol/openid-connect/auth"
-		for _, bad := range []string{"missing-pkce", "foreign-redirect"} {
+		for _, bad := range []string{"missing-pkce", "foreign-redirect", "wrong-path", "query", "fragment"} {
 			query := url.Values{"client_id": {b.ClientID}, "response_type": {"code"}, "scope": {"openid"}, "redirect_uri": {item.callback}, "state": {"invalid-request-test"}}
-			if bad == "foreign-redirect" {
-				query.Set("redirect_uri", "https://foreign.invalid/callback")
+			if bad != "missing-pkce" {
+				switch bad {
+				case "foreign-redirect":
+					query.Set("redirect_uri", "https://foreign.invalid/callback")
+				case "wrong-path":
+					query.Set("redirect_uri", item.callback+"/other")
+				case "query":
+					query.Set("redirect_uri", item.callback+"?other=value")
+				case "fragment":
+					query.Set("redirect_uri", item.callback+"#other")
+				}
 				query.Set("code_challenge", strings.Repeat("a", 43))
 				query.Set("code_challenge_method", "S256")
 			}
@@ -94,7 +103,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 				continue
 			}
 			location, e := url.Parse(headers.Get("Location"))
-			if bad == "foreign-redirect" || e != nil || (status != 302 && status != 303) || location.Query().Get("error") != "invalid_request" || location.Query().Get("code") != "" {
+			if bad != "missing-pkce" || e != nil || (status != 302 && status != 303) || location.Query().Get("error") != "invalid_request" || location.Query().Get("code") != "" {
 				t.Fatal("unsafe native authorization request accepted", bad, status)
 			}
 		}
@@ -188,6 +197,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			t.Fatal(err)
 		}
 		if _, err = c.InspectDisabledNativeClient(ctx, b, p); err != nil {
+			reportNativeDifference(t, c, ctx, b, p)
 			t.Fatal("native profile changed after login", err)
 		}
 		if err = c.DeleteClient(ctx, b); err != nil {
