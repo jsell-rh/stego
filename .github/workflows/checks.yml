@@ -2,6 +2,8 @@ name: Compiler checks
 
 on:
   push:
+    paths-ignore:
+      - '**/*.md'
   pull_request:
 
 env:
