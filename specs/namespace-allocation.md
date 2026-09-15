@@ -161,7 +161,7 @@ contains 89 passing cases: 18 allowed operations and 71 denied operations.
 All three generated admission policies passed Kubernetes type checks. The test
 covered each declared namespace, Pod selector, port, and protocol, additional
 policy denial, regeneration, and cleanup. No Pods ran. Traffic enforcement and
-the complete Gateway workflow remain required. Full compiler CI is running in
+the complete Gateway workflow remain required. Full compiler CI passed in
 [run 34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449).
 
 ## Fixed network deny policy

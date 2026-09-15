@@ -12,7 +12,13 @@
   "compiler_ci": {
     "run_id": 34997668449,
     "url": "https://github.com/jsell-rh/stego/actions/runs/34997668449",
-    "status": "in_progress"
+    "status": "completed",
+    "conclusion": "success",
+    "kubernetes_service_package_seconds": 14.516,
+    "race_detection": true,
+    "examples": "both passed",
+    "postgres_provisioning": "passed",
+    "log_sha256": "45e78b3a991d143edc9c2eb58870264892c2b486136f2ee6ecbeff067588f010"
   },
   "live_admission": {
     "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
@@ -449,5 +455,19 @@
     "No external DNS provider has been selected.",
     "The complete Gateway traffic, endpoint change, and Sandbox isolation gates remain open.",
     "Existing policies require an operator-planned migration when declared peers change."
-  ]
+  ],
+  "candidate_adoption": {
+    "source": "101f31d0e10f39998aa90a10c86f67325575a71a",
+    "branch": "codex/approved-network-peers-20260915",
+    "compiler_revision": "e394ab57c7b26412789d58429554334371d3d2db",
+    "run_id": 34998079776,
+    "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34998079776",
+    "status": "in_progress",
+    "regeneration": "Both modules passed repeated apply and drift.",
+    "generation_log_sha256": "1d11d0db6664de4ef0dc18455fd19aae64492f40414b07aec2b9dc06d53de6d9",
+    "production_isolation_enabled": false,
+    "cnpg": "skipped",
+    "sandbox": "skipped",
+    "scope": "Core, rendered browser, web console, images, and regeneration. This run does not prove Gateway network isolation."
+  }
 }
