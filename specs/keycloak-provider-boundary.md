@@ -197,8 +197,8 @@ at `96386e526db236aedf3b5dd9503ec66a11d4d9ff` in
 They used two different application role policies. They checked preserved
 shared-user access, rejection of excess inherited roles, group and role removal
 for owned service accounts, and rejection of the wrong subject. The complete
-provider test took 39.96 seconds, and container cleanup passed. The full compiler
-job is still running. This does not prove application login or token claims.
+provider test took 39.96 seconds, and container cleanup passed. All five CI jobs
+passed. This does not prove application login or token claims.
 Sources, generated output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-roles-20260915`.
 
