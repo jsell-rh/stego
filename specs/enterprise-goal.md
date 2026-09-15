@@ -4124,3 +4124,24 @@ passed at `1edd407`, including race tests and SQL provisioning. This verifies th
 route-composition change and its declaration checks. The CNPG run has reached
 a ready Gateway and passed database Pod recovery; its remaining application and
 cleanup checks are still active.
+
+The [complete CNPG workflow](hypershell-cnpg-complete.json) passed at Hypershell
+`ccfa4a9` with compiler `5e9c89d`. The application took 450.92 seconds. The runner
+completed automatic cleanup and returned zero. Independent verification matched
+895 source files, 230 generated files, all three generation records, 16 CI
+access checks, 57 application access checks, six admission probes, and 18
+permanent operator resources.
+
+CNPG changed its primary and restored two ready instances in 65.28 seconds.
+Namespace recovery took 44.15 seconds without controller restarts or changed
+SQL identities. Viewer access, filtered lists, denied writes, access removal,
+three live account cleanups, SQL cleanup denial, encryption, and session checks
+passed. Independent reads confirmed that application resources, allocations,
+the database namespace, database volumes, and all 26 temporary operator
+resources were absent. The Lease was free; no manual cleanup was needed.
+
+The server installation used the operator context; application execution used
+the restricted CI identity. This closes the manual CNPG workflow and automatic
+cleanup gate. Unattended CNPG CI, the public Gateway endpoint, actual RDS use,
+and Sandbox execution remain open. This run does not verify the later compiler
+route-composition change, which has its separate passing compiler CI result.

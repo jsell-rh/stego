@@ -1,0 +1,399 @@
+{
+  "run": "/tmp/hypershell-cnpg-installation-run-v7",
+  "application_commit": "ccfa4a9c89ff5688f8f7e276d28dfbed2449e597",
+  "compiler_revision": "5e9c89d9201db4532de1787dcff234e3988cfa00",
+  "result": "success",
+  "workflow_seconds": 450.92,
+  "source_files_checked": 895,
+  "generated_files_checked": 230,
+  "ci_access_checks": 16,
+  "application_access_checks": 57,
+  "admission_probes": 6,
+  "operator_cluster_resources": 18,
+  "job_uid": "3e885f48-5410-4fdd-be0c-c07cec0e1bca",
+  "cleanup": {
+    "namespace_retained": "stego-service-ci",
+    "test_resources_absent": true,
+    "allocations_absent": true
+  },
+  "generation_sha256": "bd06b882f542e6ec02825aa8536f73803a4247943901c948ff14e998c53bb127",
+  "artifact_sha256": {
+    "deployment.log": "63e29d78750173e32491c1abe7001953d54003f86e178bc6777cc0481fb5d58c",
+    "evidence.tar": "16f4909a5da3d3799f6eba167e8db36f090a6ebdaa7610aa88c4b27e5914b1fd",
+    "job-status.json": "de41c1e231e87cdf563d2ac08e94e89f41795863482da7e6b35e5faa96d31ad2",
+    "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
+    "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13",
+    "cnpg-run.json": "4d19119935e57cd0d2218a6c0eb7b3765af53e9d94a5a9ac694e9159b535644c",
+    "cnpg-server-ready.json": "2e21dce125d6adc18c379d2997199011d46917c0beff3455dc7d83c4a487c04f",
+    "cnpg-server-cleanup.json": "7b04b85166f40bad0bf38a364d99b4ca8840fbc26ea6c5dac485ac70aa02d20c",
+    "browser-run.log": "ab7cc6751436386eb55b6bf3993c0732e5b5f15e29089d117a042f1976bd8bf4",
+    "operator/cnpg-created.json": "0ef8129ee9ba521d0dde3bbf254f6afd45272c68a97c14f41aa366ad8caad60b",
+    "operator/cnpg-cleanup-requested.json": "1e5d766e84fc3d467af1d1cf9dd8aa2f6adbd884ced81474b8a39f41aa191286",
+    "independent-cleanup-verification.json": "2d3498597a207d69689854fee9f065fa8efe9c4da353e9e14846f2085fbf9a5c",
+    "browser/verify.json.png": "110e1cf029b020acf9853cecbac4b17ab3b62f738fe0300cdc3fb3ff9c84fb1e",
+    "browser/accounts-delete.json.png": "d35e880b24fc0775030548ffa16a74ca69e4063d2552cb440fa0d18d2208dffe"
+  },
+  "images": {
+    "image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell:acceptance",
+      "digest": "sha256:307d8a7e6623183d271b5a61a748ab89e262f8277464d557c155897142f3cf65",
+      "contentDigest": "sha256:307d8a7e6623183d271b5a61a748ab89e262f8277464d557c155897142f3cf65",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:18109141d4338a8a106fa7e5476011e10af111f15329afd16dc9539d6d10763a",
+          "size": 21318830
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/service"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 21318830,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:bd978b58b33b4baaaaeb73b3c34dc4a21fbff30865db308ff51d47a2747bb4a4"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "console-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-console:acceptance",
+      "digest": "sha256:a001ba22f6ebf0a568b1cb6b2bdc9965a2ef3148c74bb4b09f50fe9bce7605af",
+      "contentDigest": "sha256:a001ba22f6ebf0a568b1cb6b2bdc9965a2ef3148c74bb4b09f50fe9bce7605af",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:7917770ad399d96a2f778059e0c38978a6c6aa010e41f4a9c60806e091b8d8ab",
+          "size": 15825565
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/service"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 15825565,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:08389cde6f6abeb0105fb6009ac6d664e49e686a76de7310b939d3638a876c77"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "provisioner-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-provisioner:acceptance",
+      "digest": "sha256:583a96da6a8361e9205d7d3f7d429c0b664d68f02d701bf68b5a9fced1f826ff",
+      "contentDigest": "sha256:583a96da6a8361e9205d7d3f7d429c0b664d68f02d701bf68b5a9fced1f826ff",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:9a21b3f8198a31f3f9c3b40be47432379fee956c1485e8f75bbce045c8d40a9e",
+          "size": 12447534
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/rpc"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12447534,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:7ddd5458d3df5f48d31fb592417a8518bfad364d838e17bebe27ee31cae2c1fb"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "namespace-allocation-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-namespace-allocation:acceptance",
+      "digest": "sha256:7b8956e83b1641cc1869bc53058fdf5668dd7dfcad6e79996ec03f5269459e72",
+      "contentDigest": "sha256:7b8956e83b1641cc1869bc53058fdf5668dd7dfcad6e79996ec03f5269459e72",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:8ccc7851f066c34a18d2a526a7cf5da7625737e2b153c21eb21a5499cf2d63ab",
+          "size": 12866631
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12866631,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:8a3f352936bb1ffc6f6cf779ba27d1860239129b62ea33fd3dfc6df3f161806f"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "gateway-identity-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-gateway-identity:acceptance",
+      "digest": "sha256:5a2c8e615eddffd98cb901ecaf8aa10fceff0d403c0defb6dccdfd81e4b9f434",
+      "contentDigest": "sha256:5a2c8e615eddffd98cb901ecaf8aa10fceff0d403c0defb6dccdfd81e4b9f434",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:6c5a2c649c1ef17a2172bd081ea1872a74c8e5fe1bfe597409cedc3657e7d8d3",
+          "size": 12601352
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 12601352,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:5f2c39e936968b9137cc9712ddd75c07aafcb5fb1a33673644a139319f2d1e8d"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    },
+    "gateway-workload-image.json": {
+      "name": "image-registry.openshift-image-registry.svc:5000/stego-service-ci/hypershell-gateway-workload:acceptance",
+      "digest": "sha256:69ef7cfe6a67bb8ce0f97662776110f90c949ff24a9ab7157fca0104ea81417a",
+      "contentDigest": "sha256:69ef7cfe6a67bb8ce0f97662776110f90c949ff24a9ab7157fca0104ea81417a",
+      "listDigest": "",
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "layers": [
+        {
+          "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+          "digest": "sha256:0c6b63962309ad912c36ae23554516d631d99576847c0d9ae545e1f9b84ae240",
+          "size": 14971972
+        }
+      ],
+      "config": {
+        "id": "",
+        "created": "2026-09-11T00:00:00Z",
+        "container_config": {},
+        "config": {
+          "User": "65532:65532",
+          "WorkingDir": "/",
+          "Entrypoint": [
+            "/worker"
+          ]
+        },
+        "architecture": "amd64",
+        "size": 14971972,
+        "rootfs": {
+          "type": "layers",
+          "diff_ids": [
+            "sha256:fc42905694a4f77b7a3b9ed69d0c13508fce1c588e93e883050334989f5056ec"
+          ]
+        },
+        "history": [
+          {
+            "created": "2026-09-11T00:00:00Z"
+          }
+        ],
+        "os": "linux"
+      }
+    }
+  },
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "namespace_replacement": {
+    "controller_pods_unchanged": {
+      "hypershell-gateway-identity": "7b4d7107-e2ab-4c5e-8d8f-4289b57d18e3",
+      "hypershell-gateway-workload": "4eae0604-f4db-4e98-a6a6-70b9b4562844",
+      "hypershell-namespace-allocation": "285a2dc6-da92-4164-9f5f-f222075fa8e3"
+    },
+    "database_and_role_oids_unchanged": true,
+    "gateway_id": "3JMREbKnTpBLsas889RIF5WmaxR",
+    "namespace": "openshell-c2a81705b0abf6e4",
+    "new_deployment_uid": "2739750e-c7be-475a-b838-0317402e586d",
+    "new_namespace_uid": "e8048c9a-8fdd-4fbc-8880-b211850b3f0f",
+    "old_deployment_uid": "77d62c7d-91d0-4618-86ed-b2a93d1e5c50",
+    "old_namespace_uid": "3d5adb4b-f84c-4188-b092-3444fe563419",
+    "other_gateway_sql_unchanged": true,
+    "provider_data_unchanged": true,
+    "seconds": 44.152654029,
+    "source_data_unchanged": true,
+    "source_secret_uid": "b3ec8487-76cd-489f-8a8d-71b8b5f59e77",
+    "sql_credentials_unchanged": true,
+    "state_namespace_uid": "bb795527-7ec0-49ee-9f00-2cc59b903e7e",
+    "ungranted_rpc_denied": true,
+    "viewer_lists_filtered": true,
+    "viewer_membership_recovered": true,
+    "viewer_writes_denied": true,
+    "workspace_and_gateway_revocation_verified": true
+  },
+  "sql_cleanup_denial": {
+    "cleanup_pending": true,
+    "gateway_id": "3JMREbKnTpBLsas889RIF5WmaxR",
+    "ledger_state": "deleting",
+    "other_gateway_ready": true,
+    "source_data_unchanged": true,
+    "source_secret_uid": "b3ec8487-76cd-489f-8a8d-71b8b5f59e77",
+    "sql_object_ids_unchanged": true,
+    "sqlstate": "42501"
+  },
+  "credential_encryption": {
+    "after_namespace_recovery": true,
+    "algorithm": "AES-256-GCM",
+    "altered_value_context_rejected": true,
+    "altered_value_rejected": true,
+    "altered_wrapped_key_rejected": true,
+    "altered_wrapping_context_rejected": true,
+    "authenticated_plaintext_matches": true,
+    "envelope_version": 1,
+    "gateway_id": "3JMREbKnTpBLsas889RIF5WmaxR",
+    "no_plaintext_or_base64_in_object_payloads": true,
+    "object_rows": 5,
+    "other_gateway_key_rejected": true,
+    "retained_key_unwrapped_data_key": true,
+    "stored_envelopes": 1
+  },
+  "gateway_account_deletion": {
+    "account_ids": [
+      "3JMRjKNgGAVid6xpXCvTzzQHA30",
+      "3JMRjNqBX01NaYMoPGJ1Z8Ol9yk",
+      "3JMRjWZFAParb8ZcW3BR7yLWbMO"
+    ],
+    "accounts_used_actual_gateway": 3,
+    "checked_after_delete_response": true,
+    "cleanup_audits": 3,
+    "gateway_id": "3JMREbKnTpBLsas889RIF5WmaxR",
+    "metadata_closed": 3,
+    "provider_clients_absent": 3,
+    "token_issuance_denied": 3
+  },
+  "manual_cleanup": null,
+  "execution": "manual_operator_installation_restricted_ci_application",
+  "cnpg_restart": {
+    "cluster_spec_unchanged": true,
+    "cluster_uid": "4ff15a1e-e37c-4fab-90c5-af5efbc91430",
+    "gateway_credentials_and_keys_unchanged": true,
+    "installation_data_unchanged": true,
+    "namespace": "stego-cnpg-database-20260915-v7",
+    "namespace_uid": "534d51b2-763a-4007-a1dd-4e87423b9c59",
+    "new_primary": "gateway-database-2",
+    "new_primary_pod_uid": "dbf84ba7-0b26-43cd-a224-3b5ac6ae4acb",
+    "old_pod_uid": "9a8b2559-1b1e-4049-bb4a-9aac72a2f33b",
+    "old_primary": "gateway-database-1",
+    "primary_changed": true,
+    "provider_data_unchanged": true,
+    "ready_instances": 2,
+    "seconds": 65.284533771,
+    "sql_object_ids_unchanged": true
+  },
+  "cnpg_installation": {
+    "namespace": "stego-cnpg-database-20260915-v7",
+    "namespace_uid": "534d51b2-763a-4007-a1dd-4e87423b9c59",
+    "cluster_uid": "4ff15a1e-e37c-4fab-90c5-af5efbc91430",
+    "image": "ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie@sha256:14e57107afc9bcdd085ed6593c67743723718f167da512326ddb2f7904cc4576",
+    "ready_instances": 2,
+    "storage_class": "gp3-csi"
+  },
+  "independent_cleanup": {
+    "observed_at": "2026-09-15T10:49:03.585342+00:00",
+    "database_namespace_absent": true,
+    "private_fixture_absent": true,
+    "application_resources_absent": true,
+    "operator_resources_absent": 26,
+    "database_volumes_absent": true,
+    "allocations_absent": true,
+    "lease_released": true,
+    "manual_cleanup_required": false,
+    "scope": "Independent read-only inventory after the runner completed automated cleanup."
+  },
+  "runner_exit": 0,
+  "runner_phase": "complete",
+  "visual_review": {
+    "gateway_healthy": true,
+    "deleted_service_accounts_absent": true,
+    "public_connection_command_verified": false
+  },
+  "limits": [
+    "The operator installed the server; this is not an unattended CNPG CI pass.",
+    "The public Gateway endpoint and connection command remain unverified.",
+    "This run used the frozen compiler revision; it does not verify later compiler changes."
+  ]
+}
