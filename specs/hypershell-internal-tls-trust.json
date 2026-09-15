@@ -3,7 +3,7 @@
   "consumer_parent": "2fe6d3e",
   "compiler_revision": "0b0c932716f09d492cdc31e0c00a9849c13d1fc8",
   "component": "kubernetes-client 1.9.0",
-  "result": "Focused checks passed; complete application and compiler CI pending.",
+  "result": "Full compiler CI and focused application checks passed; complete corrected application run pending.",
   "before": {
     "test": "TestInternalTLSSecretCannotSupplyItsOwnTrust",
     "unexpected_acceptances": [
@@ -37,10 +37,21 @@
   ],
   "ci": {
     "compiler_run": 34984419930,
-    "compiler_result": "pending",
+    "compiler_result": "success",
     "previous_public_run": 34983965151,
     "previous_public_source": "0befe5884117ede63c4caaf018c14bf6b60b3305",
-    "previous_public_state": "active; does not contain this change"
+    "previous_public_state": "active; does not contain this change",
+    "compiler_url": "https://github.com/jsell-rh/stego/actions/runs/34984419930",
+    "compiler_job": 104432737281,
+    "generated_kubernetes_client_race_seconds": 30.171,
+    "postgres_provisioning": "success",
+    "example_services": "both passed",
+    "corrected_public_run": 34984874811,
+    "corrected_public_state": "pending",
+    "corrected_api_run": 34984842021,
+    "corrected_full_ci_run": 34984842133,
+    "duplicate_ordinary_browser_run": 34984842066,
+    "duplicate_ordinary_browser_result": "Canceled while pending; replaced with explicit public profile."
   },
   "logs": [
     {
@@ -62,6 +73,10 @@
     {
       "path": "/tmp/hypershell-explicit-tls-console-repeat-20260915.log",
       "sha256": "c08225d074946e2b6b4609efa986067a8c1ec46df58ab31e7382ab6f49e4db62"
+    },
+    {
+      "path": "/tmp/stego-explicit-tls-compiler-34984419930.log",
+      "sha256": "1d0f773fda7a8adc7620c43b232fd345118021fcae6a0b44013e00873af0b0bb"
     }
   ],
   "limits": [
@@ -69,5 +84,6 @@
     "This check does not establish certificate revocation or production CA rotation behavior.",
     "Sandbox client-certificate distribution and the deferred Kata test remain separate open requirements.",
     "Gateway network isolation and allowed destinations remain incomplete."
-  ]
+  ],
+  "consumer_revision": "5ea4eadcf32b1ad5f98191903625b61f2244797e"
 }

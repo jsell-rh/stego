@@ -32,5 +32,7 @@ any file read before this call. Changes to the input bytes do not change the
 returned pool. Certificate parsing is shared with the Secret verifier.
 
 The focused generated checks passed on 2026-09-15. They cover independent
-trust, invalid input, and use after input changes. Full compiler CI and the
-Hypershell adoption checks remain required.
+trust, invalid input, and use after input changes. Full compiler CI
+[34984419930](https://github.com/jsell-rh/stego/actions/runs/34984419930) passed,
+including generated race checks and both example services. Hypershell adopts
+the helper in `5ea4ead`; its complete application result remains required.

@@ -275,7 +275,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The operator login was restored on 2026-09-15. The restricted CI credential and
-GitHub environment secret were renewed and expire at 15:35:59 UTC on that date.
+GitHub environment secret were renewed and expire at 15:54:57 UTC on that date.
 Check the remaining credential lifetime before a queued run starts. Use the
 operator context to renew the CI credential while that login remains valid.
 
@@ -288,8 +288,9 @@ The [internal Gateway TLS correction](hypershell-internal-tls-trust.json) replac
 trust taken from the workload Secret with explicit operator trust. Six invalid
 cases were reproduced before the correction. Focused application checks and
 frozen inspection pass. Compiler `0b0c932` supplies the common bounded trust
-parser. Full compiler CI `34984419930` and a fresh complete application run
-remain required. The earlier public run `34983965151` has frozen source that
+parser. Full compiler CI `34984419930` passed all four jobs. A fresh complete public
+application run is queued as `34984874811` at Hypershell `5ea4ead`. API run
+`34984842021` and full CI `34984842133` are also queued. The earlier public run `34983965151` has frozen source that
 precedes this correction.
 
 Compiler CI `34982993813` at docs commit `34bf5b2` failed the generated RPC
