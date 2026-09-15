@@ -14,7 +14,7 @@ func reservedImportNames() map[string]bool {
 	for _, name := range types.Universe.Names() {
 		names[name] = true
 	}
-	for _, name := range []string{"init", "main", "run", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics", "stegoServeHTTP", "stegoHTTPError", "stegoTask", "stegoRunTasks", "stegoServiceFailure", "stegoReportFailure", "stegoTaskFailure", "stegoTaskNames", "stegoAbortedTaskNames", "stegoTaskFailureNames"} {
+	for _, name := range []string{"init", "main", "run", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPRequests", "stegoTask", "stegoRunTasks", "stegoServiceFailure", "stegoReportFailure", "stegoTaskFailure", "stegoTaskNames", "stegoAbortedTaskNames", "stegoTaskFailureNames"} {
 		names[name] = true
 	}
 	return names

@@ -297,19 +297,80 @@ func stegoHTTPServerWithErrorLog(handler http.Handler, errorLog *log.Logger) *ht
 	}
 }
 
-// stegoServeHTTP owns the listener. Shutdown first drains active requests.
-// After the deadline, it closes remaining connections and returns an error.
+// stegoHTTPRequests tracks the full handler chain, including telemetry and
+// handlers that hijack a connection. net/http does not drain hijacked handlers.
+type stegoHTTPRequests struct {
+	next    http.Handler
+	mu      sync.Mutex
+	active  int
+	stopped bool
+	drained chan struct{}
+}
+
+func (s *stegoHTTPRequests) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	s.active++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.active--
+		if s.stopped && s.active == 0 {
+			close(s.drained)
+		}
+		s.mu.Unlock()
+	}()
+	s.next.ServeHTTP(w, r)
+}
+func (s *stegoHTTPRequests) drain(ctx context.Context) error {
+	s.mu.Lock()
+	if !s.stopped {
+		s.stopped = true
+		if s.active == 0 {
+			close(s.drained)
+		}
+	}
+	s.mu.Unlock()
+	select {
+	case <-s.drained:
+		return nil
+	default:
+	}
+	select {
+	case <-s.drained:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stegoServeHTTP owns the listener. Shutdown drains the complete handler chain.
+// Components must cancel and close the connections that they hijack. A handler
+// that remains after the drain deadline causes an error, not a successful stop.
 func stegoServeHTTP(ctx context.Context, listener net.Listener, server *http.Server, drainTimeout time.Duration) error {
 	defer stegoCloseHTTPDiagnostics(server)
 	defer listener.Close()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	next := server.Handler
+	if next == nil {
+		next = http.DefaultServeMux
+	}
+	requests := &stegoHTTPRequests{next: next, drained: make(chan struct{})}
+	server.Handler = requests
 	result := make(chan error, 1)
 	go func() { result <- server.Serve(listener) }()
 	select {
 	case err := <-result:
-		return errors.Join(stegoHTTPError(err), server.Close())
+		closed := server.Close()
+		drain, cancel := context.WithTimeout(context.Background(), drainTimeout)
+		defer cancel()
+		return errors.Join(stegoHTTPError(err), closed, requests.drain(drain))
 	case <-ctx.Done():
 		drain, cancel := context.WithTimeout(context.Background(), drainTimeout)
 		defer cancel()
@@ -317,7 +378,7 @@ func stegoServeHTTP(ctx context.Context, listener net.Listener, server *http.Ser
 		if err != nil {
 			err = errors.Join(err, server.Close())
 		}
-		return errors.Join(err, stegoHTTPError(<-result))
+		return errors.Join(err, requests.drain(drain), stegoHTTPError(<-result))
 	}
 }
 

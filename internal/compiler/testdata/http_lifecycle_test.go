@@ -290,3 +290,96 @@ func TestHTTPSignalStopsService(t *testing.T) {
 		t.Fatalf("SIGTERM did not stop the service successfully: %v", err)
 	}
 }
+
+func TestHTTPShutdownDrainsUpgradedHandler(t *testing.T) {
+	listener := testListener(t)
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := stegoHTTPServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		close(entered)
+		<-release
+		// Outer handler work, such as telemetry, must finish before shutdown returns.
+		close(finished)
+	}))
+	result := make(chan error, 1)
+	go func() { result <- stegoServeHTTP(ctx, listener, server, time.Second) }()
+	conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: test\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("upgrade did not start")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		close(release)
+		t.Fatalf("shutdown returned before upgraded handler: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := waitResult(t, result); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	default:
+		t.Fatal("handler work remained after shutdown")
+	}
+}
+func TestHTTPShutdownReportsStalledUpgradedHandler(t *testing.T) {
+	listener := testListener(t)
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := stegoHTTPServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		close(entered)
+		<-release
+		close(finished)
+	}))
+	result := make(chan error, 1)
+	go func() { result <- stegoServeHTTP(ctx, listener, server, 40*time.Millisecond) }()
+	conn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := io.WriteString(conn, "GET / HTTP/1.1\r\nHost: test\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("upgrade did not start")
+	}
+	cancel()
+	err = waitResult(t, result)
+	close(release)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("stalled upgrade was reported as a successful stop", err)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("fixture did not stop")
+	}
+}

@@ -122,10 +122,13 @@ the live upstream dashboard workflow.
 Result directory:
 `/home/jsell/.local/state/stego/runs/dashboard-socket-20260915`.
 
-The generated HTTP shutdown still needs a check that waits for the outer request
-and telemetry handlers after socket work ends. Go HTTP shutdown does not wait
-for hijacked connections. Keep the application mode unavailable in service YAML
-until this lifecycle work and the deployment checks are complete.
+The compiler now tracks the complete HTTP handler chain during shutdown. This
+includes outer telemetry handlers after socket work ends. Go HTTP shutdown does
+not wait for hijacked connections by itself. The small generated lifecycle suite
+passed, including delayed and stalled upgraded handlers. A stalled handler
+returns the drain deadline error. Both reference examples were regenerated.
+CI verification remains required. Keep the application mode unavailable in
+service YAML until the lifecycle and deployment checks are complete.
 
 ## Remaining acceptance work
 

@@ -671,7 +671,7 @@ func assemblerInternalVars(hasDB, isGORM, hasRoutes, hasDiscovery, hasTasks bool
 		}
 	}
 	if hasRoutes {
-		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics"} {
+		for _, name := range []string{"ctx", "stop", "listener", "err", "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPRequests", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics"} {
 			vars[name] = true
 		}
 		for _, pkg := range httpLifecycleImports {
@@ -1830,7 +1830,7 @@ func stdlibAliases(hasRoutes, hasTasks, hasDB, isGORM bool, extraStdlib map[stri
 		for _, pkg := range httpLifecycleImports {
 			names = append(names, path.Base(pkg))
 		}
-		names = append(names, "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics")
+		names = append(names, "stegoHTTPServer", "stegoHTTPServerWithErrorLog", "stegoServeHTTP", "stegoHTTPError", "stegoHTTPRequests", "stegoHTTPDiagnostics", "stegoNewHTTPErrorLog", "stegoCloseHTTPDiagnostics")
 	}
 	if hasDB || hasRoutes || hasTasks {
 		names = append(names, "log")

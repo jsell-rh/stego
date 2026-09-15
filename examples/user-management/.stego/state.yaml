@@ -28,9 +28,9 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260915185714-8212d4171610+dirty
+        module_version: v0.0.0-20260915205555-07a70cce5bce+dirty
         vcs: git
-        revision: 8212d4171610b9331f12b2e5d288e450e58fb390
+        revision: 07a70cce5bce340afb83a1ba0a6b00ef7e18efa3
         source_state: modified
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
@@ -154,7 +154,7 @@ last_applied:
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: ac9d9f0749e8d666e948cd72f53f740ab7c7f0a1c4cd377ca9fbe7e2969ad260
         internal/storage/transaction.go: a377bd623e5bbe04edaad2d61650747ca37740fdf8d24ca762260be9fc2bc2c6
-        main.go: ae481873a4d05709a018397bbd2516608b7e03819ce8340a2289300067c805c5
+        main.go: b7291318a0edea26f6862c9427d9d3e19920a33e89f53f6f88efbe7047118b8c
         slots/after_create.go: 03242bcad46578176c9ac819f42390080ebebb94f72c480316f09740289ad80f
         slots/after_create_operators.go: c72f22f8bd303c7e04c678806d36c11c7c95f7d0519c9fc34bf80d1d597c5e5b
         slots/before_create.go: 0ed4275239c00344d9e55970778a6ab14baf77d84963089b65abfe8b7d764eb4
