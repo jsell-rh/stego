@@ -28,8 +28,9 @@ The workload controller uses the shared availability check from
 runtime tests cover stale generations, incomplete rollouts, owner mismatch,
 missing status, exact integer handling, and malformed observations. Compiler
 CI passed at `5e9c89d`. Hypershell adopted the helper at `3f188b2`, whose API
-gate passed all 30 required tests and repeated generation. The complete live
-browser result remains required. See the
+gate passed all 30 required tests and repeated generation. The complete supplied
+PostgreSQL browser run also passed, including namespace recovery and automated
+cleanup. It still uses the internal Service endpoint. See the
 [verified evidence](hypershell-workload-availability.json).
 
 Two application decisions are pending: whether the first public route uses TLS

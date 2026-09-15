@@ -3934,3 +3934,19 @@ observations. The explicit jshell context still reports no RuntimeClass. This
 cluster cannot supply the required VM isolation evidence. The active browser
 Job remains in progress, with viewer and account runs queued behind it. No
 missing live result is treated as a pass.
+
+Hypershell `3f188b2` passed the complete supplied PostgreSQL browser run
+[34950339472](https://github.com/jsell-rh/hypershell-stego/actions/runs/34950339472)
+with compiler `5e9c89d`. The application took 387.32 seconds. Verification
+matched all 886 source files, 230 generated files, three generation records,
+16 CI access checks, 57 application access checks, six admission probes, and
+automated cleanup. Namespace recovery took 43.78 seconds and retained SQL
+identities, keys, credentials, and provider data. SQL denial and recovery,
+encryption, session behavior, and deletion passed. The Job and Pods are absent;
+the operator installation remains. See
+[the verified record](hypershell-workload-availability.json).
+
+This closes the live application check for shared Deployment availability.
+The screenshots still show no public connection command. External connectivity,
+the later viewer and live-account checks, unattended CNPG CI, actual RDS,
+Sandbox isolation, and the wider enterprise requirements remain open.
