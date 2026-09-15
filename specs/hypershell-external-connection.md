@@ -38,10 +38,15 @@ account cleanup through the actual Gateway. Its access checks still use the
 internal Service endpoint. The rendered connection panel still has no usable
 public command. See the [viewer and account evidence](hypershell-viewer-recovery.json).
 
-Two application decisions are pending: whether the first public route uses TLS
-passthrough, and whether `route_address` becomes a controller-owned field.
-The current API permits owner writes to that address. Do not claim the address
-is controller-verified while that behavior remains.
+On 2026-09-15, the user selected TLS passthrough with an operator-selected
+certificate issuer. The user also made `route_address` controller-owned.
+The assigned controller must publish a verified address. Gateway owner writes
+must be rejected, including writes that clear the address. The field remains
+in responses and controller observations.
+
+These are accepted requirements. The current implementation still permits owner
+writes and has no complete public connection check. Do not claim the address
+is controller-verified until the implementation and live tests satisfy them.
 
 The reference defaults to passthrough. That mode leaves TLS at the Gateway and
 requires clients to trust its issuer. A public certificate authority generally

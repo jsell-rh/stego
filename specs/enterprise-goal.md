@@ -121,10 +121,18 @@ CI-only pushes were also canceled before execution. They are not passes. The
 records all run IDs and the remaining acceptance checks.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
-actual RDS operation, Sandbox execution on a Kata-capable cluster, backup and
-restore evidence, and measured capacity. The public route trust and ownership
-choices, an identified disposable RDS target, and a suitable Kata cluster still
-need user input or an external resource. These gaps do not replace the original
+actual RDS operation, backup and restore evidence, and measured capacity.
+On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer
+and controller ownership of `route_address`. These accepted choices still need
+implementation and a complete [public connection check](hypershell-external-connection.md).
+An identified disposable RDS target remains necessary for its live gate.
+
+On the same date, the user deferred the live Kata Sandbox test because no
+suitable cluster is available. CI must show this test as skipped, not passed.
+Keep ordinary code, protocol, authorization, and count-controller checks active.
+Current VM isolation and runtime capacity remain unverified. The earlier kind
+fixture is withdrawn and must not be run. Resume the live test when a suitable
+cluster and restricted identity are available. These gaps do not replace the original
 C1–C7 and H1–H3 requirements. Completion also requires a requirement-by-requirement
 audit against the original assessment, component contracts, and current output.
 
