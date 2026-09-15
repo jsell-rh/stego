@@ -56,7 +56,7 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			t.Fatal(err)
 		}
 		// A changed callback and display name must be repaired while disabled.
-		drift, _ := json.Marshal(map[string]any{"name": "drift", "redirectUris": []string{"https://foreign.invalid/callback"}})
+		drift, _ := json.Marshal(map[string]any{"name": "drift", "redirectUris": []string{"https://foreign.invalid/callback"}, "attributes": map[string]string{"stego.test.unwanted": "remove"}})
 		response, err := c.admin(ctx, http.MethodPut, "/clients/"+b.ID, drift)
 		if err != nil || response.StatusCode != 204 {
 			t.Fatal("native drift fixture failed", err)

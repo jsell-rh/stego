@@ -33,21 +33,21 @@ func oidcClientConfiguration(b ClientBinding,name string,lifetime int)(ClientRep
 
 type clientConfigurationCheck func(ClientRepresentation,[]byte,ClientRepresentation)bool
 
-func(c *Client)createDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)(ClientRepresentation,error){
+func(c *Client)createDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck,replaceAttributes bool)(ClientRepresentation,error){
  body,err:=json.Marshal(desired);if err!=nil{return ClientRepresentation{},ErrResponse}
  response,err:=c.admin(ctx,http.MethodPost,"/clients",body);if err!=nil{return ClientRepresentation{},err}
  if response.StatusCode!=http.StatusCreated{return ClientRepresentation{},statusError(response.StatusCode)}
  // Ignore Location. Keycloak can apply creation defaults after it reads the
  // requested attributes. Confirm ownership and disablement before applying
  // the complete base policy, then confirm the stored result.
- if err=c.configureDisabledClient(ctx,b,desired,check);err!=nil{return ClientRepresentation{},err}
+ if err=c.configureDisabledClient(ctx,b,desired,check,replaceAttributes);err!=nil{return ClientRepresentation{},err}
  return c.inspectDisabledClient(ctx,b,desired,check)
 }
 func(c *Client)inspectDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)(ClientRepresentation,error){
  value,raw,err:=c.boundClient(ctx,b);if err!=nil{return ClientRepresentation{},err}
  if !check(value,raw,desired){return ClientRepresentation{},ErrClientConfiguration};return value,nil
 }
-func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck)error{
+func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desired ClientRepresentation,check clientConfigurationCheck,replaceAttributes bool)error{
  value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
  if !explicitFlag(raw,"enabled",false){return ErrClientConfiguration}
  if check(value,raw,desired){return nil}
@@ -67,6 +67,18 @@ func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desir
   clearFlows[key]=""
  }
  update["authenticationFlowBindingOverrides"],err=json.Marshal(clearFlows);if err!=nil{return ErrResponse}
+ // Native profiles own the complete attribute set. Keycloak also patches
+ // this map, so omitted settings require explicit empty removal entries.
+ if replaceAttributes{
+  if len(value.Attributes)>128{return ErrResponse}
+  attributes:=map[string]string{}
+  for key:=range value.Attributes{
+   if !textValue(key,255){return ErrResponse}
+   attributes[key]=""
+  }
+  for key,want:=range desired.Attributes{attributes[key]=want}
+  update["attributes"],err=json.Marshal(attributes);if err!=nil{return ErrResponse}
+ }
  body,err=json.Marshal(update);if err!=nil{return ErrResponse}
  response,err:=c.admin(ctx,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}

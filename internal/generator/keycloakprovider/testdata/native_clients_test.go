@@ -289,3 +289,63 @@ func TestNativeRepairExplicitlyRemovesFlowOverrides(t *testing.T) {
 		t.Fatal("flow override repair failed", err)
 	}
 }
+
+// Keycloak patches attribute entries and removes explicit empty values.
+func TestNativeRepairRemovesUnwantedAttributes(t *testing.T) {
+	for _, ignoreRemoval := range []bool{false, true} {
+		b, p := nativeInputs()
+		record := nativeRecord()
+		attributes := record["attributes"].(map[string]string)
+		attributes["unknown.protocol.setting"] = "true"
+		writes := 0
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if authRequest(w, r) {
+				return
+			}
+			if r.Method == http.MethodGet {
+				_ = json.NewEncoder(w).Encode(record)
+				return
+			}
+			if r.Method != http.MethodPut {
+				t.Error("unexpected native repair method")
+				w.WriteHeader(500)
+				return
+			}
+			var update struct {
+				Attributes map[string]string `json:"attributes"`
+			}
+			if json.NewDecoder(r.Body).Decode(&update) != nil {
+				t.Error("invalid native attribute patch")
+				w.WriteHeader(400)
+				return
+			}
+			writes++
+			for key, value := range update.Attributes {
+				if value == "" {
+					if !ignoreRemoval {
+						delete(attributes, key)
+					}
+				} else {
+					attributes[key] = value
+				}
+			}
+			w.WriteHeader(204)
+		})
+		err := c.ConfigureDisabledNativeClient(context.Background(), b, p)
+		if ignoreRemoval {
+			if !errors.Is(err, ErrClientConfiguration) {
+				t.Fatal("ignored attribute removal accepted", err)
+			}
+		} else {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = c.ConfigureDisabledNativeClient(context.Background(), b, p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if writes != 1 {
+			t.Fatal("native attribute repair was repeated", writes)
+		}
+	}
+}

@@ -99,7 +99,7 @@ func nativeClientConfigurationMatches(value ClientRepresentation,raw []byte,desi
 func(c *Client)CreateDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
  desired,err:=nativeClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
  work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
- return c.createDisabledClient(work,b,desired,nativeClientConfigurationMatches)
+ return c.createDisabledClient(work,b,desired,nativeClientConfigurationMatches,true)
 }
 func(c *Client)InspectDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)(ClientRepresentation,error){
  desired,err:=nativeClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
@@ -112,5 +112,5 @@ func(c *Client)InspectDisabledNativeClient(ctx context.Context,b ClientBinding,p
 func(c *Client)ConfigureDisabledNativeClient(ctx context.Context,b ClientBinding,p NativeClientPolicy)error{
  desired,err:=nativeClientConfiguration(b,p);if err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
- return c.configureDisabledClient(work,b,desired,nativeClientConfigurationMatches)
+ return c.configureDisabledClient(work,b,desired,nativeClientConfigurationMatches,true)
 }

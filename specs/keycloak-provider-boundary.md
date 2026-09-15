@@ -328,3 +328,8 @@ exactly. A literal trailing wildcard also permits other paths. The provider
 must therefore not receive a literal wildcard. The live gate now checks wrong
 paths, query strings, and fragments. See the pinned
 [redirect check](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/protocol/oidc/utils/RedirectUtils.java).
+
+Native attribute repair now sends explicit empty entries for unwanted settings.
+Keycloak patches this map and retains omitted keys. The provider confirms the
+complete stored set after repair. An ignored removal fails the check. The live
+test adds an unwanted attribute before repair to check this provider behavior.
