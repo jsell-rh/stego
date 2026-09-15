@@ -228,7 +228,7 @@
   "retry": {
     "source": "3a50db7ea813ae8d160f79a86359970b457f03a8",
     "public_run": 34985980374,
-    "state": "pending",
+    "state": "failed before Job creation: the canceled duplicate retained the Lease",
     "api_run": 34985981920,
     "full_ci_run": 34985981930,
     "boundary_failure_runs": [
@@ -240,6 +240,118 @@
     "boundary_fix": "3a50db7",
     "credential_tests_passed": 8,
     "duplicate_internal_run": 34985981945,
-    "duplicate_internal_cancellation": "Requested before the cluster step, with an empty Lease and no test Job."
+    "duplicate_internal_cancellation": "The cluster step started before cancellation completed. The runner was stopped during preparation. It retained the Lease. The earlier pre-cancellation snapshot did not prove that the cluster step stayed unstarted.",
+    "api_state": "failed before Job creation: the canceled duplicate retained the Lease",
+    "duplicate_cleanup": {
+      "checked_at": "2026-09-15T15:07:53.078538+00:00",
+      "cancelled_run": 34985981945,
+      "lease_before": {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {
+          "annotations": {
+            "stego.test/job": "service-check",
+            "stego.test/namespace": "stego-service-ci"
+          },
+          "creationTimestamp": "2026-09-14T18:27:04Z",
+          "labels": {
+            "app.kubernetes.io/managed-by": "stego-ci"
+          },
+          "name": "jshell-live-test",
+          "namespace": "stego-ci",
+          "resourceVersion": "6327037",
+          "uid": "473d5b75-ff67-413c-8ae7-b22f70770c59"
+        },
+        "spec": {
+          "acquireTime": "2026-09-15T15:05:49.802344Z",
+          "holderIdentity": "stego-service-ci",
+          "leaseDurationSeconds": 1200,
+          "renewTime": "2026-09-15T15:05:49.802344Z"
+        }
+      },
+      "checks": [
+        {
+          "kind": "jobs",
+          "remaining": 0
+        },
+        {
+          "kind": "pods",
+          "remaining": 0
+        },
+        {
+          "kind": "deployments",
+          "remaining": 0
+        },
+        {
+          "kind": "builds",
+          "remaining": 0
+        },
+        {
+          "kind": "secrets",
+          "selector": "stego.test/browser-run=stego-service-ci",
+          "remaining": 0
+        },
+        {
+          "kind": "services",
+          "selector": "stego.test/browser-run=stego-service-ci",
+          "remaining": 0
+        },
+        {
+          "kind": "networkpolicies",
+          "selector": "stego.test/browser-run=stego-service-ci",
+          "remaining": 0
+        },
+        {
+          "kind": "configmaps",
+          "selector": "stego.test/browser-run=stego-service-ci",
+          "remaining": 0
+        },
+        {
+          "kind": "namespaces",
+          "selector": "stego.dev/allocator=5305aa89c5f40a73316e60bd033ec8ab",
+          "remaining": 0
+        },
+        {
+          "kind": "clusterrolebindings",
+          "selector": "stego.dev/allocator=5305aa89c5f40a73316e60bd033ec8ab",
+          "remaining": 0
+        },
+        {
+          "kind": "clusterroles",
+          "selector": "stego.dev/allocator=5305aa89c5f40a73316e60bd033ec8ab",
+          "remaining": 0
+        }
+      ],
+      "installation_resources_verified": 18,
+      "lease_after": {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {
+          "annotations": {
+            "stego.test/job": "service-check",
+            "stego.test/namespace": "stego-service-ci"
+          },
+          "creationTimestamp": "2026-09-14T18:27:04Z",
+          "labels": {
+            "app.kubernetes.io/managed-by": "stego-ci"
+          },
+          "name": "jshell-live-test",
+          "namespace": "stego-ci",
+          "resourceVersion": "6327553",
+          "uid": "473d5b75-ff67-413c-8ae7-b22f70770c59"
+        },
+        "spec": {
+          "acquireTime": "2026-09-15T15:05:49.802344Z",
+          "holderIdentity": "",
+          "leaseDurationSeconds": 1200,
+          "renewTime": "2026-09-15T15:05:49.802344Z"
+        }
+      }
+    }
+  },
+  "next_public_retry": {
+    "run": 34986369202,
+    "source": "c541a512c8be36a7bd30f83faf9b82c363eaf402",
+    "state": "queued after cleanup; inspect the existing handle"
   }
 }

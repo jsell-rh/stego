@@ -275,7 +275,7 @@ no Playwright, no local performance or stress tests, small ordinary local checks
 and bounded CI or jshell tests with one live test at a time. Use the saved jshell
 context explicitly and preserve unrelated workloads. Inspect interrupted runs
 before starting another run. Keep credentials out of output. The operator login was restored on 2026-09-15. The restricted CI credential and
-GitHub environment secret were renewed and expire at 15:54:57 UTC on that date.
+GitHub environment secret were renewed and expire at 16:08:37 UTC on that date.
 Check the remaining credential lifetime before a queued run starts. Use the
 operator context to renew the CI credential while that login remains valid.
 
@@ -320,11 +320,14 @@ Full compiler CI `34985081259` passed after the RPC fixture port correction in
 prove the cause of the earlier intermittent failure.
 
 Public retry `34985980374` uses Hypershell `3a50db7`, including independent
-internal TLS trust and Route host creation. It is pending. Browser and API
+internal TLS trust and Route host creation. It failed before Job creation on a held Lease. Browser and API
 attempts `34985869470`, `34985869467`, and `34985884009` stopped in the
 stale-credential fixture before cluster access. That fixture now supplies the
-new required CA path; all eight credential checks pass. API `34985981920` and
-full CI `34985981930` are queued at the corrected source. The duplicate
-internal-only run `34985981945` was canceled before its cluster step after
-checks found a free Lease and no test Job. Future push checks use the public
+new required CA path; all eight credential checks pass. API `34985981920` also stopped on that Lease. Full CI `34985981930` is active
+at the corrected source. Duplicate run `34985981945` started its cluster step
+after the last status check and before cancellation completed. It retained the
+Lease during preparation. The earlier snapshot did not prove that the cluster
+step stayed unstarted. A later audit found no test workloads, test data, or
+allocations and verified all eighteen installation resources. The Lease was
+then released. Public run `34986369202` is queued after cleanup. Future push checks use the public
 profile with the explicit operator configuration.
