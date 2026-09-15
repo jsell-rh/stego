@@ -417,3 +417,20 @@ func TestInvalidAdministratorGrantCannotAuthorizeARequest(t *testing.T) {
 		}
 	}
 }
+
+func TestProtectedValueFormattingUsesEveryVerb(t *testing.T) {
+	for _, tc := range []struct {
+		value any
+		want  string
+	}{
+		{Secret{value: "private-test-credential"}, "[credential redacted]"},
+		{&Client{token: Secret{value: "private-admin-token"}}, "KeycloakClient{credentials redacted}"},
+		{ClientOwnershipMigration{fingerprint: "private-checkpoint-fingerprint"}, "ClientOwnershipMigration{checkpoint redacted}"},
+	} {
+		for _, verb := range []string{"%v", "%+v", "%#v", "%d", "%x", "%s", "%q"} {
+			if fmt.Sprintf(verb, tc.value) != tc.want {
+				t.Fatalf("protected formatting failed for %T with %s", tc.value, verb)
+			}
+		}
+	}
+}

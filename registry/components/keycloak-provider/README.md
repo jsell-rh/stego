@@ -296,3 +296,7 @@ effective roles, and absence of group membership. It accepts an enabled or
 disabled confidential service-account client. It performs no administrative
 writes. This role check does not prove scopes, mappers, or token contents; use
 `InspectServiceAccountAccess` for the complete enabled policy and token proof.
+
+Protected credentials, migration plans, and client pointers redact every Go
+formatting verb through `fmt.Formatter`. `String` and `GoString` alone do not
+cover numeric formatting verbs. Keep the client as a pointer; do not copy it.
