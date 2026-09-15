@@ -87,6 +87,15 @@ func TestServerTLSSecret(t *testing.T) {
 			o["data"].(Object)["tls.key"] = strings.Repeat("A", base64.StdEncoding.EncodedLen(64<<10)+1)
 		},
 		"wrong key": func(o Object) { o["data"].(Object)["tls.key"] = base64.StdEncoding.EncodeToString(foreignKey) },
+		"private key in certificate": func(o Object) {
+			o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(append(append([]byte(nil), cert...), key...))
+		},
+		"garbage in certificate": func(o Object) {
+			o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(append([]byte("private-detail\n"), cert...))
+		},
+		"malformed prefix": func(o Object) {
+			o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(append([]byte("-----BEGIN CERTIFICATE-----\ninvalid\n"), cert...))
+		},
 		"self supplied CA": func(o Object) {
 			o["data"] = Object{"tls.crt": base64.StdEncoding.EncodeToString(foreign), "tls.key": base64.StdEncoding.EncodeToString(foreignKey), "ca.crt": base64.StdEncoding.EncodeToString(foreignCA)}
 		},

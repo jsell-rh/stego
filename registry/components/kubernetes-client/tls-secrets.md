@@ -1,6 +1,6 @@
 # Server TLS Secrets
 
-Version 1.8.0 supplies `VerifyServerTLSSecret` and `ServerTLSSecretTarget`.
+Version 1.8.1 supplies `VerifyServerTLSSecret` and `ServerTLSSecretTarget`.
 The caller supplies the expected namespace, Secret name, DNS name, owner,
 and explicit CA pool. The runtime checks the API type, Secret type, identity,
 deletion state, certificate chain, hostname, expiry, server use, and private key.
@@ -9,7 +9,13 @@ It rejects absent trust. The Secret's `ca.crt` field cannot add trust anchors.
 The function permits at most 512 KiB of certificate data, 64 KiB of private key
 data, and 16 certificates. Failed checks return `ErrResourceObservation` without
 certificate, key, hostname, or parser details. A successful result contains only
-the certificate bytes. The function does not write, call an API, check certificate
+the certificate bytes. Private keys, other PEM blocks, malformed block prefixes,
+and extra text in the certificate field are rejected. Version 1.8.0 used the
+standard TLS parser without this additional check. That parser can skip such
+blocks, which could return private data with the certificate. Regression checks
+reproduced the defect before this correction.
+
+The function does not write, call an API, check certificate
 revocation, or prove live connectivity. The caller must not change the CA pool
 during verification.
 
