@@ -58,7 +58,15 @@ func TestGeneratedController(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
 	}
 }
-func testGeneratedController(t *testing.T, telemetry bool) {
+func TestGeneratedControllerProcessTelemetry(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedController(t, telemetry, "^(TestMonitorOwnsSetupAndCleanupTelemetry|TestProcessSignalAndErrorPrivacy|TestProcessProbesDoNotStartApplication)$")
+		})
+	}
+}
+
+func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	ctx := gen.Context{OutputNamespace: "controller", ModuleName: "example.com/records", ServiceName: "records"}
 	if telemetry {
 		ctx.PeerNamespaces = map[string]string{"otel-tracing": "telemetry"}
@@ -121,6 +129,9 @@ func testGeneratedController(t *testing.T, telemetry bool) {
 		}
 	}
 	cmd := exec.Command("go", "test", "-race", "-count=1", "-timeout=45s", "./...")
+	if len(patterns) != 0 {
+		cmd.Args = append(cmd.Args, "-run="+strings.Join(patterns, "|"))
+	}
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {

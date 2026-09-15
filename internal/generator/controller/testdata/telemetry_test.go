@@ -7,11 +7,123 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
 	tracing "example.com/records/telemetry"
 )
+
+// Formatting a callback error is not part of the telemetry contract.
+type privateProcessError struct{}
+
+func (*privateProcessError) Error() string { panic("private-process-error") }
+
+func TestMonitorOwnsSetupAndCleanupTelemetry(t *testing.T) {
+	for _, mode := range []string{"success", "failure", "canceled", "panic", "goexit"} {
+		t.Run(mode, func(t *testing.T) {
+			output, err := os.CreateTemp(t.TempDir(), "process-logs")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer output.Close()
+			saved := os.Stderr
+			os.Stderr = output
+			defer func() { os.Stderr = saved }()
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+			failure := new(privateProcessError)
+			cleaned := false
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = Monitor(ctx, "", func(ctx context.Context, _ *Metrics) error {
+				_, done := tracing.TracePostgresOperation(ctx, "server-identity")
+				done("success")
+				defer func() {
+					_, done := tracing.TracePostgresOperation(ctx, "delete")
+					done("success")
+					cleaned = true
+				}()
+				// Two completed controller lifetimes must retain the process owner.
+				for range 2 {
+					child, closeChild, err := startControllerTelemetry(ctx)
+					if err != nil {
+						return err
+					}
+					_, finish := beginControllerWork(child, "reconcile")
+					finish(nil, false)
+					closeChild()
+				}
+				switch mode {
+				case "failure":
+					return failure
+				case "canceled":
+					return context.Canceled
+				case "panic":
+					panic("private-process-panic")
+				case "goexit":
+					runtime.Goexit()
+				}
+				return nil
+			})
+			if !cleaned {
+				t.Fatal("callback cleanup did not finish")
+			}
+			switch mode {
+			case "success":
+				if err != nil {
+					t.Fatal("successful callback failed")
+				}
+			case "failure":
+				if err != failure {
+					t.Fatal("callback error identity was lost")
+				}
+			case "canceled":
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("callback cancellation was lost")
+				}
+			default:
+				if !errors.Is(err, ErrRunAborted) {
+					t.Fatal("callback abort was lost")
+				}
+			}
+			body, err := os.ReadFile(output.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(body, []byte("private-process")) {
+				t.Fatal("private callback data entered telemetry")
+			}
+			counts := map[string]int{}
+			instances := map[string]bool{}
+			for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+				var record map[string]any
+				if json.Unmarshal(line, &record) != nil {
+					t.Fatal("invalid process event")
+				}
+				instance, ok := record["service.instance.id"].(string)
+				if !ok || instance == "" {
+					t.Fatal("process event has no runtime identity")
+				}
+				instances[instance] = true
+				event, _ := record["event.name"].(string)
+				counts[event]++
+				if event == "postgres.database.completed" {
+					counts[event+"/"+record["operation"].(string)]++
+				}
+			}
+			if len(instances) != 1 || counts["telemetry.runtime.started"] != 1 || counts["telemetry.runtime.stopped"] != 1 || counts["controller.work.completed"] != 2 || counts["postgres.database.completed/server-identity"] != 1 || counts["postgres.database.completed/delete"] != 1 {
+				t.Fatal("setup, controllers, and cleanup did not share one runtime", counts)
+			}
+			failed := mode != "success" && mode != "canceled"
+			if (counts["service.failed"] == 1) != failed || counts["service.failed"] > 1 || counts["service.ready"] != 0 {
+				t.Fatal("incorrect process lifecycle events", counts)
+			}
+			if controllerTelemetryOwner.runtime != nil || controllerTelemetryOwner.users != 0 {
+				t.Fatal("process retained telemetry ownership")
+			}
+		})
+	}
+}
 
 func TestOverlappingControllersShareProviderOwnership(t *testing.T) {
 	first, closeFirst, err := startControllerTelemetry(context.Background())

@@ -104,3 +104,8 @@ The [PostgreSQL client signal contract](postgres-client-observability.md) remove
 global providers from SQL provisioning and reads. The generated client uses its
 caller's private runtime. Focused checks pass; full compiler and complete Gateway
 workflow results remain required for this change.
+
+The [worker startup contract](worker-startup-observability.md) moves telemetry
+ownership to the generated controller callback. Provider setup, nested loops,
+and cleanup share the runtime. Early callback failures now have a fixed local
+and OTLP event. Complete application verification remains required.
