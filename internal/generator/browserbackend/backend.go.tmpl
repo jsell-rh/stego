@@ -2,12 +2,12 @@ package {{.Package}}
 
 import (
  "context"
- "crypto/sha256"
+ {{if not .LocalApplication}}"crypto/sha256"
  "encoding/hex"
- "html"
- telemetry {{printf "%q" .Telemetry}}
+ "html"{{end}}
+ {{if not .LocalApplication}}telemetry {{printf "%q" .Telemetry}}{{end}}
  "database/sql"
- "embed"
+ {{if not .LocalApplication}}"embed"{{end}}
  "encoding/json"
  "errors"
  "net/http"
@@ -21,8 +21,8 @@ import (
  client {{printf "%q" .Client}}
 )
 
-//go:embed public
-var assets embed.FS
+{{if not .LocalApplication}}//go:embed public
+var assets embed.FS{{end}}
 const generatedConfiguration={{printf "%q" .Config}}
 const SessionCookie="__Host-Http-stego_session"
 const LoginCookie="__Host-Http-stego_login"
@@ -42,11 +42,11 @@ func NewBrowserBackend(ctx context.Context,db *sql.DB)(*Backend,error){
 }
 func newBackend(ctx context.Context,db *sql.DB,o options)(*Backend,error){
  origin,err:=httpsURL(o.Origin);if err!=nil||origin.Path!=""||origin.RawQuery!=""||origin.ForceQuery{return nil,errors.New("browser backend requires an HTTPS origin")}
- upstreamURL,err:=httpsURL(o.Upstream);if err!=nil||upstreamURL.Path!=""||upstreamURL.RawQuery!=""||upstreamURL.ForceQuery||cookieHost(upstreamURL)==cookieHost(origin){return nil,errors.New("browser API requires a separate HTTPS cookie host")}
+ {{if .LocalApplication}}if o.Upstream!=""||o.UpstreamCA!="" {return nil,errors.New("local application address is compiler-owned")}{{else}}upstreamURL,err:=httpsURL(o.Upstream);if err!=nil||upstreamURL.Path!=""||upstreamURL.RawQuery!=""||upstreamURL.ForceQuery||cookieHost(upstreamURL)==cookieHost(origin){return nil,errors.New("browser API requires a separate HTTPS cookie host")}{{end}}
  issuer,err:=httpsURL(o.Issuer);if err!=nil||cookieHost(issuer)==cookieHost(origin){return nil,errors.New("browser issuer requires a separate HTTPS cookie host")}
  raw,err:=client.ReadPrivateFile(o.KeyFile);if err!=nil{return nil,errSession};keys,err:=sessionKeys(raw);clear(raw);if err!=nil{return nil,err}
  store,err:=newStore(ctx,db,keys...);for _,key:=range keys{clear(key)};if err!=nil{return nil,err}
- upstream,err:=client.New(client.Options{BaseURL:o.Upstream,CAFile:o.UpstreamCA});if err!=nil{return nil,err}
+ {{if .LocalApplication}}upstream:=client.NewLocalApplication(){{else}}upstream,err:=client.New(client.Options{BaseURL:o.Upstream,CAFile:o.UpstreamCA});if err!=nil{return nil,err}{{end}}
  provider,err:=discover(ctx,o);if err!=nil{upstream.Close();return nil,err}
  authorization,_:=httpsURL(provider.metadata.Authorization);if cookieHost(authorization)==cookieHost(origin){provider.close();upstream.Close();return nil,errors.New("browser authorization requires a separate HTTPS cookie host")}
  b:=&Backend{store:store,provider:provider,upstream:upstream,origin:origin,permits:make(chan struct{},client.MaxConcurrentRequests)}
@@ -92,7 +92,11 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
  }
  if strings.HasPrefix(r.URL.Path,"/telemetry/"){r.Pattern="/telemetry/v1/{signal}";b.telemetry(w,r);return}
  if r.URL.Path==b.config.Prefix||strings.HasPrefix(r.URL.Path,b.config.Prefix+"/"){r.Pattern=b.config.Prefix+"/{resource}";b.proxy(w,r);return}
+ {{if .LocalApplication}}
  if r.Method!="GET"&&r.Method!="HEAD"{failure(w,405);return}
+ if b.browserPath(r.URL.Path) {for i,route:=range b.routes{if route.MatchString(r.URL.Path){r.Pattern=b.config.Routes[i];break}};b.proxy(w,r);return}
+ if strings.HasPrefix(r.URL.Path,"/assets/"){r.Pattern="/assets/{asset}";b.proxy(w,r);return}
+ {{else}}if r.Method!="GET"&&r.Method!="HEAD"{failure(w,405);return}
  target:=r.URL.Path;for i,route:=range b.routes{if route.MatchString(target){r.Pattern=b.config.Routes[i];target="/index.html";break}}
  for _,a:=range b.config.Assets{if a.Path==target{
   if target!="/index.html"{r.Pattern="/assets/{asset}"}else if len(b.config.ScriptHashes)>0{w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"script-src 'self'","script-src 'self' "+strings.Join(b.config.ScriptHashes," "),1))}
@@ -110,7 +114,7 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
   if target!="/index.html"{w.Header().Set("Cache-Control","public, max-age=0, must-revalidate")}
   if r.Header.Get("If-None-Match")==tag{w.WriteHeader(304);return};if r.Method=="GET"{_,_=w.Write(body)};return
  }}
- failure(w,404)
+ {{end}}failure(w,404)
 }
 
 func cookieHost(u *url.URL)string{host:=strings.TrimSuffix(strings.ToLower(u.Hostname()),".");if ip:=net.ParseIP(host);ip!=nil{return ip.String()};return host}

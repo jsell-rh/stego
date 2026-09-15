@@ -25,7 +25,10 @@ import (
 //go:embed *.tmpl
 var sources embed.FS
 
-type Generator struct{}
+// LocalApplicationPort is set by compiler integration code, not service YAML.
+// The application must share the browser backend's network namespace and bind
+// only to 127.0.0.1. Deployment integration must enforce that boundary.
+type Generator struct{ LocalApplicationPort int }
 
 const mountPattern = "/"
 
@@ -45,8 +48,18 @@ type settings struct {
 
 var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
 
-func config(values map[string]any) (settings, error) {
+func (g *Generator) config(values map[string]any) (settings, error) {
 	var s settings
+	if g.LocalApplicationPort != 0 && (g.LocalApplicationPort < 1024 || g.LocalApplicationPort > 65535) {
+		return s, fmt.Errorf("local application port must be 1024 through 65535")
+	}
+	if g.LocalApplicationPort != 0 {
+		for _, name := range []string{"assets", "asset_bundle", "telemetry_service_name"} {
+			if _, present := values[name]; present {
+				return s, fmt.Errorf("local application serves its own assets; %s is not supported", name)
+			}
+		}
+	}
 	for key := range values {
 		if key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
@@ -99,6 +112,10 @@ func config(values map[string]any) (settings, error) {
 	}
 	if !seen["/"] {
 		return s, fmt.Errorf("browser routes must include /")
+	}
+	if g.LocalApplicationPort != 0 {
+		sort.Strings(s.Routes)
+		return s, nil
 	}
 	if raw, present := values["asset_bundle"]; present {
 		bundle, ok := raw.(string)
@@ -162,8 +179,8 @@ func canonicalPath(value string) bool {
 	return len(value) > 0 && len(value) <= 256 && publicPath.MatchString(value) && path.Clean(value) == value && !strings.Contains(value, "//")
 }
 func (*Generator) MinimumGoVersion() string { return "1.26.8" }
-func (*Generator) InputFiles(values map[string]any) ([]string, error) {
-	s, err := config(values)
+func (g *Generator) InputFiles(values map[string]any) ([]string, error) {
+	s, err := g.config(values)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +198,7 @@ func (*Generator) InputFiles(values map[string]any) ([]string, error) {
 	sort.Strings(names)
 	return names, nil
 }
-func (*Generator) ValidateContext(ctx gen.Context) error {
+func (g *Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
@@ -193,16 +210,16 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 			return fmt.Errorf("browser-backend must run separately from bearer-token APIs")
 		}
 	}
-	_, _, err := resolveAssets(ctx)
+	_, _, err := g.resolveAssets(ctx)
 	return err
 }
-func resolveAssets(ctx gen.Context) (settings, map[string][]byte, error) {
-	s, err := config(ctx.ComponentConfig)
+func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte, error) {
+	s, err := g.config(ctx.ComponentConfig)
 	if err != nil {
 		return s, nil, err
 	}
 	content := ctx.Inputs
-	sources, err := new(Generator).InputFiles(ctx.ComponentConfig)
+	sources, err := g.InputFiles(ctx.ComponentConfig)
 	if err != nil {
 		return s, nil, err
 	}
@@ -243,7 +260,9 @@ func resolveAssets(ctx gen.Context) (settings, map[string][]byte, error) {
 			return s, nil, err
 		}
 	}
-	s.ScriptHashes, err = browserassets.ScriptHashes(index, names)
+	if g.LocalApplicationPort == 0 {
+		s.ScriptHashes, err = browserassets.ScriptHashes(index, names)
+	}
 	return s, content, err
 }
 
@@ -251,7 +270,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	s, contentBySource, err := resolveAssets(ctx)
+	s, contentBySource, err := g.resolveAssets(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -264,7 +283,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "public", strings.TrimPrefix(a.Path, "/")), Content: append([]byte(nil), content...)})
 	}
 	configuration, _ := json.Marshal(s)
-	data := struct{ Package, Client, Config, UnicodeValidation, Telemetry string }{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"])}
+	data := struct {
+		Package, Client, Config, UnicodeValidation, Telemetry string
+		LocalApplication                                      bool
+	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort != 0}
 	entries, _ := sources.ReadDir(".")
 	for _, entry := range entries {
 		source, err := sources.ReadFile(entry.Name())
@@ -290,6 +312,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, name), Content: content})
 	}
 	client, err := httpclient.Render(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]))
+	if g.LocalApplicationPort != 0 {
+		client, err = httpclient.RenderLocalApplication(path.Join(ctx.OutputNamespace, "client"), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

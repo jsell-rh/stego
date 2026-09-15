@@ -104,12 +104,28 @@ func(b *Backend)logout(w http.ResponseWriter,r *http.Request){
  if b.store.remove(r.Context(),id)!=nil{failure(w,503);return};clearCookie(w,SessionCookie)
  if b.provider.revoke(r.Context(),value)!=nil{failure(w,502);return};if form{target:="/auth/logout";if b.logoutTarget!=""{target=b.logoutTarget;w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"form-action 'self'","form-action 'self' "+b.logoutOrigin,1))};http.Redirect(w,r,target,303)}else{w.WriteHeader(204)}
 }
-func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
+{{if .LocalApplication}}
+// Application requests use the browser's Origin header. Missing Origin fails
+// closed for writes. A sibling domain is not the same origin.
+func(b *Backend)applicationCSRF(r *http.Request)bool{
+ if !b.sameOrigin(r)||len(r.Header.Values("Sec-Fetch-Site"))>1{return false}
+ site:=r.Header.Get("Sec-Fetch-Site");return site==""||site=="same-origin"
+}
+var applicationLoginPage=template.Must(template.New("application-login").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in</title></head><body><main><h1>Sign in</h1><p><a href="{{"{{.}}"}}">Sign in to continue</a></p></main></body></html>`))
+func(b *Backend)applicationLogin(w http.ResponseWriter,r *http.Request){
+ if cookieID(r,SessionCookie)!=""{clearCookie(w,SessionCookie)}
+ target:="/auth/login?"+url.Values{"return_to":{b.returnPath(r.URL.RequestURI())}}.Encode()
+ if site:=r.Header.Get("Sec-Fetch-Site");site=="none"||site=="same-origin"{http.Redirect(w,r,target,303);return}
+ w.Header().Set("Content-Type","text/html; charset=utf-8");_ = applicationLoginPage.Execute(w,target)
+}
+{{end}}func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
  switch r.Method{case "GET","HEAD","POST","PUT","PATCH","DELETE":default:w.Header().Set("Allow","GET, HEAD, POST, PUT, PATCH, DELETE");failure(w,405);return}
  if len(r.Header.Values("Authorization"))!=0{failure(w,400);return}
- id:=cookieID(r,SessionCookie)
- if r.Method!="GET"&&r.Method!="HEAD"{value,_,_,err:=b.store.read(r.Context(),id);if err!=nil{sessionError(w,err);return};if value.Kind!="active"||!b.csrf(r,value){failure(w,403);return}}
- value,err:=b.active(r.Context(),id);if err!=nil{sessionError(w,err);return}
+ {{if .LocalApplication}}if len(r.Header.Values("Upgrade"))!=0||len(r.Header.Values("Sec-WebSocket-Key"))!=0{failure(w,501);return}
+ {{end}}id:=cookieID(r,SessionCookie)
+ if r.Method!="GET"&&r.Method!="HEAD"{value,_,_,err:=b.store.read(r.Context(),id);if err!=nil{sessionError(w,err);return};if value.Kind!="active"||{{if .LocalApplication}}!b.applicationCSRF(r){{else}}!b.csrf(r,value){{end}}{failure(w,403);return}}
+ value,err:=b.active(r.Context(),id);if err!=nil{ {{if .LocalApplication}}if errors.Is(err,errSession)&&r.Method=="GET"&&b.browserPath(r.URL.Path){b.applicationLogin(w,r);return}
+ {{end}}sessionError(w,err);return}
  if r.ContentLength>client.MaxRequestBytes{failure(w,413);return}
  body,err:=io.ReadAll(io.LimitReader(r.Body,client.MaxRequestBytes+1));if err!=nil{failure(w,400);return};if len(body)>client.MaxRequestBytes{failure(w,413);return}
  if (r.Method=="GET"||r.Method=="HEAD")&&len(body)!=0{failure(w,400);return}

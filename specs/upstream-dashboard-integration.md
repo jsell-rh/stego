@@ -46,10 +46,42 @@ used a test HTTP server, not the upstream dashboard image.
 Result log:
 `/home/jsell/.local/state/stego/runs/dashboard-local-transport-20260915/check.log`.
 
+## Browser session integration
+
+The browser backend renderer now has an internal local application mode. It
+uses the existing SQL session store, encrypted tokens, OAuth flow, refresh,
+logout, and HTTP telemetry. It forwards the server's bearer token and a small
+set of HTTP headers. It does not forward browser cookies or identity headers.
+It serves declared UI routes and the application's asset paths through the
+authenticated proxy.
+
+Application writes require one exact `Origin` header. If `Sec-Fetch-Site` is
+present, it must be `same-origin`. Missing Origin fails closed. Logout keeps its
+CSRF-token check. The ordinary management console also keeps its CSRF-token
+check. This follows the origin-validation approach described in the
+[OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
+
+The compiler fixes the application port. Runtime API address overrides fail.
+No service YAML setting enables this mode yet. WebSocket upgrades return 501
+until their session and resource controls are implemented. The current HTTP
+body limits also remain in effect; full file-transfer behavior is not proved.
+
+Local generation and build checks passed. Two generated checks passed with the
+race detector: exact-origin protection and rejection of runtime address
+overrides. Four session tests were skipped because local PostgreSQL was not
+configured. CI must run those tests with its required PostgreSQL fixture. They
+cover login, identity-header removal, restart, writes, upstream denial, refresh,
+and logout across backend instances. They use a test application server.
+
+The ordinary browser backend's generated files were also compared with the
+previous templates. They were byte-identical for the existing test declaration.
+Results and comparison sources are in
+`/home/jsell/.local/state/stego/runs/dashboard-browser-20260915`.
+
 ## Remaining acceptance work
 
 The dashboard workflow is not complete. The next changes must connect this
-transport to the existing browser session store and OAuth flow. They must prove:
+runtime to generated deployment and the upstream dashboard image. They must prove:
 
 1. Authentication for UI, API, and terminal requests. Browser-supplied identity
    headers must not reach the dashboard.

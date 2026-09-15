@@ -3,10 +3,15 @@ package browserbackend
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,9 +97,40 @@ func TestInvalidConfig(t *testing.T) {
 		})
 	}
 }
-func TestGeneratedRuntime(t *testing.T) {
+func TestGeneratedRuntime(t *testing.T) { testGeneratedRuntime(t, new(Generator), fixture(), false) }
+func TestGeneratedLocalApplicationRuntime(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "upstream=private")
+		w.Header().Set("X-Private", "private")
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/unauthorized") {
+			w.WriteHeader(401)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer initial-access-value" && r.Header.Get("Authorization") != "Bearer refreshed-access-value" {
+			w.WriteHeader(401)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"path": r.URL.RequestURI(), "headers": r.Header, "method": r.Method})
+	}))
+	defer server.Close()
+	_, rawPort, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := fixture()
+	delete(ctx.ComponentConfig, "assets")
+	ctx.Inputs = nil
+	testGeneratedRuntime(t, &Generator{LocalApplicationPort: port}, ctx, true)
+}
+func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local bool) {
+	t.Helper()
 	project := t.TempDir()
-	files, wiring, err := new(Generator).Generate(fixture())
+	files, wiring, err := g.Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,11 +177,26 @@ func TestGeneratedRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if local && entry.Name() != "fixture_test.go" {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join("testdata", entry.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(project, "out/browser", entry.Name()), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if local {
+		data, err := os.ReadFile("testdata/application/runtime_test.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(project, "out/browser/application_test.go"), data, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -242,5 +293,41 @@ func TestBrowserAssemblyUsesDeclaredPool(t *testing.T) {
 	}
 	if len(files) != 1 || files[0].Path != "store/database.go" {
 		t.Fatal("the browser database generated unrelated storage code")
+	}
+}
+
+func TestLocalApplicationGeneration(t *testing.T) {
+	ctx := fixture()
+	delete(ctx.ComponentConfig, "assets")
+	ctx.Inputs = nil
+	g := &Generator{LocalApplicationPort: 8000}
+	first, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, again, err := g.Generate(ctx)
+	if err != nil || !reflect.DeepEqual(first, second) || !reflect.DeepEqual(wiring, again) {
+		t.Fatal("application generation is not stable", err)
+	}
+	inputs, err := g.InputFiles(ctx.ComponentConfig)
+	if err != nil || len(inputs) != 0 {
+		t.Fatal("upstream application has embedded inputs", err)
+	}
+	for _, file := range first {
+		if strings.Contains(file.Path, "/public/") {
+			t.Fatal("upstream application has embedded assets")
+		}
+	}
+	for _, key := range []string{"assets", "asset_bundle", "telemetry_service_name", "local_application_port"} {
+		ctx := ctx
+		ctx.ComponentConfig = map[string]any{"api_prefix": "/api/v1", "routes": []any{"/"}, key: "unsupported"}
+		if _, _, err := g.Generate(ctx); err == nil {
+			t.Fatal("accepted incompatible configuration", key)
+		}
+	}
+	for _, port := range []int{-1, 80, 65536} {
+		if _, _, err := (&Generator{LocalApplicationPort: port}).Generate(ctx); err == nil {
+			t.Fatal("accepted invalid application port", port)
+		}
 	}
 }
