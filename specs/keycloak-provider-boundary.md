@@ -389,9 +389,9 @@ runtime took 47.01 seconds; container cleanup passed. All five CI jobs passed. R
 `/home/jsell/.local/state/stego/runs/keycloak-provider-native-access-20260915`.
 
 Small generated tests passed in 3.992 seconds without telemetry and 10.395
-seconds with both variants. Both use the race detector. Service-account token
-verification and checked enablement, ownership migration, and application
-adoption remain open. Hypershell still has its handwritten client; this provider
+seconds with both variants. Both use the race detector. Later sections cover
+service-account token verification and checked enablement. Ownership migration
+and application adoption remain open. Hypershell still has its handwritten client; this provider
 result does not claim an application source reduction.
 
 ## Common service-account token proof
@@ -413,16 +413,16 @@ for both application policies. It passed at
 `c85fd8c9f6916a43120d050fcb121aa0dbe4ff49` in
 [run 35033615735](https://github.com/jsell-rh/stego/actions/runs/35033615735).
 Both policies passed the common proof; wrong subjects and audiences were denied.
-The runtime took 47.52 seconds, and container cleanup passed. Full compiler CI
-was still running when this record was written. Small generated tests passed
+The runtime took 47.52 seconds, and container cleanup passed. All five CI jobs
+passed. Small generated tests passed
 with and without telemetry in 11.465 seconds. Compiler preflight and namespace
 checks also passed. Frozen source and results are retained in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-token-proof-20260915`.
 
 The token check first requires the saved subject to exist and be enabled. It
-rejects ID and refresh tokens in the client-credentials response. Service-account
-checked enablement and Hypershell adoption remain open. The application compiler
-pin and handwritten provider have not changed.
+rejects ID and refresh tokens in the client-credentials response. The next
+section covers checked enablement. Hypershell adoption remains open; its
+compiler pin and handwritten provider have not changed.
 
 ## Checked service-account enablement
 
@@ -440,7 +440,14 @@ and subject before reconciliation and retain exclusive control of writes.
 Small tests cover those boundaries, scoped token roles, wrong token subjects,
 failed role removal, changed subject bindings, and failed cleanup. The real
 Keycloak gate now uses the common sequence for both service-account policies,
-including group and configuration drift. Its result is pending. Frozen source
-and results are in
+including group and configuration drift. It passed at
+`94ffb943b1afee9f7ed6f0af4f15ab47a16966b2` in
+[run 35034193690](https://github.com/jsell-rh/stego/actions/runs/35034193690).
+Both policies passed setup, repair, repeated reconciliation, and fresh signed
+token proof through the common operation. The runtime took 55.21 seconds, and
+container cleanup passed. Full compiler CI was still running when this record
+was written. Small tests passed in 5.363 seconds without telemetry and 13.442
+seconds with both variants. Both use the race detector. Frozen source and
+results are in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-service-access-20260915`.
 Hypershell adoption and ownership migration remain open.
