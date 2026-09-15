@@ -333,3 +333,9 @@ Native attribute repair now sends explicit empty entries for unwanted settings.
 Keycloak patches this map and retains omitted keys. The provider confirms the
 complete stored set after repair. An ignored removal fails the check. The live
 test adds an unwanted attribute before repair to check this provider behavior.
+
+The native fixture keeps `webOrigins: []` explicit when it enables a client.
+An omitted value can make Keycloak derive browser origins from the callback
+URIs. Production enablement must preserve this empty set and confirm the full
+policy after the state change. A payload that contains only `enabled` is not
+sufficient for this native profile.

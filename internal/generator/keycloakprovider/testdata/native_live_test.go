@@ -76,7 +76,9 @@ func testLiveNativeClients(t *testing.T, c *Client, ctx context.Context, caFile 
 			t.Fatal("native repair changed mappers", err)
 		}
 		// Only this fixture enables login. Production enablement is a separate gate.
-		response, err = c.admin(ctx, http.MethodPut, "/clients/"+b.ID, []byte(`{"enabled":true}`))
+		// An omitted webOrigins field derives browser origins from redirect URIs.
+		// Keep the required empty set explicit in the enable request.
+		response, err = c.admin(ctx, http.MethodPut, "/clients/"+b.ID, []byte(`{"enabled":true,"webOrigins":[]}`))
 		if err != nil || response.StatusCode != 204 {
 			t.Fatal("enable native fixture", err)
 		}
