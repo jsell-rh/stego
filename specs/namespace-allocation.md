@@ -27,7 +27,7 @@ five RoleBindings, and one ClusterRoleBinding against a TLS API fixture. The
 and request inventory. Its exit status is 1, which reports the gap. It is not
 a live cluster or CNI test.
 
-The current profile contract has no network policy field. Worker network peers
+The audited profile had no network policy field. Worker network peers
 protect the controller Pod in its control namespace. They do not supply network
 isolation for an allocated Gateway namespace. Reference Hypershell has ingress
 policies that the generated variant has not yet delivered. Keep this requirement
@@ -108,6 +108,65 @@ until its allocations are removed. An application that moves a resource must
 retain its old cleanup target. Removing a profile first makes that target
 unavailable to the generated allocator.
 
+## Fixed network deny policy
+
+Version 1.11.0 adds the explicit profile setting `network_isolation: true`.
+This is a partial network mechanism. Its live admission and network enforcement
+checks are pending. Do not use it as evidence of complete tenant isolation.
+Hypershell has not selected this setting in its production declaration.
+
+For a selected profile, `Ensure` creates a `networking.k8s.io/v1` NetworkPolicy
+named `stego-allocation`. It selects all Pods and denies ingress and egress.
+The allocator creates it after the quota and before any proof or access binding.
+It reads the stored policy after creation. It checks ownership, namespace, name,
+UID, resource version, deletion state, the full Pod selector, both policy types,
+and the absence of allow rules. A partial object match is not sufficient.
+A create conflict, failed read, missing policy, or changed policy stops the call
+before a binding write. A later call can create a missing policy. It cannot
+patch or adopt a changed policy.
+
+The allocator receives `get` access to this exact policy name and `create`
+access constrained by generated admission rules. It gets no policy list, patch,
+update, or delete permission. Admission limits creation to the selected profiles,
+owned namespaces, fixed name, and deny-all shape. Other actors cannot create,
+change, or delete the reserved policy in an allocated namespace. Namespace
+cleanup can delete it. The operator must retain the admission policies.
+
+`RequireNamespace` also checks this policy when the profile selects isolation.
+The resource worker must explicitly declare `get` access to NetworkPolicy
+`stego-allocation` in its namespaced role. STEGO does not add this access to
+all application roles. `NamespaceUID` remains an identity-only observation.
+`NamespaceGone` retains its cleanup meaning.
+
+An absent or false setting preserves previous allocation behavior and adds no
+network permissions. Turning the setting off does not delete an existing policy.
+Keep it enabled until its allocations are removed. Removing it can remove the
+admission protection during regeneration. It is not a network migration method.
+
+This step does not revoke existing access bindings, close existing connections,
+or prove that the network plugin has applied the policy. Other NetworkPolicies
+can permit traffic. The complete policy set and allowed destinations need their
+own declaration, protection, and live tests. A running Gateway cannot use a
+deny-all policy alone: DNS, database, identity, API, and service traffic still
+need explicit allowed paths. Keep application adoption behind that full gate.
+
+`TestGeneratedAllocationNetworkRuntime` runs the focused generated-client tests.
+On 2026-09-15, local tests passed for creation before bindings, restart without
+writes, missing-policy recovery, read-only checks, 20 invalid policy shapes and
+identities, API denial before and after creation, and cancellation. Manifest
+checks passed for profile selection, bounded permissions, fixed constraints,
+and repeat generation. These are fixture and source checks, not API-server
+CEL evaluation or traffic tests.
+
+For the live admission fixture, set `STEGO_ALLOCATION_NETWORK=1` when producing
+both the original and next manifests. Use `--network-isolation` with
+`scripts/check-namespace-allocation.py`. The added checks cover permitted deny
+policy creation, rejected allow rules and selectors, wrong identity, reserved
+policy mutation, and protection after regeneration. This extension has passed
+only a Python syntax check. Run it under the existing cluster test Lease with
+explicit context and cleanup controls after the operator login is restored.
+No Pod traffic test is part of this script.
+
 ## Public identity records
 
 Version 1.7.0 can retain public identity values on an allocated Namespace.
@@ -167,9 +226,8 @@ Kubernetes v1.35 is the tested API-server version. The implementation uses
 [ValidatingAdmissionPolicy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/),
 including the namespace object, quantity checks, and authorizer checks.
 
-This feature controls API permissions. It does not supply tenant network policy,
-storage isolation, a cluster-wide allocation count limit, or an application
-adapter. These remain separate acceptance requirements. Hypershell adoption must
+The allocator does not prove complete tenant network or storage isolation,
+a cluster-wide allocation count limit, or an application adapter. These remain separate acceptance requirements. Hypershell adoption must
 pass the real Gateway workflow before its existing worker permissions are removed.
 
 A service, worker, or RPC process can select an allocation profile in

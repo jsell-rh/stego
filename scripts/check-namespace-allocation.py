@@ -8,6 +8,7 @@ The caller must remove the installed policies and roles after all checks.
 
 from pathlib import Path
 import argparse
+import copy
 import json
 import subprocess
 import hashlib
@@ -19,6 +20,7 @@ parser.add_argument("--context", required=True)
 parser.add_argument("--namespace", required=True)
 parser.add_argument("--evidence", type=Path, required=True)
 parser.add_argument("--next-manifest", type=Path)
+parser.add_argument("--network-isolation", action="store_true")
 args = parser.parse_args()
 
 ctx = args.context
@@ -88,6 +90,51 @@ def check(label, args, obj=None, as_user=actor, good=False):
     return r
 
 
+def check_network_policy():
+    policy = {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": "stego-allocation", "namespace": owned,
+            "labels": {k: v for k, v in labels.items() if not k.startswith("pod-security.")},
+        },
+        "spec": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]},
+    }
+    check("declared deny policy", ["create", "--dry-run=server", "-f", "-"], policy, good=True)
+    invalid = []
+    for direction in ("ingress", "egress"):
+        changed = copy.deepcopy(policy)
+        changed["spec"][direction] = [{}]
+        invalid.append((direction + " allow rule", changed))
+    for field, value in (
+        ("podSelector", {"matchLabels": {"app": "selected"}}),
+        ("podSelector", {"matchExpressions": [{"key": "app", "operator": "Exists"}]}),
+        ("policyTypes", ["Ingress"]),
+        ("policyTypes", ["Egress"]),
+        ("policyTypes", ["Ingress", "Ingress"]),
+    ):
+        changed = copy.deepcopy(policy)
+        changed["spec"][field] = value
+        invalid.append(("changed network " + field + " " + json.dumps(value), changed))
+    for field, value in (("name", "other"), ("namespace", foreign)):
+        changed = copy.deepcopy(policy)
+        changed["metadata"][field] = value
+        invalid.append(("foreign network " + field, changed))
+    changed = copy.deepcopy(policy)
+    changed["metadata"]["labels"]["example.test/owner"] = "other"
+    invalid.append(("foreign network owner", changed))
+    for label, changed in invalid:
+        check(label, ["create", "--dry-run=server", "-f", "-"], changed)
+    check("another actor creates reserved policy", ["create", "--dry-run=server", "-f", "-"], policy, as_user=None)
+    check("create fixed deny policy", ["create", "-f", "-"], policy, good=True)
+    check("allocator reads fixed deny policy", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
+    check("allocator cannot list network policies", ["get", "networkpolicies", "-n", owned])
+    change = json.dumps({"spec": {"ingress": [{}]}})
+    check("another actor changes deny policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
+    for identity in (actor, None):
+        check("reserved policy deletion " + (identity or "operator"), ["delete", "networkpolicy", "stego-allocation", "-n", owned, "--dry-run=server"], as_user=identity)
+
+
 try:
     for policy in [base + ".allocation", base + ".ownership", base + ".resources"]:
         doc = json.loads(
@@ -138,6 +185,8 @@ try:
             check("declared quota", ["create", "-f", "-"], quota, good=True)
         else:
             run(["create", "-f", "-"], quota)
+    if args.network_isolation:
+        check_network_policy()
     check(
         "foreign namespace delete", ["delete", "namespace", foreign, "--dry-run=server"]
     )
@@ -388,6 +437,9 @@ try:
                 raise RuntimeError("next policy was not observed")
             if doc.get("status", {}).get("typeChecking", {}).get("expressionWarnings"):
                 raise RuntimeError("next policy has type warnings")
+        if args.network_isolation:
+            check("deny policy survives regeneration", ["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "name"], good=True)
+            check("regenerated policy blocks another actor", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": {"egress": [{}]}}), "--dry-run=server"], as_user=None)
         check(
             "retired subject binding delete",
             ["delete", "rolebinding", "stego-" + marker + "-0", "-n", owned],

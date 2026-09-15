@@ -21,6 +21,7 @@ type allocationRole struct {
 type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type allocationIdentityField struct{ Field, Key string }
 type allocationProfile struct {
+	NetworkIsolation                    bool `json:",omitempty"`
 	IdentityConfigMap                   string
 	IdentityLabels, IdentityAnnotations []allocationIdentityField
 	Name, Prefix, OwnerLabel, Manager   string
@@ -131,7 +132,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}
@@ -151,6 +152,13 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		names[name] = true
 		p := allocationProfile{Name: name, Prefix: prefix, SuffixLength: length, OwnerLabel: owner, Manager: manager, Quota: map[string]string{}}
+		if value, exists := values["network_isolation"]; exists {
+			var ok bool
+			p.NetworkIsolation, ok = value.(bool)
+			if !ok {
+				return result, fmt.Errorf("network_isolation must be a boolean")
+			}
+		}
 		if value, exists := values["identity_config_map"]; exists {
 			var ok bool
 			p.IdentityConfigMap, ok = value.(string)

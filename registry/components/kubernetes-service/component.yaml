@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.10.0
+version: 1.11.0
 output_namespace: deploy
 config:
   kubernetes_api: {type: bool, optional: true}
@@ -49,6 +49,7 @@ config:
       suffix_length: {type: int}
       owner_label: {type: string}
       manager: {type: string}
+      network_isolation: {type: bool, optional: true}
       identity_config_map: {type: string, optional: true}
       identity_labels:
         type: list

@@ -43,6 +43,8 @@ func TestAllocationValidation(t *testing.T) {
 			delete(c.ComponentConfig, "allocation_profiles")
 			delete(c.ComponentConfig, "allocation_roles")
 		},
+		"network string":              func(c *gen.Context, p, w object) { p["network_isolation"] = "true" },
+		"network null":                func(c *gen.Context, p, w object) { p["network_isolation"] = nil },
 		"no worker":                   func(c *gen.Context, p, w object) { delete(w, "namespace_allocator") },
 		"no client":                   func(c *gen.Context, p, w object) { delete(c.PeerNamespaces, "kubernetes-client") },
 		"no identity":                 func(c *gen.Context, p, w object) { delete(w, "kubernetes_api") },
@@ -134,6 +136,9 @@ func TestAllocationValidation(t *testing.T) {
 
 func TestAllocationManifests(t *testing.T) {
 	c := allocationContext()
+	if os.Getenv("STEGO_ALLOCATION_NETWORK") == "1" {
+		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["network_isolation"] = true
+	}
 	if os.Getenv("STEGO_ALLOCATION_NEXT") == "1" {
 		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
 		p["bindings"] = p["bindings"].([]any)[:1]
@@ -220,7 +225,15 @@ var allocationRuntimeTests []byte
 //go:embed testdata/allocation_uid_test.go
 var allocationUIDTests []byte
 
-func TestGeneratedAllocationRuntime(t *testing.T) {
+//go:embed testdata/allocation_network_deny_test.go
+var allocationNetworkDenyTests []byte
+
+func TestGeneratedAllocationRuntime(t *testing.T) { testGeneratedAllocationRuntime(t, "") }
+func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
+	testGeneratedAllocationRuntime(t, "^TestAllocationNetwork")
+}
+func testGeneratedAllocationRuntime(t *testing.T, filter string) {
+	t.Helper()
 	c := allocationContext()
 	files, err := allocationFiles(c)
 	if err != nil {
@@ -248,6 +261,7 @@ func TestGeneratedAllocationRuntime(t *testing.T) {
 	}
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_test.go", Content: allocationRuntimeTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
+	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_deny_test.go", Content: allocationNetworkDenyTests})
 	dir := t.TempDir()
 	for _, f := range files {
 		name := filepath.Join(dir, "out", f.Path)
@@ -261,7 +275,11 @@ func TestGeneratedAllocationRuntime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("go", "test", "-v", "-race", "-count=1", "-timeout=3m", "./...")
+	args := []string{"test", "-p=1", "-v", "-race", "-count=1", "-timeout=3m"}
+	if filter != "" {
+		args = append(args, "-run", filter)
+	}
+	command := exec.Command("go", append(args, "./...")...)
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GOWORK=off")
 	output, err := command.CombinedOutput()

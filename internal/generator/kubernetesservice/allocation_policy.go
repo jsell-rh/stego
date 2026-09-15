@@ -49,6 +49,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		return "(" + value + " != '{{.Namespace}}' && " + value + ".matches(" + celString("^"+p.Prefix+suffix+"$") + "))"
 	}
 	namespaceCases, quotaCases, bindingCases, clusterCases := []string{}, []string{}, []string{}, []string{}
+	networkCases := []string{}
 	scope := map[string]string{}
 	var items []any
 	bindNames := []string{base + ".proof"}
@@ -81,6 +82,10 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
 		namespaceCases = append(namespaceCases, nsCase)
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
+		if p.NetworkIsolation {
+			deny := "has(variables.o.spec) && has(variables.o.spec.podSelector) && (!has(variables.o.spec.podSelector.matchLabels) || size(variables.o.spec.podSelector.matchLabels) == 0) && (!has(variables.o.spec.podSelector.matchExpressions) || size(variables.o.spec.podSelector.matchExpressions) == 0) && has(variables.o.spec.policyTypes) && size(variables.o.spec.policyTypes) == 2 && 'Ingress' in variables.o.spec.policyTypes && 'Egress' in variables.o.spec.policyTypes && (!has(variables.o.spec.ingress) || size(variables.o.spec.ingress) == 0) && (!has(variables.o.spec.egress) || size(variables.o.spec.egress) == 0)"
+			networkCases = append(networkCases, "("+within+" && request.operation != 'DELETE' && variables.o.metadata.name == 'stego-allocation' && "+deny+")")
+		}
 		quotaKeys := make([]string, 0, len(p.Quota))
 		for key := range p.Quota {
 			quotaKeys = append(quotaKeys, key)
@@ -140,7 +145,12 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		validate("request.resource.resource != 'clusterrolebindings' || "+join(clusterCases), "Cluster binding requires an allocated namespace and a declared role"),
 		validate("oldObject == null || "+marked("oldObject"), "Allocator cannot change a foreign resource"),
 	}
-	guarded := allocationPolicy(base+".allocation", []any{allocationRule("", "namespaces", "resourcequotas"), allocationRule("rbac.authorization.k8s.io", "rolebindings", "clusterrolebindings")}, isAllocator, variables, checks)
+	allocationRules := []any{allocationRule("", "namespaces", "resourcequotas"), allocationRule("rbac.authorization.k8s.io", "rolebindings", "clusterrolebindings")}
+	if len(networkCases) > 0 {
+		allocationRules = append(allocationRules, allocationRule("networking.k8s.io", "networkpolicies"))
+		checks = append(checks, validate("request.resource.resource != 'networkpolicies' || "+join(networkCases), "Network policy must deny all Pod traffic in its allocation profile"))
+	}
+	guarded := allocationPolicy(base+".allocation", allocationRules, isAllocator, variables, checks)
 	// Namespace identity cannot be added to an existing foreign namespace, removed,
 	// or changed. The policy applies to all actors, including a worker with a bug.
 	unchanged := []string{"object.metadata.labels['stego.dev/allocator'] == oldObject.metadata.labels['stego.dev/allocator']", "object.metadata.labels['stego.dev/allocation-profile'] == oldObject.metadata.labels['stego.dev/allocation-profile']", "object.metadata.labels['app.kubernetes.io/managed-by'] == oldObject.metadata.labels['app.kubernetes.io/managed-by']", "object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'"}
@@ -168,7 +178,14 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	// even if an external role has broad permissions in that namespace.
 	reserved := "!has(request.name) || (request.resource.resource == 'resourcequotas' ? request.name == 'stego-allocation' : request.name.startsWith(" + celString("stego-"+marker+"-") + "))"
 	resourceRule := "!(" + marked("namespaceObject") + ") || " + isAllocator + " || (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))"
-	guarded = append(guarded, allocationPolicy(base+".resources", []any{allocationRule("", "resourcequotas"), allocationRule("rbac.authorization.k8s.io", "rolebindings")}, reserved, variables, []any{validate(resourceRule, "Only the allocator can change allocation limits and bindings")})...)
+	resourceRules := []any{allocationRule("", "resourcequotas"), allocationRule("rbac.authorization.k8s.io", "rolebindings")}
+	message := "Only the allocator can change allocation limits and bindings"
+	if len(networkCases) > 0 {
+		resourceRules = append(resourceRules, allocationRule("networking.k8s.io", "networkpolicies"))
+		reserved = "(request.resource.resource == 'networkpolicies' ? (!has(request.name) || request.name == 'stego-allocation') : (" + reserved + "))"
+		message = "Only the allocator can change allocation limits, bindings, and the reserved network policy"
+	}
+	guarded = append(guarded, allocationPolicy(base+".resources", resourceRules, reserved, variables, []any{validate(resourceRule, message)})...)
 	// Install the policies before the allocator receives permissions.
 	items = append(guarded, items...)
 	sort.Strings(bindNames)
@@ -183,6 +200,11 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		object{"apiGroups": []string{""}, "resources": []string{"resourcequotas"}, "verbs": []string{"get", "create", "patch"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"rolebindings", "clusterrolebindings"}, "verbs": []string{"get", "list", "create", "patch", "delete"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"clusterroles"}, "resourceNames": unique, "verbs": []string{"bind"}},
+	}
+	if len(networkCases) > 0 {
+		rules = append(rules,
+			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"get"}, "resourceNames": []string{"stego-allocation"}},
+			object{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"networkpolicies"}, "verbs": []string{"create"}})
 	}
 	if len(identityMaps) > 0 {
 		rules[0].(object)["verbs"] = []string{"get", "list", "create", "patch", "delete"}

@@ -221,6 +221,13 @@ Hypershell must declare domain peers and ports. The Gateway egress choice has
 been sent to the user and remains pending. The existing two-Role public test
 permission plan must be recomputed after network policy permissions change.
 
+STEGO kubernetes-service 1.11.0 adds an explicit allocator-owned deny-all
+NetworkPolicy option. Focused generated runtime and manifest checks passed.
+The [mechanism and limits](namespace-allocation.md#fixed-network-deny-policy)
+remain separate from the full network gate. Live admission, allowed traffic,
+denied traffic, and Hypershell adoption are pending. Keep the application
+requirement open. Do not add domain policy construction to Hypershell.
+
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
 external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
 On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer

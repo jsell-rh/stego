@@ -20,12 +20,15 @@ import (
 )
 
 type api struct {
-	mu         sync.Mutex
-	objects    map[string]kube.Object
-	writes     []string
-	requests   int
-	failQuota  bool
-	incomplete bool
+	mu              sync.Mutex
+	objects         map[string]kube.Object
+	writes          []string
+	requests        int
+	failQuota       bool
+	failNetwork     bool
+	failNetworkRead bool
+	mutateNetwork   func(kube.Object)
+	incomplete      bool
 }
 
 func fixture(t *testing.T) (*Allocator, *api) {
@@ -74,6 +77,10 @@ func fixture(t *testing.T) (*Allocator, *api) {
 		}
 		current, exists := state.objects[r.URL.Path]
 		if r.Method == "GET" {
+			if state.failNetworkRead && strings.Contains(r.URL.Path, "/networkpolicies/") {
+				w.WriteHeader(403)
+				return
+			}
 			if !exists {
 				w.WriteHeader(404)
 				return
@@ -93,7 +100,7 @@ func fixture(t *testing.T) (*Allocator, *api) {
 			if r.URL.Query().Get("fieldValidation") != "Strict" {
 				t.Error("missing strict validation")
 			}
-			if state.failQuota && strings.HasSuffix(r.URL.Path, "/resourcequotas") {
+			if (state.failQuota && strings.HasSuffix(r.URL.Path, "/resourcequotas")) || (state.failNetwork && strings.HasSuffix(r.URL.Path, "/networkpolicies")) {
 				w.WriteHeader(403)
 				return
 			}
@@ -106,6 +113,9 @@ func fixture(t *testing.T) (*Allocator, *api) {
 			meta := body["metadata"].(map[string]any)
 			meta["uid"] = fmt.Sprintf("uid-%d", len(state.writes))
 			meta["resourceVersion"] = "1"
+			if state.mutateNetwork != nil && strings.HasSuffix(r.URL.Path, "/networkpolicies") {
+				state.mutateNetwork(body)
+			}
 			state.objects[key] = body
 			_ = json.NewEncoder(w).Encode(body)
 		case "PATCH":
