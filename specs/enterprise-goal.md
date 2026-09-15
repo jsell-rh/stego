@@ -3548,3 +3548,9 @@ check passed credential-file rotation, cleanup metrics, and the SQL adapter
 contract. Source and generation hashes match, and test resources are absent.
 The complete core suite and the expanded 29-check API gate are running in CI.
 The application adoption of session quarantine remains in progress.
+
+The expanded [29-check API gate](hypershell-controller-local-ci-29.json) passed
+on pushed Hypershell commit `3bd9f63`. The source matches that commit. Committed,
+first, second, and post-test generated snapshots match. The Job, Pods, and private
+fixtures are absent. This run uses compiler `16e09a2`; it does not prove the new
+session-quarantine behavior. The full browser check for that change is running.
