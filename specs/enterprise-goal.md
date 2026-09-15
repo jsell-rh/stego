@@ -4145,3 +4145,33 @@ the restricted CI identity. This closes the manual CNPG workflow and automatic
 cleanup gate. Unattended CNPG CI, the public Gateway endpoint, actual RDS use,
 and Sandbox execution remain open. This run does not verify the later compiler
 route-composition change, which has its separate passing compiler CI result.
+
+Hypershell `8551ad3` adopted the route-validation compiler `1edd407`. Repeated
+generation and drift checks passed. Its live browser run `34960101315`, queued
+API run `34960101313`, and full CI `34960101322` remain separate application
+results. The browser Job is `d17d293f-f785-42ca-8610-2705407f5d10` in
+`stego-service-ci`; it was confirmed active on 2026-09-15.
+
+The [pool metric change](database-pool-metrics.md) passed full compiler CI
+`34960363865` at `e8f16c7`. Generated service assembly now supplies its existing
+SQL pool through an optional typed resource. One bounded callback exports
+connection use, the configured limit, cumulative wait totals, and retirement
+counts. The Gateway pool test now requires these signals during cancellation,
+recovery, restart, and collector failure. The API gate requires 31 named tests.
+
+Review found two [browser pool factory gaps](database-pool-factory.md). Assembly
+could ignore a factory whose storage constructor was unused, and an adapter
+without entities supplied no factory. Both failures were reproduced and fixed.
+The compiler now retains independent factories, and adapter 4.4.1 supplies a
+pool without storage models. Focused assembly and generated-process checks pass.
+Factory compiler CI `34960738104` and `34960890553` remain required.
+
+Hypershell `916f3a7` adopts combined compiler `e5b9931`. Its console now calls
+the shared pool factory. Repeated generation, drift, and bounded compilation
+passed. The browser workflow requires a three-connection limit and distinct
+pool metric identities across restart and key rotation. New API `34961014687`,
+browser `34961014607`, and full CI `34961014648` are queued. The three runs at
+`fabad99` were confirmed pending and canceled before execution because the
+console factory fix superseded them. No canceled run is counted as a pass.
+The CI environment credential was renewed through 12:01:12 UTC with the same
+permissions. The earlier live browser and core runs were retained.

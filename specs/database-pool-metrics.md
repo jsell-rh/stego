@@ -39,6 +39,13 @@ The Hypershell acceptance change must verify these metrics through its existing
 Gateway pool-pressure, access, event, recovery, and restart workflow. Full CI
 and the application result remain required.
 
+Full compiler CI
+[34960363865](https://github.com/jsell-rh/stego/actions/runs/34960363865)
+passed at `e8f16c7`, including race tests and SQL provisioning. The focused
+runtime checks also passed with one local CPU and a 384 MiB Go memory limit.
+They used a local test driver; no performance or PostgreSQL workload ran on
+the workstation. Hypershell's expanded application check remains separate.
+
 This covers the pool that generated service assembly owns. Separate worker
 entry points and independent PostgreSQL clients still require their own
 explicit resource wiring. These metrics do not establish production capacity.
