@@ -81,9 +81,11 @@ Set up environment and initialize a new project:
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry
+export PATH="/path/to/stego:$PATH"
 mkdir my-service && cd my-service
-/path/to/stego init -archetype rest-crud
+stego init -archetype rest-crud
 ```
+Use the path of your STEGO checkout for `/path/to/stego`.
 This creates a `service.yaml` scaffold and a `fills/` directory. Edit
 `service.yaml` with your entities and operations:
 
@@ -114,8 +116,11 @@ stego validate      # check service.yaml against registry
 stego plan          # see what will be generated
 stego apply         # generate code into out/
 stego deps          # resolve and check project dependencies
-cd out && go build  # it's just Go
+go build -o service ./out
 ```
+
+Run the following STEGO commands from the project directory that contains
+`service.yaml`. The build command keeps that working directory unchanged.
 
 Run `stego deps` after apply and after changes to application imports. It runs Go
 module resolution, module verification, and package dependency checks. It uses
@@ -214,11 +219,13 @@ It demonstrates all rest-crud archetype features:
 
 ```bash
 export STEGO_REGISTRY=/path/to/stego/registry
-cd examples/user-management
-/path/to/stego validate
-/path/to/stego plan
-/path/to/stego apply
-cd out && go build
+export PATH="/path/to/stego:$PATH"
+cd /path/to/stego/examples/user-management
+stego validate
+stego plan
+stego apply
+stego deps
+go build -o service ./out
 ```
 
 ## Concepts
