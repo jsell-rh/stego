@@ -3815,3 +3815,16 @@ Full CI run `34942025954` for `3757c27` completed. The core suite, ordinary
 browser suite, web console, and service image jobs passed. The overall run
 failed because its CNPG and Sandbox jobs failed. The current operator-assisted
 CNPG run is separate evidence and cannot change that CI result.
+
+The second CNPG attempt created both Gateways and passed verified TLS, separate
+databases, cross-database denial, and unsafe-grant recovery. Primary replacement
+failed because the test removed public access without preserving CNPG maintenance
+access to `postgres`. CNPG reported SQLSTATE `42501` for `streaming_replica`.
+The test failed at 420.71 seconds. Cleanup removed the application, installation,
+operator, and namespace volumes before releasing the Lease.
+
+Hypershell `327f24c` grants only `CONNECT` on `postgres` to the CNPG maintenance
+role. The public revocation and Gateway access rules remain. This is an
+installation fixture change; the common runtime has no CNPG role name. Frozen
+generation passed. The third attempt now repeats the full application workflow
+with that correction. Both earlier failures remain in the attempt record.

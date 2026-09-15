@@ -1,7 +1,7 @@
 {
-  "application_commit": "fcadadd41f22e3e73f5ded3a444a6f34a290ee3f",
+  "application_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
   "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
-  "status": "first_startup_failed_cleanup_passed_second_attempt_running",
+  "status": "maintenance_grant_corrected_third_attempt_running",
   "local_inspection_tests_passed": 8,
   "frozen_generation": "passed",
   "fixture_changed_files": [
@@ -23,6 +23,6 @@
     "Provide a secure unattended CI installation path."
   ],
   "local_boundary_tests_passed": 29,
-  "live_source_commit": "90b6ca58ba6ab89131672cccdde4a1452c1dbe6f",
+  "live_source_commit": "327f24ca24466ef3a6a3b74370d4430e017af1b6",
   "attempt_record": "hypershell-cnpg-installation-attempts.json"
 }
