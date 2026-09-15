@@ -121,11 +121,13 @@ CI-only pushes were also canceled before execution. They are not passes. The
 records all run IDs and the remaining acceptance checks.
 
 Known release gaps include unattended CNPG CI, public Gateway connectivity,
-actual RDS operation, backup and restore evidence, and measured capacity.
+external PostgreSQL contract coverage, backup and restore evidence, and measured capacity.
 On 2026-09-15, the user selected TLS passthrough with an operator-selected issuer
 and controller ownership of `route_address`. These accepted choices still need
 implementation and a complete [public connection check](hypershell-external-connection.md).
-An identified disposable RDS target remains necessary for its live gate.
+The user approved PostgreSQL containers for the external database gate. No RDS
+test instance exists. Terraform creates RDS outside Hypershell. AWS-specific
+operation remains unverified; it is not a required live test for this gate.
 
 On the same date, the user deferred the live Kata Sandbox test because no
 suitable cluster is available. CI must show this test as skipped, not passed.
@@ -140,8 +142,8 @@ The [admission attempt record](pinned-resource-admission.md) preserves four
 failed probes. That renderer is withdrawn from generated output. Do not restore
 it until its complete live gate passes. Do not restart the cluster API server
 to make a probe pass. The
-[RDS gate](rds-acceptance.md) requires a real supplied server and evidence for
-its permissions, isolation, TLS, and failover. The
+[external PostgreSQL gate](rds-acceptance.md) uses a supplied container server
+to test permissions, isolation, verified TLS, recovery, and cleanup. The
 [shared observability requirement](shared-observability.md) still includes
 complete process and controller coverage, failure isolation, and measured cost.
 Service startup and other unbound entry points retain separate open checks.
