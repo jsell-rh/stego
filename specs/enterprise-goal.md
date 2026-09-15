@@ -3717,3 +3717,10 @@ and [API run](https://github.com/jsell-rh/hypershell-stego/actions/runs/34939474
 are queued behind the SQL cleanup denial checks. No live encryption result is
 claimed. This is an application credential-storage check, not disk, volume,
 backup, or RDS encryption proof. No production runtime or permission changed.
+
+The [API gate](https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123)
+for SQL cleanup denial source `ae371ae` passed all 30 required tests. All 872
+source files and 228 generated files match the pushed commit. Generation records
+match, and the Job, Pods, and private fixtures are absent. This API pass compiles
+the new live test but does not execute its denial case. The complete browser
+workflow for that case is now active. Credential-encryption checks remain queued.
