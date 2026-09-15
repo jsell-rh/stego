@@ -45,4 +45,9 @@ resources, and the test Pod checked their rendered content before it applied
 namespace resources. The complete Gateway workflow passed in 330.01 seconds,
 including 17 installation-access checks, restart, telemetry, and cleanup. See
 [the live evidence](https://github.com/jsell-rh/hypershell-stego/blob/a0fb17f8a779ce8761228931ccc0f3618f7398af/acceptance/operator-cluster-installation-evidence.json).
-Namespace and Secret access still need restriction before workload CI use.
+The later fixture uses declared namespace inspection roles and named Secret
+reads. Its production allocator code and binding indices remain unchanged.
+The complete workflow passed in 342.91 seconds, with 57 access checks and six
+admission probes. See
+[the inspection evidence](https://github.com/jsell-rh/hypershell-stego/blob/b08f8b3e9858d5d757c68ccf939e4df233dc3835/acceptance/browser-inspection-evidence.json).
+Connecting the fixture to unattended workload CI remains open.

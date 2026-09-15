@@ -43,7 +43,6 @@
       "drift": "No drift in API or console output."
     },
     "scope": "The initial bounded check renders manifests. The later operator workflow applies the split and checks the actual test identity.",
-    "pending_application_full_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314180",
     "application_api_ci": {
       "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314161",
       "result": "success",
@@ -62,6 +61,33 @@
       "installation_access_checks": 17,
       "cleanup_confirmed": true,
       "remaining": "Restrict namespace and Secret access before workload CI use."
+    },
+    "application_full_ci": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34929314180",
+      "result": "failure",
+      "passed_jobs": [
+        "acceptance (core)",
+        "acceptance (browser)",
+        "service-image",
+        "web-console"
+      ],
+      "failed_jobs": [
+        "gateway-workload",
+        "cnpg-gateway-workflow",
+        "sandbox-workload"
+      ],
+      "remaining": "Convert the three required workload fixtures to the restricted jshell runner."
+    },
+    "namespace_inspection": {
+      "application_commit": "b08f8b3e9858d5d757c68ccf939e4df233dc3835",
+      "result": "success",
+      "evidence": "hypershell-namespace-inspection.json",
+      "workflow_seconds": 342.91,
+      "access_checks": 57,
+      "admission_probes": 6,
+      "fixture_generated_files": 229,
+      "cleanup_confirmed": true,
+      "remaining": "Connect the fixture to restricted, unattended workload CI. Installation CNPG, RDS, and Sandbox checks remain open."
     }
   }
 }

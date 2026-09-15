@@ -405,5 +405,39 @@
       "cnpg-gateway-workflow",
       "sandbox-workload"
     ]
+  },
+  "operator_installation_api_gate": {
+    "application_commit": "a0fb17f8a779ce8761228931ccc0f3618f7398af",
+    "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34930881956",
+    "source_matches_commit": true,
+    "source_inventory_sha256": "b219847656d764cbacb0e284498bc0a2a27f3c243d1cfa542a17c5b7c9b05806",
+    "generated_snapshots": {
+      "committed.sha256": "8858bad8f10c4c47541c09577368e1e6a8b20df9a371e808b9a8a03dd4ee6b03",
+      "first.sha256": "8858bad8f10c4c47541c09577368e1e6a8b20df9a371e808b9a8a03dd4ee6b03",
+      "second.sha256": "8858bad8f10c4c47541c09577368e1e6a8b20df9a371e808b9a8a03dd4ee6b03",
+      "after.sha256": "8858bad8f10c4c47541c09577368e1e6a8b20df9a371e808b9a8a03dd4ee6b03"
+    },
+    "cleanup": {
+      "job_absent": "gateway-api-0c82a575b44f",
+      "pods_absent": true,
+      "fixture_resources_absent": true
+    },
+    "conflict_retries": {
+      "creation": 7,
+      "removal": 7
+    },
+    "artifact_sha256": {
+      "tests.jsonl": "1b1e489131b93e3b7c32d8e36155f96861581161b32c5e3fb4b6bbba1b2f310c",
+      "test.log": "f58baed1d01e48e03cf83a7c1d8ef4f7630c06553c49c4200839176020ead4fb",
+      "job-final.json": "40d626bd9684c2354943745d83e2879bc14553787474b91e4f3425b9465d20e6",
+      "cleanup.json": "c359357796ddabeb534cee4e2cdeca6e135e5af0b18fd991089dfab81b1ca34e",
+      "verification.json": "6e23daebbd70632d26ae78d3705c075177af452d660eedf7bd8cde57e1c54cb6"
+    },
+    "result": "success",
+    "required_checks": 30,
+    "missing_checks": [],
+    "failed_checks": [],
+    "scope": "Gateway API gate after operator installation moved outside the browser test Pod. This run precedes the namespace inspection change."
   }
 }

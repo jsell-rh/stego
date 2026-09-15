@@ -1,0 +1,261 @@
+{
+  "application_commit": "b08f8b3e9858d5d757c68ccf939e4df233dc3835",
+  "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/b08f8b3e9858d5d757c68ccf939e4df233dc3835/acceptance/browser-inspection-evidence.json",
+  "source_record_sha256": "0d943c0cc931bf730f9f9ac61b5562cf86e146f6fe9acb26f9bc3be5e6f18af7",
+  "result": "success",
+  "scope": "Complete browser Gateway workflow with two test-only namespace inspection roles declared through STEGO. The production allocator code and binding indices remain unchanged.",
+  "workflow_seconds": 342.91,
+  "operator_cluster_resources": 18,
+  "access_checks": 57,
+  "admission_probes": 6,
+  "fixture_generated_file_count": 229,
+  "generation_record_sha256": {
+    "first.sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c",
+    "second.sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c",
+    "after-tests.sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c"
+  },
+  "fixture_declaration": {
+    "source_sha256": "4415c6f95661d7cd7fdf0f8837f43c064974b3496f1b3c8ee3c5fb22dd761fae",
+    "changed_files": [
+      ".stego/state.yaml",
+      "out/deploy/allocation/allocation.go",
+      "out/deploy/render/worker-namespace-allocation.json.tmpl",
+      "service.yaml"
+    ],
+    "inspection_roles": [
+      {
+        "Name": "fixture-gateway-inspector",
+        "Scope": "namespace",
+        "Rules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resourceNames": [
+              "openshell-gateway-db-credentials",
+              "openshell-gateway-keys",
+              "openshell-server-tls"
+            ],
+            "resources": [
+              "secrets"
+            ],
+            "verbs": [
+              "get"
+            ]
+          },
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resourceNames": [
+              "stego-allocation"
+            ],
+            "resources": [
+              "resourcequotas"
+            ],
+            "verbs": [
+              "get"
+            ]
+          },
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resources": [
+              "pods"
+            ],
+            "verbs": [
+              "delete",
+              "get",
+              "list",
+              "watch"
+            ]
+          },
+          {
+            "apiGroups": [
+              "apps"
+            ],
+            "resourceNames": [
+              "openshell-gateway"
+            ],
+            "resources": [
+              "deployments"
+            ],
+            "verbs": [
+              "get",
+              "list",
+              "watch"
+            ]
+          }
+        ]
+      },
+      {
+        "Name": "fixture-state-inspector",
+        "Scope": "namespace",
+        "Rules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resourceNames": [
+              "openshell-gateway-state"
+            ],
+            "resources": [
+              "secrets"
+            ],
+            "verbs": [
+              "get"
+            ]
+          },
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resourceNames": [
+              "stego-allocation"
+            ],
+            "resources": [
+              "resourcequotas"
+            ],
+            "verbs": [
+              "get"
+            ]
+          }
+        ]
+      }
+    ],
+    "render": {
+      "production_sha256": "e9257bda93d9250fa2ceb3e1147f810757f05937203085e12a7666b933a02f8f",
+      "fixture_sha256": "b7c76eab780ad125b63c6757427a670338c7b106ffe1d3054b6e0c828c421086",
+      "scope": "Two namespace roles, allocator bind names, and declared namespace binding cases only."
+    },
+    "production_source_matches": true,
+    "fixture_source_matches": true,
+    "production_source_inventory_sha256": "e9fb20b1e88aacc6116436fff601473545e9cf9c7fb7f0ebcb808eeb5e323598"
+  },
+  "source_changes_after_freeze": [],
+  "cleanup": {
+    "namespace_absent": "stego-service-20260915-2fdc7e",
+    "owned_resources_absent": true
+  },
+  "job": {
+    "namespace": "stego-service-20260915-2fdc7e",
+    "name": "service-check",
+    "uid": "fe37f32b-9076-4dbe-bbc6-51c89358eec9",
+    "activeDeadlineSeconds": 1800,
+    "backoffLimit": 0,
+    "status": {
+      "completionTime": "2026-09-15T05:28:40Z",
+      "conditions": [
+        {
+          "lastProbeTime": "2026-09-15T05:28:40Z",
+          "lastTransitionTime": "2026-09-15T05:28:40Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "SuccessCriteriaMet"
+        },
+        {
+          "lastProbeTime": "2026-09-15T05:28:40Z",
+          "lastTransitionTime": "2026-09-15T05:28:40Z",
+          "message": "Reached expected number of succeeded pods",
+          "reason": "CompletionsReached",
+          "status": "True",
+          "type": "Complete"
+        }
+      ],
+      "ready": 0,
+      "startTime": "2026-09-15T05:15:58Z",
+      "succeeded": 1,
+      "terminating": 0,
+      "uncountedTerminatedPods": {}
+    }
+  },
+  "session_checks": [
+    "terminated its existing session; the other Gateway session remained open",
+    "preserved credentials, keys, and provider data"
+  ],
+  "unit_checks": [
+    {
+      "command": "python3 scripts/test_browser_cluster_installation.py",
+      "passed": 7,
+      "cluster_requests": 0
+    },
+    {
+      "command": "python3 scripts/test_browser_inspection.py",
+      "passed": 6,
+      "cluster_requests": 0
+    }
+  ],
+  "image_reproducibility": {
+    "images": {
+      "hypershell": "sha256:307d8a7e6623183d271b5a61a748ab89e262f8277464d557c155897142f3cf65",
+      "hypershell-console": "sha256:a001ba22f6ebf0a568b1cb6b2bdc9965a2ef3148c74bb4b09f50fe9bce7605af",
+      "hypershell-provisioner": "sha256:583a96da6a8361e9205d7d3f7d429c0b664d68f02d701bf68b5a9fced1f826ff",
+      "hypershell-namespace-allocation": "sha256:ffb5c7efaab9b8fb748ae16055a07b299f0672494c5999129799ac172c52d81f",
+      "hypershell-gateway-identity": "sha256:5a2c8e615eddffd98cb901ecaf8aa10fceff0d403c0defb6dccdfd81e4b9f434",
+      "hypershell-gateway-workload": "sha256:ce9cbe87bef9d3dfa45cda4c312fc5f3ffb442f573ee5a6a9cf1b4795d091f4f"
+    },
+    "failed_and_corrected_images_equal": true
+  },
+  "visual_review": {
+    "verify.json.png": "The Gateway is Healthy. Connection commands remain pending because this fixture does not publish an external endpoint. This image does not prove external connection-command delivery.",
+    "accounts-delete.json.png": "The Gateway is Healthy and its service-account list is empty after deletion."
+  },
+  "earlier_attempts": [
+    {
+      "result": "failure",
+      "scope": "The full workflow failed at an admission message expectation. No full workflow pass.",
+      "namespace": "stego-service-20260915-d5ebb2",
+      "workflow_seconds": 156.74,
+      "access_checks_completed": 57,
+      "failure": "allocation dry-run was not denied by the expected policy allocation identity change 422",
+      "public_reproduction": "The allocator identity receives ValidatingAdmissionPolicy allocation: Allocator cannot change resource ownership.",
+      "correction": "Expect the allocator ownership validation message. No permission change.",
+      "first_second_generation_equal": true,
+      "post_test_generation_present": false,
+      "cleanup": {
+        "namespace_absent": "stego-service-20260915-d5ebb2",
+        "owned_resources_absent": true
+      },
+      "job_status": {
+        "conditions": [
+          {
+            "lastProbeTime": "2026-09-15T05:15:17Z",
+            "lastTransitionTime": "2026-09-15T05:15:17Z",
+            "message": "Job has reached the specified backoff limit",
+            "reason": "BackoffLimitExceeded",
+            "status": "True",
+            "type": "FailureTarget"
+          },
+          {
+            "lastProbeTime": "2026-09-15T05:15:17Z",
+            "lastTransitionTime": "2026-09-15T05:15:17Z",
+            "message": "Job has reached the specified backoff limit",
+            "reason": "BackoffLimitExceeded",
+            "status": "True",
+            "type": "Failed"
+          }
+        ],
+        "failed": 1,
+        "ready": 0,
+        "startTime": "2026-09-15T05:05:46Z",
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+      },
+      "artifact_sha256": {
+        "deployment.log": "cf30ebaafb0dd61952e7f92c28c729674ee6ee3f1077a545acaa203bd7109c61",
+        "evidence.tar": "993d032e903906d991878b7eb4064697933e8b41d8d47ddb2010df1c50688c33",
+        "cleanup.json": "fe0eb4aaeca53e3a35474b27903266764e9fe17eda526b3b1873d9fb139b88cd",
+        "job-status.json": "763b844759f4aee609f278573f3f2615e46d178e5215df24fade1264b8a1c434"
+      }
+    }
+  ],
+  "limits": [
+    "The PostgreSQL restart uses the bounded test sidecar. Installation CNPG and RDS failover remain unproven.",
+    "Workload namespace replacement, denied SQL cleanup with retained keys, encrypted data at rest, viewer recovery, and Sandbox/Kata execution remain required.",
+    "The old Kubernetes CI runners still require conversion. This result is not a full CI or production-readiness claim.",
+    "The fixed test control namespace remains trusted. An operator installs cluster policy. Unattended workload CI conversion remains open."
+  ]
+}
