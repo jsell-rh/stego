@@ -85,14 +85,17 @@ The latest verification handles are:
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
-The allocation runtime candidate and IP endpoint compiler CI passed.
-The main Hypershell variant branch now includes candidate `101f31d`.
-The endpoint change still requires the application isolation gate. Candidate
-`5043608` has a new application CI run. Hypershell `d600728` now shares the saved Kubernetes endpoint set between
-operator setup and the test Job. Its focused installation, inspection, public
-permission, and CNPG CI checks passed. This later test setup change is not part
-of CI source `5043608`. SQL, identity-provider, DNS, router, and telemetry paths
-still require the complete Gateway isolation workflow.
+The Gateway isolation candidate `e381e41` enables the generated policies and
+adds bounded traffic probes to the full browser workflow. Its CI run
+[35001765334](https://github.com/jsell-rh/hypershell-stego/actions/runs/35001765334)
+is pending. The first live run stopped during permission setup and completed
+cleanup. A separate installation probe passed. Candidate `1ec8283` now waits for
+policy type checks before bindings and retains server errors. Its frozen public
+workflow is running in `stego-service-20260915-845abf` and holds the shared Lease.
+See the [workflow record](hypershell-gateway-network-workflow-20260915.json).
+The later CNPG fixture change `47a16b3` passed generation and comparison checks;
+its live isolation workflow has not run. The main variant branch still uses the
+earlier checked candidate. Traffic isolation remains unproved.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.

@@ -1,0 +1,113 @@
+{
+  "checked_at": "2026-09-15T17:38:37.881603+00:00",
+  "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "live_source_revision": "1ec82839367b7a1b57eb1e4bb643d3a0be610e22",
+  "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
+  "scope": "Generated Gateway and state network policies are enabled in a candidate. The live public workflow is running; traffic isolation is not yet proved.",
+  "declaration": {
+    "gateway": "Selected router, DNS, SQL, identity-provider, and telemetry Pod peers, plus exact operator Kubernetes addresses.",
+    "state": "Deny all traffic.",
+    "observation": "Bound controller roles can get the named policy and list the complete policy set."
+  },
+  "local_checks": {
+    "regeneration": "Both modules passed repeated apply and drift.",
+    "allocator_audit": "Ensure wrote the generated NetworkPolicy before access bindings.",
+    "allocation_policy_protocol_fixture_seconds": 0.027,
+    "workload_startup_privacy_seconds": 6.826,
+    "focused_internal_tls_and_invalid_gateway_seconds": 0.017,
+    "installation_tests": 11,
+    "inspection_tests": 10,
+    "evidence_collector_cases": 15
+  },
+  "first_live_attempt": {
+    "directory": "/tmp/hypershell-gateway-network-live-20260915",
+    "namespace": "stego-service-20260915-cb9eeb",
+    "exit_status": 1,
+    "scope": "Stopped during cluster permission setup before application execution.",
+    "failure": "A create request failed after the allocator ClusterRole was created. The wrapper did not retain stderr, so the cause is not known.",
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-cb9eeb",
+      "owned_resources_absent": true
+    }
+  },
+  "installation_probe": {
+    "directory": "/tmp/hypershell-network-installation-probe-20260915",
+    "scope": "The same generated allocator policies and roles were created after all policy type checks passed. No Pods ran. This does not establish the cause of the first failure.",
+    "cleanup": {
+      "test_namespaces_absent": true,
+      "allocated_bindings_absent": true,
+      "installed_resources_absent": true,
+      "lease_released": true,
+      "success": true
+    }
+  },
+  "corrections": [
+    "The copied kubernetes-service schema is now 1.15.0.",
+    "The operator and test Job use the same saved Kubernetes endpoints.",
+    "The installer checks all policies before bindings and records server errors and a pending resource identity."
+  ],
+  "live_attempt": {
+    "directory": "/tmp/hypershell-gateway-network-retry-live-20260915",
+    "log": "/tmp/hypershell-gateway-network-retry-live-20260915.log",
+    "namespace": "stego-service-20260915-845abf",
+    "job": "service-check",
+    "pod": "service-check-qr2tv",
+    "status": "running",
+    "exec_session": 86474,
+    "shared_lease": "stego-ci/jshell-live-test"
+  },
+  "ci": [
+    {
+      "run_id": 35001051267,
+      "source": "50436086a30a371726f3b355fb68cf32f0577d3c",
+      "scope": "Earlier runtime adoption. Allocation policies are not enabled.",
+      "status": "core running; browser, console, and images passed"
+    },
+    {
+      "run_id": 35001765334,
+      "source": "e381e41fca848d76e3ec81be33d2279eff6debd6",
+      "scope": "Enabled network declaration and traffic probe code. Later installer and CNPG fixture changes are not included.",
+      "status": "pending"
+    }
+  ],
+  "cnpg": {
+    "source": "47a16b33cb12e10c806faacd491b1c053c968f89",
+    "fixture_directory": "/tmp/hypershell-cnpg-network-frozen-20260915",
+    "generation": "passed",
+    "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. A separate generated baseline verifies inspection-role additions. No CNPG isolation traffic check has run."
+  },
+  "remaining": [
+    "Complete the current public workflow and inspect traffic results.",
+    "Test an unrelated namespace and live endpoint changes.",
+    "Run the complete CNPG workflow with isolation enabled.",
+    "Declare and test external database endpoints for deployments outside this SQL Pod fixture.",
+    "Resolve the open DNS provider choice.",
+    "The user deferred the live Kata test."
+  ],
+  "artifacts": [
+    {
+      "path": "/tmp/hypershell-gateway-network-live-20260915.log",
+      "sha256": "194fc233b95d9f3787db9ae586ec19bdefaa8c65f8fc139fd83cf252ae7640c9"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-live-20260915/cleanup.json",
+      "sha256": "04a06f7e571bca60872aeb3fc5fafd1b7534494b4c67a90df59e152938c3984e"
+    },
+    {
+      "path": "/tmp/hypershell-network-installation-probe-20260915/probe.py",
+      "sha256": "233894e092d4a30a92b8335f0d926844ef7da61dc94bbd71cb0e37a743bc065c"
+    },
+    {
+      "path": "/tmp/hypershell-network-installation-probe-20260915/cleanup.json",
+      "sha256": "11eb5523de2317b9bbf2fc6e0b53bd5be57f2f7c2a4c87e4c3d76d030fb241cf"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-retry-frozen-20260915/acceptance/browser-inspection-source.json",
+      "sha256": "b5c716678fa8ee384050b42d7f8a5ccaa644cd84d5abf9c538263a875735a7cb"
+    },
+    {
+      "path": "/tmp/hypershell-cnpg-network-prepare-20260915.log",
+      "sha256": "419346c3c09d6a96e58d78405925f62e6523a9567c2488f8ef9810b148faf2ea"
+    }
+  ]
+}
