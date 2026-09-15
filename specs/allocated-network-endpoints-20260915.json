@@ -1,0 +1,103 @@
+{
+  "checked_at": "2026-09-15T17:17:14.737840+00:00",
+  "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+  "component_version": "kubernetes-service 1.15.0",
+  "scope": "Generated endpoint renderer and runtime tests, plus Kubernetes admission expression type checks. No policy bindings, Pods, or traffic probes were created.",
+  "local_checks": {
+    "final_focused_package_seconds": 4.667,
+    "final_focused_exit_status": 0,
+    "runtime_and_renderer_race_detection": true,
+    "earlier_compatibility_package_seconds": 10.684,
+    "earlier_compatibility_exit_status": 0,
+    "coverage": [
+      "IPv4 and IPv6 exact endpoints",
+      "shared-address deduplication",
+      "required and unknown endpoint names",
+      "invalid, duplicate, and excessive startup configuration",
+      "operator address changes after restart",
+      "retired endpoint removal",
+      "stable flag ordering",
+      "matching admission and runtime configuration",
+      "no output for invalid deployment arguments"
+    ]
+  },
+  "compiler_ci": {
+    "run_id": 35000198875,
+    "url": "https://github.com/jsell-rh/stego/actions/runs/35000198875",
+    "status": "in_progress"
+  },
+  "initial_failure": {
+    "source": "Uncommitted endpoint change before port normalization",
+    "reason": "CEL rejected a map with string address values and integer port values.",
+    "manifest_sha256": "abeb01f9be0844b63b1244028826cd73f26199dcffc010443345b9d930d2b98b",
+    "cleanup": {
+      "test_namespaces_absent": true,
+      "allocated_bindings_absent": true,
+      "installed_resources_absent": true,
+      "lease_released": true,
+      "success": false
+    },
+    "manifest_path": "/tmp/stego-allocation-endpoints-20260915/first/manifest.json"
+  },
+  "correction": "Admission map values are strings. The generated expression converts the checked port with int().",
+  "type_checks": [
+    {
+      "name": "stego-allocation-endpoints-20260915.widget-queue.allocation",
+      "generation": 1,
+      "observed_generation": 1,
+      "warnings": []
+    },
+    {
+      "name": "stego-allocation-endpoints-20260915.widget-queue.ownership",
+      "generation": 1,
+      "observed_generation": 1,
+      "warnings": []
+    },
+    {
+      "name": "stego-allocation-endpoints-20260915.widget-queue.resources",
+      "generation": 1,
+      "observed_generation": 1,
+      "warnings": []
+    }
+  ],
+  "cleanup": {
+    "test_namespaces_absent": true,
+    "allocated_bindings_absent": true,
+    "installed_resources_absent": true,
+    "lease_released": true,
+    "success": true
+  },
+  "independent_cleanup": {
+    "installed_objects_absent": 5,
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "lease_free": true
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/stego-allocation-endpoints-fixed-20260915/first/manifest.json",
+      "sha256": "891cf8e617bed31d520397ea810accbc6967e52a3c025bcbe1cf67d201728a9e"
+    },
+    {
+      "path": "/tmp/stego-allocation-endpoints-fixed-20260915/manifests/next-manifest.json",
+      "sha256": "4dada19b33744302c98d94071f3b704d00a8ae2dd0b544d322b71fd4d4802493"
+    },
+    {
+      "path": "/tmp/stego-allocation-endpoints-fixed-20260915/type-checks.json",
+      "sha256": "e79337df8134a4ccb4a141bebd406fae15b695f377340fbaf47e0ba0561f3b25"
+    },
+    {
+      "path": "/tmp/stego-allocation-endpoints-fixed-20260915/typecheck.py",
+      "sha256": "47ad8a9efbcc7301d692b484b8e7fbb11b3aeded35285b202a60ae537fbed890"
+    },
+    {
+      "path": "/tmp/stego-allocation-endpoints-fixed-20260915/cleanup.json",
+      "sha256": "11eb5523de2317b9bbf2fc6e0b53bd5be57f2f7c2a4c87e4c3d76d030fb241cf"
+    }
+  ],
+  "limits": [
+    "Complete endpoint admission request checks remain required.",
+    "CNI traffic enforcement and the complete Gateway isolation workflow remain required.",
+    "The earlier Hypershell candidate uses compiler e394ab5 and does not test these endpoint bindings.",
+    "This mechanism does not resolve or track DNS names. The DNS provider decision remains open."
+  ]
+}

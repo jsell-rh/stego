@@ -206,6 +206,14 @@ policy enforcement point. Address translation and service routing require
 checks on the selected cluster. This feature does not select a DNS provider
 or establish complete Gateway network isolation.
 
+The [endpoint check record](allocated-network-endpoints-20260915.json) contains
+focused renderer and runtime checks and three passing Kubernetes expression
+type checks. Kubernetes first rejected mixed value types in the generated map.
+The correction stores port values as strings and converts them in CEL. Both
+attempts completed cleanup. Full admission request tests and traffic tests
+remain required. Compiler CI is running in
+[run 35000198875](https://github.com/jsell-rh/stego/actions/runs/35000198875).
+
 ## Controlled network updates
 
 Version 1.14.0 gives the allocator patch access only to NetworkPolicy

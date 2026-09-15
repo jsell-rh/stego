@@ -67,6 +67,7 @@ checks, but it cannot establish a complete application pass.
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
 | Unattended CNPG | Hypershell `8e942ac`, compiler `0b0c932` | [Run 34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789) passed the complete rendered application test in 470.24 seconds with race detection. Primary replacement preserved SQL identities, credentials, keys, and data. Automatic cleanup removed runtime, private fixtures, claims, and volumes and released the Lease. See the [complete record](hypershell-cnpg-ci-complete-20260915.json). Earlier failures remain in the [recovery record](hypershell-cnpg-ci-recovery-20260915.json). |
+| Allocated IP endpoint bindings | STEGO `5516e48`, kubernetes-service 1.15.0 | [Endpoint evidence](allocated-network-endpoints-20260915.json) covers checked operator bindings, generated runtime updates, and three Kubernetes expression type checks. The first map type error was corrected. Full request admission and traffic enforcement remain unproved. Compiler CI is running. No Hypershell workflow uses this change yet. |
 | Allocated namespace policy | STEGO `8aedc54`, kubernetes-service 1.14.0 | [Controlled-update evidence](allocated-network-update-admission-20260915.json) covers the generated runtime and 93 live admission checks: 19 allowed and 74 denied. Approved rule changes, removal of retired rules, stale-version denial, ownership, policy-set protection, and cleanup passed. No Pods ran. Full compiler CI passed. The earlier candidate `101f31d` uses compiler `e394ab5`; its browser, console, image, and regeneration checks passed, and core tests remain active. Neither result proves Gateway traffic isolation. |
 
 The latest verification handles are:
@@ -74,6 +75,7 @@ The latest verification handles are:
 | Check | Source | Handle |
 | --- | --- | --- |
 | Allocation runtime application candidate | Hypershell `101f31d`, compiler `e394ab5` | [34998079776](https://github.com/jsell-rh/hypershell-stego/actions/runs/34998079776), core tests running. The rendered browser workflow passed in 97 seconds. Console tests, bundle reproduction, regeneration, and image checks passed. CNPG and Sandbox skipped. Production isolation remains off. |
+| Allocated IP endpoint bindings | STEGO `5516e48` | [35000198875](https://github.com/jsell-rh/stego/actions/runs/35000198875), compiler checks running. The separate type check removed its unbound policies and namespace and released the Lease. |
 | Controlled allocation network updates | STEGO `8aedc54` | [34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541), completed successfully; compiler checks, both examples, and SQL provisioning passed. The live admission check passed and released its Lease. |
 | Declared allocation network peers | STEGO `e394ab5` | [34997668449](https://github.com/jsell-rh/stego/actions/runs/34997668449), completed successfully; compiler checks, both examples, and SQL provisioning passed. The separate live admission check passed and released its Lease. |
 | Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), completed successfully |
@@ -82,8 +84,9 @@ The latest verification handles are:
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
-The allocation runtime candidate has active core application CI. Both network
-compiler runs and the earlier application runs are complete.
+The allocation runtime candidate has active core application CI. The IP endpoint
+change has active compiler CI. The earlier network compiler and application
+runs are complete.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.
