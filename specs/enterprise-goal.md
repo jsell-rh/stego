@@ -74,7 +74,7 @@ The latest verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
-| Endpoint runtime application candidate | Hypershell `5043608`, compiler `5516e48` | [35001051267](https://github.com/jsell-rh/hypershell-stego/actions/runs/35001051267), application CI queued. Regeneration passed in both modules. Production isolation remains off. |
+| Endpoint runtime application candidate | Hypershell `5043608`, compiler `5516e48` | [35001051267](https://github.com/jsell-rh/hypershell-stego/actions/runs/35001051267), application CI running. Regeneration passed in both modules. Production isolation remains off. |
 | Allocation runtime application candidate | Hypershell `101f31d`, compiler `e394ab5` | [34998079776](https://github.com/jsell-rh/hypershell-stego/actions/runs/34998079776), core tests passed in 1360.499 seconds. The rendered browser workflow passed in 97 seconds. Console tests, bundle reproduction, regeneration, and image checks passed. CNPG and Sandbox skipped. Production isolation remains off. |
 | Allocated IP endpoint bindings | STEGO `5516e48` | [35000198875](https://github.com/jsell-rh/stego/actions/runs/35000198875), all compiler checks passed. The separate type check removed its unbound policies and namespace and released the Lease. |
 | Controlled allocation network updates | STEGO `8aedc54` | [34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541), completed successfully; compiler checks, both examples, and SQL provisioning passed. The live admission check passed and released its Lease. |
@@ -88,9 +88,11 @@ The latest verification handles are:
 The allocation runtime candidate and IP endpoint compiler CI passed.
 The main Hypershell variant branch now includes candidate `101f31d`.
 The endpoint change still requires the application isolation gate. Candidate
-`5043608` has a new application CI run. Operator setup must use the same actual
-endpoint bindings as the workers before the Gateway policy is enabled. The
-current test setup uses placeholders for cluster-scoped rendering.
+`5043608` has a new application CI run. Hypershell `d600728` now shares the saved Kubernetes endpoint set between
+operator setup and the test Job. Its focused installation, inspection, public
+permission, and CNPG CI checks passed. This later test setup change is not part
+of CI source `5043608`. SQL, identity-provider, DNS, router, and telemetry paths
+still require the complete Gateway isolation workflow.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.

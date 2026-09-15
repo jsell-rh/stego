@@ -185,9 +185,20 @@
     "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
     "run_id": 35001051267,
     "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35001051267",
-    "status": "queued",
+    "status": "in_progress",
     "regeneration": "Both modules passed repeated apply and drift.",
     "generation_log_sha256": "3149a187832da1066716047822b6dbce27070cadbe735ae44fb980b233b16d3a",
     "production_isolation_enabled": false
+  },
+  "application_setup": {
+    "revision": "d600728",
+    "scope": "The operator admission render and test Job share the saved Kubernetes endpoint snapshot. No Gateway policy is enabled.",
+    "checks": {
+      "installation": 10,
+      "inspection": 9,
+      "public_permissions": 7,
+      "cnpg_ci": 11
+    },
+    "ci_scope": "Run 35001051267 uses source 5043608 and does not include this later setup change."
   }
 }
