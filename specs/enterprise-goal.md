@@ -206,7 +206,7 @@ The next required work is:
    allocator. The user deferred the live Kata test because no suitable cluster
    is available. This deferral does not establish runtime isolation.
 3. Audit C1 through C7 and H1 through H3 against current source and complete
-   workflows. Remaining work includes the full Hypershell port, backup and
+   workflows. Remaining work includes the full Hypershell port, the separate per-Gateway console, backup and
    restore, supported deployment recovery, complete telemetry coverage, and
    measured capacity. Keep the original requirements active until their full
    evidence exists.
@@ -216,3 +216,8 @@ Gateway TLS uses a separate operator-supplied trust file. The
 [Route permission record](hypershell-public-route-host.json) retains the bounded
 role update and installation identities. The complete public workflow proves its
 recorded application scope. It does not establish full production readiness.
+
+A [source review](https://github.com/jsell-rh/hypershell-stego/blob/codex/approved-network-peers-20260915/acceptance/per-gateway-console-gap-20260915.md) found a separate per-Gateway console gap. The API and UI retain
+`console_address`, but the current workload and identity controllers do not
+create that console or its identity client. The passing management-console
+workflow does not close this H1, H2, and H3 requirement.
