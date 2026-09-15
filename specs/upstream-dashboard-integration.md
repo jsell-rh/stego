@@ -142,7 +142,51 @@ STEGO now has a shared final-status observer in `otel-tracing` 1.14.2. It preser
 the response interfaces and treats 101 as final. Its small test checks actual
 HTTP responses and recorded spans, including early hints, implicit headers,
 flushes, and empty reader copies. That test passed. The browser fixture uses
-this same observer. Full CI verification of the corrected revision is required.
+this same observer.
+
+The corrected revision `1fc6ac6e2e3dc3160bd39e1aef805e0c8639f994` passed all
+four jobs in [CI run 35023836717](https://github.com/jsell-rh/stego/actions/runs/35023836717).
+The compiler suite passed with the race detector and required PostgreSQL. This
+includes WebSocket delivery and status observation, denied requests, all seven
+session-end cases, blocked-read cancellation, and HTTP handler drain. The
+generated local application's vulnerability check also completed successfully.
+Both generated examples and SQL provisioning passed. The earlier failures
+remain recorded; the corrected run does not erase them.
+
+The complete run record and log are in `ci-final.json` and
+`compiler-ci-final.log` in the result directory above. These tests use a test
+application server. They do not verify the upstream image, UI, or deployment.
+
+## Upstream build and UI constraints
+
+The source review also covers the pinned dashboard's
+[container build](https://github.com/Gkrumbach07/openshell-dashboard/blob/07f1b13ebd9e1826afe943b831b092be8bf92498/deploy/Dockerfile),
+[Webpack configuration](https://github.com/Gkrumbach07/openshell-dashboard/blob/07f1b13ebd9e1826afe943b831b092be8bf92498/frontend/webpack.config.js),
+and [HTML document](https://github.com/Gkrumbach07/openshell-dashboard/blob/07f1b13ebd9e1826afe943b831b092be8bf92498/frontend/public/index.html).
+These sources expose constraints that a test HTTP server cannot prove:
+
+- Production JavaScript uses root paths such as `/main.<hash>.js`. Font and
+  image files also use the build output path. The current local proxy's
+  `/assets/` rule does not cover these paths. Generate a checked asset contract
+  from the selected build before the application mode is enabled.
+- Webpack uses `style-loader`, including in production. It inserts style
+  elements at runtime. The current `style-src 'self'` policy does not permit
+  them. Test the actual UI and use a controlled build or nonce integration.
+  Do not add a general inline-script permission to make the UI load.
+- The HTML requests Google Fonts. The current policy permits local fonts only.
+  Use local assets or verify the fallback; do not add an external dependency
+  without an explicit deployment contract.
+- Monaco emits worker assets, and the terminal uses xterm. Include the editor
+  and terminal in the UI check. A successful landing page is insufficient.
+- The reference container build uses mutable base tags and `npm install`.
+  Its Go module declares gRPC 1.82.1. The reviewed image metadata does not
+  prove its build inputs or that its runtime dependencies have no known
+  vulnerabilities. Keep the upstream application, but require a pinned build
+  and dependency checks before production qualification.
+
+The source files and their SHA-256 hashes are stored in
+`/home/jsell/.local/state/stego/references/openshell-dashboard-07f1b13`.
+No browser test or upstream image vulnerability result is claimed here.
 
 ## Remaining acceptance work
 
