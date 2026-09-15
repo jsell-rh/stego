@@ -19,6 +19,9 @@ import (
 // Generator produces the rest-api component's generated code.
 type Generator struct{}
 
+// MinimumGoVersion includes the request validator's supported Go target.
+func (*Generator) MinimumGoVersion() string { return "1.25.0" }
+
 // ValidateContext checks collection capabilities, fields, names, and routes.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateHTTPBasePath(ctx.BasePath); err != nil {
@@ -291,7 +294,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			if wiring.GoModRequires == nil {
 				wiring.GoModRequires = make(map[string]string)
 			}
-			wiring.GoModRequires["github.com/getkin/kin-openapi"] = "v0.128.0"
+			wiring.GoModRequires["github.com/getkin/kin-openapi"] = "v0.144.0"
 		}
 	}
 

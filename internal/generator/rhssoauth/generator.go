@@ -100,7 +100,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		MiddlewareWrapExpr:    "%s.Build()(%s)",
 		ConstructorDeferCalls: map[int]string{0: "Stop()"},
 		GoModRequires: map[string]string{
-			"github.com/golang-jwt/jwt/v4": "v4.5.1",
+			"github.com/golang-jwt/jwt/v4": "v4.5.2",
 		},
 		StdlibImports: []string{"os"},
 	}
