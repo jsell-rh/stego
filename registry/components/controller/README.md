@@ -246,3 +246,11 @@ a Kubernetes Service.
 the goroutine that calls Run, with or without the local monitor. Goroutines
 started by the callback, fatal runtime faults, and callbacks that do not stop
 on cancellation remain outside this boundary.
+
+`StateProtector` encrypts bounded recovery records with instance, resource,
+scope, and version binding. It uses a fresh HKDF salt and an AES-256-GCM key for
+each record. Supply an independent random active key and up to three older read
+keys. Keep keys outside the state database. Plaintext requires explicit `Reveal`;
+formatting is redacted and implicit JSON export fails. The codec does not save
+records or grant access. Combine it with `ResourceStateStore` and authorized
+resource transactions. Re-encryption requires a new record version.

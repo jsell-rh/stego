@@ -66,3 +66,10 @@ before migrations, constructors, tasks, or listeners. See the
 Version 4.3 adds an optional [fresh schema generation gate](schema-generation.md).
 It rejects old or unknown schemas before initialization writes and before the
 store can serve requests. Applications must select this breaking release policy.
+
+The generated `ResourceStateStore` supports bounded binary recovery records with
+compare-and-swap versions. Writes require a transaction; clear content with an
+empty record to retain stale-writer protection. The new
+`000009_resource_state.sql` migration is required before external-mode startup.
+This storage interface accepts opaque data. Encrypt confidential state before
+saving it; the controller runtime supplies `StateProtector` for this purpose.

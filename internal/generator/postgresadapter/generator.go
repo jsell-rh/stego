@@ -59,8 +59,8 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 
 	for _, entity := range ctx.Entities {
-		if tableName(entity.Name) == "stego_scan_checkpoints" {
-			return fmt.Errorf("entity name uses the internal checkpoint table")
+		if tableName(entity.Name) == "stego_scan_checkpoints" || tableName(entity.Name) == "stego_resource_state" {
+			return fmt.Errorf("entity name uses an internal state table")
 		}
 	}
 
@@ -227,6 +227,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, err
 		}
 		files = append(files, effects...)
+		records, err := generateResourceStates(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, records...)
 		summary, err := generateCleanupSummary(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -296,6 +301,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
+	"ResourceStateMigration": true, "verifyResourceStates": true, "statecontract": true,
 	"EffectBindingMigration": true, "verifyEffectBindings": true, "effectcontract": true,
 	"validEffectKey": true, "validEffectDigest": true, "readEffectBinding": true,
 	"StegoEffectBinding": true,
@@ -814,6 +820,7 @@ func filterKeys[V any](values map[string]V) []string {
 	if ctx.StorageContract != "" {
 		fmt.Fprintln(&buf, "if err := verifyScanCheckpoints(db); err != nil { return nil, err }")
 		fmt.Fprintln(&buf, "if err := verifyEffectBindings(db); err != nil { return nil, err }")
+		fmt.Fprintln(&buf, "if err := verifyResourceStates(db); err != nil { return nil, err }")
 	}
 	fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	fmt.Fprintf(&buf, "}\n\n")

@@ -281,6 +281,23 @@ type CheckpointStore interface {
  SaveCheckpoint(context.Context,string,string,string,int64,string)(ScanCheckpoint,error)
 }
 
+// ResourceState is a bounded opaque record with an independent version. Version
+// zero means absent. Save empty data to clear content while retaining the version.
+// Encrypt confidential data before storage. This interface is not a secret store.
+type ResourceState struct { Data []byte; Version int64 }
+const MaxResourceStateBytes = 65536
+var ErrResourceState = errors.New("invalid resource state")
+var ErrResourceStateConflict = errors.New("resource state version changed")
+// ResourceStateStore keeps one record per exact entity, resource ID, and scope.
+// Authorize and lock the resource before saving in a transaction. Supply the
+// version read before work. Conflicts require a fresh read and new work; do not
+// retry a provider mutation from the save callback. Retain cleared rows to reject
+// old writers. The caller must bound scope names and serialize external effects.
+type ResourceStateStore interface {
+ LoadResourceState(context.Context,string,string,string)(ResourceState,error)
+ SaveResourceState(context.Context,string,string,string,int64,[]byte)(ResourceState,error)
+}
+
 // EffectBinding retains a public digest of state needed for an external effect.
 // A closed binding with an empty digest proves that no binding was accepted.
 // A nonempty digest requires cleanup of the registered effect. It does not prove

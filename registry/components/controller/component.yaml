@@ -1,6 +1,6 @@
 kind: component
 name: controller
-version: 1.17.0
+version: 1.18.0
 output_namespace: controller
 requires: []
 provides:

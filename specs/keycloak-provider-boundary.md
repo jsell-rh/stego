@@ -555,3 +555,17 @@ states, group drift, missing and excess roles, inherited access, wrong subjects,
 disabled users, missing state flags, and changed ownership. The generated suites
 passed with and without telemetry and with the race detector in 14.068 seconds.
 The real provider gate also checks group drift and repair; that run is pending.
+
+The real provider gate at `fdd5efe` passed in
+[run 35036675269](https://github.com/jsell-rh/stego/actions/runs/35036675269).
+It took 56.77 seconds and includes standalone group-drift inspection and repair.
+All five CI jobs passed.
+The generated source and runtime log are retained under
+`/home/jsell/.local/state/stego/runs/keycloak-service-roles-20260915/provider-artifacts`.
+Hypershell `701ff3d` adopts common service-account role inspection and repair;
+its main adapter now has 972 lines. The application gate remains pending.
+
+[Resource state](resource-state.md) defines the common storage and protection
+needed for legacy ownership migration. The application must adopt that state
+before it uses the complete client lifecycle. These records do not change the
+Gateway role policy or replace provider ownership checks.
