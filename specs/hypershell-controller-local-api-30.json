@@ -1,0 +1,31 @@
+{
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34932976237",
+  "commit": "b08f8b3e9858d5d757c68ccf939e4df233dc3835",
+  "required_passed": 30,
+  "source_files_checked": 855,
+  "generated_files_checked": 228,
+  "job_uid": "2964d0c0-2ea4-474d-944e-a8612b4828da",
+  "cleanup": {
+    "job_absent": "gateway-api-7cf4d9962f4d",
+    "pods_absent": true,
+    "fixture_resources_absent": true
+  },
+  "reference_contract": {
+    "url": "https://github.com/openshift-online/hypershell/pull/272",
+    "head": "d61f1dffe639f1de6e67cd82d89282fedb0d15e6"
+  },
+  "contract": "No ManagedDatabase model or database_id field. Reject retired REST properties, including empty and null values, and retired gRPC wire fields. Reject old schemas before writes.",
+  "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
+  "next_workflow": {
+    "commit": "c4cd70d251c5e21930d58cb086cceb48496561b2",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34934191558",
+    "result": "pending",
+    "operator_installation_complete": true,
+    "generated_cluster_resources": 18,
+    "ci_access_checks_passed": 15
+  },
+  "limits": [
+    "The browser CI run is pending.",
+    "Installation CNPG, actual RDS, Sandbox, and full CI remain open."
+  ]
+}

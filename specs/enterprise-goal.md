@@ -3593,3 +3593,17 @@ Hypershell `4f0767f` with compiler `868ff1f`. This verifies the pushed source
 after SQL session-quarantine adoption. All generated snapshots match. The Job,
 Pods, and private fixtures are absent. The separate browser result proves the
 active-session behavior. A stronger role-concurrency check is now in progress.
+
+The [30-check API gate](hypershell-controller-local-api-30.json) passed on
+Hypershell `b08f8b3`. Its 855 source files match the pushed commit. All four
+generation records match, and all 228 recorded output files match the archive.
+The Job completed and cleanup passed. This includes rejection of empty and null
+`database_id` properties, retired gRPC fields, and old schemas under PR #272.
+
+Hypershell `c4cd70d` adds the complete browser workflow to restricted jshell CI.
+The operator installed its fixed namespace and 18 generated cluster resources.
+All 15 actual CI admission and access probes pass. CI checks an immutable
+manifest record before it starts a Job. Cleanup uses STEGO's generated allocator.
+The complete CI run and failed-Job cleanup proof still need live results. The
+enterprise goal remains active; installation CNPG, actual RDS, Sandbox, and
+complete CI remain open.
