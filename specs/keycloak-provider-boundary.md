@@ -423,3 +423,24 @@ The token check first requires the saved subject to exist and be enabled. It
 rejects ID and refresh tokens in the client-credentials response. Service-account
 checked enablement and Hypershell adoption remain open. The application compiler
 pin and handwritten provider have not changed.
+
+## Checked service-account enablement
+
+Version 0.9.0 adds `ServiceAccountAccessPolicy`, `ReconcileServiceAccountAccess`,
+and `InspectServiceAccountAccess`. Both access profiles now use the same
+checked-enable and failure-cleanup sequence. Service-account repair requires
+the saved dedicated subject, removes excess direct and group access, sets exact
+scopes and mappers, and verifies a fresh signed token after enablement. Expected
+token roles come from the intersection of declared grants and scopes.
+
+The service-account access profile rejects unknown attributes. It permits and
+preserves the provider's valid secret-creation timestamp. A correct enabled
+client causes no administrative writes. The caller still must save the binding
+and subject before reconciliation and retain exclusive control of writes.
+Small tests cover those boundaries, scoped token roles, wrong token subjects,
+failed role removal, changed subject bindings, and failed cleanup. The real
+Keycloak gate now uses the common sequence for both service-account policies,
+including group and configuration drift. Its result is pending. Frozen source
+and results are in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-service-access-20260915`.
+Hypershell adoption and ownership migration remain open.

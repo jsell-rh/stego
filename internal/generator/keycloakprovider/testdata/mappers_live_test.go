@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, target ClientBinding, subject string, roles RolePolicy) {
+func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, target ClientBinding, subject string, roles RolePolicy, groupID string) {
 	t.Helper()
 	request := func(method, path string, body []byte, status int) []byte {
 		t.Helper()
@@ -80,9 +80,26 @@ func testLiveMapperPolicy(t *testing.T, c *Client, ctx context.Context, owner, t
 	if err = c.InspectClientScopes(ctx, owner, roles); err != nil {
 		t.Fatal("mapper operation changed role scopes", err)
 	}
-	// Enable only through the test fixture. Production enablement remains a
-	// separate operation that must verify the complete application policy.
-	request(http.MethodPut, "/clients/"+owner.ID, []byte(`{"enabled":true}`), http.StatusNoContent)
+	accessPolicy := ServiceAccountAccessPolicy{Client: ServiceAccountPolicy{DisplayName: "Role worker", AccessTokenLifetimeSeconds: 300}, Subject: subject, Roles: roles, Scopes: roles, Claims: p}
+	if err = c.ReconcileServiceAccountAccess(ctx, owner, accessPolicy); err != nil {
+		reportServiceAccessDifference(t, c, ctx, owner, accessPolicy)
+		t.Fatal("real checked service-account enablement failed", err)
+	}
+	request(http.MethodPut, "/users/"+subject+"/groups/"+groupID, nil, http.StatusNoContent)
+	request(http.MethodPut, "/clients/"+owner.ID, []byte(`{"name":"drift","attributes":{"stego.test.unwanted":"remove"}}`), http.StatusNoContent)
+	if err = c.InspectServiceAccountAccess(ctx, owner, accessPolicy); err == nil {
+		t.Fatal("real service-account access drift accepted")
+	}
+	for i := 0; i < 2; i++ {
+		if err = c.ReconcileServiceAccountAccess(ctx, owner, accessPolicy); err != nil {
+			reportServiceAccessDifference(t, c, ctx, owner, accessPolicy)
+			t.Fatal("real checked service-account repair failed", err)
+		}
+	}
+	if err = c.InspectServiceAccountAccess(ctx, owner, accessPolicy); err != nil {
+		t.Fatal("real service-account access not confirmed", err)
+	}
+	t.Log("Real checked service-account access passed; configuration and group drift repaired; repeated reconciliation and signed token proof passed")
 	if err = c.InspectTokenMappers(ctx, owner, p); err != nil {
 		t.Fatal("real enabled mapper inspection failed", err)
 	}
@@ -286,4 +303,27 @@ func verifyLiveMapperToken(t *testing.T, c *Client, ctx context.Context, token s
 		t.Fatal("invalid signed claims")
 	}
 	return claims
+}
+
+func reportServiceAccessDifference(t *testing.T, c *Client, ctx context.Context, b ClientBinding, p ServiceAccountAccessPolicy) {
+	t.Helper()
+	value, _, err := c.boundClient(ctx, b)
+	if err != nil {
+		t.Log("service-account diagnostic read failed", err)
+		return
+	}
+	desired, _, err := p.configuration(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range desired.Attributes {
+		if value.Attributes[key] != want {
+			t.Log("service-account attribute differs:", key)
+		}
+	}
+	for key := range value.Attributes {
+		if _, ok := desired.Attributes[key]; !ok && key != "client.secret.creation.time" {
+			t.Log("extra service-account attribute:", key)
+		}
+	}
 }

@@ -46,7 +46,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	data := struct{ Package, Transport, UnicodeValidation, Auth string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation, ctx.AuthPackage}
 	var files []gen.File
-	for _, name := range []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "service_account_tokens.go"} {
+	for _, name := range []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "service_account_tokens.go", "access_lifecycle.go", "service_account_access.go"} {
 		input, err := sources.ReadFile(name + ".tmpl")
 		if err != nil {
 			return nil, nil, err

@@ -63,12 +63,12 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 	f.enabled["scope:worker"] = true
 	f.groupRoles["outside-group"] = []RoleRepresentation{f.roles["foreign/other"]}
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if authRequest(w, r) {
-			return
-		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		if f.intercept != nil && f.intercept(w, r) {
+			return
+		}
+		if authRequest(w, r) {
 			return
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/admin/realms/tenant/")

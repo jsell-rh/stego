@@ -1,0 +1,46 @@
+package {{.Package}}
+
+import("context";"encoding/json";"errors";"net/http";"time")
+
+// ErrAccessDisablementUnconfirmed requires saved recovery state and another
+// reconciliation. The provider could not confirm disablement or absence.
+var ErrAccessDisablementUnconfirmed=errors.New("Keycloak access disablement is not confirmed")
+
+type clientAccessPlan struct{
+ inspect func(context.Context,bool)error
+ repair func(context.Context)error
+}
+
+func repairableClientPolicy(err error)bool{
+ return errors.Is(err,ErrClientConfiguration)||errors.Is(err,ErrRolePolicy)||
+  errors.Is(err,ErrScopePolicy)||errors.Is(err,ErrMapperPolicy)||errors.Is(err,ErrNotFound)
+}
+
+// The caller retains one operation permit through normal work and cleanup.
+func(c *Client)reconcileClientAccess(work context.Context,b ClientBinding,plan clientAccessPlan)(err error){
+ _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
+ // From this point, any failure requires confirmed disablement. Cleanup uses
+ // the saved binding again and cannot disable a client with different ownership.
+ defer func(){
+  if err==nil{return}
+  cleanup,cancel:=context.WithTimeout(context.WithoutCancel(work),5*time.Second);defer cancel()
+  stop:=context.AfterFunc(c.lifetime,cancel);defer stop()
+  if c.lifetime.Err()!=nil{cancel()}
+  failure:=c.disableClient(cleanup,b)
+  if failure!=nil&&!errors.Is(failure,ErrNotFound){err=errors.Join(err,ErrAccessDisablementUnconfirmed,failure)}
+ }()
+ if !explicitFlag(raw,"enabled",true)&&!explicitFlag(raw,"enabled",false){return ErrResponse}
+ if explicitFlag(raw,"enabled",true){
+  err=plan.inspect(work,true)
+  if err==nil{return nil}
+  if !repairableClientPolicy(err){return err}
+  if err=c.disableClient(work,b);err!=nil{return err}
+ }
+ if err=plan.repair(work);err!=nil{return err}
+ if err=plan.inspect(work,false);err!=nil{return err}
+ // Keep origins explicit: an omitted field can derive origins from callbacks.
+ body,_:=json.Marshal(struct{Enabled bool `json:"enabled"`;Origins []string `json:"webOrigins"`}{true,[]string{}})
+ response,err:=c.admin(work,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
+ if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ return plan.inspect(work,true)
+}

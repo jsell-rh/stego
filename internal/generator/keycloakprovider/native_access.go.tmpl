@@ -2,10 +2,7 @@ package {{.Package}}
 
 import (
  "context"
- "encoding/json"
  "errors"
- "net/http"
- "time"
 )
 
 // NativeAccessPolicy separates application values from provider sequencing.
@@ -17,10 +14,6 @@ type NativeAccessPolicy struct {
  Scopes RolePolicy
  Claims TokenClaimsPolicy
 }
-
-// ErrAccessDisablementUnconfirmed means a failed check could not confirm that
-// the client was disabled or absent. Persist the binding and reconcile again.
-var ErrAccessDisablementUnconfirmed = errors.New("Keycloak access disablement is not confirmed")
 
 func(p NativeAccessPolicy)configuration(b ClientBinding)(ClientRepresentation,error){
  desired,err:=nativeClientConfiguration(b,p.Client);if err!=nil{return ClientRepresentation{},err}
@@ -59,11 +52,6 @@ func nativeClientBaseMatches(value ClientRepresentation,raw []byte,desired Clien
  return nativeClientConfigurationMatches(value,raw,desired)
 }
 
-func repairableNativePolicy(err error)bool{
- return errors.Is(err,ErrClientConfiguration)||errors.Is(err,ErrRolePolicy)||
-  errors.Is(err,ErrScopePolicy)||errors.Is(err,ErrMapperPolicy)||errors.Is(err,ErrNotFound)
-}
-
 // ReconcileNativeClientAccess repairs an existing owned client and enables it
 // only after the complete policy passes. CreateDisabledNativeClient remains a
 // separate operation so the caller can save the stable binding before creation.
@@ -75,32 +63,13 @@ func repairableNativePolicy(err error)bool{
 func(c *Client)ReconcileNativeClientAccess(ctx context.Context,b ClientBinding,p NativeAccessPolicy)(err error){
  desired,err:=p.configuration(b);if err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
- _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
- // From this point, any failure requires confirmed disablement. Cleanup uses
- // the saved binding again and cannot disable a client with different ownership.
- defer func(){
-  if err==nil{return}
-  cleanup,cancel:=context.WithTimeout(context.WithoutCancel(work),5*time.Second);defer cancel()
-  stop:=context.AfterFunc(c.lifetime,cancel);defer stop()
-  if c.lifetime.Err()!=nil{cancel()}
-  failure:=c.disableClient(cleanup,b)
-  if failure!=nil&&!errors.Is(failure,ErrNotFound){err=errors.Join(err,ErrAccessDisablementUnconfirmed,failure)}
- }()
- if !explicitFlag(raw,"enabled",true)&&!explicitFlag(raw,"enabled",false){return ErrResponse}
- if explicitFlag(raw,"enabled",true){
-  err=c.inspectNativeAccess(work,b,p,desired,true)
-  if err==nil{return nil}
-  if !repairableNativePolicy(err){return err}
-  if err=c.disableClient(work,b);err!=nil{return err}
- }
- if err=c.configureDisabledClient(work,b,desired,nativeClientBaseMatches,true);err!=nil{return err}
- if _,err=c.ensureClientRoles(work,b,p.Roles);err!=nil{return err}
- if err=c.reconcileClientScopes(work,b,p.Scopes);err!=nil{return err}
- if err=c.reconcileTokenMappers(work,b,p.Claims);err!=nil{return err}
- if err=c.inspectNativeAccess(work,b,p,desired,false);err!=nil{return err}
- // Keep origins explicit: an omitted field can derive origins from callbacks.
- body,_:=json.Marshal(struct{Enabled bool `json:"enabled"`;Origins []string `json:"webOrigins"`}{true,[]string{}})
- response,err:=c.admin(work,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
- if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
- return c.inspectNativeAccess(work,b,p,desired,true)
+ return c.reconcileClientAccess(work,b,clientAccessPlan{
+  inspect:func(ctx context.Context,enabled bool)error{return c.inspectNativeAccess(ctx,b,p,desired,enabled)},
+  repair:func(ctx context.Context)error{
+   if err:=c.configureDisabledClient(ctx,b,desired,nativeClientBaseMatches,true);err!=nil{return err}
+   if _,err:=c.ensureClientRoles(ctx,b,p.Roles);err!=nil{return err}
+   if err:=c.reconcileClientScopes(ctx,b,p.Scopes);err!=nil{return err}
+   return c.reconcileTokenMappers(ctx,b,p.Claims)
+  },
+ })
 }

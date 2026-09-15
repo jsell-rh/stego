@@ -251,6 +251,10 @@ func(c *Client)readEffectiveRoles(ctx context.Context,path string,clientIDs []st
 func(c *Client)ReconcileServiceAccountRoles(ctx context.Context,b ClientBinding,subject string,p ServiceAccountRolePolicy)error{
  if err:=b.validate();err!=nil{return err};if !identifier.MatchString(subject){return errors.New("invalid Keycloak service-account subject")};if err:=validateServiceAccountRoles(p);err!=nil{return err}
  work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.reconcileServiceAccountRoles(work,b,subject,p)
+}
+func(c *Client)reconcileServiceAccountRoles(work context.Context,b ClientBinding,subject string,p ServiceAccountRolePolicy)error{
+ var err error
  guard:=func()error{return c.boundServiceAccount(work,b,subject)}
  if err=guard();err!=nil{return err}
  desired,err:=c.resolveRolePolicy(work,p);if err!=nil{return err}

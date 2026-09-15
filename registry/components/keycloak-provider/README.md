@@ -6,11 +6,10 @@ cancellation, and telemetry. It has no component settings or startup hook.
 The application constructs it with `New(Options)` and closes it when its owning
 service stops.
 
-Version 0.8.0 provides typed client lifecycle, role, scope, and mapper operations,
-checked native enablement, and service-account token verification. It reuses the
+Version 0.9.0 provides typed client lifecycle, role, scope, and mapper operations,
+checked native and service-account enablement, and service-account token verification. It reuses the
 shared JWT verifier from `jwt-auth` or `rh-sso-auth`. The compiler requires that
-verifier and the generated HTTP application client. Service-account checked
-enablement and application adoption remain open. See the
+verifier and the generated HTTP application client. Application adoption remains open. See the
 [acceptance gate](../../../specs/keycloak-provider-boundary.md).
 
 `ClientBinding` contains an immutable provider ID, a public OAuth client ID,
@@ -237,3 +236,22 @@ empty array, but reject explicit null. The signed lifetime must match exactly;
 `expires_in` can be one second shorter for rounding. This method does not enable,
 repair, or disable a client. Checked reconciliation must still verify its base
 settings, complete roles, scopes, and mappers, and handle failed token proof.
+
+`ServiceAccountAccessPolicy` supplies the base profile, saved dedicated subject,
+complete role grants, role scopes, and token mappers. The provider derives the
+expected token roles from the intersection of grants and scopes. It requires a
+declared audience. `ReconcileServiceAccountAccess` uses the same enablement and
+failure-cleanup mechanism as native clients. All repair runs while disabled.
+It checks the complete policy before enablement, then checks that policy and a
+fresh signed token after enablement. `InspectServiceAccountAccess` performs the
+enabled checks without administrative writes. A correct enabled client causes
+no administrative writes during reconciliation either.
+
+The access profile accepts only its declared attributes and a valid provider
+secret-creation timestamp. Repair preserves that timestamp and removes unwanted
+attributes. It confirms the saved dedicated subject before any role mutation.
+A missing subject or changed client-user binding requires recovery; it does not
+silently select another user. Create the disabled client and save its subject
+before this operation. Keep exclusive reconciliation and saved recovery state.
+Failure cleanup uses the existing five-second budget and reports unconfirmed
+disablement through `ErrAccessDisablementUnconfirmed`.
