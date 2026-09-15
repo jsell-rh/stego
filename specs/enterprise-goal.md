@@ -73,6 +73,7 @@ The current verification handles are:
 
 | Check | Source | Handle |
 | --- | --- | --- |
+| Browser observable metric correction | STEGO `fe07b0a` | [34993843977](https://github.com/jsell-rh/stego/actions/runs/34993843977), active; consumer adoption and a rebuilt console bundle remain required |
 | Public Gateway workflow | Hypershell `842a71c` | [34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917), completed successfully; test resources absent and shared Lease released |
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), active after the earlier core run passed |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), dispatched through the registered contract workflow with `cnpg_only=true`; queued behind the current contract run |
@@ -87,6 +88,8 @@ The next required work is:
 
 1. Check current full CI for the public workflow's source. The complete public
    result is recorded; preserve its limits when assessing broader requirements.
+   Check compiler CI for the browser observable metric correction, then adopt
+   its generated package and rebuilt console bundle and repeat rendered checks.
 2. Run the complete unattended CNPG workflow with sufficient credential lifetime.
    Prove application behavior, automatic cleanup, and volume removal together.
    The earlier manual recovery does not meet this gate.
