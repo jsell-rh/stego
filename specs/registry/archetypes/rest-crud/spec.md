@@ -185,6 +185,12 @@ When `path_prefix` is set on a collection, it is also relative to `base_path`.
 
 If `base_path` is omitted, collection paths are served from the root (e.g. `/clusters`).
 
+`base_path` is a literal ASCII prefix. Use nonempty path segments with letters,
+digits, `-`, `.`, `_`, and `~`. Do not use `.` or `..` segments, a trailing slash,
+encoded characters, query, fragment, or route parameters. Omit the prefix for
+the root; `/` is not a prefix. The [base-path contract](../../../http-base-path.md)
+defines validation and its regression checks.
+
 ## Response Format
 
 When `response_format: envelope` is set in the archetype conventions, the `rest-api` component wraps all responses:

@@ -126,11 +126,10 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 		}
 	}
 
-	// Validate base_path starts with "/" if set.
-	if svcDecl.BasePath != "" && !strings.HasPrefix(svcDecl.BasePath, "/") {
+	if err := gen.ValidateHTTPBasePath(svcDecl.BasePath); err != nil {
 		result.Errors = append(result.Errors, ValidationError{
 			Category: "service",
-			Message:  fmt.Sprintf("base_path must start with '/', got %q", svcDecl.BasePath),
+			Message:  err.Error(),
 		})
 	}
 

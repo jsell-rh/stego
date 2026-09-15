@@ -4036,3 +4036,14 @@ cleanup, cleanup read retry, and the early credential check. No CNPG resources
 have been created for this run. The active browser and newer queued API must
 finish before the next server installation. Two redundant waiting runs were
 cancelled; neither is recorded as a pass.
+
+The compiler review reproduced an accepted `base_path` that caused a generated
+route registration panic: `/api/{id}` produced a repeated `id` wildcard on read
+routes. Quotes and line breaks also reached route expressions. The common
+semantic gate and REST generator now reject nonliteral or ambiguous service
+prefixes. Twenty rejected prefixes, six valid prefixes through actual generated
+route registration, CLI file preservation, and validation before generator calls
+passed small local checks. The [base-path contract](http-base-path.md) records
+the exact scope. Full compiler CI remains required. Collection `path_prefix`
+validation and cross-collection pattern conflicts remain open. The frozen CNPG
+source keeps its existing tested compiler pin.

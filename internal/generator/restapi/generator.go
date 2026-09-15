@@ -21,6 +21,9 @@ type Generator struct{}
 
 // ValidateContext checks collection capabilities, fields, names, and routes.
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if err := gen.ValidateHTTPBasePath(ctx.BasePath); err != nil {
+		return err
+	}
 	for _, collection := range ctx.Collections {
 		for _, entity := range ctx.Entities {
 			if collection.Entity == entity.Name && len(entity.Observations) > 0 {
@@ -30,11 +33,6 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	if len(ctx.Collections) == 0 {
 		return nil
-	}
-
-	// Validate base_path if provided.
-	if ctx.BasePath != "" && !strings.HasPrefix(ctx.BasePath, "/") {
-		return fmt.Errorf("base_path must start with '/', got %q", ctx.BasePath)
 	}
 
 	// Validate collection names are unique. Collection names drive handler
