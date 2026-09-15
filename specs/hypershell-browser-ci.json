@@ -397,24 +397,24 @@
   },
   "limits": [
     "The first browser CI run failed cleanup. Its application pass is not a passing CI gate.",
-    "The API and browser checks passed for namespace recovery. The later SQL cleanup denial check remains pending.",
+    "The complete browser workflow passed SQL cleanup denial, later cleanup, namespace recovery, and stored-credential encryption checks.",
     "The fixed namespace retains six test image streams. Registry retention is outside this cleanup proof.",
     "The browser fixture has no external connection endpoint. Screenshots do not prove external connectivity.",
     "Installation CNPG, actual RDS, and Sandbox checks remain open."
   ],
   "browser_ci": {
-    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34936017009",
-    "application_commit": "de07bffed63969df32610117abccd884dceaef2a",
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181554",
+    "application_commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
     "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
     "result": "success",
-    "workflow_seconds": 331.54,
-    "source_files_checked": 867,
+    "workflow_seconds": 384.8,
+    "source_files_checked": 872,
     "generated_files_checked": 229,
     "ci_access_checks": 16,
     "application_access_checks": 57,
     "admission_probes": 6,
     "operator_cluster_resources": 18,
-    "job_uid": "fc403ccb-8f49-4c49-8a15-b960f812ad5e",
+    "job_uid": "e798158a-fa01-4c34-a321-9ea499e32156",
     "cleanup": {
       "namespace_retained": "stego-service-ci",
       "test_resources_absent": true,
@@ -422,9 +422,9 @@
     },
     "generation_sha256": "48308d3100d1dfcff58f4b7f99988bb4c082eca9ca36dce6a8a26d905bba058c",
     "artifact_sha256": {
-      "deployment.log": "16118d392e7a7758df3e1a09dd30b85277d2a04f9681ba007727605172d46de0",
-      "evidence.tar": "c91fb29bad848dcb9c4e2c925488e50a8bd1f942df89621f266cfd4e4afa62fb",
-      "job-status.json": "d7ecafc02658f406a8d7d77ede22f4f56afb17fc4ff020ad261b069e40c2225d",
+      "deployment.log": "a558b252a5e21514b212bdb6701ab1a937668d166614ff6552048df1a0a82de8",
+      "evidence.tar": "7f95cbcc92e75524982e3129264a923b0c4b869ba3192d9b87d8066b884ca483",
+      "job-status.json": "277ffeca219234ada4a3e8a2f90358a038dd0c4a0a0d036baa477488e7ef8153",
       "ci-access.json": "acb475e6042530f6d9b6cca848e8372cb356116882830756a3b6e1ed0fa4a682",
       "cluster-installation.json": "fc8721222cc6032006ee74fad0a2950616e285451b4b69aba4651e349192ea13"
     },
@@ -674,6 +674,54 @@
       "terminated its existing session; the other Gateway session remained open",
       "preserved credentials, keys, and provider data"
     ],
+    "namespace_replacement": {
+      "controller_pods_unchanged": {
+        "hypershell-gateway-identity": "56ba25d1-03c2-45b6-8b51-53e3511db6b2",
+        "hypershell-gateway-workload": "97c1a6c2-dc63-49cb-b9b3-cb668b44c0d6",
+        "hypershell-namespace-allocation": "5fa105bb-1b20-42f4-8d1d-374acf0eef68"
+      },
+      "database_and_role_oids_unchanged": true,
+      "gateway_id": "3JM4aWx74ELv6EOkNYmLaMtdrAQ",
+      "namespace": "openshell-d71b6f47df9a2636",
+      "new_deployment_uid": "5665d9e7-1429-4fc8-a034-53b536f2d3f2",
+      "new_namespace_uid": "e482cb87-b650-4f59-99e0-3ebb7012d871",
+      "old_deployment_uid": "f5fc3d8a-696e-41e5-9a3d-b08558e70faa",
+      "old_namespace_uid": "43f15bc8-c830-471d-9d49-cc76da0a91e6",
+      "other_gateway_sql_unchanged": true,
+      "provider_data_unchanged": true,
+      "seconds": 44.758782824,
+      "source_data_unchanged": true,
+      "source_secret_uid": "12e52c1a-f665-405b-b739-35d0dbaaa6fd",
+      "sql_credentials_unchanged": true,
+      "state_namespace_uid": "45e426fa-b458-4991-b531-b1e1cfa9d475",
+      "ungranted_rpc_denied": true
+    },
+    "sql_cleanup_denial": {
+      "cleanup_pending": true,
+      "gateway_id": "3JM4aWx74ELv6EOkNYmLaMtdrAQ",
+      "ledger_state": "deleting",
+      "other_gateway_ready": true,
+      "source_data_unchanged": true,
+      "source_secret_uid": "12e52c1a-f665-405b-b739-35d0dbaaa6fd",
+      "sql_object_ids_unchanged": true,
+      "sqlstate": "42501"
+    },
+    "credential_encryption": {
+      "after_namespace_recovery": true,
+      "algorithm": "AES-256-GCM",
+      "altered_value_context_rejected": true,
+      "altered_value_rejected": true,
+      "altered_wrapped_key_rejected": true,
+      "altered_wrapping_context_rejected": true,
+      "authenticated_plaintext_matches": true,
+      "envelope_version": 1,
+      "gateway_id": "3JM4aWx74ELv6EOkNYmLaMtdrAQ",
+      "no_plaintext_or_base64_in_object_payloads": true,
+      "object_rows": 4,
+      "other_gateway_key_rejected": true,
+      "retained_key_unwrapped_data_key": true,
+      "stored_envelopes": 1
+    },
     "manual_cleanup": null
   },
   "namespace_recovery_candidate": {
@@ -765,9 +813,10 @@
     "commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181554",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181696",
-    "result": "browser_running_api_pending",
-    "includes_credential_encryption": true
+    "result": "browser_success_api_running",
+    "includes_credential_encryption": true,
+    "evidence_file": "browser-sql-recovery-encryption-evidence.json"
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/cf689c077e92d570ce9a149faea130ccf8e30c5c/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "28e7836b884264881ba717ee82d48f0cb3715d2928e969dcfecd7d91d43281b2"
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/90b6ca58ba6ab89131672cccdde4a1452c1dbe6f/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "3230445828fa5dc8db656e3d7e27b9e072da495cb765b4cd59e7798417cf0a25"
 }

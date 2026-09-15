@@ -1,7 +1,7 @@
 {
-  "application_commit": "3757c278105daba5e0b7a19879c9bd35efcb27bc",
+  "application_commit": "fcadadd41f22e3e73f5ded3a444a6f34a290ee3f",
   "compiler_revision": "2097bea6e155a889c48514e640507cae26bb3037",
-  "status": "fixture_implemented_live_cnpg_not_run",
+  "status": "bounded_installer_implemented_live_cnpg_not_run",
   "local_inspection_tests_passed": 8,
   "frozen_generation": "passed",
   "fixture_changed_files": [
@@ -16,13 +16,11 @@
     "cluster": "gateway-database",
     "scope": "One namespace and Pod selector on TCP port 5432; no added Kubernetes permission."
   },
-  "browser_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025943",
-  "api_ci": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34942025957",
-  "ci_scope": "Default sidecar workflow; CNPG installer and live workflow are still required.",
+  "ci_scope": "Default API and browser runs were cancelled before Jobs started. The next live slot is for the CNPG installation workflow.",
   "remaining": [
-    "Create the bounded installation server and private test configuration.",
-    "Grant the fixture only the required namespace reads and Pod restart permission.",
     "Run the complete browser workflow with CNPG selected.",
-    "Verify generated source, runtime behavior, preserved data, and final cleanup."
-  ]
+    "Verify generated source, runtime behavior, preserved data, and final cleanup.",
+    "Provide a secure unattended CI installation path."
+  ],
+  "local_boundary_tests_passed": 29
 }

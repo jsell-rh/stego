@@ -3779,3 +3779,20 @@ API and browser runs were cancelled while pending with no Jobs; its offline CI
 was retained. The active `70b2dd7` browser run was not interrupted.
 The [CNPG fixture record](hypershell-cnpg-installation.json) lists the remaining
 installer and live acceptance work. No live CNPG pass is claimed.
+
+The complete browser run for `70b2dd7` passed in 384.8 seconds. Verification
+covered all 872 source files, 229 generated files, access checks, and cleanup.
+SQL cleanup returned the required denial, retained state, and then completed
+after permission recovery. The stored credential passed independent AES-GCM
+checks. Namespace recovery retained the SQL objects and source keys. See the
+[verified record](hypershell-browser-sql-recovery-encryption.json). The separate
+API run is active.
+
+Hypershell `fcadadd` adds the bounded CNPG installation runner. An operator
+creates the test server; the application test uses the restricted CI identity.
+The runner holds the shared Lease through application and installation cleanup.
+It records resource UIDs, uses two limited CNPG instances, and projects a private
+connection file only into the test container. Twenty-nine small local checks
+passed. No live CNPG result is claimed. The next live slot will test the same
+complete Gateway workflow on this supplied server. The enterprise goal remains
+active.
