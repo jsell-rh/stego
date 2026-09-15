@@ -13,6 +13,8 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,6 +166,18 @@ func TestProviderLive(t *testing.T) {
 		credential, err := client.GetClientSecret(ctx, binding)
 		if err != nil || credential.Reveal() == "" {
 			t.Fatal("created client has no provider secret", err)
+		}
+		form := url.Values{"grant_type": {"client_credentials"}, "client_id": {binding.ClientID}, "client_secret": {credential.Reveal()}}
+		denied, err := client.http.Do(ctx, http.MethodPost, "/realms/provider-test/protocol/openid-connect/token", http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, []byte(form.Encode()))
+		if err != nil || (denied.StatusCode != http.StatusUnauthorized && denied.StatusCode != http.StatusBadRequest) {
+			t.Fatal("disabled client token request was not denied", err)
+		}
+		var rejection struct {
+			Error       string `json:"error"`
+			AccessToken string `json:"access_token"`
+		}
+		if decode(denied.Body, &rejection) != nil || rejection.AccessToken != "" || (rejection.Error != "invalid_client" && rejection.Error != "unauthorized_client") {
+			t.Fatal("disabled client denial was not an authentication rejection")
 		}
 		if _, err := client.ResolveServiceAccountUser(ctx, binding); err != nil {
 			t.Fatal("created client has no service-account user", err)
