@@ -22,9 +22,16 @@ parser.add_argument("--evidence", type=Path, required=True)
 parser.add_argument("--next-manifest", type=Path)
 parser.add_argument("--network-isolation", action="store_true")
 parser.add_argument("--network-peers", action="store_true")
+parser.add_argument("--network-endpoints", action="store_true")
+parser.add_argument("--next-endpoint-manifest", type=Path)
 args = parser.parse_args()
 if args.network_peers and not args.network_isolation:
     parser.error("--network-peers requires --network-isolation")
+
+if args.network_endpoints and not args.network_peers:
+    parser.error("--network-endpoints requires --network-peers")
+if args.next_endpoint_manifest and (not args.network_endpoints or args.next_manifest):
+    parser.error("--next-endpoint-manifest requires endpoints and excludes --next-manifest")
 
 ctx = args.context
 control = args.namespace
@@ -93,6 +100,54 @@ def check(label, args, obj=None, as_user=actor, good=False):
     return r
 
 
+def endpoint_rules(updated):
+    addresses = [("192.0.2.11/32", 443), ("192.0.2.12/32", 5432)] if updated else [("192.0.2.10/32", 443), ("2001:db8::1/128", 5432)]
+    return [{"to": [{"ipBlock": {"cidr": cidr}}], "ports": [{"port": port, "protocol": "TCP"}]} for cidr, port in addresses]
+
+
+def check_endpoint_mutations(policy, operation):
+    # Keep rule counts valid in the duplicate case. Each distinct endpoint must
+    # be present, even when two names resolve to the same address in the input.
+    for index in (2, 3):
+        for mutation in ("address", "subnet", "port", "protocol", "all ports", "port range", "namespace selector", "Pod selector", "no destination", "extra destination", "except", "missing rule", "extra rule", "duplicate rule"):
+            changed = copy.deepcopy(policy)
+            rules = changed["spec"]["egress"]
+            selected = rules[index]
+            if mutation == "address":
+                selected["to"][0]["ipBlock"]["cidr"] = "192.0.2.99/32"
+            elif mutation == "subnet":
+                selected["to"][0]["ipBlock"]["cidr"] = "192.0.2.0/24" if index == 2 else "2001:db8::/64"
+            elif mutation == "port":
+                selected["ports"][0]["port"] += 1
+            elif mutation == "protocol":
+                selected["ports"][0]["protocol"] = "UDP"
+            elif mutation == "all ports":
+                del selected["ports"]
+            elif mutation == "port range":
+                selected["ports"][0]["endPort"] = 65535
+            elif mutation == "namespace selector":
+                selected["to"][0] = {"namespaceSelector": {}}
+            elif mutation == "Pod selector":
+                selected["to"][0] = {"podSelector": {}}
+            elif mutation == "no destination":
+                del selected["to"]
+            elif mutation == "extra destination":
+                selected["to"].append({"ipBlock": {"cidr": "0.0.0.0/0"}})
+            elif mutation == "except":
+                selected["to"][0]["ipBlock"]["except"] = [selected["to"][0]["ipBlock"]["cidr"]]
+            elif mutation == "missing rule":
+                del rules[index]
+            elif mutation == "extra rule":
+                rules.append(copy.deepcopy(selected))
+            elif mutation == "duplicate rule":
+                rules[index] = copy.deepcopy(rules[5-index])
+            label = f"endpoint {index-2} {operation} {mutation}"
+            if operation == "create":
+                check(label, ["create", "--dry-run=server", "-f", "-"], changed)
+            else:
+                check(label, ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": changed["spec"]}), "--dry-run=server"])
+
+
 def check_network_policy():
     policy = {
         "apiVersion": "networking.k8s.io/v1",
@@ -117,6 +172,8 @@ def check_network_policy():
             rule("to", owned, "database", 5432, "TCP"),
             rule("to", "cluster-dns", "dns", 53, "UDP"),
         ]
+    if args.network_endpoints:
+        policy["spec"]["egress"] += endpoint_rules(False)
     normalized = {key: value for key, value in policy["spec"].items() if key != "policyTypes"}
     policy["metadata"]["annotations"] = {"stego.dev/network-spec-sha256": hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
     check("declared network policy", ["create", "--dry-run=server", "-f", "-"], policy, good=True)
@@ -170,6 +227,8 @@ def check_network_policy():
                     elif mutation == "extra peer":
                         selected[side].append({"ipBlock": {"cidr": "0.0.0.0/0"}})
                     invalid.append((f"{direction} peer {index} {mutation}", changed))
+    if args.network_endpoints:
+        check_endpoint_mutations(policy, "create")
     for label, changed in invalid:
         check(label, ["create", "--dry-run=server", "-f", "-"], changed)
     check("another actor creates reserved policy", ["create", "--dry-run=server", "-f", "-"], policy, as_user=None)
@@ -186,10 +245,52 @@ def check_network_policy():
         changed["spec"]["ingress"][0]["ports"][0]["port"] = 8081
         check("unapproved peer update", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": changed["spec"]}), "--dry-run=server"])
 
+    if args.network_endpoints:
+        check_endpoint_mutations(policy, "update")
+
     change = json.dumps({"spec": {"ingress": [{}]}})
     check("another actor changes declared policy", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", change, "--dry-run=server"], as_user=None)
     for identity in (actor, None):
         check("reserved policy deletion " + (identity or "operator"), ["delete", "networkpolicy", "stego-allocation", "-n", owned, "--dry-run=server"], as_user=identity)
+
+
+def install_next_policies(path):
+    next_doc = json.loads(path.read_text())
+    policies = [
+        item
+        for item in next_doc["items"]
+        if item["kind"]
+        in {"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"}
+    ]
+    expected = {
+        base + "." + suffix for suffix in ("allocation", "ownership", "resources")
+    }
+    if (
+        len(policies) != 6
+        or {item["metadata"]["name"] for item in policies} != expected
+    ):
+        raise RuntimeError("next fixture has unexpected policy names")
+    run(
+        ["apply", "-f", "-"],
+        {"apiVersion": "v1", "kind": "List", "items": policies},
+    )
+    for policy in expected:
+        for attempt in range(20):
+            doc = json.loads(
+                run(
+                    ["get", "validatingadmissionpolicy", policy, "-o", "json"]
+                ).stdout
+            )
+            if (
+                doc.get("status", {}).get("observedGeneration")
+                == doc["metadata"]["generation"]
+            ):
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("next policy was not observed")
+        if doc.get("status", {}).get("typeChecking", {}).get("expressionWarnings"):
+            raise RuntimeError("next policy has type warnings")
 
 
 try:
@@ -457,43 +558,28 @@ try:
         ["patch", "namespace", owned, "--type=merge", "-p", change, "--dry-run=server"],
         as_user=None,
     )
+    if args.next_endpoint_manifest:
+        install_next_policies(args.next_endpoint_manifest)
+        old_policy = json.loads(run(["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "json"], as_user=actor).stdout)
+        spec = copy.deepcopy(old_policy["spec"])
+        spec["egress"] = spec["egress"][:2] + endpoint_rules(True)
+        normalized = {key: value for key, value in spec.items() if key != "policyTypes"}
+        digest = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        patch = {"metadata": {"uid": old_policy["metadata"]["uid"], "resourceVersion": old_policy["metadata"]["resourceVersion"], "annotations": {"stego.dev/network-spec-sha256": digest}}, "spec": spec}
+        check("approved endpoint replacement", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps(patch)], good=True)
+        updated = json.loads(run(["get", "networkpolicy", "stego-allocation", "-n", owned, "-o", "json"], as_user=actor).stdout)
+        if updated["metadata"]["uid"] != old_policy["metadata"]["uid"] or updated["metadata"]["resourceVersion"] == old_policy["metadata"]["resourceVersion"] or updated["spec"] != spec or updated["metadata"]["annotations"]["stego.dev/network-spec-sha256"] != digest:
+            raise RuntimeError("endpoint replacement did not retain identity and replace the rules")
+        check("retired endpoint restoration", ["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps({"spec": old_policy["spec"]}), "--dry-run=server"])
+        check_endpoint_mutations(updated, "regenerated update")
+        stale = run(["patch", "networkpolicy", "stego-allocation", "-n", owned, "--type=merge", "-p", json.dumps(patch), "--dry-run=server"], as_user=actor, good=False)
+        if "conflict" not in stale.stderr.lower() and "object has been modified" not in stale.stderr.lower():
+            raise RuntimeError("stale endpoint version did not fail through a conflict")
+        evidence.append({"check": "stale endpoint resource version", "allowed": False, "reason": "conflict"})
+        print("DENY stale endpoint resource version", flush=True)
+        (d / "endpoint-update.json").write_text(json.dumps({"before": old_policy, "after": updated}, indent=2) + "\n")
     if args.next_manifest:
-        next_doc = json.loads(args.next_manifest.read_text())
-        policies = [
-            item
-            for item in next_doc["items"]
-            if item["kind"]
-            in {"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"}
-        ]
-        expected = {
-            base + "." + suffix for suffix in ("allocation", "ownership", "resources")
-        }
-        if (
-            len(policies) != 6
-            or {item["metadata"]["name"] for item in policies} != expected
-        ):
-            raise RuntimeError("next fixture has unexpected policy names")
-        run(
-            ["apply", "-f", "-"],
-            {"apiVersion": "v1", "kind": "List", "items": policies},
-        )
-        for policy in expected:
-            for attempt in range(20):
-                doc = json.loads(
-                    run(
-                        ["get", "validatingadmissionpolicy", policy, "-o", "json"]
-                    ).stdout
-                )
-                if (
-                    doc.get("status", {}).get("observedGeneration")
-                    == doc["metadata"]["generation"]
-                ):
-                    break
-                time.sleep(1)
-            else:
-                raise RuntimeError("next policy was not observed")
-            if doc.get("status", {}).get("typeChecking", {}).get("expressionWarnings"):
-                raise RuntimeError("next policy has type warnings")
+        install_next_policies(args.next_manifest)
         if args.network_isolation:
             extra = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": {"name": "extra", "namespace": owned}, "spec": {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [{}]}}
             check("regenerated policy blocks an extra allow policy", ["create", "--dry-run=server", "-f", "-"], extra, as_user=None)
