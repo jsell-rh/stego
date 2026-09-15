@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "passed_with_cleanup",
   "source_commit": "93f590b8dc50a2a2264897b7bef0958040129498",
   "compiler_revision": "b0bd9a49722b0c2c8a0a1142a59e91c46bc2d6b6",
   "frozen_source": "/home/jsell/.local/state/stego/frozen/hypershell-endpoint-20260915-recovery",
@@ -10,11 +10,14 @@
   "namespace": "stego-service-20260915-f11fea",
   "pod": "service-check-bsn46",
   "journal": {
-    "phase": "prepared",
+    "phase": "complete",
     "control_uid": "94182763-1650-4067-b242-b378e4592e16",
     "pod_uid": "ce2dcb95-a899-4b5f-ac0b-8105e12e9a87",
     "policy_uid": "76d78385-6c3b-45b3-adfc-3236bbc10bdb",
-    "nonce": "42333c3292394289bc6b9ba5ee8381fd"
+    "nonce": "42333c3292394289bc6b9ba5ee8381fd",
+    "generation": 2,
+    "resource_version": "6440424",
+    "type_checks": "passed"
   },
   "expected_network_checks": 54,
   "stages": [
@@ -94,10 +97,140 @@
     "application_started": false
   },
   "limits": [
-    "No final application or cleanup result is available yet.",
-    "This fixed-address test does not prove DNS tracking or RDS failover.",
-    "No DNS provider or Technology Preview feature was enabled."
+    "The workflow uses fixed IP bindings. It does not prove external DNS tracking or RDS failover.",
+    "Clients ran inside jshell and used the public router; Internet-external clients were not tested.",
+    "The supplied PostgreSQL fixture was used; this run did not exercise CNPG.",
+    "Kata Sandbox tests remain deferred."
   ],
   "persistent_storage": true,
-  "public_inputs_match_previous_attempt": true
+  "public_inputs_match_previous_attempt": true,
+  "result": {
+    "status": "passed_with_cleanup",
+    "application_seconds": 536.8,
+    "race_test_seconds": 537.852,
+    "exit_status": 0,
+    "network_checks": 54,
+    "network_stages": [
+      {
+        "stage": "initial",
+        "checks": 18,
+        "allowed_checks": 10,
+        "denied_checks": 8,
+        "attempts": 18,
+        "all_passed": true,
+        "fresh_connections": true,
+        "independent_egress": true,
+        "token_mounted": false
+      },
+      {
+        "stage": "after-endpoint-replacement",
+        "checks": 18,
+        "allowed_checks": 10,
+        "denied_checks": 8,
+        "attempts": 18,
+        "all_passed": true,
+        "fresh_connections": true,
+        "independent_egress": true,
+        "token_mounted": false
+      },
+      {
+        "stage": "after-recovery",
+        "checks": 18,
+        "allowed_checks": 10,
+        "denied_checks": 8,
+        "attempts": 18,
+        "all_passed": true,
+        "fresh_connections": true,
+        "independent_egress": true,
+        "token_mounted": false
+      }
+    ],
+    "operator_transition": {
+      "phase": "complete",
+      "control_uid": "94182763-1650-4067-b242-b378e4592e16",
+      "pod_uid": "ce2dcb95-a899-4b5f-ac0b-8105e12e9a87",
+      "policy_uid": "76d78385-6c3b-45b3-adfc-3236bbc10bdb",
+      "nonce": "42333c3292394289bc6b9ba5ee8381fd",
+      "generation": 2,
+      "resource_version": "6440424",
+      "type_checks": "passed"
+    },
+    "acknowledgement": {
+      "nonce": "42333c3292394289bc6b9ba5ee8381fd",
+      "action": "replace",
+      "policy_uid": "76d78385-6c3b-45b3-adfc-3236bbc10bdb",
+      "generation": 2
+    },
+    "regeneration": {
+      "files": 238,
+      "first_second_after_equal": true
+    },
+    "worker_telemetry": {
+      "per_instance_metrics_logs_and_correlated_traces": true,
+      "expected_instances": {
+        "hypershell-namespace-allocation": 3,
+        "hypershell-gateway-identity": 2,
+        "hypershell-gateway-workload": 5
+      }
+    },
+    "public_workflow": {
+      "gateway-public-rpc.json": {
+        "foreign_audience_denied": true,
+        "forged_token_denied": true,
+        "gateway_pod_replaced": true,
+        "owner_provider_write_and_read": true,
+        "provider_data_preserved": true,
+        "unauthenticated_denied": true,
+        "ungranted_user_denied": true,
+        "verified_tls": true
+      },
+      "gateway-public-network-recovery.json": {
+        "baseline_before_fault": true,
+        "degraded_addresses_cleared": true,
+        "generated_egress_restored": true,
+        "healthy_addresses_restored": true,
+        "live_policy_change_verified": true,
+        "provider_data_preserved": true,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "worker_public_egress_removed": true
+      },
+      "gateway-public-certificate-rotation.json": {
+        "internal_tls_unchanged": true,
+        "new_owner_connection_verified": true,
+        "new_tls_connection_verified": true,
+        "old_pin_rejected": true,
+        "private_key_rotated": true,
+        "provider_data_preserved": true,
+        "renewal_uses_observed_uid_and_revision": true,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "unauthenticated_denied": true
+      },
+      "verify.json": {
+        "verified": true,
+        "publicConnectionVerified": true
+      }
+    },
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-f11fea",
+      "owned_resources_absent": true
+    },
+    "independent_cleanup": {
+      "owned_resources_absent": true,
+      "lease_free": true,
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59"
+    },
+    "peer_cleanup": "removed",
+    "automatic_cleanup_passed": true,
+    "evidence_directory": "/home/jsell/.local/state/stego/runs/endpoint-20260915-durable",
+    "evidence_sha256": "8fb8f820eec6e94cb368ba178e7e9c582b9b4488fcc221a06eaa26d3341a09ff",
+    "screenshot": "/home/jsell/.local/state/stego/runs/endpoint-20260915-durable/gateway-console.png",
+    "limits": [
+      "The workflow uses fixed IP bindings. It does not prove external DNS tracking or RDS failover.",
+      "Clients ran inside jshell and used the public router; Internet-external clients were not tested.",
+      "The supplied PostgreSQL fixture was used; this run did not exercise CNPG.",
+      "Kata Sandbox tests remain deferred."
+    ]
+  }
 }

@@ -61,8 +61,8 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
-| Gateway workflow with network policies | Hypershell `ee3d41d`, compiler `5516e48` | The [bounded jshell run](hypershell-gateway-network-workflow-20260915.json) passed the complete public workflow in 512.91 seconds with race detection. All 28 fresh-connection probes passed before and after recovery, including independent egress denial against an unrelated listener. REST, gRPC, grants, event delivery, SQL faults, namespace replacement, encrypted credentials, eight worker telemetry instances, service accounts, and deletion passed. Generation hashes matched. Cleanup and Lease release passed. Live endpoint changes, external DNS enforcement, and CNPG with isolation remain required. |
-| Full compiler CI | STEGO `8aedc54` | [Run 34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541) passed controlled network updates, compiler checks with race detection, SQL provisioning, and both example services. The Kubernetes service package passed in 15.869 seconds. Browser runtime adoption remains recorded in the [runtime record](browser-telemetry.md). |
+| Gateway workflow with address replacement | Hypershell `93f590b`, compiler `b0bd9a4` | The [complete public workflow](hypershell-endpoint-change-live-20260915.json) passed in 536.80 seconds with race detection. All 54 fresh-connection checks passed before address replacement, after replacement, and after namespace recovery. The old address was denied and the replacement was allowed. All 238 generation hashes stayed equal. Ten worker instances supplied metrics and correlated logs and traces. Public TLS, certificate rotation, SQL faults, access rules, encrypted recovery, account deletion, and logout passed. Automatic cleanup and independent absence checks passed. Raw evidence is in persistent storage. External DNS and RDS failover remain unproved. |
+| Full compiler CI | STEGO `b0bd9a4` | [Run 35012238080](https://github.com/jsell-rh/stego/actions/runs/35012238080) passed compiler race tests, both generated examples, dependency scans, and SQL provisioning. The patched API and console also passed vulnerability scans. [The API cluster gate](hypershell-api-security-ci-20260915.json) passed all 32 required tests. Ordinary Hypershell CI passed all four application jobs; its CNPG job declined an insufficient credential before execution. |
 | Core application acceptance | Hypershell `0c2e7fe`, compiler `fe07b0a` | [Run 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003) passed core acceptance with race detection in 1330.563 seconds. Rendered browser, 229 UI tests, bundle reproduction, regeneration, and image checks passed. The manual workflow skipped CNPG and Sandbox. The main variant branch adopted the checked candidate through `4d1334b`. |
 | Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
@@ -173,15 +173,18 @@ source and journal. Evidence was recovered from the existing Job into persistent
 storage. Manual cleanup removed the Job, all six namespaces, and 22 owned
 cluster resources, then released the Lease. The full address-change and recovery
 stages remain required. Future frozen sources and journals must use persistent
-storage. The cause of the workstation restart is not established. A new run at source
-`93f590b` is active with persistent source, journal, trust, and result files.
-Its public Gateway inputs match the previous attempt. The final result and
-cleanup checks remain required.
+storage. The cause of the workstation restart is not established. The next run at
+`93f590b` used persistent source, journal, trust, and result files and the same
+public Gateway inputs. It passed the complete workflow in 536.80 seconds. All
+54 network checks passed on the first attempt. The policy kept its UID and
+advanced to generation 2. All 238 generation hashes stayed equal. Ten worker
+instances exported all required signals. The wrapper exited with status 0;
+automatic cleanup removed the fixture and allocations. Independent reads
+confirmed resource absence and a free Lease.
 
 
-This result does not close the full network gate. Approved and retired endpoint
-addresses need live traffic checks. External database DNS behavior also remains
-unproved. The main variant branch still uses the earlier checked candidate.
+This result closes the fixed-address replacement gate. External database DNS
+behavior remains unproved and keeps the full network gate open. The main variant branch still uses the earlier checked candidate.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.
@@ -196,7 +199,8 @@ The next required work is:
    cleanup. The user approved [supported DNS-aware providers](allocated-network-dns.md).
    Keep declarations independent of the provider, reject unsupported
    configurations, and exclude Technology Preview features.
-   The controller's public egress fault test does not prove Gateway isolation.
+   Fixed-address Gateway isolation and replacement passed the full workflow.
+   Native DNS enforcement and failure behavior still need qualification.
 2. Complete separate Sandbox allocation and its permission and network boundary.
    The current controller rejects Sandbox runtime configuration with the shared
    allocator. The user deferred the live Kata test because no suitable cluster
