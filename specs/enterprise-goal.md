@@ -3724,3 +3724,21 @@ source files and 228 generated files match the pushed commit. Generation records
 match, and the Job, Pods, and private fixtures are absent. This API pass compiles
 the new live test but does not execute its denial case. The complete browser
 workflow for that case is now active. Credential-encryption checks remain queued.
+
+The SQL cleanup browser candidate `ae371ae` failed in its permission fixture.
+PostgreSQL rejected removal of `ADMIN OPTION` because dependent grants exist.
+The test did not reach the denial assertion. The failed Job and its nonzero
+result are retained in the evidence record. All 872 source files and the two
+pre-test generation records match. No post-test generation record exists.
+Host cleanup passed; the test resources and Gateway allocations are absent.
+The operator installation remains. This is a fixture failure, not a runtime
+failure or a denied-cleanup recovery pass.
+
+Hypershell `70b2dd7` changes the fault to remove database-owner `INHERIT` and
+`SET` access. It keeps administrator grants and all original grantors. Fault
+and restoration use transactions. A direct PostgreSQL probe must deny the same
+`ALTER DATABASE` operation used by generated cleanup. Formatting and frozen
+generation passed. The complete browser and API checks are queued. This source
+also includes the stored-credential encryption test. The earlier pending
+browser run with the known fixture error was cancelled before it had any Jobs.
+See the [combined evidence](hypershell-browser-ci.json). The goal remains active.

@@ -705,7 +705,7 @@
     "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319194",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123",
-    "result": "api_success_browser_running",
+    "result": "api_success_browser_fixture_failure",
     "api_evidence": {
       "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319123",
       "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
@@ -718,14 +718,43 @@
         "pods_absent": true,
         "fixture_resources_absent": true
       }
+    },
+    "browser_evidence": {
+      "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34937319194",
+      "commit": "ae371ae34b62cbea28b5ff494a50c104b0468e96",
+      "result": "failed_in_permission_fixture",
+      "failure": "ADMIN OPTION removal has dependent grants; the denial assertion did not run",
+      "workflow_seconds": 306.68,
+      "source_files_checked": 872,
+      "pre_test_generated_files_checked": 228,
+      "post_test_generation_record_present": false,
+      "job_uid": "e89b7e6f-01bc-4e9a-90bc-709bda5249ce",
+      "cleanup": {
+        "namespace_retained": "stego-service-ci",
+        "test_resources_absent": true,
+        "allocations_absent": true
+      },
+      "artifact_sha256": {
+        "deployment.log": "ce8482428f455f6cd3a94239b856197b45ca40f27ed1d8f2a6047d3046cd3f80",
+        "evidence.tar": "d98428476cce2dfb603abc05c1c3738b4d089f8206cf53de8fb87bdf1647bc92",
+        "job-status.json": "cc53a77d94286c6f2092ef9ddaf20b1f43f3463ed6eeb7985308ccc92b785eb5",
+        "cleanup.json": "179eec722abf20ace66a7c69315ad9a7758b5305c67c476dddc3956f074b7232"
+      }
     }
   },
   "credential_encryption_candidate": {
     "commit": "ee1f23e875509e6e923a8102a94f8a8ef6a0864c",
     "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34939475635",
     "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34939474440",
-    "result": "pending"
+    "result": "browser_cancelled_before_start_known_fixture_error_api_running"
   },
-  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/824fbc59d6ba8d0c595a22d2cc61b29e0421064a/acceptance/browser-ci-evidence.json",
-  "source_record_sha256": "e3deadc46929d10e9bc336307cc61e314769b3c13b436b6085192b18d10b1758"
+  "sql_owner_access_denial_candidate": {
+    "commit": "70b2dd712eb84a7807e9d65e3f50f67e7392e471",
+    "browser_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181554",
+    "api_run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/34941181696",
+    "result": "pending",
+    "includes_credential_encryption": true
+  },
+  "source_record": "https://github.com/jsell-rh/hypershell-stego/blob/d9d7f0318ecd944e435369b525a42eb759230256/acceptance/browser-ci-evidence.json",
+  "source_record_sha256": "77e54c97f43e8a44e61ee37c839c1ad529504745e27573798b8e3c124ab535e2"
 }
