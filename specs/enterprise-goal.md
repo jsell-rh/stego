@@ -61,13 +61,14 @@ checks, but it cannot establish a complete application pass.
 
 | Check | Source | Verified result and limits |
 | --- | --- | --- |
+| Gateway workflow with network policies | Hypershell `56a5998`, compiler `5516e48` | The [bounded jshell run](hypershell-gateway-network-workflow-20260915.json) passed the complete public workflow in 492.39 seconds with race detection. All 24 fresh-connection probes passed before and after recovery. REST, gRPC, grants, event delivery, SQL faults, namespace replacement, encrypted credentials, eight worker telemetry instances, service accounts, and deletion passed. Generation hashes matched. Cleanup and Lease release passed. Independent egress denial against an unrelated namespace, live endpoint changes, and CNPG with isolation remain required. |
 | Full compiler CI | STEGO `8aedc54` | [Run 34998601541](https://github.com/jsell-rh/stego/actions/runs/34998601541) passed controlled network updates, compiler checks with race detection, SQL provisioning, and both example services. The Kubernetes service package passed in 15.869 seconds. Browser runtime adoption remains recorded in the [runtime record](browser-telemetry.md). |
 | Core application acceptance | Hypershell `0c2e7fe`, compiler `fe07b0a` | [Run 34994298003](https://github.com/jsell-rh/hypershell-stego/actions/runs/34994298003) passed core acceptance with race detection in 1330.563 seconds. Rendered browser, 229 UI tests, bundle reproduction, regeneration, and image checks passed. The manual workflow skipped CNPG and Sandbox. The main variant branch adopted the checked candidate through `4d1334b`. |
 | Public Gateway workflow | Hypershell `842a71c`, compiler `0b0c932` | [Run 34991226917](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991226917) passed the complete rendered workflow in 457.75 seconds with race detection. Public TLS, RPC access and denial, network recovery, certificate rotation, SQL faults, namespace recovery, service accounts, provider logout, and normal deletion passed. Generation hashes matched before and after the test. Automatic cleanup passed with no allocations left for fallback cleanup. See the [complete record](hypershell-public-gateway-complete-20260915.json). |
 | Telemetry fixture correction | Hypershell `842a71c` | Nine focused cases passed. The complete public run verified two allocator, two identity, and four workload instances. Every instance supplied metrics and correlated logs and traces. SQL telemetry included cleanup denial and recovery. The internal profile still requires two instances of each worker. |
 | Supplied CNPG workflow | Hypershell `ccfa4a9`, compiler `5e9c89d` | [Recorded workflow](hypershell-cnpg-complete.json) passed failover, retained data and identities, and cleanup with an operator-installed server. It does not prove unattended CNPG CI. |
 | Unattended CNPG | Hypershell `8e942ac`, compiler `0b0c932` | [Run 34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789) passed the complete rendered application test in 470.24 seconds with race detection. Primary replacement preserved SQL identities, credentials, keys, and data. Automatic cleanup removed runtime, private fixtures, claims, and volumes and released the Lease. See the [complete record](hypershell-cnpg-ci-complete-20260915.json). Earlier failures remain in the [recovery record](hypershell-cnpg-ci-recovery-20260915.json). |
-| Allocated IP endpoint bindings | STEGO `5516e48`, kubernetes-service 1.15.0 | [Endpoint evidence](allocated-network-endpoints-20260915.json) covers checked operator bindings, generated runtime updates, and three Kubernetes expression type checks. The first map type error was corrected. All 168 request admission checks passed. Traffic enforcement remains unproved. Full compiler CI passed. Hypershell candidate `5043608` uses this change; its ordinary application CI passed. Allocation isolation was off in that source. |
+| Allocated IP endpoint bindings | STEGO `5516e48`, kubernetes-service 1.15.0 | [Endpoint evidence](allocated-network-endpoints-20260915.json) covers checked operator bindings, generated runtime updates, and three Kubernetes expression type checks. The first map type error was corrected. All 168 request admission checks passed. The separate application row records traffic checks; this admission result alone does not prove traffic enforcement. Full compiler CI passed. Hypershell candidate `5043608` uses this change; its ordinary application CI passed. Allocation isolation was off in that source. |
 | Allocated namespace policy | STEGO `8aedc54`, kubernetes-service 1.14.0 | [Controlled-update evidence](allocated-network-update-admission-20260915.json) covers the generated runtime and 93 live admission checks: 19 allowed and 74 denied. Approved rule changes, removal of retired rules, stale-version denial, ownership, policy-set protection, and cleanup passed. No Pods ran. Full compiler CI passed. The earlier candidate `101f31d` uses compiler `e394ab5`; its browser, console, image, and regeneration checks passed, and core tests passed. Neither result proves Gateway traffic isolation. |
 
 The latest verification handles are:
@@ -85,23 +86,26 @@ The latest verification handles are:
 | Core, ordinary browser, console, and images | Hypershell `842a71c` | [34991229447](https://github.com/jsell-rh/hypershell-stego/actions/runs/34991229447), completed successfully |
 | Complete unattended CNPG workflow | Hypershell `8e942ac` | [34993409789](https://github.com/jsell-rh/hypershell-stego/actions/runs/34993409789), completed successfully with automatic cleanup and Lease release |
 
-The Gateway isolation candidate enables the generated policies and adds bounded
-traffic probes to the full browser workflow. Candidate `56a5998` is under CI in
-[35003173222](https://github.com/jsell-rh/hypershell-stego/actions/runs/35003173222).
-It includes the state snapshot correction and the destination fixture rules for
-telemetry and token-free probes. The first live run stopped during permission
-setup. The second failed in state recovery test fixtures before application
-execution. The third passed regeneration, contracts, state recovery, controller
-cleanup across restart, and worker telemetry under the race detector. It was
-stopped before the full workflow because its frozen receiver rules would block
-the probes. All three runs completed cleanup and released the Lease.
-The corrected frozen public workflow is now running in
-`stego-service-20260915-5a777b`. See the
-[workflow record](hypershell-gateway-network-workflow-20260915.json).
-CNPG candidate `7e23873` passed generation and comparison checks. Its final
-allocation check now uses the saved Kubernetes endpoint bindings, with 12
-cleanup boundary checks passed. Its live isolation workflow has not run. The main variant branch still uses the
-earlier checked candidate. Traffic isolation remains unproved.
+Candidate `56a5998` passed the complete public Gateway workflow with the
+generated namespace policies enabled. The test passed in 492.39 seconds under
+the race detector. Both Gateway namespaces passed allowed and denied fresh
+connections before and after recovery, for 24 checks. Normal deletion removed
+all Gateway SQL and state. Generation hashes matched, and wrapper cleanup
+removed its namespace and owned resources before releasing the Lease.
+See the [workflow record](hypershell-gateway-network-workflow-20260915.json).
+Its ordinary CI run
+[35003173222](https://github.com/jsell-rh/hypershell-stego/actions/runs/35003173222)
+has passed browser, console, and image checks; core is still running.
+The earlier setup and fixture failures remain in the record.
+
+This result does not close the full network gate. The denied destinations also
+have ingress controls. Add an unrelated listener that permits incoming test
+traffic to check Gateway egress denial independently. Approved and retired
+endpoint addresses also need live traffic checks. CNPG candidate `7e23873`
+passed generation and 12 cleanup boundary checks, but its live isolation
+workflow has not run. A read-only CI comparison found eight generated policy
+and role changes; none were applied. The main variant branch still uses the
+earlier checked candidate.
 Before a new live cluster test, verify that the prior
 test resources remain absent and the shared Lease is free. Keep one live cluster
 test at a time. A timeout or incomplete log is not a terminal result.

@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-09-15T17:53:42.612647+00:00",
+  "checked_at": "2026-09-15T18:06:09.682692+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
   "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
-  "scope": "Generated Gateway and state network policies are enabled in a candidate. The corrected frozen public workflow is running. Earlier preflight checks passed; traffic isolation remains unproved.",
+  "scope": "The complete public Gateway workflow passed with generated Gateway and state network policies enabled. The two denied targets also have ingress controls; independent egress denial against an unrelated namespace, live endpoint changes, and the CNPG isolation workflow remain unproved.",
   "declaration": {
     "gateway": "Selected router, DNS, SQL, identity-provider, and telemetry Pod peers, plus exact operator Kubernetes addresses.",
     "state": "Deny all traffic.",
@@ -88,8 +88,8 @@
     "scope": "Pinned generation supplies the selected database Pod peer to both worker and Gateway policies. Receiver rules admit the token-free probes in allocated Gateway namespaces. Final cleanup uses the saved endpoint bindings. No CNPG isolation workflow has run."
   },
   "remaining": [
-    "Complete the current public workflow and inspect traffic results.",
-    "Test an unrelated namespace and live endpoint changes.",
+    "Check independent Gateway egress denial against an unrelated namespace whose listener permits incoming test traffic.",
+    "Test approved and retired endpoint addresses with fresh connections, restart, and regeneration.",
     "Run the complete CNPG workflow with isolation enabled.",
     "Declare and test external database endpoints for deployments outside this SQL Pod fixture.",
     "Resolve the open DNS provider choice.",
@@ -171,6 +171,26 @@
     {
       "path": "/tmp/hypershell-cnpg-network-cleanup-frozen-20260915/acceptance/browser-inspection-source.json",
       "sha256": "91fe1ab3e3995433012e56a2ffd5840319cf5d2cdbed06de3747a468079a7d4f"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-receivers-live-20260915/deployment.log",
+      "sha256": "6a6b114c2fc42301b0de76acf0dc0420b6a38319bdf9d4c4722784788a24ddbc"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "sha256": "013f19c4d71f9f1ce7659ef1ff41c82fb286cd5feeffe834e12880d5a7d2d95c"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-receivers-live-20260915/cleanup.json",
+      "sha256": "58d14ba77594de1ee1cad94a55ec2391a1efff59701e4c779435c2053ffd9d9f"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-receivers-live-20260915/job-status.json",
+      "sha256": "966761f53234ddf11efd7ac6b47eb615467d53ff0d9bfffe5fff659c9e8ac515"
+    },
+    {
+      "path": "/tmp/hypershell-network-ci-render-plan-20260915/comparison.json",
+      "sha256": "d30ad5fdd0693272fa2352d55d66ac9927a19bde47f18f806ca4cb62adf4ffab"
     }
   ],
   "second_live_attempt": {
@@ -221,8 +241,341 @@
     "namespace": "stego-service-20260915-5a777b",
     "job": "service-check",
     "pod": "service-check-tljsb",
-    "status": "running",
+    "status": "passed",
     "exec_session": 11260,
-    "shared_lease": "stego-ci/jshell-live-test"
+    "shared_lease": "stego-ci/jshell-live-test",
+    "exit_status": 0,
+    "workflow_seconds": 492.39,
+    "race_detection": true,
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-5a777b",
+      "owned_resources_absent": true
+    },
+    "lease_released": true
+  },
+  "application_result": {
+    "source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
+    "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
+    "inspection_scope": "Production source with two namespace inspection roles and two appended bindings. Production binding indices and runtime code are unchanged.",
+    "browser": {
+      "verified": true,
+      "publicConnectionVerified": true
+    },
+    "generation_hashes_match": true,
+    "generation_manifest_sha256": "2a5d71709b372e2dfe2af8aeaf7be3a577b3f8be12eb7e2c8dd2e52fa72af810",
+    "network_stages": [
+      {
+        "fresh_connections": true,
+        "gateways": [
+          {
+            "gateway_id": "3JNIJtdtBEDdCrsqQfCaTWBggFc",
+            "namespace": "openshell-4ebd05d9fef6aee9",
+            "result": {
+              "results": [
+                {
+                  "allowed": true,
+                  "name": "kubernetes",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "postgres",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "identity",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "telemetry",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "other-gateway",
+                  "outcome": "timeout",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "control-api",
+                  "outcome": "timeout",
+                  "passed": true
+                }
+              ]
+            }
+          },
+          {
+            "gateway_id": "3JNIKQQCGUFTzAgqanK2cI0YLFw",
+            "namespace": "openshell-83c22980dbfe6e1f",
+            "result": {
+              "results": [
+                {
+                  "allowed": true,
+                  "name": "kubernetes",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "postgres",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "identity",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "telemetry",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "other-gateway",
+                  "outcome": "timeout",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "control-api",
+                  "outcome": "timeout",
+                  "passed": true
+                }
+              ]
+            }
+          }
+        ],
+        "stage": "initial",
+        "token_mounted": false
+      },
+      {
+        "fresh_connections": true,
+        "gateways": [
+          {
+            "gateway_id": "3JNIJtdtBEDdCrsqQfCaTWBggFc",
+            "namespace": "openshell-4ebd05d9fef6aee9",
+            "result": {
+              "results": [
+                {
+                  "allowed": true,
+                  "name": "kubernetes",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "postgres",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "identity",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "telemetry",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "other-gateway",
+                  "outcome": "timeout",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "control-api",
+                  "outcome": "timeout",
+                  "passed": true
+                }
+              ]
+            }
+          },
+          {
+            "gateway_id": "3JNIKQQCGUFTzAgqanK2cI0YLFw",
+            "namespace": "openshell-83c22980dbfe6e1f",
+            "result": {
+              "results": [
+                {
+                  "allowed": true,
+                  "name": "kubernetes",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "postgres",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "identity",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": true,
+                  "name": "telemetry",
+                  "outcome": "connected",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "other-gateway",
+                  "outcome": "timeout",
+                  "passed": true
+                },
+                {
+                  "allowed": false,
+                  "name": "control-api",
+                  "outcome": "timeout",
+                  "passed": true
+                }
+              ]
+            }
+          }
+        ],
+        "stage": "after-recovery",
+        "token_mounted": false
+      }
+    ],
+    "network_checks": 24,
+    "checks": {
+      "gateway-public-rpc": {
+        "foreign_audience_denied": true,
+        "forged_token_denied": true,
+        "gateway_pod_replaced": true,
+        "owner_provider_write_and_read": true,
+        "provider_data_preserved": true,
+        "unauthenticated_denied": true,
+        "ungranted_user_denied": true,
+        "verified_tls": true
+      },
+      "gateway-public-network-recovery": {
+        "baseline_before_fault": true,
+        "degraded_addresses_cleared": true,
+        "generated_egress_restored": true,
+        "healthy_addresses_restored": true,
+        "live_policy_change_verified": true,
+        "provider_data_preserved": true,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "worker_public_egress_removed": true
+      },
+      "gateway-public-certificate-rotation": {
+        "internal_tls_unchanged": true,
+        "new_owner_connection_verified": true,
+        "new_tls_connection_verified": true,
+        "old_pin_rejected": true,
+        "private_key_rotated": true,
+        "provider_data_preserved": true,
+        "renewal_uses_observed_uid_and_revision": true,
+        "sql_credentials_preserved": true,
+        "sql_object_ids_preserved": true,
+        "unauthenticated_denied": true
+      },
+      "namespace-replacement": {
+        "database_and_role_oids_unchanged": true,
+        "other_gateway_sql_unchanged": true,
+        "provider_data_unchanged": true,
+        "source_data_unchanged": true,
+        "sql_credentials_unchanged": true,
+        "ungranted_rpc_denied": true,
+        "viewer_lists_filtered": true,
+        "viewer_membership_recovered": true,
+        "viewer_writes_denied": true,
+        "workspace_and_gateway_revocation_verified": true
+      },
+      "credential-encryption": {
+        "after_namespace_recovery": true,
+        "altered_value_context_rejected": true,
+        "altered_value_rejected": true,
+        "altered_wrapped_key_rejected": true,
+        "altered_wrapping_context_rejected": true,
+        "authenticated_plaintext_matches": true,
+        "no_plaintext_or_base64_in_object_payloads": true,
+        "other_gateway_key_rejected": true,
+        "retained_key_unwrapped_data_key": true
+      },
+      "sql-cleanup-denial": {
+        "cleanup_pending": true,
+        "other_gateway_ready": true,
+        "source_data_unchanged": true,
+        "sql_object_ids_unchanged": true
+      }
+    },
+    "postgres_server": {
+      "provisioning_createdb": true,
+      "provisioning_createrole": true,
+      "provisioning_superuser": false,
+      "server_version_num": 180006,
+      "tls": true
+    },
+    "admission_denial_checks": 6,
+    "permission_checks": 15,
+    "worker_instances_with_metrics_logs_and_traces": {
+      "hypershell-namespace-allocation": 2,
+      "hypershell-gateway-identity": 2,
+      "hypershell-gateway-workload": 4
+    },
+    "test_log_summary": "Real Keycloak login, Gateway creation, grants, REST and gRPC access, event delivery, process restart, session key rotation, renewal, service-account lifecycle, normal deletion, and logout passed."
+  },
+  "artifact_members": [
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "deployment.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "first.sha256",
+      "sha256": "2a5d71709b372e2dfe2af8aeaf7be3a577b3f8be12eb7e2c8dd2e52fa72af810"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "second.sha256",
+      "sha256": "2a5d71709b372e2dfe2af8aeaf7be3a577b3f8be12eb7e2c8dd2e52fa72af810"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "after-tests.sha256",
+      "sha256": "2a5d71709b372e2dfe2af8aeaf7be3a577b3f8be12eb7e2c8dd2e52fa72af810"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "browser-artifacts/gateway-network-initial.json",
+      "sha256": "fc6c0b3da36cf6503059b09d9bcb73c28fcf12ed5396464d9fc30c7b0cb915ed"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "browser-artifacts/gateway-network-after-recovery.json",
+      "sha256": "a59b299277bb65d9bbbd883877edb45d86c8f664c26133f9cc0739ecb053f84c"
+    },
+    {
+      "archive": "/tmp/hypershell-gateway-network-receivers-live-20260915/evidence.tar",
+      "member": "browser-artifacts/verify.json",
+      "sha256": "53150546e0c8174350882a681a141d1ff242684eb953fc6c92e87b23657617dd"
+    }
+  ],
+  "ci_installation_plan": {
+    "directory": "/tmp/hypershell-network-ci-render-plan-20260915",
+    "changed_resources": 8,
+    "status": "read-only comparison; no cluster installation change applied"
   }
 }
