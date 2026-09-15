@@ -3920,3 +3920,17 @@ checks without new runtime code or Kubernetes permissions. The complete
 acceptance package compiles; live viewer evidence remains required. The
 external TLS and address-ownership decisions are still pending. The enterprise
 goal remains active.
+
+The application helper review also found an inactive Gateway account cleanup
+workflow. Hypershell `10a0827` connects it to browser-driven Gateway deletion.
+Three live accounts must first reach the actual Gateway. After DELETE returns,
+token issuance must fail, provider clients must be absent, and each closed
+account must have exactly one successful cleanup audit. The test uses existing
+browser and provider clients and adds no production permission. Its complete
+acceptance package compiles; the live result remains required.
+
+The other two inactive workload helpers require Sandbox execution and count
+observations. The explicit jshell context still reports no RuntimeClass. This
+cluster cannot supply the required VM isolation evidence. The active browser
+Job remains in progress, with viewer and account runs queued behind it. No
+missing live result is treated as a pass.
