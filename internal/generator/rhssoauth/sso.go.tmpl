@@ -1,0 +1,58 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "net/http"
+ "os"
+ "strings"
+
+ "github.com/golang-jwt/jwt/v5"
+)
+
+// JWTHandler adds SSO claim mapping and exact public paths to the common verifier.
+type JWTHandler struct {
+ verifier *JWKSVerifier
+ publicPaths map[string]bool
+}
+
+// NewJWTHandler validates trust and loads keys before the service accepts requests.
+func NewJWTHandler() (*JWTHandler,error) {
+ enabled:=os.Getenv("AUTH_ENABLED")
+ if enabled!="" && !strings.EqualFold(enabled,"true") {return nil,errors.New("SSO authentication cannot be disabled")}
+ verifier,err:=NewJWKSVerifier(context.Background(),JWKSConfig{
+  Trust:Config{Issuer:envOrDefault("STEGO_AUTH_ISSUER",{{printf "%q" .Issuer}}),Audience:envOrDefault("STEGO_AUTH_AUDIENCE",{{printf "%q" .Audience}})},
+  URL:envOrDefault("JWK_CERT_URL",{{printf "%q" .URL}}),
+  File:envOrDefault("JWK_CERT_FILE",{{printf "%q" .File}}),
+  CAFile:envOrDefault("JWK_CA_FILE",{{printf "%q" .CAFile}}),
+ })
+ if err!=nil{return nil,err}
+ return &JWTHandler{verifier:verifier,publicPaths:map[string]bool{
+ {{range .PublicPaths}}{{printf "%q" .}}:true,
+ {{end}}
+ }},nil
+}
+
+func (h *JWTHandler) Build() func(http.Handler)http.Handler {
+ return func(next http.Handler)http.Handler {
+  return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+   if h.publicPaths[r.URL.Path] { next.ServeHTTP(w,r);return }
+   raw:=extractToken(r)
+   identity,err:=h.verifier.Verify(r.Context(),raw)
+   if err!=nil{writeAuthError(w,r,"invalid authentication token");return}
+   // Only the common verifier can establish trust. This parse supplies the
+   // legacy SSO payload after signature, issuer, audience, and time checks.
+   token,_,err:=jwt.NewParser().ParseUnverified(raw,jwt.MapClaims{})
+   if err!=nil {writeAuthError(w,r,"invalid authentication token");return}
+   token.Valid=true
+   ctx:=context.WithValue(r.Context(),tokenContextKey,token)
+   payload:=GetAuthPayloadFromContext(ctx)
+   ctx=SetUsernameContext(ctx,payload.Username)
+   ctx=context.WithValue(ctx,identityKey,Identity{Issuer:payload.Issuer,UserID:payload.Username,Username:payload.Username,ExpiresAt:identity.ExpiresAt,
+    Attributes:map[string]string{"email":payload.Email,"first_name":payload.FirstName,"last_name":payload.LastName,"client_id":payload.ClientID,"issuer":payload.Issuer}})
+   next.ServeHTTP(w,r.WithContext(ctx))
+  })
+ }
+}
+
+func (h *JWTHandler) Stop(){if h!=nil{h.verifier.Stop()}}

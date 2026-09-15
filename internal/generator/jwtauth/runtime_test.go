@@ -40,6 +40,13 @@ func TestGeneratedAuthenticationRuntime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "auth/grants_test.go"), grants, 0644); err != nil {
 		t.Fatal(err)
 	}
+	keySourceTests, err := os.ReadFile("testdata/key_source_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "auth/key_source_test.go"), keySourceTests, 0644); err != nil {
+		t.Fatal(err)
+	}
 	module := "module example.com/auth-test\ngo 1.26.8\nrequire github.com/golang-jwt/jwt/v5 " + wiring.GoModRequires["github.com/golang-jwt/jwt/v5"] + "\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0644); err != nil {
 		t.Fatal(err)

@@ -1,124 +1,58 @@
-# rh-sso-auth Component Specification
+# SSO authentication
 
-Replaces the MVP `jwt-auth` component with production-grade JWT authentication following the rh-trex pattern. Supports JWK key discovery, RSA signature verification, claim extraction with fallback chains, and configurable public paths.
+Version 2.0.0 adds SSO claim mapping to the shared `jwt-auth` runtime. It supplies
+the `auth-provider` port. It does not supply a second signature verifier, HTTP
+client, or key refresh task. Generated output uses `jwt/v5`.
 
-## Component Definition
+The component requires an explicit issuer and audience before startup succeeds.
+Set `issuer` and `audience` in component configuration, or set
+`STEGO_AUTH_ISSUER` and `STEGO_AUTH_AUDIENCE` at runtime. An issuer must use HTTPS.
+The audience must be nonempty and must match the token audience. No issuer or
+audience is inferred from the key source or token.
 
-```yaml
-kind: component
-name: rh-sso-auth
-version: 1.0.0
-output_namespace: internal/auth
+`jwk_cert_url` selects the trusted key endpoint. Its default is
+`https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs`.
+`JWK_CERT_URL` overrides that setting. `jwk_cert_file`, or `JWK_CERT_FILE`, selects
+a local key document and takes precedence over the URL. `jwk_ca_file`, or
+`JWK_CA_FILE`, adds a private CA to the system trust roots. Initial key loading
+must succeed. The component accepts an absent or `true` `AUTH_ENABLED` value;
+all other values stop startup. There is no authentication-disable mode.
 
-config:
-  jwk_cert_url:
-    type: string
-    default: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
-  jwk_cert_file:
-    type: string
-    optional: true
-  public_paths:
-    type: list
-    items:
-      type: string
-    default: ["/healthcheck", "/metrics"]
+The common verifier permits RS256 with a trusted RSA key. It checks issuer,
+audience, subject, issue time, and required expiry. It rejects unsupported token
+headers, duplicate JSON fields, invalid Unicode, invalid key material, and
+oversize input. See [the shared key source contract](../../../jwt-key-source.md)
+for TLS, caching, refresh, outage, input, and shutdown limits.
 
-requires: []
+After successful verification, SSO maps these claims:
 
-provides:
-  - auth-provider
+| Payload | Claim order |
+| --- | --- |
+| Username | `username`, `preferred_username`, `sub` |
+| FirstName | `first_name`, `given_name`, first part of `name` |
+| LastName | `last_name`, `family_name`, remaining part of `name` |
+| Email | `email` |
+| ClientID | `clientId` |
+| Issuer | verified `iss` |
 
-slots: []
-```
+`IdentityFromContext` uses the mapped username as UserID. It retains verified
+expiry and the email, name, client, and issuer attributes. Role remains empty.
+SSO claim mapping does not grant resource access. Payload, username, and verified
+token context accessors remain available.
 
-## Environment Variables
+`public_paths` supplies exact paths under the service base path. Defaults are
+`/healthcheck` and `/metrics`; an explicitly empty list adds neither. The service
+OpenAPI path remains public. Subpaths do not inherit public access. Paths must
+be canonical absolute paths without query, fragment, or encoded characters.
 
-The component reads configuration from environment variables at runtime:
+`NewJWTHandler` returns a handler and an error. Generated main code handles the
+error before serving requests and defers `Stop`. `Build` returns the middleware;
+it does not fetch keys or create background tasks. Repeat `Stop` calls are safe.
+This changes the old builder constructor API. Regenerate consumers together with
+their main code. Old authentication-disable settings must be removed.
 
-- `JWK_CERT_URL` -- JWK endpoint URL for key discovery (overrides config default)
-- `JWK_CERT_FILE` -- local JWK file path (overrides URL if set)
-- `AUTH_ENABLED` -- set to `false` to disable auth entirely (development mode)
-
-## JWK Key Management
-
-The component fetches RSA public keys from a JWK (JSON Web Key Set) endpoint and caches them in memory.
-
-**Key sources (in priority order):**
-1. Local file (`JWK_CERT_FILE`) -- refreshed every 5 minutes (for kubelet-synced rotation)
-2. Remote URL (`JWK_CERT_URL`) -- refreshed every hour
-
-**Unknown key ID handling:** When a JWT contains a `kid` not in the cached set, the component attempts a one-shot refresh from the key source. A 30-second cooldown prevents refresh storms. If the key is still unknown after refresh, the request is rejected with 401.
-
-**Thread safety:** Key map is protected by `sync.RWMutex`. Reads (token validation) use `RLock`. Writes (key refresh) use `Lock` and atomically replace the entire map.
-
-## JWT Validation
-
-The middleware:
-1. Extracts the Bearer token from the `Authorization` header
-2. Parses the JWT and validates the RSA signature against the cached public keys
-3. Verifies the signing method is RSA (rejects HMAC, ECDSA, etc.)
-4. Matches the `kid` header to a cached public key
-5. On success, stores the parsed `*jwt.Token` in the request context
-
-**Public paths** skip authentication entirely. Path matching is exact (no prefix matching) to prevent auth bypass via path traversal.
-
-## Identity Extraction
-
-After validation, the component extracts an identity payload from JWT claims with fallback chains:
-
-```go
-type Payload struct {
-    Username  string  // from "username" -> "preferred_username" -> "sub"
-    FirstName string  // from "first_name" -> "given_name" -> split("name")[0]
-    LastName  string  // from "last_name" -> "family_name" -> split("name")[1]
-    Email     string  // from "email"
-    ClientID  string  // from "clientId"
-    Issuer    string  // from "iss"
-}
-```
-
-The fallback chains support both Red Hat SSO and RHD (Red Hat Developer) JWT formats.
-
-The identity is stored in the request context and accessible via:
-- `auth.GetUsernameFromContext(ctx)` -- returns the extracted username
-- `auth.GetAuthPayload(r)` -- returns the full Payload struct
-
-## Generated Code
-
-The component generates:
-
-### `internal/auth/middleware.go`
-- `JWTHandler` struct with builder pattern: `NewJWTHandler().WithKeysURL(...).WithKeysFile(...).WithPublicPath(...).Build()`
-- `Build()` returns `func(http.Handler) http.Handler` middleware
-- JWK key fetching from URL and file with automatic refresh
-- JWT parsing and RSA signature validation using `github.com/golang-jwt/jwt/v4`
-- Public path bypass with exact matching
-- `Stop()` method to terminate the key refresh goroutine
-
-### `internal/auth/context.go`
-- `Payload` struct with claim extraction and fallback chains
-- `GetAuthPayloadFromContext(ctx)` -- extracts payload from JWT claims in context
-- `GetAuthPayload(r)` -- convenience wrapper for HTTP requests
-- `GetUsernameFromContext(ctx)` / `SetUsernameContext(ctx, username)` -- username accessors
-- `TokenFromContext(ctx)` -- raw JWT token accessor
-
-### Wiring
-- The assembler wraps the HTTP mux with the JWT middleware: `jwtHandler.Build()` returns the middleware, applied via `middleware(mux)`
-- `main.go` reads `JWK_CERT_URL`, `JWK_CERT_FILE`, and `AUTH_ENABLED` from environment
-- When `AUTH_ENABLED=false`, the middleware is a passthrough (no auth check)
-- Public paths are configured from the component config, plus the `base_path + /openapi` path is always public
-
-## Dependencies
-
-- `github.com/golang-jwt/jwt/v4` -- JWT parsing and validation
-
-## Differences from jwt-auth (MVP)
-
-| Concern | jwt-auth (MVP) | rh-sso-auth |
-|---------|---------------|-------------|
-| Signature verification | None (decodes payload only) | RSA signature validation |
-| Key source | None | JWK URL or file with auto-refresh |
-| Claim extraction | user_id, role | Full payload with fallback chains |
-| Public paths | None | Configurable, exact match |
-| Auth disable | No | AUTH_ENABLED=false |
-| Context type | Custom Identity struct | *jwt.Token + Payload extraction |
+Generated runtime tests cover accepted and denied tokens, required claims, SSO
+claim fallbacks, exact public paths, error privacy, startup failure, and repeated
+shutdown. Shared runtime tests cover key rotation, provider failure and recovery,
+verified TLS, redirects, input limits, and cancellation. Full compiler and example
+CI must also pass for each released revision.

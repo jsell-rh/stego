@@ -25,3 +25,24 @@ Acceptance must cover valid and denied requests, required claims, key rotation,
 collector and identity-provider failure, bounded token and key input, repeated
 shutdown, and regeneration of the SSO example. The source review identifies the
 gap; the signed-token regression and corrected runtime results are still required.
+
+The generated signed-token regression reproduced all three defects: wrong issuer,
+wrong audience, and missing expiry each returned HTTP 204 instead of 401. The
+valid fixture also returned 204. The initial check failed in 0.777 seconds.
+
+The replacement uses the shared JWT verifier and key source. SSO retains its
+claim mapping and exact public paths. Startup now requires issuer, audience, and
+valid keys; authentication-disable settings fail. The old independent verifier,
+key-fetch code, refresh loop, and jwt/v4 dependency are removed. See the
+[current component contract](registry/components/rh-sso-auth/spec.md) and
+[shared key source contract](jwt-key-source.md).
+
+The expanded SSO runtime check passed under the race detector in 2.111 seconds.
+It covers the original defect and additional missing claims, invalid signatures,
+unsupported algorithms, duplicate headers, token limits, claim mapping, startup
+failure, and repeated shutdown. The shared runtime check passed in 3.079 seconds
+before the final empty-runtime and remote-input cases were added. The final
+focused checks passed after those additions: shared JWT runtime 2.881 seconds
+and SSO runtime 2.157 seconds. Both generated runtimes ran with the race detector.
+Full CI and regenerated example results remain required. These checks do not
+establish complete observability or performance coverage.

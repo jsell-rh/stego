@@ -23,8 +23,14 @@ var jwksTemplate string
 //go:embed grants.go.tmpl
 var grantsTemplate string
 
+//go:embed key_source.go.tmpl
+var keySourceTemplate string
+
 // Generator produces the jwt-auth component.
 type Generator struct{}
+
+// MinimumGoVersion includes the verified JWT dependency and cancellation API.
+func (*Generator) MinimumGoVersion() string { return "1.21.0" }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	mode := setting(ctx, "mode", "middleware")
@@ -117,6 +123,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, gen.File{Path: path.Join(ns, "grants.go"), Content: grantSource})
+	sourceTemplate, err := template.New("key-source").Parse(keySourceTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	buf.Reset()
+	if err := sourceTemplate.Execute(&buf, data); err != nil {
+		return nil, nil, err
+	}
+	remoteSource, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, gen.File{Path: path.Join(ns, "key_source.go"), Content: remoteSource})
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
