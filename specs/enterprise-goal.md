@@ -73,9 +73,12 @@ timed out or a log is incomplete.
 
 | Required check | Source | Run |
 | --- | --- | --- |
-| Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), active |
+| Complete browser SQL creation, cleanup denial, and recovery signals across worker restart | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176339](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176339), active; Job `stego-service-ci/service-check`, UID `46488241-4c08-4449-aa9e-8cb17c8fdac1` |
 | Full CI with private SQL client telemetry | Hypershell `2af1b46`, compiler `f2b09c0` | [34962176260](https://github.com/jsell-rh/hypershell-stego/actions/runs/34962176260), active |
 | Worker setup and cleanup telemetry | Compiler `f97b315` | [34964671704](https://github.com/jsell-rh/stego/actions/runs/34964671704), active; [contract and focused results](worker-startup-observability.md) |
+| API gate with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891352](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891352), queued |
+| Complete browser workflow with worker lifetime telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891373](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891373), queued |
+| Full CI with worker startup telemetry | Hypershell `677973f`, compiler `f97b315` | [34964891409](https://github.com/jsell-rh/hypershell-stego/actions/runs/34964891409), queued |
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and

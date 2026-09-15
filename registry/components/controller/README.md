@@ -216,6 +216,11 @@ domain values from common logs, metrics, and spans.
 records keyed actions, scans, watch sessions, retries, and aggregate queue state.
 The generated runtime owns logging, metrics, spans, and provider lifetime.
 
+[Worker startup telemetry](../../../specs/worker-startup-observability.md) starts
+before the `Monitor` callback. Provider setup, nested controllers, and deferred
+cleanup share one runtime identity. A callback error or abort emits a fixed
+failure event before the runtime closes. Probe commands do not start telemetry.
+
 `Main(run)` supplies a controller process entry point. The callback has signature
 `func(context.Context, *Metrics) error`. It must stop its work and close its
 resources when the context ends. Main handles SIGINT and SIGTERM. A callback

@@ -29,3 +29,10 @@ signals, nested controller signals, preserved error identity, private-data
 exclusion, and released ownership. Existing signal, probe, and failure checks
 also pass in generated forms with and without telemetry. Full compiler CI and
 complete Hypershell application results remain required.
+
+Hypershell `677973f` adopts compiler `f97b315`. Its startup test reproduced the
+missing local and OTLP events on the previous source. The updated test passed
+for all four generated workers in 3.887 seconds. Each process failed during
+provider setup, excluded private data, and exported one start, failure, and stop
+record with the same identity as local output. This is a focused startup check;
+the complete API and browser workflows remain queued.
