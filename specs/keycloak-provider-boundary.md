@@ -50,6 +50,16 @@ Do not combine these operations into an unrestricted role-replacement method.
 Both operations must remove excess access before they add access. They must
 check effective roles, including composite roles, before they report success.
 
+The role extraction also needs a real-provider test for user type. The existing
+application rejects a nonempty `serviceAccountClientId` in a user response.
+Its absence is not proof of a human user: the reviewed
+[26.7.3 user representation](https://github.com/keycloak/keycloak/blob/26.7.3/server-spi-private/src/main/java/org/keycloak/models/utils/ModelToRepresentation.java)
+and [user profile](https://github.com/keycloak/keycloak/blob/26.7.3/server-spi-private/src/main/java/org/keycloak/userprofile/DefaultUserProfile.java)
+do not set that field on this read path. A client-scoped role operation and an
+owned-service-account role operation must remain separate. Before adoption,
+prove rejection of a real service-account subject from the human grant path.
+Do not copy the existing field check as the complete identity proof.
+
 ## First extraction gate
 
 Move common administrator authentication and typed client management together
