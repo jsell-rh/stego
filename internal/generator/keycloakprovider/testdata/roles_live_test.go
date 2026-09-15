@@ -167,6 +167,7 @@ func testLiveRolePolicies(t *testing.T, c *Client, ctx context.Context) {
 		if err != nil || identities(stillShared.Realm) != identities(before.Realm) || identities(stillShared.Clients[foreign.ID]) != identities(before.Clients[foreign.ID]) {
 			t.Fatal("full service-account update changed the shared user", err)
 		}
+		testLiveScopePolicy(t, c, ctx, owner, target, policy)
 		if err = c.DeleteClient(ctx, owner); err != nil {
 			t.Fatal(err)
 		}

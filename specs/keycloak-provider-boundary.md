@@ -202,8 +202,25 @@ passed. This does not prove application login or token claims.
 Sources, generated output, and results are stored in
 `/home/jsell/.local/state/stego/runs/keycloak-provider-roles-20260915`.
 
-This is the start of the extraction. Enablement, scope reconciliation, and
-protocol mapper reconciliation remain to be implemented.
+## Scope mechanisms
+
+Version 0.4.0 adds exact role scopes and inspection. The application supplies a
+`RolePolicy`. The provider detaches all assigned default and optional scopes,
+including `service_account`, without changing their shared definitions. It
+removes excess role scopes before it adds specified leaf roles. It confirms
+removal, direct and effective roles, each client binding, and disablement.
+
+The operation does not configure token claims. Detaching a shared scope also
+removes its mappers. Explicit client mappers and issued-token checks are required
+before enablement. Small generated tests passed with the race detector, with
+and without telemetry. The real Keycloak scope test is pending. Sources and
+results are stored in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-scopes-20260915`.
+The scope endpoints follow the
+[Keycloak Admin REST API](https://www.keycloak.org/docs-api/latest/rest-api/index.html#_scope_mappings).
+
+This is the start of the extraction. Enablement and protocol mapper
+reconciliation remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
 client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.

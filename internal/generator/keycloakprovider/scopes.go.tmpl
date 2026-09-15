@@ -1,0 +1,101 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "net/http"
+ "sort"
+)
+
+const MaxAssignedClientScopes = 128
+
+var ErrScopePolicy = errors.New("Keycloak scope policy is not confirmed")
+
+type assignedScope struct {
+ ID string `json:"id"`
+ Name string `json:"name"`
+ Protocol string `json:"protocol"`
+}
+type scopeAssignment struct { ID, Kind string }
+
+func(c *Client)boundScopedClient(ctx context.Context,b ClientBinding,disabled bool)error{
+ value,raw,err:=c.boundClient(ctx,b);if err!=nil{return err}
+ if value.Protocol!="openid-connect"||!explicitFlag(raw,"fullScopeAllowed",false){return ErrScopePolicy}
+ if !explicitFlag(raw,"enabled",false)&&(disabled||!explicitFlag(raw,"enabled",true)){return ErrScopePolicy}
+ return nil
+}
+
+// Read both lists before a mutation. The endpoints have no pagination. The
+// response byte limit and this object limit apply to each complete response.
+func(c *Client)assignedClientScopes(ctx context.Context,b ClientBinding)([]scopeAssignment,error){
+ result:=[]scopeAssignment{};ids,names:=map[string]bool{},map[string]bool{}
+ for _,kind:=range []string{"default-client-scopes","optional-client-scopes"}{
+  response,err:=c.admin(ctx,http.MethodGet,"/clients/"+b.ID+"/"+kind,nil);if err!=nil{return nil,err}
+  if response.StatusCode!=http.StatusOK{return nil,statusError(response.StatusCode)}
+  var values []assignedScope
+  if decode(response.Body,&values)!=nil||values==nil||len(values)+len(result)>MaxAssignedClientScopes{return nil,ErrResponse}
+  for _,value:=range values{
+   if !identifier.MatchString(value.ID)||!textValue(value.Name,255)||value.Protocol!="openid-connect"||ids[value.ID]||names[value.Name]{return nil,ErrResponse}
+   ids[value.ID]=true;names[value.Name]=true;result=append(result,scopeAssignment{value.ID,kind})
+  }
+ }
+ sort.Slice(result,func(i,j int)bool{return result[i].ID<result[j].ID});return result,nil
+}
+
+func(c *Client)inspectClientScopes(ctx context.Context,b ClientBinding,desired roleSet,checkedClients []string)error{
+ assigned,err:=c.assignedClientScopes(ctx,b);if err!=nil{return err};if len(assigned)!=0{return ErrScopePolicy}
+ path:="/clients/"+b.ID+"/scope-mappings"
+ current,err:=c.readRoleSet(ctx,path);if err!=nil{return err};if !sameRoleSets(current,desired){return ErrScopePolicy}
+ effective,err:=c.readEffectiveRoles(ctx,path,checkedClients);if err!=nil{return err};if !sameRoleSets(effective,desired){return ErrScopePolicy}
+ return nil
+}
+
+// InspectClientScopes checks exact role scopes and the absence of shared
+// default and optional scopes. It can inspect an enabled client. It does not
+// check protocol mappers or prove the contents of an issued token.
+func(c *Client)InspectClientScopes(ctx context.Context,b ClientBinding,p RolePolicy)error{
+ if err:=b.validate();err!=nil{return err};if err:=validateServiceAccountRoles(p);err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ if err=c.boundScopedClient(work,b,false);err!=nil{return err}
+ desired,err:=c.resolveRolePolicy(work,p);if err!=nil{return err}
+ if err=c.inspectClientScopes(work,b,desired,roleClientIDs(desired));err!=nil{return err}
+ confirmed,err:=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrScopePolicy}
+ return c.boundScopedClient(work,b,false)
+}
+
+// ReconcileClientScopes sets exact leaf-role scopes on an owned, disabled
+// client with full scope disabled. It detaches all shared default and optional
+// scopes, including service_account. It never changes a shared scope or a role
+// definition. The caller must supply required claims through client mappers
+// before enablement. Ownership checks do not replace exclusive reconciliation.
+func(c *Client)ReconcileClientScopes(ctx context.Context,b ClientBinding,p RolePolicy)error{
+ if err:=b.validate();err!=nil{return err};if err:=validateServiceAccountRoles(p);err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ guard:=func()error{return c.boundScopedClient(work,b,true)}
+ if err=guard();err!=nil{return err}
+ desired,err:=c.resolveRolePolicy(work,p);if err!=nil{return err}
+ assigned,err:=c.assignedClientScopes(work,b);if err!=nil{return err}
+ path:="/clients/"+b.ID+"/scope-mappings"
+ current,err:=c.readRoleSet(work,path);if err!=nil{return err}
+ checkedClients:=roleClientIDs(current,desired)
+ for _,scope:=range assigned{
+  if err=guard();err!=nil{return err}
+  response,e:=c.admin(work,http.MethodDelete,"/clients/"+b.ID+"/"+scope.Kind+"/"+scope.ID,nil);if e!=nil{return e}
+  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+ }
+ change:=func(method,suffix string,roles []RoleRepresentation)error{
+  if len(roles)==0{return nil};if e:=guard();e!=nil{return e};return c.writeRoles(work,method,path+suffix,roles)
+ }
+ if err=change(http.MethodDelete,"/realm",roleDifference(current.Realm,desired.Realm));err!=nil{return err}
+ for _,id:=range roleClientIDs(current){if err=change(http.MethodDelete,"/clients/"+id,roleDifference(current.Clients[id],desired.Clients[id]));err!=nil{return err}}
+ // Do not add a role until all excess access has been removed and checked.
+ assigned,err=c.assignedClientScopes(work,b);if err!=nil{return err};if len(assigned)!=0{return ErrScopePolicy}
+ current,err=c.readRoleSet(work,path);if err!=nil{return err};if !roleSetSubset(current,desired){return ErrScopePolicy}
+ effective,err:=c.readEffectiveRoles(work,path,checkedClients);if err!=nil{return err};if !roleSetSubset(effective,desired){return ErrScopePolicy}
+ confirmed,err:=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrScopePolicy}
+ if err=change(http.MethodPost,"/realm",roleDifference(desired.Realm,current.Realm));err!=nil{return err}
+ for _,id:=range roleClientIDs(desired){if err=change(http.MethodPost,"/clients/"+id,roleDifference(desired.Clients[id],current.Clients[id]));err!=nil{return err}}
+ if err=c.inspectClientScopes(work,b,desired,checkedClients);err!=nil{return err}
+ confirmed,err=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrScopePolicy}
+ return guard()
+}

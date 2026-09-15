@@ -31,7 +31,9 @@ type RoleRepresentation struct {
  ContainerID string `json:"containerId"`
 }
 type ClientRoleGrant struct { Client ClientBinding; Names []string }
-type ServiceAccountRolePolicy struct { Realm []string; Clients []ClientRoleGrant }
+type RolePolicy struct { Realm []string; Clients []ClientRoleGrant }
+// ServiceAccountRolePolicy retains the service-account API name.
+type ServiceAccountRolePolicy = RolePolicy
 
 func validateRoleNames(names []string)error{
  if len(names)>MaxDesiredRoles{return errors.New("too many desired Keycloak roles")}

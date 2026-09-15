@@ -11,16 +11,18 @@ import (
 )
 
 type roleFixture struct {
-	mu                                                     sync.Mutex
-	clients                                                map[string]ClientRepresentation
-	roles                                                  map[string]RoleRepresentation
-	current                                                map[string]roleSet
-	groups                                                 map[string][]string
-	groupRoles                                             map[string][]RoleRepresentation
-	enabled                                                map[string]bool
-	serviceSubject                                         string
-	ignoreDelete, ignoreAdd, failAdd, inherited, malformed bool
-	writes                                                 []string
+	mu                                                      sync.Mutex
+	clients                                                 map[string]ClientRepresentation
+	roles                                                   map[string]RoleRepresentation
+	current                                                 map[string]roleSet
+	groups                                                  map[string][]string
+	groupRoles                                              map[string][]RoleRepresentation
+	enabled                                                 map[string]bool
+	serviceSubject                                          string
+	ignoreDelete, ignoreAdd, failAdd, inherited, malformed  bool
+	writes                                                  []string
+	scopes                                                  map[string][]assignedScope
+	ignoreScopeDelete, malformedScopes, changeOwnerOnDelete bool
 }
 
 func testRole(id, name, client string) RoleRepresentation {
@@ -47,6 +49,12 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 		f.current[subject] = roleSet{Realm: []RoleRepresentation{f.roles["realm-id/old-realm"]}, Clients: map[string][]RoleRepresentation{"target": {f.roles["target/old"]}, "foreign": {f.roles["foreign/other"]}}}
 		f.groups[subject] = []string{"outside-group"}
 	}
+	f.scopes = map[string][]assignedScope{
+		"default-client-scopes":  {{ID: "default-roles", Name: "roles", Protocol: "openid-connect"}},
+		"optional-client-scopes": {{ID: "optional-email", Name: "email", Protocol: "openid-connect"}},
+	}
+	f.current["scope:worker"] = roleSet{Realm: []RoleRepresentation{f.roles["realm-id/old-realm"]}, Clients: map[string][]RoleRepresentation{"foreign": {f.roles["foreign/other"]}, "target": {f.roles["target/old"]}}}
+	f.enabled["scope:worker"] = true
 	f.groupRoles["outside-group"] = []RoleRepresentation{f.roles["foreign/other"]}
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if authRequest(w, r) {
@@ -62,10 +70,50 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 				t.Error(err)
 			}
 		}
+		if len(parts) >= 3 && parts[0] == "clients" && parts[2] == "scope-mappings" {
+			// Reuse the role-set wire fixture for the distinct scope endpoints.
+			parts = append([]string{"users", "scope:" + parts[1], "role-mappings"}, parts[3:]...)
+		}
 		if len(parts) >= 2 && parts[0] == "clients" {
 			client, ok := f.clients[parts[1]]
 			if !ok {
 				w.WriteHeader(404)
+				return
+			}
+			if len(parts) >= 3 && (parts[2] == "default-client-scopes" || parts[2] == "optional-client-scopes") {
+				if parts[1] != "worker" {
+					t.Error("unexpected scope owner")
+					w.WriteHeader(500)
+					return
+				}
+				if len(parts) == 3 && r.Method == "GET" {
+					if f.malformedScopes {
+						send(nil)
+					} else {
+						send(f.scopes[parts[2]])
+					}
+					return
+				}
+				if len(parts) == 4 && r.Method == "DELETE" {
+					f.writes = append(f.writes, "DELETE "+path)
+					if !f.ignoreScopeDelete {
+						keep := []assignedScope{}
+						for _, scope := range f.scopes[parts[2]] {
+							if scope.ID != parts[3] {
+								keep = append(keep, scope)
+							}
+						}
+						f.scopes[parts[2]] = keep
+					}
+					if f.changeOwnerOnDelete {
+						client.Attributes = map[string]string{"pipeline.job": "other"}
+						f.clients[parts[1]] = client
+					}
+					w.WriteHeader(204)
+					return
+				}
+				t.Error("unexpected scope assignment request")
+				w.WriteHeader(500)
 				return
 			}
 			if len(parts) == 2 && r.Method == "GET" {

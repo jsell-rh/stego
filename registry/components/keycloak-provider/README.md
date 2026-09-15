@@ -62,7 +62,7 @@ realm and client roles before adding any specified role. It checks ownership
 and disablement before each mutation, confirms removal, and checks the final
 direct and effective roles. It never enables the client.
 
-`ServiceAccountRolePolicy` accepts explicit realm roles and client roles. Each
+`RolePolicy` (also named `ServiceAccountRolePolicy`) accepts explicit realm roles and client roles. Each
 client grant requires its own expected client binding. Desired roles must be
 leaf roles; list them explicitly instead of relying on a composite role that
 can change its meaning. Unexpected composite and group access must be removed
@@ -108,3 +108,18 @@ The wire shapes follow the [Keycloak Admin REST API](https://www.keycloak.org/do
 The review also checked the [26.6.0 client resource](https://github.com/keycloak/keycloak/blob/26.6.0/services/src/main/java/org/keycloak/services/resources/admin/ClientResource.java)
 and [client list resource](https://github.com/keycloak/keycloak/blob/26.6.0/services/src/main/java/org/keycloak/services/resources/admin/ClientsResource.java).
 Live provider qualification remains required before Hypershell adoption.
+
+`ReconcileClientScopes` detaches all default and optional shared scopes from an
+owned, disabled OIDC client with full scope disabled. This includes the built-in
+`service_account` scope. It does not change shared scope definitions. It replaces
+client role scopes with the exact leaf roles in `RolePolicy`. It confirms removal
+before addition, checks direct and effective roles, and checks each target binding.
+The complete operation retains the 15-second deadline. It accepts at most 128
+assigned scopes and the role bounds above.
+
+`InspectClientScopes` checks the same scope policy without writes. It can inspect
+an enabled client. Neither method checks token claims or enables a client. The
+caller must configure and verify explicit protocol mappers before enablement.
+Removing shared scopes also removes their token mappers. Ownership checks cannot
+make several administrator requests atomic. The controller must retain exclusive
+reconciliation, and operator permissions must prevent concurrent policy writes.
