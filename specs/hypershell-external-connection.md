@@ -190,3 +190,13 @@ profile is selected. The fourteen local collection cases pass. The wrapper still
 retains partial evidence after an application failure and preserves that failed
 result. This change prevents a collection failure from producing a green run;
 it does not replace verification of the archive contents or complete cleanup.
+
+Hypershell `dacdd88` adds a bounded planner for the operator's test permission
+update. A fresh frozen render differs from the last passing browser installation
+in only two ClusterRoles. The worker needs Route access; the inspector needs
+named public Secret and Certificate reads and Certificate status update access.
+The [offline plan record](hypershell-public-permission-plan.json) preserves
+resource identities and hashes. Policies, bindings, and sixteen cluster resources
+remain unchanged. The plan rejects other permission changes and marks the new
+record as pending live verification. No cluster update or public workflow pass
+is claimed. See the [operator update steps](https://github.com/jsell-rh/hypershell-stego/blob/dacdd88/acceptance/browser-ci-public-permissions.md).

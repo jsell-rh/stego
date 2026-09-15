@@ -91,7 +91,7 @@ and atomic endpoint test passed with race detection in 8.06 seconds. The
 source and log hashes. CNPG failed before test creation and Sandbox was skipped.
 The complete run reports failure.
 
-The current public workflow source is Hypershell `74fcbba`, with compiler
+The current public workflow implementation is Hypershell `74fcbba`, with compiler
 `635f5da`. Common TLS Secret checks, Route admission, a credential-free pinned
 TLS RPC probe, and optional external network destinations are in STEGO.
 For compiler `4f692d0`, [full CI](https://github.com/jsell-rh/stego/actions/runs/34975980609)
@@ -153,6 +153,16 @@ stopped at the credential check before test creation. Their logs require a
 valid one-hour token and verified HTTPS context. Full application CI
 `34978963236` is queued behind the running `7cb0e2f` core check in `34977883303`.
 Retain that active run until it has a result.
+
+Hypershell `dacdd88` prepares the next operator permission update. Its bounded
+planner compared the saved installation from the passing `34972072109` browser
+run with a fresh frozen inspection render. Exactly two ClusterRoles need new
+permissions: Gateway Route access and named public certificate inspection and
+renewal. Sixteen cluster resources, including policies and bindings, are
+unchanged. The [plan record](hypershell-public-permission-plan.json) preserves
+identities and hashes. Six local tests pass and the CI fixture job includes them.
+No cluster change was made. Fresh resource and Lease checks are required before
+an operator update; the context still returned `Unauthorized` on 2026-09-15.
 
 CNPG job `104403102945` in run `34975653596` stopped before test creation because
 its CI credential had too little time left. This is not a CNPG runtime result.
