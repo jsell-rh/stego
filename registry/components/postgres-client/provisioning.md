@@ -13,6 +13,10 @@ is not implemented. RDS has no PostgreSQL superuser or host-file access; see
 [the RDS role contract](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Roles.rds_superuser.html).
 Actual RDS acceptance is still required.
 
+An RDS installation with restricted password management also needs the
+installation-owned password grant. The [RDS acceptance gate](../../../specs/rds-acceptance.md)
+records this requirement, catalog isolation checks, and failover evidence.
+
 `DatabaseKey.Scope` identifies the application installation on the server.
 `Resource` identifies one durable application resource. Both are opaque strings
 with a 256-byte limit. The runtime derives SQL names from their SHA-256 hash.
