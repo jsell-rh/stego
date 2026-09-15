@@ -4175,3 +4175,18 @@ browser `34961014607`, and full CI `34961014648` are queued. The three runs at
 console factory fix superseded them. No canceled run is counted as a pass.
 The CI environment credential was renewed through 12:01:12 UTC with the same
 permissions. The earlier live browser and core runs were retained.
+
+The [route-composition browser result](hypershell-route-browser.json) passed at
+`8551ad3` with compiler `1edd407` in 407.18 seconds. Verification matched all
+897 source files, 230 generated files, generation records, and access and
+admission checks. SQL isolation, namespace recovery, viewer access, denied
+requests, three account cleanups, encryption, and automatic cleanup passed.
+Independent reads confirmed that the browser Job, Pods, and private fixtures
+were absent. The next API Job holds the shared Lease. The reviewed images show
+a healthy Gateway and an empty account list; public connectivity remains open.
+
+Factory CI `34960738104` passed at `1a81d80`. Combined CI `34960890553` passed
+the compiler, generated-runtime, and SQL provisioning checks but failed a stale
+registry version assertion. Commit `5c5e7c9` corrects that assertion. Its focused
+check passed; full CI `34961472255` is active. Hypershell `916f3a7` still needs its
+separate API and browser pool-metric results. No pending run is counted as a pass.

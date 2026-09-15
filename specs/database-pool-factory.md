@@ -28,3 +28,11 @@ composition regression failed before this change and now passes.
 
 Hypershell does not need new pool code. Full compiler CI and the regenerated
 browser workflow must verify both changes before the application gate closes.
+
+[Factory CI](https://github.com/jsell-rh/stego/actions/runs/34960738104) passed at
+`1a81d80`. [Combined CI](https://github.com/jsell-rh/stego/actions/runs/34960890553)
+at `e5b9931` passed the compiler, generated-runtime, and SQL provisioning checks,
+but failed one registry assertion that still required adapter version 4.4.0.
+Commit `5c5e7c9` changes that assertion to 4.4.1. Its focused registry check passed.
+The [full repeat](https://github.com/jsell-rh/stego/actions/runs/34961472255) remains
+required. The failed combined run is not a full CI pass.
