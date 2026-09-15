@@ -3,6 +3,7 @@ package {{.Package}}
 import (
  "context"
  "errors"
+ "fmt"
  "net/http"
  "sort"
 )
@@ -23,7 +24,7 @@ type scopeAssignment struct { ID, Kind string }
 // inventory cannot prove that permission and is therefore not accepted.
 func(c *Client)confirmScopeVisibility(ctx context.Context)error{
  response,err:=c.admin(ctx,http.MethodGet,"/client-scopes",nil);if err!=nil{return err}
- if response.StatusCode!=http.StatusOK{return statusError(response.StatusCode)}
+ if response.StatusCode!=http.StatusOK{return fmt.Errorf("confirm Keycloak scope visibility: %w",statusError(response.StatusCode))}
  var scopes []assignedScope
  if decode(response.Body,&scopes)!=nil||scopes==nil||len(scopes)>MaxRoleMappings{return ErrResponse}
  if len(scopes)==0{return ErrScopePolicy}
@@ -35,7 +36,7 @@ func(c *Client)confirmScopeVisibility(ctx context.Context)error{
  sort.Slice(scopes,func(i,j int)bool{return scopes[i].ID<scopes[j].ID})
  probe:=scopes[0]
  response,err=c.admin(ctx,http.MethodGet,"/client-scopes/"+probe.ID,nil);if err!=nil{return err}
- if response.StatusCode!=http.StatusOK{return statusError(response.StatusCode)}
+ if response.StatusCode!=http.StatusOK{return fmt.Errorf("confirm Keycloak scope visibility: %w",statusError(response.StatusCode))}
  var confirmed assignedScope
  if decode(response.Body,&confirmed)!=nil||confirmed.ID!=probe.ID||confirmed.Name!=probe.Name{return ErrResponse}
  return nil
@@ -101,22 +102,22 @@ func(c *Client)ReconcileClientScopes(ctx context.Context,b ClientBinding,p RoleP
  desired,err:=c.resolveRolePolicy(work,p);if err!=nil{return err}
  assigned,err:=c.assignedClientScopes(work,b);if err!=nil{return err}
  path:="/clients/"+b.ID+"/scope-mappings"
- current,err:=c.readRoleSet(work,path);if err!=nil{return err}
+ current,err:=c.readRoleSet(work,path);if err!=nil{return fmt.Errorf("read direct Keycloak role scopes: %w",err)}
  checkedClients:=roleClientIDs(current,desired)
  for _,scope:=range assigned{
   if err=guard();err!=nil{return err}
   response,e:=c.admin(work,http.MethodDelete,"/clients/"+b.ID+"/"+scope.Kind+"/"+scope.ID,nil);if e!=nil{return e}
-  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
+  if response.StatusCode!=http.StatusNoContent{return fmt.Errorf("detach shared Keycloak scope: %w",statusError(response.StatusCode))}
  }
  change:=func(method,suffix string,roles []RoleRepresentation)error{
-  if len(roles)==0{return nil};if e:=guard();e!=nil{return e};return c.writeRoles(work,method,path+suffix,roles)
+  if len(roles)==0{return nil};if e:=guard();e!=nil{return e};if e:=c.writeRoles(work,method,path+suffix,roles);e!=nil{return fmt.Errorf("change direct Keycloak role scopes: %w",e)};return nil
  }
  if err=change(http.MethodDelete,"/realm",roleDifference(current.Realm,desired.Realm));err!=nil{return err}
  for _,id:=range roleClientIDs(current){if err=change(http.MethodDelete,"/clients/"+id,roleDifference(current.Clients[id],desired.Clients[id]));err!=nil{return err}}
  // Do not add a role until all excess access has been removed and checked.
  assigned,err=c.assignedClientScopes(work,b);if err!=nil{return err};if len(assigned)!=0{return ErrScopePolicy}
  current,err=c.readRoleSet(work,path);if err!=nil{return err};if !roleSetSubset(current,desired){return ErrScopePolicy}
- effective,err:=c.readEffectiveRoles(work,path,checkedClients);if err!=nil{return err};if !roleSetSubset(effective,desired){return ErrScopePolicy}
+ effective,err:=c.readEffectiveRoles(work,path,checkedClients);if err!=nil{return fmt.Errorf("read effective Keycloak role scopes: %w",err)};if !roleSetSubset(effective,desired){return ErrScopePolicy}
  confirmed,err:=c.resolveRolePolicy(work,p);if err!=nil{return err};if !sameRoleSets(confirmed,desired){return ErrScopePolicy}
  if err=change(http.MethodPost,"/realm",roleDifference(desired.Realm,current.Realm));err!=nil{return err}
  for _,id:=range roleClientIDs(desired){if err=change(http.MethodPost,"/clients/"+id,roleDifference(desired.Clients[id],current.Clients[id]));err!=nil{return err}}
