@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-09-15T17:44:20.384875+00:00",
+  "checked_at": "2026-09-15T17:49:29.303651+00:00",
   "compiler_revision": "5516e4812ed6fd0ee03b521ecea20f7e9fc37860",
-  "live_source_revision": "23273c01b28ec46f57e1c1c5352ed25c1a437288",
+  "live_source_revision": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
   "feature_revision": "e381e41fca848d76e3ec81be33d2279eff6debd6",
-  "scope": "Generated Gateway and state network policies are enabled in a candidate. The public workflow is running after a state test fixture correction; traffic isolation is not yet proved.",
+  "scope": "Generated Gateway and state network policies are enabled in a candidate. The corrected frozen public workflow is running. Earlier preflight checks passed; traffic isolation remains unproved.",
   "declaration": {
     "gateway": "Selected router, DNS, SQL, identity-provider, and telemetry Pod peers, plus exact operator Kubernetes addresses.",
     "state": "Deny all traffic.",
@@ -57,7 +57,8 @@
       "run_id": 35001051267,
       "source": "50436086a30a371726f3b355fb68cf32f0577d3c",
       "scope": "Earlier runtime adoption. Allocation policies are not enabled.",
-      "status": "core running; browser, console, and images passed"
+      "status": "completed successfully; core, rendered browser, console, and images passed; CNPG and Sandbox skipped",
+      "core_acceptance_seconds": 1215.371
     },
     {
       "run_id": 35001765334,
@@ -69,7 +70,13 @@
       "run_id": 35002724757,
       "source": "23273c01b28ec46f57e1c1c5352ed25c1a437288",
       "scope": "Enabled network declaration with installer, CNPG declaration, and state fixture corrections. Receiver probe corrections are not included.",
-      "status": "pending"
+      "status": "cancelled; replaced by the later pending run"
+    },
+    {
+      "run_id": 35003173222,
+      "source": "56a5998bf2baeeb897c0703b12a4e14e7b35b671",
+      "scope": "Enabled network declaration with state and receiver fixture corrections. Ordinary CI does not run the live isolation workflow.",
+      "status": "running; web console passed"
     }
   ],
   "cnpg": {
@@ -126,6 +133,34 @@
     {
       "path": "/tmp/hypershell-network-receiver-fixtures-20260915.log",
       "sha256": "a3881af51800c89a1b23a9949d8eaa662107c4195af9e8291a26faf47fd4ac0f"
+    },
+    {
+      "path": "/tmp/hypershell-endpoint-core-35001051267.log",
+      "sha256": "c0fabe8f5ff1b08e1b068d41cf38b7c43c0e78291e1935d27075f8092e636ae6"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-state-live-20260915/cancelled.json",
+      "sha256": "88448e1117b69abfe07384e8a0697f9c5ba135844cbe0bd7b82d4e160e55ccd2"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-state-live-20260915/cancelled-preflight.log",
+      "sha256": "86ff3d9c13baa0fb9e4b1dd44d7943dd04d08ec8bd329f0ed3ba0ba5dbf4be67"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-state-live-20260915/cancelled-preflight.tar",
+      "sha256": "1ad5b363f1e4f8865ac2276b31c065370774959b5048b8aca21421cbc92268e1"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-prepare-receivers-20260915.log",
+      "sha256": "01d7d749288abf99c851cf9b0a31290d8688adc76953bfc9f9336b3e38abf76e"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-state-live-20260915/cleanup.json",
+      "sha256": "6c902e68c23578d90ecb89dcfb1769087d02ef902718e6c9fe76041c2d95506d"
+    },
+    {
+      "path": "/tmp/hypershell-gateway-network-receivers-frozen-20260915/acceptance/browser-inspection-source.json",
+      "sha256": "79337c92d1f14a423c4606166f02deda80c7b7eb734cb2608ac4df2603247e3f"
     }
   ],
   "second_live_attempt": {
@@ -145,14 +180,39 @@
     },
     "lease_released": true
   },
-  "live_attempt": {
+  "third_live_attempt": {
     "directory": "/tmp/hypershell-gateway-network-state-live-20260915",
     "log": "/tmp/hypershell-gateway-network-state-live-20260915.log",
     "namespace": "stego-service-20260915-e77723",
     "job": "service-check",
     "pod": "service-check-d6gsl",
-    "status": "running",
+    "status": "cancelled after passing preflight checks",
     "exec_session": 45138,
+    "shared_lease": "stego-ci/jshell-live-test",
+    "reason": "Frozen receiver rules would block the token-free identity probe and Gateway telemetry. Stop before the full workflow and use corrected source.",
+    "preflight": {
+      "regeneration": "passed",
+      "contracts_seconds": 1.061,
+      "gatewayworkload_race_seconds": 11.535,
+      "namespaceallocation_race_seconds": 1.014,
+      "controller_acceptance_race_seconds": 36.901,
+      "worker_startup_privacy_seconds": 6.61
+    },
+    "exit_status": 1,
+    "cleanup": {
+      "namespace_absent": "stego-service-20260915-e77723",
+      "owned_resources_absent": true
+    },
+    "lease_released": true
+  },
+  "live_attempt": {
+    "directory": "/tmp/hypershell-gateway-network-receivers-live-20260915",
+    "log": "/tmp/hypershell-gateway-network-receivers-live-20260915.log",
+    "namespace": "stego-service-20260915-5a777b",
+    "job": "service-check",
+    "pod": "service-check-tljsb",
+    "status": "running",
+    "exec_session": 11260,
     "shared_lease": "stego-ci/jshell-live-test"
   }
 }
