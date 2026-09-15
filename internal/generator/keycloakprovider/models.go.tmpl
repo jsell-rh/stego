@@ -11,6 +11,8 @@ type ClientRepresentation struct {
  ClientAuthenticatorType string `json:"clientAuthenticatorType,omitempty"`
  Enabled bool `json:"enabled"`
  PublicClient bool `json:"publicClient"`
+ BearerOnly bool `json:"bearerOnly"`
+ ConsentRequired bool `json:"consentRequired"`
  ServiceAccountsEnabled bool `json:"serviceAccountsEnabled"`
  StandardFlowEnabled bool `json:"standardFlowEnabled"`
  ImplicitFlowEnabled bool `json:"implicitFlowEnabled"`

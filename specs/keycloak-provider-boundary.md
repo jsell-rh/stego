@@ -125,14 +125,39 @@ workflow. The generated source and results are stored under
 `live/first-ci` in the result directory above.
 
 A later fix at `8a748301704748965cbd61b7b6b915710fc4863d` requires an explicit
-Bearer token type in the administrator grant. Its small checks passed; full
-CI verification is pending. The first live workflow declaration was rejected
+Bearer token type in the administrator grant. Its small checks passed. The real
+provider job passed again at `0ebc3cf01376ea783d3557b6315f3befa2b5a41a` in
+[run 35026075691](https://github.com/jsell-rh/stego/actions/runs/35026075691).
+The complete compiler job is still pending. The first live workflow declaration was rejected
 before any job started because it used runner context at job scope. That
 failure is retained in the result directory. The corrected workflow passes
 the workflow linter.
 
-This is the start of the extraction. Client creation, enablement, role and scope
-reconciliation, and protocol mapper reconciliation remain to be implemented.
+## Disabled service-account creation
+
+Version 0.2.0 adds creation with an application-supplied stable provider ID,
+base configuration repair while disabled, and configuration inspection.
+The application must save the ID before it calls the provider. A failed response
+does not cause an automatic retry, adoption, or rollback. A later reconciliation
+can inspect the saved ID and continue or clean up the owned resource.
+
+The common profile controls protocol settings. Application ownership keys use
+the `stego.owner.` namespace so metadata cannot override protocol settings.
+Application policy still selects IDs, ownership values, roles, claims, and
+token lifetimes within the common bound. Existing clients with other ownership
+keys need an explicit adoption migration; a file move is not that migration.
+
+Small generated checks passed for creation, conflict rejection, uncertain
+responses, ownership denial, explicit disablement, incomplete configuration,
+and confirmed repair. The telemetry build passed with the race detector.
+The new live test creates two clients with different application ownership
+policies. It checks creation, conflicts, configuration changes, credential
+preservation, client reconstruction, and deletion. This live extension is
+pending CI. Sources and local results are stored in
+`/home/jsell/.local/state/stego/runs/keycloak-provider-creation-20260915`.
+
+This is the start of the extraction. Enablement, role and scope reconciliation,
+and protocol mapper reconciliation remain to be implemented.
 Hypershell has not adopted this component. No reduction in its handwritten
 client or new Hypershell workflow result is claimed yet. The upstream
 dashboard workflow also remains open.

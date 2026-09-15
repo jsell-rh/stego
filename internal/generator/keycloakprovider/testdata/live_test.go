@@ -143,6 +143,57 @@ func TestProviderLive(t *testing.T) {
 	runtime, recorder := tracing.ProviderTestRuntime()
 	defer runtime.Close()
 	ctx := runtime.Context(context.Background())
+	for _, application := range []struct{ name, key, value string }{{"new-catalog", "stego.owner.product", "object-3"}, {"new-worker", "stego.owner.pipeline", "run-4"}} {
+		binding := ClientBinding{ID: "stego-" + application.name, ClientID: application.name, Attributes: map[string]string{application.key: application.value}}
+		policy := ServiceAccountPolicy{DisplayName: "Created worker", AccessTokenLifetimeSeconds: 300}
+		created, err := client.CreateDisabledServiceAccount(ctx, binding, policy)
+		if err != nil || created.Enabled || created.ID != binding.ID {
+			t.Fatal("real disabled creation failed", err)
+		}
+		if _, err := client.CreateDisabledServiceAccount(ctx, binding, policy); !errors.Is(err, ErrConflict) {
+			t.Fatal("real duplicate creation did not return conflict", err)
+		}
+		nameConflict := binding
+		nameConflict.ID += "-other"
+		if _, err := client.CreateDisabledServiceAccount(ctx, nameConflict, policy); !errors.Is(err, ErrConflict) {
+			t.Fatal("real client-name conflict was accepted", err)
+		}
+		if _, err := client.GetClient(ctx, nameConflict.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatal("name conflict left another client", err)
+		}
+		credential, err := client.GetClientSecret(ctx, binding)
+		if err != nil || credential.Reveal() == "" {
+			t.Fatal("created client has no provider secret", err)
+		}
+		if _, err := client.ResolveServiceAccountUser(ctx, binding); err != nil {
+			t.Fatal("created client has no service-account user", err)
+		}
+		// A changed application policy exercises a real update and readback.
+		policy.DisplayName = ""
+		policy.AccessTokenLifetimeSeconds = 120
+		if err := client.ConfigureDisabledServiceAccount(ctx, binding, policy); err != nil {
+			t.Fatal("real disabled configuration failed", err)
+		}
+		if err := client.ConfigureDisabledServiceAccount(ctx, binding, policy); err != nil {
+			t.Fatal("real converged configuration failed", err)
+		}
+		currentSecret, err := client.GetClientSecret(ctx, binding)
+		if err != nil || currentSecret.Reveal() != credential.Reveal() {
+			t.Fatal("configuration changed the provider secret", err)
+		}
+		client.Close()
+		client, err = New(options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer client.Close()
+		if _, err := client.InspectDisabledServiceAccount(ctx, binding, policy); err != nil {
+			t.Fatal("created configuration did not survive client reconstruction", err)
+		}
+		if err := client.DeleteClient(ctx, binding); err != nil {
+			t.Fatal("created client cleanup failed", err)
+		}
+	}
 	page, err := client.ListClients(ctx, Page{Size: 100})
 	if err != nil || len(page) < 4 {
 		t.Fatal("real provider inventory failed", err)
@@ -186,7 +237,7 @@ func TestProviderLive(t *testing.T) {
 		defer client.Close()
 		current, err := client.InspectClient(ctx, binding)
 		if err != nil || current.Enabled {
-			t.Fatal("disablement did not survive provider restart", err)
+			t.Fatal("disablement did not survive client reconstruction", err)
 		}
 		if err := client.DeleteClient(ctx, binding); err != nil {
 			t.Fatal("real deletion failed", err)
@@ -216,5 +267,5 @@ func TestProviderLive(t *testing.T) {
 			}
 		}
 	}
-	t.Log("Real Keycloak: two ownership policies, foreign-client denial, credential reads, service-account resolution, disablement, provider restart, confirmed deletion, and trace privacy passed")
+	t.Log("Real Keycloak: two ownership policies, disabled creation, conflict rejection, configuration, foreign-client denial, credential reads, service-account resolution, disablement, client reconstruction, confirmed deletion, and trace privacy passed")
 }
