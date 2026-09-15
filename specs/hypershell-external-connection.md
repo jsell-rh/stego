@@ -44,9 +44,18 @@ The assigned controller must publish a verified address. Gateway owner writes
 must be rejected, including writes that clear the address. The field remains
 in responses and controller observations.
 
-These are accepted requirements. The current implementation still permits owner
-writes and has no complete public connection check. Do not claim the address
-is controller-verified until the implementation and live tests satisfy them.
+Hypershell `52d37e9` removes owner address inputs from REST, the generated REST
+SDKs, and CLI apply. The gRPC field remains for controller observations. Writes
+require an exact `observe.endpoint` grant for the stored cluster and the current
+revision. The generated `endpoint` observation group hides stale addresses after
+a desired generation change. It uses the existing compiler observation runtime.
+
+Focused request-decoder and policy checks passed. The full acceptance package
+compiled, and repeated generation produced no changes. New transport checks
+cover owner rejection, mixed fields, stale writes, clearing, placement changes,
+and grant removal after restart. Their CI results remain required. The public
+route controller and complete connection check remain incomplete. Do not claim
+a verified public endpoint from this API change alone.
 
 The reference defaults to passthrough. That mode leaves TLS at the Gateway and
 requires clients to trust its issuer. A public certificate authority generally

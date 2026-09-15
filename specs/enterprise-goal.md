@@ -75,7 +75,14 @@ timed out or a log is incomplete.
 | Required check | Source | Run |
 | --- | --- | --- |
 | Full CI with the shared JWT runtime | Hypershell `752d92e`, compiler `a355306` | [34967271365](https://github.com/jsell-rh/hypershell-stego/actions/runs/34967271365), failed only the absent CNPG and Sandbox fixtures; core, ordinary browser, console, and image jobs passed |
-| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), active; both CNPG instances are healthy, application Pod awaits cluster capacity |
+| Complete restricted CNPG workflow and full CI | Hypershell `b6e0434`, compiler `a355306` | [34969545259](https://github.com/jsell-rh/hypershell-stego/actions/runs/34969545259), CNPG job failed before application execution; Pod readiness timed out, then cleanup used a forbidden namespace list. Recovery is in progress. |
+
+Hypershell `59a6d32` includes controller-owned address observations and a corrected
+CNPG cleanup check through the existing allocator client. Its API run
+[34972072027](https://github.com/jsell-rh/hypershell-stego/actions/runs/34972072027)
+refused to start while recovery held the live-test Lease. It is not an application
+result. Browser run `34972072109` and full CI `34972073256` are queued. Verify
+cleanup and credentials before another live attempt.
 
 The next action is to collect and verify these results, then fix failures without
 weakening the gate. The [pool metric contract](database-pool-metrics.md) and
