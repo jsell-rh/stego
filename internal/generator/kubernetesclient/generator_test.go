@@ -24,6 +24,9 @@ var secretStateTests []byte
 //go:embed testdata/secret_set_test.go
 var secretSetTests []byte
 
+//go:embed testdata/image_pull_secret_test.go
+var imagePullSecretTests []byte
+
 //go:embed testdata/route_test.go
 var routeTests []byte
 
@@ -70,6 +73,9 @@ func TestGeneratedSecretState(t *testing.T) {
 func TestGeneratedOpaqueSecretSet(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestOpaqueSecretSet")
 }
+func TestGeneratedImagePullSecret(t *testing.T) {
+	testGeneratedKubernetesClient(t, false, "^TestImagePull")
+}
 func TestGeneratedRouteAdmission(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestPassthroughRoute")
 }
@@ -100,6 +106,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string
 	}
 	files = append(files, gen.File{Path: "kubernetes/client_test.go", Content: runtimeTests})
 	files = append(files, gen.File{Path: "kubernetes/secret_set_test.go", Content: secretSetTests})
+	files = append(files, gen.File{Path: "kubernetes/image_pull_secret_test.go", Content: imagePullSecretTests})
 	files = append(files, gen.File{Path: "kubernetes/secret_state_test.go", Content: secretStateTests})
 	files = append(files, gen.File{Path: "kubernetes/readiness_test.go", Content: readinessTests})
 	files = append(files, gen.File{Path: "kubernetes/route_test.go", Content: routeTests})

@@ -39,6 +39,9 @@ var secretSetSource string
 //go:embed secret_state.go.tmpl
 var secretStateSource string
 
+//go:embed image_pull_secret.go.tmpl
+var imagePullSecretSource string
+
 type Generator struct{}
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
@@ -60,7 +63,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	peer := ctx.PeerNamespaces["http-application"]
 	data := struct{ Package, Transport string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, peer, "client")}
 	files := []gen.File{}
-	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}, {"watch_set.go", watchSetSource}, {"readiness.go", readinessSource}, {"route.go", routeSource}, {"tls_secret.go", tlsSecretSource}, {"secret_set.go", secretSetSource}, {"secret_state.go", secretStateSource}} {
+	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"observe.go", observeSource}, {"discovery.go", discoverySource}, {"watch_set.go", watchSetSource}, {"readiness.go", readinessSource}, {"route.go", routeSource}, {"tls_secret.go", tlsSecretSource}, {"secret_set.go", secretSetSource}, {"secret_state.go", secretStateSource}, {"image_pull_secret.go", imagePullSecretSource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err
