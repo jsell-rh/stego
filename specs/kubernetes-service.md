@@ -373,3 +373,11 @@ Small local checks cover the imported API, command compatibility, all generated
 resource kinds, namespace scopes, owner conflicts, invalid options, independent
 results, and four concurrent calls under race detection. The full compiler CI
 result is required before this version is used by the application.
+
+Revision `ea30c88553b291704272e79738368530d1f2b094` passed all six jobs in
+[CI 35113183502](https://github.com/jsell-rh/stego/actions/runs/35113183502).
+The generated deployment checks passed in 23.383 seconds with race detection.
+The complete compiler run required PostgreSQL. The
+[result record](deployment-library-evidence.json) includes package results and
+the full log hash. This result does not prove a deployed dashboard or its
+Gateway lifecycle.

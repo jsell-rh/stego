@@ -1,0 +1,21 @@
+{
+  "run": "https://github.com/jsell-rh/stego/actions/runs/35113183502",
+  "source": "ea30c88553b291704272e79738368530d1f2b094",
+  "jobs": {
+    "resource-state-storage": "success",
+    "keycloak-provider": "success",
+    "examples (user-management)": "success",
+    "postgres-provisioning": "success",
+    "compiler": "success",
+    "examples (user-management-rhsso)": "success"
+  },
+  "packages": {
+    "cmd/stego": "55.795s",
+    "internal/generator/browserbackend": "194.246s",
+    "internal/generator/healthcheck": "8.553s",
+    "internal/generator/keycloakprovider": "78.036s",
+    "internal/generator/kubernetesservice": "23.383s"
+  },
+  "log_sha256": "5669b1fce70449ed4eb7221f188f5869b1acd6a4885ab1dec97737ad4569369e",
+  "scope": "Full compiler CI with required PostgreSQL and race detection. The deployment package import, command output, ownership, scope, and resource path checks passed. No live dashboard or Gateway-console lifecycle result is claimed."
+}
