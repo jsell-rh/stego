@@ -352,3 +352,11 @@ The focused generated tests passed with the race detector in both variants in
 provider results, restart, closed migration, and late cleanup. The real-provider
 CI test also covers creation and migration through the complete lifecycle. Its
 result is pending. Hypershell production adoption is also pending.
+
+Common binding checks now reject reserved `stego.owner.*` keys that the caller
+did not declare. This applies to discovery and later bound operations. A partial
+migration cannot become an ordinary binding. It needs its saved migration plan.
+`ClientBinding.CheckOwnership` provides the same check for a complete provider
+read that an application already holds. It does not make a later remote write
+atomic. A regression test reproduced acceptance of both an unexpected owner and
+a partial migration before this change.

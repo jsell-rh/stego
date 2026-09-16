@@ -204,6 +204,27 @@ func TestOwnershipDiscoveryRejectsForeignRecords(t *testing.T) {
 	}
 }
 
+func TestNativeLifecycleDiscoveryRejectsUnexpectedOwners(t *testing.T) {
+	for _, key := range []string{"stego.owner.product", "stego.owner.foreign"} {
+		c, f := newMigrationFixture(t)
+		plan := migrationPlan()
+		f.record["attributes"].(map[string]string)[key] = "catalog"
+		if _, err := c.DiscoverOwnedClient(context.Background(), plan.Prior.ClientID, plan.Prior.Attributes); !errors.Is(err, ErrOwnership) {
+			t.Fatal("legacy discovery accepted a partial migration or another owner")
+		}
+		value, err := c.GetClient(context.Background(), plan.Prior.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := plan.Prior.CheckOwnership(value); !errors.Is(err, ErrOwnership) {
+			t.Fatal("local ownership check accepted an extra owner")
+		}
+		if _, err := c.InspectClient(context.Background(), plan.Prior); !errors.Is(err, ErrOwnership) {
+			t.Fatal("saved binding accepted an extra owner")
+		}
+	}
+}
+
 func TestOwnershipMigrationDoesNotChangeValues(t *testing.T) {
 	for _, renames := range []map[string]string{
 		nil,
