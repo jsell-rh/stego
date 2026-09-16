@@ -19,6 +19,7 @@ The original completion requirements remain unchanged:
 
 | ID | Requirement | Acceptance evidence | State |
 | --- | --- | --- | --- |
+| Common Keycloak application lifecycle | Hypershell `048ff55`, compiler `3e0bc22`, provider 0.13.0 | The [current provider record](keycloak-provider-boundary.md) links the complete Gateway workflow (524.89 seconds), rendered browser workflow (104.29 seconds), and all 34 required jshell API tests. The workflow includes the common account lifecycle, encrypted SQL journal, provisioner replacement, real Gateway credentials, and confirmed cleanup. The private journal test passed under a Gateway row lock and after API restart. Corrected core-suite and current CNPG results remain pending. |
 | C1 | Strict compiler input and one semantic validation stage | Unknown fields, invalid constraints, duplicate keys, unsupported capabilities, and invalid paths fail before output changes | [Verified at b0bd9a4](compiler-input-workflow-audit-20260915.md) |
 | C2 | Complete project and fill workflow | Init, apply, fill create, test, build, repeated apply, and drift pass in a fresh directory | [Verified at b0bd9a4](compiler-input-workflow-audit-20260915.md) |
 | C3 | Reproducible and recoverable generation | Compiler and input identities, stable output, dependency ownership, state format, interrupted-write recovery, and concurrent apply tests | Active |
@@ -55,7 +56,7 @@ databases. Keep these decisions in the acceptance scope. The
 [complete historical record](enterprise-history.md) preserves earlier decisions,
 changes, failed attempts, and results without changing their original status.
 
-Current evidence was checked on 2026-09-15. Each result applies only to its
+Current evidence was checked on 2026-09-16. Each result applies only to its
 recorded source and scope. A failed workflow can retain evidence for completed
 checks, but it cannot establish a complete application pass.
 

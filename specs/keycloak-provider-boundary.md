@@ -1,6 +1,44 @@
 # Keycloak provider boundary
 
-Review date: 2026-09-15.
+Review date: 2026-09-16.
+
+Current provider version is 0.13.0 at compiler
+`3e0bc22401729eb95bc1bd304455799a6d378b65`. The
+[compiler and real Keycloak checks](https://github.com/jsell-rh/stego/actions/runs/35042039359)
+passed. Hypershell production source `048ff55` uses the common native-client and
+service-account lifecycles, encrypted SQL journals, and shared role mechanisms.
+The [full Gateway workflow and private API gate](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/common-account-lifecycle-20260916.md)
+passed, including provisioner replacement, real Gateway credential use, and
+confirmed cleanup. The corrected core suite and current CNPG gate still require
+results. Earlier pending records below describe their original revisions.
+
+The three main application adapter files now total 650 lines: 430 in `client.go`,
+166 in `gateway.go`, and 54 in `gateway_users.go`. Application IDs, ownership
+attributes, role policy, account quotas, expiry, and response policy remain in
+Hypershell. Line count is a scope measure, not proof of correctness.
+
+The journal integration exposed an application storage error. ServiceAccount
+has no resource version, so its ownership check must use the common retained
+cursor rather than the versioned `GetRetained` method. The corrected exact-ID
+cursor passed the browser workflow and the private API test under a real Gateway
+row lock and API restart. No new storage abstraction was needed.
+
+The core suite also exposed a legacy orphan fixture error: Keycloak retains
+attributes omitted from an update. The corrected fixture first checks rejection
+of mixed current and legacy ownership, then removes the current attributes with
+explicit empty values and confirms the saved representation. Production
+ownership checks remain strict. The full rerun must pass before this fixture
+correction is qualified.
+
+Gateway cleanup still scans provider inventory and retained account history.
+Each scan and request has a bound, but the full retained-history loop can exceed
+the API transaction deadline. The application tests do not establish a safe
+history size. A bounded CI test must check progress across retries with many
+retained accounts and an interrupted provider response. Any common progress
+mechanism must preserve closed journal intent and reject late creation before
+it permits successful Gateway deletion. Do not remove historical checks or
+increase deadlines to declare this requirement complete. Cross-process writer
+fencing and whole-database rollback detection also remain open.
 
 Hypershell still contains reusable Keycloak mechanisms. At application revision
 `f9fc9f2da2b3ffb2a8ef1de9e71ec23a0857a9ec`,
