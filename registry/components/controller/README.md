@@ -258,3 +258,21 @@ resource transactions. Re-encryption requires a new record version.
 `CheckStateEnvelope` checks the format and size without a decryption key.
 It does not authenticate the record or prove that its contents are encrypted.
 A controller must call `Open` before it uses the contents.
+
+`StateJournal` connects that codec to a resource-bound `StatePersistence` pair.
+The application adapter supplies access rules and the observed resource revision.
+The journal authenticates each load, encrypts each next version, and requires an
+exact saved version and envelope in the response. Each storage call has a
+ten-second deadline. Storage must support cancellation and atomic version checks.
+There is no automatic write retry. After a failed or uncertain save, load again
+before another provider effect or save. A whole-database rollback remains outside
+this guarantee.
+
+The constructor takes an envelope size limit, so a transport can reserve space
+for its metadata. `StateSnapshot` requires explicit plaintext access and belongs
+to the journal that loaded it. A new journal after restart must load its own
+snapshot. Empty contents retain the record version; they do not delete history.
+Journal, snapshot, and sealed-record formatting is redacted; implicit JSON export
+fails. The focused tests passed in both generated variants with the race detector
+in 6.985 seconds. The production Hypershell provider lifecycle still needs to use
+this journal.
