@@ -16,7 +16,7 @@ var _ cursorcontract.CursorReader = (*Store)(nil)
 // bound ID, fixed ascending order, one extra row, and no count or offset query.
 // It does not authorize access. Both scope arguments must be present or absent.
 func (s *Store) ReadCursor(ctx context.Context, entity, scopeField, scopeValue string, opts cursorcontract.CursorOptions) (cursorcontract.CursorResult, error) {
-	if ctx == nil || s == nil || s.db == nil || opts.Limit < 1 || opts.Limit > 1000 || len(opts.AfterID) > 256 || !utf8.ValidString(opts.AfterID) || strings.IndexByte(opts.AfterID, 0) >= 0 || opts.Deletion > cursorcontract.CursorDeleted || len(opts.Fields) > 1024 || len(opts.ImplicitFilters) > 1024 || (scopeField == "") != (scopeValue == "") {
+	if ctx == nil || s == nil || s.db == nil || opts.Limit < 1 || opts.Limit > 1000 || len(opts.AfterID) > 256 || !utf8.ValidString(opts.AfterID) || strings.IndexByte(opts.AfterID, 0) >= 0 || opts.Deletion > cursorcontract.CursorDeleting || len(opts.Fields) > 1024 || len(opts.ImplicitFilters) > 1024 || (scopeField == "") != (scopeValue == "") {
 		return cursorcontract.CursorResult{}, cursorcontract.ErrCursor
 	}
 	if err := ctx.Err(); err != nil {
@@ -52,7 +52,7 @@ func (s *Store) ReadCursor(ctx context.Context, entity, scopeField, scopeValue s
 	}
 	operation, cancel := context.WithTimeout(ctx, transactionTimeout)
 	defer cancel()
-	options := cursorcontract.ListOptions{Page: 1, Size: opts.Limit + 1, OrderBy: []cursorcontract.OrderByField{{Field: "id", Direction: "asc"}}, Fields: opts.Fields, Search: opts.Search, ImplicitFilters: opts.ImplicitFilters, Related: opts.Related, Filter: opts.Filter, IncludeDeleted: opts.Deletion == cursorcontract.CursorAll, OnlyDeleted: opts.Deletion == cursorcontract.CursorDeleted}
+	options := cursorcontract.ListOptions{Page: 1, Size: opts.Limit + 1, OrderBy: []cursorcontract.OrderByField{{Field: "id", Direction: "asc"}}, Fields: opts.Fields, Search: opts.Search, ImplicitFilters: opts.ImplicitFilters, Related: opts.Related, Filter: opts.Filter, IncludeDeleted: opts.Deletion == cursorcontract.CursorAll, OnlyDeleted: opts.Deletion == cursorcontract.CursorDeleted, IncludeDeleting: opts.Deletion == cursorcontract.CursorVisible, OnlyDeleting: opts.Deletion == cursorcontract.CursorDeleting}
 	result, err := s.listQuery(operation, entity, scopeField, scopeValue, options, opts.AfterID, true)
 	if err != nil {
 		return cursorcontract.CursorResult{}, err

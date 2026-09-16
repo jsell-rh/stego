@@ -308,6 +308,12 @@ func (s *Store) listQuery(ctx context.Context, entity, scopeField, scopeValue st
 	case "Organization":
 		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "name": true, "description": true}
 		query := s.db.WithContext(ctx).Model(&Organization{})
+		if (opts.IncludeDeleting || opts.OnlyDeleting) && (opts.IncludeDeleted || opts.OnlyDeleted || (opts.IncludeDeleting && opts.OnlyDeleting)) {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
+		if opts.IncludeDeleting || opts.OnlyDeleting {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
 		if opts.IncludeDeleted || opts.OnlyDeleted {
 			query = query.Unscoped()
 		}
@@ -395,6 +401,12 @@ func (s *Store) listQuery(ctx context.Context, entity, scopeField, scopeValue st
 	case "User":
 		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "email": true, "display_name": true, "role": true, "org_id": true, "metadata": true}
 		query := s.db.WithContext(ctx).Model(&User{})
+		if (opts.IncludeDeleting || opts.OnlyDeleting) && (opts.IncludeDeleted || opts.OnlyDeleted || (opts.IncludeDeleting && opts.OnlyDeleting)) {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
+		if opts.IncludeDeleting || opts.OnlyDeleting {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
 		if opts.IncludeDeleted || opts.OnlyDeleted {
 			query = query.Unscoped()
 		}
@@ -482,6 +494,12 @@ func (s *Store) listQuery(ctx context.Context, entity, scopeField, scopeValue st
 	case "OrgSetting":
 		validCols := map[string]bool{"id": true, "created_time": true, "updated_time": true, "org_id": true, "key": true, "value": true, "generation": true}
 		query := s.db.WithContext(ctx).Model(&OrgSetting{})
+		if (opts.IncludeDeleting || opts.OnlyDeleting) && (opts.IncludeDeleted || opts.OnlyDeleted || (opts.IncludeDeleting && opts.OnlyDeleting)) {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
+		if opts.IncludeDeleting || opts.OnlyDeleting {
+			return stegostorage.ListResult{}, stegostorage.ErrDeletionVisibility
+		}
 		if opts.IncludeDeleted || opts.OnlyDeleted {
 			query = query.Unscoped()
 		}
