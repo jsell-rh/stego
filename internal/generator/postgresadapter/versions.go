@@ -54,6 +54,8 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Name          string
 		Unobserved    string
 		HasUnobserved bool
+		Deleting      string
+		HasDeleting   bool
 	}
 	type observation struct {
 		Name, SQL, Fields, Args string
@@ -148,6 +150,10 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 					for _, field := range e.Fields {
 						if field.Name == name {
 							projected := projection{Name: toPascalCase(name)}
+							if field.Deleting != nil {
+								projected.Deleting = *field.Deleting
+								projected.HasDeleting = true
+							}
 							if field.Unobserved != nil {
 								projected.Unobserved = *field.Unobserved
 								projected.HasUnobserved = true
@@ -312,7 +318,11 @@ func currentObservationTable(entity types.Entity) string {
 				unknown = sqlLiteral(*field.Unobserved)
 			}
 			key := sqlLiteral(group)
-			expression = fmt.Sprintf("CASE WHEN stego_generation>0 AND jsonb_typeof(stego_observations -> %s)='number' AND stego_observations ->> %s = stego_generation::text THEN %q ELSE %s END AS %q", key, key, field.Name, unknown, field.Name)
+			expression = fmt.Sprintf("CASE WHEN stego_generation>0 AND jsonb_typeof(stego_observations -> %s)='number' AND stego_observations ->> %s = stego_generation::text THEN %q ELSE %s END", key, key, field.Name, unknown)
+			if field.Deleting != nil {
+				expression = fmt.Sprintf("CASE WHEN deleted_at IS NOT NULL AND stego_finalized_at IS NULL THEN %s ELSE %s END", sqlLiteral(*field.Deleting), expression)
+			}
+			expression += fmt.Sprintf(" AS %q", field.Name)
 		}
 		columns = append(columns, expression)
 	}

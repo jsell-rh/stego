@@ -125,3 +125,32 @@ func TestCleanupFinalizationMetadataIsReserved(t *testing.T) {
 		}
 	}
 }
+
+func TestDeletingObservationValuesRequireValidCleanupContract(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		change      func(*Entity)
+		valid       bool
+	}{
+		{name: "literal", value: "Removing \\ ' ?", valid: true},
+		{name: "empty", valid: true},
+		{name: "no cleanup", change: func(e *Entity) { e.CleanupOwners = nil }},
+		{name: "desired field", change: func(e *Entity) { e.Fields[0].Deleting = e.Fields[1].Deleting; e.Fields[1].Deleting = nil }},
+		{name: "non string", change: func(e *Entity) { e.Fields[1].Type = FieldTypeInt64 }},
+		{name: "invalid utf8", value: string([]byte{0xff})},
+		{name: "nul", value: "bad\x00value"},
+		{name: "pattern", value: "Removing", change: func(e *Entity) { e.Fields[1].Pattern = "^Ready$" }},
+		{name: "maximum", value: "Removing", change: func(e *Entity) { n := 2; e.Fields[1].MaxLength = &n }},
+		{name: "minimum", value: "", change: func(e *Entity) { n := 1; e.Fields[1].MinLength = &n }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := Entity{Name: "Parcel", Versioned: true, GenerationFields: []string{"name"}, CleanupOwners: []string{"retention"}, Observations: map[string][]string{"readiness": {"state"}}, Fields: []Field{{Name: "name", Type: FieldTypeString}, {Name: "state", Type: FieldTypeString, Optional: true, Deleting: &tc.value}}}
+			if tc.change != nil {
+				tc.change(&e)
+			}
+			if errs := ValidateVersioned([]Entity{e}); (len(errs) == 0) != tc.valid {
+				t.Fatal(errs)
+			}
+		})
+	}
+}

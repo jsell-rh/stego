@@ -83,6 +83,7 @@ type Field struct {
 	FilledBy        string    `yaml:"filled_by,omitempty"`
 	To              string    `yaml:"to,omitempty"` // for ref type
 	Unobserved      *string   `yaml:"unobserved,omitempty"`
+	Deleting        *string   `yaml:"deleting,omitempty" json:"Deleting,omitempty"`
 }
 
 // Entity represents a domain entity with its fields.

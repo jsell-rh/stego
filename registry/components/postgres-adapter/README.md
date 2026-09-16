@@ -88,3 +88,10 @@ cleanup owners and reject other deletion options. `CursorVisible` and
 `CursorDeleting` provide the same selection for bounded cursor reads. Access
 filters apply before counts and pages. Related grants must remain live. The
 ordinary live-only reads and locks do not change.
+
+Version 4.7 adds `deleting` values on optional string observation fields.
+A value requires cleanup owners and must satisfy the field's string constraints.
+The generated view uses it only after deletion and before finalization. List
+filters, cursor filters, counts, ordering, and `CurrentObservations` use the same
+value. Retained reads preserve the stored observation for diagnosis. The
+application declares its words; the storage runtime owns the projection.

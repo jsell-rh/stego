@@ -13,26 +13,34 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 	var result []error
 	for _, entity := range entities {
 		for _, field := range entity.Fields {
-			if field.Unobserved == nil {
-				continue
-			}
-			value := *field.Unobserved
-			valid := entity.IsObservationField(field.Name) && field.Type == FieldTypeString && len(value) <= 8192 && utf8.ValidString(value) && !strings.ContainsRune(value, 0)
-			length := utf8.RuneCountInString(value)
-			if field.MinLength != nil && length < *field.MinLength {
-				valid = false
-			}
-			if field.MaxLength != nil && length > *field.MaxLength {
-				valid = false
-			}
-			if field.Pattern != "" {
-				pattern, err := regexp.Compile(field.Pattern)
-				if err != nil || !pattern.MatchString(value) {
+			for _, fallback := range []struct {
+				name  string
+				value *string
+			}{{"unobserved", field.Unobserved}, {"deleting", field.Deleting}} {
+				if fallback.value == nil {
+					continue
+				}
+				value := *fallback.value
+				valid := entity.IsObservationField(field.Name) && field.Type == FieldTypeString && len(value) <= 8192 && utf8.ValidString(value) && !strings.ContainsRune(value, 0)
+				if fallback.name == "deleting" && len(entity.CleanupOwners) == 0 {
 					valid = false
 				}
-			}
-			if !valid {
-				result = append(result, fmt.Errorf("entity %s: unobserved value requires a valid string observation field %s", entity.Name, field.Name))
+				length := utf8.RuneCountInString(value)
+				if field.MinLength != nil && length < *field.MinLength {
+					valid = false
+				}
+				if field.MaxLength != nil && length > *field.MaxLength {
+					valid = false
+				}
+				if field.Pattern != "" {
+					pattern, err := regexp.Compile(field.Pattern)
+					if err != nil || !pattern.MatchString(value) {
+						valid = false
+					}
+				}
+				if !valid {
+					result = append(result, fmt.Errorf("entity %s: invalid %s value for observation field %s", entity.Name, fallback.name, field.Name))
+				}
 			}
 		}
 		if (len(entity.GenerationFields) > 0 || len(entity.Observations) > 0 || len(entity.Conditions) > 0 || len(entity.CleanupOwners) > 0 || len(entity.CleanupTargets) > 0) && !entity.Versioned {

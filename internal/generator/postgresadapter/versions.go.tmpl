@@ -262,7 +262,9 @@ func (row {{.Name}}) CurrentObservations() {{.Name}} {
  {{range .Observations}}if row.ResourceGeneration<1 || row.ObservedGeneration({{printf "%q" .Name}})!=row.ResourceGeneration {
  {{range .Projections}}{{if .HasUnobserved}}{ value:={{printf "%q" .Unobserved}}; row.{{.Name}}=&value }{{else}}row.{{.Name}}=nil{{end}}
  {{end}}}
- {{end}}return row
+ {{end}}
+ {{range .Observations}}{{range .Projections}}{{if .HasDeleting}}if row.DeletedAt.Valid&&row.DeletionFinalizedAt==nil { value:={{printf "%q" .Deleting}};row.{{.Name}}=&value }
+ {{end}}{{end}}{{end}}return row
 }
 {{end}}{{end}}
 

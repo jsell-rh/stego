@@ -537,3 +537,74 @@ func TestDeletionFinalizationVisibilityRejectsInvalidOptions(t *testing.T) {
 		t.Fatal("invalid visibility ran a query")
 	}
 }
+
+func TestDeletionFinalizationProjectionMatchesQueries(t *testing.T) {
+	s, _ := database(t, false)
+	ctx := context.Background()
+	for _, id := range []string{"live", "pending", "finished"} {
+		if err := s.Create(ctx, "Parcel", Parcel{Meta: Meta{ID: id}, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ObserveIfVersion(ctx, "Parcel", id, 1, "readiness", map[string]any{"state": "Ready"}); err != nil {
+			t.Fatal(err)
+		}
+		if id != "live" {
+			if err := s.Delete(ctx, "Parcel", id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	load := func(id string) Parcel {
+		v, err := s.GetRetained(ctx, "Parcel", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.(Parcel)
+	}
+	row := load("finished")
+	if err := s.ObserveCleanupIfVersion(ctx, "Parcel", row.ID, row.ResourceVersion, "retention", true); err != nil {
+		t.Fatal(err)
+	}
+	row = load(row.ID)
+	if err := s.FinalizeDeletionIfVersion(ctx, "Parcel", row.ID, row.ResourceVersion); err != nil {
+		t.Fatal(err)
+	}
+	removing := "Removing \\ ' ?"
+	row = load("pending")
+	if row.State == nil || *row.State != "Ready" {
+		t.Fatal("projection replaced stored diagnostic data")
+	}
+	projected := row.CurrentObservations()
+	if projected.State == nil || *projected.State != removing {
+		t.Fatal("pending deletion projection", projected.State)
+	}
+	condition := &contract.RowFilter{Field: "state", Values: []string{removing}}
+	for _, countOnly := range []bool{false, true} {
+		result, err := s.List(ctx, "Parcel", "", "", contract.ListOptions{IncludeDeleting: true, CountOnly: countOnly, Filter: condition, Page: 1, Size: 1, Fields: []string{"state"}})
+		if err != nil || result.Total != 1 {
+			t.Fatal("deletion projection filter and count", result.Total, err)
+		}
+		if !countOnly {
+			rows := result.Items.([]Parcel)
+			if len(rows) != 1 || rows[0].ID != "pending" || rows[0].State == nil || *rows[0].State != removing {
+				t.Fatal("projected page differs from its filter", rows)
+			}
+		}
+	}
+	result, err := s.ReadCursor(ctx, "Parcel", "", "", contract.CursorOptions{Limit: 1, Deletion: contract.CursorVisible, Filter: condition})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := result.Items.([]Parcel)
+	if len(rows) != 1 || rows[0].ID != "pending" || result.More {
+		t.Fatal("projected cursor differs from its filter", rows)
+	}
+	ordered, err := s.List(ctx, "Parcel", "", "", contract.ListOptions{IncludeDeleting: true, Size: 1, Page: 1, OrderBy: []contract.OrderByField{{Field: "state", Direction: "desc"}}})
+	if err != nil || ordered.Total != 2 || ordered.Items.([]Parcel)[0].ID != "pending" {
+		t.Fatal("ordering does not use deletion projection", err)
+	}
+	final := load("finished").CurrentObservations()
+	if final.State == nil || *final.State != "Unknown" {
+		t.Fatal("finalized resource retained pending projection")
+	}
+}

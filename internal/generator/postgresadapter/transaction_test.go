@@ -67,7 +67,10 @@ func testGeneratedStoreTransactions(t *testing.T, pattern string) {
 	}})
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Relocation", Versioned: true, CleanupOwners: []string{"worker"}, CleanupTargets: map[string]string{"worker": "parent_id"}, Fields: []types.Field{{Name: "parent_id", Type: types.FieldTypeRef, To: "Record"}, {Name: "name", Type: types.FieldTypeString}}})
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Asset", Versioned: true, CleanupOwners: []string{"compute", "archive"}, CleanupTargets: map[string]string{"compute": "region", "archive": "region"}, Fields: []types.Field{{Name: "region", Type: types.FieldTypeString}}})
+	unknown, removing := "Unknown", "Removing \\ ' ?"
+	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Parcel", Versioned: true, GenerationFields: []string{"name"}, CleanupOwners: []string{"retention"}, Observations: map[string][]string{"readiness": {"state"}}, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "state", Type: types.FieldTypeString, Optional: true, Unobserved: &unknown, Deleting: &removing}}})
 	ctx.Entities = append(ctx.Entities, types.Entity{Name: "Placement", Versioned: true, CleanupOwners: []string{"worker", "identity"}, CleanupTargets: map[string]string{"worker": "target"}, Fields: []types.Field{{Name: "target", Type: types.FieldTypeString}, {Name: "name", Type: types.FieldTypeString}, {Name: "parent_id", Type: types.FieldTypeRef, To: "Record", Optional: true}}})
+
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
