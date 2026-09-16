@@ -34,7 +34,7 @@ type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFi
 type Backend struct{ {{if .LocalApplication}}sockets socketSet;{{end}}telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 
 // NewBrowserBackend uses compiler-owned database, HTTP, and telemetry resources.
-// Apply schema.sql before startup. OAuth tokens remain in encrypted server state.
+// Use schema.Bootstrap before startup. OAuth tokens stay in encrypted server state.
 func NewBrowserBackend(ctx context.Context,db *sql.DB)(*Backend,error){
  if os.Getenv("STEGO_HTTP_TLS_CERT")==""||os.Getenv("STEGO_HTTP_TLS_KEY")==""{return nil,errors.New("browser backend requires HTTPS")}
  o:=options{Origin:os.Getenv("STEGO_BROWSER_ORIGIN"),Upstream:os.Getenv("STEGO_BROWSER_API_URL"),UpstreamCA:os.Getenv("STEGO_BROWSER_API_CA_FILE"),Issuer:os.Getenv("STEGO_BROWSER_ISSUER"),IssuerCA:os.Getenv("STEGO_BROWSER_ISSUER_CA_FILE"),ClientID:os.Getenv("STEGO_BROWSER_CLIENT_ID"),SecretFile:os.Getenv("STEGO_BROWSER_CLIENT_SECRET_FILE"),KeyFile:os.Getenv("STEGO_BROWSER_SESSION_KEY_FILE")}

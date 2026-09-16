@@ -159,3 +159,38 @@ func TestBrowserSchemaBootstrapRollsBack(t *testing.T) {
 		t.Fatal("schema recovery", err)
 	}
 }
+
+func TestBrowserSchemaRefusesRuntimeGrantDrift(t *testing.T) {
+	for name, query := range map[string]string{
+		"schema-create":       "GRANT CREATE ON SCHEMA public TO ",
+		"grant-option":        "GRANT SELECT ON public.stego_browser_sessions TO ",
+		"missing-data-access": "REVOKE DELETE ON public.stego_browser_sessions FROM ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			db := database(t)
+			migrate(t, db)
+			raw, _ := schemaFixtures.Load(db)
+			fixture := raw.(schemaFixture)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			query += fixture.user
+			if name == "grant-option" {
+				query += " WITH GRANT OPTION"
+			}
+			if _, err := fixture.owner.ExecContext(ctx, query); err != nil {
+				t.Fatal("grant fixture", err)
+			}
+			if schema.Verify(ctx, db) == nil {
+				t.Fatal("runtime accepted grant drift")
+			}
+			conn, err := fixture.owner.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if schema.Bootstrap(ctx, conn, fixture.user) == nil {
+				t.Fatal("bootstrap accepted grant drift")
+			}
+		})
+	}
+}

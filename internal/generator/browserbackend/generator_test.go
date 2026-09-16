@@ -205,7 +205,7 @@ func testLocalApplicationRuntime(t *testing.T, captured, declared bool) {
 	testGeneratedRuntime(t, g, ctx, true)
 }
 func TestGeneratedManagedBrowserSchema(t *testing.T) {
-	testGeneratedRuntime(t, new(Generator), fixture(), false, "^Test(ManagedBrowserSchema|BrowserSchemaRefusesDrift|BrowserSchemaBootstrapRollsBack)$")
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^Test(ManagedBrowserSchema|BrowserSchemaRefusesDrift|BrowserSchemaRefusesRuntimeGrantDrift|BrowserSchemaBootstrapRollsBack)$")
 }
 
 func TestGeneratedSchemaInputs(t *testing.T) {
