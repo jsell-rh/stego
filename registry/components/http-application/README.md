@@ -59,3 +59,8 @@ Generated HTTPS clients use the telemetry runtime in their call context.
 The [HTTP client contract](../../../specs/http-client-observability.md) defines
 completion, propagation, privacy, and resource bounds. Independent CLI entry
 points still need runtime integration.
+
+Version 1.7 permits an empty HTTP 202 response when the endpoint response type is
+`NoContent`. Structured HTTP 202 responses still require a value. Authorization
+and domain errors prevent the success response. This supports durable deletion
+requests without adding transport code to each application.

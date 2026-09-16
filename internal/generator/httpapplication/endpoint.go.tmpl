@@ -43,13 +43,13 @@ type ErrorHandler func(http.ResponseWriter,*http.Request,error)
 // It must honor cancellation. Its error goes to the application error handler.
 type Prepare func(context.Context)error
 
-// NoContent is the response type for HTTP 204 and 205 endpoints.
+// NoContent selects an empty HTTP 202, 204, or 205 response.
 type NoContent struct{}
 
 // Endpoint binds one typed domain operation. It verifies identity before
 // decoding input and uses the same bounded context for the complete operation.
 func Endpoint[Request,Response any](authenticate Authenticate, decode func(*http.Request)(Request,error), call func(context.Context,Request)(Response,error), success int, writeError ErrorHandler, prepare ...Prepare) (http.Handler,error) {
- empty:=success==http.StatusNoContent||success==http.StatusResetContent
+ empty:=success==http.StatusNoContent||success==http.StatusResetContent||(success==http.StatusAccepted&&reflect.TypeFor[Response]()==reflect.TypeFor[NoContent]())
  if call==nil||success<200||success>299||empty&&reflect.TypeFor[Response]() != reflect.TypeFor[NoContent](){return nil,errors.New("invalid HTTP endpoint configuration")}
  return ReplyEndpoint(authenticate,decode,func(ctx context.Context,input Request)(Reply[Response],error){
   result,err:=call(ctx,input);if empty{return Reply[Response]{Status:success},err};return Reply[Response]{Status:success,Value:&result},err
@@ -89,7 +89,7 @@ func ReplyEndpoint[Request,Response any](authenticate Authenticate,decode func(*
   result,err:=call(ctx,input)
   if err!=nil{writeError(w,request,err);return}
   success:=result.Status
-  empty:=success==http.StatusNoContent||success==http.StatusResetContent
+  empty:=success==http.StatusNoContent||success==http.StatusResetContent||(success==http.StatusAccepted&&reflect.TypeFor[Response]()==reflect.TypeFor[NoContent]())
   if success<200||success>299||empty&&result.Value!=nil||!empty&&result.Value==nil{writeError(w,request,errors.New("invalid HTTP reply"));return}
   if empty {
    if err:=ctx.Err();err!=nil{writeError(w,request,err);return}

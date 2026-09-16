@@ -197,7 +197,7 @@ func TestNoContentEndpoint(t *testing.T) {
 	}
 	decode := func(r *http.Request) (string, error) { return r.URL.Path, nil }
 	writeError := func(w http.ResponseWriter, r *http.Request, err error) { w.WriteHeader(403) }
-	for _, code := range []int{204, 205} {
+	for _, code := range []int{202, 204, 205} {
 		calls := 0
 		endpoint, err := transport.Endpoint(authenticate, decode, func(ctx context.Context, path string) (transport.NoContent, error) {
 			calls++
@@ -230,7 +230,7 @@ func TestNoContentEndpoint(t *testing.T) {
 		if calls != 2 {
 			t.Fatalf("unauthenticated request reached domain: %d", calls)
 		}
-		if _, err := transport.Endpoint(authenticate, decode, func(context.Context, string) (string, error) { return "must not be discarded", nil }, code, writeError); err == nil {
+		if _, err := transport.Endpoint(authenticate, decode, func(context.Context, string) (string, error) { return "must not be discarded", nil }, code, writeError); err == nil && code != 202 {
 			t.Fatal("body response accepted for an empty endpoint")
 		}
 	}

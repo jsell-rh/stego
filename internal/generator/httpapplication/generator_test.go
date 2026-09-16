@@ -14,7 +14,11 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
-func TestGeneratedApplicationEndpoint(t *testing.T) {
+func TestGeneratedApplicationEndpoint(t *testing.T) { testGeneratedApplicationEndpoint(t, "") }
+func TestGeneratedAcceptedDeletionEndpoint(t *testing.T) {
+	testGeneratedApplicationEndpoint(t, "^Test(NoContentEndpoint|DynamicReplyPreservesStatusAndBodyRules)$")
+}
+func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", StorageContract: "example.com/http-test/out/contracts/storage", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
 	project := t.TempDir()
 	var files []gen.File
@@ -74,6 +78,9 @@ func TestGeneratedApplicationEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-mod=readonly", "-timeout=30s", "./..."}} {
+		if args[0] == "test" && pattern != "" {
+			args = append(args, "-run="+pattern)
+		}
 		command := exec.Command("go", args...)
 		command.Dir = project
 		command.Env = append(os.Environ(), "GOWORK=off")
