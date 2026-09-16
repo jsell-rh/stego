@@ -62,3 +62,8 @@ source and runtime evidence are saved in `keycloak-search-real` under the
 Gateway cleanup run directory. Both examples and PostgreSQL checks also passed.
 The compiler job is still running. This does not qualify inventory cleanup or
 Hypershell adoption.
+
+All five CI jobs in run `35099578328` passed at `f5d7d27`. This qualifies the
+bounded query, including real Keycloak behavior and both generated examples.
+Later changes in this branch are documentation only. Inventory cleanup and
+Hypershell adoption remain open.
