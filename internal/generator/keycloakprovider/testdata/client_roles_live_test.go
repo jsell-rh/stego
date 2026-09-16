@@ -66,4 +66,5 @@ func testLiveClientOnlyRoles(t *testing.T, ctx context.Context, options Options)
 		t.Fatal("client-only target cleanup failed", err)
 	}
 	t.Log("Client-only roles passed with restricted permissions, distinct IDs, legacy ownership, and both client states")
+	testLiveNativeLifecycle(t, c, ctx)
 }
