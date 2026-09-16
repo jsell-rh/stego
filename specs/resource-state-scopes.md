@@ -65,3 +65,23 @@ The generated code compiles. Invalid read requests pass their local unit check.
 The local generated check took 6.92 seconds. Database cases were skipped locally;
 this is not SQL qualification. A separate bounded CI job now runs the state key
 and scope tests. Hypershell adoption and its failed race test remain required.
+
+## First SQL result and CI correction
+
+The stored log from run `35103083212` is not a pass. Closure, restart, rollback,
+invalid-input, schema-guard, backfill, overflow, and prepared-statement checks
+passed. Both concurrent-order cases rejected the losing transaction with the
+existing `ErrSerialization` contract and SQLSTATE 40001. Their assertions
+incorrectly required only `ErrResourceStateConflict`.
+
+The revised test accepts either defined conflict at that boundary. It then
+starts a fresh transaction, requires the committed scope to reject the stale
+operation, and checks that the losing transaction added no key. The generated
+runtime did not change for this test correction.
+
+The focused job had also hidden the failing `go test` exit code behind its log
+pipe. Its success status was false evidence. The stored log exposed the failure.
+The job now selects Bash with `pipefail`, rejects failure markers, and requires
+both named wrapper tests to pass. A local negative check confirmed exit code 1
+for a failed command before a successful log sink. A new CI run must prove the
+complete check. Cancellation of the superseded run was requested.
