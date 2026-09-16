@@ -2,12 +2,53 @@ package controller
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestStateProtectionPrivateKeyFormat(t *testing.T) {
+	key := bytes.Repeat([]byte{3}, 32)
+	encoded := base64.StdEncoding.EncodeToString(key)
+	data, _ := json.Marshal([]string{encoded})
+	p, err := NewStateProtectorFromJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(data)
+	binding := StateKey{"instance", "Record", "id", "identity"}
+	sealed, err := p.Seal(binding, 1, []byte("private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, _ := NewStateProtector([][]byte{key})
+	if _, err := old.Open(binding, 1, sealed); err != nil {
+		t.Fatal("parsed key changed after input cleanup", err)
+	}
+	rotation, _ := json.Marshal([]string{base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32)), encoded})
+	rotated, err := NewStateProtectorFromJSON(rotation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rotated.Open(binding, 1, sealed); err != nil {
+		t.Fatal("old read key was not retained", err)
+	}
+	for _, data := range [][]byte{
+		nil, []byte("null"), []byte("[]"), []byte("[null]"), []byte(`{"key":"private"}`),
+		bytes.Repeat([]byte{' '}, 257), []byte(`["` + encoded + `"] []`),
+		[]byte(`["` + encoded + `","` + encoded + `"]`),
+		[]byte(`["` + base64.RawStdEncoding.EncodeToString(key) + `"]`),
+		[]byte(`["` + base64.StdEncoding.EncodeToString(make([]byte, 32)) + `"]`),
+		[]byte(`["` + encoded + `\n"]`),
+	} {
+		if _, err := NewStateProtectorFromJSON(data); err != ErrStateProtection {
+			t.Fatal("invalid key file accepted or error disclosed input")
+		}
+	}
+}
 
 func TestStateProtectionBindingAndCorruption(t *testing.T) {
 	key := StateKey{Instance: "tenant", Entity: "Record", ResourceID: "resource", Scope: "provider"}

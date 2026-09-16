@@ -276,3 +276,11 @@ Journal, snapshot, and sealed-record formatting is redacted; implicit JSON expor
 fails. The focused tests passed in both generated variants with the race detector
 in 6.985 seconds. The production Hypershell provider lifecycle still needs to use
 this journal.
+
+`NewStateProtectorFromJSON` accepts a bounded JSON array of one through four
+canonical base64 keys. Each decoded key has 32 bytes. The first key is active;
+the others remain read keys. Use a common private-file reader before this call,
+keep the file outside the database, and clear the input buffer after use. The
+parser rejects repeated or zero keys, malformed data, and input over 256 bytes.
+It copies accepted keys and clears temporary decoded bytes. The focused codec
+checks passed in both generated variants with the race detector in 7.049 seconds.
