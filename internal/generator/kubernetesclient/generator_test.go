@@ -71,7 +71,7 @@ func TestGeneratedRouteAdmission(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestPassthroughRoute")
 }
 func TestGeneratedServerTLSSecret(t *testing.T) {
-	testGeneratedKubernetesClient(t, false, "^TestServerTLSSecret")
+	testGeneratedKubernetesClient(t, false, "^Test(Server|Client)TLSSecret")
 }
 func TestGeneratedDeploymentAvailability(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestDeploymentAvailability$")

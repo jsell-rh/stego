@@ -63,3 +63,14 @@ from silently discarding unknown fields. It does not replace the installed
 resource schema or certify an external API that ignores this option. Schemas
 can explicitly preserve unknown fields. See the
 [Kubernetes validation contract](https://kubernetes.io/docs/reference/using-api/api-concepts/#field-validation).
+
+`VerifyClientTLSSecret` checks an owned client certificate Secret against explicit
+operator trust and an expected DNS SAN identity. It shares the server verifier's
+object, size, key-pair, chain, and expiry checks. A server-only certificate fails
+client verification. Neither verifier makes a network call or proves revocation
+status or live connectivity.
+
+Both verifiers require canonical base64 data and one complete private-key PEM
+block. Extra certificates, keys, headers, or text in the private-key field are
+rejected. Only checked certificate bytes are returned. The application selects
+the identity and trust roots; the Secret cannot supply its own trust anchors.

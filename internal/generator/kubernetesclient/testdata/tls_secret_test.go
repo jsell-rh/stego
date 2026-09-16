@@ -82,8 +82,14 @@ func TestServerTLSSecretTrustBundle(t *testing.T) {
 }
 
 func TestServerTLSSecret(t *testing.T) {
+	testTLSSecret(t, x509.ExtKeyUsageServerAuth, VerifyServerTLSSecret)
+}
+func TestClientTLSSecret(t *testing.T) {
+	testTLSSecret(t, x509.ExtKeyUsageClientAuth, VerifyClientTLSSecret)
+}
+func testTLSSecret(t *testing.T, usage x509.ExtKeyUsage, verify func(Object, Owner, TLSSecretTarget) ([]byte, error)) {
 	const host = "widget.example.test"
-	ca, cert, key := secretCertificate(t, host, time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+	ca, cert, key := secretCertificate(t, host, time.Now().Add(time.Hour), usage)
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(ca)
 	owner := Owner{"test.example/owner": "widget-one"}
@@ -96,12 +102,12 @@ func TestServerTLSSecret(t *testing.T) {
 		if withUntrustedCA {
 			current["data"].(Object)["ca.crt"] = "not a trust anchor"
 		}
-		got, err := VerifyServerTLSSecret(current, owner, target)
+		got, err := verify(current, owner, target)
 		if err != nil || !bytes.Equal(got, cert) {
 			t.Fatal("valid certificate rejected", err)
 		}
 	}
-	foreignCA, foreign, foreignKey := secretCertificate(t, host, time.Now().Add(time.Hour), x509.ExtKeyUsageServerAuth)
+	foreignCA, foreign, foreignKey := secretCertificate(t, host, time.Now().Add(time.Hour), usage)
 	cases := map[string]func(Object){
 		"owner":               func(o Object) { o["metadata"].(Object)["labels"] = Object{"test.example/owner": "other"} },
 		"name":                func(o Object) { o["metadata"].(Object)["name"] = "other" },
@@ -124,6 +130,16 @@ func TestServerTLSSecret(t *testing.T) {
 		"large key": func(o Object) {
 			o["data"].(Object)["tls.key"] = strings.Repeat("A", base64.StdEncoding.EncodedLen(64<<10)+1)
 		},
+		"noncanonical base64": func(o Object) { o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(cert) + "\n" },
+		"garbage before key": func(o Object) {
+			o["data"].(Object)["tls.key"] = base64.StdEncoding.EncodeToString(append([]byte("private-detail\n"), key...))
+		},
+		"second private key": func(o Object) {
+			o["data"].(Object)["tls.key"] = base64.StdEncoding.EncodeToString(append(append([]byte{}, key...), key...))
+		},
+		"certificate in key": func(o Object) {
+			o["data"].(Object)["tls.key"] = base64.StdEncoding.EncodeToString(append(append([]byte{}, key...), cert...))
+		},
 		"wrong key": func(o Object) { o["data"].(Object)["tls.key"] = base64.StdEncoding.EncodeToString(foreignKey) },
 		"private key in certificate": func(o Object) {
 			o["data"].(Object)["tls.crt"] = base64.StdEncoding.EncodeToString(append(append([]byte(nil), cert...), key...))
@@ -145,21 +161,25 @@ func TestServerTLSSecret(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			current := fresh()
 			change(current)
-			got, err := VerifyServerTLSSecret(current, owner, target)
+			got, err := verify(current, owner, target)
 			if !errors.Is(err, ErrResourceObservation) || len(got) != 0 || err.Error() != ErrResourceObservation.Error() {
 				t.Fatal("invalid Secret exposed data or passed verification", err)
 			}
 		})
 	}
 	for _, bad := range []ServerTLSSecretTarget{{Namespace: target.Namespace, Name: target.Name, DNSName: host}, {Namespace: target.Namespace, Name: target.Name, DNSName: "other.example.test", Roots: roots}, {Namespace: target.Namespace, Name: target.Name, DNSName: "", Roots: roots}} {
-		if _, err := VerifyServerTLSSecret(fresh(), owner, bad); !errors.Is(err, ErrResourceObservation) {
+		if _, err := verify(fresh(), owner, bad); !errors.Is(err, ErrResourceObservation) {
 			t.Fatal("invalid target accepted", err)
 		}
+	}
+	wrongUsage := x509.ExtKeyUsageServerAuth
+	if usage == wrongUsage {
+		wrongUsage = x509.ExtKeyUsageClientAuth
 	}
 	for _, tc := range []struct {
 		expiry time.Time
 		usage  x509.ExtKeyUsage
-	}{{time.Now().Add(-time.Minute), x509.ExtKeyUsageServerAuth}, {time.Now().Add(time.Hour), x509.ExtKeyUsageClientAuth}} {
+	}{{time.Now().Add(-time.Minute), usage}, {time.Now().Add(time.Hour), wrongUsage}} {
 		ca, crt, key := secretCertificate(t, host, tc.expiry, tc.usage)
 		pool := x509.NewCertPool()
 		pool.AppendCertsFromPEM(ca)
@@ -167,8 +187,8 @@ func TestServerTLSSecret(t *testing.T) {
 		checked.Roots = pool
 		current := fresh()
 		current["data"] = Object{"tls.crt": base64.StdEncoding.EncodeToString(crt), "tls.key": base64.StdEncoding.EncodeToString(key)}
-		if _, err := VerifyServerTLSSecret(current, owner, checked); !errors.Is(err, ErrResourceObservation) {
-			t.Fatal("expired or client-only certificate accepted", err)
+		if _, err := verify(current, owner, checked); !errors.Is(err, ErrResourceObservation) {
+			t.Fatal("expired certificate or wrong certificate purpose accepted", err)
 		}
 	}
 }
