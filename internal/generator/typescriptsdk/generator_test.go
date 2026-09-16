@@ -114,6 +114,11 @@ func TestGeneratedRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sessionFiles, err := BrowserSessionFiles("session", "/api/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, sessionFiles...)
 	for _, f := range files {
 		name := filepath.Join(project, f.Path)
 		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
@@ -123,7 +128,7 @@ func TestGeneratedRuntime(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"runtime.test.mjs", "usage.mts"} {
+	for _, name := range []string{"runtime.test.mjs", "usage.mts", "session.test.mjs", "session-usage.mts"} {
 		data, err := os.ReadFile("testdata/" + name)
 		if err != nil {
 			t.Fatal(err)
@@ -146,6 +151,7 @@ func TestGeneratedRuntime(t *testing.T) {
 		}
 	}
 	run("--test", "runtime.test.mjs")
+	run("--test", "session.test.mjs")
 	tsc := os.Getenv("STEGO_TEST_TSC_FILE")
 	if tsc == "" {
 		tsc, _ = filepath.Abs("testdata/node_modules/typescript/lib/tsc.js")
@@ -158,6 +164,7 @@ func TestGeneratedRuntime(t *testing.T) {
 		return
 	}
 	run(tsc, "--strict", "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "usage.mts")
+	run(tsc, "--strict", "--noEmit", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "session-usage.mts")
 }
 
 func TestErrorCodeConfiguration(t *testing.T) {

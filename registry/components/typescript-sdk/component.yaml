@@ -1,6 +1,6 @@
 kind: component
 name: typescript-sdk
-version: 1.2.0
+version: 1.2.1
 output_namespace: tssdk
 config:
   document:

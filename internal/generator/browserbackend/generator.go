@@ -21,6 +21,7 @@ import (
 	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
+	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 )
 
 //go:embed *.tmpl
@@ -307,6 +308,11 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	root := path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace)
 	var files []gen.File
+	sessionFiles, err := typescriptsdk.BrowserSessionFiles(path.Join(ctx.OutputNamespace, "sessionclient"), s.Prefix)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, sessionFiles...)
 	for i, a := range s.Assets {
 		content := contentBySource[a.Source]
 		sum := sha256.Sum256(content)

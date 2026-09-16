@@ -142,3 +142,14 @@ or uncertain renewal still requires a new login. Sign-out takes precedence.
 A cancelled renewal releases its stored claim with a separate five-second
 cleanup deadline. Known tokens that were not saved are revoked within that
 budget. The cancelled request cannot prevent this cleanup.
+
+The generated `sessionclient` directory supplies a browser JSON client for an
+upstream API. It uses the same request, session, CSRF, cancellation, and input
+limits as the generated TypeScript SDK. Its API prefix is fixed at generation.
+It rejects requests outside that prefix, redirects, unsafe paths, and caller
+credentials. Writes first read the current session. Cookies stay in the browser.
+Sign-out opens the generated confirmation page.
+
+The client returns an `unknown` JSON body. The application must validate its
+own response shapes, or use an OpenAPI SDK for that validation. The session
+client does not claim to validate the upstream application's domain contract.

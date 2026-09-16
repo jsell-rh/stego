@@ -210,6 +210,32 @@ export function createBrowserClient() {
   };
   client.session = options => run(options, async (signal, traceparent) => { const value = await session(signal, traceparent); const { csrf_token, ...publicValue } = value; return publicValue; });
   client.logout = options => run(options, async (signal, traceparent) => { const value = await session(signal, traceparent); if (!value.authenticated) return; const result = await request("POST", "/auth/logout", undefined, value.csrf_token, signal, traceparent); if (result.status !== 204) fail("invalid_response"); });
+  if (contract.apiPrefix !== undefined) {
+    client.logout = () => { try { globalThis.location.assign(new URL("/auth/logout", origin).href); } catch { fail("navigation_failed"); } };
+    client.request = (method, path, body, options) => run(options, async (signal, traceparent) => {
+      if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(method) || typeof path !== "string" || path.length > 8192 || !path.startsWith("/") || /[\\\s\x00-\x1f\x7f#]/.test(path)) fail("invalid_input");
+      let target;
+      try { target = new URL(path, origin); } catch { fail("invalid_input"); }
+      if (target.origin !== origin || target.pathname + target.search !== path || (target.pathname !== contract.apiPrefix && !target.pathname.startsWith(contract.apiPrefix + "/"))) fail("invalid_input");
+      try {
+        if (/%(?:2f|5c|25)/i.test(target.pathname) || /[\\\x00-\x1f\x7f]/.test(decodeURIComponent(target.pathname)) || target.pathname.split("/").some(part => [".", ".."].includes(decodeURIComponent(part)))) fail("invalid_input");
+        decodeURIComponent(target.search);
+      } catch { fail("invalid_input"); }
+      let encoded;
+      if (body !== undefined) {
+        if (method === "GET" || method === "HEAD") fail("invalid_input");
+        boundedInput(body); encoded = JSON.stringify(body);
+        if (encoder.encode(encoded).length > maxRequest) fail("invalid_input");
+      }
+      let csrf;
+      if (method !== "GET" && method !== "HEAD") {
+        const value = await session(signal, traceparent);
+        if (!value.authenticated) fail("reauth_required", 401);
+        csrf = value.csrf_token;
+      }
+      return Object.freeze(await request(method, path, encoded, csrf, signal, traceparent));
+    });
+  }
   for (const [name, op] of Object.entries(contract.operations)) {
     client[name] = (input = {}, options) => run(options, async (signal, traceparent) => {
       boundedInput(input);
