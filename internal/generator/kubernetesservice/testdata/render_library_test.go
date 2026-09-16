@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -182,5 +183,79 @@ func TestIndependentRenders(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestImagePullSecrets(t *testing.T) {
+	for _, workload := range []string{"service", "queue", "records"} {
+		o := options()
+		o.OwnerLabels = map[string]string{"example.test/instance": "one"}
+		if workload == "queue" {
+			o.Worker = workload
+		}
+		if workload == "records" {
+			o.RPCProcess = workload
+			o.Egress = nil
+		}
+		before, err := deployment.Resources(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.ImagePullSecrets = []string{"second.registry", "first-registry"}
+		after, err := deployment.Resources(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := false
+		for _, resource := range after {
+			if resource.Kind != "Deployment" {
+				continue
+			}
+			pod := resource.Object["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+			want := []any{map[string]any{"name": "first-registry"}, map[string]any{"name": "second.registry"}}
+			if !reflect.DeepEqual(pod["imagePullSecrets"], want) {
+				t.Fatal("pull references differ", pod["imagePullSecrets"])
+			}
+			delete(pod, "imagePullSecrets")
+			seen = true
+		}
+		if !seen || !reflect.DeepEqual(before, after) || o.ImagePullSecrets[0] != "second.registry" {
+			t.Fatal("pull references changed other resources or caller input")
+		}
+		commandOptions := o
+		commandOptions.OwnerLabels = nil
+		data, err := deployment.Render(commandOptions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"--image", o.Image, "--namespace", o.Namespace, "--fs-group", "10001", "--image-pull-secret", "first-registry", "--image-pull-secret", "second.registry"}
+		if len(o.Egress) != 0 {
+			args = append(args, "--egress", "kubernetes=10.0.0.1:443")
+		}
+		if o.Worker != "" {
+			args = append(args, "--worker", o.Worker)
+		}
+		if o.RPCProcess != "" {
+			args = append(args, "--rpc-process", o.RPCProcess)
+		}
+		var output bytes.Buffer
+		if err := deployment.RenderCommand(args, &output); err != nil || !bytes.Equal(data, output.Bytes()) {
+			t.Fatal("pull Secret command differs", err)
+		}
+	}
+	for _, names := range [][]string{{""}, {"a", "a"}, {"../credential"}, {"a..b"}, {"Upper"}, {strings.Repeat("a", 254)}, make([]string, 9)} {
+		o := options()
+		o.ImagePullSecrets = names
+		if data, err := deployment.Render(o); err == nil || data != nil {
+			t.Fatal("invalid pull references emitted output")
+		}
+		args := []string{"--image", o.Image, "--namespace", o.Namespace, "--egress", "kubernetes=10.0.0.1:443"}
+		for _, name := range names {
+			args = append(args, "--image-pull-secret", name)
+		}
+		var output bytes.Buffer
+		if err := deployment.RenderCommand(args, &output); err == nil || output.Len() != 0 {
+			t.Fatal("invalid pull command emitted output")
+		}
 	}
 }

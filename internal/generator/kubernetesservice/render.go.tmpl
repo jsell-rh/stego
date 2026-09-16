@@ -30,7 +30,9 @@ func RenderCommand(args []string, output io.Writer) error {
  scope:=flags.String("scope","all","Resource scope: all, cluster, or namespace")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
  var external endpointFlags
+ var pullSecrets pullSecretFlags
  flags.Var(&external,"egress","Declared external endpoint: NAME=IP:PORT; use brackets for IPv6")
+ flags.Var(&pullSecrets,"image-pull-secret","Existing image pull Secret in the target namespace; repeat at most eight times")
  if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
  if flags.NArg()!=0||output==nil||*scope==""{return fmt.Errorf("invalid deployment arguments")}
  bindings:=make([]EndpointBinding,0,len(external))
@@ -39,7 +41,7 @@ func RenderCommand(args []string, output io.Writer) error {
   if !ok||err!=nil{return fmt.Errorf("invalid external endpoint")}
   bindings=append(bindings,EndpointBinding{Name:name,Address:endpoint})
  }
- data,err:=Render(Options{Image:*image,Namespace:*namespace,FSGroup:*group,Scope:*scope,Worker:*worker,RPCProcess:*rpc,Egress:bindings})
+ data,err:=Render(Options{Image:*image,Namespace:*namespace,FSGroup:*group,Scope:*scope,Worker:*worker,RPCProcess:*rpc,Egress:bindings,ImagePullSecrets:pullSecrets})
  if err!=nil{return err}
  n,err:=output.Write(data);if err==nil&&n!=len(data){return io.ErrShortWrite};return err
 }
@@ -56,6 +58,9 @@ type Options struct{
  Scope,Worker,RPCProcess string
  Egress []EndpointBinding
  OwnerLabels map[string]string
+ // ImagePullSecrets contains at most eight distinct Secret names in Namespace.
+ // Credentials stay outside generation inputs and container mounts.
+ ImagePullSecrets []string
 }
 
 // Render returns the complete checked resource list. It has no network or
@@ -94,6 +99,7 @@ func renderOptions(o Options,output io.Writer)error{
  var result bytes.Buffer
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{o.Image,o.Namespace,o.FSGroup});err!=nil{return fmt.Errorf("cannot render deployment")}
  completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}
+ completed,err=withImagePullSecrets(completed,o.ImagePullSecrets);if err!=nil{return err}
  completed,err=selectDeploymentScope(completed,o.Scope,o.Namespace);if err!=nil{return err}
  completed,err=labelResources(completed,o.OwnerLabels);if err!=nil{return err}
  _,err=output.Write(append(completed,'\n'));return err
@@ -126,6 +132,39 @@ func selectDeploymentScope(input []byte,scope,namespace string)([]byte,error){
 type endpointFlags []string
 func(f *endpointFlags)String()string{return ""}
 func(f *endpointFlags)Set(value string)error{if len(*f)>=32||len(value)>160{return fmt.Errorf("external endpoint limit exceeded")};*f=append(*f,value);return nil}
+
+type pullSecretFlags []string
+func(f *pullSecretFlags)String()string{return ""}
+func(f *pullSecretFlags)Set(value string)error{if len(*f)>=8||len(value)>253{return fmt.Errorf("image pull Secret limit exceeded")};*f=append(*f,value);return nil}
+
+func withImagePullSecrets(input []byte,names []string)([]byte,error){
+ if len(names)==0{return input,nil}
+ if len(names)>8{return nil,fmt.Errorf("image pull Secret limit exceeded")}
+ names=append([]string(nil),names...)
+ sort.Strings(names)
+ label:=regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+ references:=make([]map[string]string,0,len(names))
+ for i,name:=range names{
+  if len(name)==0||len(name)>253||i>0&&names[i-1]==name{return nil,fmt.Errorf("invalid image pull Secret names")}
+  for _,part:=range strings.Split(name,"."){if !label.MatchString(part){return nil,fmt.Errorf("invalid image pull Secret name")}}
+  references=append(references,map[string]string{"name":name})
+ }
+ decoder:=json.NewDecoder(bytes.NewReader(input));decoder.UseNumber()
+ var document map[string]any
+ if decoder.Decode(&document)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
+ items,ok:=document["items"].([]any);if !ok{return nil,fmt.Errorf("invalid generated resource list")}
+ found:=false
+ for _,raw:=range items{
+  item,ok:=raw.(map[string]any);if !ok{return nil,fmt.Errorf("invalid generated resource")}
+  if item["kind"]!="Deployment"{continue}
+  spec,_:=item["spec"].(map[string]any);template,_:=spec["template"].(map[string]any);pod,_:=template["spec"].(map[string]any)
+  if pod==nil{return nil,fmt.Errorf("invalid generated Pod")}
+  if _,exists:=pod["imagePullSecrets"];exists{return nil,fmt.Errorf("generated Pod already selects image pull Secrets")}
+  pod["imagePullSecrets"]=references;found=true
+ }
+ if !found{return nil,fmt.Errorf("generated workload is missing")}
+ return json.MarshalIndent(document,"","  ")
+}
 
 func completeExternalPeers(input []byte, values endpointFlags)([]byte,error){
  bindings:=map[string][]netip.AddrPort{}
