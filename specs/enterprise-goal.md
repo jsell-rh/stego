@@ -196,6 +196,14 @@ test at a time. A timeout or incomplete log is not a terminal result.
 The default manual contract workflow skips CNPG and Sandbox. The explicit
 `cnpg_only=true` selection runs CNPG and skips ordinary checks. Skips are not passes.
 
+The user selected [durable asynchronous Gateway deletion](asynchronous-deletion.md)
+on 2026-09-16. A bounded jshell test reproduced retained-account cleanup that
+repeats its first item after interruption and service reconstruction. The next
+application change must return 202 after durable acceptance, block new accounts,
+and finish through the common controller runtime. Add common permanent
+finalization and filtered visibility; cleanup observations can reopen and are
+not a permanent visibility marker. The complete async workflow is not implemented.
+
 The next required work is:
 
 1. Supply allowed Gateway network paths through STEGO and prove them in the same
