@@ -54,6 +54,24 @@ verification or request deadlines. Focused probe checks passed in 0.052 seconds.
 The detailed source and failure records remain in Hypershell's
 [transport record](https://github.com/jsell-rh/hypershell-stego/blob/4134bda/acceptance/dashboard-transport.md).
 
+The [next live run at 906f75c](https://github.com/jsell-rh/hypershell-stego/actions/runs/35155975877)
+opened the browser before Gateway Pod replacement. Its verified HTTPS and
+protected-document probes passed. The browser reached the identity provider
+and submitted credentials, then received STEGO's sign-in fallback at
+`/workspaces`. The test failed after 279.79 seconds. Later restart and recovery
+checks did not run. Independent cleanup passed at
+`2026-09-16T22:21:40.225959Z` with an empty lease.
+
+The [protected login change](browser-login-document.md) addresses the possible
+Strict-cookie transition in common STEGO code. The browser did not record its
+cookie exclusion reasons, so that cause remains an inference. The candidate
+at `883ca13` also rejects unsupported component pins. Hypershell `1a5fa8a`
+regenerates all three modules from that compiler and common registry. Its
+[module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548)
+passed. All 83 archived source files matched the local module, and the image
+binary and published digest matched. Full compiler and deployed workflow
+checks are still required to qualify this candidate.
+
 The application gate must still prove the rendered workspace and policy editor,
 correlated authenticated telemetry, viewer and revoked access, session database
 recovery, worker restart, and deletion. Terminal behavior remains a separate
