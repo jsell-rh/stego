@@ -109,6 +109,13 @@ func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile 
 		t.Fatal("browser drift fixture failed", err)
 	}
 	if err = c.ReconcileBrowserClientAccess(ctx, b, p); err != nil {
+		desired, e := browserClientConfiguration(b, base)
+		if e != nil {
+			t.Fatal(e)
+		}
+		reportClientDifference(t, c, ctx, b, desired)
+		retry := c.ReconcileBrowserClientAccess(ctx, b, p)
+		t.Log("browser repair on the next observation succeeded:", retry == nil)
 		t.Fatal("real browser repair failed", err)
 	}
 	if err = c.InspectBrowserClientAccess(ctx, b, p); err != nil {
