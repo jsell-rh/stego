@@ -74,3 +74,12 @@ Both verifiers require canonical base64 data and one complete private-key PEM
 block. Extra certificates, keys, headers, or text in the private-key field are
 rejected. Only checked certificate bytes are returned. The application selects
 the identity and trust roots; the Secret cannot supply its own trust anchors.
+
+`EnsureOpaqueSecretSet` creates or updates a bounded set of owned configuration
+Secrets. It validates every desired Secret before it writes to Kubernetes.
+Each response must contain exactly the desired data. Extra data causes an error;
+the operation does not silently preserve or remove it. It then reads every
+Secret again and checks its UID, resource version, and data before it returns
+the configuration digest for a rollout. A conflict requires a new observation.
+This operation does not provide a transaction across Secrets. The caller must
+retain the desired values across retries.

@@ -1,8 +1,13 @@
 package kubernetes
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -92,5 +97,152 @@ func TestOpaqueSecretSetRejectsInvalidInput(t *testing.T) {
 	}
 	if _, err := OpaqueSecretSetDigest("service", n, nil, s); err == nil {
 		t.Fatal("missing owner accepted")
+	}
+}
+
+func TestOpaqueSecretSetEnsureChecksExactStoredData(t *testing.T) {
+	for _, mode := range []string{"valid", "extra data", "changed data", "replacement", "missing", "foreign owner", "no identity", "deleted", "conflict", "invalid second", "stringData", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			names, owner, desired := secretSetFixture()
+			for _, s := range desired {
+				m := s["metadata"].(Object)
+				delete(m, "uid")
+				delete(m, "resourceVersion")
+			}
+			original, _ := json.Marshal(desired)
+			var mu sync.Mutex
+			stored := map[string]Object{}
+			reads := map[string]int{}
+			calls, writes := 0, 0
+			client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				calls++
+				collection := "/api/v1/namespaces/service/secrets"
+				name := strings.TrimPrefix(r.URL.Path, collection+"/")
+				if r.Method == http.MethodGet {
+					reads[name]++
+					current := stored[name]
+					if current == nil {
+						w.WriteHeader(404)
+						return
+					}
+					if name == names[0] && reads[name] == 2 {
+						switch mode {
+						case "changed data":
+							current["data"].(map[string]any)["value"] = "ZGVm"
+						case "replacement":
+							current["metadata"].(map[string]any)["uid"] = "replacement"
+						case "missing":
+							w.WriteHeader(404)
+							return
+						}
+					}
+					_ = json.NewEncoder(w).Encode(current)
+					return
+				}
+				if r.URL.Path != collection && r.URL.Path != collection+"/"+names[0] {
+					t.Error("write escaped the selected set")
+					w.WriteHeader(500)
+					return
+				}
+				writes++
+				var body Object
+				if json.NewDecoder(r.Body).Decode(&body) != nil {
+					t.Error("invalid body")
+					w.WriteHeader(500)
+					return
+				}
+				name = String(body, "metadata", "name")
+				if mode == "conflict" {
+					w.WriteHeader(409)
+					return
+				}
+				metadata := body["metadata"].(map[string]any)
+				if r.Method == http.MethodPatch {
+					if String(body, "metadata", "uid") != "uid-"+name || String(body, "metadata", "resourceVersion") != "1" {
+						t.Error("patch lost its observation")
+					}
+					metadata["resourceVersion"] = "2"
+				} else if r.Method == http.MethodPost {
+					metadata["uid"] = "uid-" + name
+					metadata["resourceVersion"] = "1"
+				} else {
+					t.Error("unexpected write")
+					w.WriteHeader(500)
+					return
+				}
+				switch mode {
+				case "extra data":
+					body["data"].(map[string]any)["INJECTED"] = "YWJj"
+				case "foreign owner":
+					metadata["labels"] = map[string]any{"example.test/owner": "foreign"}
+				case "no identity":
+					delete(metadata, "uid")
+				case "deleted":
+					metadata["deletionTimestamp"] = "now"
+				}
+				stored[name] = body
+				_ = json.NewEncoder(w).Encode(body)
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			switch mode {
+			case "invalid second":
+				desired[1]["data"] = Object{"value": "private-invalid-base64"}
+			case "stringData":
+				desired[1]["stringData"] = Object{"value": "private-cleartext"}
+			case "canceled":
+				cancel()
+			}
+			got, err := client.EnsureOpaqueSecretSet(ctx, "service", names, owner, desired)
+			if mode != "valid" {
+				if err == nil || got != "" {
+					t.Fatal("invalid Secret set accepted")
+				}
+				if strings.Contains(err.Error(), "private-") {
+					t.Fatal("Secret data entered the error")
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if (mode == "invalid second" || mode == "stringData" || mode == "canceled") && calls != 0 {
+					t.Fatal("invalid input reached the API")
+				}
+				return
+			}
+			if err != nil || len(got) != 64 {
+				t.Fatal("valid set rejected", err)
+			}
+			mu.Lock()
+			initialWrites := writes
+			mu.Unlock()
+			if initialWrites != 2 {
+				t.Fatal("initial Secrets were not created")
+			}
+			repeated, err := client.EnsureOpaqueSecretSet(ctx, "service", names, owner, desired)
+			if err != nil || repeated != got {
+				t.Fatal("retained set changed", err)
+			}
+			mu.Lock()
+			sameWrites := writes
+			mu.Unlock()
+			if sameWrites != initialWrites {
+				t.Fatal("unchanged Secrets were written again")
+			}
+			after, _ := json.Marshal(desired)
+			if !reflect.DeepEqual(original, after) {
+				t.Fatal("caller input changed")
+			}
+			desired[0]["data"].(Object)["value"] = "ZGVm"
+			rotated, err := client.EnsureOpaqueSecretSet(ctx, "service", names, owner, desired)
+			if err != nil || rotated == got {
+				t.Fatal("rotation did not change the digest", err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if writes != initialWrites+1 {
+				t.Fatal("rotation wrote an unrelated Secret")
+			}
+		})
 	}
 }
