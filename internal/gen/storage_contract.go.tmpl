@@ -12,6 +12,7 @@ import (
 
 var ErrNotFound = errors.New("entity not found")
 var ErrConflict = errors.New("storage conflict")
+var ErrDeletionVisibility = errors.New("invalid deletion visibility")
 var ErrVersionConflict = errors.New("resource version changed or resource is absent")
 
 // RetainedReader reads one versioned resource, including its retained deletion
@@ -132,6 +133,12 @@ type ListOptions struct {
 	// OnlyDeleted selects deleted root rows before counting and paging. It
 	// takes precedence over IncludeDeleted. Related rows must still be live.
 	OnlyDeleted bool
+ // IncludeDeleting selects live rows and deleted rows without finalization.
+ // OnlyDeleting selects only deleted rows without finalization. Both require
+ // declared cleanup owners. Neither can combine with another deletion option.
+ // Related access grants remain live. These options do not grant access.
+ IncludeDeleting bool
+ OnlyDeleting bool
 }
 
 // RelatedFilter requires a live related row before counting or pagination.
@@ -190,6 +197,10 @@ const (
 	CursorLive CursorDeletion = iota
 	CursorAll
 	CursorDeleted
+ // CursorVisible includes live rows and unfinalized deletion requests.
+ CursorVisible
+ // CursorDeleting includes only unfinalized deletion requests.
+ CursorDeleting
 )
 
 // CursorOptions has no caller-selected order or offset. AfterID is a bound SQL

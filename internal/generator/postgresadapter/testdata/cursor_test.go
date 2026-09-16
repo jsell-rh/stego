@@ -141,7 +141,7 @@ func TestCursorRejectsInvalidRequestsBeforeQueries(t *testing.T) {
 	log := cursorLogger(s)
 	ctx := context.Background()
 	for _, opts := range []contract.CursorOptions{
-		{}, {Limit: -1}, {Limit: 1001}, {Limit: 1, Deletion: 3}, {Limit: 1, AfterID: strings.Repeat("a", 257)},
+		{}, {Limit: -1}, {Limit: 1001}, {Limit: 1, Deletion: 255}, {Limit: 1, AfterID: strings.Repeat("a", 257)},
 		{Limit: 1, AfterID: string([]byte{0xff})}, {Limit: 1, AfterID: "a\x00b"},
 		{Limit: 1, Fields: []string{"missing"}}, {Limit: 1, Fields: []string{"name", "name"}},
 		{Limit: 1, ImplicitFilters: map[string]string{"name;DROP TABLE records": ""}},

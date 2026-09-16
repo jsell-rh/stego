@@ -1077,6 +1077,12 @@ func emitListMethod(buf *bytes.Buffer, entities []types.Entity, apiAlias string,
 			fmt.Fprintf(buf, "query = query.Table(%q)\n", view)
 		}
 		if apiAlias == "stegostorage" {
+			fmt.Fprintln(buf, `if (opts.IncludeDeleting || opts.OnlyDeleting) && (opts.IncludeDeleted || opts.OnlyDeleted || (opts.IncludeDeleting && opts.OnlyDeleting)) { return stegostorage.ListResult{},stegostorage.ErrDeletionVisibility }`)
+			if len(e.CleanupOwners) == 0 {
+				fmt.Fprintln(buf, `if opts.IncludeDeleting || opts.OnlyDeleting { return stegostorage.ListResult{},stegostorage.ErrDeletionVisibility }`)
+			} else {
+				fmt.Fprintln(buf, `if opts.IncludeDeleting || opts.OnlyDeleting { query=query.Unscoped().Where("stego_finalized_at IS NULL") }; if opts.OnlyDeleting { query=query.Where("deleted_at IS NOT NULL") }`)
+			}
 			fmt.Fprintf(buf, "\t\tif opts.IncludeDeleted || opts.OnlyDeleted { query = query.Unscoped() }\n")
 			fmt.Fprintf(buf, "\t\tif opts.OnlyDeleted { query = query.Where(\"deleted_at IS NOT NULL\") }\n")
 			fmt.Fprintf(buf, "\t\tquery, err := s.applyRelated(ctx, query, %q, opts.Related)\n", e.Name)

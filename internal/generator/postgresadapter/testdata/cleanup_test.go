@@ -406,3 +406,134 @@ func TestDeletionFinalizationRejectsInvalidSchema(t *testing.T) {
 		})
 	}
 }
+
+func TestDeletionFinalizationVisibilityKeepsAccessAndPages(t *testing.T) {
+	s, _ := database(t, false)
+	ctx := context.Background()
+	for _, id := range []string{"a-live", "b-pending", "c-complete", "d-denied", "e-revoked"} {
+		if err := s.Create(ctx, "Record", Record{Meta: Meta{ID: id}, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+		if id != "d-denied" {
+			if err := s.Create(ctx, "Placement", Placement{Meta: Meta{ID: "grant-" + id}, Name: "reader", Target: "cluster", ParentID: &id}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if id != "a-live" {
+			if err := s.Delete(ctx, "Record", id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := s.Delete(ctx, "Placement", "grant-e-revoked"); err != nil {
+		t.Fatal(err)
+	}
+	for _, owner := range []string{"identity", "workload"} {
+		row := cleanupRecord(t, s, "c-complete")
+		if err := s.ObserveCleanupIfVersion(ctx, "Record", row.ID, row.ResourceVersion, owner, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	row := cleanupRecord(t, s, "c-complete")
+	if err := s.FinalizeDeletionIfVersion(ctx, "Record", row.ID, row.ResourceVersion); err != nil {
+		t.Fatal(err)
+	}
+	row = cleanupRecord(t, s, row.ID)
+	if err := s.ObserveCleanupIfVersion(ctx, "Record", row.ID, row.ResourceVersion, "identity", false); err != nil {
+		t.Fatal(err)
+	}
+	// Reconstruct the store. API visibility cannot depend on process memory.
+	var err error
+	s, err = NewStore(s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	related := []contract.RelatedFilter{{Entity: "Placement", ForeignField: "parent_id", Values: map[string][]string{"name": {"reader"}}}}
+	for page, want := range []string{"a-live", "b-pending", ""} {
+		result, err := s.List(ctx, "Record", "", "", contract.ListOptions{IncludeDeleting: true, Related: related, Page: page + 1, Size: 1, OrderBy: []contract.OrderByField{{Field: "id", Direction: "asc"}}, Fields: []string{"name"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := result.Items.([]Record)
+		if result.Total != 2 {
+			t.Fatal("incorrect visible count", result.Total)
+		}
+		if want == "" {
+			if len(rows) != 0 {
+				t.Fatal("page escaped access")
+			}
+			continue
+		}
+		if len(rows) != 1 || rows[0].ID != want || rows[0].DeletionFinalizedAt != nil || rows[0].DeletedAt.Valid != (want == "b-pending") {
+			t.Fatal("incorrect visible page", rows)
+		}
+	}
+	result, err := s.List(ctx, "Record", "", "", contract.ListOptions{OnlyDeleting: true, Related: related, CountOnly: true})
+	if err != nil || result.Total != 1 {
+		t.Fatal("pending count", result.Total, err)
+	}
+	for _, mode := range []contract.CursorDeletion{contract.CursorVisible, contract.CursorDeleting} {
+		after := ""
+		var ids []string
+		for pass := 0; pass < 3; pass++ {
+			result, err := s.ReadCursor(ctx, "Record", "", "", contract.CursorOptions{Limit: 1, AfterID: after, Deletion: mode, Related: related})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, row := range result.Items.([]Record) {
+				ids = append(ids, row.ID)
+			}
+			if !result.More {
+				break
+			}
+			after = result.NextID
+		}
+		want := []string{"b-pending"}
+		if mode == contract.CursorVisible {
+			want = []string{"a-live", "b-pending"}
+		}
+		if !slices.Equal(ids, want) {
+			t.Fatal("cursor visibility", ids, want)
+		}
+	}
+	for _, id := range []string{"b-pending", "c-complete"} {
+		if _, err := s.Get(ctx, "Record", id); !errors.Is(err, contract.ErrNotFound) {
+			t.Fatal("ordinary read exposed deletion", err)
+		}
+		if err := s.Replace(ctx, "Record", id, Record{Name: id}); !errors.Is(err, contract.ErrNotFound) {
+			t.Fatal("ordinary write accepted deletion", err)
+		}
+		called := false
+		err := s.WithLockedResource(ctx, "Record", "id", id, func(context.Context, contract.Transaction, any) error { called = true; return nil })
+		if !errors.Is(err, contract.ErrNotFound) || called {
+			t.Fatal("deleted resource acquired live lock", err)
+		}
+	}
+}
+
+func TestDeletionFinalizationVisibilityRejectsInvalidOptions(t *testing.T) {
+	s, _ := database(t, false)
+	ctx := context.Background()
+	log := cursorLogger(s)
+	for _, opts := range []contract.ListOptions{
+		{IncludeDeleting: true, OnlyDeleting: true}, {IncludeDeleting: true, IncludeDeleted: true},
+		{IncludeDeleting: true, OnlyDeleted: true}, {OnlyDeleting: true, IncludeDeleted: true}, {OnlyDeleting: true, OnlyDeleted: true},
+	} {
+		if _, err := s.List(ctx, "Record", "", "", opts); !errors.Is(err, contract.ErrDeletionVisibility) {
+			t.Fatal("conflicting visibility", err)
+		}
+	}
+	for _, opts := range []contract.ListOptions{{IncludeDeleting: true}, {OnlyDeleting: true}} {
+		if _, err := s.List(ctx, "Measurement", "", "", opts); !errors.Is(err, contract.ErrDeletionVisibility) {
+			t.Fatal("unsupported visibility", err)
+		}
+	}
+	for _, mode := range []contract.CursorDeletion{contract.CursorVisible, contract.CursorDeleting} {
+		if _, err := s.ReadCursor(ctx, "Measurement", "", "", contract.CursorOptions{Limit: 1, Deletion: mode}); !errors.Is(err, contract.ErrDeletionVisibility) {
+			t.Fatal("unsupported cursor visibility", err)
+		}
+	}
+	if log.reads.Load() != 0 {
+		t.Fatal("invalid visibility ran a query")
+	}
+}

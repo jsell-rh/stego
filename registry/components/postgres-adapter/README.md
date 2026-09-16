@@ -81,3 +81,10 @@ transaction. Later cleanup can reopen, but completion cannot be reversed.
 The first migration preserves the hidden state of earlier deletions. Repeated
 migrations leave new deletion requests pending. See the
 [asynchronous deletion contract](../../../specs/asynchronous-deletion.md).
+
+`ListOptions.IncludeDeleting` includes live resources and pending deletion
+requests. `OnlyDeleting` selects pending requests alone. Both require declared
+cleanup owners and reject other deletion options. `CursorVisible` and
+`CursorDeleting` provide the same selection for bounded cursor reads. Access
+filters apply before counts and pages. Related grants must remain live. The
+ordinary live-only reads and locks do not change.
