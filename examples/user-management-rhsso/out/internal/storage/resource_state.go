@@ -13,7 +13,9 @@ import (
 )
 
 const ResourceStateMigration = "CREATE TABLE IF NOT EXISTS stego_resource_state (\n entity text COLLATE \"C\" NOT NULL,\n resource_id text COLLATE \"C\" NOT NULL,\n scope text COLLATE \"C\" NOT NULL,\n data bytea NOT NULL,\n version bigint NOT NULL,\n PRIMARY KEY(entity,resource_id,scope),\n CHECK(octet_length(entity) BETWEEN 1 AND 256),\n CHECK(octet_length(resource_id) BETWEEN 1 AND 256),\n CHECK(octet_length(scope) BETWEEN 1 AND 128),\n CHECK(octet_length(data) <= 65536),\n CHECK(version > 0)\n);\nCREATE OR REPLACE FUNCTION stego_guard_resource_state() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $guard$\nBEGIN\n IF TG_OP = 'DELETE' THEN\n  RAISE EXCEPTION 'resource state history cannot be removed' USING ERRCODE = '23514';\n END IF;\n IF NEW.entity IS DISTINCT FROM OLD.entity OR NEW.resource_id IS DISTINCT FROM OLD.resource_id\n    OR NEW.scope IS DISTINCT FROM OLD.scope OR OLD.version = 9223372036854775807\n    OR NEW.version IS DISTINCT FROM OLD.version + 1 THEN\n  RAISE EXCEPTION 'resource state identity or version differs' USING ERRCODE = '23514';\n END IF;\n RETURN NEW;\nEND;\n$guard$;\nDROP TRIGGER IF EXISTS stego_resource_state_guard ON stego_resource_state;\nCREATE TRIGGER stego_resource_state_guard BEFORE UPDATE OR DELETE ON stego_resource_state FOR EACH ROW EXECUTE FUNCTION stego_guard_resource_state();"
+const ResourceStateKeysMigration = "CREATE INDEX IF NOT EXISTS stego_resource_state_scope_idx ON stego_resource_state USING btree(entity,scope,resource_id);"
 
+var _ statecontract.ResourceStateKeyReader = (*Store)(nil)
 var _ statecontract.ResourceStateStore = (*Store)(nil)
 
 func init() {
@@ -24,6 +26,17 @@ func init() {
 			}
 		}
 		return nil
+	})
+}
+
+func init() {
+	Register("010_resource_state_keys", func(db *gorm.DB) error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL lock_timeout='5000'; SET LOCAL statement_timeout='25000'").Error; err != nil {
+				return err
+			}
+			return tx.Exec(ResourceStateKeysMigration).Error
+		})
 	})
 }
 
@@ -46,6 +59,16 @@ func verifyResourceStates(db *gorm.DB) error {
   AND i.indisvalid AND i.indisready AND i.indisunique AND i.indnkeyatts=3 AND i.indpred IS NULL AND i.indexprs IS NULL
   AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) FROM unnest(c.conkey) WITH ORDINALITY k(num,ordinality)
     JOIN pg_catalog.pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num)=ARRAY['entity','resource_id','scope']::text[])
+ AND EXISTS(SELECT 1 FROM pg_catalog.pg_index i
+  JOIN pg_catalog.pg_class c ON c.oid=i.indexrelid JOIN pg_catalog.pg_am am ON am.oid=c.relam
+  WHERE i.indrelid=pg_catalog.to_regclass('stego_resource_state') AND c.relname='stego_resource_state_scope_idx'
+  AND am.amname='btree' AND i.indisvalid AND i.indisready AND i.indislive AND i.indnkeyatts=3
+  AND i.indpred IS NULL AND i.indexprs IS NULL AND i.indoption='0 0 0'::pg_catalog.int2vector
+  AND (SELECT count(*)=3 FROM unnest(i.indclass) op(oid) JOIN pg_catalog.pg_opclass o ON o.oid=op.oid
+   WHERE o.opcname='text_ops' AND o.opcnamespace='pg_catalog'::regnamespace)
+  AND i.indcollation=ARRAY['pg_catalog."C"'::regcollation::oid,'pg_catalog."C"'::regcollation::oid,'pg_catalog."C"'::regcollation::oid]::pg_catalog.oidvector
+  AND (SELECT array_agg(a.attname::text ORDER BY k.ordinality) FROM unnest(i.indkey) WITH ORDINALITY k(num,ordinality)
+   JOIN pg_catalog.pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.num)=ARRAY['entity','scope','resource_id']::text[])
  AND (SELECT count(DISTINCT pg_catalog.pg_get_expr(c.conbin,c.conrelid))=5
   FROM pg_catalog.pg_constraint c WHERE c.conrelid=pg_catalog.to_regclass('stego_resource_state') AND c.contype='c' AND c.convalidated
   AND pg_catalog.pg_get_expr(c.conbin,c.conrelid) IN (
@@ -145,4 +168,43 @@ func (s *Store) SaveResourceState(ctx context.Context, entity, id, scope string,
 		return result, statecontract.ErrResourceStateConflict
 	}
 	return statecontract.ResourceState{Data: bytes.Clone(content), Version: expected + 1}, nil
+}
+
+// ListResourceStateKeys does not read state contents or join domain records.
+func (s *Store) ListResourceStateKeys(ctx context.Context, entity, scope, afterID string, limit int) (statecontract.ResourceStateKeyPage, error) {
+	empty := statecontract.ResourceStateKeyPage{}
+	if s == nil || s.db == nil || ctx == nil || !validCheckpointKey(entity, "key", scope) || !checkpointText(afterID, 256, true) || limit < 1 || limit > 1000 {
+		return empty, statecontract.ErrResourceState
+	}
+	if s.transaction != nil {
+		s.transaction.mu.Lock()
+		defer s.transaction.mu.Unlock()
+		if s.transaction.closed {
+			return empty, ErrTransactionClosed
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return empty, err
+	}
+	operation, cancel := context.WithTimeout(ctx, transactionTimeout)
+	defer cancel()
+	var rows []statecontract.ResourceStateKey
+	if err := s.db.WithContext(operation).Raw("SELECT resource_id,version FROM stego_resource_state WHERE entity=? AND scope=? AND resource_id>? ORDER BY resource_id LIMIT ?", entity, scope, afterID, limit+1).Scan(&rows).Error; err != nil {
+		return empty, err
+	}
+	if len(rows) > limit+1 {
+		return empty, statecontract.ErrResourceState
+	}
+	previous := afterID
+	for _, row := range rows {
+		if !checkpointText(row.ResourceID, 256, false) || row.ResourceID <= previous || row.Version < 1 {
+			return empty, statecontract.ErrResourceState
+		}
+		previous = row.ResourceID
+	}
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	return statecontract.ResourceStateKeyPage{Keys: rows, More: more}, nil
 }

@@ -28,13 +28,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260916121958-e01e624f26c5
+        module_version: v0.0.0-20260916132240-e9a7930605a2
         vcs: git
-        revision: e01e624f26c58e9ff33e7dc1422b540cb70381ee
+        revision: e9a7930605a245d95949c8d7e1cd0a62e5ad4a74
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 1063cbd97ac97efbac613d3a540aa71691e18ef04a97fcfb45fc967bf08ce47d
+    registry_content_sha256: 76c05bcfea36c3226914d45bd0d090ae0a7dc5e40ac0b4a9c5dd2d21128775c7
     components:
         health-check:
             version: 1.0.0
@@ -52,7 +52,7 @@ last_applied:
             version: 1.1.0
             sha: env-override
         postgres-adapter:
-            version: 4.7.0
+            version: 4.8.0
             sha: env-override
         rest-api:
             version: 3.1.0
@@ -112,7 +112,7 @@ last_applied:
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
         contracts/events/events.go: db027ed6920450da2cfd51e0145f394eb82e248fa418f33efe9f6f41edce6d97
-        contracts/storage/storage.go: 463720b4d307166ad9f52cf610880494fec63b83944754ad01b6905c77a64841
+        contracts/storage/storage.go: d7696f312fae8ca332b5cd3b53fb9e5a61132864b35fcfd49c4e3c02aed17f45
         health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
         http_tls_open_other.go: 76811bb166da158cbbdf0d6fb4ce32491dcb95f2f3a4e0e0e9f0341224a9a00d
         http_tls_open_unix.go: 52087320dbcef0e1455e7ec7bddfb1bf6b6ae05a17231041f167fb7e7ba338e2
@@ -151,8 +151,9 @@ last_applied:
         internal/storage/migrations/000006_scan_checkpoints.sql: 148a9b3aa6ac989ce458b5d878e6f5b250ecc1f10762331dd1df0adcc82e9f95
         internal/storage/migrations/000008_effect_bindings.sql: aa6ed402091e352159c9cf88401d7287ba9ebd18236ff11eb0ac7721a8191564
         internal/storage/migrations/000009_resource_state.sql: 8a44cde312e27bafcfc1fd3cc074d75a335458d72215086100504be231c7a67d
+        internal/storage/migrations/000010_resource_state_keys.sql: c5966bc9e200137b7bcae42d3e4527a0aa392d583206336cbddb588ffbbd66d6
         internal/storage/models.go: 60349f84c701f6a5118ef32ee122c84423b0b22492592741225447d8fd244567
-        internal/storage/resource_state.go: bde9c5f732a8e73cee5d8d2fafd0fdd7cce13a69071452870e9f1c0508c12448
+        internal/storage/resource_state.go: 3e562f36b44456fb6e76a214612e4e5a2bd7763803ccb9f2dee329ab7d7521bd
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: bc4addf6656980775361e394bcd8ba02ec3dbaa1ed1723e0072eaaafe5c38eea
         internal/storage/transaction.go: a377bd623e5bbe04edaad2d61650747ca37740fdf8d24ca762260be9fc2bc2c6
