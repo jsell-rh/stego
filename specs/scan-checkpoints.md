@@ -74,3 +74,21 @@ This contract does not provide distributed provider ownership. A cursor version
 check prevents a stale bookmark write. It cannot undo a provider action that
 ran before that check. Repeated full scans, current-state checks, and safe
 provider actions remain required.
+
+## Cursor persistence validation correction
+
+Controller 1.19.2 rejects NUL bytes in both initial cursors and source-page
+cursors. The loader already rejected them, but the scanner previously permitted
+work and a save with such a cursor. That could create a checkpoint that the next
+process could not load. Whole-page validation now rejects it before the first
+effect, including when a valid item precedes the invalid item.
+
+The focused test first reproduced two effects and one invalid save. After the
+correction, generated tests passed with and without telemetry and with the race
+detector in 7.114 seconds. They also cover valid progress, reserved commit time,
+parent cancellation, retry of failed items, and stale checkpoint writes. Full
+compiler CI is still required. Results are retained under
+`/home/jsell/.local/state/stego/runs/gateway-cleanup-20260916`.
+
+This correction does not make Hypershell Gateway deletion resumable. Its
+separate interruption test and deletion contract decision remain open.

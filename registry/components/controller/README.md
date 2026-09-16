@@ -201,6 +201,8 @@ error behavior, tests, and application evidence.
 `ScanCheckpointed` connects `ScanFrom` to durable checkpoint callbacks. It
 reserves time for a conditional save after work. Parent cancellation prevents
 the save. Completion resets the cursor so that the next pass scans all data.
+Initial and page cursors cannot contain NUL bytes. The whole page is checked
+before its first effect, so emitted cursors can pass checkpoint validation.
 See [scan checkpoints](../../../specs/scan-checkpoints.md).
 
 `ScanCycle` retains action failures across bounded passes and process replacement.

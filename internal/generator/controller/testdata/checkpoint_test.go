@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -66,5 +67,39 @@ func TestCheckpointedScanPreservesCommitConflict(t *testing.T) {
 	}, func(context.Context, int) error { return nil }, ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
 	if !errors.Is(err, conflict) || progress.Complete {
 		t.Fatal(progress, err)
+	}
+}
+
+// Every emitted cursor must also be a valid stored checkpoint. Reject the
+// complete page before effects, even when the invalid cursor follows a valid one.
+func TestCheckpointedScanRejectsUnstorableCursorBeforeEffects(t *testing.T) {
+	for _, cursor := range []string{"\x00", "prefix\x00suffix"} {
+		t.Run(fmt.Sprintf("%q", cursor), func(t *testing.T) {
+			effects, writes := 0, 0
+			access := CheckpointAccess{
+				Load: func(context.Context) (Checkpoint, error) { return Checkpoint{}, nil },
+				Save: func(context.Context, int64, string) error { writes++; return nil },
+			}
+			progress, err := ScanCheckpointed(context.Background(), access,
+				func(context.Context, string, int) (CursorPage[int], error) {
+					return CursorPage[int]{Items: []CursorItem[int]{{Cursor: "valid", Value: 1}, {Cursor: cursor, Value: 2}}, More: true}, nil
+				},
+				func(context.Context, int) error { effects++; return nil },
+				ScanOptions{PageSize: 2, MaxPages: 1, PageTimeout: time.Second},
+				ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
+			if !errors.Is(err, ErrScanContract) || effects != 0 || writes != 0 || progress.After != "" || progress.Complete {
+				t.Fatalf("unstorable cursor reached work or storage: effects=%d writes=%d progress=%+v error=%v", effects, writes, progress, err)
+			}
+		})
+	}
+}
+
+func TestScanRejectsUnstorableInitialCursor(t *testing.T) {
+	calls := 0
+	_, err := ScanFrom(context.Background(), "prefix\x00suffix",
+		func(context.Context, string, int) (CursorPage[int], error) { calls++; return CursorPage[int]{}, nil },
+		func(int) error { calls++; return nil }, ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second})
+	if !errors.Is(err, ErrScanContract) || calls != 0 {
+		t.Fatalf("invalid initial cursor reached a callback: calls=%d error=%v", calls, err)
 	}
 }

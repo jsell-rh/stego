@@ -64,6 +64,14 @@ func TestGeneratedController(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
 	}
 }
+func TestGeneratedScanCheckpoint(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedController(t, telemetry, "^(TestCheckpointedScan|TestScanRejectsUnstorable|TestScanCycle)")
+		})
+	}
+}
+
 func TestGeneratedStateJournal(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestStateJournal") })
