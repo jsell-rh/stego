@@ -10,7 +10,7 @@ on unrelated clients before account cleanup can finish.
 The pinned Keycloak 26.7.3 API supports client-name searches and custom-attribute
 queries. The list operation can omit a representation after a storage failure.
 A short page is therefore not proof that a known provider object is absent.
-See the [client API](https://www.keycloak.org/docs-api/26.7.3/javadocs/org/keycloak/services/resources/admin/ClientsResource.html)
+See the [client API](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/services/resources/admin/ClientsResource.html)
 and the [pinned request implementation](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/ClientsResource.java).
 
 The pinned JPA implementation uses a case-insensitive contains search for client

@@ -127,7 +127,8 @@ in `projected-result` under the persistent run directory above.
 These transport tests use a test account provider and explicit observations for
 identity, workload, and SQL. They do not qualify the real provider workflows.
 The source `7836bdc` removes the unused synchronous account-cleanup path and the
-extra gRPC provider connection. A selected cluster check is in progress.
+extra gRPC provider connection. All five selected cluster tests passed in
+`retired-result`, with matching generation and complete resource cleanup.
 
 The console candidate from `5af38b8` passed 166 tests in CI run `35094901951`.
 Its source, compiler revision, archive hash, and asset hash were checked before
@@ -136,8 +137,8 @@ incompatible actions. An earlier run failed one stale confirmation-text assertio
 The corrected test passed. The rendered browser gate must still pass.
 
 The CLI review found that empty HTTP 202 responses needed an explicit common
-contract. STEGO candidate `e01e624` adds `Command.EmptyResponses`; full CI is in
-progress. Hypershell `6d85104` adopts it and updates earlier synchronous-deletion
+contract. STEGO `e01e624` adds `Command.EmptyResponses`; CI runs `35095203438`
+and `35095315581` passed all five jobs. The change is on the default branch. Hypershell `6d85104` adopts it and updates earlier synchronous-deletion
 tests. CI run `35095289920` is checking the core, browser, console, and service
 image. The complete CNPG and external-database cluster workflows remain required.
 The Hypershell default branch has not changed to the new deletion contract.
@@ -146,3 +147,11 @@ Provider inventory still uses a bounded full scan. Its large-inventory behavior
 remains open. Hypershell also retains its fresh-schema gate; these checks do not
 claim an in-place application schema upgrade. No production capacity claim is
 made from the small recovery tests.
+
+The first complete CNPG attempt, run `35095613420`, stopped in the SQL cleanup
+precheck. Reporting cleanup for a live Gateway returned gRPC `Internal` instead
+of `Aborted`. Hypershell `ab0b3ef` returns the storage state-conflict error. The
+failed run removed its application resources, CNPG runtime, volumes, and private
+fixtures; the installation remained. Evidence is in `cnpg-first-result`.
+Corrected runs `35096455130` (full CI) and `35096666440` (CNPG) are pending or
+running. A successful earlier browser or image job does not replace these gates.
