@@ -62,3 +62,17 @@ Small checks cover a bundle above 1 MiB, stable encoding and decoding, captured
 size rejection, unchanged protocol limits, invalid declarations, the combined
 input limit, and a changed large source before apply. These checks do not prove
 the complete rendered dashboard workflow.
+
+The typed input limits passed all six jobs in
+[CI run 35109642074](https://github.com/jsell-rh/stego/actions/runs/35109642074)
+at revision `3e961af8f4d5be4bb38b40f4411b2e32b28e46a3`. The compiler, generated
+browser runtime, both examples, SQL provisioning, stored resource state, and
+real Keycloak checks passed. The complete log has SHA-256
+`e5553df8caf80ed2e7b0ac548b43c65dfc47e828a60e212c70008f0293aac5e8`.
+
+The real upstream dashboard passed its separate
+[source check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35109813205).
+Its 35 assets contain 4,702,076 expanded bytes. The ZIP contains 1,169,044 bytes.
+Repeated capture was identical. Fresh browser generation, repeated generation,
+drift detection, and the generated Go build passed. This result does not prove
+the per-Gateway deployment or rendered dashboard behavior.
