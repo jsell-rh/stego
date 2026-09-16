@@ -45,11 +45,17 @@ generated runtime with the race detector. The first check had an incorrect
 expectation for URL normalization in the link; the corrected check compares
 the parsed local path and query values. That first failure was a test error.
 
-The common SQL tests also check the real callback path, retained Strict-cookie
-attributes, private-data exclusion, session access, and replay rejection. Those
-checks require CI PostgreSQL. A full CI result and the rendered Hypershell
-workflow are still required. A rendered browser must prove the actual cookie
-transition; a Go cookie jar does not enforce browser SameSite rules.
+The common SQL tests check the real callback path, retained Strict-cookie
+attributes, private-data exclusion, session access, and replay rejection.
+[All six CI jobs passed](https://github.com/jsell-rh/stego/actions/runs/35157788440)
+at `9cb9a674988a356ea7ec5d6daca29a1e8e7e866a`. The compiler job required
+PostgreSQL and ran the generated runtime tests with the race detector. The
+browser backend package passed in 253.120 seconds. The Hypershell module check
+also passed, with all 83 archived source files matching its local module.
+
+The rendered Hypershell workflow is still required. A rendered browser must
+prove the actual cookie transition; a Go cookie jar does not enforce browser
+SameSite rules.
 
 Consumers with HTTP callback fixtures must handle the completion document for
 protected application backends. They must not weaken their cookie assertions.
