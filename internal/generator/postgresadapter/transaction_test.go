@@ -43,7 +43,11 @@ var cleanupTargetTests []byte
 //go:embed testdata/cleanup_summary_test.go
 var cleanupSummaryTests []byte
 
-func TestGeneratedStoreTransactions(t *testing.T) {
+func TestGeneratedStoreTransactions(t *testing.T) { testGeneratedStoreTransactions(t, "") }
+func TestGeneratedDeletionFinalization(t *testing.T) {
+	testGeneratedStoreTransactions(t, "^TestDeletionFinalization")
+}
+func testGeneratedStoreTransactions(t *testing.T, pattern string) {
 	dsn, required := os.Getenv("STEGO_TEST_POSTGRES_DSN"), os.Getenv("STEGO_REQUIRE_POSTGRES")
 	if required == "1" && dsn == "" {
 		t.Fatal("PostgreSQL integration tests require STEGO_TEST_POSTGRES_DSN")
@@ -175,6 +179,9 @@ require (
 		}
 	}
 	commands := [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
+	if pattern != "" {
+		commands[2] = append(commands[2], "-run="+pattern)
+	}
 	if os.Getenv("STEGO_BENCH_STORE") == "1" {
 		commands = append(commands, []string{"test", "-mod=readonly", "-run=^$", "-bench=Benchmark(TransactionalCreateNotify|TargetCleanupObservation)", "-benchtime=100x", "-benchmem", "./storage"})
 	}

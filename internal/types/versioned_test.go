@@ -116,3 +116,12 @@ func TestCleanupTargetsRequireDeclaredOwnersAndRequiredInputFields(t *testing.T)
 		}
 	}
 }
+
+func TestCleanupFinalizationMetadataIsReserved(t *testing.T) {
+	for _, name := range []string{"stego_finalized_at", "StegoFinalizedAt", "deletion_finalized_at", "DeletionFinalizedAt"} {
+		entity := Entity{Name: "Record", Versioned: true, CleanupOwners: []string{"archive"}, Fields: []Field{{Name: name, Type: FieldTypeTimestamp}}}
+		if len(ValidateVersioned([]Entity{entity})) == 0 {
+			t.Fatalf("accepted reserved finalization field %s", name)
+		}
+	}
+}

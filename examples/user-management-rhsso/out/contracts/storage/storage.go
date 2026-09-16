@@ -31,6 +31,14 @@ type CleanupWriter interface {
 	ObserveCleanupIfVersion(context.Context, string, string, int64, string, bool) error
 }
 
+// DeletionFinalizer permanently closes a deleted resource at its exact revision
+// after every declared cleanup owner and target has completed. Authorize first
+// and commit the final event in the same transaction. Retained cleanup can still
+// remove late effects; it cannot reverse finalization.
+type DeletionFinalizer interface {
+ FinalizeDeletionIfVersion(context.Context, string, string, int64) error
+}
+
 // CleanupSummaryReader reads pending deleted resources for an owner and target.
 // Arguments select entity, owner, target, scope field, and scope value. The last
 // two must both be empty or select one declared text field with exact equality.

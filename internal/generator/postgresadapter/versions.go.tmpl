@@ -19,6 +19,7 @@ var _ versioncontract.VersionedWriter = (*Store)(nil)
 var _ versioncontract.ObservationWriter = (*Store)(nil)
 var _ versioncontract.RetainedReader = (*Store)(nil)
 var _ versioncontract.CleanupWriter = (*Store)(nil)
+var _ versioncontract.DeletionFinalizer = (*Store)(nil)
 var _ versioncontract.TargetCleanupWriter = (*Store)(nil)
 {{else}}var ErrVersionConflict = errors.New("resource version changed or resource is absent"){{end}}
 
@@ -86,7 +87,9 @@ func verifyResourceVersions(db *gorm.DB) error {
    if count!=1{return fmt.Errorf("cleanup target migration is required for %s",definition.Table)}
   }
   if definition.Cleanup {
-   err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
+   err:=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_finalized_at' AND NOT attnotnull AND NOT atthasdef AND NOT attisdropped AND atttypid='pg_catalog.timestamptz'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
+   if err!=nil{return err};if count!=1{return fmt.Errorf("resource finalization migration is required for %s",definition.Table)}
+   err=db.WithContext(ctx).Raw(`SELECT count(*) FROM pg_catalog.pg_attribute WHERE attrelid=pg_catalog.to_regclass(?) AND attname='stego_cleanup' AND attnotnull AND NOT attisdropped AND atttypid='pg_catalog.jsonb'::pg_catalog.regtype`,definition.Table).Scan(&count).Error
    if err!=nil{return fmt.Errorf("verify cleanup schema: %w",err)}
    if count!=1{return fmt.Errorf("resource cleanup migration is required for %s",definition.Table)}
   }
@@ -97,6 +100,20 @@ func verifyResourceVersions(db *gorm.DB) error {
   }
  }
  return nil
+}
+
+// FinalizeDeletionIfVersion requires the exact deleted revision and all cleanup
+// owners and targets. The schema makes its timestamp permanent. A stale,
+// incomplete, live, or already finalized resource returns ErrVersionConflict.
+func(s *Store)FinalizeDeletionIfVersion(ctx context.Context,entity,id string,version int64)error{
+ if ctx==nil||s==nil||s.db==nil||id==""||version<1{return errors.New("finalization requires a context, store, identity, and revision")}
+ {{if .HasCleanup}}operation,cancel:=context.WithTimeout(ctx,transactionTimeout);defer cancel(){{end}}
+ switch entity {
+ {{range .Entities}}{{if .CleanupOwners}}case {{printf "%q" .Name}}:
+  result:=s.db.WithContext(operation).Exec({{printf "%q" .FinalizationSQL}},id,id,version)
+  if result.Error!=nil{return result.Error};if result.RowsAffected!=1{return ErrVersionConflict};return nil
+ {{end}}{{end}}default:return errors.New("entity does not declare cleanup owners")
+ }
 }
 
 // ObserveCleanupIfVersion records one owner's current cleanup observation.

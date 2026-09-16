@@ -73,3 +73,11 @@ empty record to retain stale-writer protection. The new
 `000009_resource_state.sql` migration is required before external-mode startup.
 This storage interface accepts opaque data. Encrypt confidential state before
 saving it; the controller runtime supplies `StateProtector` for this purpose.
+
+Version 4.6 adds a permanent deletion completion time for resources with declared
+cleanup owners. `DeletionFinalizer` requires the exact deleted revision and all
+owner and retained-target confirmations. Commit it with the final event in one
+transaction. Later cleanup can reopen, but completion cannot be reversed.
+The first migration preserves the hidden state of earlier deletions. Repeated
+migrations leave new deletion requests pending. See the
+[asynchronous deletion contract](../../../specs/asynchronous-deletion.md).

@@ -66,6 +66,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Observations                         []observation
 		CleanupOwners                        []string
 		CleanupTargets                       []cleanupTarget
+		FinalizationSQL                      string
 	}
 	data := struct {
 		Package, StorageImport, Migration string
@@ -178,6 +179,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		definition.CleanupOwners = cleanupOwners
 		if len(cleanupOwners) > 0 {
 			data.HasCleanup = true
+			add(finalizationMigration(table))
 			add(fmt.Sprintf("ALTER TABLE %q ADD COLUMN IF NOT EXISTS stego_cleanup jsonb NOT NULL DEFAULT '{}';\n", table))
 			// Existing owners cannot disappear, including on live resources.
 			add(fmt.Sprintf(`DO $owners$ BEGIN
@@ -215,6 +217,11 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		}
 		for _, statement := range targetMigration(e, table, marker) {
 			add(statement)
+		}
+		if len(cleanupOwners) > 0 {
+			complete := cleanupCompletion(e)
+			definition.FinalizationSQL = fmt.Sprintf(`UPDATE %q SET stego_finalized_at=clock_timestamp(),updated_time=now() WHERE id=? AND id COLLATE "C"=? AND stego_revision=? AND deleted_at IS NOT NULL AND stego_finalized_at IS NULL AND stego_cleanup=%s::jsonb`, table, sqlLiteral(complete))
+			definition.Body = strings.Replace(definition.Body, " RETURN NEW;", finalizationBody(complete)+" RETURN NEW;", 1)
 		}
 		if definition.Generation || len(cleanupOwners) > 0 {
 			assignments := []string{"stego_revision=stego_revision+1"}
@@ -289,7 +296,7 @@ func currentObservationTable(entity types.Entity) string {
 		columns = append(columns, `"stego_conditions"`)
 	}
 	if len(entity.CleanupOwners) > 0 {
-		columns = append(columns, `"stego_cleanup"`)
+		columns = append(columns, `"stego_cleanup"`, `"stego_finalized_at"`)
 	}
 	if len(entity.CleanupTargets) > 0 {
 		columns = append(columns, `"stego_cleanup_targets"`)

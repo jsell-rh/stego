@@ -100,7 +100,7 @@ func ValidateVersioned(entities []Entity, collectionSets ...[]Collection) []erro
 		}
 		for _, field := range entity.Fields {
 			name := strings.ToLower(strings.ReplaceAll(field.Name, "_", ""))
-			if len(entity.CleanupOwners) > 0 && (name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete" || name == "stegocleanuptargets" || name == "cleanuptargetstate" || name == "cleanuptargets") {
+			if len(entity.CleanupOwners) > 0 && (name == "stegofinalizedat" || name == "deletionfinalizedat" || name == "stegocleanup" || name == "cleanupstate" || name == "cleanupobservations" || name == "pendingcleanup" || name == "cleanupcomplete" || name == "stegocleanuptargets" || name == "cleanuptargetstate" || name == "cleanuptargets") {
 				result = append(result, fmt.Errorf("entity %s: field %s conflicts with cleanup metadata", entity.Name, field.Name))
 			}
 			if name == "stegoconditions" || (len(entity.Conditions) > 0 && (name == "conditionstate" || name == "conditions" || name == "currentconditions")) {

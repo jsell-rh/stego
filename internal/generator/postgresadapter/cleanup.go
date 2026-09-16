@@ -10,7 +10,7 @@ import (
 )
 
 func cleanupIgnored(entity types.Entity) string {
-	names := "'stego_revision','stego_generation','stego_observations','stego_cleanup','updated_time'"
+	names := "'stego_revision','stego_generation','stego_observations','stego_cleanup','stego_finalized_at','updated_time'"
 	if len(entity.CleanupTargets) > 0 {
 		names += ",'stego_cleanup_targets'"
 	}
