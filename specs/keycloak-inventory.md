@@ -133,3 +133,12 @@ must find no owned clients and must have no saved failures. Scope closure still
 checks registration changes in the final database transaction. Tests must cover
 changing pages, failed ownership reads, restart, independent later clients,
 foreign candidates, and the inventory limit before release.
+
+All six CI jobs in `35104344440` passed at `dfc9a1e`. This qualifies provider
+0.15.0 with the full compiler race suite, both examples, existing real-provider
+checks, PostgreSQL provisioning, and scope storage tests. The default branch
+now includes that code at `fad0642`; the additional changes there are example
+state and evidence. The result is saved in `prepare-closure-full-ci-success.json`.
+The explicit real-provider preparation check added at `1f25792`, and the cursor
+added at `59bd24e`, are in the active CI run `35105032964`. Their qualification
+is still pending.
