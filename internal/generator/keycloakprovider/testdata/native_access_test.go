@@ -11,9 +11,10 @@ import (
 
 type nativeAccessFixture struct {
 	*roleFixture
-	fault       string
-	enabledOnce bool
-	cancel      context.CancelFunc
+	fault          string
+	secretMetadata bool
+	enabledOnce    bool
+	cancel         context.CancelFunc
 }
 
 func newNativeAccessFixture(t *testing.T) (*Client, *nativeAccessFixture, ClientBinding, NativeAccessPolicy) {
@@ -34,6 +35,7 @@ func newNativeAccessFixture(t *testing.T) (*Client, *nativeAccessFixture, Client
 			return false
 		}
 		value := f.clients[b.ID]
+		wasPublic := value.PublicClient
 		if r.Method == http.MethodGet {
 			value.DefaultClientScopes = []string{}
 			value.OptionalClientScopes = []string{}
@@ -92,6 +94,9 @@ func newNativeAccessFixture(t *testing.T) (*Client, *nativeAccessFixture, Client
 		}
 		data, _ = json.Marshal(record)
 		_ = json.Unmarshal(data, &value)
+		if f.secretMetadata && wasPublic && !value.PublicClient {
+			value.Attributes[clientSecretCreationTime] = "1789570800"
+		}
 		if enable {
 			f.enabledOnce = true
 			switch f.fault {

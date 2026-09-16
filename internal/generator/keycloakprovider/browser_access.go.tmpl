@@ -1,0 +1,37 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+)
+
+// BrowserAccessPolicy supplies application roles and token claims. It does not
+// grant user access. Shared realm scopes and optional scopes remain disabled.
+type BrowserAccessPolicy struct {
+ Client BrowserClientPolicy
+ Roles []string
+ Scopes RolePolicy
+ Claims TokenClaimsPolicy
+}
+func(p BrowserAccessPolicy)configuration(b ClientBinding)(ClientRepresentation,error){
+ desired,err:=browserClientConfiguration(b,p.Client);if err!=nil{return ClientRepresentation{},err}
+ if err=validateRoleNames(p.Roles);err!=nil{return ClientRepresentation{},err}
+ if err=validateServiceAccountRoles(p.Scopes);err!=nil{return ClientRepresentation{},err}
+ if err=p.Claims.validate();err!=nil{return ClientRepresentation{},err}
+ if len(p.Claims.AudienceClients)+len(p.Claims.CustomAudiences)==0{return ClientRepresentation{},errors.New("browser access requires an explicit token audience")}
+ return desired,nil
+}
+
+// ReconcileBrowserClientAccess repairs only an owned client. The common access
+// sequence disables login before repair and verifies policy before enablement.
+// A caller must serialize reconciliation for this client across processes.
+func(c *Client)ReconcileBrowserClientAccess(ctx context.Context,b ClientBinding,p BrowserAccessPolicy)error{
+ desired,err:=p.configuration(b);if err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.reconcileInteractiveAccess(work,b,p.Roles,p.Scopes,p.Claims,desired)
+}
+func(c *Client)InspectBrowserClientAccess(ctx context.Context,b ClientBinding,p BrowserAccessPolicy)error{
+ desired,err:=p.configuration(b);if err!=nil{return err}
+ work,done,err:=c.begin(ctx);if err!=nil{return err};defer done()
+ return c.inspectInteractiveAccess(work,b,p.Roles,p.Scopes,p.Claims,desired,true)
+}

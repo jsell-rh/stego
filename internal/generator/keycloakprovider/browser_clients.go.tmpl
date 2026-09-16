@@ -1,0 +1,71 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "net/netip"
+ "net/url"
+ "regexp"
+ "strconv"
+ "strings"
+)
+
+// BrowserClientPolicy supports one server-side browser application. It requires
+// a confidential client, PKCE S256, and exact HTTPS callbacks on one origin.
+// Secrets and tokens must remain in the backend. Browser CORS is not enabled.
+type BrowserClientPolicy struct {
+ DisplayName string
+ AccessTokenLifetimeSeconds int
+ RedirectURI string
+ PostLogoutRedirectURI string
+}
+
+func browserRedirectOrigin(raw string)(string,error){
+ if !textValue(raw,2048)||strings.ContainsAny(raw,"?#\\%*"){return "",errors.New("invalid browser redirect")}
+ u,err:=url.Parse(raw)
+ if err!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil||u.Opaque!=""||u.RawQuery!=""||u.ForceQuery||u.Fragment!=""||u.RawPath!=""||u.Path==""||u.String()!=raw{return "",errors.New("browser redirects require canonical HTTPS URLs")}
+ host:=u.Hostname()
+ if address,err:=netip.ParseAddr(host);err==nil{
+  if address.Zone()!=""||address.Is4In6()||!address.IsGlobalUnicast()||address.IsLoopback()||address.String()!=host{return "",errors.New("invalid browser redirect address")}
+ }else{
+  if len(host)>253||!strings.Contains(host,".")||strings.HasSuffix(host,".localhost")||regexp.MustCompile(`^[0-9.]+$`).MatchString(host){return "",errors.New("browser redirects require a qualified host")}
+  for _,segment:=range strings.Split(host,"."){if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(segment){return "",errors.New("invalid browser redirect host")}}
+ }
+ expectedHost:=host;if strings.Contains(host,":"){expectedHost="["+host+"]"}
+ if u.Port()!=""{expectedHost+=":"+u.Port()};if expectedHost!=u.Host{return "",errors.New("invalid browser redirect authority")}
+ if port:=u.Port();port!=""{number,err:=strconv.Atoi(port);if err!=nil||number<1||number>65535||strconv.Itoa(number)!=port{return "",errors.New("invalid browser redirect port")}}
+ // Empty ports and duplicate separators must not create alternate targets.
+ if strings.HasSuffix(u.Host,":")||strings.Contains(u.Path,"//"){return "",errors.New("invalid browser redirect")}
+ for _,segment:=range strings.Split(u.Path,"/"){if segment=="."||segment==".."||!nativeRedirectSegment.MatchString(segment){return "",errors.New("invalid browser redirect path")}}
+ return "https://"+u.Host,nil
+}
+
+func browserClientConfiguration(b ClientBinding,p BrowserClientPolicy)(ClientRepresentation,error){
+ desired,err:=oidcClientConfiguration(b,p.DisplayName,p.AccessTokenLifetimeSeconds);if err!=nil{return ClientRepresentation{},err}
+ origin,err:=browserRedirectOrigin(p.RedirectURI);if err!=nil{return ClientRepresentation{},err}
+ logout,err:=browserRedirectOrigin(p.PostLogoutRedirectURI);if err!=nil||logout!=origin{return ClientRepresentation{},errors.New("browser logout must use the callback origin")}
+ desired.StandardFlowEnabled=true
+ desired.RedirectURIs=[]string{p.RedirectURI}
+ desired.Attributes["pkce.code.challenge.method"]="S256"
+ desired.Attributes["post.logout.redirect.uris"]=p.PostLogoutRedirectURI
+ desired.Attributes["backchannel.logout.session.required"]="true"
+ desired.Attributes["backchannel.logout.revoke.offline.tokens"]="true"
+ desired.Attributes["realm_client"]="false"
+ return desired,nil
+}
+func browserClientConfigurationMatches(value ClientRepresentation,raw []byte,desired ClientRepresentation)bool{
+ return interactiveClientConfigurationMatchesState(value,raw,desired,false)
+}
+
+// CreateDisabledBrowserClient requires a provider ID saved before creation.
+// A conflict never causes adoption. This operation does not enable login.
+func(c *Client)CreateDisabledBrowserClient(ctx context.Context,b ClientBinding,p BrowserClientPolicy)(ClientRepresentation,error){
+ desired,err:=browserClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ return c.createDisabledClient(work,b,desired,browserClientConfigurationMatches,true)
+}
+func(c *Client)InspectDisabledBrowserClient(ctx context.Context,b ClientBinding,p BrowserClientPolicy)(ClientRepresentation,error){
+ desired,err:=browserClientConfiguration(b,p);if err!=nil{return ClientRepresentation{},err}
+ work,done,err:=c.begin(ctx);if err!=nil{return ClientRepresentation{},err};defer done()
+ return c.inspectDisabledClient(work,b,desired,browserClientConfigurationMatches)
+}

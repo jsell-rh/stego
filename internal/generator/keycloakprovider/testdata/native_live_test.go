@@ -327,10 +327,10 @@ func nativeAuthorizationCode(t *testing.T, browser nativeBrowser, path, clientID
 		if err != nil {
 			t.Fatal("invalid native authorization redirect")
 		}
-		if target.Scheme == "http" {
-			base := *target
-			base.RawQuery = ""
-			base.ForceQuery = false
+		base := *target
+		base.RawQuery = ""
+		base.ForceQuery = false
+		if base.String() == redirect || target.Scheme == "http" {
 			if base.String() != redirect || target.Query().Get("state") != state || target.Query().Get("code") == "" || target.Query().Get("error") != "" {
 				t.Fatal("native callback differs")
 			}
@@ -355,14 +355,18 @@ func nativeAudience(value any, want string) bool {
 // Report names only. Configuration values and provider bodies stay private.
 func reportNativeDifference(t *testing.T, c *Client, ctx context.Context, b ClientBinding, p NativeClientPolicy) {
 	t.Helper()
-	value, _, err := c.boundClient(ctx, b)
-	if err != nil {
-		t.Log("native difference read failed", err)
-		return
-	}
 	desired, err := nativeClientConfiguration(b, p)
 	if err != nil {
 		t.Fatal(err)
+	}
+	reportClientDifference(t, c, ctx, b, desired)
+}
+func reportClientDifference(t *testing.T, c *Client, ctx context.Context, b ClientBinding, desired ClientRepresentation) {
+	t.Helper()
+	value, _, err := c.boundClient(ctx, b)
+	if err != nil {
+		t.Log("client difference read failed", err)
+		return
 	}
 	a, _ := json.Marshal(value)
 	d, _ := json.Marshal(desired)
@@ -371,17 +375,17 @@ func reportNativeDifference(t *testing.T, c *Client, ctx context.Context, b Clie
 	_ = json.Unmarshal(d, &wanted)
 	for key, v := range wanted {
 		if key != "attributes" && !bytes.Equal(v, actual[key]) {
-			t.Log("native field differs:", key)
+			t.Log("client field differs:", key)
 		}
 	}
 	for key, v := range desired.Attributes {
 		if value.Attributes[key] != v {
-			t.Log("native attribute differs:", key)
+			t.Log("client attribute differs:", key)
 		}
 	}
 	for key := range value.Attributes {
 		if _, ok := desired.Attributes[key]; !ok {
-			t.Log("extra native attribute:", key)
+			t.Log("extra client attribute:", key)
 		}
 	}
 }
