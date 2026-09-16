@@ -74,7 +74,7 @@ func TraceDatabase(ctx context.Context, call string) (context.Context, func(stri
 // TracePostgresOperation observes one bounded PostgreSQL client operation.
 // The runtime accepts only fixed operation and outcome values, never SQL or errors.
 func TracePostgresOperation(ctx context.Context, operation string)(context.Context,func(string)){
- switch operation { case "read","server-identity","ensure","delete","quarantine": default:operation="_OTHER" }
+ switch operation { case "read","server-identity","ensure","delete","quarantine","schema": default:operation="_OTHER" }
  return traceDatabaseCall(ctx,operation,true)
 }
 

@@ -22,6 +22,10 @@ var provisionTests []byte
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
+func TestGeneratedSchemaValidation(t *testing.T) {
+	testGeneratedPostgresClient(t, "^TestSchemaOperationValidation$")
+}
+
 func TestGeneratedPostgresClient(t *testing.T) { testGeneratedPostgresClient(t, "") }
 func TestGeneratedClientPrivateTelemetry(t *testing.T) {
 	testGeneratedPostgresClient(t, "^TestClientPrivateTelemetry$")

@@ -36,6 +36,9 @@ type DatabaseSpec struct {
 	Key             DatabaseKey
 	Password        string
 	ConnectionLimit int32
+	// ManagedSchema removes runtime CREATE and TEMPORARY privileges. Use an
+	// owner connection to install the schema and grant data access.
+	ManagedSchema bool
 }
 type DatabaseIdentity struct{ Database, Owner, User string }
 
@@ -420,7 +423,7 @@ func (s *provisionSession) isolated(row databaseRecord) error {
 
 // normalizeACL changes only this resource's database or public schema grants.
 // A bound limits both catalog results and the number of repair statements.
-func normalizeACL(ctx context.Context, conn *pgx.Conn, kind, name string, owner uint32, user string) error {
+func normalizeACL(ctx context.Context, conn *pgx.Conn, kind, name string, owner uint32, user string, managed bool) error {
 	query := `SELECT DISTINCT a.grantee,COALESCE(r.rolname,'') FROM pg_catalog.pg_database d CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(d.datacl,pg_catalog.acldefault('d',d.datdba))) a LEFT JOIN pg_catalog.pg_roles r ON r.oid=a.grantee WHERE d.datname=$1 AND a.grantee<>$2 LIMIT 129`
 	if kind == "SCHEMA" {
 		query = `SELECT DISTINCT a.grantee,COALESCE(r.rolname,'') FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) a LEFT JOIN pg_catalog.pg_roles r ON r.oid=a.grantee WHERE n.nspname=$1 AND a.grantee<>n.nspowner AND a.grantee<>$2 LIMIT 129`
@@ -460,9 +463,11 @@ func normalizeACL(ctx context.Context, conn *pgx.Conn, kind, name string, owner 
 			return safeError(ctx, "permissions", err)
 		}
 	}
-	privileges := "CONNECT,TEMPORARY"
+	privileges := "CONNECT"
+	if !managed { privileges += ",TEMPORARY" }
 	if kind == "SCHEMA" {
-		privileges = "USAGE,CREATE"
+		privileges = "USAGE"
+		if !managed { privileges += ",CREATE" }
 	}
 	if _, err = conn.Exec(ctx, "GRANT "+privileges+" ON "+kind+" "+quoted(name)+" TO "+quoted(user)); err != nil {
 		return safeError(ctx, "permissions", err)
@@ -471,7 +476,7 @@ func normalizeACL(ctx context.Context, conn *pgx.Conn, kind, name string, owner 
 }
 func (s *provisionSession) ready(o Options, spec DatabaseSpec, row databaseRecord) (bool, error) {
 	var safe bool
-	err := s.conn.QueryRow(s.ctx, `SELECT u.rolcanlogin AND NOT o.rolcanlogin AND u.rolconnlimit=$4 AND (u.rolvaliduntil IS NULL OR u.rolvaliduntil='infinity'::timestamptz) AND d.datallowconn AND NOT d.datistemplate AND d.datconnlimit=$4 AND d.encoding=6 AND pg_catalog.has_database_privilege(u.oid,d.oid,'CONNECT') AND pg_catalog.has_database_privilege(u.oid,d.oid,'TEMPORARY') AND NOT pg_catalog.has_database_privilege(u.oid,d.oid,'CREATE') AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(d.datacl,pg_catalog.acldefault('d',d.datdba))) a WHERE a.grantee NOT IN (o.oid,u.oid) OR a.grantee=u.oid AND (a.is_grantable OR a.privilege_type NOT IN ('CONNECT','TEMPORARY'))) FROM pg_catalog.pg_database d,pg_catalog.pg_roles u,pg_catalog.pg_roles o WHERE d.datname=$1 AND u.oid=$2 AND o.oid=$3`, s.names.Database, row.login, row.owner, spec.ConnectionLimit).Scan(&safe)
+	err := s.conn.QueryRow(s.ctx, `SELECT u.rolcanlogin AND NOT o.rolcanlogin AND u.rolconnlimit=$4 AND (u.rolvaliduntil IS NULL OR u.rolvaliduntil='infinity'::timestamptz) AND d.datallowconn AND NOT d.datistemplate AND d.datconnlimit=$4 AND d.encoding=6 AND pg_catalog.has_database_privilege(u.oid,d.oid,'CONNECT') AND pg_catalog.has_database_privilege(u.oid,d.oid,'TEMPORARY')= (NOT $5) AND NOT pg_catalog.has_database_privilege(u.oid,d.oid,'CREATE') AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(d.datacl,pg_catalog.acldefault('d',d.datdba))) a WHERE a.grantee NOT IN (o.oid,u.oid) OR a.grantee=u.oid AND (a.is_grantable OR a.privilege_type NOT IN ('CONNECT','TEMPORARY') OR ($5 AND a.privilege_type='TEMPORARY'))) FROM pg_catalog.pg_database d,pg_catalog.pg_roles u,pg_catalog.pg_roles o WHERE d.datname=$1 AND u.oid=$2 AND o.oid=$3`, s.names.Database, row.login, row.owner, spec.ConnectionLimit, spec.ManagedSchema).Scan(&safe)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -483,7 +488,7 @@ func (s *provisionSession) ready(o Options, spec DatabaseSpec, row databaseRecor
 	}
 	check := o
 	check.Database, check.User, check.Password = s.names.Database, s.names.User, spec.Password
-	err = ReadRow(s.ctx, check, `SELECT pg_catalog.has_schema_privilege(current_user,n.oid,'USAGE') AND pg_catalog.has_schema_privilege(current_user,n.oid,'CREATE') AND n.nspowner IN ($1,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) a WHERE a.grantee NOT IN (n.nspowner,$1,$2) OR a.grantee=$2 AND a.is_grantable) FROM pg_catalog.pg_namespace n WHERE n.nspname='public'`, []any{row.owner, row.login}, &safe)
+	err = ReadRow(s.ctx, check, `SELECT pg_catalog.has_schema_privilege(current_user,n.oid,'USAGE') AND pg_catalog.has_schema_privilege(current_user,n.oid,'CREATE')= (NOT $3) AND n.nspowner IN ($1,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='pg_database_owner')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) a WHERE a.grantee NOT IN (n.nspowner,$1,$2) OR a.grantee=$2 AND a.is_grantable) FROM pg_catalog.pg_namespace n WHERE n.nspname='public'`, []any{row.owner, row.login, spec.ManagedSchema}, &safe)
 	if err != nil {
 		var e *Error
 		if errors.As(err, &e) && e.Stage == "connect" && (e.SQLState == "28P01" || e.SQLState == "28000" || e.SQLState == "42501") {
@@ -571,7 +576,7 @@ func EnsureDatabase(ctx context.Context, o Options, spec DatabaseSpec) (identity
 			return identity, err
 		}
 	}
-	if err = normalizeACL(ctx, s.conn, "DATABASE", s.names.Database, row.owner, s.names.User); err != nil {
+	if err = normalizeACL(ctx, s.conn, "DATABASE", s.names.Database, row.owner, s.names.User, spec.ManagedSchema); err != nil {
 		return identity, err
 	}
 	if err = s.exec("permissions", "ALTER DATABASE "+quoted(s.names.Database)+" ALLOW_CONNECTIONS true CONNECTION LIMIT "+strconv.Itoa(int(spec.ConnectionLimit))); err != nil {
@@ -592,7 +597,7 @@ func EnsureDatabase(ctx context.Context, o Options, spec DatabaseSpec) (identity
 		_ = conn.Close(ctx)
 		return identity, safeError(ctx, "schema", e)
 	}
-	e = normalizeACL(ctx, conn, "SCHEMA", "public", row.owner, s.names.User)
+	e = normalizeACL(ctx, conn, "SCHEMA", "public", row.owner, s.names.User, spec.ManagedSchema)
 	_ = conn.Close(ctx)
 	if e != nil {
 		return identity, e

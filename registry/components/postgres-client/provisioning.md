@@ -143,3 +143,22 @@ in the same backup and restore plan. Do not generate a new marker to bypass a
 failed check. Administrator credentials and TLS trust can change while the
 server marker remains unchanged. An empty option permits initial setup and is
 only suitable before a durable resource binding exists.
+
+For a schema that STEGO manages, set `DatabaseSpec.ManagedSchema` to `true`.
+The runtime login then has CONNECT on its database and USAGE on `public`.
+It has no CREATE or TEMPORARY permission. The default value keeps the existing
+permission model for applications that install their own schema.
+
+Call `WithDatabaseOwner` to install a managed schema. Supply the stored server
+identity and the same database key, password, and connection limit used for
+provisioning. This operation requires a ready database with matching recorded
+object IDs and safe runtime permissions. It does not create or repair a database.
+It holds the resource lock while trusted schema code uses a single owner
+connection. It uses verified TLS, a 30-second context, and fixed telemetry fields.
+The callback must use this context for every SQL operation. The connection closes
+when the callback returns. Errors do not expose SQL text or credentials.
+
+Schema code must check the existing schema and use a transaction for changes.
+Grant only the required data permissions to `DatabaseIdentity.User`. Do not
+return the owner connection to a runtime process. The callback can run privileged
+SQL and must never accept SQL text from an untrusted caller.

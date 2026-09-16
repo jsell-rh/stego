@@ -3,6 +3,7 @@ package postgres
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"go.opentelemetry.io/otel"
 	metricSDK "go.opentelemetry.io/otel/sdk/metric"
@@ -174,6 +175,128 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	if err = DeleteDatabase(ctx, provisioner, unsafe.Key); err != nil {
 		t.Fatal("reserved cleanup", err)
 	}
+
+	t.Run("managed-schema", func(t *testing.T) {
+		managed := spec("browser-schema")
+		managed.ManagedSchema = true
+		names, err := EnsureDatabase(ctx, provisioner, managed)
+		if err != nil {
+			t.Fatal("managed database", err)
+		}
+		runtimeOptions := o
+		runtimeOptions.Database, runtimeOptions.User, runtimeOptions.Password = names.Database, names.User, managed.Password
+		runtime := connect(runtimeOptions)
+		deny := func(query string) {
+			t.Helper()
+			_, err := runtime.Exec(ctx, query)
+			var server *pgconn.PgError
+			if !errors.As(err, &server) || server.Code != "42501" {
+				t.Fatal("runtime operation was not denied", safeError(ctx, "denial", err))
+			}
+		}
+		deny("CREATE TABLE public.forbidden(value integer)")
+		deny("CREATE TEMP TABLE forbidden(value integer)")
+		var retained *sql.Conn
+		err = WithDatabaseOwner(ctx, provisioner, managed, func(schemaCtx context.Context, conn *sql.Conn, identity DatabaseIdentity) error {
+			retained = conn
+			if identity != names {
+				t.Fatal("schema identity differs")
+			}
+			if _, ok := schemaCtx.Deadline(); !ok {
+				t.Fatal("schema context has no deadline")
+			}
+			if err := WithDatabaseOwner(schemaCtx, provisioner, managed, func(context.Context, *sql.Conn, DatabaseIdentity) error {
+				t.Fatal("concurrent callback ran")
+				return nil
+			}); !errors.Is(err, ErrDatabaseBusy) {
+				t.Fatal("schema lock was not held", err)
+			}
+			tx, err := conn.BeginTx(schemaCtx, nil)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			if _, err = tx.ExecContext(schemaCtx, "CREATE TABLE public.managed_marker(value integer NOT NULL); GRANT SELECT,INSERT,UPDATE,DELETE ON public.managed_marker TO "+quoted(identity.User)); err != nil {
+				return err
+			}
+			return tx.Commit()
+		})
+		if err != nil {
+			t.Fatal("schema setup", err)
+		}
+		if _, err = retained.ExecContext(ctx, "SELECT 1"); !errors.Is(err, sql.ErrConnDone) {
+			t.Fatal("schema connection survived callback", err)
+		}
+		exec(runtime, "INSERT INTO public.managed_marker VALUES(41); UPDATE public.managed_marker SET value=42")
+		var value int
+		if err = runtime.QueryRow(ctx, "SELECT value FROM public.managed_marker").Scan(&value); err != nil || value != 42 {
+			t.Fatal("runtime data access", err)
+		}
+		deny("ALTER TABLE public.managed_marker ADD COLUMN forbidden integer")
+		deny("TRUNCATE public.managed_marker")
+		// The provider must preserve the limited mode on both retries and repair.
+		for i := 0; i < 2; i++ {
+			if _, err = EnsureDatabase(ctx, provisioner, managed); err != nil {
+				t.Fatal("managed retry", err)
+			}
+		}
+		exec(bootstrap, "GRANT TEMPORARY ON DATABASE "+quoted(names.Database)+" TO "+quoted(names.User))
+		calls := 0
+		callback := func(context.Context, *sql.Conn, DatabaseIdentity) error { calls++; return nil }
+		if err = WithDatabaseOwner(ctx, provisioner, managed, callback); !errors.Is(err, ErrDatabaseIsolation) || calls != 0 {
+			t.Fatal("unsafe runtime reached schema callback", err)
+		}
+		if _, err = EnsureDatabase(ctx, provisioner, managed); err != nil {
+			t.Fatal("managed repair", err)
+		}
+		deny("CREATE TEMP TABLE forbidden(value integer)")
+		err = WithDatabaseOwner(ctx, provisioner, managed, func(schemaCtx context.Context, conn *sql.Conn, _ DatabaseIdentity) error {
+			var owner string
+			if err := conn.QueryRowContext(schemaCtx, "SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class WHERE oid='public.managed_marker'::regclass").Scan(&owner); err != nil {
+				return err
+			}
+			if owner != names.Owner {
+				t.Fatal("runtime owns managed table")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal("owner reconnect", err)
+		}
+		changed := managed
+		changed.Password = strings.Repeat("0", 64)
+		if err = WithDatabaseOwner(ctx, provisioner, changed, callback); !errors.Is(err, ErrDatabaseCredential) || calls != 0 {
+			t.Fatal("changed credential reached schema callback", err)
+		}
+		changed = managed
+		changed.Key.Resource = "absent-schema"
+		if err = WithDatabaseOwner(ctx, provisioner, changed, callback); !errors.Is(err, ErrDatabaseOwnership) || calls != 0 {
+			t.Fatal("absent database reached schema callback", err)
+		}
+		wrongServer := provisioner
+		wrongServer.ServerIdentity = strings.Repeat("0", 64)
+		if err = WithDatabaseOwner(ctx, wrongServer, managed, callback); !errors.Is(err, ErrDatabaseServer) || calls != 0 {
+			t.Fatal("changed server reached schema callback", err)
+		}
+		err = WithDatabaseOwner(ctx, provisioner, managed, func(context.Context, *sql.Conn, DatabaseIdentity) error {
+			return errors.New("private-schema-error-" + managed.Password)
+		})
+		if err == nil || strings.Contains(err.Error(), managed.Password) || strings.Contains(err.Error(), "private-schema") {
+			t.Fatal("schema error was not redacted")
+		}
+		canceled, cancelSchema := context.WithCancel(ctx)
+		err = WithDatabaseOwner(canceled, provisioner, managed, func(context.Context, *sql.Conn, DatabaseIdentity) error { cancelSchema(); return nil })
+		cancelSchema()
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal("callback cancellation was lost", err)
+		}
+		if err = DeleteDatabase(ctx, provisioner, managed.Key); err != nil {
+			t.Fatal("managed deletion", err)
+		}
+		if err = WithDatabaseOwner(ctx, provisioner, managed, callback); !errors.Is(err, ErrDatabaseDeleted) || calls != 0 {
+			t.Fatal("deleted database reached schema callback", err)
+		}
+	})
 
 	a, b := spec("first"), spec("second")
 	first, err := EnsureDatabase(ctx, provisioner, a)
@@ -601,5 +724,32 @@ func TestDatabaseClientDoesNotUseGlobalProviders(t *testing.T) {
 	}
 	if len(measured.ScopeMetrics) != 0 || logs.Len() != 0 {
 		t.Fatal("an unbound client used global metrics or logging")
+	}
+}
+
+func TestSchemaOperationValidation(t *testing.T) {
+	callback := func(context.Context, *sql.Conn, DatabaseIdentity) error {
+		t.Fatal("invalid operation called schema code")
+		return nil
+	}
+	password, _ := NewDatabasePassword()
+	spec := DatabaseSpec{Key: DatabaseKey{"installation", "browser"}, Password: password, ConnectionLimit: 8, ManagedSchema: true}
+	if err := WithDatabaseOwner(nil, Options{}, spec, callback); err == nil {
+		t.Fatal("nil context accepted")
+	}
+	if err := WithDatabaseOwner(context.Background(), Options{}, spec, nil); err == nil {
+		t.Fatal("nil callback accepted")
+	}
+	if err := WithDatabaseOwner(context.Background(), Options{}, spec, callback); !errors.Is(err, ErrDatabaseServer) {
+		t.Fatal("unpinned server accepted", err)
+	}
+	spec.ManagedSchema = false
+	if err := WithDatabaseOwner(context.Background(), Options{}, spec, callback); err == nil {
+		t.Fatal("unmanaged database accepted")
+	}
+	spec.ManagedSchema = true
+	spec.Password = "invalid"
+	if err := WithDatabaseOwner(context.Background(), Options{}, spec, callback); err == nil {
+		t.Fatal("invalid credential accepted")
 	}
 }

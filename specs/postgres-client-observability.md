@@ -5,8 +5,8 @@ could be missing from export. The client no longer creates instruments per call
 or writes through an unbounded default log handler.
 
 With an `otel-tracing` peer, the compiler connects the client to
-`TracePostgresOperation`. This boundary accepts only five operation values:
-`read`, `server-identity`, `ensure`, `delete`, and `quarantine`. Unknown values
+`TracePostgresOperation`. This boundary accepts only six operation values:
+`read`, `server-identity`, `ensure`, `delete`, `quarantine`, and `schema`. Unknown values
 become `_OTHER`. Outcomes are `success`, `failure`, `busy`, `canceled`, `deadline`,
 or `aborted`. Unknown outcomes become `failure`. The client maps errors to fixed
 outcomes before it calls the runtime. Error text, SQLSTATE, SQL, arguments,

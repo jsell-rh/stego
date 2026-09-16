@@ -21,7 +21,8 @@ import (
 
 func TestDatabaseSignals(t *testing.T)          { testDatabaseSignals(t, false) }
 func TestPostgresOperationSignals(t *testing.T) { testDatabaseSignals(t, true) }
-func testDatabaseSignals(t *testing.T, provision bool) {
+func TestSchemaOperationSignals(t *testing.T)   { testDatabaseSignals(t, true, "schema") }
+func testDatabaseSignals(t *testing.T, provision bool, known ...string) {
 	signal, scopeName, callName, knownCall, event, durationMetric, activeMetric := TraceDatabase, "stego/database", "stego.db.call", "prepare", "db.client.operation.completed", "db.client.operation.duration", "stego.db.active_calls"
 	if provision {
 		signal = TracePostgresOperation
@@ -31,6 +32,10 @@ func testDatabaseSignals(t *testing.T, provision bool) {
 		event = "postgres.database.completed"
 		durationMetric = "stego.postgres.database.duration"
 		activeMetric = "stego.postgres.database.active"
+	}
+
+	if len(known) == 1 {
+		knownCall = known[0]
 	}
 
 	for _, sample := range []string{"1", "0"} {
