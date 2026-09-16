@@ -1,0 +1,16 @@
+{
+  "run": "https://github.com/jsell-rh/stego/actions/runs/35152146945",
+  "source": "42c7ea13fb95995e9d24666637bceb61dbdbd591",
+  "keycloak_job": "104982810435",
+  "keycloak_result": "passed",
+  "seconds": 79.38,
+  "log_sha256": "6ec3ecf534a91256f9728eefb7be9fa921ca15e37f5b5809aa7bef5d85fd7ad1",
+  "checks": [
+    "unassigned profile and email scopes return invalid_scope without an authorization code",
+    "openid code flow with PKCE and a confidential client",
+    "signed subject and audience",
+    "one-use code",
+    "logout and client repair"
+  ],
+  "scope": "The real provider confirms the scope rejection. The full compiler job and a new generated Hypershell dashboard workflow are still required."
+}
