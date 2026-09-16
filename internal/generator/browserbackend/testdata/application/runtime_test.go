@@ -15,7 +15,7 @@ func applicationFixture(t *testing.T) *fixture {
 	t.Helper()
 	db := database(t)
 	migrate(t, db)
-	f := &fixture{db: db, oidc: provider(t)}
+	f := &fixture{db: db, oidc: provider(t), documentLogin: true}
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		t.Fatal(err)

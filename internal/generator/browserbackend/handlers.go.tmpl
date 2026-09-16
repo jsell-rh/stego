@@ -39,7 +39,7 @@ func(b *Backend)callback(w http.ResponseWriter,r *http.Request){
  active,err:=b.provider.accept(r.Context(),token,value.Nonce,b.config.RolesClaim,nil);if err!=nil{failure(w,502);return}
  sessionID,err:=randomValue();if err!=nil{failure(w,503);return};active.CSRF,err=randomValue();if err!=nil{failure(w,503);return}
  if err:=b.store.activate(r.Context(),sessionID,active,value.Previous);err!=nil{failure(w,503);return};published=true{{if .LocalApplication}};b.sockets.end(value.Previous){{end}}
- setCookie(w,SessionCookie,sessionID,int(active.Expires-time.Now().Unix()));http.Redirect(w,r,value.ReturnTo,303)
+ setCookie(w,SessionCookie,sessionID,int(active.Expires-time.Now().Unix()));{{if .LocalApplication}}b.completeApplicationLogin(w,value.ReturnTo){{else}}http.Redirect(w,r,value.ReturnTo,303){{end}}
 }
 func(b *Backend)active(ctx context.Context,id string)(session,error){
  waitCtx,cancel:=context.WithTimeout(ctx,2*time.Second);defer cancel()
@@ -105,6 +105,18 @@ func(b *Backend)logout(w http.ResponseWriter,r *http.Request){
  if b.provider.revoke(r.Context(),value)!=nil{failure(w,502);return};if form{target:="/auth/logout";if b.logoutTarget!=""{target=b.logoutTarget;w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"form-action 'self'","form-action 'self' "+b.logoutOrigin,1))};http.Redirect(w,r,target,303)}else{w.WriteHeader(204)}
 }
 {{if .LocalApplication}}
+// Commit a document at this origin before entering a protected application.
+// A Strict session cookie can be absent from the provider's redirect chain.
+// Only a consumed, verified callback reaches this response.
+var applicationCompletionPage=template.Must(template.New("application-completion").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="0; URL={{"{{.}}"}}"><title>Sign-in complete</title></head><body><main><h1>Sign-in complete</h1><p><a href="{{"{{.}}"}}">Continue to the application</a></p></main></body></html>`))
+func(b *Backend)completeApplicationLogin(w http.ResponseWriter,target string){
+ w.Header().Set("Cache-Control","no-store")
+ w.Header().Set("Referrer-Policy","no-referrer")
+ w.Header().Set("Cross-Origin-Opener-Policy","same-origin")
+ w.Header().Set("Content-Security-Policy","default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+ w.Header().Set("Content-Type","text/html; charset=utf-8")
+ _ = applicationCompletionPage.Execute(w,b.returnPath(target))
+}
 // Application requests use the browser's Origin header. Missing Origin fails
 // closed for writes. A sibling domain is not the same origin.
 func(b *Backend)applicationCSRF(r *http.Request)bool{

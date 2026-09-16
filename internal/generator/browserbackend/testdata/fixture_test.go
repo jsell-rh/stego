@@ -299,15 +299,16 @@ func (f *fakeOIDC) pauseRefresh() (chan struct{}, chan struct{}) {
 }
 
 type fixture struct {
-	db       *sql.DB
-	oidc     *fakeOIDC
-	backend  *Backend
-	options  options
-	upstream *httptest.Server
-	mu       sync.Mutex
-	requests []http.Header
-	paths    []string
-	status   int
+	documentLogin bool
+	db            *sql.DB
+	oidc          *fakeOIDC
+	backend       *Backend
+	options       options
+	upstream      *httptest.Server
+	mu            sync.Mutex
+	requests      []http.Header
+	paths         []string
+	status        int
 }
 
 func setup(t *testing.T) *fixture {
@@ -396,8 +397,13 @@ func login(t *testing.T, f *fixture) (*http.Cookie, string) {
 	t.Helper()
 	c, target := startLogin(t, f)
 	w := send(f.backend, "GET", target, "", []*http.Cookie{c}, http.Header{"Sec-Fetch-Site": {"cross-site"}})
-	require(t, w.Code == 303, "callback failed")
-	require(t, w.Header().Get("Location") == "/records/record-1", "return route changed")
+	if f.documentLogin {
+		require(t, w.Code == 200 && w.Header().Get("Location") == "", "callback did not commit a document")
+		require(t, strings.Contains(w.Body.String(), `content="0; URL=/records/record-1"`), "completion document changed the return route")
+	} else {
+		require(t, w.Code == 303, "callback failed")
+		require(t, w.Header().Get("Location") == "/records/record-1", "return route changed")
+	}
 	active := cookie(t, w, SessionCookie)
 	require(t, active.Secure && active.HttpOnly && active.SameSite == http.SameSiteStrictMode && active.Path == "/" && active.Domain == "", "unsafe active cookie")
 	w = send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil)

@@ -133,7 +133,10 @@ func TestGeneratedCapturedApplicationRuntime(t *testing.T) {
 func TestGeneratedDeclaredApplicationRuntime(t *testing.T) {
 	testLocalApplicationRuntime(t, true, true)
 }
-func testLocalApplicationRuntime(t *testing.T, captured, declared bool) {
+func TestGeneratedApplicationLoginDocument(t *testing.T) {
+	testLocalApplicationRuntime(t, true, false, "^TestApplicationLoginDocumentTargets$")
+}
+func testLocalApplicationRuntime(t *testing.T, captured, declared bool, pattern ...string) {
 	t.Helper()
 	var healthStatus atomic.Int32
 	healthStatus.Store(200)
@@ -227,7 +230,7 @@ func testLocalApplicationRuntime(t *testing.T, captured, declared bool) {
 		}
 		g = &Generator{}
 	}
-	testGeneratedRuntime(t, g, ctx, true)
+	testGeneratedRuntime(t, g, ctx, true, pattern...)
 }
 func TestGeneratedManagedBrowserSchema(t *testing.T) {
 	testGeneratedRuntime(t, new(Generator), fixture(), false, "^Test(ManagedBrowserSchema|BrowserSchemaRefusesDrift|BrowserSchemaRefusesRuntimeGrantDrift|BrowserSchemaBootstrapRollsBack)$")
