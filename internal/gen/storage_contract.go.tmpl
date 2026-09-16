@@ -317,6 +317,19 @@ type ResourceStateStore interface {
  SaveResourceState(context.Context,string,string,string,int64,[]byte)(ResourceState,error)
 }
 
+// ResourceStateKey identifies a retained state record without its contents.
+type ResourceStateKey struct { ResourceID string; Version int64 }
+type ResourceStateKeyPage struct { Keys []ResourceStateKey; More bool }
+// ResourceStateKeyReader reads one page for an exact entity and scope. Authorize
+// that scope before use. Supply an empty after ID for the first page. Continue
+// with the last returned ID. IDs use byte order; limits are from 1 through 1000.
+// Cleared records remain in the result. No domain row is required. Pages are not
+// a snapshot: concurrent inserts before the cursor require another scan. Stop
+// new registrations before a completed scan can prove cleanup coverage.
+type ResourceStateKeyReader interface {
+ ListResourceStateKeys(ctx context.Context, entity, scope, afterID string, limit int)(ResourceStateKeyPage,error)
+}
+
 // EffectBinding retains a public digest of state needed for an external effect.
 // A closed binding with an empty digest proves that no binding was accepted.
 // A nonempty digest requires cleanup of the registered effect. It does not prove

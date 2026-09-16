@@ -48,11 +48,13 @@ const resourceStateTrigger = `CREATE TRIGGER stego_resource_state_guard BEFORE U
 
 const resourceStateMigration = resourceStateTable + "\n" + resourceStateFunction + "\n" + resourceStateDropTrigger + "\n" + resourceStateTrigger
 
+const resourceStateKeysMigration = `CREATE INDEX IF NOT EXISTS stego_resource_state_scope_idx ON stego_resource_state USING btree(entity,scope,resource_id);`
+
 func generateResourceStates(ctx gen.Context) ([]gen.File, error) {
 	data := struct {
-		Package, StorageImport, Migration, Guard string
-		Entities, Statements                     []string
-	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Migration: resourceStateMigration, Guard: resourceStateGuard, Statements: []string{resourceStateTable, resourceStateFunction, resourceStateDropTrigger, resourceStateTrigger}}
+		Package, StorageImport, Migration, Guard, KeysMigration string
+		Entities, Statements                                    []string
+	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Migration: resourceStateMigration, Guard: resourceStateGuard, KeysMigration: resourceStateKeysMigration, Statements: []string{resourceStateTable, resourceStateFunction, resourceStateDropTrigger, resourceStateTrigger}}
 	for _, entity := range ctx.Entities {
 		data.Entities = append(data.Entities, entity.Name)
 	}
@@ -71,5 +73,6 @@ func generateResourceStates(ctx gen.Context) ([]gen.File, error) {
 	return []gen.File{
 		{Path: path.Join(ctx.OutputNamespace, "resource_state.go"), Content: code},
 		{Path: path.Join(ctx.OutputNamespace, "migrations/000009_resource_state.sql"), Content: []byte("BEGIN;\n" + resourceStateMigration + "\nCOMMIT;\n")},
+		{Path: path.Join(ctx.OutputNamespace, "migrations/000010_resource_state_keys.sql"), Content: []byte("BEGIN;\nSET LOCAL lock_timeout='5000';\nSET LOCAL statement_timeout='25000';\n" + resourceStateKeysMigration + "\nCOMMIT;\n")},
 	}, nil
 }

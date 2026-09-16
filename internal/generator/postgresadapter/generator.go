@@ -301,7 +301,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 // identifiers, and (3) generator-internal identifiers. Entity names that
 // match any of these produce uncompilable or shadowed generated code.
 var reservedTypeNames = map[string]bool{
-	"ResourceStateMigration": true, "verifyResourceStates": true, "statecontract": true,
+	"ResourceStateMigration": true, "ResourceStateKeysMigration": true, "verifyResourceStates": true, "statecontract": true,
 	"EffectBindingMigration": true, "verifyEffectBindings": true, "effectcontract": true,
 	"validEffectKey": true, "validEffectDigest": true, "readEffectBinding": true,
 	"StegoEffectBinding": true,

@@ -44,6 +44,9 @@ var cleanupTargetTests []byte
 var cleanupSummaryTests []byte
 
 func TestGeneratedStoreTransactions(t *testing.T) { testGeneratedStoreTransactions(t, "") }
+func TestGeneratedResourceStateKeys(t *testing.T) {
+	testGeneratedStoreTransactions(t, "^TestResourceStateKeys")
+}
 func TestGeneratedDeletionFinalization(t *testing.T) {
 	testGeneratedStoreTransactions(t, "^TestDeletionFinalization")
 }
@@ -207,7 +210,7 @@ require (
 }
 
 func TestTransactionReservedNames(t *testing.T) {
-	for _, name := range []string{"ErrTransactionRequired", "ErrTransactionNested", "ErrTransactionClosed", "ErrNotificationLimit", "transactionState", "transactionTimeout", "sqlTransaction", "stegooutbox", "sync"} {
+	for _, name := range []string{"ResourceStateKeysMigration", "ErrTransactionRequired", "ErrTransactionNested", "ErrTransactionClosed", "ErrNotificationLimit", "transactionState", "transactionTimeout", "sqlTransaction", "stegooutbox", "sync"} {
 		ctx := gen.Context{OutputNamespace: "storage", Entities: []types.Entity{{Name: name}}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
 			t.Fatalf("accepted reserved transaction name %q", name)
