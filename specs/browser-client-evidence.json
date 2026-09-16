@@ -1,0 +1,30 @@
+{
+  "run": "https://github.com/jsell-rh/stego/actions/runs/35114938481",
+  "source": "1db04e6c0d2aa566b4ce027401b70155a190f3dd",
+  "jobs": {
+    "examples (user-management)": "success",
+    "compiler": "success",
+    "postgres-provisioning": "success",
+    "resource-state-storage": "success",
+    "examples (user-management-rhsso)": "success",
+    "keycloak-provider": "success"
+  },
+  "packages": {
+    "cmd/stego": "72.427s",
+    "internal/generator/browserbackend": "205.103s",
+    "internal/generator/healthcheck": "7.731s",
+    "internal/generator/keycloakprovider": "75.463s",
+    "internal/generator/kubernetesservice": "28.213s"
+  },
+  "log_sha256": "f03142b89feffacb16064dd6f4204c81a4fc7219734c370db080ca1c2be16f68",
+  "real_keycloak": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35114938481",
+    "source": "1db04e6c0d2aa566b4ce027401b70155a190f3dd",
+    "real_keycloak": "passed",
+    "runtime_seconds": 66.22,
+    "wrapper_seconds": 74.45,
+    "runtime_log_sha256": "26e69fa72c7e3ef11031cfe7b4e99802acdf029a2e7abe9ecd851dfbcbf23d04",
+    "scope": "Real Keycloak browser creation, confidential code exchange, PKCE, exact callbacks, signed audience, one-use code, logout, drift repair, metadata, and cleanup checks passed."
+  },
+  "scope": "Full compiler, required PostgreSQL, race detection, and real Keycloak checks passed. This does not prove a live Hypershell dashboard."
+}

@@ -268,3 +268,22 @@ local application runtimes. The complete log has SHA-256
 `8f8b821dcbcdb43a0ad5f75b4df72f794e077adb7e66958ec72e0b1620a12431`.
 The private deployment declaration is a separate candidate and is not qualified
 by this result.
+
+
+## Qualified inputs for application integration
+
+The generated deployment Go API passed all six STEGO jobs at `ea30c88` in
+[35113183502](https://github.com/jsell-rh/stego/actions/runs/35113183502).
+Hypershell used it with the real upstream image and all eight document routes
+in [35114093202](https://github.com/jsell-rh/hypershell-stego/actions/runs/35114093202).
+Both source and private deployment checks passed. Image pull verification,
+secret separation, repeated generation, and both generated builds passed.
+These checks did not start a dashboard Pod.
+
+The common confidential browser client at `1db04e6` passed full STEGO CI and
+real Keycloak. See [the provider evidence](browser-client-evidence.json).
+The next application change must connect these qualified parts to Gateway
+recovery and deletion. It must keep the browser client journal separate from
+the native client journal, use separate session database credentials, and
+publish the console address only after verified readiness. Gateway roles and
+placement remain application policy. The full live dashboard gate stays open.

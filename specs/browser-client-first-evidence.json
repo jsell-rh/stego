@@ -15,6 +15,7 @@
   "unexpected_attribute": "client.secret.creation.time",
   "next_observation_repaired": true,
   "correction": "Share the existing service-account timestamp validator. Preserve valid provider secret metadata for confidential profiles. Reject invalid metadata and unknown security settings before enablement.",
-  "status": "The correction requires full CI and real Keycloak qualification.",
-  "diagnostic_log_sha256": "92196886327236f6e344e98ea9f73ef9c93bb81bf2f27d8e14dafeae86323b6c"
+  "status": "The correction passed all six jobs in run 35114938481. See browser-client-evidence.json.",
+  "diagnostic_log_sha256": "92196886327236f6e344e98ea9f73ef9c93bb81bf2f27d8e14dafeae86323b6c",
+  "diagnostic_compiler": "Cancelled after the real provider diagnostic failed. This is not passing compiler evidence."
 }

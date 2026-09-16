@@ -670,5 +670,10 @@ The corrected common path uses the existing service-account timestamp validator
 and preserves this operational metadata for confidential clients. It rejects
 invalid timestamp text and continues to require exact security settings. It
 neither changes credential age nor enables a client with unknown attributes.
-The real test also checks metadata after creation and repair. This correction
-still requires full CI qualification.
+The real test also checks metadata after creation and repair. The correction
+passed all six jobs in [run 35114938481](https://github.com/jsell-rh/stego/actions/runs/35114938481)
+at `1db04e6c0d2aa566b4ce027401b70155a190f3dd`. Real Keycloak took 66.22 seconds.
+Full compiler race checks, required PostgreSQL checks, and both examples passed.
+The [qualification record](browser-client-evidence.json) retains source IDs,
+package times, and log hashes. This result permits application adoption; it
+does not prove a live per-Gateway dashboard or its complete lifecycle.
