@@ -2,8 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -81,14 +79,7 @@ func TestSecretStateRecoversAndRefusesLostIdentity(t *testing.T) {
 					}
 					return map[string]string{"key": "YWJj"}, nil
 				},
-				Validate: func(secret Object) (string, error) {
-					raw, err := json.Marshal(secret["data"])
-					if err != nil {
-						return "", err
-					}
-					sum := sha256.Sum256(raw)
-					return hex.EncodeToString(sum[:]), nil
-				},
+				Validate: func(secret Object) error { return nil },
 			}
 			result, err := client.LoadSecretState(context.Background(), o, cb, true)
 			if mode == "invalid-prepared" {
@@ -154,7 +145,7 @@ func TestSecretStateRequiresValidRegistration(t *testing.T) {
 		cb := SecretStateCallbacks{Load: func(context.Context) (SecretStateBinding, error) { return binding, nil }, Bind: func(context.Context, string) (SecretStateBinding, error) { return binding, nil }, Initialize: func(context.Context) (map[string]string, error) {
 			t.Fatal("invalid binding initialized state")
 			return nil, nil
-		}, Validate: func(Object) (string, error) { return "", nil }}
+		}, Validate: func(Object) error { return nil }}
 		if value, err := client.LoadSecretState(context.Background(), o, cb, true); err == nil || value != nil {
 			t.Fatal("invalid or closed binding was accepted")
 		}
