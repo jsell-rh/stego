@@ -155,3 +155,14 @@ failed run removed its application resources, CNPG runtime, volumes, and private
 fixtures; the installation remained. Evidence is in `cnpg-first-result`.
 Corrected runs `35096455130` (full CI) and `35096666440` (CNPG) are pending or
 running. A successful earlier browser or image job does not replace these gates.
+
+The first full Hypershell core run finished with nine failed tests. Three match
+the cleanup state-conflict error above. Five retained the old hidden-row contract;
+source `faccbf5` now requires visible `Deleting` state while other owners remain.
+The namespace-count controller also kept watches for pending rows in the public
+list. Source `62ed4b6` uses private stored deletion state before watch assignment.
+Its focused race test passed in 5.034 seconds and rejects display text as deletion
+proof. The generated worker regression remains in the cluster gate. The next
+full CI run is `35098200160` at `371c230`. The superseded run `35096455130` was
+canceled and supplies no qualification result. The failed core log and summary
+remain under the persistent run directory.
