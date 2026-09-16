@@ -53,6 +53,11 @@ commit without modified, ignored, or untracked files. STEGO does not fetch the
 remote or fall back to the cache when `vendor` is set. A plain directory without
 Git metadata is not a verified vendored source.
 
+This option supplies registry inputs only. A complete offline build must also
+supply the pinned compiler and all build dependencies. Hypershell's current
+generation scripts still fetch the compiler from Git. Registry vendoring alone
+does not make those scripts work offline.
+
 ```yaml
 registry:
   - url: https://github.com/jsell-rh/stego.git
@@ -71,9 +76,9 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell development revision `3d8f9d6` uses this model for its API,
+Hypershell development revision `f182ec5` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
-compiler to `bd7d9ea85ec73d60be3557bc4df743fb38392f9c`. Its local registries
+compiler to `42c7ea13fb95995e9d24666637bceb61dbdbd591`. Its local registries
 contain two application archetypes and no common component declarations.
 Application package paths are selected through `component_namespaces`.
 
@@ -82,10 +87,12 @@ in `components/gateway-dashboard` remain application inputs. The committed
 `out`, `console/out`, and `gateway-console/out` directories remain generated
 output. They are not alternate copies of the compiler or its templates.
 
-The earlier [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35130594165)
+The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35152843228)
 verified composed Git and local inputs, repeated generation, dependencies,
-entry-point builds, and generated deployment checks. Current common compiler
-revision `bd7d9ea` passed [all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35143448699).
+entry-point builds, and generated deployment checks at revision `1547331`.
+All 83 archived source files matched the local module. Revision `f182ec5`
+selects that checked module. Common compiler revision `42c7ea1` passed
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35152146945).
 These results establish the registry integration. They do not establish a
 complete deployed dashboard. That application gate remains open in the
 [integration record](upstream-dashboard-integration.md).
