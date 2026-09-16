@@ -259,3 +259,12 @@ Small local generation checks passed. CI must check the generated runtime with
 PostgreSQL, session denial, refresh, logout, WebSockets, and restart. The mode
 remains internal. Service YAML cannot enable it until generated deployment
 checks enforce the shared Pod, local listener, and private credential mounts.
+
+The captured-session revision `d229f9f89e61512141bed405f7431b10a0020811` passed
+all six jobs in [CI 35110353954](https://github.com/jsell-rh/stego/actions/runs/35110353954).
+The generated browser package passed with race detection and required PostgreSQL
+in 142.188 seconds. This includes the ordinary browser, local proxy, and captured
+local application runtimes. The complete log has SHA-256
+`8f8b821dcbcdb43a0ad5f75b4df72f794e077adb7e66958ec72e0b1620a12431`.
+The private deployment declaration is a separate candidate and is not qualified
+by this result.
