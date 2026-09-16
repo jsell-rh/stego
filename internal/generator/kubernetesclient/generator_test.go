@@ -18,6 +18,9 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
+//go:embed testdata/secret_state_test.go
+var secretStateTests []byte
+
 //go:embed testdata/secret_set_test.go
 var secretSetTests []byte
 
@@ -58,6 +61,9 @@ func TestGeneratedKubernetesClient(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedKubernetesClient(t, telemetry, "") })
 	}
 }
+func TestGeneratedSecretState(t *testing.T) {
+	testGeneratedKubernetesClient(t, false, "^TestSecretState")
+}
 func TestGeneratedOpaqueSecretSet(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestOpaqueSecretSet")
 }
@@ -91,6 +97,7 @@ func testGeneratedKubernetesClient(t *testing.T, telemetry bool, selected string
 	}
 	files = append(files, gen.File{Path: "kubernetes/client_test.go", Content: runtimeTests})
 	files = append(files, gen.File{Path: "kubernetes/secret_set_test.go", Content: secretSetTests})
+	files = append(files, gen.File{Path: "kubernetes/secret_state_test.go", Content: secretStateTests})
 	files = append(files, gen.File{Path: "kubernetes/readiness_test.go", Content: readinessTests})
 	files = append(files, gen.File{Path: "kubernetes/route_test.go", Content: routeTests})
 	files = append(files, gen.File{Path: "kubernetes/tls_secret_test.go", Content: tlsSecretTests})
