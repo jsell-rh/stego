@@ -135,6 +135,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 
 	// Validate convention overrides have recognized values.
 	result.Errors = append(result.Errors, validateConventionOverrides(svcDecl.Overrides)...)
+	result.Errors = append(result.Errors, applyComponentNamespaces(svcDecl.ComponentNamespaces, components)...)
 	if components != nil {
 		result.Errors = append(result.Errors, validateComponentConfig(svcDecl, components)...)
 		result.Errors = append(result.Errors, validateComponentNamespaces(components)...)

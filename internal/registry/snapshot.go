@@ -39,6 +39,10 @@ type registrySnapshot struct {
 // Capture only YAML and protobuf input files. Other regular files are not
 // compiler inputs. Git metadata is excluded. All reads remain inside the root.
 func captureRegistry(dir string, keepData bool) (*registrySnapshot, error) {
+	return captureRegistryBounded(dir, keepData, maxRegistryBytes, maxRegistryFiles)
+}
+
+func captureRegistryBounded(dir string, keepData bool, byteLimit int64, fileLimit int) (*registrySnapshot, error) {
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -108,14 +112,14 @@ func captureRegistry(dir string, keepData bool) (*registrySnapshot, error) {
 				if extension := path.Ext(relative); extension != ".yaml" && extension != ".proto" {
 					continue
 				}
-				if len(snapshot.files) >= maxRegistryFiles {
+				if len(snapshot.files) >= fileLimit {
 					return fmt.Errorf("registry exceeds %d input files", maxRegistryFiles)
 				}
 				file, err := root.Open(relative)
 				if err != nil {
 					return err
 				}
-				record, err := readRegistryFile(file, keepData, min(int64(parser.MaxDocumentBytes), maxRegistryBytes-total), buffer)
+				record, err := readRegistryFile(file, keepData, min(int64(parser.MaxDocumentBytes), byteLimit-total), buffer)
 				file.Close()
 				if err != nil {
 					return fmt.Errorf("registry input %s: %w", relative, err)
@@ -134,12 +138,17 @@ func captureRegistry(dir string, keepData bool) (*registrySnapshot, error) {
 	if err := walk(".", 0); err != nil {
 		return nil, err
 	}
+	snapshot.hash = registryDigest(snapshot.files)
+	return snapshot, nil
+}
+
+func registryDigest(files map[string]registryFile) string {
 	digest := sha256.New()
 	io.WriteString(digest, "stego-registry-content-v1\x00")
-	names := slices.Sorted(maps.Keys(snapshot.files))
+	names := slices.Sorted(maps.Keys(files))
 	var length [8]byte
 	for _, name := range names {
-		record := snapshot.files[name]
+		record := files[name]
 		binary.BigEndian.PutUint64(length[:], uint64(len(name)))
 		digest.Write(length[:])
 		io.WriteString(digest, name)
@@ -147,8 +156,7 @@ func captureRegistry(dir string, keepData bool) (*registrySnapshot, error) {
 		digest.Write(length[:])
 		digest.Write(record.hash[:])
 	}
-	snapshot.hash = hex.EncodeToString(digest.Sum(nil))
-	return snapshot, nil
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func readRegistryFile(file *os.File, keepData bool, limit int64, buffer []byte) (registryFile, error) {
@@ -215,12 +223,17 @@ func (r *Registry) ReadProtoImport(name string) ([]byte, error) {
 // Verify checks the current tree against the captured inputs. It also detects
 // directory changes, including an added artifact directory with no YAML file.
 func (r *Registry) Verify() error {
-	current, err := captureRegistry(r.source.dir, false)
-	if err != nil {
-		return fmt.Errorf("registry changed after planning; run plan again: %w", err)
+	if r == nil || len(r.captured) == 0 {
+		return errors.New("registry has no captured source")
 	}
-	if current.hash != r.source.hash || !maps.Equal(current.directories, r.source.directories) {
-		return errors.New("registry changed after planning; run plan again")
+	for _, source := range r.captured {
+		current, err := captureRegistry(source.dir, false)
+		if err != nil {
+			return fmt.Errorf("registry changed after planning; run plan again: %w", err)
+		}
+		if current.hash != source.hash || !maps.Equal(current.directories, source.directories) {
+			return errors.New("registry changed after planning; run plan again")
+		}
 	}
 	return nil
 }

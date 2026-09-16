@@ -28,7 +28,11 @@ func loadCompilationSource(input ReconcilerInput) (*compilationSource, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing service.yaml: %w", err)
 	}
-	reg, err := registry.Load(input.RegistryDir)
+	dirs := input.RegistryDirs
+	if len(dirs) == 0 {
+		dirs = []string{input.RegistryDir}
+	}
+	reg, err := registry.LoadDirectories(dirs...)
 	if err != nil {
 		return nil, fmt.Errorf("loading registry: %w", err)
 	}

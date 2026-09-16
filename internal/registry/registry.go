@@ -15,6 +15,7 @@ import (
 // registry directory.
 type Registry struct {
 	source     *registrySnapshot
+	captured   []*registrySnapshot
 	archetypes map[string]*types.Archetype
 	components map[string]*types.Component
 	mixins     map[string]*types.Mixin
@@ -58,11 +59,40 @@ func (r *Registry) Mixin(name string) *types.Mixin {
 //	<dir>/components/<name>/slots/*.proto
 //	<dir>/mixins/<name>/mixin.yaml
 func Load(dir string) (*Registry, error) {
-	source, err := captureRegistry(dir, true)
-	if err != nil {
-		return nil, fmt.Errorf("registry directory: %w", err)
+	return LoadDirectories(dir)
+}
+
+// LoadDirectories combines distinct artifacts. A later source cannot replace
+// an artifact or input path from an earlier source, even with identical bytes.
+func LoadDirectories(dirs ...string) (*Registry, error) {
+	if len(dirs) < 1 || len(dirs) > 8 {
+		return nil, fmt.Errorf("registry requires one through eight sources")
 	}
-	r := &Registry{source: source, archetypes: make(map[string]*types.Archetype), components: make(map[string]*types.Component), mixins: make(map[string]*types.Mixin)}
+	source := &registrySnapshot{files: map[string]registryFile{}, directories: map[string]bool{}}
+	captured := make([]*registrySnapshot, 0, len(dirs))
+	var total int64
+	for _, dir := range dirs {
+		current, err := captureRegistryBounded(dir, true, maxRegistryBytes-total, maxRegistryFiles-len(source.files))
+		if err != nil {
+			return nil, fmt.Errorf("registry directory: %w", err)
+		}
+		for name := range current.directories {
+			if source.directories[name] && (path.Dir(name) == "components" || path.Dir(name) == "archetypes" || path.Dir(name) == "mixins") {
+				return nil, fmt.Errorf("registry artifact %q occurs in more than one source", name)
+			}
+			source.directories[name] = true
+		}
+		for name, file := range current.files {
+			if _, exists := source.files[name]; exists {
+				return nil, fmt.Errorf("registry input %q occurs in more than one source", name)
+			}
+			source.files[name] = file
+			total += file.size
+		}
+		captured = append(captured, current)
+	}
+	source.hash = registryDigest(source.files)
+	r := &Registry{source: source, captured: captured, archetypes: make(map[string]*types.Archetype), components: make(map[string]*types.Component), mixins: make(map[string]*types.Mixin)}
 	for _, name := range r.childDirectories("archetypes") {
 		file := path.Join("archetypes", name, "archetype.yaml")
 		data, err := r.ReadFile(file)
@@ -151,7 +181,23 @@ func validateConfig(cfg *types.RegistryConfig) error {
 	if len(cfg.Registry) == 0 {
 		return fmt.Errorf("at least one registry source is required")
 	}
+	if len(cfg.Registry) > 8 {
+		return fmt.Errorf("at most eight registry sources are allowed")
+	}
 	for i, src := range cfg.Registry {
+		if len(src.URL) > 2048 || len(src.Ref) > 128 || len(src.Path) > 1024 || len(src.Vendor) > 1024 {
+			return fmt.Errorf("registry[%d]: source setting exceeds its length limit", i)
+		}
+		if src.Vendor != "" {
+			if err := gen.ValidatePath(src.Vendor); err != nil || !commitID.MatchString(src.Ref) {
+				return fmt.Errorf("registry[%d]: vendor requires a relative path and full commit SHA", i)
+			}
+		}
+		if src.Path != "" {
+			if err := gen.ValidatePath(src.Path); err != nil {
+				return fmt.Errorf("registry[%d]: invalid path: %w", i, err)
+			}
+		}
 		if src.URL == "" {
 			return fmt.Errorf("registry[%d]: url is required", i)
 		}

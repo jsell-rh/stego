@@ -111,7 +111,7 @@ func TestResolveRegistryMissingConfig(t *testing.T) {
 	}
 }
 
-func TestResolveRegistryMultipleSourcesWarning(t *testing.T) {
+func TestResolveRegistryMultipleSources(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create two local directories.
@@ -142,16 +142,13 @@ func TestResolveRegistryMultipleSourcesWarning(t *testing.T) {
 		t.Fatalf("ResolveRegistry() error: %v", err)
 	}
 
-	// Should use the first registry.
-	if result.Dir != reg1 {
-		t.Errorf("Dir = %q, want %q", result.Dir, reg1)
+	if len(result.Dirs) != 2 || result.Dirs[0] != reg1 || result.Dirs[1] != reg2 || len(result.Ref) != 64 {
+		t.Fatal("registry sources were not retained")
+	}
+	if stderr.Len() != 0 {
+		t.Fatal("composition produced an obsolete warning")
 	}
 
-	// Should warn about multiple registries.
-	warning := stderr.String()
-	if !strings.Contains(warning, "multiple registry sources") {
-		t.Errorf("expected multi-registry warning, got: %q", warning)
-	}
 }
 
 func TestResolveRegistryEnvOverrideSkipsConfig(t *testing.T) {
@@ -458,5 +455,58 @@ func gitCmd(t *testing.T, dir string, args ...string) {
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+func TestRegistrySourcePathIsRelativeAndCannotEscape(t *testing.T) {
+	project := t.TempDir()
+	base := filepath.Join(project, "common")
+	nested := filepath.Join(base, "registry")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STEGO_REGISTRY", "")
+	for _, path := range []string{"registry", "../outside", "/outside", "registry/../registry", "missing", "linked"} {
+		if path == "linked" {
+			if err := os.Symlink(t.TempDir(), filepath.Join(base, "linked")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "common", Ref: "local", Path: path}}})
+		result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project})
+		if path == "registry" {
+			if err != nil || result.Dir != nested || len(result.Dirs) != 1 {
+				t.Fatal("project-relative source path failed", err)
+			}
+		} else if err == nil {
+			t.Fatalf("unsafe or missing path %q accepted", path)
+		}
+	}
+}
+
+func TestVendoredRegistryUsesPinnedCheckoutWithoutNetwork(t *testing.T) {
+	project := t.TempDir()
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	vendor := filepath.Join(project, "vendor", "common")
+	initBareRepo(t, remote)
+	if err := os.MkdirAll(filepath.Dir(vendor), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cloneAndPopulate(t, remote, vendor)
+	revision := getHeadSHA(t, vendor)
+	t.Setenv("STEGO_REGISTRY", "")
+	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: revision, Vendor: "vendor/common"}}})
+	result, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: filepath.Join(t.TempDir(), "unused")})
+	if err != nil || result.Dir != vendor {
+		t.Fatal("pinned offline registry failed", err)
+	}
+	if _, err := registry.LoadDirectories(result.Dirs...); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vendor, "injected.yaml"), []byte("untracked"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project}); err == nil {
+		t.Fatal("changed offline checkout accepted")
 	}
 }

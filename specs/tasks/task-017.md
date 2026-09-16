@@ -32,7 +32,7 @@ The spec defines the registry as a git repo resolved via `.stego/config.yaml`, b
 
 - `registry.Load(dir string)` continues to accept a local directory path. The git resolution layer sits above it — it resolves the config to a local directory, then calls `Load()`.
 - State tracking (`state.yaml`) continues to record `registry_sha` from config.yaml's `ref` field.
-- No multi-registry support (deferred to post-MVP). Only `cfg.Registry[0]` is used; additional entries produce a warning.
+- Historical MVP scope: only the first registry was used. [Registry composition](../registry-composition.md) now replaces this limit.
 
 ## Spec Excerpt
 

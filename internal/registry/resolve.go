@@ -2,6 +2,7 @@ package registry
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 type ResolveResult struct {
 	// Dir is the local filesystem path to the registry directory.
 	Dir string
+	// Dirs contains all resolved sources, in declaration order.
+	Dirs []string
 	// Ref is the registry ref from config.yaml (recorded in state).
 	Ref string
 	// EnvOverride is true when STEGO_REGISTRY was used.
@@ -38,7 +41,7 @@ type ResolveOptions struct {
 //
 // Resolution order:
 //  1. STEGO_REGISTRY env var — overrides everything, prints a warning to stderr.
-//  2. .stego/config.yaml registry[0] — local path or git URL.
+//  2. All .stego/config.yaml registry sources — local paths or pinned Git URLs.
 //
 // For git URLs (url is not an existing local directory), the repo is cloned into
 // a cache directory and checked out at the exact ref SHA. For local paths, the
@@ -54,6 +57,7 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 		fmt.Fprintf(stderr, "WARNING: using STEGO_REGISTRY override: %s (config.yaml registry settings ignored)\n", envReg)
 		return &ResolveResult{
 			Dir:         envReg,
+			Dirs:        []string{envReg},
 			Ref:         "env-override",
 			EnvOverride: true,
 		}, nil
@@ -70,31 +74,63 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 		return nil, fmt.Errorf("resolving registry: no registry sources in %s", configPath)
 	}
 
-	// Warn about multiple registries (only first is used, per spec).
+	result := &ResolveResult{}
+	for i, src := range cfg.Registry {
+		local := src.URL
+		if !filepath.IsAbs(local) {
+			local = filepath.Join(opts.ProjectDir, local)
+		}
+		var dir string
+		if src.Vendor != "" {
+			dir, err = sourceSubdirectory(opts.ProjectDir, src.Vendor)
+			if err != nil {
+				return nil, fmt.Errorf("registry[%d]: vendor: %w", i, err)
+			}
+			if !isValidCheckout(dir, src.Ref) {
+				return nil, fmt.Errorf("registry[%d]: vendored checkout differs from the pinned commit", i)
+			}
+		} else if !strings.Contains(src.URL, "://") && !strings.HasPrefix(src.URL, "git@") && isLocalDir(local) {
+			dir = local
+		} else {
+			dir, err = resolveGitRegistry(src.URL, src.Ref, opts.CacheDir)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if src.Path != "" {
+			dir, err = sourceSubdirectory(dir, src.Path)
+			if err != nil {
+				return nil, fmt.Errorf("registry[%d]: path: %w", i, err)
+			}
+		}
+		result.Dirs = append(result.Dirs, dir)
+	}
+	result.Dir = result.Dirs[0]
+	result.Ref = cfg.Registry[0].Ref
 	if len(cfg.Registry) > 1 {
-		fmt.Fprintf(stderr, "WARNING: multiple registry sources configured; only the first is used (multi-registry support is deferred to post-MVP)\n")
+		encoded, _ := json.Marshal(cfg.Registry)
+		result.Ref = fmt.Sprintf("%x", sha256.Sum256(encoded))
 	}
+	return result, nil
+}
 
-	src := cfg.Registry[0]
-
-	// Determine if URL is a local directory or a git remote.
-	if isLocalDir(src.URL) {
-		return &ResolveResult{
-			Dir: src.URL,
-			Ref: src.Ref,
-		}, nil
-	}
-
-	// Git-based resolution: clone/fetch into cache, checkout at ref.
-	dir, err := resolveGitRegistry(src.URL, src.Ref, opts.CacheDir)
+// Read each path segment under its declared root. A symbolic link cannot
+// redirect a registry subdirectory or an explicit vendored checkout.
+func sourceSubdirectory(base, relative string) (string, error) {
+	root, err := os.OpenRoot(base)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	return &ResolveResult{
-		Dir: dir,
-		Ref: src.Ref,
-	}, nil
+	defer root.Close()
+	current := ""
+	for _, part := range strings.Split(relative, "/") {
+		current = filepath.Join(current, part)
+		info, err := root.Lstat(current)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path must contain only directories without symbolic links")
+		}
+	}
+	return filepath.Join(base, filepath.FromSlash(relative)), nil
 }
 
 // isLocalDir returns true if the path is an existing local directory.

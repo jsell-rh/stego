@@ -323,7 +323,7 @@ func runFillCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	reg, err := registry.Load(result.Dir)
+	reg, err := registry.LoadDirectories(result.Dirs...)
 	if err != nil {
 		return err
 	}
@@ -589,7 +589,7 @@ func runRegistrySearch(args []string) error {
 	if err != nil {
 		return err
 	}
-	reg, err := registry.Load(result.Dir)
+	reg, err := registry.LoadDirectories(result.Dirs...)
 	if err != nil {
 		return err
 	}
@@ -651,7 +651,7 @@ func runRegistryInspect(args []string) error {
 	if err != nil {
 		return err
 	}
-	reg, err := registry.Load(result.Dir)
+	reg, err := registry.LoadDirectories(result.Dirs...)
 	if err != nil {
 		return err
 	}
@@ -782,13 +782,14 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 	outDir := filepath.Join(projectDir, "out")
 
 	return compiler.ReconcilerInput{
-		ProjectDir:  projectDir,
-		RegistryDir: result.Dir,
-		Generators:  defaultGenerators(),
-		GoVersion:   goVersion,
-		ModuleName:  moduleName,
-		RegistrySHA: result.Ref,
-		OutDir:      outDir,
+		ProjectDir:   projectDir,
+		RegistryDir:  result.Dir,
+		RegistryDirs: result.Dirs,
+		Generators:   defaultGenerators(),
+		GoVersion:    goVersion,
+		ModuleName:   moduleName,
+		RegistrySHA:  result.Ref,
+		OutDir:       outDir,
 	}, nil
 }
 

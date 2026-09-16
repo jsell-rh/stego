@@ -59,3 +59,29 @@ func validateFileLayout(names []string) error {
 	}
 	return nil
 }
+
+// Application layout can change output paths without replacing common metadata.
+// Copy each selected component before applying the local path declaration.
+func applyComponentNamespaces(namespaces map[string]string, components map[string]*types.Component) []ValidationError {
+	var failures []ValidationError
+	for _, name := range sortedKeys(namespaces) {
+		component := components[name]
+		namespace := namespaces[name]
+		if component == nil {
+			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component_namespaces refers to inactive component %q", name)})
+			continue
+		}
+		if namespace == "" {
+			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q requires a nonempty output namespace", name)})
+			continue
+		}
+		if err := gen.ValidateGoImportNamespace(namespace); err != nil {
+			failures = append(failures, ValidationError{Category: "namespace", Message: fmt.Sprintf("component %q: %v", name, err)})
+			continue
+		}
+		copy := *component
+		copy.OutputNamespace = namespace
+		components[name] = &copy
+	}
+	return failures
+}

@@ -315,17 +315,18 @@ func (sd *SlotDeclaration) UnmarshalYAML(value *yaml.Node) error {
 
 // ServiceDeclaration is the product team's service definition.
 type ServiceDeclaration struct {
-	Kind          string            `yaml:"kind"`
-	Name          string            `yaml:"name"`
-	Archetype     string            `yaml:"archetype"`
-	Language      string            `yaml:"language"`
-	BasePath      string            `yaml:"base_path,omitempty"`
-	ErrorTypeBase string            `yaml:"error_type_base,omitempty"`
-	Entities      []Entity          `yaml:"entities"`
-	Collections   []Collection      `yaml:"-"`
-	Slots         []SlotDeclaration `yaml:"slots"`
-	Mixins        []string          `yaml:"mixins,omitempty"`
-	Overrides     map[string]any    `yaml:"overrides,omitempty"`
+	ComponentNamespaces map[string]string `yaml:"component_namespaces,omitempty"`
+	Kind                string            `yaml:"kind"`
+	Name                string            `yaml:"name"`
+	Archetype           string            `yaml:"archetype"`
+	Language            string            `yaml:"language"`
+	BasePath            string            `yaml:"base_path,omitempty"`
+	ErrorTypeBase       string            `yaml:"error_type_base,omitempty"`
+	Entities            []Entity          `yaml:"entities"`
+	Collections         []Collection      `yaml:"-"`
+	Slots               []SlotDeclaration `yaml:"slots"`
+	Mixins              []string          `yaml:"mixins,omitempty"`
+	Overrides           map[string]any    `yaml:"overrides,omitempty"`
 }
 
 // UnmarshalYAML implements custom YAML unmarshaling for ServiceDeclaration.
@@ -418,6 +419,14 @@ func (sd ServiceDeclaration) MarshalYAML() (any, error) {
 	}
 	if sd.ErrorTypeBase != "" {
 		addField("error_type_base", sd.ErrorTypeBase)
+	}
+
+	if len(sd.ComponentNamespaces) > 0 {
+		node := &yaml.Node{}
+		if err := node.Encode(sd.ComponentNamespaces); err != nil {
+			return nil, err
+		}
+		m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "component_namespaces"}, node)
 	}
 
 	// Entities.
@@ -531,8 +540,10 @@ func (f *Fill) UnmarshalYAML(value *yaml.Node) error {
 
 // RegistrySource describes a single registry origin in .stego/config.yaml.
 type RegistrySource struct {
-	URL string `yaml:"url"`
-	Ref string `yaml:"ref"`
+	URL    string `yaml:"url"`
+	Ref    string `yaml:"ref"`
+	Path   string `yaml:"path,omitempty"`
+	Vendor string `yaml:"vendor,omitempty"`
 }
 
 // RegistryConfig represents the .stego/config.yaml file.

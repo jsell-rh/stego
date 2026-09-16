@@ -96,6 +96,8 @@ type ReconcilerInput struct {
 
 	// RegistryDir is the path to the registry directory.
 	RegistryDir string
+	// RegistryDirs selects all composed sources. If empty, RegistryDir is used.
+	RegistryDirs []string
 
 	// Generators maps component name to its Generator implementation.
 	Generators map[string]gen.Generator
