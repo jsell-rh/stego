@@ -46,7 +46,26 @@ Hypershell test change `d0b4a71` clicks the visible editor and checks keyboard
 focus. It captures bounded policy directive names before page scripts run and
 reserves room for those diagnostics. The application content policy is unchanged.
 [Live run 35162964198](https://github.com/jsell-rh/hypershell-stego/actions/runs/35162964198)
-is active at `7c08e61`. No result from that run is claimed.
+at `7c08e61` failed after 279.95 seconds. Native editor focus passed. The
+screenshot shows `{}` after the test entered an opening brace: editor pairing
+made the test input valid JSON. Hypershell `4d812fa` changes the input to
+`{invalid` and checks that it appears before checking rejection. Syntax checks
+passed; the revised interaction has not run in the cluster.
+
+The early listener also recorded `style-src-elem` and `style-src-attr`
+violations. The screenshot shows incomplete editor styling. This is a separate
+integration defect; the input correction does not resolve it. A checked common
+solution for dynamic styles is still required. No content-policy rule changed.
+The document's policy record does not establish worker behavior. Later recovery,
+viewer revocation, full telemetry correlation, and deletion remain unproved.
+All 404 repeated-generation hashes matched. CI retained the failure artifacts.
+Independent cleanup passed at `2026-09-16T23:51:44.244591Z`, with an empty lease.
+
+The separate [full CI run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161492272)
+at runtime revision `399a41b` passed its core, browser, web-console, and service
+image jobs. It recorded 302 passing top-level Go tests and four skipped live
+tests. CNPG and Sandbox jobs were not selected. These results do not replace
+the failed live application check.
 
 ## Earlier live checks
 
