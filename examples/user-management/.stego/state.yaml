@@ -28,13 +28,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260916120921-07b93687e28e
+        module_version: v0.0.0-20260916121958-e01e624f26c5
         vcs: git
-        revision: 07b93687e28e018fab5b4728dd09caa92e713d00
+        revision: e01e624f26c58e9ff33e7dc1422b540cb70381ee
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 95cbcee9c58ddc2e8db9bdbf9ce16422b03cb0b93d63db248ed5119e870e0752
+    registry_content_sha256: 1063cbd97ac97efbac613d3a540aa71691e18ef04a97fcfb45fc967bf08ce47d
     components:
         health-check:
             version: 1.0.0
