@@ -99,3 +99,10 @@ Full compiler CI remains pending. The superseded run `35103083212` is canceled.
 The earlier adapter 4.8.1 and controller scan sequence passed all five checks in
 run `35102404039`. STEGO main was advanced to its tested source `60ebe0a`. The
 scope closure candidate is still on the feature branch pending full checks.
+
+All six jobs in run `35103461720` passed at `cc6b906`. This includes the full
+compiler race suite, both examples, real Keycloak, PostgreSQL provisioning,
+and the focused scope and state-key checks with the corrected CI wrapper.
+The default branch now includes this code and its evidence at `8db1fa5`.
+The result record is `scope-full-ci-success.json` in the Gateway cleanup run
+directory. The later provider closure operation is a separate candidate.
