@@ -336,3 +336,40 @@ separate work.
 Services can also declare a separate namespace allocator worker. See
 [Namespace allocation](namespace-allocation.md) for profiles, permissions,
 admission checks, lifecycle behavior, and cluster test requirements.
+
+## Go deployment API
+
+Version 1.17 adds package `deployment` at `out/deploy`. A controller can import
+this package. The command at `out/deploy/render` uses the same checked renderer.
+Its flags and JSON template paths remain unchanged.
+
+`Render(Options)` returns a complete Kubernetes List as JSON. Set `Image`,
+`Namespace`, and `FSGroup` explicitly. An empty `Scope` means `all`. `Worker`
+and `RPCProcess` select declared workloads and cannot be combined. `Egress`
+contains at most 32 `EndpointBinding` values with typed `netip.AddrPort`
+addresses. These values pass the same declaration and address checks as command
+arguments. The renderer makes no network calls and starts no processes. An
+invalid option returns no output.
+
+`Resources(Options)` returns objects with checked API collection paths. Each
+object retains JSON numbers as `json.Number`. This method requires one to eight
+`OwnerLabels`. Each label must have a qualified key and a nonempty valid value.
+The `kubernetes.io`, `k8s.io`, and `stego.dev` prefixes and their subdomains are
+reserved. An owner label cannot replace a different generated label. Owner
+labels apply to resource metadata; they do not change Pod or Service selectors.
+
+The caller owns each returned map. A change to a returned object or to the
+options after a call does not change other results or subsequent calls. Each
+call uses its own render state. The caller must not change the input maps or
+slices while a call reads them.
+
+Rendering does not prove ownership of an existing cluster object. Use the
+returned collection path and object with the generated Kubernetes client's
+`Ensure` method and the same owner labels. That client checks existing ownership
+and rejects adoption. The controller still selects the application identity,
+target namespace, workload, and desired lifecycle state.
+
+Small local checks cover the imported API, command compatibility, all generated
+resource kinds, namespace scopes, owner conflicts, invalid options, independent
+results, and four concurrent calls under race detection. The full compiler CI
+result is required before this version is used by the application.

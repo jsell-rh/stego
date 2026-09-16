@@ -69,10 +69,10 @@ func TestGeneratedAllocationEndpointRenderer(t *testing.T) {
 		if file.Path != repeated[i].Path || !bytes.Equal(file.Bytes(), repeated[i].Bytes()) {
 			t.Fatal("endpoint generation differs")
 		}
-		if !strings.HasPrefix(file.Path, "deploy/render/") {
+		if file.Path != "deploy/resources.go" && !strings.HasPrefix(file.Path, "deploy/render/") {
 			continue
 		}
-		target := filepath.Join(dir, file.Path)
+		target := filepath.Join(dir, "out", file.Path)
 		if err = os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -80,13 +80,13 @@ func TestGeneratedAllocationEndpointRenderer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err = os.WriteFile(filepath.Join(dir, "deploy/render/endpoints_test.go"), allocationEndpointRendererTests, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "out/deploy/render/endpoints_test.go"), allocationEndpointRendererTests, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("go", "test", "-p=1", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./deploy/render")
+	cmd := exec.Command("go", "test", "-p=1", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/deploy/render")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {

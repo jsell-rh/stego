@@ -1,4 +1,4 @@
-package main
+package deployment
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ func TestDeploymentScopePartition(t *testing.T) {
 	for _, target := range [][]string{{"--egress", "kubernetes=10.0.0.1:443"}, {"--worker", "queue", "--egress", "kubernetes=10.0.0.1:443"}, {"--rpc-process", "records"}} {
 		args := append(append([]string{}, base...), target...)
 		var original bytes.Buffer
-		if err := render(args, &original); err != nil {
+		if err := RenderCommand(args, &original); err != nil {
 			t.Fatal(err)
 		}
 		var complete struct{ Items []map[string]any }
@@ -24,10 +24,10 @@ func TestDeploymentScopePartition(t *testing.T) {
 		for _, scope := range []string{"all", "cluster", "namespace"} {
 			selected := append(append([]string{}, args...), "--scope", scope)
 			var output, repeated bytes.Buffer
-			if err := render(selected, &output); err != nil {
+			if err := RenderCommand(selected, &output); err != nil {
 				t.Fatal(err)
 			}
-			if err := render(selected, &repeated); err != nil || !bytes.Equal(output.Bytes(), repeated.Bytes()) {
+			if err := RenderCommand(selected, &repeated); err != nil || !bytes.Equal(output.Bytes(), repeated.Bytes()) {
 				t.Fatal("scoped output differs", err)
 			}
 			if scope == "all" && !bytes.Equal(original.Bytes(), output.Bytes()) {
@@ -55,7 +55,7 @@ func TestDeploymentScopePartition(t *testing.T) {
 		}
 		for _, scope := range []string{"", "unknown", "Cluster"} {
 			var output bytes.Buffer
-			if err := render(append(append([]string{}, args...), "--scope", scope), &output); err == nil || output.Len() != 0 {
+			if err := RenderCommand(append(append([]string{}, args...), "--scope", scope), &output); err == nil || output.Len() != 0 {
 				t.Fatal("invalid scope emitted output")
 			}
 		}
@@ -67,7 +67,7 @@ func TestDeploymentScopePartition(t *testing.T) {
 	}
 	for _, scope := range []string{"cluster", "namespace"} {
 		var output bytes.Buffer
-		if err := render(append(append([]string{}, base...), "--worker", "queue", "--scope", scope), &output); err == nil || output.Len() != 0 {
+		if err := RenderCommand(append(append([]string{}, base...), "--worker", "queue", "--scope", scope), &output); err == nil || output.Len() != 0 {
 			t.Fatal("scope bypassed endpoint validation")
 		}
 	}
@@ -91,5 +91,15 @@ func TestDeploymentScopeRejectsUnknownOrWrongNamespace(t *testing.T) {
 				t.Fatal("invalid generated resource passed scope selection")
 			}
 		}
+	}
+}
+
+func TestResourceOwnerConflict(t *testing.T) {
+	input := []byte(`{"apiVersion":"v1","kind":"List","items":[{"apiVersion":"v1","kind":"Service","metadata":{"name":"one","namespace":"test","labels":{"example.test/owner":"old"}}}]}`)
+	if result, err := labelResources(input, map[string]string{"example.test/owner": "new"}); err == nil || result != nil {
+		t.Fatal("conflicting owner was accepted")
+	}
+	if _, err := labelResources(input, map[string]string{"example.test/owner": "old"}); err != nil {
+		t.Fatal(err)
 	}
 }

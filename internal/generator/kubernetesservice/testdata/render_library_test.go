@@ -1,0 +1,186 @@
+package deployment_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/netip"
+	"strings"
+	"testing"
+
+	deployment "example.com/widget/out/deploy"
+)
+
+func options() deployment.Options {
+	return deployment.Options{
+		Image:     "registry.example.test/team/widget@sha256:" + strings.Repeat("a", 64),
+		Namespace: "test", FSGroup: 10001,
+		Egress: []deployment.EndpointBinding{{Name: "kubernetes", Address: netip.MustParseAddrPort("10.0.0.1:443")}},
+	}
+}
+
+func TestTypedRendererMatchesCommand(t *testing.T) {
+	for _, scope := range []string{"", "all", "cluster", "namespace"} {
+		o := options()
+		o.Scope = scope
+		want, err := deployment.Render(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"--image", o.Image, "--namespace", o.Namespace, "--fs-group", "10001", "--egress", "kubernetes=10.0.0.1:443"}
+		if scope != "" {
+			args = append(args, "--scope", scope)
+		}
+		var output bytes.Buffer
+		if err := deployment.RenderCommand(args, &output); err != nil || !bytes.Equal(want, output.Bytes()) {
+			t.Fatal("command and typed output differ", err)
+		}
+		if err := deployment.RenderCommand(args, shortWriter{}); err != io.ErrShortWrite {
+			t.Fatal("short write was not reported", err)
+		}
+	}
+}
+
+type shortWriter struct{}
+
+func (shortWriter) Write(b []byte) (int, error) { return len(b) - 1, nil }
+
+func TestOwnedResources(t *testing.T) {
+	o := options()
+	o.OwnerLabels = map[string]string{"example.test/instance": "one"}
+	resources, err := ownedWorkloads(o)
+	if err != nil || len(resources) == 0 {
+		t.Fatal("owned resources failed", err)
+	}
+	collections := map[string]string{
+		"ServiceAccount": "/api/v1/namespaces/test/serviceaccounts", "Service": "/api/v1/namespaces/test/services",
+		"Deployment": "/apis/apps/v1/namespaces/test/deployments", "NetworkPolicy": "/apis/networking.k8s.io/v1/namespaces/test/networkpolicies",
+		"Role": "/apis/rbac.authorization.k8s.io/v1/namespaces/test/roles", "RoleBinding": "/apis/rbac.authorization.k8s.io/v1/namespaces/test/rolebindings",
+		"ClusterRole": "/apis/rbac.authorization.k8s.io/v1/clusterroles", "ClusterRoleBinding": "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings",
+		"ValidatingAdmissionPolicy":        "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies",
+		"ValidatingAdmissionPolicyBinding": "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings",
+	}
+	seen := map[string]bool{}
+	for _, r := range resources {
+		seen[r.Kind] = true
+		if r.Collection != collections[r.Kind] || r.Name == "" || r.APIVersion == "" {
+			t.Fatal("resource identity differs", r.Kind)
+		}
+		meta := r.Object["metadata"].(map[string]any)
+		if meta["name"] != r.Name || meta["labels"].(map[string]any)["example.test/instance"] != "one" {
+			t.Fatal("resource owner differs")
+		}
+		if strings.Contains(r.Collection, "/namespaces/") && r.Namespace != "test" {
+			t.Fatal("resource namespace differs")
+		}
+		if r.Kind == "Deployment" {
+			spec := r.Object["spec"].(map[string]any)
+			pod := spec["template"].(map[string]any)
+			group := pod["spec"].(map[string]any)["securityContext"].(map[string]any)["fsGroup"]
+			if group != json.Number("10001") {
+				t.Fatalf("number lost its type: %T", group)
+			}
+			labels := pod["metadata"].(map[string]any)["labels"].(map[string]any)
+			if _, exists := labels["example.test/instance"]; exists {
+				t.Fatal("owner changed Pod selectors")
+			}
+		}
+	}
+	for kind := range collections {
+		if !seen[kind] {
+			t.Fatal("missing resource kind", kind)
+		}
+	}
+	before, _ := json.Marshal(resources)
+	o.OwnerLabels["example.test/instance"] = "two"
+	after, _ := json.Marshal(resources)
+	if !bytes.Equal(before, after) {
+		t.Fatal("options changed returned resources")
+	}
+	resources[0].Object["metadata"].(map[string]any)["labels"].(map[string]any)["example.test/instance"] = "changed"
+	if len(resources) > 1 && resources[1].Object["metadata"].(map[string]any)["labels"].(map[string]any)["example.test/instance"] != "one" {
+		t.Fatal("resource labels share storage")
+	}
+	o.OwnerLabels["example.test/instance"] = "one"
+	repeated, err := ownedWorkloads(o)
+	encoded, _ := json.Marshal(repeated)
+	if err != nil || !bytes.Equal(before, encoded) {
+		t.Fatal("returned mutation changed next render", err)
+	}
+}
+
+func ownedWorkloads(o deployment.Options) ([]deployment.Resource, error) {
+	resources, err := deployment.Resources(o)
+	if err != nil {
+		return nil, err
+	}
+	o.Worker = "queue"
+	worker, err := deployment.Resources(o)
+	if err != nil {
+		return nil, err
+	}
+	return append(resources, worker...), nil
+}
+
+func TestTypedRendererRejectsInvalidOptions(t *testing.T) {
+	mutations := map[string]func(*deployment.Options){
+		"group":              func(o *deployment.Options) { o.FSGroup = 0 },
+		"scope":              func(o *deployment.Options) { o.Scope = "unknown" },
+		"namespace":          func(o *deployment.Options) { o.Namespace = "../test" },
+		"image":              func(o *deployment.Options) { o.Image = "registry.example.test/team/widget:latest" },
+		"workload":           func(o *deployment.Options) { o.Worker = "missing" },
+		"both workloads":     func(o *deployment.Options) { o.Worker = "queue"; o.RPCProcess = "records" },
+		"endpoint count":     func(o *deployment.Options) { o.Egress = make([]deployment.EndpointBinding, 33) },
+		"endpoint absent":    func(o *deployment.Options) { o.Egress = nil },
+		"endpoint address":   func(o *deployment.Options) { o.Egress[0].Address = netip.AddrPort{} },
+		"endpoint loopback":  func(o *deployment.Options) { o.Egress[0].Address = netip.MustParseAddrPort("127.0.0.1:443") },
+		"endpoint name":      func(o *deployment.Options) { o.Egress[0].Name = "kubernetes=1.2.3.4:443" },
+		"endpoint duplicate": func(o *deployment.Options) { o.Egress = append(o.Egress, o.Egress[0]) },
+		"owner count": func(o *deployment.Options) {
+			o.OwnerLabels = map[string]string{}
+			for i := 0; i < 9; i++ {
+				o.OwnerLabels[fmt.Sprintf("example.test/owner%d", i)] = "one"
+			}
+		},
+	}
+	for _, key := range []string{"plain", "stego.dev/owner", "k8s.io/owner", "app.kubernetes.io/name", "Bad..test/owner", "example.test/path/extra"} {
+		mutations["owner key "+key] = func(o *deployment.Options) { o.OwnerLabels = map[string]string{key: "one"} }
+	}
+	for _, value := range []string{"", "../one", strings.Repeat("a", 64)} {
+		mutations["owner value "+value] = func(o *deployment.Options) { o.OwnerLabels = map[string]string{"example.test/owner": value} }
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			o := options()
+			mutate(&o)
+			if result, err := deployment.Render(o); err == nil || result != nil {
+				t.Fatal("invalid options emitted output")
+			}
+		})
+	}
+	if result, err := deployment.Resources(options()); err == nil || result != nil {
+		t.Fatal("controller resources lack an owner")
+	}
+}
+
+func TestIndependentRenders(t *testing.T) {
+	for i := 0; i < 4; i++ {
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			t.Parallel()
+			o := options()
+			o.Namespace = fmt.Sprintf("target-%d", i)
+			o.Scope = "namespace"
+			o.OwnerLabels = map[string]string{"example.test/instance": o.Namespace}
+			resources, err := deployment.Resources(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range resources {
+				if r.Namespace != o.Namespace || r.Object["metadata"].(map[string]any)["labels"].(map[string]any)["example.test/instance"] != o.Namespace {
+					t.Fatal("renders share data")
+				}
+			}
+		})
+	}
+}

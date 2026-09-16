@@ -1,4 +1,4 @@
-package main
+package deployment
 
 import (
  "bytes"
@@ -10,7 +10,6 @@ import (
  "fmt"
  "io"
  "net/netip"
- "os"
  "regexp"
  "sort"
  "strconv"
@@ -18,10 +17,10 @@ import (
  "text/template"
 )
 
-//go:embed *.json.tmpl
+//go:embed render/*.json.tmpl
 var manifests embed.FS
 
-func render(args []string, output io.Writer) error {
+func RenderCommand(args []string, output io.Writer) error {
  flags:=flag.NewFlagSet("render",flag.ContinueOnError)
  flags.SetOutput(io.Discard)
  image:=flags.String("image","","Image with an explicit registry and SHA-256 digest")
@@ -33,24 +32,70 @@ func render(args []string, output io.Writer) error {
  var external endpointFlags
  flags.Var(&external,"egress","Declared external endpoint: NAME=IP:PORT; use brackets for IPv6")
  if err:=flags.Parse(args);err!=nil{return fmt.Errorf("invalid deployment arguments")}
- if *scope!="all"&&*scope!="cluster"&&*scope!="namespace"{return fmt.Errorf("invalid deployment scope")}
+ if flags.NArg()!=0||output==nil||*scope==""{return fmt.Errorf("invalid deployment arguments")}
+ bindings:=make([]EndpointBinding,0,len(external))
+ for _,value:=range external{
+  name,address,ok:=strings.Cut(value,"=");endpoint,err:=netip.ParseAddrPort(address)
+  if !ok||err!=nil{return fmt.Errorf("invalid external endpoint")}
+  bindings=append(bindings,EndpointBinding{Name:name,Address:endpoint})
+ }
+ data,err:=Render(Options{Image:*image,Namespace:*namespace,FSGroup:*group,Scope:*scope,Worker:*worker,RPCProcess:*rpc,Egress:bindings})
+ if err!=nil{return err}
+ n,err:=output.Write(data);if err==nil&&n!=len(data){return io.ErrShortWrite};return err
+}
+
+// EndpointBinding binds one declared external destination to a literal address.
+// Render accepts at most 32 bindings. Addresses cannot be loopback or link-local.
+type EndpointBinding struct{Name string;Address netip.AddrPort}
+
+// Options selects one generated workload and its deployment context. FSGroup
+// must be explicit and nonzero. An empty Scope selects all generated resources.
+type Options struct{
+ Image,Namespace string
+ FSGroup uint64
+ Scope,Worker,RPCProcess string
+ Egress []EndpointBinding
+ OwnerLabels map[string]string
+}
+
+// Render returns the complete checked resource list. It has no network or
+// process side effects. An invalid option returns no output. Each call owns its
+// result and does not change the options or the embedded resource definitions.
+func Render(options Options)([]byte,error){
+ var output bytes.Buffer
+ if options.Scope==""{options.Scope="all"}
+ if err:=renderOptions(options,&output);err!=nil{return nil,err}
+ return output.Bytes(),nil
+}
+func renderOptions(o Options,output io.Writer)error{
+ if err:=validateOwnerLabels(o.OwnerLabels);err!=nil{return err}
+ if len(o.Egress)>32{return fmt.Errorf("external endpoint limit exceeded")}
+ external:=make(endpointFlags,0,len(o.Egress))
+ for _,binding:=range o.Egress{
+  if !binding.Address.IsValid()||len(binding.Name)>63{return fmt.Errorf("invalid external endpoint")}
+  value:=binding.Name+"="+binding.Address.String()
+  if len(value)>160{return fmt.Errorf("external endpoint limit exceeded")}
+  external=append(external,value)
+ }
+ if o.Scope!="all"&&o.Scope!="cluster"&&o.Scope!="namespace"{return fmt.Errorf("invalid deployment scope")}
  imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
- if flags.NArg()!=0||len(*image)>2048||!imagePattern.MatchString(*image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*namespace)||*group==0||*group>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
- registry,_,_:=strings.Cut(*image,"/")
+ if len(o.Image)>2048||!imagePattern.MatchString(o.Image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(o.Namespace)||o.FSGroup==0||o.FSGroup>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
+ registry,_,_:=strings.Cut(o.Image,"/")
  host,port,hasPort:=strings.Cut(registry,":")
  if len(host)>253 || (host!="localhost"&&!strings.Contains(host,".")&&!hasPort){return fmt.Errorf("image requires an explicit registry")}
  for _,part:=range strings.Split(host,"."){if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(part){return fmt.Errorf("invalid image registry")}}
  if hasPort{number,err:=strconv.Atoi(port);if err!=nil||number<1||number>65535{return fmt.Errorf("invalid registry port")}}
- if *worker!=""&&*rpc!=""{return fmt.Errorf("select one workload")}
+ if o.Worker!=""&&o.RPCProcess!=""{return fmt.Errorf("select one workload")}
  name:="manifest.json.tmpl"
- if *worker!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*worker){return fmt.Errorf("invalid worker")};name="worker-"+*worker+".json.tmpl"}
- if *rpc!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(*rpc){return fmt.Errorf("invalid RPC process")};name="rpc-"+*rpc+".json.tmpl"}
- manifest,err:=manifests.ReadFile(name);if err!=nil{return fmt.Errorf("unknown workload")}
+ if o.Worker!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(o.Worker){return fmt.Errorf("invalid worker")};name="worker-"+o.Worker+".json.tmpl"}
+ if o.RPCProcess!=""{if !regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(o.RPCProcess){return fmt.Errorf("invalid RPC process")};name="rpc-"+o.RPCProcess+".json.tmpl"}
+ manifest,err:=manifests.ReadFile("render/"+name);if err!=nil{return fmt.Errorf("unknown workload")}
  tmpl,err:=template.New("deployment").Funcs(template.FuncMap{"allocationID":func(namespace, service string)string{value:=sha256.Sum256([]byte(namespace+"."+service));return hex.EncodeToString(value[:16])}}).Option("missingkey=error").Parse(string(manifest));if err!=nil{return fmt.Errorf("invalid generated deployment")}
  var result bytes.Buffer
- if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{*image,*namespace,*group});err!=nil{return fmt.Errorf("cannot render deployment")}
+ if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{o.Image,o.Namespace,o.FSGroup});err!=nil{return fmt.Errorf("cannot render deployment")}
  completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}
- completed,err=selectDeploymentScope(completed,*scope,*namespace);if err!=nil{return err}
+ completed,err=selectDeploymentScope(completed,o.Scope,o.Namespace);if err!=nil{return err}
+ completed,err=labelResources(completed,o.OwnerLabels);if err!=nil{return err}
  _,err=output.Write(append(completed,'\n'));return err
 }
 
@@ -69,12 +114,8 @@ func selectDeploymentScope(input []byte,scope,namespace string)([]byte,error){
  for _,item:=range items{
   var header struct{APIVersion string `json:"apiVersion"`;Kind string `json:"kind"`;Metadata struct{Name string `json:"name"`;Namespace string `json:"namespace"`} `json:"metadata"`}
   if json.Unmarshal(item,&header)!=nil||header.Metadata.Name==""{return nil,fmt.Errorf("invalid generated resource")}
-  resourceScope:=""
-  switch header.APIVersion+"/"+header.Kind{
-  case "v1/ServiceAccount","v1/Service","apps/v1/Deployment","networking.k8s.io/v1/NetworkPolicy","rbac.authorization.k8s.io/v1/Role","rbac.authorization.k8s.io/v1/RoleBinding":resourceScope="namespace"
-  case "rbac.authorization.k8s.io/v1/ClusterRole","rbac.authorization.k8s.io/v1/ClusterRoleBinding","admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy","admissionregistration.k8s.io/v1/ValidatingAdmissionPolicyBinding":resourceScope="cluster"
-  default:return nil,fmt.Errorf("unknown generated resource scope")
-  }
+  _,namespaced,known:=resourceType(header.APIVersion,header.Kind);if !known{return nil,fmt.Errorf("unknown generated resource scope")}
+  resourceScope:="cluster";if namespaced{resourceScope="namespace"}
   if resourceScope=="cluster"&&header.Metadata.Namespace!=""||resourceScope=="namespace"&&(namespace==""||header.Metadata.Namespace!=namespace){return nil,fmt.Errorf("generated resource namespace differs")}
   if resourceScope==scope{selected=append(selected,item)}
  }
@@ -210,4 +251,76 @@ func completeAllocationEndpointItem(item map[string]json.RawMessage,bindings map
  return result,nil
 }
 
-func main(){if err:=render(os.Args[1:],os.Stdout);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}
+
+// Resource is one generated object and its checked API collection path. Object
+// numbers use json.Number. Callers own each object and can pass it to Ensure.
+type Resource struct {
+ APIVersion,Kind,Name,Namespace,Collection string
+ Object map[string]any
+}
+
+// Resources prepares owned objects for a controller. It requires explicit
+// owner labels. It does not discover, adopt, apply, or delete cluster objects.
+func Resources(options Options)([]Resource,error){
+ if len(options.OwnerLabels)==0{return nil,fmt.Errorf("controller resources require owner labels")}
+ data,err:=Render(options);if err!=nil{return nil,err}
+ decoder:=json.NewDecoder(bytes.NewReader(data));decoder.UseNumber()
+ var document struct{Items []map[string]any `json:"items"`}
+ if err:=decoder.Decode(&document);err!=nil{return nil,fmt.Errorf("invalid rendered resource list")}
+ result:=make([]Resource,0,len(document.Items))
+ for _,object:=range document.Items{
+  version,_:=object["apiVersion"].(string);kind,_:=object["kind"].(string)
+  meta,_:=object["metadata"].(map[string]any);name,_:=meta["name"].(string);namespace,_:=meta["namespace"].(string)
+  plural,namespaced,known:=resourceType(version,kind)
+  if !known||!regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`).MatchString(name){return nil,fmt.Errorf("invalid generated resource identity")}
+  if namespaced&&namespace!=options.Namespace||!namespaced&&namespace!=""{return nil,fmt.Errorf("generated resource namespace differs")}
+  collection:="/apis/"+version;if version=="v1"{collection="/api/v1"}
+  if namespaced{collection+="/namespaces/"+namespace};collection+="/"+plural
+  result=append(result,Resource{APIVersion:version,Kind:kind,Name:name,Namespace:namespace,Collection:collection,Object:object})
+ }
+ return result,nil
+}
+func resourceType(version,kind string)(string,bool,bool){
+ switch version+"/"+kind{
+ case "v1/ServiceAccount":return "serviceaccounts",true,true
+ case "v1/Service":return "services",true,true
+ case "apps/v1/Deployment":return "deployments",true,true
+ case "networking.k8s.io/v1/NetworkPolicy":return "networkpolicies",true,true
+ case "rbac.authorization.k8s.io/v1/Role":return "roles",true,true
+ case "rbac.authorization.k8s.io/v1/RoleBinding":return "rolebindings",true,true
+ case "rbac.authorization.k8s.io/v1/ClusterRole":return "clusterroles",false,true
+ case "rbac.authorization.k8s.io/v1/ClusterRoleBinding":return "clusterrolebindings",false,true
+ case "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy":return "validatingadmissionpolicies",false,true
+ case "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicyBinding":return "validatingadmissionpolicybindings",false,true
+ }
+ return "",false,false
+}
+func validateOwnerLabels(labels map[string]string)error{
+ if len(labels)>8{return fmt.Errorf("owner label limit exceeded")}
+ name:=regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$`)
+ part:=regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+ for key,value:=range labels{
+  prefix,suffix,qualified:=strings.Cut(key,"/")
+  if len(key)>253||!qualified||!name.MatchString(suffix)||!name.MatchString(value){return fmt.Errorf("owner labels require qualified keys and bounded values")}
+  for _,reserved:=range []string{"kubernetes.io","k8s.io","stego.dev"}{if prefix==reserved||strings.HasSuffix(prefix,"."+reserved){return fmt.Errorf("owner label prefix is reserved")}}
+  for _,segment:=range strings.Split(prefix,"."){if !part.MatchString(segment){return fmt.Errorf("invalid owner label prefix")}}
+ }
+ return nil
+}
+func labelResources(input []byte,labels map[string]string)([]byte,error){
+ if len(labels)==0{return input,nil}
+ var document map[string]json.RawMessage
+ if json.Unmarshal(input,&document)!=nil{return nil,fmt.Errorf("invalid generated deployment")}
+ var items []map[string]json.RawMessage
+ if json.Unmarshal(document["items"],&items)!=nil||items==nil{return nil,fmt.Errorf("invalid generated resources")}
+ for _,item:=range items{
+  var meta map[string]json.RawMessage
+  if json.Unmarshal(item["metadata"],&meta)!=nil||meta==nil{return nil,fmt.Errorf("invalid generated metadata")}
+  existing:=map[string]string{}
+  if raw,ok:=meta["labels"];ok{if json.Unmarshal(raw,&existing)!=nil||existing==nil{return nil,fmt.Errorf("invalid generated labels")}}
+  for key,value:=range labels{if old,ok:=existing[key];ok&&old!=value{return nil,fmt.Errorf("owner label conflicts with generated metadata")};existing[key]=value}
+  meta["labels"],_=json.Marshal(existing);item["metadata"],_=json.Marshal(meta)
+ }
+ document["items"],_=json.Marshal(items)
+ result,err:=json.MarshalIndent(document,"","  ");if err!=nil{return nil,fmt.Errorf("cannot encode owned resources")};return result,nil
+}
