@@ -281,14 +281,19 @@ func TestExplicitEmptyResponses(t *testing.T) {
 	if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	var response string
-	var code int
-	calls := 0
+	type reply struct {
+		code int
+		body string
+	}
+	var selected atomic.Value
+	selected.Store(reply{code: 202})
+	var calls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(code)
-		w.Write([]byte(response))
+		response := selected.Load().(reply)
+		w.WriteHeader(response.code)
+		w.Write([]byte(response.body))
 	}))
 	defer server.Close()
 	ca := filepath.Join(dir, "ca.pem")
@@ -320,7 +325,7 @@ func TestExplicitEmptyResponses(t *testing.T) {
 			app.Commands = app.Commands[3:]
 			app.Commands[0].Success = []int{202, 204, 205}
 			app.Commands[0].EmptyResponses = test.empty
-			code, response = test.status, test.body
+			selected.Store(reply{code: test.status, body: test.body})
 			output.Reset()
 			err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output)
 			if (err != nil) != test.wantError {
@@ -329,7 +334,7 @@ func TestExplicitEmptyResponses(t *testing.T) {
 			if test.wantError && output.Len() != 0 {
 				t.Fatal("failed response wrote output")
 			}
-			if !test.wantError && response == "" && output.Len() != 0 {
+			if !test.wantError && test.body == "" && output.Len() != 0 {
 				t.Fatal("empty response wrote output")
 			}
 		})
@@ -339,8 +344,8 @@ func TestExplicitEmptyResponses(t *testing.T) {
 		app.Commands = app.Commands[3:]
 		app.Commands[0].Success = []int{202, 204, 205}
 		app.Commands[0].EmptyResponses = empty
-		before := calls
-		if err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output); err == nil || calls != before {
+		before := calls.Load()
+		if err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output); err == nil || calls.Load() != before {
 			t.Fatal("invalid declaration reached the server", err)
 		}
 	}
