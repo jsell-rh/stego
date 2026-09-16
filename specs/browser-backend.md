@@ -251,3 +251,12 @@ The Hypershell dashboard source build exposed the missing type with its local
 Monaco font. Its first local-editor bundle also exceeded the file-count limit.
 That build must select only its required languages before adoption. The asset
 limits do not change to accommodate a consumer build.
+
+The change passed [all six compiler CI jobs](https://github.com/jsell-rh/stego/actions/runs/35160694463)
+at `8e0fae6f28276e192e8497c8acad487c765f3bb5`. The generated browser runtime
+passed its race tests with PostgreSQL required. The Hypershell dashboard
+[source and image checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35160712345)
+also passed. Its selected editor build has 74 assets and a 2,200,732-byte bundle.
+The captured assets, repeat capture, generated source, and published image were
+checked against the build inputs. Editor rendering and later live workflow
+checks remain open.
