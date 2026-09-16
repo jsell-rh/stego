@@ -16,6 +16,17 @@ import (
 	"time"
 )
 
+func TestAuthorizationRequestUsesDeclaredScopes(t *testing.T) {
+	f := setup(t)
+	for _, scopes := range []string{"openid", "openid email profile records:read"} {
+		f.backend.config.OAuthScope = scopes
+		w := send(f.backend, "GET", "/auth/login", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
+		require(t, w.Code == 302, "declared scope login failed")
+		target, err := url.Parse(w.Header().Get("Location"))
+		require(t, err == nil && target.Query().Get("scope") == scopes, "authorization request changed declared scopes")
+	}
+}
+
 func TestLoginProxyRestartLogout(t *testing.T) {
 	f := setup(t)
 	active, csrf := login(t, f)

@@ -1,8 +1,13 @@
 kind: component
 name: browser-backend
-version: 2.2.0
+version: 3.0.0
 output_namespace: browser
 config:
+  additional_scopes:
+    type: list
+    optional: true
+    items:
+      type: string
   telemetry_service_name:
     type: string
     optional: true

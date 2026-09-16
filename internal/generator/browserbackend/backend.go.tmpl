@@ -29,7 +29,7 @@ const LoginCookie="__Host-Http-stego_login"
 const CSRFHeader="X-CSRF-Token"
 
 type asset struct{Source,Path,Hash string}
-type configuration struct{RuntimeConfigOffset int;Prefix,RolesClaim,LogoutScope,TelemetryService string;Routes []string;Assets []asset;ScriptHashes []string}
+type configuration struct{RuntimeConfigOffset int;Prefix,RolesClaim,LogoutScope,TelemetryService,OAuthScope string;Routes []string;Assets []asset;ScriptHashes []string}
 type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFile,KeyFile string}
 type Backend struct{ {{if .LocalApplication}}sockets socketSet;{{end}}telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 

@@ -58,6 +58,31 @@ func TestGeneration(t *testing.T) {
 		}
 	}
 }
+func TestAuthorizationScopes(t *testing.T) {
+	g := new(Generator)
+	config := fixture().ComponentConfig
+	s, err := g.config(config)
+	if err != nil || s.OAuthScope != "openid" {
+		t.Fatal("default login requests additional privileges", err)
+	}
+	config["additional_scopes"] = []any{"profile", "email", "records:read"}
+	s, err = g.config(config)
+	if err != nil || s.OAuthScope != "openid email profile records:read" {
+		t.Fatal("declared scopes differ", err)
+	}
+	for _, value := range []any{nil, "email", []any{""}, []any{"openid"}, []any{"offline_access"}, []any{"email", "email"}, []any{"profile email"}, []any{"email\n"}, []any{true}, []any{strings.Repeat("a", 129)}, []any{"a", "b", "c", "d", "e", "f", "g", "h"}} {
+		config["additional_scopes"] = value
+		if _, err := g.config(config); err == nil {
+			t.Fatalf("invalid scope declaration accepted: %#v", value)
+		}
+	}
+	config["additional_scopes"] = []any{}
+	s, err = g.config(config)
+	if err != nil || s.OAuthScope != "openid" {
+		t.Fatal("empty additional scopes changed OpenID login", err)
+	}
+}
+
 func TestInvalidConfig(t *testing.T) {
 	cases := map[string]func(*gen.Context){
 		"telemetry service":  func(c *gen.Context) { c.ComponentConfig["telemetry_service_name"] = "invalid service" },

@@ -38,11 +38,14 @@ func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile 
 	browser := newNativeBrowser(t, c, ctx, caFile)
 	authPath := "/realms/provider-test/protocol/openid-connect/auth"
 	tokenPath := "/realms/provider-test/protocol/openid-connect/token"
-	for _, bad := range []string{"missing-pkce", "foreign-redirect", "wildcard-path"} {
+	for _, bad := range []string{"missing-pkce", "foreign-redirect", "wildcard-path", "unassigned-scope"} {
 		query := url.Values{"client_id": {b.ClientID}, "response_type": {"code"}, "scope": {"openid"}, "redirect_uri": {base.RedirectURI}, "state": {"browser-test"}}
 		if bad != "missing-pkce" {
 			query.Set("code_challenge", strings.Repeat("a", 43))
 			query.Set("code_challenge_method", "S256")
+		}
+		if bad == "unassigned-scope" {
+			query.Set("scope", "openid profile email")
 		}
 		if bad == "foreign-redirect" {
 			query.Set("redirect_uri", "https://foreign.example.test/auth/callback")
@@ -51,11 +54,15 @@ func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile 
 			query.Set("redirect_uri", base.RedirectURI+"/other")
 		}
 		status, headers, _ := browser(http.MethodGet, authPath+"?"+query.Encode(), nil)
-		if status == 400 && headers.Get("Location") == "" {
+		if bad != "unassigned-scope" && status == 400 && headers.Get("Location") == "" {
 			continue
 		}
 		target, e := url.Parse(headers.Get("Location"))
-		if bad != "missing-pkce" || e != nil || (status != 302 && status != 303) || target.Query().Get("error") != "invalid_request" || target.Query().Get("code") != "" {
+		wantError := "invalid_request"
+		if bad == "unassigned-scope" {
+			wantError = "invalid_scope"
+		}
+		if (bad != "missing-pkce" && bad != "unassigned-scope") || e != nil || (status != 302 && status != 303) || target.Query().Get("error") != wantError || target.Query().Get("code") != "" {
 			t.Fatal("unsafe browser authorization accepted", bad, status)
 		}
 	}

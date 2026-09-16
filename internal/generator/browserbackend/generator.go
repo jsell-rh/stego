@@ -40,15 +40,16 @@ func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
 
 type asset struct{ Source, Path, Hash string }
 type settings struct {
-	RuntimeConfigOffset                               int
-	Prefix, RolesClaim, LogoutScope, TelemetryService string
-	Routes                                            []string
-	Assets                                            []asset
-	Bundle                                            string `json:"-"`
-	ScriptHashes                                      []string
+	RuntimeConfigOffset                                           int
+	Prefix, RolesClaim, LogoutScope, TelemetryService, OAuthScope string
+	Routes                                                        []string
+	Assets                                                        []asset
+	Bundle                                                        string `json:"-"`
+	ScriptHashes                                                  []string
 }
 
 var publicPath = regexp.MustCompile(`^/[A-Za-z0-9_./{}-]*$`)
+var scopeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._/-]{0,127}$`)
 
 func (g *Generator) config(values map[string]any) (settings, error) {
 	var s settings
@@ -56,8 +57,29 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 		return s, fmt.Errorf("local application port must be 1024 through 65535")
 	}
 	for key := range values {
-		if key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
+		if key != "additional_scopes" && key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
+		}
+	}
+	s.OAuthScope = "openid"
+	if value, present := values["additional_scopes"]; present {
+		entries, ok := value.([]any)
+		if !ok || len(entries) > 7 {
+			return s, fmt.Errorf("browser additional_scopes requires zero through seven scopes")
+		}
+		seen := map[string]bool{"openid": true, "offline_access": true}
+		var scopes []string
+		for _, raw := range entries {
+			scope, ok := raw.(string)
+			if !ok || !scopeName.MatchString(scope) || seen[scope] {
+				return s, fmt.Errorf("invalid, duplicate, or unsupported browser scope")
+			}
+			seen[scope] = true
+			scopes = append(scopes, scope)
+		}
+		sort.Strings(scopes)
+		if len(scopes) > 0 {
+			s.OAuthScope += " " + strings.Join(scopes, " ")
 		}
 	}
 	if value, present := values["telemetry_service_name"]; present {

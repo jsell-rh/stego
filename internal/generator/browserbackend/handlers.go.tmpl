@@ -24,7 +24,7 @@ func(b *Backend)login(w http.ResponseWriter,r *http.Request){
  if old:=cookieID(r,LoginCookie);old!=""{if err:=b.store.remove(r.Context(),old);err!=nil{failure(w,503);return}}
  if err:=b.store.create(r.Context(),id,value);err!=nil{failure(w,503);return}
  target,err:=url.Parse(b.provider.metadata.Authorization);if err!=nil{failure(w,503);return};values:=target.Query();challenge:=sha256.Sum256([]byte(verifier))
- for key,value:=range map[string]string{"client_id":b.provider.options.ClientID,"redirect_uri":b.origin.String()+"/auth/callback","response_type":"code","scope":"openid profile email","state":state,"nonce":nonce,"code_challenge_method":"S256","code_challenge":base64.RawURLEncoding.EncodeToString(challenge[:])}{values.Set(key,value)}
+ for key,value:=range map[string]string{"client_id":b.provider.options.ClientID,"redirect_uri":b.origin.String()+"/auth/callback","response_type":"code","scope":b.config.OAuthScope,"state":state,"nonce":nonce,"code_challenge_method":"S256","code_challenge":base64.RawURLEncoding.EncodeToString(challenge[:])}{values.Set(key,value)}
  target.RawQuery=values.Encode();setCookie(w,LoginCookie,id,300);http.Redirect(w,r,target.String(),302)
 }
 func(b *Backend)callback(w http.ResponseWriter,r *http.Request){

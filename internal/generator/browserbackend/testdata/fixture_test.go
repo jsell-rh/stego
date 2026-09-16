@@ -200,7 +200,7 @@ func (f *fakeOIDC) handle(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]string{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "key-1", "x": base64.RawURLEncoding.EncodeToString(f.key.X.FillBytes(make([]byte, 32))), "y": base64.RawURLEncoding.EncodeToString(f.key.Y.FillBytes(make([]byte, 32)))}}})
 	case "/authorize":
 		q := r.URL.Query()
-		if q.Get("client_id") != clientID || q.Get("response_type") != "code" || q.Get("redirect_uri") != origin+"/auth/callback" || q.Get("code_challenge_method") != "S256" || q.Get("state") == "" || q.Get("nonce") == "" || len(q.Get("code_challenge")) != 43 {
+		if q.Get("scope") != "openid" || q.Get("client_id") != clientID || q.Get("response_type") != "code" || q.Get("redirect_uri") != origin+"/auth/callback" || q.Get("code_challenge_method") != "S256" || q.Get("state") == "" || q.Get("nonce") == "" || len(q.Get("code_challenge")) != 43 {
 			http.Error(w, "invalid authorization request", 400)
 			return
 		}
