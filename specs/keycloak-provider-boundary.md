@@ -9,8 +9,12 @@ passed. Hypershell production source `048ff55` uses the common native-client and
 service-account lifecycles, encrypted SQL journals, and shared role mechanisms.
 The [full Gateway workflow and private API gate](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/common-account-lifecycle-20260916.md)
 passed, including provisioner replacement, real Gateway credential use, and
-confirmed cleanup. The corrected core suite and current CNPG gate still require
-results. Earlier pending records below describe their original revisions.
+confirmed cleanup. The corrected core suite and CNPG gate also passed on
+`a570dd0` in [run 35047697086](https://github.com/jsell-rh/hypershell-stego/actions/runs/35047697086).
+Core acceptance took 1382.383 seconds; the corrected orphan test passed in
+47.36 seconds. The CNPG workflow took 485.29 seconds and passed primary
+replacement, all 24 network checks, 262 unchanged generation hashes, and cleanup.
+Earlier pending records below describe their original revisions.
 
 The three main application adapter files now total 650 lines: 430 in `client.go`,
 166 in `gateway.go`, and 54 in `gateway_users.go`. Application IDs, ownership
@@ -27,8 +31,9 @@ The core suite also exposed a legacy orphan fixture error: Keycloak retains
 attributes omitted from an update. The corrected fixture first checks rejection
 of mixed current and legacy ownership, then removes the current attributes with
 explicit empty values and confirms the saved representation. Production
-ownership checks remain strict. The full rerun must pass before this fixture
-correction is qualified.
+ownership checks remain strict. The full rerun passed, including outage, API
+restart, removal of two stored clients and one orphan, and continued use of
+a different Gateway credential.
 
 Gateway cleanup still scans provider inventory and retained account history.
 Each scan and request has a bound, but the full retained-history loop can exceed
