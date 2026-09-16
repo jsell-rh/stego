@@ -93,7 +93,7 @@ symbolic links, invalid paths, and files that exceed the limits. The archive
 has stable file order and metadata. An invalid input cannot replace an existing
 bundle.
 
-Limits are 128 files, 4 MiB per expanded file, 16 MiB in total, and 1 MiB for
+Limits are 128 files, 4 MiB per expanded file, 16 MiB in total, and 4 MiB for
 the captured ZIP. The compiler reads only captured input bytes. It does not
 read a build directory during generation. The generated server permits exact
 SHA-256 hashes for inline scripts in `index.html`. Other responses do not get

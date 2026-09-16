@@ -46,7 +46,7 @@ func sources(config map[string]any) ([]source, error) {
 	return result, nil
 }
 
-func (*Generator) InputFiles(config map[string]any) ([]string, error) {
+func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
 	items, err := sources(config)
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (*Generator) InputFiles(config map[string]any) ([]string, error) {
 		}
 	}
 	sort.Strings(result)
-	return result, nil
+	return gen.SourceInputs(result), nil
 }
 
 func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {

@@ -41,7 +41,7 @@ func TestGeneration(t *testing.T) {
 		t.Fatal("generation is not stable", err)
 	}
 	inputs, err := g.InputFiles(ctx.ComponentConfig)
-	if err != nil || !reflect.DeepEqual(inputs, []string{"ui/index.html", "ui/main.js"}) {
+	if err != nil || !reflect.DeepEqual(inputs, []gen.InputFile{{Path: "ui/index.html", MaxBytes: browserassets.MaxFile}, {Path: "ui/main.js", MaxBytes: browserassets.MaxFile}}) {
 		t.Fatal(inputs, err)
 	}
 	if !wiring.NeedsDB || !wiring.ConstructorReturnsError[0] || !reflect.DeepEqual(wiring.ConstructorResources[0], []gen.Resource{gen.ServiceContext, gen.SQLDatabase}) || wiring.ConstructorDeferCalls[0] != "Close()" || !reflect.DeepEqual(wiring.BackgroundTasks, []int{0}) {
@@ -264,7 +264,7 @@ func TestAssetBundle(t *testing.T) {
 	ctx.ComponentConfig["asset_bundle"] = "ui/assets.zip"
 	ctx.Inputs = map[string][]byte{"ui/assets.zip": bundle}
 	names, err := g.InputFiles(ctx.ComponentConfig)
-	if err != nil || !reflect.DeepEqual(names, []string{"ui/assets.zip"}) {
+	if err != nil || !reflect.DeepEqual(names, []gen.InputFile{{Path: "ui/assets.zip", MaxBytes: browserassets.MaxBundle}}) {
 		t.Fatal("bundle is not captured", names, err)
 	}
 	files, _, err := g.Generate(ctx)

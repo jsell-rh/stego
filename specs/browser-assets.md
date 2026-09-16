@@ -13,7 +13,7 @@ captured archive. It does not scan the build directory or fetch files.
 The capture command sorts entries and writes fixed archive metadata. The
 command validates all input before it replaces the output file. Repeated
 capture with the same input and toolchain produces the same archive. Limits
-are 128 files, 4 MiB per expanded file, 16 MiB in total, and 1 MiB for the ZIP.
+are 128 files, 4 MiB per expanded file, 16 MiB in total, and 4 MiB for the ZIP.
 The directory walk also has a node limit. Paths, file types, archive order,
 entry sizes, and duplicate names are checked. Symbolic links are rejected.
 
@@ -40,3 +40,25 @@ with the race detector in the jshell cluster. The generated backend runtime also
 completed in 93.404 seconds. This includes a check that script hashes appear
 only on HTML responses and that broad script permissions remain disabled.
 The rendered application browser checks remain open.
+
+## Typed compiler input limits
+
+Browser backend 1.7.0 declares a 4 MiB read limit for each asset or captured ZIP.
+The compiler uses a typed input record with a path and maximum byte count.
+Protocol and callback generators still declare 1 MiB. Limits must be positive
+and at most 4 MiB. Invalid limits, paths, and repeated paths fail before input
+files are opened. The combined 8 MiB input limit and snapshot checks still apply.
+The ZIP also retains its 128-file, 4 MiB expanded-file, and 16 MiB expanded-total
+limits. Service YAML cannot change these limits.
+
+The real upstream dashboard exposed the earlier mismatch in
+[run 35109019035](https://github.com/jsell-rh/hypershell-stego/actions/runs/35109019035).
+Its updated Go and JavaScript dependency checks passed. The UI built and all
+eight selected router tests passed. Its split assets then exceeded the former
+1 MiB ZIP limit. The source check did not pass. This change must pass full
+compiler CI and that real asset check before qualification.
+
+Small checks cover a bundle above 1 MiB, stable encoding and decoding, captured
+size rejection, unchanged protocol limits, invalid declarations, the combined
+input limit, and a changed large source before apply. These checks do not prove
+the complete rendered dashboard workflow.

@@ -15,8 +15,8 @@ import (
 
 type manifestInputGenerator struct{}
 
-func (manifestInputGenerator) InputFiles(map[string]any) ([]string, error) {
-	return []string{"api/input.txt"}, nil
+func (manifestInputGenerator) InputFiles(map[string]any) ([]gen.InputFile, error) {
+	return gen.SourceInputs([]string{"api/input.txt"}), nil
 }
 func (manifestInputGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, error) {
 	return []gen.File{{Path: "internal/api/handler.go", Content: []byte("package api\n")}}, nil, nil

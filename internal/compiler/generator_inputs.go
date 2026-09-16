@@ -8,25 +8,34 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
-func captureGeneratorInputs(project, out string, names []string, snapshots map[string]fileSnapshot) (map[string][]byte, error) {
-	if len(names) > 128 {
+func captureGeneratorInputs(project, out string, files []gen.InputFile, snapshots map[string]fileSnapshot) (map[string][]byte, error) {
+	if len(files) > 128 {
 		return nil, fmt.Errorf("at most 128 generator inputs are allowed")
+	}
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		name := file.Path
+		if gen.ValidatePath(name) != nil || name == "" || name == out || strings.HasPrefix(name, out+"/") || name == ".stego" || strings.HasPrefix(name, ".stego/") {
+			return nil, fmt.Errorf("invalid generator input %q", name)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("duplicate generator input %q", name)
+		}
+		if file.MaxBytes < 1 || file.MaxBytes > gen.MaxInputBytes {
+			return nil, fmt.Errorf("generator input %q has an invalid size limit", name)
+		}
+		seen[name] = true
 	}
 	root, err := os.OpenRoot(project)
 	if err != nil {
 		return nil, err
 	}
 	defer root.Close()
-	inputs := make(map[string][]byte, len(names))
+	inputs := make(map[string][]byte, len(files))
 	total := 0
-	for _, name := range names {
-		if gen.ValidatePath(name) != nil || name == "" || name == out || strings.HasPrefix(name, out+"/") || name == ".stego" || strings.HasPrefix(name, ".stego/") {
-			return nil, fmt.Errorf("invalid generator input %q", name)
-		}
-		if _, exists := inputs[name]; exists {
-			return nil, fmt.Errorf("duplicate generator input %q", name)
-		}
-		data, snapshot, err := readSnapshot(root, name, 1<<20, true)
+	for _, file := range files {
+		name := file.Path
+		data, snapshot, err := readSnapshot(root, name, file.MaxBytes, true)
 		if err != nil {
 			return nil, err
 		}

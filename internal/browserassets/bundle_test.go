@@ -5,11 +5,33 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestBundleAboveOneMiBRetainsBounds(t *testing.T) {
+	payload := make([]byte, (1<<20)+(256<<10))
+	_, _ = rand.New(rand.NewSource(1)).Read(payload)
+	assets := append(fixture(), Asset{Path: "assets/payload.png", Data: payload})
+	encoded, err := Encode(assets)
+	if err != nil || len(encoded) <= 1<<20 {
+		t.Fatal("larger bounded bundle was not encoded", len(encoded), err)
+	}
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Encode(decoded)
+	if err != nil || !bytes.Equal(again, encoded) {
+		t.Fatal("larger bundle changed during round trip", err)
+	}
+	if _, err := Decode(make([]byte, MaxBundle+1)); err == nil {
+		t.Fatal("oversized captured bundle was accepted")
+	}
+}
 
 func fixture() []Asset {
 	return []Asset{{"index.html", []byte(`<!doctype html><html><script src="/assets/app.js"></script></html>`)}, {"assets/app.js", []byte(`"use strict";`)}}

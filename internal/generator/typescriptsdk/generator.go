@@ -20,8 +20,9 @@ type Generator struct{}
 //go:embed runtime.js
 var runtimeSource string
 
-func (*Generator) InputFiles(config map[string]any) ([]string, error) {
-	return openapicontract.InputFiles(openAPIConfig(config))
+func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
+	names, err := openapicontract.InputFiles(openAPIConfig(config))
+	return gen.SourceInputs(names), err
 }
 func (*Generator) MinimumGoVersion() string { return "1.26.8" }
 func (*Generator) ValidateContext(ctx gen.Context) error {

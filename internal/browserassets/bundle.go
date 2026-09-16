@@ -17,7 +17,7 @@ import (
 	"strings"
 )
 
-const MaxBundle = 1 << 20
+const MaxBundle = 4 << 20
 const MaxFile = 4 << 20
 const MaxTotal = 16 << 20
 const MaxFiles = 128

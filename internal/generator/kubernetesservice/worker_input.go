@@ -15,7 +15,7 @@ import (
 
 // InputFiles gives the compiler ownership of reading and hashing each callback
 // declaration. Domain packages keep their source outside generated output.
-func (*Generator) InputFiles(config map[string]any) ([]string, error) {
+func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
 	entries, err := configList(gen.Context{ComponentConfig: config}, "workers")
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (*Generator) InputFiles(config map[string]any) ([]string, error) {
 		result = append(result, name)
 	}
 	sort.Strings(result)
-	return result, nil
+	return gen.SourceInputs(result), nil
 }
 
 func validateWorkerFunction(ctx gen.Context, w worker) error {

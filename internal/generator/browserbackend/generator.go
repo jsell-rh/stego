@@ -179,13 +179,13 @@ func canonicalPath(value string) bool {
 	return len(value) > 0 && len(value) <= 256 && publicPath.MatchString(value) && path.Clean(value) == value && !strings.Contains(value, "//")
 }
 func (*Generator) MinimumGoVersion() string { return "1.26.8" }
-func (g *Generator) InputFiles(values map[string]any) ([]string, error) {
+func (g *Generator) InputFiles(values map[string]any) ([]gen.InputFile, error) {
 	s, err := g.config(values)
 	if err != nil {
 		return nil, err
 	}
 	if s.Bundle != "" {
-		return []string{s.Bundle}, nil
+		return []gen.InputFile{{Path: s.Bundle, MaxBytes: browserassets.MaxBundle}}, nil
 	}
 	seen := map[string]bool{}
 	var names []string
@@ -196,7 +196,11 @@ func (g *Generator) InputFiles(values map[string]any) ([]string, error) {
 		}
 	}
 	sort.Strings(names)
-	return names, nil
+	result := gen.SourceInputs(names)
+	for i := range result {
+		result[i].MaxBytes = browserassets.MaxFile
+	}
+	return result, nil
 }
 func (g *Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
@@ -223,7 +227,8 @@ func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte,
 	if err != nil {
 		return s, nil, err
 	}
-	for _, source := range sources {
+	for _, input := range sources {
+		source := input.Path
 		if source == ctx.OutDirName || strings.HasPrefix(source, ctx.OutDirName+"/") {
 			return s, nil, fmt.Errorf("browser asset sources must be outside generated output")
 		}

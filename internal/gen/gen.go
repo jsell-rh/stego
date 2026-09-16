@@ -39,7 +39,7 @@ type GoVersionRequirement interface {
 // InputProvider declares source files before generation. The compiler reads
 // each file once and checks its snapshot again before it applies output.
 type InputProvider interface {
-	InputFiles(config map[string]any) ([]string, error)
+	InputFiles(config map[string]any) ([]InputFile, error)
 }
 
 // Context carries resolved information that generators need to produce code.

@@ -195,7 +195,7 @@ func TestWorkerValidation(t *testing.T) {
 	}
 	c := workerContext()
 	names, err := new(Generator).InputFiles(c.ComponentConfig)
-	if err != nil || len(names) != 1 || names[0] != "internal/task/worker.go" {
+	if err != nil || len(names) != 1 || names[0] != (gen.InputFile{Path: "internal/task/worker.go", MaxBytes: gen.DefaultInputBytes}) {
 		t.Fatal("wrong compiler input", names, err)
 	}
 }

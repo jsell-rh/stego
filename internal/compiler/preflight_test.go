@@ -107,9 +107,9 @@ type preflightProbe struct {
 	render                      func(gen.Context)
 }
 
-func (p *preflightProbe) InputFiles(map[string]any) ([]string, error) {
+func (p *preflightProbe) InputFiles(map[string]any) ([]gen.InputFile, error) {
 	p.inputCalls++
-	return p.inputFiles, nil
+	return gen.SourceInputs(p.inputFiles), nil
 }
 func (p *preflightProbe) ValidateContext(ctx gen.Context) error {
 	p.checks++

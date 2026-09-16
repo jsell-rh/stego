@@ -12,7 +12,7 @@ import (
 type ProcessGenerator struct{}
 
 func (*ProcessGenerator) MinimumGoVersion() string { return new(Generator).MinimumGoVersion() }
-func (*ProcessGenerator) InputFiles(config map[string]any) ([]string, error) {
+func (*ProcessGenerator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
 	return new(Generator).InputFiles(config)
 }
 func (*ProcessGenerator) ValidateContext(ctx gen.Context) error {

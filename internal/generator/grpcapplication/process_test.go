@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -71,7 +72,7 @@ func TestGRPCProcessValidation(t *testing.T) {
 	ctx := processContext(t)
 	generator := new(grpcapplication.Generator)
 	inputs, err := generator.InputFiles(ctx.ComponentConfig)
-	if err != nil || strings.Join(inputs, ",") != "api.proto,factory/rpc.go" {
+	if err != nil || !reflect.DeepEqual(inputs, gen.SourceInputs([]string{"api.proto", "factory/rpc.go"})) {
 		t.Fatal("factory source is not a compiler input", inputs, err)
 	}
 	first, _, err := generator.Generate(ctx)
