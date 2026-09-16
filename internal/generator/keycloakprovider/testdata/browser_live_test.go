@@ -12,6 +12,7 @@ import (
 
 func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile string) {
 	t.Helper()
+	testLiveBrowserCredentials(t, c, ctx)
 	b, base := browserInputs()
 	created, err := c.CreateDisabledBrowserClient(ctx, b, base)
 	if err != nil {
@@ -137,4 +138,61 @@ func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile 
 		t.Fatal(err)
 	}
 	t.Log("Real browser client: confidential code exchange, PKCE, exact callbacks, signed audience, one-use code, logout, drift repair, and cleanup passed")
+}
+
+func testLiveBrowserCredentials(t *testing.T, c *Client, ctx context.Context) {
+	t.Helper()
+	_, fixture := newLifecycleFixture(t, false)
+	identity := fixture.provider.identity
+	identity.ClientID = "journal-browser-credentials"
+	fixture.key.ResourceID = identity.ClientID
+	fixture.provider.identity = identity
+	restart := func() *BrowserClientLifecycle {
+		l, err := NewBrowserClientLifecycle(c, fixture.restart().journal, identity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	if _, secret, err := restart().Credentials(ctx, browserLifecyclePolicy); err == nil || secret.Reveal() != "" {
+		t.Fatal("missing journal released a credential")
+	}
+	binding, err := restart().Reconcile(ctx, browserLifecyclePolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := fixture.record.Version
+	selected, secret, err := restart().Credentials(ctx, browserLifecyclePolicy)
+	if err != nil || selected.ID != binding.ID || secret.Reveal() == "" || fixture.record.Version != saved {
+		t.Fatal("real protected credential read failed", err)
+	}
+	direct, err := c.GetClientSecret(ctx, binding)
+	if err != nil || direct.Reveal() != secret.Reveal() {
+		t.Fatal("credential did not match the saved provider client", err)
+	}
+	body, _ := json.Marshal(map[string]any{"standardFlowEnabled": false})
+	response, err := c.admin(ctx, http.MethodPut, "/clients/"+binding.ID, body)
+	if err != nil || response.StatusCode != 204 {
+		t.Fatal("credential policy fault fixture failed", err)
+	}
+	if _, value, err := restart().Credentials(ctx, browserLifecyclePolicy); err == nil || value.Reveal() != "" {
+		t.Fatal("changed policy released a credential")
+	}
+	current, err := c.GetClient(ctx, binding.ID)
+	if err != nil || current.StandardFlowEnabled || fixture.record.Version != saved {
+		t.Fatal("credential inspection repaired the client or journal", err)
+	}
+	if _, err := restart().Reconcile(ctx, browserLifecyclePolicy); err != nil {
+		t.Fatal(err)
+	}
+	if _, value, err := restart().Credentials(ctx, browserLifecyclePolicy); err != nil || value.Reveal() == "" {
+		t.Fatal("repaired client has no readable credential", err)
+	}
+	if err := restart().Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, value, err := restart().Credentials(ctx, browserLifecyclePolicy); err == nil || value.Reveal() != "" {
+		t.Fatal("closed client released a credential")
+	}
+	t.Log("Protected browser credential read, policy refusal, explicit repair, and closure passed")
 }

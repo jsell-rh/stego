@@ -2,6 +2,8 @@ package {{.Package}}
 
 import (
  "context"
+ "bytes"
+ "time"
  runtime "{{.Controller}}"
 )
 
@@ -9,6 +11,8 @@ type browserLifecycleProvider interface {
  clientLifecycleProvider
  CreateDisabledBrowserClient(context.Context,ClientBinding,BrowserClientPolicy)(ClientRepresentation,error)
  ReconcileBrowserClientAccess(context.Context,ClientBinding,BrowserAccessPolicy)error
+ InspectBrowserClientAccess(context.Context, ClientBinding, BrowserAccessPolicy) error
+ GetClientSecret(context.Context, ClientBinding) (Secret, error)
 }
 
 // BrowserClientLifecycle uses the common protected journal and ownership rules.
@@ -41,4 +45,27 @@ func(l *BrowserClientLifecycle)Reconcile(ctx context.Context,policy func(ClientB
 }
 func(l *BrowserClientLifecycle)Close(ctx context.Context)error{
  if l==nil||l.clientLifecycle==nil{return ErrClientLifecycle};return l.clientLifecycle.Close(ctx)
+}
+
+// Credentials reads an existing, enabled client through its protected journal.
+// It does not discover, create, repair, or reopen a client. The caller must
+// authorize delivery and recheck the resource observation before using it.
+// One writer per identity is still required: provider reads are not atomic.
+func (l *BrowserClientLifecycle) Credentials(ctx context.Context, policy func(ClientBinding) (BrowserAccessPolicy,error)) (ClientBinding,Secret,error) {
+ if l==nil||l.clientLifecycle==nil||l.journal==nil||policy==nil||ctx==nil { return ClientBinding{},Secret{},ErrClientLifecycle }
+ work,done,err:=l.begin(ctx);if err!=nil{return ClientBinding{},Secret{},err};defer done()
+ before,record,err:=l.load(work);if err!=nil{return ClientBinding{},Secret{},err}
+ if before.Version()==0||record.Closed||record.Phase!="bound"||record.Migration!="" {return ClientBinding{},Secret{},ErrClientLifecycle}
+ desired,err:=policy(l.identity.binding(record.Binding.ID));if err!=nil{return ClientBinding{},Secret{},err}
+ if _,err=desired.configuration(record.Binding);err!=nil{return ClientBinding{},Secret{},err}
+ if err=l.browser.InspectBrowserClientAccess(work,record.Binding,desired);err!=nil{return ClientBinding{},Secret{},err}
+ credential,err:=l.browser.GetClientSecret(work,record.Binding);if err!=nil{return ClientBinding{},Secret{},err}
+ if !credentialValue(credential.Reveal()){return ClientBinding{},Secret{},ErrResponse}
+ if err=l.browser.InspectBrowserClientAccess(work,record.Binding,desired);err!=nil{return ClientBinding{},Secret{},err}
+ after,_,err:=l.load(work);if err!=nil{return ClientBinding{},Secret{},err}
+ first,last:=before.Reveal(),after.Reveal();defer clear(first);defer clear(last)
+ if before.Version()!=after.Version()||!bytes.Equal(first,last){return ClientBinding{},Secret{},ErrClientLifecycle}
+ if err=work.Err();err!=nil{return ClientBinding{},Secret{},err}
+ if end,ok:=work.Deadline();ok&&!time.Now().Before(end){return ClientBinding{},Secret{},context.DeadlineExceeded}
+ return record.Binding,credential,nil
 }

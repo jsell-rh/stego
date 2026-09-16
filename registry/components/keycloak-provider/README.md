@@ -499,3 +499,14 @@ failed scan-window boundary. `ScanCycle` records that failure and starts the
 next cycle at the beginning. The limit can never produce successful completion.
 This allows deletion to reduce the remaining inventory between bounded windows.
 A fixed excessive prefix still causes an explicit repeated failure.
+
+`BrowserClientLifecycle.Credentials` reads an existing client through its
+protected recovery journal. It checks the complete enabled browser policy
+before and after reading the secret, then checks that the journal did not
+change. Missing, closed, partial, or changed state returns no credential.
+The method does not discover, create, repair, or reopen a client. `Secret`
+requires an explicit `Reveal` call and rejects implicit serialization.
+
+The consumer must authorize the recipient and check its resource observation
+again before delivery. The provider reads are not atomic. Keep one client
+writer per identity, as required for reconciliation.
