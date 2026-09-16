@@ -51,6 +51,22 @@ runtime operation does not replace that control.
 
 Focused generated-runtime tests cover creation, repeated reconciliation,
 rotation from a private file, conflicts, identity changes, malformed inputs,
-and response changes. The managed Hypershell test still needs a restricted
-registry identity and deployment integration. A rendered reference and a mock
-API test do not prove an authenticated image pull.
+and response changes. All six jobs in
+[CI run 35143448699](https://github.com/jsell-rh/stego/actions/runs/35143448699)
+passed for compiler revision `bd7d9ea`.
+
+Hypershell revision `f79b46d` used this runtime in
+[jshell run 35144014002](https://github.com/jsell-rh/hypershell-stego/actions/runs/35144014002).
+The fixture obtained a separate registry token and checked its authenticated
+identity and seven allowed or denied operations. The controller installed
+owned Docker config Secrets in both assigned Gateway namespaces. Both Pods
+pulled the private browser image and started its process. The upstream
+dashboard containers also started. No controller or CI API token was used as
+an application pull credential.
+
+That application run failed later, during browser backend construction. The
+identity provider's ingress policy had no peer for the separate console Pod
+labels. Hypershell corrected that fixture rule in `d4ea7f7`; another complete
+run is required. The passing image pull does not prove the rendered dashboard,
+browser telemetry, or complete application recovery. Test resource and namespace
+cleanup passed and was checked separately by the operator.
