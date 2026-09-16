@@ -6,52 +6,53 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-STEGO compiler `bd7d9ea` supplies the browser session backend, captured assets,
+STEGO compiler `42c7ea1` supplies the browser session backend, captured assets,
 browser client and telemetry packages, local application transport, deployment
 renderer, and owned image pull Secret operations. Its common runtime passed
-[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35143448699).
-The stages below record earlier work; their former implementation gaps do not
-describe the current compiler.
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35152146945).
+Browser clients request `openid` by default. Additional scopes must be explicit;
+real Keycloak checks cover both the accepted request and rejected unassigned
+scopes. See [browser authorization scopes](browser-authorization-scopes.md).
 
-Hypershell development revision `3d8f9d6` composes these common components with
+Hypershell development runtime `f182ec5` composes these common components with
 local application archetypes. It contains no copied common component metadata.
 Its Gateway controller prepares separate console storage and identity inputs,
 deploys the upstream application with the generated backend, and publishes the
 console address after readiness checks. The frontend imports the common browser
-client and telemetry packages. These are implemented paths, not proof that the
-complete deployed workflow passes.
+client and telemetry packages. These paths do not establish that the complete
+deployed workflow passes.
 
-The Gateway console module at `ee4ec91` passed
-[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35143599626).
-The independent module check matched 83 files and the published image binary.
-The later [live run at f79b46d](https://github.com/jsell-rh/hypershell-stego/actions/runs/35144014002)
-pulled both private browser images and started both upstream applications. The
-generated browser backend failed during construction. The identity fixture had
-no ingress peer for the separate console Pod labels. The test fixture now has
-that peer, limited to the assigned Gateway namespaces. See
-[image pull evidence](image-pull-credentials.md).
+The Gateway console module at `1547331` passed
+[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35152843228).
+The independent module check matched all 83 archived files and verified the
+published image. Hypershell `f182ec5` selects that module. Its
+[journal recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35153117555)
+passed all 28 required tests, with no skips. These cover credential delivery,
+identity state, scan progress, concurrent registration, restart, and final
+closure rollback. They do not replace the rendered application check.
 
-The rendered test also expected a sign-in button inside a protected document.
-The generated backend starts login before it serves that document. Hypershell
-`8c9baa1` corrects the test to check the configured provider origin and username
-field before credential entry. Its syntax check passed. A live browser result
-for that correction is still required.
+The [live run at f182ec5](https://github.com/jsell-rh/hypershell-stego/actions/runs/35153112538)
+failed after 258.34 seconds. All 366 repeated-generation hash entries matched.
+Both dashboards and generated backends became ready without container restarts.
+Verified TLS database isolation, denied Gateway RPC calls, and provider data
+recovery after Gateway Pod replacement passed. The next dashboard `/readyz`
+request failed before browser navigation. The probe did not retain the transport
+error type, so the cause remains unknown.
 
-The [live run at b63eca8](https://github.com/jsell-rh/hypershell-stego/actions/runs/35149129268)
-started both dashboard applications and generated backends without container
-restarts. It passed verified TLS database isolation, Gateway RPC access rules,
-and provider data recovery after Gateway Pod replacement. Public readiness and
-protected-document redirect checks also passed from the browser fixture Pod.
-The browser then failed certificate validation: its test pin selected a root
-CA that the server did not send. Independent CA and hostname verification
-passed for both console hosts. The test now pins the verified leaf certificate.
-Focused TLS tests passed, including rejection of an unverified peer and a
-server chain without its root CA.
+Independent checks after the failure verified both public certificates against
+the declared CA and hostnames. Each served leaf matched its configured
+certificate. Those checks ran from the operator workstation; they do not prove
+connectivity from the test Pod at failure time. Independent cleanup passed at
+`2026-09-16T21:50:19.127246Z`, with no test runtime, fixture resources, allocated
+namespaces, or old test volumes, and an empty test lease.
 
-The failed run's resources were removed and independent cleanup passed at
-`2026-09-16T21:07:51.822175Z`. The corrected [live workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35150654630)
-and [full checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35150657082)
-are pending. No rendered-dashboard pass is claimed.
+The test browser now uses the declared public CA in its own bounded, temporary
+NSS trust store. This supports certificate replacement during namespace recovery.
+Actual trust initialization was checked, but rendered login remains unproved.
+Hypershell `4134bda` adds fixed transport error categories without changing TLS
+verification or request deadlines. Focused probe checks passed in 0.052 seconds.
+The detailed source and failure records remain in Hypershell's
+[transport record](https://github.com/jsell-rh/hypershell-stego/blob/4134bda/acceptance/dashboard-transport.md).
 
 The application gate must still prove the rendered workspace and policy editor,
 correlated authenticated telemetry, viewer and revoked access, session database
@@ -59,6 +60,9 @@ recovery, worker restart, and deletion. Terminal behavior remains a separate
 requirement. Passing module builds or common runtime tests cannot close those
 application requirements. Hypershell `main` remains at the previously qualified
 `d6b1fe3` while the development branch completes these checks.
+
+The stages below preserve earlier implementation work and its test limits.
+Their former implementation gaps do not describe the current compiler.
 
 ## Source contract
 
