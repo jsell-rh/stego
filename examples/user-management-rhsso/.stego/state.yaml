@@ -28,13 +28,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260916132505-20d6e2ee8f9a
+        module_version: v0.0.0-20260916133021-3a6e00e15c28
         vcs: git
-        revision: 20d6e2ee8f9a7074d26a385804f0490527f0710c
+        revision: 3a6e00e15c28593048ed6bde5e3346762229a1d4
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: 0bbcecac049c72205b4667d657b9b6644d8ea4b3c97fc8db40f17bb4551ed3bb
+    registry_content_sha256: 0ace4698f1589f68344b566b4af70872135ee1d1c96ac947e6b1071a6b4bbfc5
     components:
         health-check:
             version: 1.0.0
@@ -49,7 +49,7 @@ last_applied:
             version: 1.1.0
             sha: env-override
         postgres-adapter:
-            version: 4.8.0
+            version: 4.8.1
             sha: env-override
         rest-api:
             version: 3.1.0
@@ -140,7 +140,7 @@ last_applied:
         internal/storage/migrations/000009_resource_state.sql: 8a44cde312e27bafcfc1fd3cc074d75a335458d72215086100504be231c7a67d
         internal/storage/migrations/000010_resource_state_keys.sql: c5966bc9e200137b7bcae42d3e4527a0aa392d583206336cbddb588ffbbd66d6
         internal/storage/models.go: 7ac29205534884f00185996b22908f7644d61fe4fcb44248d20861fca858a518
-        internal/storage/resource_state.go: 3e562f36b44456fb6e76a214612e4e5a2bd7763803ccb9f2dee329ab7d7521bd
+        internal/storage/resource_state.go: 7af4f8811effcff1a26a19a7397e18ec8d59fa7f76b85ec8a35ab3b427739703
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 41cac2c4b495e7eeb66fefc59f6a9372496057d11a7af2b0b0486bc991e274b6
         internal/storage/transaction.go: 243f5b08893c7522ee098d2701f63c11265f999c06ea4cd33fa0c13f7f729e37

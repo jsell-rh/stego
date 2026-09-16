@@ -28,3 +28,17 @@ missing or altered indexes. Both examples were regenerated with clean compiler
 
 Hypershell still needs a composed recovery test for the saved orphan omitted
 from a provider list. This common reader alone does not close that defect.
+
+## Prepared statement correction
+
+CI run `35101571163`, source `8496dfc`, failed. The new key coverage,
+closed-transaction, and schema-guard tests passed with ordinary statements.
+Other store tests found that migration 010 sent two timeout commands in one
+prepared statement. PostgreSQL rejected that call with SQLSTATE 42601.
+The full compiler result was a failure.
+
+Adapter 4.8.1 sends each timeout command and the index command separately in the
+same transaction. The key coverage test now runs with prepared statements both
+on and off. Compiler `3a6e00e` contains the correction. Full CI must qualify it.
+Run `35101860805` used the same failed migration and was canceled after this
+cause was confirmed. No application release uses this candidate on main.

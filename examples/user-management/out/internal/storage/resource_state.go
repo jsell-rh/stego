@@ -32,10 +32,12 @@ func init() {
 func init() {
 	Register("010_resource_state_keys", func(db *gorm.DB) error {
 		return db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("SET LOCAL lock_timeout='5000'; SET LOCAL statement_timeout='25000'").Error; err != nil {
-				return err
+			for _, statement := range []string{"SET LOCAL lock_timeout='5000'", "SET LOCAL statement_timeout='25000'", ResourceStateKeysMigration} {
+				if err := tx.Exec(statement).Error; err != nil {
+					return err
+				}
 			}
-			return tx.Exec(ResourceStateKeysMigration).Error
+			return nil
 		})
 	})
 }
