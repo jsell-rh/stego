@@ -67,3 +67,23 @@ All five CI jobs in run `35099578328` passed at `f5d7d27`. This qualifies the
 bounded query, including real Keycloak behavior and both generated examples.
 Later changes in this branch are documentation only. Inventory cleanup and
 Hypershell adoption remain open.
+
+## Retained journal omission
+
+Hypershell regression `9f7d5cd` failed in 0.02 seconds against deletion source
+`fd6371e`. A failed provider deletion left a sealed closure journal with a known
+client ID. After client reconstruction, the provider list omitted that client.
+Bulk cleanup returned success while the orphan remained. Direct cleanup with
+the saved ID succeeded. This fixture proves a missing recovery source; it does
+not claim a database or process restart test. Evidence is
+`provider-journal-omission-probe.log` under the Gateway cleanup run directory.
+
+The application currently scans retained account rows. A legacy orphan can have
+a saved journal without an account row. STEGO must supply bounded resource-state
+key enumeration by entity and scope, without returning ciphertext. It needs
+stable key pagination and validation before database access. Hypershell selects
+the Gateway scope. Account cleanup must also cover those journal IDs before it
+can report completion. The new name query cannot replace that recovery source.
+The final fix must prove the composed application completion condition, then
+repeat provider and complete Gateway checks. Keep Hypershell's default branch
+at its qualified revision until this defect is fixed.

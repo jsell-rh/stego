@@ -176,3 +176,14 @@ fixed installation remains. Evidence is in `cnpg-corrected-result`.
 This result precedes the count-watch fix. Full CI `35098200160` and external
 PostgreSQL run `35098646742` test source `371c230`; the newer source also needs
 CNPG qualification. Hypershell's default branch remains unchanged.
+
+External PostgreSQL run `35098646742` passed at Hypershell `371c230`. Its complete
+browser workflow took 492.27 seconds. Generation hashes matched, and test
+resources and the Lease holder are absent. Evidence is in `external-result`.
+CNPG run `35100459235` is active at the same application code with later docs.
+Core run `35098200160` finished with one old 404 assertion in multi-target cleanup;
+its count-worker and Gateway-watch regressions passed. Source `47d500b` corrects
+that remaining assertion. A later small inventory probe found a known orphan
+that bulk cleanup could forget after a partial provider list. See the
+[journal omission requirement](keycloak-inventory.md#retained-journal-omission).
+Hypershell's default branch must remain unchanged until that defect is fixed.
