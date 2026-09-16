@@ -287,3 +287,25 @@ recovery and deletion. It must keep the browser client journal separate from
 the native client journal, use separate session database credentials, and
 publish the console address only after verified readiness. Gateway roles and
 placement remain application policy. The full live dashboard gate stays open.
+
+## Application module candidate
+
+Hypershell `36cd949` adds `gateway-console`, a separate application module built
+from the checked upstream image and assets. It selects the common browser
+backend, telemetry, session storage, health, and deployment components at
+compiler `1db04e6`. Its registry preserves the common component metadata and
+adds browser telemetry to the browser archetype. It has no handwritten backend.
+
+[Run 35117250309](https://github.com/jsell-rh/hypershell-stego/actions/runs/35117250309)
+passed committed regeneration, dependency checks, both Go entry-point builds,
+and private deployment checks. All 83 archived files match the committed module.
+The application retains its [evidence](https://github.com/jsell-rh/hypershell-stego/blob/33c5a0d/acceptance/dashboard-module-evidence.json).
+Later application `78b06d2` adds the module to the frozen Gateway test archives
+and generation snapshots. Its 19 small inspection checks passed; the updated
+live test harness still requires execution.
+
+This is a candidate application module, not a live Gateway dashboard result.
+The Gateway controller does not yet deploy it. The upstream UI still needs to
+import the generated telemetry package. Separate session database provisioning,
+confidential client recovery, verified address publication, editor and terminal
+checks, and complete deletion remain part of the required application gate.
