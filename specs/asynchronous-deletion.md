@@ -94,3 +94,34 @@ owner's success. Update REST, gRPC, SDK, CLI, browser, and watch expectations.
 
 The implementation and these gates remain open. No production capacity claim is
 made from the three-account interruption test.
+
+## Implementation and qualification in progress
+
+STEGO candidate `cd08dc6` supplies permanent finalization, pending-deletion list
+and cursor reads, and typed empty HTTP 202 responses. PostgreSQL tests passed in
+CI runs `35092656619` and `35093219283`. Both full runs failed because the registry
+version test still expected adapter 4.5. That assertion is corrected in
+`eb0e543`, which is included in the candidate. A full green run is still required.
+
+Hypershell source `c0ab6e5` passed two bounded recovery tests on jshell. A failed
+account did not stop independent accounts. A reconstructed service completed the
+last retained account after a first pass saved 100 IDs. The tests took 1.18 and
+0.53 seconds. Generation matched before and after the tests. Job
+`gateway-api-06e3e8773918`, UID `7d8a6c18-f910-4168-bd1d-5267d1220b54`, and its
+private fixtures are absent. The results are in `recovery-result-2` under the
+persistent run directory above. An earlier recovery attempt stopped at the
+regeneration check before tests: its local compiler lacked Git build metadata.
+The compiler was rebuilt from a clean clone with a verified revision.
+
+Hypershell `31c8646` connects request acceptance, account recovery, cleanup owners,
+finalization, and events. Its selected REST and gRPC process gate is running.
+`9386f88` also prevents unchanged cleanup observations from publishing events.
+These changes are on `codex/gateway-cleanup-20260916`; the default branch has not
+changed to the new deletion contract.
+
+The next checks must cover the new transport workflow and event commit failures,
+then align the console and earlier synchronous-deletion tests. The current public
+view supplies phase `Deleting` after the storage query. Search and ordering on
+that field must use the same value before qualification. Provider inventory still
+uses a bounded full scan; its large-inventory behavior remains open. These limits
+must not be hidden by the small recovery tests.
