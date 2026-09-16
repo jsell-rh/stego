@@ -171,3 +171,49 @@ func TestClientCursorSourceVersionBindsProviderAndQuery(t *testing.T) {
 		t.Fatal("nil client accepted")
 	}
 }
+
+func TestClientCursorInventoryLimitRestartsFailedCycle(t *testing.T) {
+	var reads atomic.Int32
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if authRequest(w, r) {
+			return
+		}
+		reads.Add(1)
+		if r.URL.Query().Get("first") != "0" {
+			t.Error("new inventory cycle did not restart")
+			w.WriteHeader(400)
+			return
+		}
+		_, _ = w.Write([]byte(`[]`))
+	})
+	source, err := c.ClientNameCursorSource("catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := runtime.EncodeCycle(runtime.CycleState{Source: "realm-query", After: "1.10000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := runtime.Checkpoint{Version: 1, After: encoded}
+	access := runtime.CheckpointAccess{Load: func(context.Context) (runtime.Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, data string) error {
+		if version != saved.Version {
+			t.Fatal("stale limit save")
+		}
+		saved = runtime.Checkpoint{Version: version + 1, After: data}
+		return nil
+	}}
+	scan := runtime.ScanOptions{PageSize: 20, MaxPages: 1, PageTimeout: time.Second}
+	budget := runtime.ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second}
+	emit := func(context.Context, ClientRepresentation) error {
+		t.Fatal("empty fixture emitted a client")
+		return nil
+	}
+	state, err := runtime.ScanCycle(context.Background(), "realm-query", access, source, emit, nil, scan, budget)
+	if !errors.Is(err, ErrClientInventoryLimit) || !errors.Is(err, runtime.ErrCycleFailed) || !state.Complete || !state.Failed || reads.Load() != 0 {
+		t.Fatal("inventory limit lost its failure", state, err)
+	}
+	state, err = runtime.ScanCycle(context.Background(), "realm-query", access, source, emit, nil, scan, budget)
+	if err != nil || !state.Complete || state.Failed || reads.Load() != 1 {
+		t.Fatal("later full scan did not restart", state, err)
+	}
+}

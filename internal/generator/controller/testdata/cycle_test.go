@@ -130,3 +130,84 @@ func TestCycleTransitionCannotEraseEarlierFailure(t *testing.T) {
 		t.Fatal("changed source was rejected", err)
 	}
 }
+
+func TestCycleWindowLimitRequiresFailedSaveAndNewScan(t *testing.T) {
+	saved := Checkpoint{}
+	reject := false
+	conflict := errors.New("checkpoint conflict")
+	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, data string) error {
+		if reject {
+			return conflict
+		}
+		if version != saved.Version {
+			t.Fatal("stale checkpoint")
+		}
+		saved = Checkpoint{Version: version + 1, After: data}
+		return nil
+	}}
+	empty := false
+	source := func(_ context.Context, after string, _ int) (CursorPage[string], error) {
+		if empty {
+			return CursorPage[string]{}, nil
+		}
+		if after == "a" {
+			return CursorPage[string]{}, ErrScanWindowLimit
+		}
+		return CursorPage[string]{Items: []CursorItem[string]{{Cursor: "a", Value: "a"}}, More: true}, nil
+	}
+	scan := ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}
+	budget := ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second}
+	emit := func(context.Context, string) error { return nil }
+	first, err := ScanCycle(context.Background(), "source", access, source, emit, nil, scan, budget)
+	if err != nil || first.Complete || first.After != "a" {
+		t.Fatal("first window page failed", first, err)
+	}
+	prior := saved
+	reject = true
+	result, err := ScanCycle(context.Background(), "source", access, source, emit, nil, scan, budget)
+	if !errors.Is(err, conflict) || !errors.Is(err, ErrCycleFailed) || !errors.Is(err, ErrScanWindowLimit) || !result.Failed || saved != prior {
+		t.Fatal("failed boundary save lost its errors", result, err)
+	}
+	reject = false
+	result, err = ScanCycle(context.Background(), "source", access, source, emit, nil, scan, budget)
+	if !errors.Is(err, ErrScanWindowLimit) || !errors.Is(err, ErrCycleFailed) || !result.Complete || !result.Failed {
+		t.Fatal("window limit became successful completion", result, err)
+	}
+	empty = true
+	result, err = ScanCycle(context.Background(), "source", access, source, emit, nil, scan, budget)
+	if err != nil || !result.Complete || result.Failed || result.After != "" {
+		t.Fatal("new full scan did not restart", result, err)
+	}
+}
+func TestCycleWindowErrorFromEmitterDoesNotResetSource(t *testing.T) {
+	saved := Checkpoint{}
+	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return saved, nil }, Save: func(_ context.Context, version int64, data string) error {
+		saved = Checkpoint{Version: version + 1, After: data}
+		return nil
+	}}
+	source := func(context.Context, string, int) (CursorPage[string], error) {
+		return CursorPage[string]{Items: []CursorItem[string]{{Cursor: "a", Value: "a"}}, More: true}, nil
+	}
+	result, err := ScanCycle(context.Background(), "source", access, source, func(context.Context, string) error { return ErrScanWindowLimit }, nil, ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
+	if !errors.Is(err, ErrScanWindowLimit) || !result.Failed || result.Complete || result.After != "" {
+		t.Fatal("emitter discarded unfinished source", result, err)
+	}
+}
+
+func TestCycleWindowCancellationDoesNotCloseCheckpoint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	encoded, err := EncodeCycle(CycleState{Source: "source", After: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) { return Checkpoint{Version: 1, After: encoded}, nil }, Save: func(context.Context, int64, string) error { t.Fatal("cancelled source saved a boundary"); return nil }}
+	source := func(context.Context, string, int) (CursorPage[string], error) {
+		cancel()
+		return CursorPage[string]{}, ErrScanWindowLimit
+	}
+	result, err := ScanCycle(ctx, "source", access, source, func(context.Context, string) error { t.Fatal("cancelled source emitted work"); return nil }, nil, ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: time.Second, CommitTimeout: time.Second})
+	if !errors.Is(err, context.Canceled) || result.Complete || result.After != "a" {
+		t.Fatal("cancellation discarded unfinished source", result, err)
+	}
+}

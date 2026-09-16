@@ -142,3 +142,18 @@ state and evidence. The result is saved in `prepare-closure-full-ci-success.json
 The explicit real-provider preparation check added at `1f25792`, and the cursor
 added at `59bd24e`, are in the active CI run `35105032964`. Their qualification
 is still pending.
+
+The first cursor implementation correctly rejected its 10,000-candidate limit,
+but a saved offset at that limit could not progress. Controller 1.21.0 now has
+an explicit failed scan-window boundary. The Keycloak limit wraps that error.
+The current cycle cannot pass, but a later call can restart from the beginning
+and find entries that earlier deletions moved behind the cursor. A source with
+an excessive fixed foreign prefix can still reach the same limit repeatedly;
+it remains an explicit failure, never proof of absence.
+
+Focused common window checks cover save conflicts, caller cancellation, emitter
+errors that must not reset a source, failed boundary persistence, and the next
+full scan. The provider fixture starts with a saved offset of 10,000 and proves
+that no provider request occurs at the limit; the next cycle queries offset zero.
+Both focused groups passed. Logs are `cycle-window-complete-focused.log` and
+`provider-window-focused.log`. Full CI and SQL adoption remain pending.

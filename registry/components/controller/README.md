@@ -286,3 +286,17 @@ keep the file outside the database, and clear the input buffer after use. The
 parser rejects repeated or zero keys, malformed data, and input over 256 bytes.
 It copies accepted keys and clears temporary decoded bytes. The focused codec
 checks passed in both generated variants with the race detector in 7.049 seconds.
+
+## Bounded scan windows
+
+Version 1.21.0 adds `ErrScanWindowLimit`. A source can use this error when its
+bounded query window ends before it can prove a complete inventory. `ScanCycle`
+saves the cycle as complete and failed, and returns both the window error and
+`ErrCycleFailed`. The next call starts a new full cycle. Cleanup must still
+require a successful cycle; the boundary is never a success result.
+
+Only a source can request this boundary. The same error from an emitter does
+not close the source. Parent cancellation prevents the boundary save. A save
+conflict remains an error and leaves the persisted cursor unchanged. This lets
+bounded cleanup revisit a provider list after earlier deletions move entries
+behind an offset. It does not make offset pagination a snapshot.

@@ -62,6 +62,10 @@ var telemetryTests []byte
 //go:embed testdata/process_test.go
 var processTests []byte
 
+func TestGeneratedCycleWindow(t *testing.T) {
+	testGeneratedController(t, false, "^TestCycleWindow")
+}
+
 func TestGeneratedController(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
