@@ -203,3 +203,33 @@ runtime to generated deployment and the upstream dashboard image. They must prov
    requests, and stable regeneration.
 
 Do not claim these results from the transport test.
+
+## Real upstream source checks
+
+The first Hypershell source check, [35108147006](https://github.com/jsell-rh/hypershell-stego/actions/runs/35108147006),
+used upstream revision `07f1b13ebd9e1826afe943b831b092be8bf92498` and application
+source `3b95976`. The backend built, but its vulnerability check found a reachable
+gRPC issue. UI types and build passed. The runtime JavaScript audit found
+router vulnerabilities, and STEGO rejected the asset paths. The main JavaScript
+file was 4,973,112 bytes, above the 4 MiB asset limit. The output also included
+source maps and separate license text files. This is a failed check.
+
+The next source check, [35108622626](https://github.com/jsell-rh/hypershell-stego/actions/runs/35108622626),
+used application `9064968`. Its updated Go dependency set built and passed the
+vulnerability check. UI types passed, but router tests stopped before execution
+because jsdom did not supply `TextEncoder`. The JavaScript audit found a newer
+router advisory. The candidate now selects router 7.18.4 and supplies Node's
+standard encoder and decoder in the test setup. Those changes still need CI.
+
+The candidate build keeps the upstream API and entry point. It emits assets
+under `/assets/`, splits JavaScript, emits imported CSS as files, preserves
+license comments, and removes source maps from served output. It uses the
+existing font fallback instead of an external font request. These changes do
+not prove editor runtime styles, browser security, terminal behavior, or live
+deployment. No compiler size limit has been increased from these results.
+
+The original source archive and the modified build tree are recorded separately.
+Local evidence is in `dashboard-source-first-result` and
+`dashboard-dependency-result` under the persistent Gateway cleanup run directory.
+The application evidence records are on `codex/upstream-dashboard-20260916`.
+Keep this build work separate from the qualified management-console workflow.
