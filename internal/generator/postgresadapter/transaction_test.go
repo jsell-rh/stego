@@ -31,6 +31,9 @@ var checkpointTests []byte
 //go:embed testdata/resource_state_test.go
 var resourceStateTests []byte
 
+//go:embed testdata/resource_state_scopes_test.go
+var resourceStateScopeTests []byte
+
 //go:embed testdata/effects_test.go
 var effectBindingTests []byte
 
@@ -44,6 +47,9 @@ var cleanupTargetTests []byte
 var cleanupSummaryTests []byte
 
 func TestGeneratedStoreTransactions(t *testing.T) { testGeneratedStoreTransactions(t, "") }
+func TestGeneratedResourceStateScopes(t *testing.T) {
+	testGeneratedStoreTransactions(t, "^TestResourceStateScope")
+}
 func TestGeneratedResourceStateKeys(t *testing.T) {
 	testGeneratedStoreTransactions(t, "^TestResourceStateKeys")
 }
@@ -179,7 +185,7 @@ require (
  gorm.io/driver/postgres v1.5.11
 )
 `
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests, "storage/effects_test.go": effectBindingTests, "storage/resource_state_test.go": resourceStateTests, "storage/conditions_test.go": conditionTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "storage/transaction_test.go": transactionTests, "storage/versions_test.go": versionTests, "storage/cleanup_test.go": cleanupTests, "storage/cleanup_summary_test.go": cleanupSummaryTests, "storage/cleanup_targets_test.go": cleanupTargetTests, "storage/cursor_test.go": cursorTests, "storage/checkpoints_test.go": checkpointTests, "storage/effects_test.go": effectBindingTests, "storage/resource_state_test.go": resourceStateTests, "storage/resource_state_scopes_test.go": resourceStateScopeTests, "storage/conditions_test.go": conditionTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -210,7 +216,7 @@ require (
 }
 
 func TestTransactionReservedNames(t *testing.T) {
-	for _, name := range []string{"ResourceStateKeysMigration", "ErrTransactionRequired", "ErrTransactionNested", "ErrTransactionClosed", "ErrNotificationLimit", "transactionState", "transactionTimeout", "sqlTransaction", "stegooutbox", "sync"} {
+	for _, name := range []string{"ResourceStateScopesMigration", "ResourceStateKeysMigration", "ErrTransactionRequired", "ErrTransactionNested", "ErrTransactionClosed", "ErrNotificationLimit", "transactionState", "transactionTimeout", "sqlTransaction", "stegooutbox", "sync"} {
 		ctx := gen.Context{OutputNamespace: "storage", Entities: []types.Entity{{Name: name}}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
 			t.Fatalf("accepted reserved transaction name %q", name)

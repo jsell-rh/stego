@@ -330,6 +330,21 @@ type ResourceStateKeyReader interface {
  ListResourceStateKeys(ctx context.Context, entity, scope, afterID string, limit int)(ResourceStateKeyPage,error)
 }
 
+// ResourceStateScope retains the revision of an exact scoped key set. A new key
+// changes Revision. Content updates do not. Sealed permanently rejects new keys.
+// An absent scope has revision zero and is open.
+type ResourceStateScope struct { Revision int64; Sealed bool }
+// ResourceStateScopeStore supports complete scans despite concurrent inserts.
+// Include the loaded revision in the cycle input version. Seal only after all
+// required work succeeds, in the same transaction as the cleanup observation.
+// A changed revision rejects the transaction. Existing records remain writable.
+// This guard does not prove external absence or prevent changes to record data.
+// The caller must authorize the scope and enforce each provider's closed state.
+type ResourceStateScopeStore interface {
+ LoadResourceStateScope(context.Context,string,string)(ResourceStateScope,error)
+ SealResourceStateScope(context.Context,string,string,int64)(ResourceStateScope,error)
+}
+
 // EffectBinding retains a public digest of state needed for an external effect.
 // A closed binding with an empty digest proves that no binding was accepted.
 // A nonempty digest requires cleanup of the registered effect. It does not prove

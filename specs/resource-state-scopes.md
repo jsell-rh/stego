@@ -1,6 +1,6 @@
 # Resource-state scope closure
 
-This is the next required storage change. It is not implemented or qualified.
+The adapter 4.9.0 candidate implements this guard. It is not yet qualified.
 
 Hypershell test `TestGatewayJournalRegistrationDuringScanPreventsCompletion`
 failed in run `35102352727`. A key inserted before a saved cursor was missed.
@@ -51,3 +51,17 @@ failed-item progress and retained IDs with no account row.
 Scope closure covers saved obligations. It does not prove that an external
 provider list is complete or discover an unknown external resource. Provider
 ownership checks and the legacy inventory recovery requirements still apply.
+
+## Candidate implementation
+
+Migration 011 adds the scope table and database guards. A new state key takes
+its scope row lock before it increments the key-set revision. Conditional
+closure uses that same lock. All commands run in the caller's transaction.
+Backfill counts existing keys under a bounded table lock. Migrations 009 and
+010 are unchanged. Scope reads use the exact primary key and do not count
+records during recovery.
+
+The generated code compiles. Invalid read requests pass their local unit check.
+The local generated check took 6.92 seconds. Database cases were skipped locally;
+this is not SQL qualification. A separate bounded CI job now runs the state key
+and scope tests. Hypershell adoption and its failed race test remain required.
