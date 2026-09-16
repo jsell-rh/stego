@@ -2,6 +2,7 @@ package sample
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
@@ -269,5 +270,57 @@ func TestClientTimeoutAndSystemTrust(t *testing.T) {
 	}
 	if time.Since(start) > 3*time.Second {
 		t.Fatal("request did not stop at its deadline")
+	}
+}
+
+func TestHTTPSPeerCertificatePin(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte("ready")) }))
+	defer server.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256(server.Certificate().Raw)
+	for _, scenario := range []string{"exact", "copied", "different", "untrusted", "wrong host", "empty"} {
+		t.Run(scenario, func(t *testing.T) {
+			pin := expected
+			options := client.Options{BaseURL: server.URL, CAFile: ca, PeerCertificateSHA256: &pin}
+			switch scenario {
+			case "different":
+				pin[0] ^= 255
+			case "untrusted":
+				options.CAFile = ""
+			case "wrong host":
+				options.BaseURL = strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
+			case "empty":
+				pin = [32]byte{}
+			}
+			before := calls.Load()
+			c, err := client.New(options)
+			if scenario == "empty" {
+				if err == nil {
+					c.Close()
+					t.Fatal("empty peer pin accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			if scenario == "copied" {
+				pin[0] ^= 255
+			}
+			response, err := c.Do(context.Background(), "GET", "/readyz", nil, nil)
+			valid := scenario == "exact" || scenario == "copied"
+			if valid {
+				if err != nil || response.StatusCode != 200 || string(response.Body) != "ready" || calls.Load() != before+1 {
+					t.Fatal("matching peer failed", err)
+				}
+			} else if err == nil || calls.Load() != before {
+				t.Fatal("unverified peer reached the application")
+			}
+		})
 	}
 }

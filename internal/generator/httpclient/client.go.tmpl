@@ -4,6 +4,7 @@ import (
  "bytes"
  "bufio"
  "context"
+ "crypto/sha256"
  "crypto/tls"
  "crypto/x509"
  "errors"
@@ -30,7 +31,9 @@ const MaxStreamBytes = 64 << 20
 
 // StreamLimit is the maximum number of concurrent streams. Zero selects 16.
 // Streams have a separate limit so they cannot use ordinary request slots.
-type Options struct { BaseURL, CAFile string; Timeout time.Duration; StreamLimit int }
+// PeerCertificateSHA256 optionally requires one exact leaf certificate after
+// normal chain, hostname, purpose, and expiry checks. New copies its value.
+type Options struct { BaseURL, CAFile string; Timeout time.Duration; StreamLimit int; PeerCertificateSHA256 *[32]byte }
 // Client sends bounded requests to one configured HTTPS origin and path prefix.
 // It does not follow redirects or use proxy settings from the environment.
 type Client struct {
@@ -55,9 +58,18 @@ func New(options Options)(*Client,error){
  ca,err:=readFile(options.CAFile,65536,false);if err!=nil{return nil,err}
  roots=x509.NewCertPool();if !roots.AppendCertsFromPEM(ca){return nil,errors.New("HTTP client requires valid CA certificates")}
  }
+ tlsConfig:=&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots}
+ if options.PeerCertificateSHA256!=nil {
+  expected:=*options.PeerCertificateSHA256
+  if expected==([32]byte{}){return nil,errors.New("HTTP peer certificate digest is empty")}
+  tlsConfig.VerifyConnection=func(state tls.ConnectionState)error{
+   if len(state.VerifiedChains)==0 || len(state.PeerCertificates)==0 || sha256.Sum256(state.PeerCertificates[0].Raw)!=expected{return errors.New("HTTP peer certificate differs")}
+   return nil
+  }
+ }
  transport:=&http.Transport{
    Proxy:nil, DialContext:(&net.Dialer{Timeout:RequestTimeout,KeepAlive:30*time.Second}).DialContext,
-   TLSClientConfig:&tls.Config{MinVersion:tls.VersionTLS13,RootCAs:roots},
+   TLSClientConfig:tlsConfig,
    TLSHandshakeTimeout:RequestTimeout,ResponseHeaderTimeout:timeout,
    MaxResponseHeaderBytes:32<<10,MaxConnsPerHost:MaxConcurrentRequests+streamLimit,
    MaxIdleConns:MaxConcurrentRequests+streamLimit,MaxIdleConnsPerHost:MaxConcurrentRequests+streamLimit,

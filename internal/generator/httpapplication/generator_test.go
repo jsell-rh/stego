@@ -18,6 +18,9 @@ func TestGeneratedApplicationEndpoint(t *testing.T) { testGeneratedApplicationEn
 func TestGeneratedAcceptedDeletionEndpoint(t *testing.T) {
 	testGeneratedApplicationEndpoint(t, "^Test(NoContentEndpoint|DynamicReplyPreservesStatusAndBodyRules)$")
 }
+func TestGeneratedHTTPSPeerCertificatePin(t *testing.T) {
+	testGeneratedApplicationEndpoint(t, "^TestHTTPSPeerCertificatePin$")
+}
 func testGeneratedApplicationEndpoint(t *testing.T, pattern string) {
 	ctx := gen.Context{ModuleName: "example.com/http-test", OutDirName: "out", StorageContract: "example.com/http-test/out/contracts/storage", AuthPackage: "example.com/http-test/out/auth", PeerNamespaces: map[string]string{"jwt-auth": "auth", "postgres-adapter": "store", "http-application": "application"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "title", Type: types.FieldTypeString}}}}}
 	project := t.TempDir()

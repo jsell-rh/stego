@@ -64,3 +64,10 @@ Version 1.7 permits an empty HTTP 202 response when the endpoint response type i
 `NoContent`. Structured HTTP 202 responses still require a value. Authorization
 and domain errors prevent the success response. This supports durable deletion
 requests without adding transport code to each application.
+
+The generated HTTPS client accepts an optional `PeerCertificateSHA256` value.
+Use it when a deployment probe must reach one exact leaf certificate. The
+client still checks the CA chain, hostname, certificate purpose, and expiry.
+A pin cannot replace CA trust. `New` copies the pin; a caller cannot change it
+after the client starts. Recreate the client when the expected certificate
+changes. The client refuses an all-zero pin.

@@ -1,6 +1,6 @@
 kind: component
 name: cli-application
-version: 1.8.0
+version: 1.8.1
 output_namespace: cli
 config:
   factory_package:
