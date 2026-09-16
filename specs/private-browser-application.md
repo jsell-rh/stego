@@ -78,3 +78,18 @@ and WebSocket behavior, and shutdown. The real upstream dashboard image,
 rendered editor and terminal, cluster network boundary, and full Gateway
 lifecycle still require application evidence. Do not infer those results from
 this declaration or its manifest tests.
+
+The production revision `02e7494f7fbfef542f83a71166e86ff36c9979f1` passed
+all six jobs in [CI 35111380095](https://github.com/jsell-rh/stego/actions/runs/35111380095).
+The generated browser package, including the declared application and readiness
+checks, passed with required PostgreSQL and race detection in 201.525 seconds.
+The complete log has SHA-256
+`db9ba8dc9561504dd44d1803a30aedc1773039553ee41e67a49a41876ba2ee0b`.
+
+The real upstream dashboard image also passed its separate
+[build and private generation check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35111676342).
+The archived image binary matches the checked source binary. Its generated
+private browser compiled and repeated generation retained identical state.
+That run covered the root document path only. Neither result proves a deployed
+cluster boundary, rendered editor and terminal, or full Gateway lifecycle.
+Those application checks remain required.
