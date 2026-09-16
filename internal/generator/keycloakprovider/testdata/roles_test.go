@@ -13,6 +13,7 @@ import (
 
 type roleFixture struct {
 	intercept                                               func(http.ResponseWriter, *http.Request) bool
+	hiddenRealmMappings                                     bool
 	hiddenScopes, denyScopeProbe                            bool
 	mu                                                      sync.Mutex
 	clients                                                 map[string]ClientRepresentation
@@ -296,7 +297,11 @@ func newRoleFixture(t *testing.T) (*Client, *roleFixture) {
 							clients[f.clients[id].ClientID] = map[string]any{"id": id, "client": f.clients[id].ClientID, "mappings": roles}
 						}
 					}
-					send(map[string]any{"realmMappings": current.Realm, "clientMappings": clients})
+					realm := current.Realm
+					if f.hiddenRealmMappings {
+						realm = nil
+					}
+					send(map[string]any{"realmMappings": realm, "clientMappings": clients})
 					return
 				}
 				clientID := ""
@@ -665,5 +670,44 @@ func TestInspectServiceAccountRoles(t *testing.T) {
 				t.Fatal("role inspection changed provider state")
 			}
 		})
+	}
+}
+
+func TestServiceAccountRolesReadHiddenRealmAssignments(t *testing.T) {
+	c, f := newRoleFixture(t)
+	owner, target := roleBindings()
+	f.hiddenRealmMappings = true
+	policy := ServiceAccountRolePolicy{Clients: []ClientRoleGrant{{Client: target, Names: []string{"read"}}}}
+	if err := c.ReconcileServiceAccountRoles(context.Background(), owner, "service-user", policy); err != nil {
+		t.Fatal("hidden realm role reconciliation failed", err)
+	}
+	if err := c.InspectServiceAccountRoles(context.Background(), owner, "service-user", policy); err != nil {
+		t.Fatal("client-only inspection failed", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.current["service-user"].Realm) != 0 || len(f.current["service-user"].Clients["target"]) != 1 || len(f.current["service-user"].Clients["foreign"]) != 0 {
+		t.Fatal("hidden role survived reconciliation")
+	}
+}
+
+func TestServiceAccountRolesRequireDirectRealmRead(t *testing.T) {
+	c, f := newRoleFixture(t)
+	owner, target := roleBindings()
+	f.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method == "GET" && r.URL.Path == "/admin/realms/tenant/users/service-user/role-mappings/realm" {
+			w.WriteHeader(http.StatusForbidden)
+			return true
+		}
+		return false
+	}
+	policy := ServiceAccountRolePolicy{Clients: []ClientRoleGrant{{Client: target, Names: []string{"read"}}}}
+	if err := c.ReconcileServiceAccountRoles(context.Background(), owner, "service-user", policy); err == nil {
+		t.Fatal("unreadable realm roles accepted")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.writes) != 0 {
+		t.Fatal("mutation preceded the required role read")
 	}
 }

@@ -300,3 +300,19 @@ writes. This role check does not prove scopes, mappers, or token contents; use
 Protected credentials, migration plans, and client pointers redact every Go
 formatting verb through `fmt.Formatter`. `String` and `GoString` alone do not
 cover numeric formatting verbs. Keep the client as a pointer; do not copy it.
+
+Service-account role reads use the dedicated realm-mapping endpoint as well as
+the combined mapping response. Keycloak filters the combined response by role-view
+permission. A caller with user-management and client-management permissions can
+therefore miss direct realm roles in that response. The dedicated realm read is
+required before a mutation, even when the desired policy has client roles only.
+An unreadable or contradictory realm set stops the operation before repair.
+The combined set still has the same role-count and identity bounds.
+
+The provider test includes a client-only policy with `manage-clients`,
+`view-clients`, `manage-users`, and `view-users`, without `view-realm` or
+`manage-realm`. It also uses distinct provider and public client IDs and legacy
+ownership keys. This does not reduce the separate visibility requirements for
+client scopes. See Keycloak 26.7.3
+[role-mapping reads](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/RoleMapperResource.java)
+and [role-view permissions](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/fgap/RolePermissions.java).
