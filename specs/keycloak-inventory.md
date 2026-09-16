@@ -43,3 +43,15 @@ rollback. Then repeat the real Keycloak and Gateway workflows.
 
 This requirement does not claim capacity from a small test. The existing live
 Gateway and CNPG checks remain the acceptance gate for the deletion change.
+
+## Query candidate
+
+Branch `codex/keycloak-inventory-20260916` adds a bounded `SearchClients`
+operation in provider version 0.14.0. It passes a client-name fragment through
+encoded query values, with fixed search mode and explicit page bounds. It
+rejects empty fragments and pattern characters before network access. A failed
+query has no full-scan fallback. Focused generated tests passed in 3.087 seconds.
+The real Keycloak gate checks case-insensitive filtering and offset handling.
+Its result is still required before this provider change can enter the default
+branch. Hypershell has not adopted this candidate. Durable inventory scans and
+the required changing-page recovery tests remain open.

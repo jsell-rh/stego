@@ -8,6 +8,7 @@ import (
  "net/http"
  "net/url"
  "strconv"
+ "strings"
 )
 
 // GetClient reads one immutable provider ID, not a public OAuth client ID.
@@ -54,6 +55,15 @@ func(c *Client)ListClients(ctx context.Context,page Page)([]ClientRepresentation
  if err:=page.validate();err!=nil{return nil,err}
  work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
  return c.clientPage(work,url.Values{"first":{strconv.Itoa(page.First)},"max":{strconv.Itoa(page.Size)}},page.Size)
+}
+// SearchClients reads one candidate page from a case-insensitive client-name
+// search. It does not check ownership or prove absence. The caller must retain
+// known IDs and bound the scan. Pattern characters are rejected before I/O.
+func(c *Client)SearchClients(ctx context.Context,fragment string,page Page)([]ClientRepresentation,error){
+ if !textValue(fragment,255)||strings.TrimSpace(fragment)==""||strings.ContainsAny(fragment,"%_\\[]"){return nil,errors.New("invalid Keycloak client search fragment")}
+ if err:=page.validate();err!=nil{return nil,err}
+ work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
+ return c.clientPage(work,url.Values{"clientId":{fragment},"search":{"true"},"first":{strconv.Itoa(page.First)},"max":{strconv.Itoa(page.Size)}},page.Size)
 }
 func(c *Client)clientPage(ctx context.Context,query url.Values,limit int)([]ClientRepresentation,error){
  response,err:=c.admin(ctx,http.MethodGet,"/clients?"+query.Encode(),nil);if err!=nil{return nil,err}

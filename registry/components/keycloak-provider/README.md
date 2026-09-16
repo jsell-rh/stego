@@ -87,6 +87,18 @@ records after storage errors; a short page does not prove deletion. Client IDs u
 in provider URL paths must match `[A-Za-z0-9_-]{1,255}`. Public OAuth client names
 can contain UTF-8 text, with a limit of 255 bytes and no control characters.
 
+Version 0.14.0 adds `SearchClients(ctx, fragment, page)`. It reads one bounded
+candidate page with the selected client-name fragment. The provider applies a
+case-insensitive contains search. Empty or whitespace-only fragments, `%`, `_`,
+backslash, and square brackets are rejected before a request. The query has no
+fallback to a full scan. URL characters are encoded as query values.
+
+A search result does not authorize a mutation. Keep expected ownership and
+immutable provider IDs in application state, then use the checked lifecycle.
+The page uses an offset, not a snapshot. Concurrent changes can move records
+between pages. A short page does not prove absence. This query does not provide
+resumable inventory cleanup; that common-runtime requirement remains open.
+
 Administrator tokens are cached only for part of their reported lifetime.
 Each request re-reads the private credential file so a changed credential
 invalidates the cache. An unauthorized response clears the matching token.

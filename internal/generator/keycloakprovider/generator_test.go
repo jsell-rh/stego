@@ -68,6 +68,9 @@ func TestGeneratedNativeLifecycle(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedProvider(t, telemetry, false, "^TestNativeLifecycle") })
 	}
 }
+func TestGeneratedClientNameSearch(t *testing.T) {
+	testGeneratedProvider(t, false, false, "^Test(BoundedClientNameSearch|ClientNameSearchDoesNotExpandFailedQueries)$")
+}
 func TestGeneratedKeycloakProvider(t *testing.T)          { testGeneratedProvider(t, false, false) }
 func TestGeneratedKeycloakProviderTelemetry(t *testing.T) { testGeneratedProvider(t, true, false) }
 func TestGeneratedKeycloakProviderLive(t *testing.T) {

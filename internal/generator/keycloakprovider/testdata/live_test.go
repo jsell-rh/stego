@@ -257,6 +257,16 @@ func TestProviderLive(t *testing.T) {
 	if err != nil || len(page) < 4 {
 		t.Fatal("real provider inventory failed", err)
 	}
+	for _, query := range []struct{ fragment, name string }{{"CATALOG", "catalog"}, {"batch-", "batch-worker"}} {
+		candidates, err := client.SearchClients(ctx, query.fragment, Page{Size: 1})
+		if err != nil || len(candidates) != 1 || candidates[0].ClientID != query.name {
+			t.Fatal("real client search differs from its fragment or bound", err)
+		}
+		tail, err := client.SearchClients(ctx, query.fragment, Page{First: 1, Size: 1})
+		if err != nil || len(tail) != 0 {
+			t.Fatal("real client search did not apply its offset", err)
+		}
+	}
 	foreign, err := client.FindClient(ctx, "foreign-service")
 	if err != nil {
 		t.Fatal(err)
