@@ -2,12 +2,12 @@ package {{.Package}}
 
 import (
  "context"
- {{if not .LocalApplication}}"crypto/sha256"
+ {{if .EmbeddedAssets}}"crypto/sha256"
  "encoding/hex"
  "html"{{end}}
- {{if not .LocalApplication}}telemetry {{printf "%q" .Telemetry}}{{end}}
+ {{if .EmbeddedAssets}}telemetry {{printf "%q" .Telemetry}}{{end}}
  "database/sql"
- {{if not .LocalApplication}}"embed"{{end}}
+ {{if .EmbeddedAssets}}"embed"{{end}}
  "encoding/json"
  "errors"
  "net/http"
@@ -21,7 +21,7 @@ import (
  client {{printf "%q" .Client}}
 )
 
-{{if not .LocalApplication}}//go:embed public
+{{if .EmbeddedAssets}}//go:embed public
 var assets embed.FS{{end}}
 const generatedConfiguration={{printf "%q" .Config}}
 const SessionCookie="__Host-Http-stego_session"
@@ -93,13 +93,14 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
  }
  if strings.HasPrefix(r.URL.Path,"/telemetry/"){r.Pattern="/telemetry/v1/{signal}";b.telemetry(w,r);return}
  if r.URL.Path==b.config.Prefix||strings.HasPrefix(r.URL.Path,b.config.Prefix+"/"){r.Pattern=b.config.Prefix+"/{resource}";b.proxy(w,r);return}
- {{if .LocalApplication}}
+ {{if not .EmbeddedAssets}}
  if r.Method!="GET"&&r.Method!="HEAD"{failure(w,405);return}
  if b.browserPath(r.URL.Path) {for i,route:=range b.routes{if route.MatchString(r.URL.Path){r.Pattern=b.config.Routes[i];break}};b.proxy(w,r);return}
  if strings.HasPrefix(r.URL.Path,"/assets/"){r.Pattern="/assets/{asset}";b.proxy(w,r);return}
  {{else}}if r.Method!="GET"&&r.Method!="HEAD"{failure(w,405);return}
  target:=r.URL.Path;for i,route:=range b.routes{if route.MatchString(target){r.Pattern=b.config.Routes[i];target="/index.html";break}}
  for _,a:=range b.config.Assets{if a.Path==target{
+  {{if .LocalApplication}}if _,ok:=b.applicationSession(w,r);!ok{return}{{end}}
   if target!="/index.html"{r.Pattern="/assets/{asset}"}else if len(b.config.ScriptHashes)>0{w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"script-src 'self'","script-src 'self' "+strings.Join(b.config.ScriptHashes," "),1))}
   body,err:=assets.ReadFile("public"+target);if err!=nil{failure(w,500);return}
   contentType:="application/octet-stream";switch{case strings.HasSuffix(target,".html"):contentType="text/html; charset=utf-8";case strings.HasSuffix(target,".js"):contentType="text/javascript; charset=utf-8";case strings.HasSuffix(target,".css"):contentType="text/css; charset=utf-8";case strings.HasSuffix(target,".svg"):contentType="image/svg+xml";case strings.HasSuffix(target,".png"):contentType="image/png";case strings.HasSuffix(target,".ico"):contentType="image/x-icon";case strings.HasSuffix(target,".woff2"):contentType="font/woff2"}
@@ -112,7 +113,7 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
    sum:=sha256.Sum256(body);hash=hex.EncodeToString(sum[:])
   }
   w.Header().Set("Content-Type",contentType);tag:=`"`+hash+`"`;w.Header().Set("ETag",tag)
-  if target!="/index.html"{w.Header().Set("Cache-Control","public, max-age=0, must-revalidate")}
+  {{if not .LocalApplication}}if target!="/index.html"{w.Header().Set("Cache-Control","public, max-age=0, must-revalidate")}{{end}}
   if r.Header.Get("If-None-Match")==tag{w.WriteHeader(304);return};if r.Method=="GET"{_,_=w.Write(body)};return
  }}
  {{end}}failure(w,404)

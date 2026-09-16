@@ -53,13 +53,6 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 	if g.LocalApplicationPort != 0 && (g.LocalApplicationPort < 1024 || g.LocalApplicationPort > 65535) {
 		return s, fmt.Errorf("local application port must be 1024 through 65535")
 	}
-	if g.LocalApplicationPort != 0 {
-		for _, name := range []string{"assets", "asset_bundle", "telemetry_service_name"} {
-			if _, present := values[name]; present {
-				return s, fmt.Errorf("local application serves its own assets; %s is not supported", name)
-			}
-		}
-	}
 	for key := range values {
 		if key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
@@ -113,7 +106,12 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 	if !seen["/"] {
 		return s, fmt.Errorf("browser routes must include /")
 	}
-	if g.LocalApplicationPort != 0 {
+	_, hasAssets := values["assets"]
+	_, hasBundle := values["asset_bundle"]
+	if g.LocalApplicationPort != 0 && !hasAssets && !hasBundle {
+		if s.TelemetryService != "" {
+			return s, fmt.Errorf("browser telemetry requires captured assets")
+		}
 		sort.Strings(s.Routes)
 		return s, nil
 	}
@@ -265,7 +263,7 @@ func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte,
 			return s, nil, err
 		}
 	}
-	if g.LocalApplicationPort == 0 {
+	if len(s.Assets) != 0 {
 		s.ScriptHashes, err = browserassets.ScriptHashes(index, names)
 	}
 	return s, content, err
@@ -290,8 +288,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	configuration, _ := json.Marshal(s)
 	data := struct {
 		Package, Client, Config, UnicodeValidation, Telemetry string
-		LocalApplication                                      bool
-	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort != 0}
+		LocalApplication, EmbeddedAssets                      bool
+	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort != 0, len(s.Assets) != 0}
 	entries, _ := sources.ReadDir(".")
 	for _, entry := range entries {
 		if entry.Name() == "socket.go.tmpl" && g.LocalApplicationPort == 0 {
