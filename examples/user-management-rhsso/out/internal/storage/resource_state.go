@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	statecontract "github.com/example/service/out/contracts/storage"
+	statepgconn "github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"math"
 )
@@ -164,6 +165,10 @@ func (s *Store) SaveResourceState(ctx context.Context, entity, id, scope string,
 		write = s.db.WithContext(operation).Exec("UPDATE stego_resource_state SET version=version+1,data=? WHERE entity=? AND resource_id=? AND scope=? AND version=?", content, entity, id, scope, expected)
 	}
 	if write.Error != nil {
+		var sqlError *statepgconn.PgError
+		if errors.As(write.Error, &sqlError) && sqlError.Code == "23514" && sqlError.ConstraintName == "stego_resource_state_scope_closed" {
+			return result, statecontract.ErrResourceStateConflict
+		}
 		return result, write.Error
 	}
 	if write.RowsAffected != 1 {

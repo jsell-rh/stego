@@ -85,6 +85,9 @@ func NewStore(db *gorm.DB) (*Store, error) {
 	if err := verifyResourceStates(db); err != nil {
 		return nil, err
 	}
+	if err := verifyResourceStateScopes(db); err != nil {
+		return nil, err
+	}
 	return &Store{db: db}, nil
 }
 
