@@ -8,7 +8,7 @@ restart. This changes the earlier 204/503 synchronous cleanup contract.
 
 ## Existing evidence
 
-Hypershell test source `711659a` reproduces the current failure with only three
+Hypershell test source `711659a` reproduces the former failure with only three
 retained accounts. Each request confirms one account, then cancels during the
 next provider call. Three requests reconstruct the application services from
 the same PostgreSQL database. All three repeat the first account; two accounts
@@ -97,31 +97,52 @@ made from the three-account interruption test.
 
 ## Implementation and qualification in progress
 
-STEGO candidate `cd08dc6` supplies permanent finalization, pending-deletion list
-and cursor reads, and typed empty HTTP 202 responses. PostgreSQL tests passed in
-CI runs `35092656619` and `35093219283`. Both full runs failed because the registry
-version test still expected adapter 4.5. That assertion is corrected in
-`eb0e543`, which is included in the candidate. A full green run is still required.
+STEGO default branch `a08e183` supplies permanent finalization, pending-deletion
+list and cursor reads, typed empty HTTP 202 responses, and declared deleting
+values for observation fields. Field display, search, counts, ordering, and
+cursors use the same stored-state projection. The application supplies the text.
+CI run `35094308674` passed all five jobs, including real PostgreSQL tests and
+regeneration of both examples. Earlier runs `35092656619` and `35093219283` passed
+SQL checks but failed a stale registry-version assertion. Preserve those failures.
 
 Hypershell source `c0ab6e5` passed two bounded recovery tests on jshell. A failed
 account did not stop independent accounts. A reconstructed service completed the
 last retained account after a first pass saved 100 IDs. The tests took 1.18 and
 0.53 seconds. Generation matched before and after the tests. Job
-`gateway-api-06e3e8773918`, UID `7d8a6c18-f910-4168-bd1d-5267d1220b54`, and its
-private fixtures are absent. The results are in `recovery-result-2` under the
-persistent run directory above. An earlier recovery attempt stopped at the
-regeneration check before tests: its local compiler lacked Git build metadata.
-The compiler was rebuilt from a clean clone with a verified revision.
+`gateway-api-06e3e8773918` and its private fixtures are absent. An earlier attempt
+stopped at regeneration before tests because the local compiler lacked Git build
+metadata. The corrected compiler came from a clean clone with a verified revision.
 
-Hypershell `31c8646` connects request acceptance, account recovery, cleanup owners,
-finalization, and events. Its selected REST and gRPC process gate is running.
-`9386f88` also prevents unchanged cleanup observations from publishing events.
-These changes are on `codex/gateway-cleanup-20260916`; the default branch has not
-changed to the new deletion contract.
+Hypershell `31c8646` passed the generated REST and gRPC process gate in 53 seconds.
+It proved request rollback, final-event rollback, denied access, filtered lists,
+account rejection after acceptance, pending reads, process replacement, permanent
+finalization, and final event delivery through Kafka. Source `8856413` then passed
+those tests plus unchanged-observation event checks and phase-search checks.
+Both generation passes matched. Its Job `gateway-api-5c335707fdf0`, Pods, and
+private fixtures were removed. The wrapper failed while releasing the Lease.
+A separate operator check confirmed absence and released the same Lease.
+Do not report that wrapper as a clean exit. Test and cleanup records are retained
+in `projected-result` under the persistent run directory above.
 
-The next checks must cover the new transport workflow and event commit failures,
-then align the console and earlier synchronous-deletion tests. The current public
-view supplies phase `Deleting` after the storage query. Search and ordering on
-that field must use the same value before qualification. Provider inventory still
-uses a bounded full scan; its large-inventory behavior remains open. These limits
-must not be hidden by the small recovery tests.
+These transport tests use a test account provider and explicit observations for
+identity, workload, and SQL. They do not qualify the real provider workflows.
+The source `7836bdc` removes the unused synchronous account-cleanup path and the
+extra gRPC provider connection. A selected cluster check is in progress.
+
+The console candidate from `5af38b8` passed 166 tests in CI run `35094901951`.
+Its source, compiler revision, archive hash, and asset hash were checked before
+adoption. It keeps deleting Gateways visible, polls their state, and disables
+incompatible actions. An earlier run failed one stale confirmation-text assertion.
+The corrected test passed. The rendered browser gate must still pass.
+
+The CLI review found that empty HTTP 202 responses needed an explicit common
+contract. STEGO candidate `e01e624` adds `Command.EmptyResponses`; full CI is in
+progress. Hypershell `6d85104` adopts it and updates earlier synchronous-deletion
+tests. CI run `35095289920` is checking the core, browser, console, and service
+image. The complete CNPG and external-database cluster workflows remain required.
+The Hypershell default branch has not changed to the new deletion contract.
+
+Provider inventory still uses a bounded full scan. Its large-inventory behavior
+remains open. Hypershell also retains its fresh-schema gate; these checks do not
+claim an in-place application schema upgrade. No production capacity claim is
+made from the small recovery tests.
