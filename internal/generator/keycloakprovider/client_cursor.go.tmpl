@@ -2,6 +2,9 @@ package {{.Package}}
 
 import (
  "context"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
  "errors"
  "strconv"
  "strings"
@@ -41,4 +44,12 @@ func(c *Client)ClientNameCursorSource(fragment string)(runtime.CursorSource[Clie
   }
   return result,nil
  },nil
+}
+
+// ClientNameSourceVersion identifies the fixed query and provider identity.
+// It contains no credential. Credential rotation does not change this version.
+func(c *Client)ClientNameSourceVersion(fragment string)(string,error){
+ if c==nil||!validClientSearchFragment(fragment){return "",runtime.ErrScanContract}
+ data,err:=json.Marshal([]string{"client-name-query-v1",c.issuer,c.clientID,fragment});if err!=nil{return "",runtime.ErrScanContract}
+ sum:=sha256.Sum256(data);return hex.EncodeToString(sum[:]),nil
 }

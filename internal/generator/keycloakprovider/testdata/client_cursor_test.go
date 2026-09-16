@@ -142,3 +142,32 @@ func TestClientCursorKeepsFailureAcrossRestart(t *testing.T) {
 		t.Fatal("restart lost failure or later candidate", err)
 	}
 }
+
+func TestClientCursorSourceVersionBindsProviderAndQuery(t *testing.T) {
+	c := &Client{issuer: "https://identity.example/realms/tenant", clientID: "worker"}
+	prior, err := c.ClientNameSourceVersion("catalog")
+	if err != nil || len(prior) != 64 {
+		t.Fatal("invalid source version", err)
+	}
+	again, err := c.ClientNameSourceVersion("catalog")
+	if err != nil || again != prior {
+		t.Fatal("unstable source version", err)
+	}
+	for _, changed := range []*Client{{issuer: c.issuer, clientID: "other"}, {issuer: "https://identity.example/realms/other", clientID: c.clientID}} {
+		value, err := changed.ClientNameSourceVersion("catalog")
+		if err != nil || value == prior {
+			t.Fatal("changed provider kept source version", err)
+		}
+	}
+	value, err := c.ClientNameSourceVersion("other")
+	if err != nil || value == prior {
+		t.Fatal("changed query kept source version", err)
+	}
+	if _, err = c.ClientNameSourceVersion("bad%"); err == nil {
+		t.Fatal("invalid query accepted")
+	}
+	var absent *Client
+	if _, err = absent.ClientNameSourceVersion("catalog"); err == nil {
+		t.Fatal("nil client accepted")
+	}
+}
