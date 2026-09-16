@@ -4,6 +4,46 @@ The user selected the upstream OpenShell dashboard. STEGO must generate its
 common authentication, deployment, and lifecycle support. Hypershell must keep
 only Gateway configuration and access rules.
 
+## Current integration state
+
+STEGO compiler `bd7d9ea` supplies the browser session backend, captured assets,
+browser client and telemetry packages, local application transport, deployment
+renderer, and owned image pull Secret operations. Its common runtime passed
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35143448699).
+The stages below record earlier work; their former implementation gaps do not
+describe the current compiler.
+
+Hypershell development revision `8c9baa1` composes these common components with
+local application archetypes. It contains no copied common component metadata.
+Its Gateway controller prepares separate console storage and identity inputs,
+deploys the upstream application with the generated backend, and publishes the
+console address after readiness checks. The frontend imports the common browser
+client and telemetry packages. These are implemented paths, not proof that the
+complete deployed workflow passes.
+
+The Gateway console module at `ee4ec91` passed
+[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35143599626).
+The independent module check matched 83 files and the published image binary.
+The later [live run at f79b46d](https://github.com/jsell-rh/hypershell-stego/actions/runs/35144014002)
+pulled both private browser images and started both upstream applications. The
+generated browser backend failed during construction. The identity fixture had
+no ingress peer for the separate console Pod labels. The test fixture now has
+that peer, limited to the assigned Gateway namespaces. See
+[image pull evidence](image-pull-credentials.md).
+
+The rendered test also expected a sign-in button inside a protected document.
+The generated backend starts login before it serves that document. Hypershell
+`8c9baa1` corrects the test to check the configured provider origin and username
+field before credential entry. Its syntax check passed. A live browser result
+for that correction is still required.
+
+The application gate must still prove the rendered workspace and policy editor,
+correlated authenticated telemetry, viewer and revoked access, session database
+recovery, worker restart, and deletion. Terminal behavior remains a separate
+requirement. Passing module builds or common runtime tests cannot close those
+application requirements. Hypershell `main` remains at the previously qualified
+`d6b1fe3` while the development branch completes these checks.
+
 ## Source contract
 
 The reference image declares source revision
