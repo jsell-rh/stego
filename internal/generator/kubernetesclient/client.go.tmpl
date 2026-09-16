@@ -175,6 +175,7 @@ func(c *Client)Ensure(ctx context.Context,collection string,desired Object,owner
  path:=collection+"/"+name
  old,code,err:=c.Request(ctx,http.MethodGet,path,nil);if err!=nil{return nil,err}
  if code==404{created,_,err:=c.Request(ctx,http.MethodPost,collection,want);return created,err}
+ if String(old,"metadata","name")!=name || (String(want,"metadata","namespace")!="" && String(old,"metadata","namespace")!=String(want,"metadata","namespace")){return nil,errors.New("Kubernetes resource has a different name or namespace")}
  if !owner.Matches(old) || !identity(old) || String(old,"metadata","deletionTimestamp")!=""{return nil,errors.New("Kubernetes resource has a different owner, has no identity, or is being deleted")}
  if subset(old,want){return old,nil}
  metadata:=want["metadata"].(map[string]any)

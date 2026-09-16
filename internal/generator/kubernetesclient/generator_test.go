@@ -61,6 +61,9 @@ func TestGeneratedKubernetesClient(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedKubernetesClient(t, telemetry, "") })
 	}
 }
+func TestGeneratedOwnedResourceIdentity(t *testing.T) {
+	testGeneratedKubernetesClient(t, false, "^Test(WidgetCreateConvergeAndDelete|OwnershipConflictAndInvalidDesiredState|WritesRequireStrictFieldValidation|PatchOwned)")
+}
 func TestGeneratedSecretState(t *testing.T) {
 	testGeneratedKubernetesClient(t, false, "^TestSecretState")
 }

@@ -1,8 +1,11 @@
 package kubernetes
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"sync"
 	"testing"
 )
 
@@ -112,5 +115,91 @@ func TestPassthroughRouteAdmission(t *testing.T) {
 		if yes, err := PassthroughRouteAdmitted(admittedRoute(t), owner, invalid); yes || !errors.Is(err, ErrResourceObservation) {
 			t.Fatal("invalid host requirement accepted")
 		}
+	}
+}
+
+func TestPassthroughRouteEnsureRequiresStableProbeObservation(t *testing.T) {
+	for _, mode := range []string{"ready", "pending", "probe failure", "replaced", "changed", "removed", "denied after probe", "foreign response", "nil probe", "invalid target", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			current := admittedRoute(t)
+			target := PassthroughRouteTarget{Host: "service.example.test", Service: "service", Port: "grpc", Router: "default"}
+			owner := Owner{"example.com/owner": "tenant-1"}
+			if mode == "pending" {
+				routeCondition(current)["status"] = "False"
+			}
+			if mode == "foreign response" {
+				routeMap(current, "metadata")["namespace"] = "foreign"
+			}
+			var mu sync.Mutex
+			calls := 0
+			client, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				calls++
+				if r.Method != http.MethodGet || r.URL.Path != "/apis/route.openshift.io/v1/namespaces/tenant/routes/public" {
+					t.Error("unexpected Route request")
+					w.WriteHeader(500)
+					return
+				}
+				if calls == 2 {
+					switch mode {
+					case "replaced":
+						routeMap(current, "metadata")["uid"] = "replacement"
+					case "changed":
+						routeMap(current, "metadata")["resourceVersion"] = "43"
+					case "removed":
+						w.WriteHeader(404)
+						return
+					case "denied after probe":
+						routeCondition(current)["status"] = "False"
+					}
+				}
+				_ = json.NewEncoder(w).Encode(current)
+			})
+			probes := 0
+			probe := func(ctx context.Context, address string) error {
+				probes++
+				if address != "service.example.test:443" {
+					t.Error("probe used an unselected host")
+				}
+				if mode == "probe failure" {
+					return errors.New("probe failed")
+				}
+				return ctx.Err()
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if mode == "nil probe" {
+				probe = nil
+			}
+			if mode == "invalid target" {
+				target.Host = "127.0.0.1"
+			}
+			if mode == "canceled" {
+				cancel()
+			}
+			ready, err := client.EnsurePassthroughRoute(ctx, "tenant", "public", owner, target, probe)
+			if mode == "ready" {
+				if err != nil || !ready || probes != 1 {
+					t.Fatal("verified Route rejected", err)
+				}
+			} else if ready {
+				t.Fatal("unverified Route accepted")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if (mode == "nil probe" || mode == "invalid target" || mode == "canceled") && calls != 0 {
+				t.Fatal("invalid configuration reached Kubernetes")
+			}
+			if (mode == "pending" || mode == "foreign response") && probes != 0 {
+				t.Fatal("unadmitted Route was probed")
+			}
+			if mode == "probe failure" && calls != 1 {
+				t.Fatal("failed probe continued")
+			}
+			if (mode == "pending" || mode == "replaced" || mode == "changed" || mode == "removed" || mode == "denied after probe") && err != nil {
+				t.Fatal("pending observation became an error", err)
+			}
+		})
 	}
 }

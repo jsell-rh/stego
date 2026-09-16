@@ -83,3 +83,11 @@ Secret again and checks its UID, resource version, and data before it returns
 the configuration digest for a rollout. A conflict requires a new observation.
 This operation does not provide a transaction across Secrets. The caller must
 retain the desired values across retries.
+
+`EnsurePassthroughRoute` creates or updates one owned OpenShift Route. It checks
+the selected host, Service, port, and router admission before it calls the
+application probe. It then reads the Route again. A changed UID or resource
+version requires a new observation. The probe must check TLS and application
+behavior through the supplied address and must obey its context deadline.
+`Ensure` rejects a stored object with a different name or declared namespace
+before it can send a patch.

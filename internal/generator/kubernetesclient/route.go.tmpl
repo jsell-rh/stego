@@ -2,6 +2,8 @@
 package {{.Package}}
 
 import (
+ "context"
+ "net/http"
  "net"
  "strings"
 )
@@ -86,4 +88,33 @@ func routeDNS(value string) bool {
  if len(value)>253 { return false }
  for _, label := range strings.Split(value,".") { if !routeLabel(label) { return false } }
  return true
+}
+
+// EnsurePassthroughRoute applies one owned Route and checks its admission.
+// It calls probe with the selected host on port 443, then reads the Route again.
+// Success requires unchanged identity, version, backend, and admission. The
+// probe must honor its context and verify TLS identity and application behavior.
+// False without an error means that reconciliation must wait and observe again.
+func(c *Client)EnsurePassthroughRoute(ctx context.Context,namespace,name string,owner Owner,target PassthroughRouteTarget,probe func(context.Context,string)error)(bool,error){
+ if c==nil||ctx==nil||probe==nil||!routeLabel(namespace)||!routeDNS(name)||!owner.valid()||!routeDNS(target.Host)||net.ParseIP(target.Host)!=nil||!routeLabel(target.Service)||!routeLabel(target.Port)||!routeLabel(target.Router){return false,ErrResourceObservation}
+ if err:=ctx.Err();err!=nil{return false,err}
+ labels:=Object{};for key,value:=range owner{labels[key]=value}
+ desired:=Object{"apiVersion":"route.openshift.io/v1","kind":"Route","metadata":Object{"namespace":namespace,"name":name,"labels":labels},"spec":Object{
+ "host":target.Host,"wildcardPolicy":"None","to":Object{"kind":"Service","name":target.Service,"weight":100},"port":Object{"targetPort":target.Port},"tls":Object{"termination":"passthrough","insecureEdgeTerminationPolicy":"None"},
+ }}
+ collection:="/apis/route.openshift.io/v1/namespaces/"+namespace+"/routes"
+ observed,err:=c.Ensure(ctx,collection,desired,owner)
+ if err!=nil{return false,err}
+ if String(observed,"metadata","namespace")!=namespace||String(observed,"metadata","name")!=name{return false,ErrResourceObservation}
+ ready,err:=PassthroughRouteAdmitted(observed,owner,target)
+ if err!=nil||!ready{return false,err}
+ if err:=probe(ctx,net.JoinHostPort(target.Host,"443"));err!=nil{return false,err}
+ current,code,err:=c.Request(ctx,http.MethodGet,collection+"/"+name,nil)
+ if err!=nil{return false,err}
+ if code==http.StatusNotFound||String(current,"metadata","uid")!=String(observed,"metadata","uid")||String(current,"metadata","resourceVersion")!=String(observed,"metadata","resourceVersion"){return false,nil}
+ if code!=http.StatusOK||String(current,"metadata","namespace")!=namespace||String(current,"metadata","name")!=name{return false,ErrResourceObservation}
+ ready,err=PassthroughRouteAdmitted(current,owner,target)
+ if err!=nil||!ready{return false,err}
+ if err:=ctx.Err();err!=nil{return false,err}
+ return true,nil
 }
