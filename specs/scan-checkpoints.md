@@ -92,3 +92,25 @@ compiler CI is still required. Results are retained under
 
 This correction does not make Hypershell Gateway deletion resumable. Its
 separate interruption test and deletion contract decision remain open.
+
+## Multiple retained sources
+
+Controller 1.20.0 adds `SequenceCursorSources`. It combines up to 16 named
+sources under one cursor, so a durable cycle can cover domain records and saved
+provider records before it reports completion. Source names and order are part
+of the caller's cycle input version. Change that version when those inputs
+change. The source adapters still own access, scope selection, and payload
+validation.
+
+The sequence can fill one page across source boundaries. It validates all
+source pages before it returns the combined page for effects. Each source has
+at most one query per page and receives the remaining item limit and the page
+context. Source cursors have a 320-byte limit. Versioned, canonical combined
+cursors fit the durable cycle's 512-byte limit. Empty sources need no fake work
+item. A full page can require one final empty read to establish the end.
+
+The focused generated test passed in 2.73 seconds. It checks a restart after a
+source boundary, identical raw keys in different sources, continued work after
+an item failure, retained failure evidence across restart, a fresh successful
+cycle, invalid pages before effects, configuration copies, cursor bounds,
+source failure, and cancellation. Full compiler CI remains required.
