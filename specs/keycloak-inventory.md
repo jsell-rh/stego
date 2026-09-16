@@ -55,3 +55,10 @@ The real Keycloak gate checks case-insensitive filtering and offset handling.
 Its result is still required before this provider change can enter the default
 branch. Hypershell has not adopted this candidate. Durable inventory scans and
 the required changing-page recovery tests remain open.
+
+The real provider job in CI run `35099578328` passed at `f5d7d27`. Its complete
+provider test took 62.31 seconds and includes the new search checks. Generated
+source and runtime evidence are saved in `keycloak-search-real` under the
+Gateway cleanup run directory. Both examples and PostgreSQL checks also passed.
+The compiler job is still running. This does not qualify inventory cleanup or
+Hypershell adoption.

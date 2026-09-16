@@ -6,10 +6,11 @@ cancellation, and telemetry. It has no component settings or startup hook.
 The application constructs it with `New(Options)` and closes it when its owning
 service stops.
 
-Version 0.10.0 provides typed client lifecycle, role, scope, and mapper operations,
+The component provides typed client lifecycle, role, scope, and mapper operations,
 checked native and service-account enablement, and service-account token verification. It reuses the
 shared JWT verifier from `jwt-auth` or `rh-sso-auth`. The compiler requires that
-verifier and the generated HTTP application client. Application adoption remains open. See the
+verifier and the generated HTTP application client. The application supplies its
+domain policy. See the
 [acceptance gate](../../../specs/keycloak-provider-boundary.md).
 
 `ClientBinding` contains an immutable provider ID, a public OAuth client ID,
@@ -75,7 +76,7 @@ partial removal; a later reconciliation must inspect current state.
 
 The shared-user operation does not classify a user as human. Keycloak can omit
 `serviceAccountClientId` from a user response, including a service-account user.
-The application must retain its verified identity and human grant policy.
+The application must retain its verified identity and application grant policy.
 Full role replacement is available only through the separate service-account
 operation, with its client-to-user binding check.
 
