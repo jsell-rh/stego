@@ -81,4 +81,27 @@ overrides:
 			t.Fatal("failed declaration changed state", err)
 		}
 	}
+	// A valid declaration change must update every consumer of the shared port.
+	changed := strings.Replace(declaration, "port: 8000", "port: 8001", 1)
+	changed = strings.Replace(changed, "health_path: /api/v1/readyz", "health_path: /api/v1/health", 1)
+	if err := os.WriteFile("service.yaml", []byte(changed), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runApply(nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct{ file, value string }{
+		{"out/browser/client/client.go", "127.0.0.1:8001"},
+		{"out/health/application.go", "/api/v1/health"},
+		{"out/deploy/render/manifest.json.tmpl", `"value": "8001"`},
+	} {
+		content, err := os.ReadFile(check.file)
+		if err != nil || !strings.Contains(string(content), check.value) {
+			t.Fatalf("shared declaration did not reach %s: %v", check.file, err)
+		}
+	}
+	if err := runDrift(nil); err != nil {
+		t.Fatal(err)
+	}
+
 }
