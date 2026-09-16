@@ -74,10 +74,16 @@ stale writers, retained empty records, rollback after ignored errors, and
 schema rejection. The encryption tests cover all envelope-byte changes,
 record-context changes, version changes, key rotation, bounds, copies, redaction,
 and concurrent use. Both generated variants passed with the race detector in
-6.933 seconds. These results do not qualify the PostgreSQL runtime path.
+6.933 seconds. The PostgreSQL adapter suite then passed with the race detector against real
+PostgreSQL in [CI run 35037362602](https://github.com/jsell-rh/stego/actions/runs/35037362602),
+in 82.068 seconds. The full run failed because two compiler assertions and the
+checked-in examples still described the prior storage version. Those failures
+require separate correction; the full run is not a pass.
 
-Hypershell has not adopted these APIs yet. Its current compiler pin remains
-unchanged. Next, use these records for saved Keycloak ownership and migration
-checkpoints, then replace the remaining scope, mapper, and client enablement
-operations with the common provider lifecycle. Prove restart and regeneration
-through the application workflow before claiming full adoption.
+Hypershell commit `a2392a0` adopts these APIs for its private Gateway identity
+recovery record. The controller retains its encryption key; the API applies
+Gateway permissions and limits records to 60 KiB to fit the generated RPC bounds.
+Its new REST, TLS gRPC, restart, and cleanup test is queued in CI. The production
+Keycloak controller does not yet use the record. Next, connect the common
+provider journal and lifecycle before ownership migration, then remove the
+remaining application scope, mapper, and client enablement mechanisms.
