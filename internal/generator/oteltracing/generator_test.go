@@ -17,6 +17,9 @@ import (
 //go:embed testdata/http_diagnostics_test.go
 var httpDiagnosticTests []byte
 
+//go:embed testdata/config_test.go
+var configTests []byte
+
 //go:embed testdata/runtime_test.go
 var runtimeTests []byte
 
@@ -54,6 +57,10 @@ func TestGeneratedHTTPFinalStatus(t *testing.T) {
 	testGeneratedTracing(t, "^TestHTTPFinalStatusObservation$")
 }
 
+func TestGeneratedTelemetryConfiguration(t *testing.T) {
+	testGeneratedTracing(t, "^Test(Telemetry|DisabledAndInvalidSettings|TLSExportContextAndPrivacy)")
+}
+
 func TestGeneratedTracing(t *testing.T) { testGeneratedTracing(t, "") }
 
 func TestGeneratedPostgresOperationTelemetry(t *testing.T) {
@@ -73,7 +80,7 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
+	files = append(files, gen.File{Path: "tracing/config_test.go", Content: configTests}, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
 	files = append(files, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")

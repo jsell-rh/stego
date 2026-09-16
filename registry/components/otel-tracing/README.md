@@ -50,3 +50,23 @@ Generated HTTPS clients use the telemetry runtime in their call context.
 The [HTTP client contract](../../../specs/http-client-observability.md) defines
 completion, propagation, privacy, and resource bounds. The generated CLI now owns its runtime; see the
 [CLI contract](../../../specs/cli-observability.md).
+
+`ExportEnvironment(service, directory)` captures the current collector settings
+and returns validated environment values and files for another generated process.
+The caller selects the service name and its private mount directory. Certificate
+and token source paths do not enter the returned environment. The helper uses
+fixed file names, `otel-ca.pem` and `otel-token`. Store these files only in the
+process's protected mount. Each call reads current files, so reconciliation can
+change a configuration digest when credentials rotate.
+
+`STEGO_OTEL_TOKEN_FILE` enables bearer authentication for all three OTLP signals.
+The runtime reads that file for each export call and requires TLS. The token file
+must be a bounded regular file with no world access, group write, or execute
+permission. Group read is allowed for Kubernetes Secret mounts. The file can be
+replaced during rotation. Token values never belong in browser configuration.
+
+Runtime and deployment settings use the same validation. Collector endpoints
+require HTTPS and the gRPC protocol. CA files can contain certificate PEM only.
+Unsupported OTEL settings fail validation, including when export is disabled.
+A configured certificate or token requires a collector endpoint. Missing
+collector configuration still permits local service logging.
