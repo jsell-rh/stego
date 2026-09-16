@@ -409,6 +409,42 @@ func TestRuntimeConfigBoundary(t *testing.T) {
 	}
 }
 
+func TestDynamicStyleDeclaration(t *testing.T) {
+	g := new(Generator)
+	ctx := fixture()
+	ctx.ComponentConfig["dynamic_styles"] = true
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		if file.Path == "browser/dom/index.js" {
+			found = bytes.Contains(file.Bytes(), []byte("export function replaceTrustedHTML"))
+		}
+	}
+	if !found {
+		t.Fatal("declared dynamic styles did not generate the common DOM package")
+	}
+	for _, value := range []any{nil, "true", 1, []any{true}} {
+		ctx.ComponentConfig["dynamic_styles"] = value
+		if _, err := g.config(ctx.ComponentConfig); err == nil {
+			t.Fatal("invalid dynamic style declaration accepted")
+		}
+	}
+	ctx.ComponentConfig["dynamic_styles"] = true
+	ctx.Inputs["ui/index.html"] = []byte(`<html><head><meta name="stego-style-nonce" content="fixed"></head></html>`)
+	if g.ValidateContext(ctx) == nil {
+		t.Fatal("application nonce metadata accepted")
+	}
+	ctx = fixture()
+	ctx.ComponentConfig["dynamic_styles"] = true
+	delete(ctx.ComponentConfig, "assets")
+	if (&Generator{LocalApplicationPort: 8080}).ValidateContext(ctx) == nil {
+		t.Fatal("dynamic styles without captured HTML accepted")
+	}
+}
+
 func TestBrowserAssemblyUsesDeclaredPool(t *testing.T) {
 	ctx := fixture()
 	_, backend, err := new(Generator).Generate(ctx)

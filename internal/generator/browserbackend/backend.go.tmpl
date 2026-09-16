@@ -29,7 +29,7 @@ const LoginCookie="__Host-Http-stego_login"
 const CSRFHeader="X-CSRF-Token"
 
 type asset struct{Source,Path,Hash string}
-type configuration struct{RuntimeConfigOffset int;Prefix,RolesClaim,LogoutScope,TelemetryService,OAuthScope string;Routes []string;Assets []asset;ScriptHashes []string}
+type configuration struct{DynamicStyles bool;RuntimeConfigOffset int;Prefix,RolesClaim,LogoutScope,TelemetryService,OAuthScope string;Routes []string;Assets []asset;ScriptHashes []string}
 type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFile,KeyFile string}
 type Backend struct{ {{if .LocalApplication}}sockets socketSet;{{end}}telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 
@@ -105,10 +105,15 @@ func(b *Backend)ServeHTTP(w http.ResponseWriter,r *http.Request){
   body,err:=assets.ReadFile("public"+target);if err!=nil{failure(w,500);return}
   contentType:="application/octet-stream";switch{case strings.HasSuffix(target,".html"):contentType="text/html; charset=utf-8";case strings.HasSuffix(target,".js"):contentType="text/javascript; charset=utf-8";case strings.HasSuffix(target,".css"):contentType="text/css; charset=utf-8";case strings.HasSuffix(target,".svg"):contentType="image/svg+xml";case strings.HasSuffix(target,".png"):contentType="image/png";case strings.HasSuffix(target,".ico"):contentType="image/x-icon";case strings.HasSuffix(target,".woff2"):contentType="font/woff2";case strings.HasSuffix(target,".ttf"):contentType="font/ttf"}
   hash:=a.Hash
-  if target=="/index.html"&&b.config.TelemetryService!="" {
+  if target=="/index.html"&&(b.config.TelemetryService!=""||b.config.DynamicStyles) {
    at:=b.config.RuntimeConfigOffset;if at<=0||at>len(body){failure(w,500);return}
-   settings,_:=json.Marshal(telemetry.BrowserSettings(r.Context()))
-   meta:=[]byte(`<meta name="stego-runtime-config" content="`+html.EscapeString(string(settings))+`">`)
+   var meta []byte
+   if b.config.TelemetryService!=""{settings,_:=json.Marshal(telemetry.BrowserSettings(r.Context()));meta=append(meta,[]byte(`<meta name="stego-runtime-config" content="`+html.EscapeString(string(settings))+`">`)...)}
+   if b.config.DynamicStyles {
+    nonce,err:=randomValue();if err!=nil{failure(w,503);return}
+    meta=append(meta,[]byte(`<meta name="stego-style-nonce" content="`+nonce+`">`)...)
+    w.Header().Set("Content-Security-Policy",strings.Replace(w.Header().Get("Content-Security-Policy"),"style-src 'self'","style-src 'self' 'nonce-"+nonce+"'; style-src-attr 'none'",1))
+   }
    decorated:=make([]byte,0,len(body)+len(meta));decorated=append(decorated,body[:at]...);decorated=append(decorated,meta...);decorated=append(decorated,body[at:]...);body=decorated
    sum:=sha256.Sum256(body);hash=hex.EncodeToString(sum[:])
   }

@@ -32,13 +32,27 @@ await test('incremental append and replacement retain exact element counts', asy
   check(violations.length === 0, 'Render violated policy');
 });
 await test('invalid input leaves the live target unchanged', async () => {
-  for (const value of ['x'.repeat(1024 * 1024 + 1), '<i></i>'.repeat(16385), '<script>throw 1</script>', '<template><b>nested</b></template>', '<div onclick="throw 1"></div>']) {
+  for (const value of ['x'.repeat(1024 * 1024 + 1), '<i></i>'.repeat(16385), '<script>throw 1</script>', '<template><b>nested</b></template>', '<div onclick="throw 1"></div>', '<div style="x" STYLE="y"></div>', '<div data-stego-render-style="x"></div>', '<div style=height:1px></div>', '<div title="unfinished>', '<textarea>style="x"</textarea>', '<!-- --!><div style="height:1px"><!-- -->']) {
     let failed = false;
     try { replaceTrustedHTML(target, value); } catch { failed = true; }
     check(failed && target.textContent === 'replacement', 'Invalid render changed target');
   }
   await settle();
   check(violations.length === 0, 'Rejected render caused a policy violation');
+});
+await test('style conversion preserves quoted values, entities, comments, and native trusted HTML', async () => {
+  const source = '<!-- style="height:1px" --><div hidden inert title=\'literal style="height:2px"\' STYLE="height:19px;--label:&quot;one&quot;">&lt;style&gt;</div>';
+  const value = window.trustedTypes ? window.trustedTypes.createPolicy('fixture-render', {createHTML: value => value}).createHTML(source) : source;
+  replaceTrustedHTML(target, value);
+  await settle();
+  check(target.childNodes.length === 2 && target.children.length === 1, 'Comment or element count changed');
+  const node = target.firstElementChild;
+  check(node.hidden && node.inert, 'Boolean attribute changed');
+  node.hidden = false;
+  check(node.title === 'literal style="height:2px"' && node.textContent === '<style>', 'Attribute or entity changed');
+  check(getComputedStyle(node).height === '19px' && node.style.getPropertyValue('--label') === '"one"', 'Quoted CSS value changed');
+  check(!node.hasAttribute('data-stego-render-style'), 'Private attribute reached live DOM');
+  check(violations.length === 0, 'Quoted render violated policy');
 });
 await test('nonced stylesheet and CSSOM updates apply', async () => {
   const style = createStyleElement(document);
@@ -51,6 +65,18 @@ await test('nonced stylesheet and CSSOM updates apply', async () => {
   await settle();
   check(violations.length === 0, 'Trusted stylesheet violated policy');
   style.remove();
+  const meta = document.querySelector('meta[name="stego-style-nonce"]');
+  const saved = meta.content;
+  meta.content = 'invalid';
+  let rejected = false;
+  try { createStyleElement(document); } catch { rejected = true; }
+  check(rejected, 'Invalid nonce accepted');
+  meta.content = saved;
+  const duplicate = meta.cloneNode(true); document.head.append(duplicate);
+  rejected = false;
+  try { createStyleElement(document); } catch { rejected = true; }
+  check(rejected, 'Repeated nonce metadata accepted');
+  duplicate.remove();
 });
 await test('raw inline styles remain blocked', async () => {
   target.innerHTML = '<div style="height:123px">blocked</div>';

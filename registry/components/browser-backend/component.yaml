@@ -1,8 +1,11 @@
 kind: component
 name: browser-backend
-version: 4.1.0
+version: 4.2.0
 output_namespace: browser
 config:
+  dynamic_styles:
+    type: bool
+    optional: true
   additional_scopes:
     type: list
     optional: true

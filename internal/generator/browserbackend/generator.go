@@ -20,6 +20,7 @@ import (
 	"github.com/jsell-rh/stego/internal/browserapplication"
 	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/browserdom"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 )
@@ -40,6 +41,7 @@ func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
 
 type asset struct{ Source, Path, Hash string }
 type settings struct {
+	DynamicStyles                                                 bool
 	RuntimeConfigOffset                                           int
 	Prefix, RolesClaim, LogoutScope, TelemetryService, OAuthScope string
 	Routes                                                        []string
@@ -57,8 +59,15 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 		return s, fmt.Errorf("local application port must be 1024 through 65535")
 	}
 	for key := range values {
-		if key != "additional_scopes" && key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
+		if key != "dynamic_styles" && key != "additional_scopes" && key != "telemetry_service_name" && key != "asset_bundle" && key != "api_prefix" && key != "routes" && key != "assets" && key != "roles_claim" && key != "logout_scope" {
 			return s, fmt.Errorf("unknown browser-backend setting %q", key)
+		}
+	}
+	if value, present := values["dynamic_styles"]; present {
+		var ok bool
+		s.DynamicStyles, ok = value.(bool)
+		if !ok {
+			return s, fmt.Errorf("browser dynamic_styles requires a boolean")
 		}
 	}
 	s.OAuthScope = "openid"
@@ -133,8 +142,8 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 	_, hasAssets := values["assets"]
 	_, hasBundle := values["asset_bundle"]
 	if g.LocalApplicationPort != 0 && !hasAssets && !hasBundle {
-		if s.TelemetryService != "" {
-			return s, fmt.Errorf("browser telemetry requires captured assets")
+		if s.TelemetryService != "" || s.DynamicStyles {
+			return s, fmt.Errorf("browser telemetry and dynamic styles require captured assets")
 		}
 		sort.Strings(s.Routes)
 		return s, nil
@@ -301,7 +310,7 @@ func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte,
 			index = data
 		}
 	}
-	if s.TelemetryService != "" {
+	if s.TelemetryService != "" || s.DynamicStyles {
 		s.RuntimeConfigOffset, err = runtimeConfigOffset(index)
 		if err != nil {
 			return s, nil, err
@@ -335,6 +344,13 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, sessionFiles...)
+	if s.DynamicStyles {
+		domFiles, err := browserdom.Files(path.Join(ctx.OutputNamespace, "dom"))
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, domFiles...)
+	}
 	for i, a := range s.Assets {
 		content := contentBySource[a.Source]
 		sum := sha256.Sum256(content)
@@ -432,14 +448,14 @@ func runtimeConfigOffset(data []byte) (int, error) {
 		}
 		if token.Data == "meta" {
 			for _, attr := range token.Attr {
-				if strings.EqualFold(attr.Key, "name") && strings.EqualFold(attr.Val, "stego-runtime-config") {
+				if strings.EqualFold(attr.Key, "name") && (strings.EqualFold(attr.Val, "stego-runtime-config") || strings.EqualFold(attr.Val, "stego-style-nonce")) {
 					return 0, fmt.Errorf("browser runtime configuration is compiler-owned")
 				}
 			}
 		}
 	}
 	if heads != 1 {
-		return 0, fmt.Errorf("browser telemetry requires one explicit HTML head element")
+		return 0, fmt.Errorf("browser runtime metadata requires one explicit HTML head element")
 	}
 	return head, nil
 }

@@ -84,7 +84,7 @@ try:
 finally:
     server.shutdown()
     server.server_close()
-if not isinstance(result, dict) or len(result.get('results', [])) != 5:
+if not isinstance(result, dict) or len(result.get('results', [])) != 6:
     raise SystemExit('Missing browser checks')
 result['browser'] = subprocess.check_output([browser, '--version'], text=True, timeout=5).strip()
 args.output.write_text(json.dumps(result, indent=2) + '\n')
