@@ -23,3 +23,10 @@ The optional `processes` declarations generate separate RPC entry points with
 common authentication, telemetry, signals, and cleanup. Domain factories supply
 only their services and dependencies. See [RPC processes](../../../specs/grpc-processes.md)
 for the source contract and process bounds.
+
+Terminal `Header` and `RecvMsg` results complete the client span before they
+return. The gRPC completion callback remains active for abandoned or remotely
+completed streams. Both paths use the same once-only telemetry function.
+This prevents a caller from closing the telemetry runtime before a returned
+stream deadline has been recorded. Successful headers and response frames do
+not end the stream span; EOF records successful completion.

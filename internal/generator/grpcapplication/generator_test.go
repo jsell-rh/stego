@@ -28,6 +28,13 @@ func TestGeneratedGRPCApplication(t *testing.T) {
 		t.Run(fmt.Sprint(watch), func(t *testing.T) { testGeneratedGRPCApplication(t, watch) })
 	}
 }
+func TestGeneratedStreamCompletion(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedGRPCApplication(t, telemetry, "^(TestBoundedStreamTerminalObservation|TestGeneratedClientTracesCompleteCallsAndStreams)$")
+		})
+	}
+}
 func TestGeneratedAuthorityRejection(t *testing.T) {
 	testGeneratedGRPCApplication(t, false, "^TestRuntime$")
 }
@@ -83,7 +90,7 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 			t.Fatal(err)
 		}
 	}
-	tests := []string{"sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go", "authority_test.go"}
+	tests := []string{"bounded_stream_test.go", "sample.go", "runtime_test.go", "stream_headers_test.go", "tls_probe_test.go", "authority_test.go"}
 	if watch {
 		tests = append(tests, "client_telemetry_test.go")
 	}
@@ -92,10 +99,14 @@ func testGeneratedGRPCApplication(t *testing.T, watch bool, selected ...string) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Join(project, "sample"), 0755); err != nil {
+		directory := filepath.Join(project, "sample")
+		if name == "bounded_stream_test.go" {
+			directory = filepath.Join(project, "out/grpcapi/client")
+		}
+		if err := os.MkdirAll(directory, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(project, "sample", name), data, 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(directory, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
