@@ -1,0 +1,44 @@
+package {{.Package}}
+
+import (
+ "context"
+ runtime "{{.Controller}}"
+)
+
+type browserLifecycleProvider interface {
+ clientLifecycleProvider
+ CreateDisabledBrowserClient(context.Context,ClientBinding,BrowserClientPolicy)(ClientRepresentation,error)
+ ReconcileBrowserClientAccess(context.Context,ClientBinding,BrowserAccessPolicy)error
+}
+
+// BrowserClientLifecycle uses the common protected journal and ownership rules.
+// The caller must serialize effects for this identity across processes. Retain
+// closed records so recovery can remove a late result from an uncertain create.
+type BrowserClientLifecycle struct {
+ *clientLifecycle
+ browser browserLifecycleProvider
+}
+func NewBrowserClientLifecycle(client *Client,journal *runtime.StateJournal,identity ClientIdentity)(*BrowserClientLifecycle,error){
+ if client==nil{return nil,ErrClientLifecycle}
+ base,err:=newClientLifecycle(client,journal,identity,"browser");if err!=nil{return nil,err}
+ return &BrowserClientLifecycle{clientLifecycle:base,browser:client},nil
+}
+
+// Reconcile validates application policy before provider effects. A failed
+// call is not retried here. A later call reloads the protected recovery record.
+func(l *BrowserClientLifecycle)Reconcile(ctx context.Context,policy func(ClientBinding)(BrowserAccessPolicy,error))(ClientBinding,error){
+ if l==nil||l.clientLifecycle==nil||l.journal==nil||policy==nil||ctx==nil{return ClientBinding{},ErrClientLifecycle}
+ work,done,err:=l.begin(ctx);if err!=nil{return ClientBinding{},err};defer done();ctx=work
+ var desired BrowserAccessPolicy
+ _,record,err:=l.prepare(ctx,func(record clientLifecycleRecord)error{
+  var err error
+  desired,err=policy(l.identity.binding(record.Binding.ID));if err!=nil{return err}
+  _,err=desired.configuration(l.identity.binding(record.Binding.ID));return err
+ },func(ctx context.Context,b ClientBinding)error{_,err:=l.browser.CreateDisabledBrowserClient(ctx,b,desired.Client);return err})
+ if err!=nil{return ClientBinding{},err}
+ if err=l.browser.ReconcileBrowserClientAccess(ctx,record.Binding,desired);err!=nil{return ClientBinding{},err}
+ return record.Binding,nil
+}
+func(l *BrowserClientLifecycle)Close(ctx context.Context)error{
+ if l==nil||l.clientLifecycle==nil{return ErrClientLifecycle};return l.clientLifecycle.Close(ctx)
+}

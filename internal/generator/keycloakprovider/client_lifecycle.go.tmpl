@@ -86,7 +86,7 @@ func(clientLifecycle)Format(s fmt.State,_ rune){_,_=s.Write([]byte("[protected c
 func(clientLifecycle)MarshalJSON()([]byte,error){return nil,ErrClientLifecycle}
 
 func newClientLifecycle(client *Client,journal *runtime.StateJournal,identity ClientIdentity,kind string)(*clientLifecycle,error){
- if client==nil||journal==nil||(kind!=""&&kind!="service-account"){return nil,ErrClientLifecycle}
+ if client==nil||journal==nil||(kind!=""&&kind!="service-account"&&kind!="browser"){return nil,ErrClientLifecycle}
  identity.Ownership=maps.Clone(identity.Ownership);identity.LegacyAttributes=maps.Clone(identity.LegacyAttributes);identity.LegacyRenames=maps.Clone(identity.LegacyRenames)
  if err:=identity.validate();err!=nil{return nil,err}
  return &clientLifecycle{provider:client,journal:journal,identity:identity,kind:kind,enter:client.beginClientLifecycle},nil

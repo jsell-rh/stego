@@ -619,3 +619,41 @@ its main adapter now has 972 lines. The application gate remains pending.
 needed for legacy ownership migration. The application must adopt that state
 before it uses the complete client lifecycle. These records do not change the
 Gateway role policy or replace provider ownership checks.
+
+## Confidential browser clients
+
+Version 0.17 adds `BrowserClientPolicy`, `BrowserAccessPolicy`, and
+`BrowserClientLifecycle` for a server-side browser backend. The application
+supplies one exact HTTPS login callback and one exact HTTPS logout callback on
+the same origin. Wildcards, encoded paths, query strings, fragments, credentials,
+loopback addresses, and ambiguous authorities are rejected before provider I/O.
+The application selects its client identity, roles, audience, and claim names.
+
+The client uses authorization code flow with client authentication and PKCE
+S256. The provider disables implicit flow, password grants, device authorization,
+service accounts, token exchange, broad scopes, and browser CORS. The backend
+must keep its secret and OAuth tokens out of browser JavaScript. These settings
+use Keycloak's documented [client and logout controls](https://www.keycloak.org/docs/latest/server_admin/).
+The generated browser runtime supplies its existing confirmation page before
+identity-provider logout.
+
+Native and browser clients use the same checked access sequence. The provider
+confirms ownership, disables the client before repairs, checks the complete
+base policy, role scopes, and token mappers, then enables login. Failed repair
+requires confirmed disablement. A correct client causes no writes. Client
+configuration does not grant users access; application authorization remains
+required at the target API.
+
+The browser lifecycle uses the existing protected journal, stable provider ID,
+creation recovery, ownership migration, and retained deletion record. A distinct
+`browser` record kind prevents another client profile from consuming that state.
+Callers must serialize effects for each client across processes. Keycloak does
+not provide an atomic policy-and-enable operation. Existing native and service
+account methods keep their public interfaces.
+
+Local checks cover callback validation, unsafe configuration, policy repair,
+failed enablement, lost creation results, storage failure, restart, closed
+records, and late creation cleanup. Real Keycloak CI must also pass confidential
+code exchange, missing-secret and wrong-verifier denial, exact redirects, signed
+audiences, one-use codes, logout, repair, and cleanup before application adoption.
+No live Hypershell dashboard result is claimed by this provider change.

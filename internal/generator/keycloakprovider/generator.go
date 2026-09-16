@@ -51,10 +51,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	data := struct{ Package, Transport, UnicodeValidation, Auth, Controller string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation, ctx.AuthPackage, ""}
 	var files []gen.File
-	names := []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "service_account_tokens.go", "access_lifecycle.go", "service_account_access.go", "ownership_migration.go"}
+	names := []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "browser_clients.go", "browser_access.go", "service_account_tokens.go", "access_lifecycle.go", "service_account_access.go", "ownership_migration.go"}
 	if ns := ctx.PeerNamespaces["controller"]; ns != "" {
 		data.Controller = path.Join(ctx.ModuleName, ctx.OutDirName, ns)
-		names = append(names, "client_cursor.go", "client_lifecycle.go", "lifecycle_gate.go", "native_lifecycle.go", "service_account_lifecycle.go")
+		names = append(names, "client_cursor.go", "client_lifecycle.go", "lifecycle_gate.go", "native_lifecycle.go", "browser_lifecycle.go", "service_account_lifecycle.go")
 	}
 	for _, name := range names {
 		input, err := sources.ReadFile(name + ".tmpl")

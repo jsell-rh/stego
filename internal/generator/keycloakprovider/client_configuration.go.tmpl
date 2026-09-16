@@ -67,7 +67,7 @@ func(c *Client)configureDisabledClient(ctx context.Context,b ClientBinding,desir
   clearFlows[key]=""
  }
  update["authenticationFlowBindingOverrides"],err=json.Marshal(clearFlows);if err!=nil{return ErrResponse}
- // Native profiles own the complete attribute set. Keycloak also patches
+ // Interactive profiles own the complete attribute set. Keycloak also patches
  // this map, so omitted settings require explicit empty removal entries.
  if replaceAttributes{
   if len(value.Attributes)>128{return ErrResponse}

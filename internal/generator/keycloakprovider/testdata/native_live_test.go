@@ -327,10 +327,10 @@ func nativeAuthorizationCode(t *testing.T, browser nativeBrowser, path, clientID
 		if err != nil {
 			t.Fatal("invalid native authorization redirect")
 		}
-		if target.Scheme == "http" {
-			base := *target
-			base.RawQuery = ""
-			base.ForceQuery = false
+		base := *target
+		base.RawQuery = ""
+		base.ForceQuery = false
+		if base.String() == redirect || target.Scheme == "http" {
 			if base.String() != redirect || target.Query().Get("state") != state || target.Query().Get("code") == "" || target.Query().Get("error") != "" {
 				t.Fatal("native callback differs")
 			}
