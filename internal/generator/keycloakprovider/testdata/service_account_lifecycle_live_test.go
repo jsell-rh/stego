@@ -102,6 +102,24 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 		if _, err = restart().Reconcile(ctx, policy); err != nil {
 			t.Fatal("account resume failed", err)
 		}
+		if err = restart().PrepareCloseExisting(ctx, account.Client.ID); err != nil {
+			t.Fatal("service-account closure preparation failed", err)
+		}
+		closed := f.read()
+		if !closed.Closed || closed.Subject != account.Subject || closed.Binding.ID != account.Client.ID {
+			t.Fatal("prepared closure lost the saved account identity")
+		}
+		value, err = c.InspectClient(ctx, account.Client)
+		if err != nil || !value.Enabled {
+			t.Fatal("closure preparation changed provider access", err)
+		}
+		version = f.record.Version
+		if err = restart().PrepareCloseExisting(ctx, account.Client.ID); err != nil || f.record.Version != version {
+			t.Fatal("repeated closure preparation changed the journal", err)
+		}
+		if _, err = restart().Reconcile(ctx, policy); !errors.Is(err, ErrClientClosed) {
+			t.Fatal("prepared account closure was reopened", err)
+		}
 		if err = restart().CloseExisting(ctx, account.Client.ID); err != nil {
 			t.Fatal("service-account lifecycle cleanup failed", err)
 		}
@@ -122,5 +140,5 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 			t.Fatal("closed account was reopened", err)
 		}
 	}
-	t.Log("Real service-account lifecycle passed creation, legacy migration, saved subject, lost journal acknowledgement, restart, signed token policy, disabled repair, resume, and late-create cleanup")
+	t.Log("Real service-account lifecycle passed creation, legacy migration, saved subject, lost journal acknowledgement, restart, signed token policy, disabled repair, resume, prepared closure, and late-create cleanup")
 }
