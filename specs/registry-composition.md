@@ -68,3 +68,24 @@ combined input set retains the 64 MiB and 4,096-file limits. Each source also
 has bounded directory depth and entry count. `STEGO_REGISTRY` remains an
 explicit diagnostic override; it replaces the configured source set and emits
 a warning.
+
+## Hypershell integration
+
+Hypershell development revision `3d8f9d6` uses this model for its API,
+management console, and Gateway console. Each pins the common registry and
+compiler to `bd7d9ea85ec73d60be3557bc4df743fb38392f9c`. Its local registries
+contain two application archetypes and no common component declarations.
+Application package paths are selected through `component_namespaces`.
+
+The management UI in `components/web-console` and upstream dashboard inputs
+in `components/gateway-dashboard` remain application inputs. The committed
+`out`, `console/out`, and `gateway-console/out` directories remain generated
+output. They are not alternate copies of the compiler or its templates.
+
+The earlier [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35130594165)
+verified composed Git and local inputs, repeated generation, dependencies,
+entry-point builds, and generated deployment checks. Current common compiler
+revision `bd7d9ea` passed [all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35143448699).
+These results establish the registry integration. They do not establish a
+complete deployed dashboard. That application gate remains open in the
+[integration record](upstream-dashboard-integration.md).

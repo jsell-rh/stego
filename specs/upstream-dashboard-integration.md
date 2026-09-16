@@ -13,7 +13,7 @@ renderer, and owned image pull Secret operations. Its common runtime passed
 The stages below record earlier work; their former implementation gaps do not
 describe the current compiler.
 
-Hypershell development revision `8c9baa1` composes these common components with
+Hypershell development revision `3d8f9d6` composes these common components with
 local application archetypes. It contains no copied common component metadata.
 Its Gateway controller prepares separate console storage and identity inputs,
 deploys the upstream application with the generated backend, and publishes the
@@ -36,6 +36,22 @@ The generated backend starts login before it serves that document. Hypershell
 `8c9baa1` corrects the test to check the configured provider origin and username
 field before credential entry. Its syntax check passed. A live browser result
 for that correction is still required.
+
+The [live run at b63eca8](https://github.com/jsell-rh/hypershell-stego/actions/runs/35149129268)
+started both dashboard applications and generated backends without container
+restarts. It passed verified TLS database isolation, Gateway RPC access rules,
+and provider data recovery after Gateway Pod replacement. Public readiness and
+protected-document redirect checks also passed from the browser fixture Pod.
+The browser then failed certificate validation: its test pin selected a root
+CA that the server did not send. Independent CA and hostname verification
+passed for both console hosts. The test now pins the verified leaf certificate.
+Focused TLS tests passed, including rejection of an unverified peer and a
+server chain without its root CA.
+
+The failed run's resources were removed and independent cleanup passed at
+`2026-09-16T21:07:51.822175Z`. The corrected [live workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35150654630)
+and [full checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35150657082)
+are pending. No rendered-dashboard pass is claimed.
 
 The application gate must still prove the rendered workspace and policy editor,
 correlated authenticated telemetry, viewer and revoked access, session database
