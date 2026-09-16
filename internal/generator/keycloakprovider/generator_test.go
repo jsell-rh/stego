@@ -68,6 +68,9 @@ func TestGeneratedNativeLifecycle(t *testing.T) {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedProvider(t, telemetry, false, "^TestNativeLifecycle") })
 	}
 }
+func TestGeneratedClientCursor(t *testing.T) {
+	testGeneratedProvider(t, false, false, "^TestClientCursor")
+}
 func TestGeneratedClientNameSearch(t *testing.T) {
 	testGeneratedProvider(t, false, false, "^Test(BoundedClientNameSearch|ClientNameSearchDoesNotExpandFailedQueries)$")
 }
@@ -163,7 +166,7 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if !withLifecycle && (strings.HasPrefix(entry.Name(), "native_lifecycle") || strings.HasPrefix(entry.Name(), "service_account_lifecycle")) {
+		if !withLifecycle && (strings.HasPrefix(entry.Name(), "client_cursor") || strings.HasPrefix(entry.Name(), "native_lifecycle") || strings.HasPrefix(entry.Name(), "service_account_lifecycle")) {
 			continue
 		}
 		if !telemetry && (entry.Name() == "trace_test.go" || entry.Name() == "live_test.go" || strings.HasSuffix(entry.Name(), "_live_test.go")) {

@@ -472,3 +472,18 @@ subject and an incomplete ownership migration. A repeat call does not write
 another version. A failed or unconfirmed save returns an error. The same
 per-client writer gate applies. The caller must still exclude other processes.
 Provider search results remain candidates. They do not prove complete inventory.
+
+## Bounded discovery with saved progress
+
+Version 0.16.0 adds `ClientNameCursorSource` when `controller` is present.
+It adapts the bounded query to `ScanCycle`. The source reads one candidate page;
+the emitter performs each ownership read and journal operation. Thus a failed
+client read can be recorded while independent later candidates proceed. The
+caller supplies the checkpoint store, source version, and time limits.
+
+The cursor is an offset. It is not a stable snapshot. Deletions can move clients
+behind the cursor. Retain known IDs and repeat complete scans. A clean end of
+one scan does not by itself prove cleanup. The application must keep its
+completion rule separate. Include the realm and query inputs in the cycle's
+source version. A changed query must start again. The 10,000-candidate bound
+returns `ErrClientInventoryLimit`; it must not be treated as an empty final page.

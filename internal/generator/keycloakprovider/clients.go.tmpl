@@ -60,7 +60,7 @@ func(c *Client)ListClients(ctx context.Context,page Page)([]ClientRepresentation
 // search. It does not check ownership or prove absence. The caller must retain
 // known IDs and bound the scan. Pattern characters are rejected before I/O.
 func(c *Client)SearchClients(ctx context.Context,fragment string,page Page)([]ClientRepresentation,error){
- if !textValue(fragment,255)||strings.TrimSpace(fragment)==""||strings.ContainsAny(fragment,"%_\\[]"){return nil,errors.New("invalid Keycloak client search fragment")}
+ if !validClientSearchFragment(fragment){return nil,errors.New("invalid Keycloak client search fragment")}
  if err:=page.validate();err!=nil{return nil,err}
  work,done,err:=c.begin(ctx);if err!=nil{return nil,err};defer done()
  return c.clientPage(work,url.Values{"clientId":{fragment},"search":{"true"},"first":{strconv.Itoa(page.First)},"max":{strconv.Itoa(page.Size)}},page.Size)
@@ -141,4 +141,8 @@ func(c *Client)serviceAccountUser(work context.Context,b ClientBinding)(UserRepr
  var user UserRepresentation
  if decode(response.Body,&user)!=nil||!identifier.MatchString(user.ID)||(user.ServiceAccountClientID!=""&&user.ServiceAccountClientID!=b.ClientID){return UserRepresentation{},ErrResponse}
  return user,nil
+}
+
+func validClientSearchFragment(fragment string)bool{
+ return textValue(fragment,255)&&strings.TrimSpace(fragment)!=""&&!strings.ContainsAny(fragment,"%_\\[]")
 }

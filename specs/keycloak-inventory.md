@@ -108,3 +108,28 @@ reconstruction, and subsequent deletion. Evidence is
 `prepare-closure-complete-focused.log`. Full CI and application adoption remain
 pending. A complete provider scan before registration still needs a bounded
 recovery design for large legacy inventories.
+
+## Failed discovery reads
+
+A second Hypershell regression, `TestGatewayInventoryRegistersPastFailedClientRead`,
+fails against `550b2b7`. A provider read error on the first candidate prevents a
+later valid candidate from getting a saved closure. The two-client fixture fails
+in 0.01 seconds. Evidence is `provider-read-progress-probe.log`. Saving the whole
+candidate set before disablement does not fix this earlier failure boundary.
+
+The candidate provider 0.16.0 adapts a name query to the common `CursorSource`.
+This lets `ScanCycle` save progress and failure evidence around individual
+ownership reads and journal writes. Focused generated cursor and search tests
+passed with the race detector in 7.212 seconds. They cover resumption after each
+item, a failed read followed by independent work, a reconstructed source, saved
+failure at the end, invalid input, and the hard inventory limit. Evidence is
+`provider-cursor-focused.log`. Application and private RPC adoption are pending.
+
+The application integration must not equate offset completion with absence.
+Provider deletions can shift later entries behind the cursor. A pass that finds
+owned clients must remain incomplete for cleanup, even after it saves all their
+journals. Retained journal cleanup removes those clients. A later complete pass
+must find no owned clients and must have no saved failures. Scope closure still
+checks registration changes in the final database transaction. Tests must cover
+changing pages, failed ownership reads, restart, independent later clients,
+foreign candidates, and the inventory limit before release.

@@ -1,0 +1,44 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "strconv"
+ "strings"
+
+ runtime "{{.Controller}}"
+)
+
+var ErrClientInventoryLimit = errors.New("Keycloak client inventory reached its limit")
+
+// ClientNameCursorSource adapts one bounded name query to the controller scan.
+// Its cursor records an offset, not a snapshot. Deletions can move later clients
+// behind that offset. Keep known IDs and repeat full scans. A completed scan
+// does not prove ownership, absence, or cleanup. Bind the realm and fragment to
+// ScanCycle's source version. A changed query must start a new cycle.
+//
+// The source performs no per-client reads or writes. The caller can put those
+// actions in ScanCycle's emitter, with separate time limits and saved failures.
+// The inventory limit returns an error. It must not be treated as completion.
+func(c *Client)ClientNameCursorSource(fragment string)(runtime.CursorSource[ClientRepresentation],error){
+ if c==nil||!validClientSearchFragment(fragment){return nil,runtime.ErrScanContract}
+ return func(ctx context.Context,after string,limit int)(runtime.CursorPage[ClientRepresentation],error){
+  empty:=runtime.CursorPage[ClientRepresentation]{}
+  if ctx==nil||limit<1||limit>MaxPageSize{return empty,runtime.ErrScanContract}
+  first:=0
+  if after!=""{
+   if len(after)>16||!strings.HasPrefix(after,"1."){return empty,runtime.ErrScanContract}
+   value,err:=strconv.Atoi(strings.TrimPrefix(after,"1."))
+   if err!=nil||value<1||value>MaxInventory||after!="1."+strconv.Itoa(value){return empty,runtime.ErrScanContract}
+   first=value
+  }
+  if first==MaxInventory{return empty,ErrClientInventoryLimit}
+  size:=min(limit,MaxInventory-first)
+  values,err:=c.SearchClients(ctx,fragment,Page{First:first,Size:size});if err!=nil{return empty,err}
+  result:=runtime.CursorPage[ClientRepresentation]{More:len(values)==size}
+  for i,value:=range values{
+   result.Items=append(result.Items,runtime.CursorItem[ClientRepresentation]{Cursor:"1."+strconv.Itoa(first+i+1),Value:value})
+  }
+  return result,nil
+ },nil
+}
