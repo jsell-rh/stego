@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -245,6 +246,52 @@ func TestResolveRegistryGitCloneAndCache(t *testing.T) {
 	}
 	if result2.Dir != result.Dir {
 		t.Errorf("cached Dir changed: %q vs %q", result2.Dir, result.Dir)
+	}
+}
+
+func TestResolveRegistryUserCache(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG cache selection is checked on Linux")
+	}
+	t.Setenv("STEGO_REGISTRY", "")
+	cache := filepath.Join(t.TempDir(), "user-cache")
+	t.Setenv("XDG_CACHE_HOME", cache)
+	remote := filepath.Join(t.TempDir(), "registry.git")
+	work := filepath.Join(t.TempDir(), "work")
+	initBareRepo(t, remote)
+	cloneAndPopulate(t, remote, work)
+	revision := getHeadSHA(t, work)
+	project := t.TempDir()
+	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "file://" + remote, Ref: revision}}})
+	for _, explicit := range []bool{false, true} {
+		opts := registry.ResolveOptions{ProjectDir: project}
+		want := filepath.Join(cache, "stego", "registries")
+		if explicit {
+			opts.CacheDir = filepath.Join(t.TempDir(), "explicit-cache")
+			want = opts.CacheDir
+			// An explicit cache must not depend on the user cache setting.
+			t.Setenv("XDG_CACHE_HOME", "relative-cache")
+		}
+		result, err := registry.ResolveRegistry(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if filepath.Dir(filepath.Dir(result.Dir)) != want || getHeadSHA(t, result.Dir) != revision {
+			t.Fatalf("wrong cache or revision: %+v", result)
+		}
+		if err := os.Rename(remote, remote+".offline"); err != nil {
+			t.Fatal(err)
+		}
+		cached, err := registry.ResolveRegistry(opts)
+		if err != nil || cached.Dir != result.Dir {
+			t.Fatalf("cannot use the pinned cache without the source: %v", err)
+		}
+		if err := os.Rename(remote+".offline", remote); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project}); err == nil || !strings.Contains(err.Error(), "determining cache directory") {
+		t.Fatalf("relative user cache must fail before checkout: %v", err)
 	}
 }
 

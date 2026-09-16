@@ -32,7 +32,7 @@ type ResolveOptions struct {
 	// Stderr receives warning messages (e.g. STEGO_REGISTRY override).
 	// If nil, os.Stderr is used.
 	Stderr io.Writer
-	// CacheDir overrides the default cache directory (~/.cache/stego/registries).
+	// CacheDir overrides stego/registries in the operating system's user cache.
 	// Used for testing.
 	CacheDir string
 }
@@ -151,11 +151,11 @@ func resolveGitRegistry(url, ref, cacheDir string) (resolved string, resultErr e
 		return "", fmt.Errorf("registry ref %q must be a full lowercase Git commit SHA", ref)
 	}
 	if cacheDir == "" {
-		home, err := os.UserHomeDir()
+		userCache, err := os.UserCacheDir()
 		if err != nil {
 			return "", fmt.Errorf("determining cache directory: %w", err)
 		}
-		cacheDir = filepath.Join(home, ".cache", "stego", "registries")
+		cacheDir = filepath.Join(userCache, "stego", "registries")
 	}
 
 	urlHash := hashURL(url)

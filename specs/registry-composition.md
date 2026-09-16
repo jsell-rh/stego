@@ -41,7 +41,12 @@ its configuration file hash. State also records a reference hash for composed
 sources and the hash of all captured registry YAML and protobuf inputs. A
 change to any captured source after planning prevents apply.
 
-Git sources use the existing verified local cache. For an explicit offline
+Git sources use a verified local cache under `stego/registries` in the
+operating system's user cache directory. On Linux, set `XDG_CACHE_HOME` to an
+absolute writable directory when the home directory is read-only. This changes
+the cache location; all pinned checkout checks still apply.
+
+For an explicit offline
 build, set `vendor` to a project-relative Git checkout that the build package
 supplies. The checkout must contain its Git metadata and match the pinned
 commit without modified, ignored, or untracked files. STEGO does not fetch the
