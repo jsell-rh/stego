@@ -166,3 +166,13 @@ proof. The generated worker regression remains in the cluster gate. The next
 full CI run is `35098200160` at `371c230`. The superseded run `35096455130` was
 canceled and supplies no qualification result. The failed core log and summary
 remain under the persistent run directory.
+
+The corrected CNPG run `35096666440` passed at Hypershell `ab0b3ef`, with compiler
+`e01e624`. Its complete Kubernetes browser workflow took 481.23 seconds. It
+proved real providers, SQL isolation, denied cleanup and recovery, restart,
+final Gateway cleanup, and correlated worker telemetry. Application resources,
+CNPG runtime, volumes, private fixtures, and the Lease holder are absent. The
+fixed installation remains. Evidence is in `cnpg-corrected-result`.
+This result precedes the count-watch fix. Full CI `35098200160` and external
+PostgreSQL run `35098646742` test source `371c230`; the newer source also needs
+CNPG qualification. Hypershell's default branch remains unchanged.
