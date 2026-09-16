@@ -39,6 +39,7 @@ type Options struct { ServerURL, Realm, ClientID, SecretFile, CAFile string }
 // Client uses one HTTPS server and realm. It has no arbitrary URL operation.
 // Call Close when the owning service stops. Do not copy a Client.
 type Client struct {
+ {{if .Controller}}lifecycleGates clientLifecycleGates{{end}}
  http *transport.Client
  issuer, realm, clientID, secretFile string
  lifetime context.Context

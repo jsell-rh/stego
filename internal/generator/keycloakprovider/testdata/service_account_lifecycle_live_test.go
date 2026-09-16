@@ -21,6 +21,7 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 		f.provider.identity = identity
 		base := ServiceAccountPolicy{DisplayName: "Journal batch account", AccessTokenLifetimeSeconds: 300}
 		expectedSubject := ""
+		expectedProviderID := ""
 		if legacy {
 			value, err := serviceAccountConfiguration(identity.binding("journal-account-legacy-id"), base)
 			if err != nil {
@@ -44,7 +45,7 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 		}
 		policy := func(ClientBinding) (ServiceAccountLifecyclePolicy, error) {
 			roles := RolePolicy{Clients: []ClientRoleGrant{{Client: target, Names: []string{"read"}}}}
-			return ServiceAccountLifecyclePolicy{Client: base, ExpectedSubject: expectedSubject, Roles: roles, Scopes: roles, Claims: TokenClaimsPolicy{AudienceClients: []ClientBinding{target}, ClientRoles: []ClientRoleClaim{{Client: target, Claim: "catalog.roles"}}}}, nil
+			return ServiceAccountLifecyclePolicy{Client: base, ExpectedSubject: expectedSubject, ExpectedProviderID: expectedProviderID, Roles: roles, Scopes: roles, Claims: TokenClaimsPolicy{AudienceClients: []ClientBinding{target}, ClientRoles: []ClientRoleClaim{{Client: target, Claim: "catalog.roles"}}}}, nil
 		}
 		restart := func() *ServiceAccountClientLifecycle {
 			t.Helper()
@@ -72,6 +73,7 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 			t.Fatal("migration replaced the saved subject")
 		}
 		f.failSave = 0
+		expectedProviderID = saved.Binding.ID
 		account, err := restart().Reconcile(ctx, policy)
 		if err != nil {
 			t.Fatal("service-account lifecycle recovery failed", err)
@@ -100,7 +102,7 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 		if _, err = restart().Reconcile(ctx, policy); err != nil {
 			t.Fatal("account resume failed", err)
 		}
-		if err = restart().Close(ctx); err != nil {
+		if err = restart().CloseExisting(ctx, account.Client.ID); err != nil {
 			t.Fatal("service-account lifecycle cleanup failed", err)
 		}
 		if _, err = c.GetClient(ctx, account.Client.ID); !errors.Is(err, ErrNotFound) {
@@ -110,7 +112,7 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 		if _, err = c.CreateDisabledServiceAccount(ctx, account.Client, base); err != nil {
 			t.Fatal("late create fixture failed", err)
 		}
-		if err = restart().Close(ctx); err != nil {
+		if err = restart().CloseExisting(ctx, account.Client.ID); err != nil {
 			t.Fatal("retained account cleanup failed", err)
 		}
 		if _, err = c.GetClient(ctx, account.Client.ID); !errors.Is(err, ErrNotFound) {

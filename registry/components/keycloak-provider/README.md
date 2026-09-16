@@ -413,5 +413,33 @@ lost provider results, subject replacement, restart, wrong record kinds,
 disabled repair, and retained cleanup. The real Keycloak test now exercises
 creation, migration, lost subject-save acknowledgements, signed token checks,
 disabled repair, resume, and late-create cleanup with the restricted four-role
-identity. That new real-provider result is pending. Hypershell service-account
-adoption is also pending; the common native lifecycle is already in its worker.
+identity. The new real-provider checks passed in CI run `35041366927`, provider job
+`104622531905`; the whole real-provider test took 61.44 seconds. Hypershell
+service-account adoption is still pending; the common native lifecycle is already in its worker.
+
+
+## Concurrent lifecycle calls and saved provider IDs
+
+Lifecycle calls on one provider client now share a gate keyed by the public
+OAuth client ID. This includes different journal instances and both lifecycle
+kinds. Calls for one client cannot overlap; unrelated clients can proceed.
+Admission counts active calls and waiters and is limited to 128. Released keys
+are removed. Request cancellation and provider closure cancel queued work. A
+lifecycle has a two-minute upper bound, further limited by the caller's deadline.
+The gate does not serialize direct low-level provider calls or other processes;
+the application must still exclude those writers.
+
+`ServiceAccountLifecyclePolicy.ExpectedProviderID` checks an existing
+application binding before effects. A changed ID or a new allocation is rejected.
+`CloseExisting` records an application's saved ID without public-name discovery
+when no journal exists. It uses the declared legacy ownership if present, and
+current ownership otherwise. This also records irreversible cleanup intent when
+the client is absent, so a later cleanup can remove a late create with that ID.
+A different ID in an existing journal is rejected before provider effects.
+
+The focused generated native and account tests passed with the race detector in
+both variants in 17.268 seconds. They check shared gates across journal instances,
+independent clients, bounded admission, cancellation, provider closure, released
+keys, preserved provider IDs, and cleanup of an absent saved client. The updated
+real-provider check now uses saved IDs for recovery and cleanup; its result is
+pending.

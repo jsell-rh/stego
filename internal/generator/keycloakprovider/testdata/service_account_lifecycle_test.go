@@ -214,3 +214,65 @@ func TestServiceAccountLifecycleKindBoundary(t *testing.T) {
 		t.Fatal("service-account lifecycle accepted native state")
 	}
 }
+
+func TestServiceAccountLifecycleRequiresSavedProviderID(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		l, f := newAccountLifecycleFixture(t, legacy)
+		policy := func(b ClientBinding) (ServiceAccountLifecyclePolicy, error) {
+			p, _ := accountLifecyclePolicy(b)
+			p.ExpectedProviderID = "saved-id"
+			return p, nil
+		}
+		if _, err := l.Reconcile(context.Background(), policy); !errors.Is(err, ErrClientLifecycle) {
+			t.Fatal("missing or replacement provider ID was accepted", err)
+		}
+		if f.record.Version != 0 {
+			t.Fatal("invalid provider ID changed journal")
+		}
+		for _, call := range f.provider.calls {
+			if call != "find" && call != "discover" {
+				t.Fatal("invalid provider ID reached effects", call)
+			}
+		}
+	}
+	l, f := newAccountLifecycleFixture(t, true)
+	policy := func(b ClientBinding) (ServiceAccountLifecyclePolicy, error) {
+		p, _ := accountLifecyclePolicy(b)
+		p.ExpectedProviderID = "legacy-id"
+		p.ExpectedSubject = "legacy-subject"
+		return p, nil
+	}
+	if _, err := l.Reconcile(context.Background(), policy); err != nil {
+		t.Fatal("saved legacy identity did not migrate", err)
+	}
+	f.provider.calls = nil
+	if err := l.CloseExisting(context.Background(), "foreign-id"); !errors.Is(err, ErrClientLifecycle) {
+		t.Fatal("cleanup ignored saved provider ID", err)
+	}
+	if len(f.provider.calls) != 0 {
+		t.Fatal("invalid cleanup ID reached provider")
+	}
+	if err := l.CloseExisting(context.Background(), "legacy-id"); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestServiceAccountLifecycleClosesAbsentSavedID(t *testing.T) {
+	l, f := newAccountLifecycleFixture(t, true)
+	f.provider.exists = false
+	if err := l.CloseExisting(context.Background(), "legacy-id"); err != nil {
+		t.Fatal(err)
+	}
+	record := f.read()
+	if !record.Closed || record.Binding.ID != "legacy-id" {
+		t.Fatal("absent saved identity was not retained")
+	}
+	for _, call := range f.provider.calls {
+		if call != "delete" {
+			t.Fatal("known-ID cleanup used discovery", call)
+		}
+	}
+	f.provider.exists = true
+	if err := f.restartAccount().CloseExisting(context.Background(), "legacy-id"); err != nil || f.provider.exists {
+		t.Fatal("late saved client survived", err)
+	}
+}

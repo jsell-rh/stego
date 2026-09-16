@@ -1,0 +1,46 @@
+package {{.Package}}
+
+import (
+ "context"
+ "sync"
+ "time"
+)
+
+const MaxPendingClientLifecycles = 128
+const ClientLifecycleTimeout = 2*time.Minute
+
+type clientLifecycleGate struct { token chan struct{}; references int }
+type clientLifecycleGates struct { mu sync.Mutex; keys map[string]*clientLifecycleGate; pending int }
+
+// Lifecycle calls share a gate across journal instances on this provider.
+// Waiters count toward the bound. Unrelated clients can proceed independently.
+// Direct low-level operations and other processes still require caller fencing.
+func(c *Client)beginClientLifecycle(ctx context.Context,key string)(context.Context,func(),error){
+ if c==nil||c.closed.Load(){return nil,nil,ErrClosed}
+ if ctx==nil||!textValue(key,255){return nil,nil,ErrClientLifecycle}
+ if err:=ctx.Err();err!=nil{return nil,nil,err}
+ work,cancel:=context.WithTimeout(ctx,ClientLifecycleTimeout)
+ stop:=context.AfterFunc(c.lifetime,cancel)
+ if c.lifetime.Err()!=nil{cancel()}
+ gates:=&c.lifecycleGates
+ gates.mu.Lock()
+ if gates.pending>=MaxPendingClientLifecycles{gates.mu.Unlock();stop();cancel();return nil,nil,ErrCapacity}
+ if gates.keys==nil{gates.keys=map[string]*clientLifecycleGate{}}
+ gate:=gates.keys[key]
+ if gate==nil{gate=&clientLifecycleGate{token:make(chan struct{},1)};gates.keys[key]=gate}
+ gate.references++;gates.pending++
+ gates.mu.Unlock()
+ releaseReference:=func(){
+  gates.mu.Lock();defer gates.mu.Unlock()
+  gate.references--;gates.pending--
+  if gate.references==0{delete(gates.keys,key)}
+ }
+ select{
+ case gate.token<-struct{}{}:
+ case <-work.Done():releaseReference();stop();cancel();return nil,nil,work.Err()
+ }
+ var once sync.Once
+ done:=func(){once.Do(func(){<-gate.token;releaseReference();stop();cancel()})}
+ if err:=work.Err();err!=nil{done();return nil,nil,err}
+ return work,done,nil
+}

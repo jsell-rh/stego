@@ -35,6 +35,7 @@ func NewNativeClientLifecycle(client *Client,journal *runtime.StateJournal,ident
 // A failed call is not retried here; a later call reloads the protected record.
 func(l *NativeClientLifecycle)Reconcile(ctx context.Context,policy func(ClientBinding)(NativeAccessPolicy,error))(ClientBinding,error){
  if l==nil||l.clientLifecycle==nil||l.journal==nil||policy==nil||ctx==nil{return ClientBinding{},ErrClientLifecycle}
+ work,done,err:=l.begin(ctx);if err!=nil{return ClientBinding{},err};defer done();ctx=work
  var desired NativeAccessPolicy
  _,record,err:=l.prepare(ctx,func(record clientLifecycleRecord)error{
   binding:=l.identity.binding(record.Binding.ID)
