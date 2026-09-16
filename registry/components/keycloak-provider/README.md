@@ -487,3 +487,15 @@ one scan does not by itself prove cleanup. The application must keep its
 completion rule separate. Include the realm and query inputs in the cycle's
 source version. A changed query must start again. The 10,000-candidate bound
 returns `ErrClientInventoryLimit`; it must not be treated as an empty final page.
+
+`ClientNameSourceVersion` returns a stable hash of the query format, issuer,
+provider client identity, and fragment. Use it in the saved cycle's source
+version. It contains no credential, and credential rotation does not change it.
+A private RPC adapter must reject a request with a changed source version before
+it reads or changes provider state.
+
+With controller 1.21.0, `ErrClientInventoryLimit` also identifies an explicit
+failed scan-window boundary. `ScanCycle` records that failure and starts the
+next cycle at the beginning. The limit can never produce successful completion.
+This allows deletion to reduce the remaining inventory between bounded windows.
+A fixed excessive prefix still causes an explicit repeated failure.

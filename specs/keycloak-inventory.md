@@ -157,3 +157,10 @@ full scan. The provider fixture starts with a saved offset of 10,000 and proves
 that no provider request occurs at the limit; the next cycle queries offset zero.
 Both focused groups passed. Logs are `cycle-window-complete-focused.log` and
 `provider-window-focused.log`. Full CI and SQL adoption remain pending.
+
+All six checks in run `35105032964` passed at `59bd24e`. The real-provider test
+passed in 57.56 seconds and explicitly checked prepared account closure, then
+retained deletion and late-create cleanup. Evidence is in
+`provider-cursor-real-result` and `provider-cursor-full-ci-success.json`. The
+later source-identity hash and failed-window changes are outside that result.
+Keep their qualification separate.
