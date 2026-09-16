@@ -315,9 +315,14 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	configuration, _ := json.Marshal(s)
 	data := struct {
-		Package, Client, Config, UnicodeValidation, Telemetry string
-		LocalApplication, EmbeddedAssets                      bool
-	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), g.LocalApplicationPort != 0, len(s.Assets) != 0}
+		Package, Client, Config, UnicodeValidation, Telemetry, Schema, SchemaSQL string
+		LocalApplication, EmbeddedAssets                                         bool
+	}{path.Base(ctx.OutputNamespace), root + "/client", string(configuration), gen.UnicodeEscapeValidation, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), root + "/schema", "", g.LocalApplicationPort != 0, len(s.Assets) != 0}
+	schemaSQL, err := sources.ReadFile("schema.sql.tmpl")
+	if err != nil {
+		return nil, nil, err
+	}
+	data.SchemaSQL = string(schemaSQL)
 	entries, _ := sources.ReadDir(".")
 	for _, entry := range entries {
 		if entry.Name() == "socket.go.tmpl" && g.LocalApplicationPort == 0 {
@@ -332,10 +337,17 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			return nil, nil, err
 		}
 		var out bytes.Buffer
-		if err := tmpl.Execute(&out, data); err != nil {
+		values := data
+		if entry.Name() == "schema_package.go.tmpl" {
+			values.Package = "schema"
+		}
+		if err := tmpl.Execute(&out, values); err != nil {
 			return nil, nil, err
 		}
 		name := strings.TrimSuffix(entry.Name(), ".tmpl")
+		if name == "schema_package.go" {
+			name = "schema/schema.go"
+		}
 		content := out.Bytes()
 		if strings.HasSuffix(name, ".go") {
 			content, err = format.Source(content)

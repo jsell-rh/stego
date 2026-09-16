@@ -83,7 +83,7 @@ func TestSessionKeyRollout(t *testing.T) {
 	aead, _ := cipher.NewGCM(block)
 	nonce := bytes.Repeat([]byte{5}, aead.NonceSize())
 	payload := aead.Seal(nonce, nonce, plain, hash)
-	if _, err := db.ExecContext(ctx, "INSERT INTO stego_browser_sessions(id_hash,payload,state,expires_at) VALUES($1,$2,'active',$3)", hash, payload, time.Unix(value.Expires, 0)); err != nil {
+	if _, err := db.ExecContext(ctx, "INSERT INTO public.stego_browser_sessions(id_hash,payload,state,expires_at) VALUES($1,$2,'active',$3)", hash, payload, time.Unix(value.Expires, 0)); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []*sessionStore{legacy, prepared, switched} {

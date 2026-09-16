@@ -122,6 +122,13 @@ jobs:
           STEGO_REQUIRE_POSTGRES: '1'
           STEGO_REQUIRE_PROVISIONING_POSTGRES: '1'
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+      - name: Check managed browser schema and limited runtime login
+        run: go test -v -race -count=1 -mod=readonly -timeout=4m ./internal/generator/browserbackend -run '^TestGeneratedManagedBrowserSchema$'
+        env:
+          GOMAXPROCS: '2'
+          GOFLAGS: -p=2
+          STEGO_REQUIRE_POSTGRES: '1'
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
 
   keycloak-provider:
     runs-on: ubuntu-latest

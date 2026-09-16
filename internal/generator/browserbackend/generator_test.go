@@ -204,7 +204,15 @@ func testLocalApplicationRuntime(t *testing.T, captured, declared bool) {
 	}
 	testGeneratedRuntime(t, g, ctx, true)
 }
-func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local bool) {
+func TestGeneratedManagedBrowserSchema(t *testing.T) {
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^Test(ManagedBrowserSchema|BrowserSchemaRefusesDrift|BrowserSchemaBootstrapRollsBack)$")
+}
+
+func TestGeneratedSchemaInputs(t *testing.T) {
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^TestSchemaInputValidation$")
+}
+
+func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local bool, pattern ...string) {
 	t.Helper()
 	project := t.TempDir()
 	files, wiring, err := g.Generate(ctx)
@@ -304,6 +312,9 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 		}
 	}
 	checks := [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=90s", "-v", "./..."}}
+	if len(pattern) == 1 {
+		checks[1] = append(checks[1], "-run", pattern[0])
+	}
 	if local && os.Getenv("STEGO_REQUIRE_POSTGRES") == "1" {
 		checks = append(checks, []string{"run", "golang.org/x/vuln/cmd/govulncheck@v1.4.0", "./..."})
 	}

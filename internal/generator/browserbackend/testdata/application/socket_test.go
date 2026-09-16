@@ -151,7 +151,7 @@ func TestApplicationSocketSessionEnd(t *testing.T) {
 					cancel()
 					t.Fatal(err)
 				}
-				_, err = f.db.ExecContext(ctx, "UPDATE stego_browser_sessions SET payload=$1,expires_at=$2 WHERE id_hash=$3", payload, time.Unix(value.Expires, 0), hash)
+				_, err = f.db.ExecContext(ctx, "UPDATE public.stego_browser_sessions SET payload=$1,expires_at=$2 WHERE id_hash=$3", payload, time.Unix(value.Expires, 0), hash)
 				cancel()
 				if err != nil {
 					t.Fatal(err)

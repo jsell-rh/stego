@@ -253,7 +253,7 @@ func TestUncertainRefreshRequiresLogin(t *testing.T) {
 					t.Fatal(err)
 				}
 				hash, _ := sessionHash(active.Value)
-				if _, err := f.db.Exec("UPDATE stego_browser_sessions SET changed_at=CURRENT_TIMESTAMP-INTERVAL '31 seconds' WHERE id_hash=$1", hash); err != nil {
+				if _, err := f.db.Exec("UPDATE public.stego_browser_sessions SET changed_at=CURRENT_TIMESTAMP-INTERVAL '31 seconds' WHERE id_hash=$1", hash); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -288,7 +288,7 @@ func TestStorageEncryptionAndMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	var hash, payload []byte
-	if err := db.QueryRow("SELECT id_hash,payload FROM stego_browser_sessions").Scan(&hash, &payload); err != nil {
+	if err := db.QueryRow("SELECT id_hash,payload FROM public.stego_browser_sessions").Scan(&hash, &payload); err != nil {
 		t.Fatal(err)
 	}
 	require(t, len(hash) == 32 && !bytes.Contains(payload, []byte(value.Access)) && !bytes.Contains(payload, []byte(value.Refresh)) && !bytes.Contains(payload, []byte(id)), "private session data stored in plaintext")
@@ -382,13 +382,13 @@ func TestPendingLoginCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One bounded insert reaches the fixed capacity without a request load test.
-	_, err = f.db.Exec("INSERT INTO stego_browser_sessions(id_hash,payload,state,expires_at) SELECT decode(md5(i::text)||md5('fixture-'||i::text),'hex'),$1,'login',CURRENT_TIMESTAMP+INTERVAL '1 minute' FROM generate_series(1,1000) AS i", payload)
+	_, err = f.db.Exec("INSERT INTO public.stego_browser_sessions(id_hash,payload,state,expires_at) SELECT decode(md5(i::text)||md5('fixture-'||i::text),'hex'),$1,'login',CURRENT_TIMESTAMP+INTERVAL '1 minute' FROM generate_series(1,1000) AS i", payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	require(t, errors.Is(f.backend.store.create(context.Background(), id, value), errStore), "pending login limit was not enforced")
 	var count int
-	if err := f.db.QueryRow("SELECT count(*) FROM stego_browser_sessions").Scan(&count); err != nil {
+	if err := f.db.QueryRow("SELECT count(*) FROM public.stego_browser_sessions").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	require(t, count == 1000, "capacity failure left an extra session")

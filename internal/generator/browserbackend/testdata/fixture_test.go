@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	schema "example.com/browser-test/out/browser/schema"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -31,6 +32,13 @@ const origin = "https://console.example.test"
 const secret = "browser-fixture-secret-value"
 const clientID = "browser-client"
 const apiPrefix = "/api/records/v1"
+
+type schemaFixture struct {
+	owner *sql.DB
+	user  string
+}
+
+var schemaFixtures sync.Map
 
 func database(t *testing.T) *sql.DB {
 	t.Helper()
@@ -55,35 +63,71 @@ func database(t *testing.T) *sql.DB {
 		t.Fatal(err)
 	}
 	name := fmt.Sprintf("stego_browser_%x", suffix)
-	if _, err := admin.ExecContext(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Database = name
-	db := stdlib.OpenDB(*cfg)
-	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(2)
+	owner, user := name+"_owner", name+"_login"
+	password := fmt.Sprintf("%x%x", suffix, suffix)
+	var db, ownerDB *sql.DB
 	t.Cleanup(func() {
-		db.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if db != nil {
+			schemaFixtures.Delete(db)
+			db.Close()
+		}
+		if ownerDB != nil {
+			ownerDB.Close()
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if _, err := admin.ExecContext(ctx, "DROP DATABASE "+name+" WITH (FORCE)"); err != nil {
-			t.Error(err)
+		for _, query := range []string{"DROP DATABASE IF EXISTS " + name + " WITH (FORCE)", "DROP ROLE IF EXISTS " + user, "DROP ROLE IF EXISTS " + owner} {
+			if _, err := admin.ExecContext(cleanup, query); err != nil {
+				t.Error(err)
+			}
 		}
 	})
+	for _, query := range []string{
+		"CREATE ROLE " + owner + " NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS",
+		"CREATE ROLE " + user + " LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '" + password + "'",
+		"CREATE DATABASE " + name + " OWNER " + owner + " TEMPLATE template0",
+		"REVOKE ALL ON DATABASE " + name + " FROM PUBLIC",
+		"GRANT CONNECT ON DATABASE " + name + " TO " + user,
+	} {
+		if _, err := admin.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg.Database = name
+	ownerCfg := cfg.Copy()
+	ownerCfg.RuntimeParams["role"] = owner
+	ownerDB = stdlib.OpenDB(*ownerCfg)
+	ownerDB.SetMaxOpenConns(2)
+	if _, err := ownerDB.ExecContext(ctx, "REVOKE ALL ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO "+user); err != nil {
+		t.Fatal(err)
+	}
+	cfg.User, cfg.Password = user, password
+	cfg.RuntimeParams["search_path"] = "pg_catalog"
+	db = stdlib.OpenDB(*cfg)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(2)
+	schemaFixtures.Store(db, schemaFixture{owner: ownerDB, user: user})
 	return db
 }
 func migrate(t *testing.T, db *sql.DB) {
 	t.Helper()
-	data, err := os.ReadFile("schema.sql")
+	value, ok := schemaFixtures.Load(db)
+	if !ok {
+		t.Fatal("schema fixture is missing")
+	}
+	fixture := value.(schemaFixture)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := fixture.owner.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := db.ExecContext(ctx, string(data)); err != nil {
+	defer conn.Close()
+	if err := schema.Bootstrap(ctx, conn, fixture.user); err != nil {
 		t.Fatal(err)
 	}
 }
+
 func privateFile(t *testing.T, name string, data []byte) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
@@ -383,7 +427,7 @@ func expireAccess(t *testing.T, f *fixture, c *http.Cookie) {
 		t.Fatal(err)
 	}
 	hash, _ := sessionHash(c.Value)
-	if _, err := f.db.ExecContext(ctx, "UPDATE stego_browser_sessions SET payload=$2 WHERE id_hash=$1", hash, payload); err != nil {
+	if _, err := f.db.ExecContext(ctx, "UPDATE public.stego_browser_sessions SET payload=$2 WHERE id_hash=$1", hash, payload); err != nil {
 		t.Fatal(err)
 	}
 }

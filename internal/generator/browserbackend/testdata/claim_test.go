@@ -49,7 +49,7 @@ func (c *claimFaultConn) QueryContext(ctx context.Context, query string, args []
 	if err != nil {
 		return nil, err
 	}
-	if c.fault.failure != nil && strings.HasPrefix(query, "UPDATE stego_browser_sessions SET state='refreshing'") && c.fault.used.CompareAndSwap(false, true) {
+	if c.fault.failure != nil && strings.HasPrefix(query, "UPDATE public.stego_browser_sessions SET state='refreshing'") && c.fault.used.CompareAndSwap(false, true) {
 		return &claimFaultRows{Rows: rows, failure: c.fault.failure}, nil
 	}
 	return rows, nil

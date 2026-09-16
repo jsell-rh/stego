@@ -17,7 +17,31 @@ relative to the service project and a public `path`. Public assets use
 `{id}`. An optional `roles_claim` selects a dotted identity claim path.
 The compiler captures the declared asset files and checks their sizes.
 
-Apply the generated `browser/schema.sql` migration before service startup.
+Use the generated `browser/schema.Bootstrap` function before service startup.
+Version 2 requires a separate schema owner and runtime login. An older deployment
+that used the table owner as its runtime login must change its grants and table
+ownership before it uses this version. Startup rejects unsafe permissions.
+
+With `postgres-client`, provision a database with `ManagedSchema: true`, then call
+`WithDatabaseOwner`. In its callback, pass the connection and `identity.User` to
+`browser/schema.Bootstrap`. Keep this operation in the controller. The generated
+browser process uses only the limited runtime login. The schema package is a
+separate Go package and does not include browser assets or the browser runtime.
+
+Bootstrap installs the generated `browser/schema.sql` only in an empty public
+namespace. It checks an existing schema without a repair. All DDL and grants use
+one transaction. A retry retains the table and session data. The runtime verifies
+the owner, login, table, columns, constraints, indexes, and grants before it opens
+the session store. Unexpected triggers, rules, row policies, or grants stop
+startup. The runtime has SELECT, INSERT, UPDATE, and DELETE. It has no schema
+CREATE, database TEMPORARY, or table TRUNCATE permission.
+
+This schema check supports PostgreSQL 16 through 18. It checks the enforcement
+flag on PostgreSQL 18. PostgreSQL 18 also stores table NOT NULL constraints in
+`pg_constraint`; earlier supported versions use `pg_attribute` for these checks.
+See the [PostgreSQL constraint catalog](https://www.postgresql.org/docs/18/catalog-pg-constraint.html).
+The focused CI schema test uses PostgreSQL 18. Do not treat this as live evidence
+for other server versions.
 Set these values in the service environment:
 
 - `DATABASE_URL`: the database connection with verified TLS.
