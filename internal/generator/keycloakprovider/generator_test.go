@@ -49,6 +49,14 @@ func TestProviderValidation(t *testing.T) {
 	}
 }
 
+func TestGeneratedAccessLifecycle(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedProvider(t, telemetry, false, "^Test(AccessAbnormalExit|NativeAccess|ServiceAccountAccess)")
+		})
+	}
+}
+
 func TestGeneratedNativeLifecycle(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedProvider(t, telemetry, false, "^TestNativeLifecycle") })

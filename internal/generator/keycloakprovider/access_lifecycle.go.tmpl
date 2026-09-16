@@ -19,10 +19,13 @@ func repairableClientPolicy(err error)bool{
 // The caller retains one operation permit through normal work and cleanup.
 func(c *Client)reconcileClientAccess(work context.Context,b ClientBinding,plan clientAccessPlan)(err error){
  _,raw,err:=c.boundClient(work,b);if err!=nil{return err}
+ // Only a completed inspection can skip cleanup. A panic or Goexit must also
+ // attempt disablement, without suppression of the abnormal exit.
+ complete:=false
  // From this point, any failure requires confirmed disablement. Cleanup uses
  // the saved binding again and cannot disable a client with different ownership.
  defer func(){
-  if err==nil{return}
+  if complete{return}
   cleanup,cancel:=context.WithTimeout(context.WithoutCancel(work),5*time.Second);defer cancel()
   stop:=context.AfterFunc(c.lifetime,cancel);defer stop()
   if c.lifetime.Err()!=nil{cancel()}
@@ -32,7 +35,7 @@ func(c *Client)reconcileClientAccess(work context.Context,b ClientBinding,plan c
  if !explicitFlag(raw,"enabled",true)&&!explicitFlag(raw,"enabled",false){return ErrResponse}
  if explicitFlag(raw,"enabled",true){
   err=plan.inspect(work,true)
-  if err==nil{return nil}
+  if err==nil{complete=true;return nil}
   if !repairableClientPolicy(err){return err}
   if err=c.disableClient(work,b);err!=nil{return err}
  }
@@ -42,5 +45,7 @@ func(c *Client)reconcileClientAccess(work context.Context,b ClientBinding,plan c
  body,_:=json.Marshal(struct{Enabled bool `json:"enabled"`;Origins []string `json:"webOrigins"`}{true,[]string{}})
  response,err:=c.admin(work,http.MethodPut,"/clients/"+b.ID,body);if err!=nil{return err}
  if response.StatusCode!=http.StatusNoContent{return statusError(response.StatusCode)}
- return plan.inspect(work,true)
+ err=plan.inspect(work,true)
+ complete=err==nil
+ return err
 }

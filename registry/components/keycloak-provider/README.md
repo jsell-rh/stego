@@ -351,7 +351,9 @@ The focused generated tests passed with the race detector in both variants in
 8.531 seconds. They cover all save boundaries, lost acknowledgements, uncertain
 provider results, restart, closed migration, and late cleanup. The real-provider
 CI test also covers creation and migration through the complete lifecycle. Its
-result is pending. Hypershell production adoption is also pending.
+creation and migration checks passed in CI run `35040036218`. The same checks
+with the restricted four-role identity are pending. Hypershell now uses this
+lifecycle in its production worker; its updated application checks are pending.
 
 Common binding checks now reject reserved `stego.owner.*` keys that the caller
 did not declare. This applies to discovery and later bound operations. A partial
@@ -360,3 +362,20 @@ migration cannot become an ordinary binding. It needs its saved migration plan.
 read that an application already holds. It does not make a later remote write
 atomic. A regression test reproduced acceptance of both an unexpected owner and
 a partial migration before this change.
+
+
+## Abnormal exit during access changes
+
+After the initial ownership check, the common access operation requires a
+completed policy inspection before it can skip cleanup. A panic or `Goexit`
+also starts the bounded disablement check. Cleanup uses the saved binding and
+its own five-second context. Cancellation of the request does not skip cleanup.
+The original panic or `Goexit` still propagates. Cleanup cannot run after process
+termination, and an unavailable provider can prevent confirmed disablement.
+Durable recovery state and later reconciliation remain required.
+
+A regression test left the client enabled after a panic or `Goexit` before this
+fix. The focused generated tests passed with the race detector in both variants
+in 11.746 seconds. They cover abnormal exits during the initial enabled check,
+repair, and the final enabled check, plus normal native and service-account
+access operations. They also check that the operation permit is released.
