@@ -320,19 +320,22 @@ silently reuse that entry.
 ```yaml
 # .stego/config.yaml
 registry:
-  - url: git.corp.com/platform/stego-registry
-    ref: a1b2c3d4e5f6  # pinned SHA, not a branch or tag
-
-# per-component SHA pins override the registry ref
-pins:
-  rest-api: f4e5d6c7b8a9
-  postgres-adapter: 3a2b1c0d
-  # everything else resolves from registry ref
+  - url: https://github.com/jsell-rh/stego.git
+    ref: 42c7ea13fb95995e9d24666637bceb61dbdbd591
+    path: registry
+  - url: ./registry
+    ref: application
 ```
 
-Resolution order: pinned SHA > registry ref. `stego plan` warns on stale pins.
+Each Git registry uses its declared full commit SHA. Per-component `pins`
+are not supported. Nonempty `pins` cause an error before source access.
 
-Multiple registries supported (org-wide + team-specific, team takes precedence). Publishing = PR to the registry repo. Promoting a fill to a component = PR that adds it to the registry.
+STEGO combines one through eight sources. Application declarations can refer
+to common components but cannot replace them. Duplicate artifact names or input
+paths cause an error, even when their contents match. Source order gives no
+precedence. Publish common changes through the common registry's review process.
+See [registry composition](registry-composition.md) for local extensions,
+application output paths, verified caches, and explicit vendored sources.
 
 ## Compiler Process (Reconciler Pattern)
 
@@ -422,7 +425,10 @@ Single archetype (`rest-crud`), end-to-end with fills and slots working. Full CL
 
 **Example service:** simplified hyperfleet-api or similar, producing a compilable, runnable Go service from a single `service.yaml` + fills.
 
-**Deferred to post-MVP:** multiple archetypes, mixins, multiple registries, per-component SHA pinning, multi-language output.
+**Original post-MVP deferrals:** multiple archetypes, mixins, multiple registries,
+per-component SHA pinning, and multi-language output. Registry composition is
+now implemented as specified above. This historical list does not describe
+current implementation status.
 
 ## Open Questions
 

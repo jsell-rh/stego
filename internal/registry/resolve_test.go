@@ -557,3 +557,18 @@ func TestVendoredRegistryUsesPinnedCheckoutWithoutNetwork(t *testing.T) {
 		t.Fatal("changed offline checkout accepted")
 	}
 }
+
+func TestResolveRegistryRejectsUnsupportedComponentPins(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("STEGO_REGISTRY", "")
+	for _, ref := range []string{"", "main", strings.Repeat("a", 40)} {
+		writeConfig(t, project, types.RegistryConfig{
+			Registry: []types.RegistrySource{{URL: "https://unreachable.invalid/common.git", Ref: strings.Repeat("b", 40)}},
+			Pins:     map[string]string{"postgres-adapter": ref},
+		})
+		_, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, CacheDir: t.TempDir()})
+		if err == nil || !strings.Contains(err.Error(), "per-component pins are not supported") {
+			t.Fatal("unsupported pin was not rejected before source access", err)
+		}
+	}
+}

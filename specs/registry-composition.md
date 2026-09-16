@@ -41,6 +41,11 @@ its configuration file hash. State also records a reference hash for composed
 sources and the hash of all captured registry YAML and protobuf inputs. A
 change to any captured source after planning prevents apply.
 
+Per-component `pins` are not supported. STEGO rejects nonempty entries before
+it resolves registry sources. Earlier versions parsed these entries but did not
+use them. Select revisions through each Git source's `ref`; do not use `pins`
+to select or replace a common component.
+
 Git sources use a verified local cache under `stego/registries` in the
 operating system's user cache directory. On Linux, set `XDG_CACHE_HOME` to an
 absolute writable directory when the home directory is read-only. This changes

@@ -289,14 +289,8 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("Registry[0].Ref = %q, want %q", src.Ref, "a1b2c3d4e5f6")
 	}
 
-	if len(cfg.Pins) != 2 {
-		t.Fatalf("expected 2 pins, got %d", len(cfg.Pins))
-	}
-	if cfg.Pins["rest-api"] != "f4e5d6c7b8a9" {
-		t.Errorf("Pins[rest-api] = %q, want %q", cfg.Pins["rest-api"], "f4e5d6c7b8a9")
-	}
-	if cfg.Pins["postgres-adapter"] != "3a2b1c0d" {
-		t.Errorf("Pins[postgres-adapter] = %q, want %q", cfg.Pins["postgres-adapter"], "3a2b1c0d")
+	if len(cfg.Pins) != 0 {
+		t.Fatalf("unexpected component pins: %d", len(cfg.Pins))
 	}
 }
 

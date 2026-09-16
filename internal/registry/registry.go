@@ -178,6 +178,9 @@ func LoadConfig(path string) (*types.RegistryConfig, error) {
 
 // validateConfig checks that a parsed RegistryConfig has required fields.
 func validateConfig(cfg *types.RegistryConfig) error {
+	if len(cfg.Pins) != 0 {
+		return fmt.Errorf("per-component pins are not supported; pin each Git registry source with ref")
+	}
 	if len(cfg.Registry) == 0 {
 		return fmt.Errorf("at least one registry source is required")
 	}
