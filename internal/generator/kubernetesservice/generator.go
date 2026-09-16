@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jsell-rh/stego/internal/browserapplication"
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
@@ -111,7 +112,7 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	}
 	for key, value := range ctx.ComponentConfig {
 		switch key {
-		case "allocation_roles", "allocation_profiles", "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints", "optional_external_endpoints", "kubernetes_api", "kubernetes_permissions":
+		case "local_applications", "allocation_roles", "allocation_profiles", "source_directories", "network_peers", "workers", "rpc_processes", "external_endpoints", "optional_external_endpoints", "kubernetes_api", "kubernetes_permissions":
 		case "env_secret", "files_secret", "dns_namespace":
 			s, ok := value.(string)
 			if !ok || !label.MatchString(s) {
@@ -125,6 +126,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 		default:
 			return fmt.Errorf("unknown kubernetes-service setting %q", key)
 		}
+	}
+	if _, err := browserapplication.Resolve(ctx, ctx.ComponentConfig); err != nil {
+		return err
 	}
 	if _, err := allocationConfig(ctx); err != nil {
 		return err
@@ -252,6 +256,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return object{"httpGet": object{"path": url, "port": "https", "scheme": "HTTPS"}, "timeoutSeconds": 2, "periodSeconds": period, "failureThreshold": threshold}
 	}
 	pod, container := workloadPod(ctx, env)
+	if application, _ := browserapplication.Resolve(ctx, ctx.ComponentConfig); application != nil {
+		addLocalApplication(pod, application)
+	}
 	container["ports"] = ports
 	container["startupProbe"], container["readinessProbe"], container["livenessProbe"] = probe("/livez", 2, 30), probe("/readyz", 3, 2), probe("/livez", 10, 3)
 	items := []any{

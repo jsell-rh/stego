@@ -9,11 +9,15 @@ import (
 	"path"
 	"text/template"
 
+	"github.com/jsell-rh/stego/internal/browserapplication"
 	"github.com/jsell-rh/stego/internal/gen"
 )
 
 //go:embed health.go.tmpl
 var source string
+
+//go:embed application.go.tmpl
+var applicationSource string
 
 type Generator struct{}
 
@@ -25,6 +29,9 @@ func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
 
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if _, err := browserapplication.Resolve(ctx, ctx.PeerConfigs["kubernetes-service"]); err != nil {
+		return err
+	}
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
@@ -68,7 +75,24 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		constructor, name = "NewDatabaseMonitor", "databaseMonitor"
 		resources = append(resources, gen.SQLDatabase)
 	}
-	return files, &gen.Wiring{
+	application, _ := browserapplication.Resolve(ctx, ctx.PeerConfigs["kubernetes-service"])
+	if application != nil {
+		template, err := template.New("application-health").Parse(applicationSource)
+		if err != nil {
+			return nil, nil, err
+		}
+		var output bytes.Buffer
+		if err := template.Execute(&output, struct{ Package, Client, HealthPath string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["browser-backend"], "client"), application.HealthPath}); err != nil {
+			return nil, nil, err
+		}
+		content, err := format.Source(output.Bytes())
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "application.go"), Content: content})
+		constructor, name = "NewApplicationMonitor", "applicationMonitor"
+	}
+	wiring := &gen.Wiring{
 		Imports:                 []string{ctx.OutputNamespace},
 		Constructors:            []string{path.Base(ctx.OutputNamespace) + "." + constructor + "()"},
 		ConstructorResources:    map[int][]gen.Resource{0: resources},
@@ -76,5 +100,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		BackgroundTasks:         []int{0},
 		NeedsDB:                 database,
 		DiscoveryRoutes:         []string{fmt.Sprintf("topMux.HandleFunc(%q, %s.Live)", livePattern, name), fmt.Sprintf("topMux.HandleFunc(%q, %s.Ready)", readyPattern, name)},
-	}, nil
+	}
+	if application != nil {
+		wiring.ConstructorDeferCalls = map[int]string{0: "Close()"}
+	}
+	return files, wiring, gen.ValidateNamespace(ctx.OutputNamespace, files)
 }
