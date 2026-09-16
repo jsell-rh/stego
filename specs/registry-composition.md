@@ -81,9 +81,9 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell development revision `55d66c2` uses this model for its API,
+Hypershell runtime revision `399a41b` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
-compiler to `883ca13a1f147f1c6778f628ebcd7e2f3d8bb053`. Its local registries
+compiler to `8e0fae6f28276e192e8497c8acad487c765f3bb5`. Its local registries
 contain two application archetypes and no common component declarations.
 Application package paths are selected through `component_namespaces`.
 
@@ -92,13 +92,18 @@ in `components/gateway-dashboard` remain application inputs. The committed
 `out`, `console/out`, and `gateway-console/out` directories remain generated
 output. They are not alternate copies of the compiler or its templates.
 
-The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548)
+The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161331243)
 verified composed Git and local inputs, repeated generation, dependencies,
-entry-point builds, and generated deployment checks at revision `1a5fa8a`.
-All 83 archived source files matched the local module. Revision `55d66c2`
+entry-point builds, and generated deployment checks at revision `b875ab2`.
+All 121 archived source files matched the local module. Revision `399a41b`
 selects that checked module and records its final dependency input hashes.
-Common compiler revision `883ca13` passed
-[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35157877111).
+Common compiler revision `8e0fae6` passed
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35160694463).
 These results establish the registry integration. They do not establish a
 complete deployed dashboard. That application gate remains open in the
 [integration record](upstream-dashboard-integration.md).
+
+These Hypershell changes are on the development branch. Hypershell `main`
+remains at the previously qualified revision `d6b1fe3` until the application
+gate passes. A checkout of `main` can therefore still contain the older local
+copies. Generated runtime files remain committed in both models.
