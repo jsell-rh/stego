@@ -17,6 +17,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/jsell-rh/stego/internal/browserapplication"
 	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
@@ -200,7 +201,27 @@ func (g *Generator) InputFiles(values map[string]any) ([]gen.InputFile, error) {
 	}
 	return result, nil
 }
+func (g *Generator) configured(ctx gen.Context) (*Generator, error) {
+	application, err := browserapplication.Resolve(ctx, ctx.PeerConfigs["kubernetes-service"])
+	if err != nil {
+		return nil, err
+	}
+	if application == nil {
+		return g, nil
+	}
+	if g.LocalApplicationPort != 0 && g.LocalApplicationPort != application.Port {
+		return nil, fmt.Errorf("local application port differs from deployment")
+	}
+	return &Generator{LocalApplicationPort: application.Port}, nil
+}
 func (g *Generator) ValidateContext(ctx gen.Context) error {
+	configured, err := g.configured(ctx)
+	if err != nil {
+		return err
+	}
+	return configured.validateContext(ctx)
+}
+func (g *Generator) validateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
@@ -270,7 +291,14 @@ func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte,
 }
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	if err := g.ValidateContext(ctx); err != nil {
+	configured, err := g.configured(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return configured.generate(ctx)
+}
+func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
+	if err := g.validateContext(ctx); err != nil {
 		return nil, nil, err
 	}
 	s, contentBySource, err := g.resolveAssets(ctx)

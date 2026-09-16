@@ -1,0 +1,28 @@
+package {{.Package}}
+
+import (
+ "context"
+ "database/sql"
+ "errors"
+ "net/http"
+ client {{printf "%q" .Client}}
+)
+
+// ApplicationMonitor checks the session database and the private application.
+// Probe requests use cached results and cannot start an upstream request.
+type ApplicationMonitor struct {
+ *Monitor
+ application *client.Client
+}
+func NewApplicationMonitor(parent context.Context, db *sql.DB)(*ApplicationMonitor,error){
+ if db==nil{return nil,errors.New("application health requires the session database")}
+ application:=client.NewLocalApplication()
+ monitor,err:=NewMonitor(parent,db.PingContext,func(ctx context.Context)error{
+  result,err:=application.Do(ctx,http.MethodGet,{{printf "%q" .HealthPath}},nil,nil)
+  if err!=nil||result.StatusCode!=http.StatusOK{return errors.New("local application is not ready")}
+  return nil
+ })
+ if err!=nil{application.Close();return nil,err}
+ return &ApplicationMonitor{Monitor:monitor,application:application},nil
+}
+func(m *ApplicationMonitor)Close(){m.application.Close()}

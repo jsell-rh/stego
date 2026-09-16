@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/jsell-rh/stego/internal/compiler"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/healthcheck"
+	"github.com/jsell-rh/stego/internal/generator/kubernetesservice"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 )
@@ -98,12 +100,27 @@ func TestInvalidConfig(t *testing.T) {
 		})
 	}
 }
-func TestGeneratedRuntime(t *testing.T)                    { testGeneratedRuntime(t, new(Generator), fixture(), false) }
-func TestGeneratedLocalApplicationRuntime(t *testing.T)    { testLocalApplicationRuntime(t, false) }
-func TestGeneratedCapturedApplicationRuntime(t *testing.T) { testLocalApplicationRuntime(t, true) }
-func testLocalApplicationRuntime(t *testing.T, captured bool) {
+func TestGeneratedRuntime(t *testing.T)                 { testGeneratedRuntime(t, new(Generator), fixture(), false) }
+func TestGeneratedLocalApplicationRuntime(t *testing.T) { testLocalApplicationRuntime(t, false, false) }
+func TestGeneratedCapturedApplicationRuntime(t *testing.T) {
+	testLocalApplicationRuntime(t, true, false)
+}
+func TestGeneratedDeclaredApplicationRuntime(t *testing.T) {
+	testLocalApplicationRuntime(t, true, true)
+}
+func testLocalApplicationRuntime(t *testing.T, captured, declared bool) {
 	t.Helper()
+	var healthStatus atomic.Int32
+	healthStatus.Store(200)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/readyz" {
+			if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
+				w.WriteHeader(400)
+				return
+			}
+			w.WriteHeader(int(healthStatus.Load()))
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/socket") {
 			if r.Header.Get("Authorization") != "Bearer initial-access-value" || r.Header.Get("Cookie") != "" || r.Header.Get("X-Forwarded-User") != "" {
 				w.WriteHeader(401)
@@ -143,6 +160,19 @@ func testLocalApplicationRuntime(t *testing.T, captured bool) {
 			w.WriteHeader(401)
 			return
 		}
+		if r.URL.Path == "/api/records/v1/fixture-health-status" {
+			switch r.URL.Query().Get("status") {
+			case "200":
+				healthStatus.Store(200)
+			case "503":
+				healthStatus.Store(503)
+			default:
+				w.WriteHeader(400)
+				return
+			}
+			w.WriteHeader(204)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"path": r.URL.RequestURI(), "headers": r.Header, "method": r.Method})
 	}))
 	defer server.Close()
@@ -161,7 +191,18 @@ func testLocalApplicationRuntime(t *testing.T, captured bool) {
 		delete(ctx.ComponentConfig, "assets")
 		ctx.Inputs = nil
 	}
-	testGeneratedRuntime(t, &Generator{LocalApplicationPort: port}, ctx, true)
+	g := &Generator{LocalApplicationPort: port}
+	if declared {
+		ctx.ServiceName = "browser"
+		ctx.PeerNamespaces["browser-backend"] = "browser"
+		ctx.PeerNamespaces["kubernetes-service"] = "deploy"
+		ctx.PeerConfigs = map[string]map[string]any{
+			"browser-backend": ctx.ComponentConfig, "health-check": {"database": true},
+			"kubernetes-service": {"local_applications": []any{map[string]any{"port": port, "image": "registry.example.test/app@sha256:" + strings.Repeat("a", 64), "listen_env": "LISTEN_ADDRESS", "port_env": "PORT", "env_secret": "app-env", "files_secret": "app-files", "health_path": "/readyz"}}},
+		}
+		g = &Generator{}
+	}
+	testGeneratedRuntime(t, g, ctx, true)
 }
 func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local bool) {
 	t.Helper()
@@ -180,7 +221,7 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 		{"otel-tracing", new(oteltracing.Generator), nil},
 		{"health-check", new(healthcheck.Generator), map[string]any{"database": true}},
 	} {
-		ctx := fixture()
+		ctx := ctx
 		ctx.ServiceName = "browser"
 		ctx.OutputNamespace = ctx.PeerNamespaces[peer.name]
 		ctx.ComponentConfig = peer.config
@@ -190,6 +231,17 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 		}
 		files = append(files, generated...)
 		wirings = append(wirings, compiler.ComponentWiring{Name: peer.name, Wiring: peerWiring})
+	}
+	if ctx.PeerConfigs["kubernetes-service"] != nil {
+		deployment := ctx
+		deployment.GoVersion = "1.26.8"
+		deployment.OutputNamespace = "deploy"
+		deployment.ComponentConfig = ctx.PeerConfigs["kubernetes-service"]
+		generated, _, err := new(kubernetesservice.Generator).Generate(deployment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, generated...)
 	}
 	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: fixture().ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: wirings})
 	if err != nil {
@@ -240,6 +292,15 @@ func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local boo
 			if err := os.WriteFile(filepath.Join(project, "out/browser/application_"+entry.Name()), data, 0644); err != nil {
 				t.Fatal(err)
 			}
+		}
+	}
+	if ctx.PeerConfigs["kubernetes-service"] != nil {
+		data, err := os.ReadFile("testdata/declared/health_test.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(project, "out/browser/declared_health_test.go"), data, 0644); err != nil {
+			t.Fatal(err)
 		}
 	}
 	checks := [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=90s", "-v", "./..."}}

@@ -1,8 +1,19 @@
 kind: component
 name: kubernetes-service
-version: 1.15.0
+version: 1.16.0
 output_namespace: deploy
 config:
+  local_applications:
+    type: list
+    optional: true
+    items:
+      port: {type: int}
+      image: {type: string}
+      listen_env: {type: string}
+      port_env: {type: string}
+      env_secret: {type: string}
+      files_secret: {type: string}
+      health_path: {type: string}
   kubernetes_api: {type: bool, optional: true}
   kubernetes_permissions:
     type: list
