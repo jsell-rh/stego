@@ -6,19 +6,15 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
 	"database/sql"
 	"errors"
 	"io"
-	"math"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -89,57 +85,35 @@ func NewTracingRuntime(pools ...*sql.DB) (*Runtime, error) {
 }
 func NewRuntime() (*Runtime, error) { return newRuntime(os.Stderr) }
 func newRuntime(localOutput io.Writer) (*Runtime, error) {
-	service := os.Getenv("OTEL_SERVICE_NAME")
-	if service == "" {
-		service = defaultService
+	settings, err := readExportSettings("")
+	if err != nil {
+		return nil, err
 	}
-	if len(service) == 0 || len(service) > 128 || strings.Trim(service, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != "" {
-		return nil, errors.New("invalid telemetry service name")
-	}
+	service := settings.service
 	instance, err := newInstanceID(rand.Reader)
 	if err != nil {
 		return nil, err
 	}
 	runtime := &Runtime{instance: instance, resource: serviceResource(service, instance)}
-	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if endpoint == "" {
+	if settings.endpoint == "" {
 		runtime.initServiceLogs(service, localOutput)
 		return runtime, nil
 	}
-	allowed := map[string]bool{"OTEL_EXPORTER_OTLP_ENDPOINT": true, "OTEL_EXPORTER_OTLP_PROTOCOL": true, "OTEL_EXPORTER_OTLP_CERTIFICATE": true, "OTEL_SERVICE_NAME": true, "OTEL_TRACES_SAMPLER_ARG": true, "OTEL_METRICS_EXPORTER": true, "OTEL_LOGS_EXPORTER": true, "OTEL_METRIC_EXPORT_INTERVAL": true}
-	for _, entry := range os.Environ() {
-		name, value, _ := strings.Cut(entry, "=")
-		if value != "" && strings.HasPrefix(name, "OTEL_") && !allowed[name] {
-			return nil, errors.New("unsupported OpenTelemetry setting")
-		}
-	}
-	if len(endpoint) > 2048 {
-		return nil, errors.New("invalid trace collector endpoint")
-	}
-	u, err := url.Parse(endpoint)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" || u.Opaque != "" {
-		return nil, errors.New("trace collector requires an HTTPS origin")
-	}
-	protocol := os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
-	if protocol != "" && protocol != "grpc" {
-		return nil, errors.New("trace exporter requires the grpc protocol")
-	}
-	ratio := 0.1
-	if value := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); value != "" {
-		ratio, err = strconv.ParseFloat(value, 64)
-		if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1 {
-			return nil, errors.New("invalid trace sampling ratio")
-		}
-	}
-	interval, err := signalSettings()
+	u := settings.origin
+	roots, err := traceRoots(settings.certificate)
 	if err != nil {
 		return nil, err
 	}
-	roots, err := traceRoots(os.Getenv("OTEL_EXPORTER_OTLP_CERTIFICATE"))
-	if err != nil {
-		return nil, err
+	options := []grpc.DialOption{grpc.WithNoProxy(), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: u.Hostname()})), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<10), grpc.MaxCallSendMsgSize(1<<20))}
+	if settings.token != "" {
+		token, err := readTelemetryToken(settings.token)
+		clear(token)
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, grpc.WithPerRPCCredentials(telemetryTokenCredential{file: settings.token}))
 	}
-	connection, err := grpc.NewClient("passthrough:///"+u.Host, grpc.WithNoProxy(), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig(), grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: u.Hostname()})), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64<<10), grpc.MaxCallSendMsgSize(1<<20)))
+	connection, err := grpc.NewClient("passthrough:///"+u.Host, options...)
 	if err != nil {
 		return nil, errors.New("cannot create trace exporter connection")
 	}
@@ -148,12 +122,12 @@ func newRuntime(localOutput io.Writer) (*Runtime, error) {
 		connection.Close()
 		return nil, errors.New("cannot create trace exporter")
 	}
-	runtime.browserSampleRatio = ratio
+	runtime.browserSampleRatio = settings.ratio
 	runtime.connection = connection
-	runtime.provider = sdktrace.NewTracerProvider(sdktrace.WithResource(runtime.resource), sdktrace.WithSampler(sdktrace.TraceIDRatioBased(ratio)), sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8}), sdktrace.WithBatcher(&safeExporter{SpanExporter: exporter, runtime: runtime}, sdktrace.WithMaxQueueSize(QueueSize), sdktrace.WithMaxExportBatchSize(BatchSize), sdktrace.WithBatchTimeout(200*time.Millisecond), sdktrace.WithExportTimeout(ExportTimeout)))
+	runtime.provider = sdktrace.NewTracerProvider(sdktrace.WithResource(runtime.resource), sdktrace.WithSampler(sdktrace.TraceIDRatioBased(settings.ratio)), sdktrace.WithRawSpanLimits(sdktrace.SpanLimits{AttributeValueLengthLimit: 256, AttributeCountLimit: 8}), sdktrace.WithBatcher(&safeExporter{SpanExporter: exporter, runtime: runtime}, sdktrace.WithMaxQueueSize(QueueSize), sdktrace.WithMaxExportBatchSize(BatchSize), sdktrace.WithBatchTimeout(200*time.Millisecond), sdktrace.WithExportTimeout(ExportTimeout)))
 	runtime.tracer = runtime.provider.Tracer("stego/http")
 	runtime.grpcTracer = runtime.provider.Tracer("stego/grpc")
-	if err := runtime.initSignals(interval); err != nil {
+	if err := runtime.initSignals(settings); err != nil {
 		runtime.Close()
 		return nil, err
 	}
@@ -175,36 +149,6 @@ func newRuntime(localOutput io.Writer) (*Runtime, error) {
 	}
 	runtime.initServiceLogs(service, localOutput)
 	return runtime, nil
-}
-func traceRoots(name string) (*x509.CertPool, error) {
-	if name == "" {
-		roots, err := x509.SystemCertPool()
-		if err != nil {
-			return nil, errors.New("cannot read trace trust roots")
-		}
-		return roots, nil
-	}
-	if len(name) > 4096 {
-		return nil, errors.New("invalid trace certificate path")
-	}
-	f, err := os.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, errors.New("cannot read trace certificate")
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 65536 {
-		return nil, errors.New("invalid trace certificate file")
-	}
-	data, err := io.ReadAll(io.LimitReader(f, 65537))
-	if err != nil || len(data) > 65536 {
-		return nil, errors.New("invalid trace certificate file")
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(data) {
-		return nil, errors.New("invalid trace certificate")
-	}
-	return roots, nil
 }
 
 type safeExporter struct {

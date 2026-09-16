@@ -5,7 +5,6 @@ package tracing
 import (
 	"context"
 	"errors"
-	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -33,31 +32,14 @@ type requestSignals struct {
 	metricFailures, logFailures atomic.Uint64
 }
 
-func signalSettings() (time.Duration, error) {
-	for _, name := range []string{"OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER"} {
-		value := os.Getenv(name)
-		if value != "" && value != "otlp" && value != "none" {
-			return 0, errors.New("unsupported telemetry exporter")
-		}
-	}
-	interval := 10 * time.Second
-	if raw := os.Getenv("OTEL_METRIC_EXPORT_INTERVAL"); raw != "" {
-		ms, err := strconv.Atoi(raw)
-		if err != nil || ms < 1000 || ms > 60000 || strconv.Itoa(ms) != raw {
-			return 0, errors.New("invalid metric export interval")
-		}
-		interval = time.Duration(ms) * time.Millisecond
-	}
-	return interval, nil
-}
-func (r *Runtime) initSignals(interval time.Duration) error {
+func (r *Runtime) initSignals(settings exportSettings) error {
 	res := r.resource
-	if os.Getenv("OTEL_METRICS_EXPORTER") != "none" {
+	if settings.metrics {
 		exporter, err := otlpmetricgrpc.New(context.Background(), otlpmetricgrpc.WithGRPCConn(r.connection), otlpmetricgrpc.WithHeaders(map[string]string{}), otlpmetricgrpc.WithTimeout(ExportTimeout), otlpmetricgrpc.WithRetry(otlpmetricgrpc.RetryConfig{Enabled: false}), otlpmetricgrpc.WithMaxRequestSize(1<<20), otlpmetricgrpc.WithTemporalitySelector(func(sdkmetric.InstrumentKind) metricdata.Temporality { return metricdata.CumulativeTemporality }))
 		if err != nil {
 			return errors.New("cannot create metric exporter")
 		}
-		r.signals.meter = sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithCardinalityLimit(MetricSeriesLimit), sdkmetric.WithReader(sdkmetric.NewPeriodicReader(&safeMetricExporter{Exporter: exporter, signals: &r.signals}, sdkmetric.WithInterval(interval), sdkmetric.WithTimeout(ExportTimeout))))
+		r.signals.meter = sdkmetric.NewMeterProvider(sdkmetric.WithResource(res), sdkmetric.WithCardinalityLimit(MetricSeriesLimit), sdkmetric.WithReader(sdkmetric.NewPeriodicReader(&safeMetricExporter{Exporter: exporter, signals: &r.signals}, sdkmetric.WithInterval(settings.interval), sdkmetric.WithTimeout(ExportTimeout))))
 		meter := r.signals.meter.Meter("stego/requests")
 		bounds := []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 1800}
 		r.signals.httpDuration, err = meter.Float64Histogram("http.server.request.duration", metric.WithUnit("s"), metric.WithExplicitBucketBoundaries(bounds...))
@@ -77,7 +59,7 @@ func (r *Runtime) initSignals(interval time.Duration) error {
 			return errors.New("cannot create request metric")
 		}
 	}
-	if os.Getenv("OTEL_LOGS_EXPORTER") != "none" {
+	if settings.logs {
 		exporter, err := otlploggrpc.New(context.Background(), otlploggrpc.WithGRPCConn(r.connection), otlploggrpc.WithHeaders(map[string]string{}), otlploggrpc.WithTimeout(ExportTimeout), otlploggrpc.WithRetry(otlploggrpc.RetryConfig{Enabled: false}), otlploggrpc.WithMaxRequestSize(1<<20))
 		if err != nil {
 			return errors.New("cannot create log exporter")
