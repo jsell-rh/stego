@@ -1,0 +1,185 @@
+package {{.Package}}
+
+import (
+ "bytes"
+ "context"
+ "crypto/rand"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "fmt"
+ "maps"
+ "reflect"
+
+ runtime "{{.Controller}}"
+)
+
+var ErrClientLifecycle = errors.New("Keycloak client lifecycle record is invalid")
+var ErrClientClosed = errors.New("Keycloak client lifecycle is closed")
+
+// NativeClientIdentity comes from trusted application state. Legacy keys are
+// optional. Their exact rename must produce Ownership without changed values.
+type NativeClientIdentity struct {
+ ClientID string
+ Ownership map[string]string
+ LegacyAttributes map[string]string
+ LegacyRenames map[string]string
+}
+func(i NativeClientIdentity)binding(id string)ClientBinding{return ClientBinding{ID:id,ClientID:i.ClientID,Attributes:maps.Clone(i.Ownership)}}
+func(i NativeClientIdentity)validate()error{
+ if _,err:=oidcClientConfiguration(i.binding("validation"),"",300);err!=nil{return err}
+ if len(i.LegacyAttributes)==0{
+  if len(i.LegacyRenames)!=0{return ErrClientLifecycle};return nil
+ }
+ plan:=ClientOwnershipMigration{Prior:ClientBinding{ID:"validation",ClientID:i.ClientID,Attributes:i.LegacyAttributes},Renames:i.LegacyRenames}
+ next,err:=plan.NextBinding();if err!=nil{return err}
+ if !reflect.DeepEqual(next.Attributes,i.Ownership){return ErrClientLifecycle};return nil
+}
+
+type nativeLifecycleRecord struct {
+ Version int `json:"version"`
+ Phase string `json:"phase"`
+ Closed bool `json:"closed"`
+ Binding ClientBinding `json:"binding"`
+ Migration string `json:"migration,omitempty"`
+}
+func(nativeLifecycleRecord)Format(s fmt.State,_ rune){_,_=s.Write([]byte("[protected client lifecycle]"))}
+
+func(r nativeLifecycleRecord)validate(i NativeClientIdentity)error{
+ if r.Version!=1||r.Binding.validate()!=nil||r.Binding.ClientID!=i.ClientID{return ErrClientLifecycle}
+ switch r.Phase{
+ case "allocated","bound":
+  if r.Migration!=""||!reflect.DeepEqual(r.Binding.Attributes,i.Ownership){return ErrClientLifecycle}
+ case "legacy","migration":
+  if len(i.LegacyAttributes)==0||!reflect.DeepEqual(r.Binding.Attributes,i.LegacyAttributes){return ErrClientLifecycle}
+  if r.Phase=="legacy"{if r.Migration!=""{return ErrClientLifecycle};return nil}
+  plan,err:=RestoreOwnershipMigration(r.Migration);if err!=nil{return err}
+  if !reflect.DeepEqual(plan.Prior,r.Binding)||!reflect.DeepEqual(plan.Renames,i.LegacyRenames){return ErrClientLifecycle}
+ default:return ErrClientLifecycle
+ }
+ return nil
+}
+
+type nativeLifecycleProvider interface {
+ FindClient(context.Context,string)(ClientRepresentation,error)
+ DiscoverOwnedClient(context.Context,string,map[string]string)(ClientBinding,error)
+ InspectClient(context.Context,ClientBinding)(ClientRepresentation,error)
+ CreateDisabledNativeClient(context.Context,ClientBinding,NativeClientPolicy)(ClientRepresentation,error)
+ DisableClient(context.Context,ClientBinding)error
+ PrepareClientOwnershipMigration(context.Context,ClientBinding,map[string]string)(ClientOwnershipMigration,error)
+ MigrateClientOwnership(context.Context,ClientOwnershipMigration)(ClientBinding,error)
+ ReconcileNativeClientAccess(context.Context,ClientBinding,NativeAccessPolicy)error
+ DeleteClient(context.Context,ClientBinding)error
+}
+
+// NativeClientLifecycle joins provider effects to the common protected journal.
+// Supply a journal bound to the current resource observation. The caller must
+// serialize reconciliation for this client across processes. Storage CAS does
+// not make Keycloak writes atomic. Stop legacy writers before first adoption.
+// Never remove closed records: an earlier uncertain create can arrive late.
+type NativeClientLifecycle struct {
+ provider nativeLifecycleProvider
+ journal *runtime.StateJournal
+ identity NativeClientIdentity
+}
+func(NativeClientLifecycle)Format(s fmt.State,_ rune){_,_=s.Write([]byte("[protected native client lifecycle]"))}
+func(NativeClientLifecycle)MarshalJSON()([]byte,error){return nil,ErrClientLifecycle}
+
+func NewNativeClientLifecycle(client *Client,journal *runtime.StateJournal,identity NativeClientIdentity)(*NativeClientLifecycle,error){
+ if client==nil||journal==nil{return nil,ErrClientLifecycle}
+ identity.Ownership=maps.Clone(identity.Ownership);identity.LegacyAttributes=maps.Clone(identity.LegacyAttributes);identity.LegacyRenames=maps.Clone(identity.LegacyRenames)
+ if err:=identity.validate();err!=nil{return nil,err}
+ return &NativeClientLifecycle{provider:client,journal:journal,identity:identity},nil
+}
+
+func(l *NativeClientLifecycle)load(ctx context.Context)(runtime.StateSnapshot,nativeLifecycleRecord,error){
+ snapshot,err:=l.journal.Load(ctx);if err!=nil{return runtime.StateSnapshot{},nativeLifecycleRecord{},err}
+ if snapshot.Version()==0{return snapshot,nativeLifecycleRecord{},nil}
+ raw:=snapshot.Reveal();defer clear(raw)
+ var record nativeLifecycleRecord
+ if decode(raw,&record)!=nil{return runtime.StateSnapshot{},nativeLifecycleRecord{},ErrClientLifecycle}
+ parser:=json.NewDecoder(bytes.NewReader(raw));parser.DisallowUnknownFields()
+ if parser.Decode(&record)!=nil{return runtime.StateSnapshot{},nativeLifecycleRecord{},ErrClientLifecycle}
+ if err=record.validate(l.identity);err!=nil{return runtime.StateSnapshot{},nativeLifecycleRecord{},err}
+ return snapshot,record,nil
+}
+func(l *NativeClientLifecycle)save(ctx context.Context,prior runtime.StateSnapshot,record nativeLifecycleRecord)(runtime.StateSnapshot,error){
+ if err:=record.validate(l.identity);err!=nil{return runtime.StateSnapshot{},err}
+ raw,err:=json.Marshal(record);if err!=nil{return runtime.StateSnapshot{},ErrClientLifecycle};defer clear(raw)
+ return l.journal.Save(ctx,prior,raw)
+}
+
+// Discovery is allowed only while there is no saved record. A current-format
+// client without a record is not adopted through its public OAuth client ID.
+func(l *NativeClientLifecycle)discover(ctx context.Context)(nativeLifecycleRecord,error){
+ record:=nativeLifecycleRecord{Version:1,Phase:"allocated"}
+ if len(l.identity.LegacyAttributes)!=0{
+  binding,err:=l.provider.DiscoverOwnedClient(ctx,l.identity.ClientID,l.identity.LegacyAttributes)
+  if err==nil{record.Binding=binding;record.Phase="legacy";return record,record.validate(l.identity)}
+  if !errors.Is(err,ErrNotFound){return nativeLifecycleRecord{},err}
+ }else{
+  _,err:=l.provider.FindClient(ctx,l.identity.ClientID)
+  if err==nil{return nativeLifecycleRecord{},ErrOwnership}
+  if !errors.Is(err,ErrNotFound){return nativeLifecycleRecord{},err}
+ }
+ var id [16]byte;if _,err:=rand.Read(id[:]);err!=nil{return nativeLifecycleRecord{},err}
+ record.Binding=l.identity.binding(hex.EncodeToString(id[:]))
+ return record,record.validate(l.identity)
+}
+
+// Reconcile saves each recovery boundary before the next provider effect.
+// The policy callback supplies application roles, claims, and native callbacks.
+// It must be read-only. It is validated before creation or ownership migration.
+// A failed call is not retried here; a later call reloads the protected record.
+func(l *NativeClientLifecycle)Reconcile(ctx context.Context,policy func(ClientBinding)(NativeAccessPolicy,error))(ClientBinding,error){
+ if l==nil||l.journal==nil||policy==nil||ctx==nil{return ClientBinding{},ErrClientLifecycle}
+ snapshot,record,err:=l.load(ctx);if err!=nil{return ClientBinding{},err}
+ if record.Closed{return ClientBinding{},ErrClientClosed}
+ if snapshot.Version()==0{record,err=l.discover(ctx);if err!=nil{return ClientBinding{},err}}
+ binding:=l.identity.binding(record.Binding.ID)
+ desired,err:=policy(l.identity.binding(binding.ID));if err!=nil{return ClientBinding{},err}
+ if _,err=desired.configuration(binding);err!=nil{return ClientBinding{},err}
+ if snapshot.Version()==0{snapshot,err=l.save(ctx,snapshot,record);if err!=nil{return ClientBinding{},err}}
+ if record.Phase=="legacy"{
+  if err=l.provider.DisableClient(ctx,record.Binding);err!=nil{return ClientBinding{},err}
+  plan,err:=l.provider.PrepareClientOwnershipMigration(ctx,record.Binding,l.identity.LegacyRenames);if err!=nil{return ClientBinding{},err}
+  checkpoint,err:=plan.Checkpoint();if err!=nil{return ClientBinding{},err}
+  record.Phase="migration";record.Migration=checkpoint.Reveal()
+  snapshot,err=l.save(ctx,snapshot,record);if err!=nil{return ClientBinding{},err}
+ }
+ if record.Phase=="migration"{
+  plan,err:=RestoreOwnershipMigration(record.Migration);if err!=nil{return ClientBinding{},err}
+  next,err:=l.provider.MigrateClientOwnership(ctx,plan);if err!=nil{return ClientBinding{},err}
+  record.Binding=next;record.Phase="bound";record.Migration=""
+  snapshot,err=l.save(ctx,snapshot,record);if err!=nil{return ClientBinding{},err}
+ }
+ if record.Phase=="allocated"{
+  _,err=l.provider.InspectClient(ctx,record.Binding)
+  if errors.Is(err,ErrNotFound){_,err=l.provider.CreateDisabledNativeClient(ctx,record.Binding,desired.Client)}
+  if err!=nil{return ClientBinding{},err}
+  record.Phase="bound"
+  snapshot,err=l.save(ctx,snapshot,record);if err!=nil{return ClientBinding{},err}
+ }
+ if err=l.provider.ReconcileNativeClientAccess(ctx,record.Binding,desired);err!=nil{return ClientBinding{},err}
+ return record.Binding,nil
+}
+
+// Close records irreversible intent before deletion. It never creates or enables
+// a client. Repeated calls inspect the saved ID, including after confirmed absence.
+// The journal adapter must require an authorized retained resource deletion.
+func(l *NativeClientLifecycle)Close(ctx context.Context)error{
+ if l==nil||l.journal==nil||ctx==nil{return ErrClientLifecycle}
+ snapshot,record,err:=l.load(ctx);if err!=nil{return err}
+ if snapshot.Version()==0{record,err=l.discover(ctx);if err!=nil{return err}}
+ if !record.Closed{
+  record.Closed=true;snapshot,err=l.save(ctx,snapshot,record);if err!=nil{return err}
+ }
+ if record.Phase=="migration"{
+  plan,err:=RestoreOwnershipMigration(record.Migration);if err!=nil{return err}
+  binding,err:=l.provider.MigrateClientOwnership(ctx,plan)
+  if errors.Is(err,ErrNotFound){return nil};if err!=nil{return err}
+  record.Binding=binding;record.Phase="bound";record.Migration=""
+  if _,err=l.save(ctx,snapshot,record);err!=nil{return err}
+ }
+ return l.provider.DeleteClient(ctx,record.Binding)
+}

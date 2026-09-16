@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/controller"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
 	"github.com/jsell-rh/stego/internal/generator/jwtauth"
 	"github.com/jsell-rh/stego/internal/generator/oteltracing"
@@ -31,6 +32,7 @@ func TestProviderValidation(t *testing.T) {
 		func(c *gen.Context) { c.PeerNamespaces = nil },
 		func(c *gen.Context) { c.PeerNamespaces["http-application"] = "bad-name" },
 		func(c *gen.Context) { c.ModuleName = "" },
+		func(c *gen.Context) { c.PeerNamespaces["controller"] = "../outside" },
 		func(c *gen.Context) { c.ComponentConfig = map[string]any{"gateway_role": "admin"} },
 	} {
 		c := fixture()
@@ -47,6 +49,11 @@ func TestProviderValidation(t *testing.T) {
 	}
 }
 
+func TestGeneratedNativeLifecycle(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedProvider(t, telemetry, false, "^TestNativeLifecycle") })
+	}
+}
 func TestGeneratedKeycloakProvider(t *testing.T)          { testGeneratedProvider(t, false, false) }
 func TestGeneratedKeycloakProviderTelemetry(t *testing.T) { testGeneratedProvider(t, true, false) }
 func TestGeneratedKeycloakProviderLive(t *testing.T) {
@@ -58,9 +65,13 @@ func TestGeneratedKeycloakProviderLive(t *testing.T) {
 	}
 	testGeneratedProvider(t, true, true)
 }
-func testGeneratedProvider(t *testing.T, telemetry, live bool) {
+func testGeneratedProvider(t *testing.T, telemetry, live bool, patterns ...string) {
 	g := new(Generator)
 	c := fixture()
+	withLifecycle := telemetry || live || len(patterns) != 0
+	if withLifecycle {
+		c.PeerNamespaces["controller"] = "controller"
+	}
 	files, wiring, err := g.Generate(c)
 	if err != nil {
 		t.Fatal(err)
@@ -68,6 +79,15 @@ func testGeneratedProvider(t *testing.T, telemetry, live bool) {
 	again, other, err := g.Generate(c)
 	if err != nil || !reflect.DeepEqual(files, again) || !reflect.DeepEqual(wiring, other) {
 		t.Fatal("unstable provider generation", err)
+	}
+	if withLifecycle {
+		peer := c
+		peer.OutputNamespace = "controller"
+		generated, _, err := new(controller.Generator).Generate(peer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, generated...)
 	}
 	tracingImport := ""
 	var module strings.Builder
@@ -126,6 +146,9 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
+		if !withLifecycle && strings.HasPrefix(entry.Name(), "native_lifecycle") {
+			continue
+		}
 		if !telemetry && (entry.Name() == "trace_test.go" || entry.Name() == "live_test.go" || strings.HasSuffix(entry.Name(), "_live_test.go")) {
 			continue
 		}
@@ -164,6 +187,9 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 	if live {
 		budget = 7 * time.Minute
 		args = []string{"test", "-p=1", "-race", "-count=1", "-timeout=6m", "-run", "^TestProviderLive$", "-v"}
+	}
+	if len(patterns) != 0 {
+		args = append(args, "-run", strings.Join(patterns, "|"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()

@@ -316,3 +316,39 @@ ownership keys. This does not reduce the separate visibility requirements for
 client scopes. See Keycloak 26.7.3
 [role-mapping reads](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/RoleMapperResource.java)
 and [role-view permissions](https://github.com/keycloak/keycloak/blob/26.7.3/services/src/main/java/org/keycloak/services/resources/admin/fgap/RolePermissions.java).
+
+## Native client recovery lifecycle
+
+When the application also selects `controller`, STEGO generates
+`NativeClientLifecycle`. It uses the common `StateJournal`. The application
+supplies a trusted public client ID, ownership values, optional legacy key
+renames, and a read-only callback for roles, claims, and native login settings.
+No Gateway names or roles are part of this common lifecycle.
+
+The lifecycle saves a generated provider ID before creation. Legacy discovery
+runs only when no record exists. A legacy binding is saved before disablement;
+the protected migration checkpoint is saved before an ownership change; and the
+new binding is saved before full policy repair or enablement. A lost save result
+stops the call. A later call loads and authenticates the record before it acts.
+A bound client that is missing is an error; this lifecycle does not replace its
+provider identity through public-name discovery.
+
+Close saves irreversible cleanup intent before deletion. It keeps the stable
+binding and any pending migration checkpoint. It never creates or enables a
+client. Later cleanup calls check the saved ID again, so they can remove a late
+create after an earlier absence check. Closed records must remain in storage.
+Reconciliation cannot reopen them. Unknown record fields, versions, phases,
+changed ownership, and mismatched migration plans are rejected before effects.
+
+The application must authorize the journal against the observed live resource
+or its retained deletion. It must supply stable keys outside the state database.
+Stop old writers before first adoption. Reconciliation for a client must remain
+exclusive across processes: the storage version check cannot make remote
+Keycloak policy updates atomic. The lifecycle does not supply a leader lease or
+detect a whole-database rollback.
+
+The focused generated tests passed with the race detector in both variants in
+8.531 seconds. They cover all save boundaries, lost acknowledgements, uncertain
+provider results, restart, closed migration, and late cleanup. The real-provider
+CI test also covers creation and migration through the complete lifecycle. Its
+result is pending. Hypershell production adoption is also pending.
