@@ -13,8 +13,12 @@ import (
 func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile string) {
 	t.Helper()
 	b, base := browserInputs()
-	if _, err := c.CreateDisabledBrowserClient(ctx, b, base); err != nil {
+	created, err := c.CreateDisabledBrowserClient(ctx, b, base)
+	if err != nil {
 		t.Fatal("real browser creation failed", err)
+	}
+	if !validSecretCreationTime(created.Attributes[clientSecretCreationTime]) {
+		t.Fatal("browser creation lost provider secret metadata")
 	}
 	if _, err := c.CreateDisabledBrowserClient(ctx, b, base); !errors.Is(err, ErrConflict) {
 		t.Fatal("browser conflict differs", err)
@@ -114,12 +118,17 @@ func testLiveBrowserClient(t *testing.T, c *Client, ctx context.Context, caFile 
 			t.Fatal(e)
 		}
 		reportClientDifference(t, c, ctx, b, desired)
-		retry := c.ReconcileBrowserClientAccess(ctx, b, p)
-		t.Log("browser repair on the next observation succeeded:", retry == nil)
 		t.Fatal("real browser repair failed", err)
 	}
 	if err = c.InspectBrowserClientAccess(ctx, b, p); err != nil {
 		t.Fatal(err)
+	}
+	repaired, err := c.InspectClient(ctx, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validSecretCreationTime(repaired.Attributes[clientSecretCreationTime]) {
+		t.Fatal("browser repair lost provider secret metadata")
 	}
 	if err = c.DisableClient(ctx, b); err != nil {
 		t.Fatal(err)

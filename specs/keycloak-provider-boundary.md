@@ -657,3 +657,18 @@ records, and late creation cleanup. Real Keycloak CI must also pass confidential
 code exchange, missing-secret and wrong-verifier denial, exact redirects, signed
 audiences, one-use codes, logout, repair, and cleanup before application adoption.
 No live Hypershell dashboard result is claimed by this provider change.
+
+The first browser-client run passed five jobs but failed the real Keycloak
+repair check. The [failure record](browser-client-first-evidence.json) retains
+the result. Its diagnostic run identified `client.secret.creation.time` after
+the test changed the client to public and then restored the confidential policy.
+A second observation repaired the client, but the diagnostic still failed on
+the original result.
+
+Keycloak [creates a timestamp with a new secret](https://github.com/keycloak/keycloak/blob/26.6.3/server-spi-private/src/main/java/org/keycloak/models/utils/KeycloakModelUtils.java).
+The corrected common path uses the existing service-account timestamp validator
+and preserves this operational metadata for confidential clients. It rejects
+invalid timestamp text and continues to require exact security settings. It
+neither changes credential age nor enables a client with unknown attributes.
+The real test also checks metadata after creation and repair. This correction
+still requires full CI qualification.

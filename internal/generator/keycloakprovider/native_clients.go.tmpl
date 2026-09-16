@@ -92,9 +92,15 @@ func interactiveClientConfigurationMatchesState(value ClientRepresentation,raw [
  var flags map[string]json.RawMessage
  if json.Unmarshal(raw,&flags)!=nil{return false}
  if flag,exists:=flags["authorizationServicesEnabled"];exists&&strings.TrimSpace(string(flag))!="false"{return false}
- // The complete attribute set belongs to this profile. Unknown settings must
+ // The policy attributes belong to this profile. Unknown settings must
  // be removed or reviewed before enablement; a subset match is insufficient.
- if len(value.Attributes)!=len(desired.Attributes){return false}
+ attributeCount:=len(value.Attributes)
+ if !desired.PublicClient{
+  if timestamp,exists:=value.Attributes[clientSecretCreationTime];exists{
+   if !validSecretCreationTime(timestamp){return false};attributeCount--
+  }
+ }
+ if attributeCount!=len(desired.Attributes){return false}
  for key,want:=range desired.Attributes{if value.Attributes[key]!=want{return false}}
  if value.RedirectURIs==nil||value.WebOrigins==nil||len(value.WebOrigins)!=0||value.DefaultClientScopes==nil||len(value.DefaultClientScopes)!=0||value.OptionalClientScopes==nil||len(value.OptionalClientScopes)!=0{return false}
  redirects:=append([]string{},value.RedirectURIs...);slices.Sort(redirects)

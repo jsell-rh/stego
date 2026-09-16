@@ -1,0 +1,20 @@
+{
+  "first_run": "https://github.com/jsell-rh/stego/actions/runs/35113710451",
+  "first_source": "cb431a3ff58bcc79ff06b4f5051bc06a7bacbf0c",
+  "jobs": {
+    "keycloak-provider": "failure",
+    "examples (user-management)": "success",
+    "resource-state-storage": "success",
+    "compiler": "success",
+    "postgres-provisioning": "success",
+    "examples (user-management-rhsso)": "success"
+  },
+  "diagnostic_run": "https://github.com/jsell-rh/stego/actions/runs/35114021837",
+  "diagnostic_source": "3a853331bf3aae14349d82e89dd4bc3cecceb4db",
+  "failed_phase": "Repair after a public-client and logout-policy change",
+  "unexpected_attribute": "client.secret.creation.time",
+  "next_observation_repaired": true,
+  "correction": "Share the existing service-account timestamp validator. Preserve valid provider secret metadata for confidential profiles. Reject invalid metadata and unknown security settings before enablement.",
+  "status": "The correction requires full CI and real Keycloak qualification.",
+  "diagnostic_log_sha256": "92196886327236f6e344e98ea9f73ef9c93bb81bf2f27d8e14dafeae86323b6c"
+}

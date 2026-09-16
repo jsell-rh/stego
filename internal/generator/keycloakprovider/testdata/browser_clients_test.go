@@ -80,6 +80,7 @@ func TestBrowserAccessRepairAndFailure(t *testing.T) {
 	for _, fault := range []string{"", "ignored enable", "post-enable drift", "post-enable read failure", "uncertain enable"} {
 		t.Run(fault, func(t *testing.T) {
 			c, f, b, p := newBrowserAccessFixture(t)
+			f.secretMetadata = true
 			f.fault = fault
 			err := c.ReconcileBrowserClientAccess(context.Background(), b, p)
 			if fault != "" {
@@ -108,6 +109,45 @@ func TestBrowserAccessRepairAndFailure(t *testing.T) {
 			if err = c.InspectBrowserClientAccess(context.Background(), b, p); err != nil {
 				t.Fatal(err)
 			}
+			if f.clients[b.ID].Attributes[clientSecretCreationTime] != "1789570800" {
+				t.Fatal("provider secret metadata was removed")
+			}
+			desired = f.clients[b.ID]
+			desired.Name = "other display name"
+			f.clients[b.ID] = desired
+			if err = c.ReconcileBrowserClientAccess(context.Background(), b, p); err != nil {
+				t.Fatal(err)
+			}
+			if f.clients[b.ID].Attributes[clientSecretCreationTime] != "1789570800" {
+				t.Fatal("repair changed provider secret age")
+			}
 		})
+	}
+}
+
+func TestBrowserSecretMetadata(t *testing.T) {
+	b, p := browserInputs()
+	desired, err := browserClientConfiguration(b, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, timestamp := range []string{"1789570800", "0", "-1", "01789570800", "9223372036854775808", "invalid", ""} {
+		value := desired
+		value.Attributes = map[string]string{}
+		for k, v := range desired.Attributes {
+			value.Attributes[k] = v
+		}
+		value.Attributes[clientSecretCreationTime] = timestamp
+		raw, _ := json.Marshal(value)
+		if got := browserClientConfigurationMatches(value, raw, desired); got != (timestamp == "1789570800") {
+			t.Fatal("secret metadata validation differs")
+		}
+	}
+	c, f, b, policy := newBrowserAccessFixture(t)
+	value := f.clients[b.ID]
+	value.Attributes[clientSecretCreationTime] = "invalid"
+	f.clients[b.ID] = value
+	if err := c.ReconcileBrowserClientAccess(context.Background(), b, policy); err == nil || f.clients[b.ID].Enabled {
+		t.Fatal("invalid metadata was accepted or enabled")
 	}
 }
