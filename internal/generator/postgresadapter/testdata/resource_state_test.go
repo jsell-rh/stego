@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"math"
 	"strings"
@@ -177,7 +178,12 @@ func TestResourceStateSchemaGuard(t *testing.T) {
 }
 
 func TestResourceStateKeysRetainCoverage(t *testing.T) {
-	s, _ := database(t, false)
+	for _, prepared := range []bool{false, true} {
+		t.Run(fmt.Sprint(prepared), func(t *testing.T) { testResourceStateKeysRetainCoverage(t, prepared) })
+	}
+}
+func testResourceStateKeysRetainCoverage(t *testing.T, prepared bool) {
+	s, _ := database(t, prepared)
 	ctx := context.Background()
 	save := func(entity, id, scope string, version int64, data []byte) {
 		t.Helper()
