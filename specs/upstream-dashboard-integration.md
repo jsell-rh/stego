@@ -6,15 +6,15 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-STEGO compiler `42c7ea1` supplies the browser session backend, captured assets,
+STEGO compiler `883ca13` supplies the browser session backend, captured assets,
 browser client and telemetry packages, local application transport, deployment
 renderer, and owned image pull Secret operations. Its common runtime passed
-[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35152146945).
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35157877111).
 Browser clients request `openid` by default. Additional scopes must be explicit;
 real Keycloak checks cover both the accepted request and rejected unassigned
 scopes. See [browser authorization scopes](browser-authorization-scopes.md).
 
-Hypershell development runtime `f182ec5` composes these common components with
+Hypershell development runtime `55d66c2` composes these common components with
 local application archetypes. It contains no copied common component metadata.
 Its Gateway controller prepares separate console storage and identity inputs,
 deploys the upstream application with the generated backend, and publishes the
@@ -22,11 +22,11 @@ console address after readiness checks. The frontend imports the common browser
 client and telemetry packages. These paths do not establish that the complete
 deployed workflow passes.
 
-The Gateway console module at `1547331` passed
-[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35152843228).
+The Gateway console module at `1a5fa8a` passed
+[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548).
 The independent module check matched all 83 archived files and verified the
-published image. Hypershell `f182ec5` selects that module. Its
-[journal recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35153117555)
+published image. Hypershell `55d66c2` selects that module and records its final
+dependency input hashes. The [journal recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957523)
 passed all 28 required tests, with no skips. These cover credential delivery,
 identity state, scan progress, concurrent registration, restart, and final
 closure rollback. They do not replace the rendered application check.
@@ -69,8 +69,8 @@ at `883ca13` also rejects unsupported component pins. Hypershell `1a5fa8a`
 regenerates all three modules from that compiler and common registry. Its
 [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548)
 passed. All 83 archived source files matched the local module, and the image
-binary and published digest matched. Full compiler and deployed workflow
-checks are still required to qualify this candidate.
+binary and published digest matched. The combined compiler checks have passed.
+The deployed workflow check is still required to qualify the application.
 
 The application gate must still prove the rendered workspace and policy editor,
 correlated authenticated telemetry, viewer and revoked access, session database

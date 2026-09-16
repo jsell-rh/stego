@@ -81,9 +81,9 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell development revision `f182ec5` uses this model for its API,
+Hypershell development revision `55d66c2` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
-compiler to `42c7ea13fb95995e9d24666637bceb61dbdbd591`. Its local registries
+compiler to `883ca13a1f147f1c6778f628ebcd7e2f3d8bb053`. Its local registries
 contain two application archetypes and no common component declarations.
 Application package paths are selected through `component_namespaces`.
 
@@ -92,12 +92,13 @@ in `components/gateway-dashboard` remain application inputs. The committed
 `out`, `console/out`, and `gateway-console/out` directories remain generated
 output. They are not alternate copies of the compiler or its templates.
 
-The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35152843228)
+The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548)
 verified composed Git and local inputs, repeated generation, dependencies,
-entry-point builds, and generated deployment checks at revision `1547331`.
-All 83 archived source files matched the local module. Revision `f182ec5`
-selects that checked module. Common compiler revision `42c7ea1` passed
-[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35152146945).
+entry-point builds, and generated deployment checks at revision `1a5fa8a`.
+All 83 archived source files matched the local module. Revision `55d66c2`
+selects that checked module and records its final dependency input hashes.
+Common compiler revision `883ca13` passed
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35157877111).
 These results establish the registry integration. They do not establish a
 complete deployed dashboard. That application gate remains open in the
 [integration record](upstream-dashboard-integration.md).
