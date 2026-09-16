@@ -6,30 +6,49 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-STEGO compiler `883ca13` supplies the browser session backend, captured assets,
+STEGO compiler `8e0fae6` supplies the browser session backend, captured assets,
 browser client and telemetry packages, local application transport, deployment
 renderer, and owned image pull Secret operations. Its common runtime passed
-[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35157877111).
-Browser clients request `openid` by default. Additional scopes must be explicit;
-real Keycloak checks cover both the accepted request and rejected unassigned
-scopes. See [browser authorization scopes](browser-authorization-scopes.md).
+[all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35160694463).
+Browser clients request `openid` by default. Additional scopes must be explicit.
+See [browser authorization scopes](browser-authorization-scopes.md).
 
-Hypershell development runtime `55d66c2` composes these common components with
-local application archetypes. It contains no copied common component metadata.
-Its Gateway controller prepares separate console storage and identity inputs,
-deploys the upstream application with the generated backend, and publishes the
-console address after readiness checks. The frontend imports the common browser
-client and telemetry packages. These paths do not establish that the complete
-deployed workflow passes.
+Hypershell runtime `399a41b` composes these components with local application
+archetypes. It contains no copied common component metadata. Its controller
+prepares separate console storage and identity inputs, deploys the upstream
+application with the generated backend, and publishes the console address after
+readiness checks. The frontend imports common browser client and telemetry
+packages. These checks do not prove the complete deployed workflow.
 
-The Gateway console module at `1a5fa8a` passed
-[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957548).
-The independent module check matched all 83 archived files and verified the
-published image. Hypershell `55d66c2` selects that module and records its final
-dependency input hashes. The [journal recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35157957523)
-passed all 28 required tests, with no skips. These cover credential delivery,
-identity state, scan progress, concurrent registration, restart, and final
-closure rollback. They do not replace the rendered application check.
+The Gateway console module at `b875ab2` passed
+[source, dependency, image, and repeat-generation checks](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161331243).
+All 121 archived source files and 116 downloaded module output and dependency
+files matched. The published image contains the checked binary. Hypershell
+`399a41b` selects this module and records its final dependency input hashes.
+The [journal recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161331242)
+passed all 28 required tests with no skips. These results do not replace the
+rendered application test.
+
+[Live run 35161493736](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161493736)
+passed API Pod replacement, separate database access checks, verified HTTPS,
+login, workspace creation, and visible editor text. All 404 repeated-generation
+hashes matched. The actual browser trust store matched the operator's CA. Both
+Gateways and dashboards were ready without restarts.
+
+The test failed after 267.44 seconds when it clicked Monaco's input textarea.
+The captured stylesheet places this textarea behind the visible editor. The
+screenshot shows policy text, but keyboard input and full styling remain
+unproved. The network record reached its 128-entry limit and omitted the policy
+diagnostics. Later recovery, viewer revocation, full telemetry correlation, and
+deletion checks did not run. Independent cleanup passed at 23:32:38 UTC.
+
+Hypershell test change `d0b4a71` clicks the visible editor and checks keyboard
+focus. It captures bounded policy directive names before page scripts run and
+reserves room for those diagnostics. The application content policy is unchanged.
+[Live run 35162964198](https://github.com/jsell-rh/hypershell-stego/actions/runs/35162964198)
+is active at `7c08e61`. No result from that run is claimed.
+
+## Earlier live checks
 
 The [live run at f182ec5](https://github.com/jsell-rh/hypershell-stego/actions/runs/35153112538)
 failed after 258.34 seconds. All 366 repeated-generation hash entries matched.
