@@ -309,3 +309,16 @@ The Gateway controller does not yet deploy it. The upstream UI still needs to
 import the generated telemetry package. Separate session database provisioning,
 confidential client recovery, verified address publication, editor and terminal
 checks, and complete deletion remain part of the required application gate.
+
+## Protected console credential reads
+
+Compiler commit `25cb9b2` passed all six CI jobs in
+[run 35120295453](https://github.com/jsell-rh/stego/actions/runs/35120295453).
+The common browser lifecycle now reads credentials only from an open saved
+client. It checks the full provider policy before and after the read and rejects
+a changed journal. It does not create or repair clients during credential reads.
+The real Keycloak check passed policy rejection, explicit repair, and closure.
+
+Hypershell must still authorize the recipient and check its current Gateway
+assignment before credential delivery. These checks do not prove a deployed
+dashboard or remove the existing requirement for one lifecycle writer.
