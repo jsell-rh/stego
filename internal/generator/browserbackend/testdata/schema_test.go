@@ -88,6 +88,19 @@ func TestManagedBrowserSchema(t *testing.T) {
 	if err := schema.Verify(ctx, db); err != nil {
 		t.Fatal("runtime reconnect", err)
 	}
+	canceled, stop := context.WithCancel(ctx)
+	stop()
+	if !errors.Is(schema.Verify(canceled, db), context.Canceled) {
+		t.Fatal("verification lost cancellation")
+	}
+	ownerConn, err := fixture.owner.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ownerConn.Close()
+	if !errors.Is(schema.Bootstrap(canceled, ownerConn, fixture.user), context.Canceled) {
+		t.Fatal("schema setup lost cancellation")
+	}
 	if schema.Verify(ctx, fixture.owner) == nil {
 		t.Fatal("owner connection accepted as runtime")
 	}

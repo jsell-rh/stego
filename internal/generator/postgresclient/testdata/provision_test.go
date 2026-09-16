@@ -284,6 +284,10 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 		if err == nil || strings.Contains(err.Error(), managed.Password) || strings.Contains(err.Error(), "private-schema") {
 			t.Fatal("schema error was not redacted")
 		}
+		err = WithDatabaseOwner(ctx, provisioner, managed, func(context.Context, *sql.Conn, DatabaseIdentity) error { return context.DeadlineExceeded })
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("callback deadline was lost", err)
+		}
 		canceled, cancelSchema := context.WithCancel(ctx)
 		err = WithDatabaseOwner(canceled, provisioner, managed, func(context.Context, *sql.Conn, DatabaseIdentity) error { cancelSchema(); return nil })
 		cancelSchema()

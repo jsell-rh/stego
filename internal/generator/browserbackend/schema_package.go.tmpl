@@ -17,9 +17,10 @@ var roleName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 // must use the database owner role. Supply the separate runtime login name.
 // Existing schemas must match exactly. A mismatch stops the operation.
 // The caller supplies a verified connection and serializes database deletion.
-func Bootstrap(ctx context.Context, conn *sql.Conn, runtimeRole string) error {
+func Bootstrap(ctx context.Context, conn *sql.Conn, runtimeRole string) (failure error) {
  if ctx==nil || conn==nil || !roleName.MatchString(runtimeRole) {return ErrSchema}
  ctx,cancel:=context.WithTimeout(ctx,10*time.Second);defer cancel()
+ defer func(){if failure!=nil && ctx.Err()!=nil{failure=errors.Join(ErrSchema,ctx.Err())}}()
  tx,err:=conn.BeginTx(ctx,nil)
  if err!=nil{return ErrSchema}
  defer tx.Rollback()
@@ -44,9 +45,10 @@ func Bootstrap(ctx context.Context, conn *sql.Conn, runtimeRole string) error {
 
 // Verify checks the schema and the runtime login before the session store opens.
 // It makes no schema or permission changes.
-func Verify(ctx context.Context, db *sql.DB) error {
+func Verify(ctx context.Context, db *sql.DB) (failure error) {
  if ctx==nil || db==nil{return ErrSchema}
  ctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
+ defer func(){if failure!=nil && ctx.Err()!=nil{failure=errors.Join(ErrSchema,ctx.Err())}}()
  tx,err:=db.BeginTx(ctx,&sql.TxOptions{ReadOnly:true})
  if err!=nil{return ErrSchema}
  defer tx.Rollback()
