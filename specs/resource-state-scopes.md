@@ -85,3 +85,17 @@ The job now selects Bash with `pipefail`, rejects failure markers, and requires
 both named wrapper tests to pass. A local negative check confirmed exit code 1
 for a failed command before a successful log sink. A new CI run must prove the
 complete check. Cancellation of the superseded run was requested.
+
+## Corrected focused SQL evidence
+
+Run `35103461720`, source `cc6b906`, passed the corrected focused storage job.
+The stored log has no failed or skipped cases. Both concurrent commit orders
+passed in 0.49 seconds together. Each order also checks a fresh rejection and
+confirms that the losing transaction added no key. The scope wrapper passed in
+17.94 seconds; the key wrapper passed in 5.93 seconds. Evidence is retained at
+`/home/jsell/.local/state/stego/runs/gateway-cleanup-20260916/resource-state-scopes-corrected-ci`.
+Full compiler CI remains pending. The superseded run `35103083212` is canceled.
+
+The earlier adapter 4.8.1 and controller scan sequence passed all five checks in
+run `35102404039`. STEGO main was advanced to its tested source `60ebe0a`. The
+scope closure candidate is still on the feature branch pending full checks.
