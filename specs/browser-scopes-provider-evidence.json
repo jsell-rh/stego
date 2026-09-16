@@ -12,5 +12,6 @@
     "one-use code",
     "logout and client repair"
   ],
-  "scope": "The real provider confirms the scope rejection. The full compiler job and a new generated Hypershell dashboard workflow are still required."
+  "scope": "The real provider confirms the scope rejection. Full common CI passed. A complete generated Hypershell dashboard workflow is still required.",
+  "full_common_ci_result": "passed all six jobs"
 }

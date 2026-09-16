@@ -39,7 +39,9 @@ reject unexpected scopes at the provider fixture and inspect the authorization
 request for explicit scopes. The real Keycloak test now requires unassigned
 `profile email` requests to return `invalid_scope` without an authorization
 code. The [real-provider check](browser-scopes-provider-evidence.json) passed in
-79.38 seconds on the candidate source. The full compiler job is still running.
+79.38 seconds on the candidate source. All six jobs in
+[common CI](https://github.com/jsell-rh/stego/actions/runs/35152146945) passed,
+including the full compiler tests with race detection.
 The complete generated Hypershell workflow must be repeated after adoption.
 
 Hypershell live run `35150654630` passed verified dashboard HTTPS, then reached
