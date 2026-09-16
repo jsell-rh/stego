@@ -10,3 +10,6 @@ await client.request('GET','/api/v1/workspaces',undefined,{headers:{Authorizatio
 await client.request('CONNECT','/api/v1');
 client.logout();
 void [body, name, SDKError];
+
+const denied=new SDKError("http_error",403);
+void denied;
