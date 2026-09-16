@@ -28,13 +28,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260916115324-0feba05e784d
+        module_version: v0.0.0-20260916120921-07b93687e28e
         vcs: git
-        revision: 0feba05e784d8d70b901f6ef0566f98c12d7213d
+        revision: 07b93687e28e018fab5b4728dd09caa92e713d00
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: b63e968a2d6d3a147ea813fa67e892da3be0eaa97f2f5a6595f05bc91e5b0e0a
+    registry_content_sha256: 95cbcee9c58ddc2e8db9bdbf9ce16422b03cb0b93d63db248ed5119e870e0752
     components:
         health-check:
             version: 1.0.0
@@ -49,7 +49,7 @@ last_applied:
             version: 1.1.0
             sha: env-override
         postgres-adapter:
-            version: 4.6.0
+            version: 4.7.0
             sha: env-override
         rest-api:
             version: 3.1.0
