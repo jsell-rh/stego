@@ -278,7 +278,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "render/main.go"), Content: code}, gen.File{Path: path.Join(ctx.OutputNamespace, "render/manifest.json.tmpl"), Content: manifest})
+	command, err := format.Source([]byte(fmt.Sprintf(`package main
+import("fmt";"io";"os";deployment %q)
+func render(args []string, output io.Writer)error{return deployment.RenderCommand(args,output)}
+func main(){if err:=render(os.Args[1:],os.Stdout);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}}
+`, path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace))))
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "resources.go"), Content: code}, gen.File{Path: path.Join(ctx.OutputNamespace, "render/main.go"), Content: command}, gen.File{Path: path.Join(ctx.OutputNamespace, "render/manifest.json.tmpl"), Content: manifest})
 	extra, err := workerFiles(ctx)
 	if err != nil {
 		return nil, nil, err

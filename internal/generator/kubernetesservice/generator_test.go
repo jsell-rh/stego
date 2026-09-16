@@ -74,7 +74,7 @@ func TestGeneratedDeploymentRenderer(t *testing.T) {
 		if file.Path != repeat[i].Path || !bytes.Equal(file.Content, repeat[i].Content) {
 			t.Fatal("unstable deployment")
 		}
-		name := filepath.Join(dir, file.Path)
+		name := filepath.Join(dir, "out", file.Path)
 		if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -137,7 +137,7 @@ func TestRenderedPolicy(t *testing.T){
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\n\ngo 1.26.8\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "deploy/render/main_test.go"), []byte(check+externalRendererTests+optionalExternalRendererTests), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "out/deploy/render/main_test.go"), []byte(check+externalRendererTests+optionalExternalRendererTests), 0644); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command("go", "test", "-race", "-mod=readonly", "-timeout=20s", "./...")
