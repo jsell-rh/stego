@@ -208,11 +208,31 @@ func TestResourceStateScopeConcurrentInsertAndClosure(t *testing.T) {
 			}
 			select {
 			case err := <-second:
-				if !errors.Is(err, contract.ErrResourceStateConflict) {
+				if !errors.Is(err, contract.ErrResourceStateConflict) && !errors.Is(err, contract.ErrSerialization) {
 					t.Fatal("concurrent operation did not reject stale state", err)
 				}
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
+			}
+			// A serializable transaction can reject the concurrent attempt before
+			// the application revision check. A fresh transaction must then see
+			// the committed closure or changed revision, without replaying work.
+			var fresh error
+			if sealFirst {
+				fresh = saveScopeKey(ctx, s, "b", "provider", 0)
+			} else {
+				_, fresh = sealScope(ctx, s, "provider", 1)
+			}
+			if !errors.Is(fresh, contract.ErrResourceStateConflict) {
+				t.Fatal("fresh attempt ignored committed scope state", fresh)
+			}
+			page, err := s.ListResourceStateKeys(ctx, "Record", "provider", "", 10)
+			want := 2
+			if sealFirst {
+				want = 1
+			}
+			if err != nil || len(page.Keys) != want {
+				t.Fatal("rejected transaction committed a key", err)
 			}
 			current, err := s.LoadResourceStateScope(ctx, "Record", "provider")
 			if err != nil || current.Sealed != sealFirst || current.Revision != 2 {

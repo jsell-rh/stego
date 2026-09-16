@@ -189,12 +189,24 @@ jobs:
           go-version: '1.26.8'
           cache: true
       - name: Check generated state keys and scope closure
+        shell: bash
         env:
           STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
         run: |
+          set -o pipefail
           mkdir -p "$RUNNER_TEMP/state-storage"
           go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/postgresadapter \
             -run '^TestGeneratedResourceState(Keys|Scopes)$' | tee "$RUNNER_TEMP/state-storage/tests.log"
+          python3 - "$RUNNER_TEMP/state-storage/tests.log" <<'PYRESULT'
+          import re, sys
+          from pathlib import Path
+          log = Path(sys.argv[1]).read_text()
+          if "--- FAIL:" in log:
+              raise SystemExit("A generated storage test failed")
+          for name in ["TestGeneratedResourceStateKeys", "TestGeneratedResourceStateScopes"]:
+              if not re.search(r"^--- PASS: " + name + r" ", log, re.M):
+                  raise SystemExit("Missing passing storage check: " + name)
+          PYRESULT
       - name: Save storage results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
