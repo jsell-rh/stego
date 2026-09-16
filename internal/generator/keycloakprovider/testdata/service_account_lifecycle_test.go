@@ -276,3 +276,111 @@ func TestServiceAccountLifecycleClosesAbsentSavedID(t *testing.T) {
 		t.Fatal("late saved client survived", err)
 	}
 }
+
+func TestServiceAccountLifecyclePrepareClosure(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		l, f := newAccountLifecycleFixture(t, legacy)
+		id := "known-id"
+		if legacy {
+			id = "legacy-id"
+		}
+		if err := l.PrepareCloseExisting(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+		saved := f.read()
+		version := f.record.Version
+		if !saved.Closed || saved.Binding.ID != id || len(f.provider.calls) != 0 {
+			t.Fatal("closure did not save the known ID without provider calls")
+		}
+		l = f.restartAccount()
+		if err := l.PrepareCloseExisting(context.Background(), id); err != nil || f.record.Version != version {
+			t.Fatal("repeat closure changed the journal", err)
+		}
+		if err := l.PrepareCloseExisting(context.Background(), "other-id"); !errors.Is(err, ErrClientLifecycle) {
+			t.Fatal("changed provider ID accepted", err)
+		}
+		if _, err := l.Reconcile(context.Background(), accountLifecyclePolicy); !errors.Is(err, ErrClientClosed) {
+			t.Fatal("prepared closure reopened", err)
+		}
+		if len(f.provider.calls) != 0 {
+			t.Fatal("preparation reached provider")
+		}
+		if err := l.CloseExisting(context.Background(), id); err != nil || f.provider.exists {
+			t.Fatal("saved closure did not finish", err)
+		}
+	}
+}
+func TestServiceAccountLifecyclePrepareClosureSaveFailure(t *testing.T) {
+	for _, lost := range []bool{false, true} {
+		l, f := newAccountLifecycleFixture(t, true)
+		f.failSave = 1
+		f.lostSave = lost
+		if err := l.PrepareCloseExisting(context.Background(), "legacy-id"); err == nil {
+			t.Fatal("unconfirmed save accepted")
+		}
+		if len(f.provider.calls) != 0 || !f.provider.exists {
+			t.Fatal("save failure changed provider")
+		}
+		f.failSave = 0
+		if err := f.restartAccount().PrepareCloseExisting(context.Background(), "legacy-id"); err != nil || !f.read().Closed {
+			t.Fatal("save retry failed", err)
+		}
+	}
+}
+func TestServiceAccountLifecyclePrepareClosureRetainsSubject(t *testing.T) {
+	l, f := newAccountLifecycleFixture(t, false)
+	got, err := l.Reconcile(context.Background(), accountLifecyclePolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.provider.calls = nil
+	if err = l.PrepareCloseExisting(context.Background(), got.Client.ID); err != nil {
+		t.Fatal(err)
+	}
+	if f.read().Subject != got.Subject || !f.read().Closed || len(f.provider.calls) != 0 || !f.provider.enabled {
+		t.Fatal("preparation lost subject or changed provider")
+	}
+	if err = f.restartAccount().Close(context.Background()); err != nil || f.provider.exists {
+		t.Fatal("restart did not finish cleanup", err)
+	}
+}
+
+func TestServiceAccountLifecyclePrepareClosurePreservesMigration(t *testing.T) {
+	l, f := newAccountLifecycleFixture(t, true)
+	f.provider.fault = "migration result lost"
+	if _, err := l.Reconcile(context.Background(), accountLifecyclePolicy); err == nil {
+		t.Fatal("lost migration result accepted")
+	}
+	prior := f.read()
+	f.provider.calls = nil
+	if err := f.restartAccount().PrepareCloseExisting(context.Background(), "legacy-id"); err != nil {
+		t.Fatal(err)
+	}
+	saved := f.read()
+	prior.Closed = true
+	if !reflect.DeepEqual(prior, saved) || len(f.provider.calls) != 0 {
+		t.Fatal("preparation changed migration state")
+	}
+	f.provider.fault = ""
+	if err := f.restartAccount().Close(context.Background()); err != nil || f.provider.exists {
+		t.Fatal("closed migration did not finish", err)
+	}
+}
+func TestServiceAccountLifecyclePrepareClosureRejectsInvalidInput(t *testing.T) {
+	l, f := newAccountLifecycleFixture(t, true)
+	for _, id := range []string{"", "../other", "bad id"} {
+		if err := l.PrepareCloseExisting(context.Background(), id); !errors.Is(err, ErrClientLifecycle) {
+			t.Fatal("invalid ID accepted", err)
+		}
+	}
+	if err := l.PrepareCloseExisting(nil, "legacy-id"); !errors.Is(err, ErrClientLifecycle) {
+		t.Fatal("nil context accepted", err)
+	}
+	var absent *ServiceAccountClientLifecycle
+	if err := absent.PrepareCloseExisting(context.Background(), "legacy-id"); !errors.Is(err, ErrClientLifecycle) {
+		t.Fatal("nil lifecycle accepted", err)
+	}
+	if f.saves != 0 || len(f.provider.calls) != 0 {
+		t.Fatal("invalid input reached storage or provider")
+	}
+}

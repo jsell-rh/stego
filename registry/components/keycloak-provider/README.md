@@ -456,3 +456,19 @@ independent clients, bounded admission, cancellation, provider closure, released
 keys, preserved provider IDs, and cleanup of an absent saved client. The updated
 real-provider check now uses saved IDs for recovery and cleanup; its result is
 pending.
+
+
+## Save closure before provider changes
+
+Version 0.15.0 adds `ServiceAccountClientLifecycle.PrepareCloseExisting`.
+The caller supplies an ownership-checked provider ID. The operation saves
+irreversible closure intent. It does not read or change Keycloak. Use this
+operation to retain each known cleanup target before a provider error can stop
+a batch. A successful save does not disable access. `Close` or `CloseExisting`
+must finish cleanup through the saved binding.
+
+The operation rejects an ID that differs from the journal. It retains a saved
+subject and an incomplete ownership migration. A repeat call does not write
+another version. A failed or unconfirmed save returns an error. The same
+per-client writer gate applies. The caller must still exclude other processes.
+Provider search results remain candidates. They do not prove complete inventory.

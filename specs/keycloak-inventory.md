@@ -87,3 +87,24 @@ can report completion. The new name query cannot replace that recovery source.
 The final fix must prove the composed application completion condition, then
 repeat provider and complete Gateway checks. Keep Hypershell's default branch
 at its qualified revision until this defect is fixed.
+
+## Save discovered cleanup targets before changes
+
+The Hypershell partial-disable regression now requires a saved closure record
+for each discovered client. Before this change, the second client's disable
+failure left all three clients without a cleanup journal. The failing result is
+saved in `inventory-registration-probe.log` in the Gateway cleanup run directory.
+
+Provider 0.15.0 adds `PrepareCloseExisting`. It records irreversible closure for
+an ownership-checked provider ID before any provider operation. It uses the
+common lifecycle journal, validation, encryption, version checks, and writer
+gate. It retains the subject and incomplete migration state. It does not claim
+that access is disabled or that provider cleanup is complete.
+
+Focused generated account and native lifecycle tests passed with the race
+detector in both telemetry variants in 20.837 seconds. They include lost save
+results, retry, changed IDs, invalid input, retained subject and migration,
+reconstruction, and subsequent deletion. Evidence is
+`prepare-closure-complete-focused.log`. Full CI and application adoption remain
+pending. A complete provider scan before registration still needs a bounded
+recovery design for large legacy inventories.
