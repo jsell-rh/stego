@@ -58,7 +58,8 @@ their own qualification. Persistent raw evidence is under
 | --- | --- | --- |
 | Common scope guard | STEGO `cc6b906` | All six checks in [35103461720](https://github.com/jsell-rh/stego/actions/runs/35103461720) passed, including SQL conflicts, rollback, schema checks, and full compiler races. |
 | Common closure preparation | STEGO `dfc9a1e` | All six checks in [35104344440](https://github.com/jsell-rh/stego/actions/runs/35104344440) passed. Default branch `fad0642` contains this code. |
-| Common discovery cursor | STEGO `59bd24e` | All six checks in [35105032964](https://github.com/jsell-rh/stego/actions/runs/35105032964) passed. Real Keycloak also checked prepared closure and late-create cleanup in 57.56 seconds. Source-identity and failed-window additions are later candidates. |
+| Common discovery cursor | STEGO `59bd24e` | All six checks in [35105032964](https://github.com/jsell-rh/stego/actions/runs/35105032964) passed. Real Keycloak also checked prepared closure and late-create cleanup in 57.56 seconds. The later source-identity and failed-window checks are listed below. |
+| Common source and window recovery | STEGO `af67e7b` | All six checks in [35106013382](https://github.com/jsell-rh/stego/actions/runs/35106013382) passed. Real Keycloak passed in 54.43 seconds. Compiler races, SQL storage, dependency checks, and both examples passed. |
 | Durable deletion API gate | Hypershell `b58d9a2` | All 49 required checks in [35103602751](https://github.com/jsell-rh/hypershell-stego/actions/runs/35103602751) passed. All generation snapshots matched. Test cleanup was independently verified. |
 | Composed discovery recovery | Hypershell `5753c33` | Ten checks in [35105755539](https://github.com/jsell-rh/hypershell-stego/actions/runs/35105755539) passed. SQL and HTTPS fixtures prove independent progress, reconstruction, page shifts, foreign-client preservation, and final scope closure. |
 | Failed-window SQL recovery | Hypershell `85706c6` | All twelve required checks in [35106173055](https://github.com/jsell-rh/hypershell-stego/actions/runs/35106173055) passed, with no skips. The limit remained a failure until another complete scan. Full deployed qualification remains separate. |
@@ -66,11 +67,11 @@ their own qualification. Persistent raw evidence is under
 | Public closure workflow | Hypershell `550b2b7` | [35104667835](https://github.com/jsell-rh/hypershell-stego/actions/runs/35104667835) passed in 501.24 seconds. All 266 generation hashes matched and cleanup was independently checked. It predates bounded discovery. |
 | CNPG application workflow | Hypershell `bceea63` | [35100459235](https://github.com/jsell-rh/hypershell-stego/actions/runs/35100459235) passed in 464.05 seconds with primary replacement, retained SQL identities and data, regeneration, and verified cleanup. It predates journal enumeration. |
 
-The current candidate adds query identity and explicit failed scan-window
-recovery. Its full common, API, external PostgreSQL, and CNPG qualification must
-finish before default-branch promotion. Keep the prior qualified application
-default branch until those checks pass. A passing focused fixture cannot
-replace the full application gate.
+The common query identity and failed scan-window changes passed full STEGO CI.
+Hypershell must still finish its current full API, external PostgreSQL, and CNPG
+checks before application default-branch promotion. Keep the prior qualified
+application default branch until those checks pass. A passing focused fixture
+cannot replace the full application gate.
 
 ## User decisions that remain in force
 

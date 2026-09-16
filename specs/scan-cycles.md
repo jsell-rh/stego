@@ -5,7 +5,7 @@ replacement. It uses `ScanFrom`, the observation time reserve, and existing
 versioned checkpoint callbacks. The application supplies the source version,
 action, access checks, and the policy for continuing after an action error.
 
-`Complete` means that the source ended. Success also requires `Failed=false`
+`Complete` means that the source ended or reported an explicit failed window. Success also requires `Failed=false`
 and a successful conditional save. A failed item can permit later independent
 items. Its failure remains in the stored cycle even if a later pass has no new
 errors. The completed failed cycle returns `ErrCycleFailed`. The next full
@@ -48,3 +48,22 @@ cycle and invalidate the condition atomically. Desired generation, resource
 revision, and checkpoint version protect its commit. This condition covers
 stored Gateway grant references; it is not general provider readiness.
 `ClientReady` remains limited to client configuration.
+
+## Failed source windows
+
+Controller 1.21.0 adds `ErrScanWindowLimit`. Only a source can request this
+boundary. The current cycle is saved as complete and failed, and returns an
+error. The next call starts a full scan. An emitter cannot use this error to
+end a window. Parent cancellation prevents saving, and a save conflict remains
+an error. This permits recovery after deletions change an offset-based list;
+it does not make the list a snapshot.
+
+All six STEGO jobs passed for `af67e7b` in
+[run 35106013382](https://github.com/jsell-rh/stego/actions/runs/35106013382).
+The generated controller tests passed with the race detector. Real Keycloak
+passed in 54.43 seconds. Resource-state SQL, provisioning, dependency checks,
+and both examples passed. The full log has SHA-256
+`5fe74a77cc5091ef4ee92bf5dca58e9d62a2d23e7de10abba672c2f7c406d4fd`.
+Raw evidence is in `provider-window-common-result` and
+`provider-window-full-ci.log` under the persistent Gateway cleanup run directory.
+The complete Hypershell checks remain separate.
