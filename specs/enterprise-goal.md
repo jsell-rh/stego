@@ -68,10 +68,27 @@ their own qualification. Persistent raw evidence is under
 | CNPG application workflow | Hypershell `bceea63` | [35100459235](https://github.com/jsell-rh/hypershell-stego/actions/runs/35100459235) passed in 464.05 seconds with primary replacement, retained SQL identities and data, regeneration, and verified cleanup. It predates journal enumeration. |
 
 The common query identity and failed scan-window changes passed full STEGO CI.
-Hypershell must still finish its current full API, external PostgreSQL, and CNPG
-checks before application default-branch promotion. Keep the prior qualified
-application default branch until those checks pass. A passing focused fixture
-cannot replace the full application gate.
+The corresponding Hypershell application runtime at `85706c6`, with compiler
+`af67e7b`, has now passed all required current workflow gates:
+
+| Check | Result |
+| --- | --- |
+| [Full application 35106305055](https://github.com/jsell-rh/hypershell-stego/actions/runs/35106305055) | Core, rendered browser, image, and console jobs passed; 483 test passes and four named exclusions. CNPG and Sandbox were not selected. |
+| [API 35106819091](https://github.com/jsell-rh/hypershell-stego/actions/runs/35106819091) | All 51 required checks and regeneration passed. Independent cleanup passed. |
+| [TLS provisioner 35107104565](https://github.com/jsell-rh/hypershell-stego/actions/runs/35107104565) | All twelve SQL and boundary checks passed. |
+| [Public Gateway 35107987220](https://github.com/jsell-rh/hypershell-stego/actions/runs/35107987220) | Complete workflow passed in 498.58 seconds with 269 stable generation hashes. Independent operator cleanup passed. |
+| [CNPG Gateway 35114192951](https://github.com/jsell-rh/hypershell-stego/actions/runs/35114192951) | All ten required tests passed at `e8ace19`. The complete browser workflow took 470.85 seconds. Primary replacement preserved SQL identities and data. Regeneration and independent resource and volume cleanup passed. |
+
+Later application sources add tests and evidence without changes to that
+runtime. Hypershell default branch `d6b1fe3` contains the qualified changes.
+The source-specific records remain in its `acceptance/` directory. These
+results close the current deletion and provider discovery qualification gate.
+They do not close the remaining enterprise and application requirements below.
+
+STEGO also qualified the common deployment Go API at `ea30c88` and confidential
+browser client management at `1db04e6`. See the [deployment evidence](deployment-library-evidence.json)
+and [browser provider evidence](browser-client-evidence.json). The separate
+upstream dashboard must now use these common parts in its complete workflow.
 
 ## User decisions that remain in force
 
@@ -104,9 +121,9 @@ the application must never perform automatic teardown.
 
 ## Remaining application and enterprise work
 
-1. Finish qualification of durable deletion and bounded provider discovery
-   through the latest complete Gateway workflows. Check large retained-history
-   costs in CI; a small functional fixture does not prove production capacity.
+1. Check large retained-history costs in CI. The complete current deletion and
+   provider discovery workflows passed, but functional checks do not prove
+   production capacity.
 2. Complete the separate upstream per-Gateway dashboard workflow. Its common
    local transport and browser-session foundation have passed their recorded
    checks, but that does not prove application deployment or terminal behavior.
