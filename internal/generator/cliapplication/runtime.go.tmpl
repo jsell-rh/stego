@@ -24,7 +24,7 @@ import (
 // absolute UTC RFC 3339 timestamp. It is exclusive with Flag and body files.
 type Field struct {Flag,Key,Type,RelativeFlag string;Required,Nullable bool}
 type PathParameter struct {Flag,Key string}
-type Command struct {Name []string;Method,Path string;ID,Query,Confirm,Sensitive bool;PathParameters []PathParameter;Fields []Field;Success []int}
+type Command struct {Name []string;Method,Path string;ID,Query,Confirm,Sensitive bool;PathParameters []PathParameter;Fields []Field;Success,EmptyResponses []int}
 type Application struct {VersionCommand bool;ConfigEnv,ConfigName,OIDCClientID,IdentityPath string;Commands []Command;Resources []ApplyResource}
 var word=regexp.MustCompile(`^[a-z][a-zA-Z0-9-]{0,63}$`)
 var pathPart=regexp.MustCompile(`^[a-zA-Z0-9._~!$&'()*+,;=:@-]+$`)
@@ -60,6 +60,12 @@ func validate(app Application)error{
   switch c.Method{case "GET","POST","PATCH","PUT","DELETE":default:return errors.New("invalid CLI method")}
   if len(c.Success)==0||len(c.Success)>4||len(c.Fields)>64{return errors.New("invalid CLI command limits")}
   for _,code:=range c.Success{if code<200||code>299{return errors.New("invalid CLI success code")}}
+  if len(c.EmptyResponses)>len(c.Success){return errors.New("invalid empty response codes")}
+  emptyCodes:=map[int]bool{}
+  for _,code:=range c.EmptyResponses{
+   found:=false;for _,success:=range c.Success{if code==success{found=true}}
+   if !found||emptyCodes[code]{return errors.New("invalid empty response code")};emptyCodes[code]=true
+  }
   flags,keys:=map[string]bool{},map[string]bool{}
   for _,f:=range c.Fields{
    if !word.MatchString(f.Flag)||!property.MatchString(f.Key)||flags[f.Flag]||keys[f.Key]||reservedFlag(f.Flag)||pathFlags[f.Flag]{return errors.New("invalid CLI field")}
@@ -147,7 +153,9 @@ func Run(ctx context.Context,app Application,args []string,output io.Writer)erro
  response,err:=transport.Do(ctx,c.Method,route,headers,payload);if err!=nil{return err}
  success:=false;for _,code:=range c.Success{if response.StatusCode==code{success=true}}
  if !success{return fmt.Errorf("API request failed (HTTP %d)",response.StatusCode)}
- if response.StatusCode==204{if len(response.Body)!=0{return errors.New("unexpected response body")};return destination.write(nil)}
+ emptyResponse:=response.StatusCode==204||response.StatusCode==205
+ for _,code:=range c.EmptyResponses{if code==response.StatusCode{emptyResponse=true}}
+ if emptyResponse{if len(response.Body)!=0{return errors.New("unexpected response body")};return destination.write(nil)}
  if !validJSON(response.Body){return errors.New("invalid API JSON response")}
  var formatted bytes.Buffer
  if err:=json.Indent(&formatted,response.Body,"","  ");err!=nil{return errors.New("invalid API JSON response")};formatted.WriteByte('\n')

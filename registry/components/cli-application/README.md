@@ -3,6 +3,12 @@ and the common HTTPS client. Run or build `<out>/<namespace>/cmd`. The applicati
 factory returns `command.Application` with command names, paths, methods,
 request fields, and expected status codes. It supplies no networking code.
 
+Declare status codes with no response body in `Command.EmptyResponses`. Each code
+must also occur in `Success`. Duplicate or unaccepted codes are rejected before
+network access. For an asynchronous delete, use `Success: []int{202}` and
+`EmptyResponses: []int{202}`. A nonempty response then fails the contract. Other
+accepted codes require valid JSON. HTTP 204 and 205 always require an empty body.
+
 The target must be Go 1.25.0 or later. Validation, plan, and apply reject an older
 target before generation. This requirement covers file operations and the OIDC dependency.
 

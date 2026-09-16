@@ -273,3 +273,75 @@ func TestDefinitionAndJSONLimits(t *testing.T) {
 		t.Fatal("valid JSON rejected")
 	}
 }
+
+func TestExplicitEmptyResponses(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TEST_CLI_CONFIG", filepath.Join(dir, "config.json"))
+	token := filepath.Join(dir, "token")
+	if err := os.WriteFile(token, []byte("private-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var response string
+	var code int
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		w.Write([]byte(response))
+	}))
+	defer server.Close()
+	ca := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Run(context.Background(), definition(), []string{"login", "--url", server.URL, "--token-file", token, "--ca-file", ca}, &output); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		status    int
+		body      string
+		empty     []int
+		wantError bool
+	}{
+		{"accepted empty", 202, "", []int{202}, false},
+		{"accepted JSON", 202, `{"state":"pending"}`, nil, false},
+		{"missing JSON", 202, "", nil, true},
+		{"unexpected JSON", 202, `{"state":"pending"}`, []int{202}, true},
+		{"invalid JSON", 202, `{`, nil, true},
+		{"unaccepted HTTP code", 201, "", []int{202}, true},
+		{"no content", 204, "", nil, false},
+		{"reset content", 205, "", nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			app := definition()
+			app.Commands = app.Commands[3:]
+			app.Commands[0].Success = []int{202, 204, 205}
+			app.Commands[0].EmptyResponses = test.empty
+			code, response = test.status, test.body
+			output.Reset()
+			err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output)
+			if (err != nil) != test.wantError {
+				t.Fatal("response contract", err)
+			}
+			if test.wantError && output.Len() != 0 {
+				t.Fatal("failed response wrote output")
+			}
+			if !test.wantError && response == "" && output.Len() != 0 {
+				t.Fatal("empty response wrote output")
+			}
+		})
+	}
+	for _, empty := range [][]int{{202, 202}, {201}, {400}, {202, 204, 205, 206, 207}} {
+		app := definition()
+		app.Commands = app.Commands[3:]
+		app.Commands[0].Success = []int{202, 204, 205}
+		app.Commands[0].EmptyResponses = empty
+		before := calls
+		if err := Run(context.Background(), app, []string{"delete", "record", "one", "--yes"}, &output); err == nil || calls != before {
+			t.Fatal("invalid declaration reached the server", err)
+		}
+	}
+}
