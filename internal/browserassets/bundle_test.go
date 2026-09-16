@@ -87,6 +87,39 @@ func TestBundleRoundTrip(t *testing.T) {
 		t.Fatal("symbolic asset accepted")
 	}
 }
+func TestTrueTypeBundle(t *testing.T) {
+	assets := append(fixture(), Asset{"assets/symbols.ttf", []byte{0, 1, 0, 0, 255, 128}})
+	directory := t.TempDir()
+	if err := os.Mkdir(filepath.Join(directory, "assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, asset := range assets {
+		if err := os.WriteFile(filepath.Join(directory, filepath.FromSlash(asset.Path)), asset.Data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packed, err := PackDirectory(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(packed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded) != 3 || decoded[1].Path != assets[2].Path || !bytes.Equal(decoded[1].Data, assets[2].Data) {
+		t.Fatal("font bytes changed")
+	}
+	again, err := Encode(decoded)
+	if err != nil || !bytes.Equal(packed, again) {
+		t.Fatal("font bundle changed", err)
+	}
+	for _, name := range []string{"assets/../symbols.ttf", "assets/.symbols.ttf", "assets/symbols.ttf.js.map", "symbols.ttf"} {
+		if _, err := Encode(append(fixture(), Asset{name, assets[2].Data})); err == nil {
+			t.Fatalf("invalid font path accepted: %s", name)
+		}
+	}
+}
+
 func TestBundleRejectsInvalidEntries(t *testing.T) {
 	for _, name := range []string{"../index.html", "/index.html", "assets/../app.js", "assets/.secret.js", "assets/app.js.map", "assets/app.js?x", "assets\\app.js", "assets/dir//app.js"} {
 		assets := append(fixture(), Asset{name, []byte("x")})

@@ -41,7 +41,7 @@ func ValidName(name string) bool {
 	switch path.Ext(name) {
 	case ".html":
 		return name == "index.html"
-	case ".js", ".css", ".svg", ".png", ".ico", ".woff2":
+	case ".js", ".css", ".svg", ".png", ".ico", ".woff2", ".ttf":
 		return true
 	}
 	return false

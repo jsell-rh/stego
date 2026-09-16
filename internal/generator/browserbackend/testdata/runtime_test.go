@@ -318,14 +318,19 @@ func TestStaticRoutesAndBoundaries(t *testing.T) {
 	f := setup(t)
 	sum := sha256.Sum256([]byte("window.ready=true;"))
 	hash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-	for _, path := range []string{"/", "/records/record-1", "/assets/main.js"} {
+	for _, path := range []string{"/", "/records/record-1", "/assets/main.js", "/assets/symbols.ttf"} {
 		w := send(f.backend, "GET", path, "", nil, nil)
 		require(t, w.Code == 200, "declared asset route failed")
 		policy := w.Header().Get("Content-Security-Policy")
 		require(t, !strings.Contains(policy, "unsafe-inline") && !strings.Contains(policy, "unsafe-eval"), "broad script policy accepted")
-		require(t, strings.Contains(policy, hash) == (path != "/assets/main.js"), "script hash has incorrect route scope")
+		require(t, strings.Contains(policy, hash) == (!strings.HasPrefix(path, "/assets/")), "script hash has incorrect route scope")
 		require(t, w.Header().Get("Content-Security-Policy") != "" && w.Header().Get("X-Content-Type-Options") == "nosniff", "missing response controls")
 	}
+	font := send(f.backend, "GET", "/assets/symbols.ttf", "", nil, nil)
+	require(t, font.Header().Get("Content-Type") == "font/ttf", "font has an incorrect media type")
+	require(t, font.Body.String() == string([]byte{0, 1, 0, 0, 255, 128}), "font bytes changed")
+	head := send(f.backend, "HEAD", "/assets/symbols.ttf", "", nil, nil)
+	require(t, head.Code == 200 && head.Body.Len() == 0 && head.Header().Get("Content-Type") == "font/ttf", "font HEAD response differs")
 	for _, path := range []string{"/unknown", "/records/a/b", "/assets/secret.pem"} {
 		w := send(f.backend, "GET", path, "", nil, nil)
 		require(t, w.Code == 404, "unknown route returned SPA")

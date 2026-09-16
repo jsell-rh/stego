@@ -174,7 +174,7 @@ func (g *Generator) config(values map[string]any) (settings, error) {
 			if target != "/index.html" {
 				return s, fmt.Errorf("only index.html is supported")
 			}
-		case ".js", ".css", ".svg", ".png", ".ico", ".woff2":
+		case ".js", ".css", ".svg", ".png", ".ico", ".woff2", ".ttf":
 		default:
 			return s, fmt.Errorf("unsupported browser asset type")
 		}

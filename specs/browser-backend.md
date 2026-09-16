@@ -236,3 +236,18 @@ and identity-provider sessions, with a confirmation page. This is now an
 explicit requirement. The existing `identity_provider` setting and Keycloak
 acceptance test implement this choice. Opening the confirmation page must not
 end either session.
+
+## Captured fonts
+
+Browser-backend 4.1.0 accepts local TrueType (`.ttf`) fonts in declared assets
+and captured ZIP bundles. The generated backend returns `font/ttf` with
+`X-Content-Type-Options: nosniff`. Font requests use the same access checks as
+other captured assets. The content policy permits fonts only from the same
+origin. Asset limits remain 128 files, 4 MiB per file, 16 MiB expanded, and
+4 MiB for the ZIP bundle. This change does not validate font contents; browser
+font parsing remains a browser function.
+
+The Hypershell dashboard source build exposed the missing type with its local
+Monaco font. Its first local-editor bundle also exceeded the file-count limit.
+That build must select only its required languages before adoption. The asset
+limits do not change to accommodate a consumer build.

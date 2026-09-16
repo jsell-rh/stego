@@ -28,7 +28,7 @@ import (
 )
 
 func fixture() gen.Context {
-	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><head></head><body><script src="/assets/main.js"></script><script>window.ready=true;</script></body></html>`), "ui/main.js": []byte(`"use strict";`)}}
+	return gen.Context{ModuleName: "example.com/browser-test", OutDirName: "out", OutputNamespace: "browser", PeerNamespaces: map[string]string{"postgres-adapter": "store", "otel-tracing": "tracing", "health-check": "health"}, ComponentConfig: map[string]any{"api_prefix": "/api/records/v1", "routes": []any{"/", "/records/{id}"}, "assets": []any{map[string]any{"source": "ui/index.html", "path": "/index.html"}, map[string]any{"source": "ui/main.js", "path": "/assets/main.js"}, map[string]any{"source": "ui/symbols.ttf", "path": "/assets/symbols.ttf"}}}, Inputs: map[string][]byte{"ui/index.html": []byte(`<!doctype html><html><head></head><body><script src="/assets/main.js"></script><script>window.ready=true;</script></body></html>`), "ui/main.js": []byte(`"use strict";`), "ui/symbols.ttf": {0, 1, 0, 0, 255, 128}}}
 }
 
 func TestGeneration(t *testing.T) {
@@ -43,7 +43,7 @@ func TestGeneration(t *testing.T) {
 		t.Fatal("generation is not stable", err)
 	}
 	inputs, err := g.InputFiles(ctx.ComponentConfig)
-	if err != nil || !reflect.DeepEqual(inputs, []gen.InputFile{{Path: "ui/index.html", MaxBytes: browserassets.MaxFile}, {Path: "ui/main.js", MaxBytes: browserassets.MaxFile}}) {
+	if err != nil || !reflect.DeepEqual(inputs, []gen.InputFile{{Path: "ui/index.html", MaxBytes: browserassets.MaxFile}, {Path: "ui/main.js", MaxBytes: browserassets.MaxFile}, {Path: "ui/symbols.ttf", MaxBytes: browserassets.MaxFile}}) {
 		t.Fatal(inputs, err)
 	}
 	if !wiring.NeedsDB || !wiring.ConstructorReturnsError[0] || !reflect.DeepEqual(wiring.ConstructorResources[0], []gen.Resource{gen.ServiceContext, gen.SQLDatabase}) || wiring.ConstructorDeferCalls[0] != "Close()" || !reflect.DeepEqual(wiring.BackgroundTasks, []int{0}) {
