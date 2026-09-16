@@ -162,3 +162,36 @@ func TestServiceAccountTokenFailureRevokesConvergedAccess(t *testing.T) {
 		t.Fatal("failed token proof did not revoke access directly")
 	}
 }
+
+func TestServiceAccountAccessRemainsDisabled(t *testing.T) {
+	key, keys := serviceTokenFixture(t)
+	c, f, b, p := newServiceAccessFixture(t, key, keys)
+	value := f.clients[b.ID]
+	value.Enabled = true
+	f.clients[b.ID] = value
+	base := f.intercept
+	f.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path == "/admin/realms/tenant/clients/worker/client-secret" || (r.URL.Path == "/realms/tenant/protocol/openid-connect/token" && r.FormValue("client_id") == b.ClientID) {
+			t.Error("disabled repair requested a credential or token")
+			w.WriteHeader(500)
+			return true
+		}
+		return base(w, r)
+	}
+	if err := c.ReconcileDisabledServiceAccountAccess(context.Background(), b, p); err != nil {
+		t.Fatal(err)
+	}
+	if f.clients[b.ID].Enabled || f.enabledOnce {
+		t.Fatal("disabled repair enabled account")
+	}
+	if len(f.writes) == 0 || f.writes[0] != "PUT enabled=false" {
+		t.Fatal("disabled repair did not first disable the account")
+	}
+	count := len(f.writes)
+	if err := c.ReconcileDisabledServiceAccountAccess(context.Background(), b, p); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.writes) != count {
+		t.Fatal("converged disabled policy caused writes")
+	}
+}

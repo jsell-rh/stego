@@ -23,13 +23,13 @@ type lifecycleFixture struct {
 	lostSave  bool
 }
 
-func (f *lifecycleFixture) read() nativeLifecycleRecord {
+func (f *lifecycleFixture) read() clientLifecycleRecord {
 	f.t.Helper()
 	value, err := f.protector.Open(f.key, f.record.Version, f.record.Data)
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	var record nativeLifecycleRecord
+	var record clientLifecycleRecord
 	if json.Unmarshal(value.Reveal(), &record) != nil {
 		f.t.Fatal("invalid stored lifecycle")
 	}
@@ -59,7 +59,7 @@ func (f *lifecycleFixture) restart() *NativeClientLifecycle {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	c := &NativeClientLifecycle{provider: f.provider, journal: journal, identity: f.provider.identity}
+	c := &NativeClientLifecycle{clientLifecycle: &clientLifecycle{provider: f.provider, journal: journal, identity: f.provider.identity}, native: f.provider}
 	return c
 }
 func newLifecycleFixture(t *testing.T, legacy bool) (*NativeClientLifecycle, *lifecycleFixture) {
@@ -308,12 +308,12 @@ func TestNativeLifecycleClosedMigrationAndInvalidState(t *testing.T) {
 		t.Fatal("closed migration granted access")
 	}
 	// Valid encryption does not permit a foreign or future lifecycle record.
-	for _, change := range []func(*nativeLifecycleRecord){
-		func(r *nativeLifecycleRecord) { r.Version = 2 }, func(r *nativeLifecycleRecord) { r.Binding.ClientID = "foreign" },
-		func(r *nativeLifecycleRecord) {
+	for _, change := range []func(*clientLifecycleRecord){
+		func(r *clientLifecycleRecord) { r.Version = 2 }, func(r *clientLifecycleRecord) { r.Binding.ClientID = "foreign" },
+		func(r *clientLifecycleRecord) {
 			r.Binding.Attributes = map[string]string{"stego.owner.product": "other"}
 		},
-		func(r *nativeLifecycleRecord) { r.Phase = "unknown" },
+		func(r *clientLifecycleRecord) { r.Phase = "unknown" },
 	} {
 		record := f.read()
 		change(&record)

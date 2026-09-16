@@ -352,7 +352,7 @@ The focused generated tests passed with the race detector in both variants in
 provider results, restart, closed migration, and late cleanup. The real-provider
 CI test also covers creation and migration through the complete lifecycle. Its
 creation and migration checks passed in CI run `35040036218`. The same checks
-with the restricted four-role identity are pending. Hypershell now uses this
+with the restricted four-role identity passed in CI run `35040645391`. Hypershell now uses this
 lifecycle in its production worker; its updated application checks are pending.
 
 Common binding checks now reject reserved `stego.owner.*` keys that the caller
@@ -379,3 +379,39 @@ fix. The focused generated tests passed with the race detector in both variants
 in 11.746 seconds. They cover abnormal exits during the initial enabled check,
 repair, and the final enabled check, plus normal native and service-account
 access operations. They also check that the operation permit is released.
+
+
+## Service-account recovery lifecycle
+
+With `controller`, STEGO also generates `ServiceAccountClientLifecycle`.
+`ClientIdentity` supplies trusted ownership and optional legacy renames.
+`NativeClientIdentity` remains an alias for the existing native-client API.
+Both lifecycles use the same creation, migration, and closure implementation.
+Existing native records retain their format. Service-account records have a
+separate kind; neither lifecycle accepts the other kind.
+
+The service-account lifecycle saves the provider client ID before creation and
+the ownership checkpoint before migration. It confirms disablement before it
+resolves a subject. It saves that subject before access repair or enablement.
+The policy can require an application subject through `ExpectedSubject`; a
+saved subject cannot change. A failed save stops the call, including a lost
+acknowledgement after commit. A new call reloads and authenticates the journal.
+The provider subject endpoint can create a user, so it is an effect, even though
+Keycloak uses GET for this operation.
+
+The policy's `Disabled` flag selects complete repair without enablement. The
+common `ReconcileDisabledServiceAccountAccess` operation requests no client
+credential or token. A later enabled reconciliation retains the saved client
+and subject and proves the complete enabled policy through a signed token.
+Neither lifecycle returns or stores a credential. The application still owns
+credential delivery, quotas, expiry, and authorization for each operation.
+Closure remains irreversible and retains the binding for late-create cleanup.
+
+The generated native, service-account, and access tests passed with the race
+detector in both variants in 29.110 seconds. They cover each save boundary,
+lost provider results, subject replacement, restart, wrong record kinds,
+disabled repair, and retained cleanup. The real Keycloak test now exercises
+creation, migration, lost subject-save acknowledgements, signed token checks,
+disabled repair, resume, and late-create cleanup with the restricted four-role
+identity. That new real-provider result is pending. Hypershell service-account
+adoption is also pending; the common native lifecycle is already in its worker.

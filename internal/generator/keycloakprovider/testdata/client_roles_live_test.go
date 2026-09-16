@@ -62,6 +62,7 @@ func testLiveClientOnlyRoles(t *testing.T, ctx context.Context, options Options)
 	if err := c.DeleteClient(ctx, worker); err != nil {
 		t.Fatal("client-only worker cleanup failed", err)
 	}
+	testLiveServiceAccountLifecycle(t, c, ctx, target)
 	if err := c.DeleteClient(ctx, target); err != nil {
 		t.Fatal("client-only target cleanup failed", err)
 	}
