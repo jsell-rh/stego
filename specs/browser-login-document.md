@@ -53,9 +53,18 @@ PostgreSQL and ran the generated runtime tests with the race detector. The
 browser backend package passed in 253.120 seconds. The Hypershell module check
 also passed, with all 83 archived source files matching its local module.
 
-The rendered Hypershell workflow is still required. A rendered browser must
-prove the actual cookie transition; a Go cookie jar does not enforce browser
-SameSite rules.
+The [live Hypershell run at 55d66c2](https://github.com/jsell-rh/hypershell-stego/actions/runs/35159150673)
+completed the new callback in Chromium and reached the protected upstream
+Workspaces page. Workspace creation returned HTTP 201, and the detail request
+returned HTTP 200. This proves the new login path in a rendered browser; a Go
+cookie jar alone does not enforce browser SameSite rules.
+
+That workflow failed later at the blank policy editor. The saved screenshot
+shows the upstream global policy dialog. The same-Pod copies of its screenshot,
+page text, and network record match the CI archive. All 366 generation hash
+entries matched on repeat generation. Independent cleanup passed at
+`2026-09-16T22:59:48.769861Z`. Editor behavior and the later recovery, access,
+three-signal correlation, and deletion assertions remain unproved by this run.
 
 Consumers with HTTP callback fixtures must handle the completion document for
 protected application backends. They must not weaken their cookie assertions.

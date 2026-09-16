@@ -72,6 +72,21 @@ passed. All 83 archived source files matched the local module, and the image
 binary and published digest matched. The combined compiler checks have passed.
 The deployed workflow check is still required to qualify the application.
 
+The [live run at 55d66c2](https://github.com/jsell-rh/hypershell-stego/actions/runs/35159150673)
+then completed login through the new callback document. It reached the upstream
+Workspaces page, created a workspace with HTTP 201, and read its detail with
+HTTP 200. It opened the global policy dialog, but the editor was blank. The
+test failed after 275.33 seconds. Later recovery and access assertions did not
+run. All 366 repeated-generation hash entries matched. The saved browser
+evidence copied from the test Pod matches the CI archive. Cleanup passed at
+`2026-09-16T22:59:48.769861Z` with an empty lease.
+
+The dashboard build omitted PatternFly's documented registration of a local
+Monaco instance. Its locked loader defaults to a CDN. Hypershell `59707a9` adds
+that build input and keeps STEGO's content policy unchanged. Source CI and a
+new rendered editor result are required. The exact browser exclusion reason
+from the failed run was not recorded. See the [editor record](https://github.com/jsell-rh/hypershell-stego/blob/59707a9/acceptance/dashboard-editor.md).
+
 The application gate must still prove the rendered workspace and policy editor,
 correlated authenticated telemetry, viewer and revoked access, session database
 recovery, worker restart, and deletion. Terminal behavior remains a separate
