@@ -98,8 +98,11 @@ func TestInvalidConfig(t *testing.T) {
 		})
 	}
 }
-func TestGeneratedRuntime(t *testing.T) { testGeneratedRuntime(t, new(Generator), fixture(), false) }
-func TestGeneratedLocalApplicationRuntime(t *testing.T) {
+func TestGeneratedRuntime(t *testing.T)                    { testGeneratedRuntime(t, new(Generator), fixture(), false) }
+func TestGeneratedLocalApplicationRuntime(t *testing.T)    { testLocalApplicationRuntime(t, false) }
+func TestGeneratedCapturedApplicationRuntime(t *testing.T) { testLocalApplicationRuntime(t, true) }
+func testLocalApplicationRuntime(t *testing.T, captured bool) {
+	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/socket") {
 			if r.Header.Get("Authorization") != "Bearer initial-access-value" || r.Header.Get("Cookie") != "" || r.Header.Get("X-Forwarded-User") != "" {
@@ -152,8 +155,12 @@ func TestGeneratedLocalApplicationRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := fixture()
-	delete(ctx.ComponentConfig, "assets")
-	ctx.Inputs = nil
+	if captured {
+		ctx.ComponentConfig["telemetry_service_name"] = "captured-application"
+	} else {
+		delete(ctx.ComponentConfig, "assets")
+		ctx.Inputs = nil
+	}
 	testGeneratedRuntime(t, &Generator{LocalApplicationPort: port}, ctx, true)
 }
 func testGeneratedRuntime(t *testing.T, g *Generator, ctx gen.Context, local bool) {
@@ -368,5 +375,37 @@ func TestLocalApplicationGeneration(t *testing.T) {
 		if _, _, err := (&Generator{LocalApplicationPort: port}).Generate(ctx); err == nil {
 			t.Fatal("accepted invalid application port", port)
 		}
+	}
+}
+
+func TestCapturedApplicationGeneration(t *testing.T) {
+	ctx := fixture()
+	ctx.ComponentConfig["telemetry_service_name"] = "captured-application"
+	g := &Generator{LocalApplicationPort: 8000}
+	first, wiring, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, again, err := g.Generate(ctx)
+	if err != nil || !reflect.DeepEqual(first, second) || !reflect.DeepEqual(wiring, again) {
+		t.Fatal("captured application generation changed", err)
+	}
+	config, _, err := g.resolveAssets(ctx)
+	if err != nil || len(config.ScriptHashes) != 1 || config.RuntimeConfigOffset == 0 {
+		t.Fatal("captured application lost its content checks", err)
+	}
+	ctx.Inputs["ui/index.html"] = []byte(`<html><head></head><script src="https://external.example/a.js"></script></html>`)
+	if _, _, err := g.Generate(ctx); err == nil {
+		t.Fatal("captured application accepted an external script")
+	}
+	bundle, err := browserassets.Encode([]browserassets.Asset{{Path: "index.html", Data: fixture().Inputs["ui/index.html"]}, {Path: "assets/main.js", Data: []byte(`"use strict";`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(ctx.ComponentConfig, "assets")
+	ctx.ComponentConfig["asset_bundle"] = "ui/app.zip"
+	ctx.Inputs = map[string][]byte{"ui/app.zip": bundle}
+	if _, _, err := g.Generate(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -233,3 +233,29 @@ Local evidence is in `dashboard-source-first-result` and
 `dashboard-dependency-result` under the persistent Gateway cleanup run directory.
 The application evidence records are on `codex/upstream-dashboard-20260916`.
 Keep this build work separate from the qualified management-console workflow.
+
+## Captured assets with the private application runtime
+
+The real upstream source build passed in Hypershell run
+[35109813205](https://github.com/jsell-rh/hypershell-stego/actions/runs/35109813205).
+Its 35 files fit the declared expanded limits. Compiler revision `3e961af`
+captured the 1,169,044-byte ZIP twice with identical output. It generated and
+built a fresh browser backend, repeated generation, and reported no drift.
+Both dependency checks and all eight selected router tests passed. This does
+not qualify a rendered dashboard or its deployment.
+
+Browser backend 1.8.0 lets the internal local-application renderer use captured
+assets. It uses the same input bounds, HTML checks, and script hashes as the
+ordinary browser renderer. With captured assets, only declared files are served;
+unknown asset paths do not fall through to the local application.
+
+Captured files require the same active server session as API requests. This
+includes HEAD and conditional requests. Responses retain `no-store`. UI routes
+can start login. Token refresh and logout checks also apply after backend restart.
+The renderer can add the existing browser telemetry settings to captured HTML.
+The application still needs to import the generated browser telemetry runtime.
+
+Small local generation checks passed. CI must check the generated runtime with
+PostgreSQL, session denial, refresh, logout, WebSockets, and restart. The mode
+remains internal. Service YAML cannot enable it until generated deployment
+checks enforce the shared Pod, local listener, and private credential mounts.

@@ -118,13 +118,22 @@ func(b *Backend)applicationLogin(w http.ResponseWriter,r *http.Request){
  if site:=r.Header.Get("Sec-Fetch-Site");site=="none"||site=="same-origin"{http.Redirect(w,r,target,303);return}
  w.Header().Set("Content-Type","text/html; charset=utf-8");_ = applicationLoginPage.Execute(w,target)
 }
+// applicationSession applies the same session checks to captured UI files and
+// requests to the local application. A cached response also requires a session.
+func(b *Backend)applicationSession(w http.ResponseWriter,r *http.Request)(session,bool){
+ if len(r.Header.Values("Authorization"))!=0{failure(w,400);return session{},false}
+ value,err:=b.active(r.Context(),cookieID(r,SessionCookie));if err!=nil{
+  if errors.Is(err,errSession)&&r.Method=="GET"&&b.browserPath(r.URL.Path){b.applicationLogin(w,r)}else{sessionError(w,err)}
+  return session{},false
+ }
+ return value,true
+}
 {{end}}func(b *Backend)proxy(w http.ResponseWriter,r *http.Request){
  switch r.Method{case "GET","HEAD","POST","PUT","PATCH","DELETE":default:w.Header().Set("Allow","GET, HEAD, POST, PUT, PATCH, DELETE");failure(w,405);return}
  if len(r.Header.Values("Authorization"))!=0{failure(w,400);return}
  id:=cookieID(r,SessionCookie)
  if r.Method!="GET"&&r.Method!="HEAD"{value,_,_,err:=b.store.read(r.Context(),id);if err!=nil{sessionError(w,err);return};if value.Kind!="active"||{{if .LocalApplication}}!b.applicationCSRF(r){{else}}!b.csrf(r,value){{end}}{failure(w,403);return}}
- value,err:=b.active(r.Context(),id);if err!=nil{ {{if .LocalApplication}}if errors.Is(err,errSession)&&r.Method=="GET"&&b.browserPath(r.URL.Path){b.applicationLogin(w,r);return}
- {{end}}sessionError(w,err);return}
+ {{if .LocalApplication}}value,ok:=b.applicationSession(w,r);if !ok{return}{{else}}value,err:=b.active(r.Context(),id);if err!=nil{sessionError(w,err);return}{{end}}
  if r.ContentLength>client.MaxRequestBytes{failure(w,413);return}
  body,err:=io.ReadAll(io.LimitReader(r.Body,client.MaxRequestBytes+1));if err!=nil{failure(w,400);return};if len(body)>client.MaxRequestBytes{failure(w,413);return}
  if (r.Method=="GET"||r.Method=="HEAD")&&len(body)!=0{failure(w,400);return}

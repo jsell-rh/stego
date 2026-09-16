@@ -33,7 +33,11 @@ func TestApplicationIdentityAndRestart(t *testing.T) {
 	f := applicationFixture(t)
 	c := applicationLogin(t, f)
 	for _, backend := range []*Backend{f.backend, f.start(t)} {
-		for _, target := range []string{"/", "/records/record-1", "/assets/app.js", apiPrefix + "/auth/whoami"} {
+		targets := []string{apiPrefix + "/auth/whoami"}
+		if len(backend.config.Assets) == 0 {
+			targets = append(targets, "/", "/records/record-1", "/assets/app.js")
+		}
+		for _, target := range targets {
 			w := send(backend, "GET", target, "", []*http.Cookie{c}, http.Header{"X-Forwarded-Access-Token": {"attacker"}, "X-Forwarded-User": {"attacker"}, "X-Auth-Request-User": {"attacker"}, "Forwarded": {"host=attacker"}})
 			require(t, w.Code == 200, "authenticated application request failed")
 			var result struct {
@@ -68,7 +72,11 @@ func TestApplicationWritesRequireOrigin(t *testing.T) {
 }
 func TestApplicationLoginAndDeniedRequests(t *testing.T) {
 	f := applicationFixture(t)
-	for _, target := range []string{apiPrefix + "/auth/whoami", "/assets/app.js"} {
+	assetPath := "/assets/app.js"
+	if len(f.backend.config.Assets) != 0 {
+		assetPath = "/assets/main.js"
+	}
+	for _, target := range []string{apiPrefix + "/auth/whoami", assetPath} {
 		require(t, send(f.backend, "GET", target, "", nil, nil).Code == 401, "anonymous request reached application")
 	}
 	w := send(f.backend, "GET", "/records/record-1", "", nil, http.Header{"Sec-Fetch-Site": {"none"}})
