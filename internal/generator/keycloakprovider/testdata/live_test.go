@@ -75,7 +75,9 @@ func liveProvider(t *testing.T) (*Client, Options) {
 	}
 	clients = append(clients, map[string]any{"clientId": "scope-blind-operator", "enabled": true, "protocol": "openid-connect", "secret": "provider-test-scope-blind-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": true})
 	clients = append(clients, map[string]any{"clientId": "realm-scope-operator", "enabled": true, "protocol": "openid-connect", "secret": "provider-test-realm-scope-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": true})
+	clients = append(clients, map[string]any{"clientId": "role-operator", "enabled": true, "protocol": "openid-connect", "secret": "provider-test-role-secret", "serviceAccountsEnabled": true, "standardFlowEnabled": false, "directAccessGrantsEnabled": false, "fullScopeAllowed": true})
 	users := []any{map[string]any{"username": "service-account-operator", "enabled": true, "serviceAccountClientId": "operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "manage-users", "view-users", "view-realm"}}}}
+	users = append(users, map[string]any{"username": "service-account-role-operator", "enabled": true, "serviceAccountClientId": "role-operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "manage-users", "view-users"}}})
 	users = append(users, map[string]any{"username": "service-account-scope-blind-operator", "enabled": true, "serviceAccountClientId": "scope-blind-operator", "clientRoles": map[string]any{"realm-management": []string{"query-clients"}}})
 	users = append(users, map[string]any{"username": "service-account-realm-scope-operator", "enabled": true, "serviceAccountClientId": "realm-scope-operator", "clientRoles": map[string]any{"realm-management": []string{"manage-clients", "view-clients", "view-realm", "manage-realm"}}})
 	users = append(users, map[string]any{"id": nativeTestSubject, "username": "native-user", "firstName": "Native", "lastName": "User", "email": "native@example.invalid", "emailVerified": true, "enabled": true, "requiredActions": []string{}, "credentials": []any{map[string]any{"type": "password", "value": "provider-test-native-password", "temporary": false}}})
@@ -185,6 +187,7 @@ func TestProviderLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer scopeAdmin.Close()
+	testLiveClientOnlyRoles(t, ctx, options)
 	testLiveRolePolicies(t, client, scopeAdmin, ctx)
 	testLiveNativeClients(t, client, ctx, options.CAFile)
 	for _, application := range []struct{ name, key, value string }{{"new-catalog", "stego.owner.product", "object-3"}, {"new-worker", "stego.owner.pipeline", "run-4"}} {
