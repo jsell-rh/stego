@@ -80,3 +80,11 @@ timed out after two files reached GitHub. The stopped process and partial draft
 were inspected. Only the two missing files were then uploaded. All four files
 were downloaded and matched against the authenticated package before publication.
 The published release was then checked through the common installer.
+
+Hypershell installed the generated guard on jshell from compiler `931f712`.
+The consumer plan preserves 25 installed resources and adds the guard, its
+binding, and the unbound installer role. The operator verified all 28 resources,
+retained the three existing account identities, and released the test lease.
+The fixture correction passed 68 account cases in CI. The full live consumer
+workflow remains pending. See the [consumer installation evidence](https://github.com/jsell-rh/hypershell-stego/blob/75f76ba/acceptance/control-account-installation-evidence.json).
+This installation does not close the account retirement or external grant gaps.
