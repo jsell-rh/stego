@@ -6,7 +6,8 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell candidate `0d74978` uses the pinned STEGO registry and compiler
+Hypershell default branch `b21604b` contains the qualified application and uses
+the pinned STEGO registry and compiler
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
@@ -138,8 +139,38 @@ also use the actual generated console Pod labels. The operator-owned policy
 and read grant were updated and checked through the restricted CI identity.
 The [network correction record](https://github.com/jsell-rh/hypershell-stego/blob/aed33a9/acceptance/dashboard-cnpg-network-evidence.json)
 retains the policy identity and the cleanup of a canceled diagnostic run.
-The corrected complete CNPG workflow remains required. The fixture correction
-does not change the application runtime or reduce the acceptance gate.
+The fixture correction does not change the application runtime or reduce the
+acceptance gate.
+
+[CNPG run 35176586562](https://github.com/jsell-rh/hypershell-stego/actions/runs/35176586562)
+at `aed33a9` passed the complete workflow in 768.33 seconds. The archived network
+policy matches the corrected installed policy. All 22 admission probes produced
+the expected result: three accepted and nineteen denied. Primary replacement
+took 65.29 seconds and preserved SQL identities, Gateway keys and credentials,
+provider data, and installation data. Both database instances became ready.
+
+The run passed rendered dashboard and editor behavior, REST and gRPC access,
+events, session and process restart, namespace recovery, viewer access and
+revocation, native provider sign-out, and final durable deletion. Three
+automation accounts used the actual Gateway, then lost token access and their
+provider clients after deletion. Final linked logs, metrics, and traces passed.
+All 412 generation hashes matched before and after the test and in the archive.
+The three viewed screenshots match the archive. The archived console image
+record matches the earlier checked module image.
+
+Independent cleanup at `2026-09-17T03:29:00Z` confirmed that runtime, allocations,
+private fixtures, and both recorded volumes were absent. The lease was free.
+Hypershell `b21604b` records the [complete CNPG result](https://github.com/jsell-rh/hypershell-stego/blob/b21604b/acceptance/dashboard-cnpg-workflow-evidence.json)
+and is now on remote `main`.
+
+This run needed one manual replacement of its secondary database Pod to free
+CPU for the existing test Job. A console process restarted three times before
+it became ready without a configuration change. Its error identifies
+`browser.NewBrowserBackend` but not the failing initialization step. The cause
+is not established. STEGO must provide more precise startup diagnostics with
+fixed event fields that exclude credentials and other private input. This
+passing workflow does not prove startup without assistance, production
+capacity, live Kata isolation, or the full enterprise goal.
 
 ## Earlier editor integration
 

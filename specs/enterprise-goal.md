@@ -106,10 +106,19 @@ telemetry, including schema operations, and browser log privacy passed. All 412
 generation hashes matched before and after the test and in the saved archive.
 Independent cluster cleanup passed at `2026-09-17T02:31:24Z`.
 The earlier HTTP 409 did not recur; its cause remains unknown. Full CI passed
-302 tests with four declared live skips. The generated dashboard must still
-pass the expanded CNPG workflow. See the [current integration record](upstream-dashboard-integration.md)
-and [native sign-out evidence](browser-logout-origin.md). These results do not
-close H1, H2, H3, or the expanded CNPG gate.
+302 tests with four declared live skips.
+
+The expanded CNPG workflow at `aed33a9` passed in 768.33 seconds in
+[35176586562](https://github.com/jsell-rh/hypershell-stego/actions/runs/35176586562).
+It includes primary replacement, retained SQL identities and data, complete
+dashboard behavior, access recovery, durable deletion, and linked telemetry.
+All 412 generation hashes and the three viewed screenshots match the final
+archive. Independent cleanup passed at `2026-09-17T03:29:00Z`. Hypershell remote
+`main` is now `b21604b`. The run needed one manual secondary Pod replacement for
+scheduling. One console recovered after three startup failures; their cause is
+not established. See the [current integration record](upstream-dashboard-integration.md)
+and [native sign-out evidence](browser-logout-origin.md). This closes the
+expanded CNPG workflow gate, but not H1, H2, H3, or the full enterprise goal.
 
 ## User decisions that remain in force
 
@@ -145,10 +154,11 @@ the application must never perform automatic teardown.
 1. Check large retained-history costs in CI. The complete current deletion and
    provider discovery workflows passed, but functional checks do not prove
    production capacity.
-2. Complete the expanded CNPG workflow for the upstream per-Gateway dashboard.
-   The public deployment, recovery, and deletion workflow passed. CNPG and live
-   terminal behavior require their own evidence; the live Kata test is deferred.
-   See [the integration record](upstream-dashboard-integration.md).
+2. Improve common startup diagnostics and identify the recovered browser
+   initialization failure. The complete public and CNPG dashboard workflows
+   passed, but the CNPG run needed scheduling assistance. Keep those limits
+   explicit. Live terminal behavior still requires evidence; the live Kata
+   test is deferred. See [the integration record](upstream-dashboard-integration.md).
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
    in the history; they do not establish DNS failover behavior.

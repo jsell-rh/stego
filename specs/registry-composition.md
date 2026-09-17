@@ -81,13 +81,12 @@ a warning.
 
 ## Hypershell integration
 
-The current Hypershell candidate `0d74978` pins all three modules to common
-registry and compiler revision `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`.
-Only two application archetypes remain in its local registries. The earlier
-registry checks below establish this separation. The complete public dashboard
-workflow passed at `e8bb965`, including final cleanup, SQL telemetry, and all
-three generation manifests. The expanded CNPG gate remains open; see the
-[current application record](upstream-dashboard-integration.md).
+Hypershell default branch `b21604b` pins all three modules to common registry
+and compiler revision `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. Only two
+application archetypes remain in its local registries. The complete public
+workflow passed at `e8bb965`, and the complete CNPG dashboard workflow passed at
+`aed33a9`. Both retained all three generation manifests and independent cleanup
+evidence. See the [current application record](upstream-dashboard-integration.md).
 
 Hypershell runtime revision `399a41b` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
@@ -109,10 +108,9 @@ Common compiler revision `8e0fae6` passed
 [all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35160694463).
 These earlier results establish the registry integration. The later public
 workflow at `e8bb965` establishes the deployed dashboard behavior described
-above. The expanded CNPG gate remains open in the
+above. The later expanded CNPG workflow is recorded in the
 [integration record](upstream-dashboard-integration.md).
 
-These Hypershell changes are on the development branch. Hypershell `main`
-remains at the previously qualified revision `d6b1fe3` until the application
-gate passes. A checkout of `main` can therefore still contain the older local
-copies. Generated runtime files remain committed in both models.
+These Hypershell changes are on remote `main` at `b21604b` and the development
+branch. Earlier checkouts at `d6b1fe3` still contain the old local copies.
+Generated runtime files remain committed for review and repeated generation.
