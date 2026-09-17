@@ -91,3 +91,10 @@ untracked, and ignored source files; links and size limits; inherited settings;
 module checksums; output limits; and termination of children after their parent
 exits. The existing full compiler suite is a separate check. These results
 verify this build procedure, not the remaining C3 requirements listed above.
+
+[Full compiler run 35188962575](https://github.com/jsell-rh/stego/actions/runs/35188962575)
+also passed all six jobs at the same source. The race suite passed; the command
+package took 55.889 seconds and the compiler package took 93.496 seconds.
+Both examples, Keycloak, PostgreSQL provisioning, and resource-state storage
+checks passed. The verified build check is now on remote `main`. The compiler
+and common registry pins in Hypershell remain at their qualified runtime revision.

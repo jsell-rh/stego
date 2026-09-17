@@ -148,6 +148,14 @@ The empty archive in the prior run remains unexplained and remains a failure.
 See [the startup evidence](browser-startup.md). C6, H3, and the full goal remain
 open.
 
+The [compiler artifact build check](compiler-artifact-builds.md) passed at
+`7b75de6`. Two isolated source trees and caches produced identical Linux amd64
+compiler bytes. Independent inspection verified the saved binary, all 1,181
+source records, 21 module records, and embedded build settings. All six normal
+compiler jobs also passed. The check is on remote `main`. Authenticated artifact
+publication, toolchain provenance, and complete application build inputs remain
+open; C3 is not complete.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.
