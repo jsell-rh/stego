@@ -136,6 +136,10 @@ func TestAllocationValidation(t *testing.T) {
 
 func TestAllocationManifests(t *testing.T) {
 	c := allocationContext()
+	managedAccounts := os.Getenv("STEGO_ALLOCATION_SERVICE_ACCOUNTS") == "1"
+	if managedAccounts {
+		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["service_accounts"] = []any{"gateway"}
+	}
 	if os.Getenv("STEGO_ALLOCATION_NETWORK") == "1" {
 		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["network_isolation"] = true
 	}
@@ -215,7 +219,11 @@ func TestAllocationManifests(t *testing.T) {
 				}
 			}
 		}
-		if policies != 3 || bindings != 1 {
+		expectedPolicies := 3
+		if managedAccounts {
+			expectedPolicies++
+		}
+		if policies != expectedPolicies || bindings != 1 {
 			t.Fatal("wrong allocation guards")
 		}
 		if dir := os.Getenv("STEGO_ALLOCATION_ARTIFACTS"); dir != "" {
@@ -243,6 +251,9 @@ var allocationNetworkDenyTests []byte
 
 //go:embed testdata/allocation_network_peers_test.go
 var allocationNetworkPeersTests []byte
+
+//go:embed testdata/allocation_service_accounts_test.go
+var allocationServiceAccountTests []byte
 
 func TestGeneratedAllocationRuntime(t *testing.T) { testGeneratedAllocationRuntime(t, "") }
 func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
@@ -284,6 +295,7 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_deny_test.go", Content: allocationNetworkDenyTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_peers_test.go", Content: allocationNetworkPeersTests})
+	files = append(files, gen.File{Path: "deploy/allocation/allocation_service_accounts_test.go", Content: allocationServiceAccountTests})
 	if filter == "^TestAllocationEndpoint" {
 		files = append(files, gen.File{Path: "deploy/allocation/allocation_endpoint_runtime_test.go", Content: allocationEndpointRuntimeTests})
 	}

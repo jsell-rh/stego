@@ -5,6 +5,7 @@ import (
  "bytes"
  "context"
  "crypto/sha256"
+ "encoding/base32"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -25,7 +26,7 @@ type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
 type identityField struct { Field, Key string }
 type networkPeer struct { Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
-type profile struct { NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
+type profile struct { ServiceAccounts []string; NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
 // Allocator applies the fixed namespace profiles in the service declaration.
@@ -104,8 +105,51 @@ func metadata(name string, owner kube.Owner) kube.Object {
  return kube.Object{"name":name, "labels":labels}
 }
 
+const serviceAccountAnnotation = "stego.dev/service-account-"
+
+func hasServiceAccount(p profile, alias string)bool{
+ for _,name:=range p.ServiceAccounts{if name==alias{return true}};return false
+}
+
+func (a *Allocator) serviceAccountName(p profile,ownerID,alias string)string{
+ // The full digest includes the installation and owner domain. JSON array
+ // encoding keeps each field separate, including punctuation in owner IDs.
+ encoded,_:=json.Marshal([]string{"stego-allocation-service-account-v1",a.namespace,a.config.Allocator,p.OwnerLabel,ownerID,alias})
+ digest:=sha256.Sum256(encoded)
+ return alias+"-"+strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
+}
+
+// ServiceAccountName returns the name for a declared allocation alias. It does
+// not read Kubernetes or prove that allocation has completed. A different
+// owner receives a different name even when it uses the same namespace name.
+func (a *Allocator) ServiceAccountName(profileName,name,ownerID,alias string)(string,error){
+ p,_,err:=a.request(profileName,name,ownerID);if err!=nil{return "",err}
+ if !hasServiceAccount(p,alias){return "",errors.New("allocation ServiceAccount alias is not declared")}
+ return a.serviceAccountName(p,ownerID,alias),nil
+}
+
+func (a *Allocator) requireServiceAccountNames(p profile,current kube.Object,ownerID string)error{
+ for _,alias:=range p.ServiceAccounts{
+  if kube.String(current,"metadata","annotations",serviceAccountAnnotation+alias)!=a.serviceAccountName(p,ownerID,alias){return errors.New("allocation ServiceAccount identity differs from its owner")}
+ };return nil
+}
+
+func (a *Allocator) checkExistingServiceAccountNames(ctx context.Context,p profile,name,ownerID string,owner kube.Owner)error{
+ if len(p.ServiceAccounts)==0{return nil}
+ current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
+ if err!=nil{return err};if code==404{return nil}
+ if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return errors.New("namespace allocation has a different identity")}
+ if kube.String(current,"metadata","deletionTimestamp")!=""{return ErrPending}
+ for _,alias:=range p.ServiceAccounts{
+  value:=kube.Nested(current,"metadata","annotations",serviceAccountAnnotation+alias)
+  if value!=nil&&value!=a.serviceAccountName(p,ownerID,alias){return errors.New("allocation ServiceAccount identity differs from its owner")}
+ };return nil
+}
+
 func (a *Allocator) bindingObject(p profile, name string, index int, owner kube.Owner) (string, kube.Object) {
  b := p.Bindings[index]
+ serviceAccount:=b.ServiceAccount
+ if b.Namespace=="allocated"&&hasServiceAccount(p,b.ServiceAccount){serviceAccount=a.serviceAccountName(p,owner[p.OwnerLabel],b.ServiceAccount)}
  roleName, scope := b.ExternalRole, "namespace"
  if b.Role != "" {
   roleName = a.namespace + "." + a.config.Allocator + "." + b.Role
@@ -119,8 +163,9 @@ func (a *Allocator) bindingObject(p profile, name string, index int, owner kube.
   kind, collection, bindingName = "ClusterRoleBinding", "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings", fmt.Sprintf("%s.%s.%s.%d", a.namespace, a.config.Allocator, name, index)
  }
  meta := metadata(bindingName, owner)
+ if serviceAccount!=b.ServiceAccount{meta["annotations"]=kube.Object{serviceAccountAnnotation+b.ServiceAccount:serviceAccount}}
  if scope == "namespace" { meta["namespace"] = name }
- return collection, kube.Object{"apiVersion":"rbac.authorization.k8s.io/v1", "kind":kind, "metadata":meta, "roleRef":kube.Object{"apiGroup":"rbac.authorization.k8s.io", "kind":"ClusterRole", "name":roleName}, "subjects":[]any{kube.Object{"kind":"ServiceAccount", "name":b.ServiceAccount, "namespace":ns}}}
+ return collection, kube.Object{"apiVersion":"rbac.authorization.k8s.io/v1", "kind":kind, "metadata":meta, "roleRef":kube.Object{"apiGroup":"rbac.authorization.k8s.io", "kind":"ClusterRole", "name":roleName}, "subjects":[]any{kube.Object{"kind":"ServiceAccount", "name":serviceAccount, "namespace":ns}}}
 }
 
 // bindings reads one complete, bounded snapshot before any cleanup write.
@@ -181,14 +226,26 @@ func (a *Allocator) prune(ctx context.Context, p profile, name string, owner kub
 // existing owner. A conflict requires a new observation by the controller.
 func (a *Allocator) Ensure(ctx context.Context, profileName, name, ownerID string) error {
  p, owner, err := a.request(profileName, name, ownerID); if err != nil { return err }
+ if err=a.checkExistingServiceAccountNames(ctx,p,name,ownerID,owner);err!=nil{return err}
  meta := metadata(name, owner)
  meta["labels"].(kube.Object)["pod-security.kubernetes.io/enforce"] = "restricted"
- if _, err = a.client.Ensure(ctx, "/api/v1/namespaces", kube.Object{"apiVersion":"v1", "kind":"Namespace", "metadata":meta}, owner); err != nil { return err }
+ if len(p.ServiceAccounts)!=0{
+  annotations:=kube.Object{}
+  for _,alias:=range p.ServiceAccounts{annotations[serviceAccountAnnotation+alias]=a.serviceAccountName(p,ownerID,alias)}
+  meta["annotations"]=annotations
+ }
+ current,err:=a.client.Ensure(ctx, "/api/v1/namespaces", kube.Object{"apiVersion":"v1", "kind":"Namespace", "metadata":meta}, owner);if err != nil { return err }
+ if err=a.requireServiceAccountNames(p,current,ownerID);err!=nil{return err}
  quota := kube.Object{"apiVersion":"v1", "kind":"ResourceQuota", "metadata":metadata("stego-allocation", owner), "spec":kube.Object{"hard":p.Quota}}
  quota["metadata"].(kube.Object)["namespace"] = name
  if _, err = a.client.Ensure(ctx, "/api/v1/namespaces/"+name+"/resourcequotas", quota, owner); err != nil { return err }
  if p.NetworkIsolation { if err = a.requireNetwork(ctx,p,name,owner,true); err != nil { return err } }
  if err = a.prune(ctx,p,name,owner); err != nil { return err }
+ for _,alias:=range p.ServiceAccounts{
+  accountMeta:=metadata(a.serviceAccountName(p,ownerID,alias),owner);accountMeta["namespace"]=name
+  desired:=kube.Object{"apiVersion":"v1","kind":"ServiceAccount","metadata":accountMeta,"automountServiceAccountToken":false}
+  if _,err=a.client.Ensure(ctx,"/api/v1/namespaces/"+name+"/serviceaccounts",desired,owner);err!=nil{return err}
+ }
  proof := kube.Object{"apiVersion":"rbac.authorization.k8s.io/v1", "kind":"RoleBinding", "metadata":metadata("stego-"+a.marker+"-proof",owner), "roleRef":kube.Object{"apiGroup":"rbac.authorization.k8s.io", "kind":"ClusterRole", "name":a.namespace+"."+a.config.Allocator+".proof"}, "subjects":[]any{kube.Object{"kind":"ServiceAccount","name":a.config.Allocator,"namespace":a.namespace}}}
  proof["metadata"].(kube.Object)["namespace"] = name
  if _, err = a.client.Ensure(ctx,"/apis/rbac.authorization.k8s.io/v1/namespaces/"+name+"/rolebindings",proof,owner); err != nil { return err }
@@ -377,11 +434,12 @@ func (a *Allocator) RequireNamespace(ctx context.Context,profileName,name,ownerI
 // NamespaceUID returns the identity of the verified, live allocation. It does
 // not prove that every role binding is ready or that a worker has Pod access.
 func (a *Allocator) NamespaceUID(ctx context.Context,profileName,name,ownerID string)(string,error){
- _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return "",err}
+ p,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return "",err}
  current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name,nil)
  if err!=nil{return "",err};if code==404{return "",ErrPending}
  if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return "",errors.New("namespace allocation has a different identity")}
- if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending};return kube.String(current,"metadata","uid"),nil
+ if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending}
+ if err=a.requireServiceAccountNames(p,current,ownerID);err!=nil{return "",err};return kube.String(current,"metadata","uid"),nil
 }
 
 // NamespaceGone observes cleanup without performing it. A foreign namespace

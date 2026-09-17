@@ -25,6 +25,7 @@ type allocationNetworkPeer struct {
 	Port                                                                  int
 }
 type allocationProfile struct {
+	ServiceAccounts                     []string                `json:",omitempty"`
 	NetworkEndpoints                    []string                `json:",omitempty"`
 	NetworkPeers                        []allocationNetworkPeer `json:",omitempty"`
 	NetworkIsolation                    bool                    `json:",omitempty"`
@@ -139,7 +140,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers", "network_endpoints":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers", "network_endpoints", "service_accounts":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}
@@ -159,6 +160,21 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		names[name] = true
 		p := allocationProfile{Name: name, Prefix: prefix, SuffixLength: length, OwnerLabel: owner, Manager: manager, Quota: map[string]string{}}
+		if raw, exists := values["service_accounts"]; exists {
+			entries, ok := raw.([]any)
+			if !ok || len(entries) == 0 || len(entries) > 8 {
+				return result, fmt.Errorf("allocation service_accounts requires 1..8 aliases")
+			}
+			seen := map[string]bool{}
+			for _, entry := range entries {
+				alias, ok := entry.(string)
+				if !ok || !label.MatchString(alias) || len(alias) > 10 || alias == "default" || seen[alias] {
+					return result, fmt.Errorf("allocation ServiceAccount aliases require distinct DNS labels of at most ten bytes")
+				}
+				seen[alias] = true
+				p.ServiceAccounts = append(p.ServiceAccounts, alias)
+			}
+		}
 		if value, exists := values["network_isolation"]; exists {
 			var ok bool
 			p.NetworkIsolation, ok = value.(bool)
@@ -290,6 +306,9 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			}
 			if role != "" && roles[role] == "cluster" && ns != "allocated" {
 				return result, fmt.Errorf("allocated cluster permissions require an allocated ServiceAccount")
+			}
+			if ns == "allocated" && len(p.ServiceAccounts) != 0 && !allocationHasServiceAccount(p, sa) {
+				return result, fmt.Errorf("allocated binding requires a declared ServiceAccount alias")
 			}
 			key := role + "/" + external + "/" + sa + "/" + ns + "/" + externalNS
 			if seen[key] {

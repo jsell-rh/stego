@@ -50,6 +50,8 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	namespaceCases, quotaCases, bindingCases, clusterCases := []string{}, []string{}, []string{}, []string{}
 	networkCases := []string{}
+	serviceAccountCases := []string{}
+	serviceAccountProfiles := []string{}
 	isolatedNames := []string{}
 	scope := map[string]string{}
 	var items []any
@@ -77,12 +79,23 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		proof["rules"] = append(proof["rules"].([]any), object{"apiGroups": []string{""}, "resources": []string{"configmaps"}, "verbs": []string{"get"}, "resourceNames": identityMaps})
 	}
 	binding := func(role, sa, ns, name string) string {
-		return "(has(variables.o.roleRef) && variables.o.roleRef.apiGroup == 'rbac.authorization.k8s.io' && variables.o.roleRef.kind == 'ClusterRole' && variables.o.roleRef.name == " + celString(role) + " && has(variables.o.subjects) && size(variables.o.subjects) == 1 && variables.o.subjects[0].kind == 'ServiceAccount' && (!has(variables.o.subjects[0].apiGroup) || variables.o.subjects[0].apiGroup == '') && variables.o.subjects[0].name == " + celString(sa) + " && variables.o.subjects[0].namespace == " + ns + " && variables.o.metadata.name == " + name + ")"
+		return "(has(variables.o.roleRef) && variables.o.roleRef.apiGroup == 'rbac.authorization.k8s.io' && variables.o.roleRef.kind == 'ClusterRole' && variables.o.roleRef.name == " + celString(role) + " && has(variables.o.subjects) && size(variables.o.subjects) == 1 && variables.o.subjects[0].kind == 'ServiceAccount' && (!has(variables.o.subjects[0].apiGroup) || variables.o.subjects[0].apiGroup == '') && variables.o.subjects[0].name == " + sa + " && variables.o.subjects[0].namespace == " + ns + " && variables.o.metadata.name == " + name + ")"
 	}
 	for _, p := range config.Profiles {
 		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
-		namespaceCases = append(namespaceCases, nsCase)
+		for _, alias := range p.ServiceAccounts {
+			nsCase += " && " + allocationServiceAccountAnnotationCEL("variables.o", alias)
+		}
+		namespaceCases = append(namespaceCases, "("+nsCase+")")
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
+		if len(p.ServiceAccounts) > 0 {
+			serviceAccountProfiles = append(serviceAccountProfiles, celString(p.Name))
+			choices := []string{}
+			for _, alias := range p.ServiceAccounts {
+				choices = append(choices, "variables.o.metadata.name == "+allocationServiceAccountCEL(alias))
+			}
+			serviceAccountCases = append(serviceAccountCases, "("+within+" && ("+strings.Join(choices, " || ")+") && has(variables.o.automountServiceAccountToken) && variables.o.automountServiceAccountToken == false)")
+		}
 		if p.NetworkIsolation {
 			isolatedNames = append(isolatedNames, celString(p.Name))
 			deny := "has(variables.o.spec) && has(variables.o.spec.podSelector) && (!has(variables.o.spec.podSelector.matchLabels) || size(variables.o.spec.podSelector.matchLabels) == 0) && (!has(variables.o.spec.podSelector.matchExpressions) || size(variables.o.spec.podSelector.matchExpressions) == 0) && has(variables.o.spec.policyTypes) && size(variables.o.spec.policyTypes) == 2 && 'Ingress' in variables.o.spec.policyTypes && 'Egress' in variables.o.spec.policyTypes && " + allocationNetworkRulesCEL(p, "ingress") + " && " + allocationNetworkRulesCEL(p, "egress")
@@ -100,7 +113,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		bindingCases = append(bindingCases, "(request.operation == 'DELETE' && "+within+" && variables.o.metadata.name.matches("+celString("^stego-"+marker+"-([0-9]|1[0-5]|proof)$")+"))")
 		clusterCases = append(clusterCases, "(request.operation == 'DELETE' && "+owner("variables.o", p)+" && has(variables.o.subjects) && size(variables.o.subjects) == 1 && "+pattern("variables.o.subjects[0].namespace", p)+" && variables.o.metadata.name.startsWith("+celString(base+".")+" + variables.o.subjects[0].namespace + '.') && variables.o.metadata.name.matches('.*[.]([0-9]|1[0-5])$'))")
 		quotaCases = append(quotaCases, "("+within+" && variables.o.metadata.name == 'stego-allocation' && "+strings.Join(quotaChecks, " && ")+")")
-		proof := binding(base+".proof", config.Allocator, "'{{.Namespace}}'", celString("stego-"+marker+"-proof"))
+		proof := binding(base+".proof", celString(config.Allocator), "'{{.Namespace}}'", celString("stego-"+marker+"-proof"))
 		bindingCases = append(bindingCases, "("+within+" && "+proof+")")
 		for i, b := range p.Bindings {
 			roleName := b.ExternalRole
@@ -116,14 +129,24 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 			if b.Namespace == "allocated" {
 				subjectNamespace = "namespaceObject.metadata.name"
 			}
+			serviceAccount := celString(b.ServiceAccount)
+			accountCheck := "true"
+			managedAccount := b.Namespace == "allocated" && allocationHasServiceAccount(p, b.ServiceAccount)
+			if managedAccount {
+				serviceAccount = allocationServiceAccountCEL(b.ServiceAccount)
+			}
 			if scope[b.Role] == "cluster" {
+				if managedAccount {
+					accountCheck = allocationServiceAccountAnnotationCEL("variables.o", b.ServiceAccount)
+					serviceAccount = "variables.o.metadata.annotations[" + celString(allocationServiceAccountPrefix+b.ServiceAccount) + "]"
+				}
 				subjectNamespace = "variables.o.subjects[0].namespace"
 				own := owner("variables.o", p)
 				name := celString(base+".") + " + " + subjectNamespace + " + " + celString(fmt.Sprintf(".%d", i))
 				proof := "authorizer.group('coordination.k8s.io').resource('leases').namespace(" + subjectNamespace + ").name(" + markerExpr + ").check('get').allowed()"
-				clusterCases = append(clusterCases, "("+own+" && "+binding(roleName, b.ServiceAccount, subjectNamespace, name)+" && "+pattern(subjectNamespace, p)+" && (request.operation == 'DELETE' || "+proof+"))")
+				clusterCases = append(clusterCases, "("+own+" && "+binding(roleName, serviceAccount, subjectNamespace, name)+" && "+accountCheck+" && "+pattern(subjectNamespace, p)+" && (request.operation == 'DELETE' || "+proof+"))")
 			} else {
-				bindingCases = append(bindingCases, "("+within+" && "+binding(roleName, b.ServiceAccount, subjectNamespace, celString(fmt.Sprintf("stego-%s-%d", marker, i)))+")")
+				bindingCases = append(bindingCases, "("+within+" && "+binding(roleName, serviceAccount, subjectNamespace, celString(fmt.Sprintf("stego-%s-%d", marker, i)))+")")
 			}
 		}
 	}
@@ -152,6 +175,10 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		allocationRules = append(allocationRules, allocationRule("networking.k8s.io", "networkpolicies"))
 		checks = append(checks, validate("request.resource.resource != 'networkpolicies' || "+join(networkCases), "Network policy must match its allocation profile"))
 	}
+	if len(serviceAccountCases) > 0 {
+		allocationRules = append(allocationRules, allocationRule("", "serviceaccounts"))
+		checks = append(checks, validate("request.resource.resource != 'serviceaccounts' || "+join(serviceAccountCases), "ServiceAccount must match its allocation owner"))
+	}
 	guarded := allocationPolicy(base+".allocation", allocationRules, isAllocator, variables, checks)
 	if refs := allocationEndpointReferences(config); len(refs) > 0 {
 		encoded, err := json.Marshal(refs)
@@ -168,6 +195,14 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	unchanged := []string{"object.metadata.labels['stego.dev/allocator'] == oldObject.metadata.labels['stego.dev/allocator']", "object.metadata.labels['stego.dev/allocation-profile'] == oldObject.metadata.labels['stego.dev/allocation-profile']", "object.metadata.labels['app.kubernetes.io/managed-by'] == oldObject.metadata.labels['app.kubernetes.io/managed-by']", "object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'"}
 	for _, p := range config.Profiles {
 		unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || object.metadata.labels["+celString(p.OwnerLabel)+"] == oldObject.metadata.labels["+celString(p.OwnerLabel)+"])")
+	}
+	for _, p := range config.Profiles {
+		for _, alias := range p.ServiceAccounts {
+			key := celString(allocationServiceAccountPrefix + alias)
+			oldHas := "(has(oldObject.metadata.annotations) && " + key + " in oldObject.metadata.annotations)"
+			newHas := "(has(object.metadata.annotations) && " + key + " in object.metadata.annotations)"
+			unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || ("+oldHas+" ? ("+newHas+" && object.metadata.annotations["+key+"] == oldObject.metadata.annotations["+key+"]) : ("+isAllocator+" && "+allocationServiceAccountAnnotationCEL("object", alias)+")))")
+		}
 	}
 	for _, p := range config.Profiles {
 		for _, group := range []struct {
@@ -200,6 +235,14 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		message = "Only the allocator can change allocation limits, bindings, and isolated network policies"
 	}
 	guarded = append(guarded, allocationPolicy(base+".resources", resourceRules, reserved, variables, []any{validate(resourceRule, message)})...)
+	if len(serviceAccountCases) > 0 {
+		selected := "(" + marked("namespaceObject") + " && 'stego.dev/allocation-profile' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocation-profile'] in [" + strings.Join(serviceAccountProfiles, ",") + "])"
+		// Kubernetes can maintain the default account and image pull references.
+		// Only the allocator can create a declared owner account. Updates must
+		// retain the owner, generated name, and explicit token opt-in default.
+		allowed := "variables.o.metadata.name == 'default' || (" + join(serviceAccountCases) + " && (" + isAllocator + " || request.operation == 'UPDATE' || (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))))"
+		guarded = append(guarded, allocationPolicy(base+".service-accounts", []any{allocationRule("", "serviceaccounts")}, selected, variables, []any{validate(allowed, "ServiceAccount identity must match its allocation owner")})...)
+	}
 	// Install the policies before the allocator receives permissions.
 	items = append(guarded, items...)
 	sort.Strings(bindNames)
@@ -214,6 +257,9 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		object{"apiGroups": []string{""}, "resources": []string{"resourcequotas"}, "verbs": []string{"get", "create", "patch"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"rolebindings", "clusterrolebindings"}, "verbs": []string{"get", "list", "create", "patch", "delete"}},
 		object{"apiGroups": []string{"rbac.authorization.k8s.io"}, "resources": []string{"clusterroles"}, "resourceNames": unique, "verbs": []string{"bind"}},
+	}
+	if len(serviceAccountCases) > 0 {
+		rules = append(rules, object{"apiGroups": []string{""}, "resources": []string{"serviceaccounts"}, "verbs": []string{"get", "create", "patch"}})
 	}
 	if len(networkCases) > 0 {
 		rules = append(rules,
