@@ -221,6 +221,8 @@ class Check:
                  "spec": {"hard": {"pods": "1", "limits.cpu": "1", "limits.memory": "256Mi", "limits.ephemeral-storage": "128Mi", "requests.storage": "1Gi"}}}
         self.create(quota, primary)
         old_account = service_account(first)
+        self.probe("non-allocator account creation rejected", dry, old_account,
+                   policy=CONTROL + ".widget-queue.service-accounts")
         stored_account = self.create(old_account, primary)
         old_identity = "system:serviceaccount:" + name + ":" + stored_account["metadata"]["name"]
         policy = CONTROL + ".widget-queue.service-accounts"
@@ -244,6 +246,13 @@ class Check:
         self.probe("original owner can use retained grant", read, user=old_identity, allowed=True)
         self.remove(stored_first)
         self.probe("unmarked namespace reuse rejected", dry, namespace(name), outsider, policy=CONTROL + ".widget-queue.namespace-reservations")
+        recovered = self.create(first, primary)
+        self.create(quota, primary)
+        recovered_account = self.create(old_account, primary)
+        assert recovered["metadata"]["uid"] != stored_first["metadata"]["uid"]
+        assert recovered_account["metadata"]["uid"] != stored_account["metadata"]["uid"]
+        self.probe("same owner recovers its retained grant", read, user=old_identity, allowed=True)
+        self.remove(recovered)
         second = namespace(name, CONTROL, owner2)
         stored_second = self.create(second, primary)
         assert stored_second["metadata"]["uid"] != stored_first["metadata"]["uid"]
@@ -273,7 +282,8 @@ class Check:
                    user="system:serviceaccount:" + name + ":" + peer_account["metadata"]["name"])
         retained = self.get(binding)
         assert retained["metadata"]["uid"] == binding["metadata"]["uid"] and retained["subjects"] == binding["subjects"]
-        self.result.update(retained_grant_unchanged=True, owner_reuse_denied=True, installation_reuse_denied=True)
+        self.result.update(retained_grant_unchanged=True, same_owner_recovery_allowed=True,
+                           owner_reuse_denied=True, installation_reuse_denied=True)
 
     def cleanup(self):
         self.deadline = time.monotonic() + 180
