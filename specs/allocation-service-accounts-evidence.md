@@ -39,3 +39,14 @@ the namespace reservation and installation guards. It does not qualify the
 latest source. The latest full suite and a real Kubernetes admission and
 authorization gate remain required. Hypershell has not adopted this component
 version. No compiler or Go test ran on the developer workstation.
+
+The branch artifact check also passed at the same source in
+[run 35223389876](https://github.com/jsell-rh/stego/actions/runs/35223389876),
+job `105209282694`. Independent checks matched all 1,206 source files, their
+executable flags, the build record, and the compiler bytes. The hosted job
+built the compiler twice with separate source trees and caches. Its binary
+SHA-256 is `14ae4f89a34b1bb65fab90c8def7e96e45687bfe715b15fe066e9ef17298df6f`.
+
+The branch artifact has no release signature. The signature job was skipped,
+as required for a branch build. No release was published. This result does
+not replace the full suite or the live admission gate.
