@@ -36,3 +36,9 @@ generator checks, 13 generated runtime tests with 37 cases, and 23 runner safety
 checks. All three manifests match the earlier qualified fixture. These results
 qualify the test inputs; they do not prove the live control-account boundary.
 See the [recorded evidence](allocation-control-account-audit-evidence.json).
+
+The full check also passed at `62841ce` in
+[run 35252021322](https://github.com/jsell-rh/stego/actions/runs/35252021322).
+All six jobs passed. The saved logs confirm 34 race-test packages, the required
+SQL credential and browser checks, and both generated examples. The live audit
+is still blocked by the application test and cleanup prerequisites.

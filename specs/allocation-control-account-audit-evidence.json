@@ -22,5 +22,48 @@
   "all_three_manifests_match_9844ad4": true,
   "related_manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
   "job_log_sha256": "a3984927ceb604a6c21e0ecc827b5099364853d4cbf9f17596d39f50f730ea67",
-  "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required."
+  "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required.",
+  "full": {
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35252021322",
+    "source": "62841ce7c6a1adb6da8b85f4595e2147e7ce158f",
+    "checked_at": "2026-09-17T17:28:22.874186+00:00",
+    "jobs": {
+      "postgres-provisioning": "success",
+      "examples (user-management)": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "keycloak-provider": "success",
+      "resource-state-storage": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "14e5c2e9728c56ab83f6f76ba9df44e583e655dc33b488d0774c70f45d9d8efb",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "db3f13352e5bc605f81717f05e74f777e98b83addf577bc20f5680638da41d42",
+    "generated_examples_passed": true
+  }
 }
