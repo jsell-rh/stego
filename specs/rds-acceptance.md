@@ -8,8 +8,9 @@ application installation. This gate does not require an AWS test instance.
 The operator supplies the PostgreSQL server, network access, CA, provisioning
 database, and provisioning login. The application creates and deletes only its
 Gateway logical databases and roles. It must preserve the server, storage, and
-unrelated databases. Use the same generated SQL runtime for external servers
-and CNPG. Do not add a cloud-provider branch to the Gateway API or SQL lifecycle.
+unrelated databases. The user removed CNPG from Hypershell scope on 2026-09-17.
+Use one generated SQL runtime for all supplied PostgreSQL servers. Do not add
+a cloud-provider branch to the Gateway API or SQL lifecycle.
 
 ## Required container evidence
 

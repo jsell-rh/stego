@@ -81,9 +81,14 @@ projection, network additions, and CI jobs. Its hosted browser, 231 UI tests,
 and seven image builds passed. CI generated the replacement test policy;
 independent checks found one changed network validation rule among 19 cluster
 resources. The operator applied that exact rule after verified cleanup.
-The complete external PostgreSQL workflow is running in `35232271576` at
-`62e82d5`. The core checks and complete external workflow remain unqualified.
-See [the database contract and evidence](https://github.com/jsell-rh/hypershell-stego/blob/9cb10239c83d9b76e31f9403cfa35e34c70345ea/acceptance/external-gateway-databases.md).
+The complete external PostgreSQL workflow passed in `35232271576` at
+`62e82d5`. Its core checks also passed. The main branch repeat at `d0d5250`
+passed all eleven required live tests in `35235034044`. Independent checks
+matched 1,434 source files, 416 generated hashes, compiler and image identity,
+and live recovery records. Independent cleanup found no test resources or held
+lease. The separate API and journal gates passed 52 and 28 required tests.
+The hosted browser gate passed; its core repeat remains in progress.
+See [the database contract and evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/external-gateway-databases.md).
 
 The earlier hosted core run at `4897fc1` failed a cleanup recovery event deadline
 and an unrelated Keycloak client response comparison. Later checks follow the
@@ -96,11 +101,12 @@ The later complete pass above requires that operation and its correlated
 signals. Preserve all failed results; a later pass does not establish their
 full cause.
 
-Common allocation account identity now has a 16-probe live admission and RBAC
-result, verified cleanup, full compiler checks, and renderer checks. An extended
-issuer-only case remains queued behind the current Gateway test. The common
-change is not released or adopted by Hypershell. Related allocation, account
-migration, and the complete consumer workflow remain required. See the
+Common allocation account identity passed twenty live admission and RBAC
+probes, twelve policy type checks, and independent cleanup. Compiler `09efc7`
+adds account readiness checks and is published as a verified immutable release.
+Full compiler and renderer checks passed. Hypershell has adopted it on a test
+branch, with matching generated output and an explicit console module pin.
+Application checks are running. The complete consumer workflow remains required. See the
 [allocation evidence](allocation-service-accounts-evidence.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).

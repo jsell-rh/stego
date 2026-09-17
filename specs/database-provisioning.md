@@ -1,10 +1,12 @@
 # Isolated PostgreSQL databases
 
-The user requires CNPG and external PostgreSQL for Hypershell. On 2026-09-14,
-the user removed deployment-backed PostgreSQL from the target scope. External
-mode must create a separate logical database, login, permissions, and credentials
-for each Gateway. Support for existing connections alone does not satisfy this
-requirement.
+On 2026-09-17, the user selected externally supplied PostgreSQL as the only
+Hypershell database path, following
+[Hypershell PR 300](https://github.com/openshift-online/hypershell/pull/300).
+This replaces the earlier CNPG requirement. Hypershell must not create database
+servers, install database operators, or select database providers. Each Gateway
+gets a separate logical database, login, permissions, and credentials on the
+supplied server. Support for existing connections alone is insufficient.
 
 STEGO must supply reusable database provisioning and verification mechanisms.
 Hypershell supplies Gateway identity, assigned-controller ownership, and locality.
@@ -16,7 +18,7 @@ The Gateway API must have no `database_id`, including an empty placeholder,
 and no `ManagedDatabase` entity. The installation supplies each execution
 controller with its local PostgreSQL connection and administrative credential
 reference. Gateway databases belong beside their Gateways and controller.
-The installation owns RDS or CNPG server infrastructure. The application
+The operator owns the supplied PostgreSQL server infrastructure. The application
 controller owns only Gateway SQL resources and credentials.
 
 Required evidence includes creation, current ownership checks, concurrent
@@ -41,15 +43,17 @@ ownership records, separate owner and login roles, verified TLS, connection
 isolation, bounded calls, recovery, and deletion. It has no Gateway or cluster
 selection logic. Logs, metrics, and traces exclude private SQL inputs.
 
-The Hypershell controller integration remains an open application gate. The
-operator can create an RDS server with Terraform before cluster or installation
-creation. CNPG is another installation choice and supplies the same SQL
-connection contract. Neither requires a database registration API call.
+The complete Hypershell controller workflow passed with an operator-supplied
+PostgreSQL fixture. See the
+[application evidence](hypershell-external-database-workflow.json).
+The operator can create an RDS server with Terraform before installation.
+No database registration API call is required.
 The controller must never delete the supplied server or its storage. It must
 preserve durable Gateway cleanup intent and reject a changed database destination
 before it creates replacement data, changes credentials, or deletes objects.
-Actual RDS acceptance is still required; local PostgreSQL evidence does not
-prove RDS permissions or operation.
+The user authorized a bounded PostgreSQL container for this acceptance gate.
+RDS creation is outside Hypershell scope. Container evidence does not prove
+RDS permissions or operation; those remain explicit compatibility limits.
 
 The transition requires matching API, controller, SDK, CLI, and console releases.
 Retired protobuf field numbers and names remain reserved. Fresh schemas must
@@ -58,7 +62,11 @@ schemas must be rejected before writes. Shared schema checks and serialized
 bootstrap mechanisms belong in STEGO; Hypershell declares its schema generation
 and application compatibility policy. Teardown is a separate operator action.
 The new runtime must not migrate or remove existing installations implicitly.
-These are target requirements, not claims of completed implementation.
+The evidence below applies only to each recorded source. Earlier CNPG
+requirements and pending checks are historical. The external-only contract
+above controls current work.
+
+## Earlier qualification records
 
 The final focused jshell check passed on 2026-09-14 with a non-superuser
 provisioning account. Seven generated tests passed with race detection. The
