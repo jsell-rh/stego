@@ -46,6 +46,19 @@ It validates the profile, namespace, owner, and alias. Callers must still wait
 for allocation before they start a workload. The application selects an alias;
 it does not copy the name algorithm or create the account.
 
+`Allocator.RequireServiceAccount` checks the namespace identity and the named
+account with at most two read-only API requests. It returns the declared name
+only when the account has the expected owner, namespace, name, API kind, UID,
+resource version, and disabled automatic token mount. Missing or deleting
+resources return `ErrPending`. Other failures return an error and no name.
+Invalid input fails before an API request. The method does not create or repair
+accounts, confirm permission bindings, or check network policy. Continue to use
+`RequireNamespace` for the network checks. Account readiness is a point-in-time
+observation; the API server still enforces admission when it creates a Pod.
+
+This readiness method is under qualification and is not yet in a published
+compiler package or used by Hypershell.
+
 The allocator records the names in reserved namespace annotations. It applies
 the quota and network limits before it creates the accounts or their bindings.
 Each account has `automountServiceAccountToken: false`. A Pod that needs a

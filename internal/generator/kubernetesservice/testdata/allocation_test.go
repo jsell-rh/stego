@@ -28,6 +28,7 @@ type api struct {
 	failNetwork     bool
 	failNetworkRead bool
 	failNetworkList bool
+	failAccountRead bool
 	mutateNetwork   func(kube.Object)
 	incomplete      bool
 	networkList     func(kube.Object)
@@ -110,6 +111,10 @@ func fixture(t *testing.T) (*Allocator, *api) {
 		}
 		current, exists := state.objects[r.URL.Path]
 		if r.Method == "GET" {
+			if state.failAccountRead && strings.Contains(r.URL.Path, "/serviceaccounts/") {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			if state.failNetworkRead && strings.Contains(r.URL.Path, "/networkpolicies/") {
 				w.WriteHeader(403)
 				return

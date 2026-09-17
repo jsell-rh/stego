@@ -2,6 +2,7 @@ package allocation
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -197,5 +198,92 @@ func TestAllocationServiceAccountQuotaFailure(t *testing.T) {
 		if strings.HasSuffix(write, "/serviceaccounts") || strings.HasSuffix(write, "/rolebindings") || strings.HasSuffix(write, "/clusterrolebindings") {
 			t.Fatal("quota failure granted access")
 		}
+	}
+}
+
+func TestAllocationServiceAccountReadiness(t *testing.T) {
+	const namespace = "tenant-12345678"
+	const namespacePath = "/api/v1/namespaces/" + namespace
+	metadata := func(o kube.Object) map[string]any { return o["metadata"].(map[string]any) }
+	labels := func(o kube.Object) map[string]any { return metadata(o)["labels"].(map[string]any) }
+	tests := []struct {
+		name           string
+		change         func(kube.Object, kube.Object, *api, string)
+		pending, valid bool
+	}{
+		{name: "ready", valid: true},
+		{name: "missing_account", pending: true, change: func(_, _ kube.Object, s *api, path string) { delete(s.objects, path) }},
+		{name: "missing_namespace", pending: true, change: func(_, _ kube.Object, s *api, _ string) { delete(s.objects, namespacePath) }},
+		{name: "deleting_account", pending: true, change: func(account, _ kube.Object, _ *api, _ string) {
+			metadata(account)["deletionTimestamp"] = "2026-09-17T00:00:00Z"
+		}},
+		{name: "deleting_namespace", pending: true, change: func(_, ns kube.Object, _ *api, _ string) { metadata(ns)["deletionTimestamp"] = "2026-09-17T00:00:00Z" }},
+		{name: "foreign_account", change: func(account, _ kube.Object, _ *api, _ string) {
+			labels(account)["example.test/owner"] = "another-owner"
+		}},
+		{name: "foreign_namespace", change: func(_, ns kube.Object, _ *api, _ string) { labels(ns)["example.test/owner"] = "another-owner" }},
+		{name: "missing_uid", change: func(account, _ kube.Object, _ *api, _ string) { delete(metadata(account), "uid") }},
+		{name: "missing_version", change: func(account, _ kube.Object, _ *api, _ string) { delete(metadata(account), "resourceVersion") }},
+		{name: "wrong_name", change: func(account, _ kube.Object, _ *api, _ string) { metadata(account)["name"] = "another-account" }},
+		{name: "wrong_namespace", change: func(account, _ kube.Object, _ *api, _ string) { metadata(account)["namespace"] = "tenant-87654321" }},
+		{name: "missing_token_setting", change: func(account, _ kube.Object, _ *api, _ string) { delete(account, "automountServiceAccountToken") }},
+		{name: "automatic_token_mount", change: func(account, _ kube.Object, _ *api, _ string) { account["automountServiceAccountToken"] = true }},
+		{name: "invalid_token_setting", change: func(account, _ kube.Object, _ *api, _ string) { account["automountServiceAccountToken"] = "false" }},
+		{name: "wrong_kind", change: func(account, _ kube.Object, _ *api, _ string) { account["kind"] = "ConfigMap" }},
+		{name: "wrong_api_version", change: func(account, _ kube.Object, _ *api, _ string) { account["apiVersion"] = "other/v1" }},
+		{name: "changed_namespace_seal", change: func(_, ns kube.Object, _ *api, _ string) {
+			metadata(ns)["annotations"].(map[string]any)[serviceAccountAnnotation+"gateway"] = "another-account"
+		}},
+		{name: "read_denied", change: func(_, _ kube.Object, s *api, _ string) { s.failAccountRead = true }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			a, s := accountFixture(t)
+			if err := a.Ensure(context.Background(), "tenant", namespace, "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			expected, err := a.ServiceAccountName("tenant", namespace, "owner-1", "gateway")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := namespacePath + "/serviceaccounts/" + expected
+			s.mu.Lock()
+			beforeWrites, beforeRequests := len(s.writes), s.requests
+			if test.change != nil {
+				test.change(s.objects[path], s.objects[namespacePath], s, path)
+			}
+			s.mu.Unlock()
+			name, err := a.RequireServiceAccount(context.Background(), "tenant", namespace, "owner-1", "gateway")
+			if test.valid {
+				if err != nil || name != expected {
+					t.Fatal("ready account was not returned", err)
+				}
+			} else if err == nil || name != "" || errors.Is(err, ErrPending) != test.pending {
+				t.Fatal("account readiness accepted an invalid identity or misclassified the result", err)
+			}
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if len(s.writes) != beforeWrites || s.requests-beforeRequests > 2 {
+				t.Fatal("readiness wrote resources or exceeded two bounded reads")
+			}
+		})
+	}
+}
+
+func TestAllocationServiceAccountReadinessRejectsInvalidInput(t *testing.T) {
+	a, s := accountFixture(t)
+	for _, input := range [][4]string{
+		{"missing", "tenant-12345678", "owner-1", "gateway"},
+		{"tenant", "another-12345678", "owner-1", "gateway"},
+		{"tenant", "tenant-12345678", "", "gateway"},
+		{"tenant", "tenant-12345678", "owner-1", "missing"},
+	} {
+		name, err := a.RequireServiceAccount(context.Background(), input[0], input[1], input[2], input[3])
+		if err == nil || name != "" {
+			t.Fatal("invalid account request was accepted")
+		}
+	}
+	if s.requests != 0 {
+		t.Fatal("invalid account request reached Kubernetes")
 	}
 }

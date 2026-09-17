@@ -128,6 +128,21 @@ func (a *Allocator) ServiceAccountName(profileName,name,ownerID,alias string)(st
  return a.serviceAccountName(p,ownerID,alias),nil
 }
 
+// RequireServiceAccount checks the namespace identity and its declared account
+// without writing. An absent or deleting account is pending. This check does
+// not prove that every permission binding or network policy is ready.
+func (a *Allocator) RequireServiceAccount(ctx context.Context,profileName,name,ownerID,alias string)(string,error){
+ account,err:=a.ServiceAccountName(profileName,name,ownerID,alias);if err!=nil{return "",err}
+ if _,err=a.NamespaceUID(ctx,profileName,name,ownerID);err!=nil{return "",err}
+ _,owner,err:=a.request(profileName,name,ownerID);if err!=nil{return "",err}
+ current,code,err:=a.client.Request(ctx,http.MethodGet,"/api/v1/namespaces/"+name+"/serviceaccounts/"+account,nil)
+ if err!=nil{return "",err};if code==http.StatusNotFound{return "",ErrPending}
+ if code!=http.StatusOK{return "",errors.New("allocation ServiceAccount read failed")}
+ if current["apiVersion"]!="v1"||current["kind"]!="ServiceAccount"||!owner.Matches(current)||kube.String(current,"metadata","name")!=account||kube.String(current,"metadata","namespace")!=name||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""||current["automountServiceAccountToken"]!=false{return "",errors.New("allocation ServiceAccount identity or token settings differ")}
+ if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending}
+ return account,nil
+}
+
 func (a *Allocator) requireServiceAccountNames(p profile,current kube.Object,ownerID string)error{
  for _,alias:=range p.ServiceAccounts{
   if kube.String(current,"metadata","annotations",serviceAccountAnnotation+alias)!=a.serviceAccountName(p,ownerID,alias){return errors.New("allocation ServiceAccount identity differs from its owner")}

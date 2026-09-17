@@ -59,7 +59,7 @@ jobs:
           runtime = (root / 'runtime.log').read_text()
           for log, names in [
               (outer, ['TestAllocationServiceAccountValidation', 'TestAllocationServiceAccountManifests', 'TestGeneratedAllocationServiceAccountRuntime']),
-              (runtime, ['TestAllocationServiceAccountIdentity', 'TestAllocationServiceAccountsFollowLimits', 'TestAllocationServiceAccountRejectsChangedSeal', 'TestAllocationServiceAccountNamespaceReuse', 'TestAllocationServiceAccountConcurrentOwners', 'TestAllocationServiceAccountQuotaFailure']),
+              (runtime, ['TestAllocationServiceAccountIdentity', 'TestAllocationServiceAccountsFollowLimits', 'TestAllocationServiceAccountRejectsChangedSeal', 'TestAllocationServiceAccountNamespaceReuse', 'TestAllocationServiceAccountConcurrentOwners', 'TestAllocationServiceAccountQuotaFailure', 'TestAllocationServiceAccountReadiness', 'TestAllocationServiceAccountReadinessRejectsInvalidInput']),
           ]:
               if '--- FAIL:' in log or '--- SKIP:' in log:
                   raise SystemExit('An account check failed or was skipped')
