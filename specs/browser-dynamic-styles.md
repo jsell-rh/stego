@@ -1,7 +1,8 @@
 # Dynamic browser styles
 
-Status: candidate. Browser and compiler checks must pass before adoption.
-No Hypershell image or compiler pin selects this candidate yet.
+Status: common runtime and adapter checks passed at compiler `9792927`.
+Hypershell development revision `52db843` selects this compiler. Its complete
+deployed editor and Gateway workflow remain unproved.
 
 Some UI libraries create stylesheets and insert layout styles through HTML
 strings. These are different operations. A stylesheet nonce does not authorize
@@ -98,10 +99,15 @@ The browser result SHA-256 is
 `3a7b56f79e1608c823c7a04b2eb0b86d76386ba4f556f2a04db7f64dfa7a87da`.
 The adapter result SHA-256 is
 `ce2c2f2f425f48fea6e79d73418f08dfe6b93f177c95d88fb7d9e3f3d0fb4931`.
-Compiler checks for `9792927` remain pending. This result does not qualify the
-generated backend or the application image.
+[All six compiler jobs](https://github.com/jsell-rh/stego/actions/runs/35164702730)
+passed for `9792927`. The main generated browser backend tests passed with the
+race detector in 220.272 seconds. The CI log SHA-256 is
+`ecb80664747b78b6f4f3be1371f20537e66e4e2d7afd2fd3b9553bca8f928f40`.
 
-No Hypershell build currently selects this adapter. After compiler qualification,
-its build must adopt the common output, rebuild the captured assets and image,
-and prove the real editor. Syntax checks do not prove rendering, worker behavior,
+Hypershell's [source and image check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35164983445)
+at `52db843` selected this adapter and passed. Independent comparison verified
+the complete build tree, all five generated DOM files, all 77 captured assets,
+repeated generation, and the published image binary. The selected bundle and
+Gateway console module must still be updated before the live gate runs.
+Source and image checks do not prove editor rendering, worker behavior,
 clipboard behavior, or performance.
