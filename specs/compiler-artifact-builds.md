@@ -98,3 +98,11 @@ package took 55.889 seconds and the compiler package took 93.496 seconds.
 Both examples, Keycloak, PostgreSQL provisioning, and resource-state storage
 checks passed. The verified build check is now on remote `main`. The compiler
 and common registry pins in Hypershell remain at their qualified runtime revision.
+
+The main-branch repeat,
+[35189507534](https://github.com/jsell-rh/stego/actions/runs/35189507534), also
+passed at `7b75de6`. GitHub records distinct hosted-runner IDs for the two
+runs. Each run made two isolated builds. Independent inspection found identical
+compiler bytes and identical build records across both runs. This adds a
+repeat on another hosted runner; both runs still use the same build procedure,
+Go toolchain, and hosting provider.
