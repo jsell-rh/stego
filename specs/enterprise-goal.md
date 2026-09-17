@@ -306,9 +306,15 @@ The common service-account allocation gate also passed all twenty live probes,
 twelve policy type checks, and five namespace incarnations. Independent checks
 confirmed runner and manifest identity, all responses, and removal of 49
 resource paths. See the [issuer evidence](allocation-service-account-issuer-evidence.json).
-The common component can now proceed to publication and consumer adoption.
-Pod token authentication, Sandbox isolation, and the full consumer workflow
-with this new component remain separate gates.
+The common component was then published in compiler `09efc7c`. Hypershell
+adoption passed the complete workflow at `0ec0180`: 11 required tests,
+416 generated-file checks, and 24 ready-Pod account observations across two
+Gateways and three namespace instances. Names survived namespace replacement;
+account and Pod UIDs changed. Worker account writes were denied. Independent
+cleanup passed. The change is on Hypershell main at `110d9c4`.
+See the [account adoption evidence](allocation-service-accounts.md).
+Separate Sandbox allocation and permissions, live Kata isolation, production
+capacity, and the other completion requirements remain open.
 
 ## User decisions that remain in force
 

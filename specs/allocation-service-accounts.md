@@ -229,12 +229,27 @@ reads and 12 denial checks. Policy writes, unbounded lists, and an unrelated
 policy read remain denied. A comparison of all 1,441 files confirmed that only
 the CI setup script and its test changed after the qualified application source.
 
-The complete public Gateway workflow is now running at `0ec0180` in
+The complete public Gateway workflow passed at `0ec0180` in
 [35245846085](https://github.com/jsell-rh/hypershell-stego/actions/runs/35245846085).
-It must prove account use on real Pods, denied worker writes, restart and
-namespace replacement, the normal Gateway workflow, and complete cleanup.
-Installation readback and hosted CI do not replace that evidence. Hypershell
-adoption remains under qualification until this live gate passes.
+All 11 required tests passed. The main workflow took 656.99 seconds. Independent
+checks matched 1,441 source files, 416 generated hashes, the published compiler
+package, and the deployed console image. REST, gRPC, filtered lists, denied
+requests, events, PostgreSQL process restart, namespace replacement, provisioner
+restart, and durable cleanup passed. All required browser startup stages had
+matching logs, traces, and metrics. Three dashboard images were reviewed.
+
+The account record contains 24 ready-Pod observations across two Gateways,
+three namespace instances, and six account objects. Names remained stable after
+namespace replacement, while account and Pod UIDs changed. Actual authorization
+reviews denied worker account creation and patch requests. Pod token settings
+matched the declared workload requirements. Independent API reads at 16:40:37
+UTC confirmed that test resources were absent and the test lease was free.
+See the [consumer evidence](https://github.com/jsell-rh/hypershell-stego/blob/110d9c4eeb5d830ec8b8d1d03a780a5e5fbfbc47/acceptance/allocated-workload-accounts-evidence.json).
+
+This result qualifies Hypershell adoption of the common account component.
+The shared-cluster Sandbox guard remains active. Separate Sandbox allocation,
+permission boundaries, live Kata isolation, RDS failover, and production capacity
+remain open. The database restart used the same fixture Pod.
 
 ## Retained fixture failures
 
