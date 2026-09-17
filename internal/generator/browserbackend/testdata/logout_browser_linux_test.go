@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -61,9 +62,8 @@ func TestNativeLogoutBrowser(t *testing.T) {
 			defer provider.Close()
 			f.backend.logoutOrigin = provider.URL
 			f.backend.logoutTarget = provider.URL + "/logout"
-			var policy string
-			// Requests from this one browser are sequential. The result channel
-			// transfers the observed policy after the form POST completes.
+			var policy atomic.Value
+			policy.Store("")
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/fixture-start":
@@ -82,7 +82,7 @@ func TestNativeLogoutBrowser(t *testing.T) {
 					if oldPolicy {
 						recorded.Header().Set("Referrer-Policy", "no-referrer")
 					}
-					policy = recorded.Header().Get("Referrer-Policy")
+					policy.Store(recorded.Header().Get("Referrer-Policy"))
 					body = strings.Replace(body, "</body>", `<script src="/fixture-submit.js"></script></body>`, 1)
 				}
 				for key, values := range recorded.Header() {
@@ -92,7 +92,7 @@ func TestNativeLogoutBrowser(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 				if r.Method == "POST" && r.URL.Path == "/auth/logout" {
 					select {
-					case posts <- observation{policy, r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Mode"), recorded.Code}:
+					case posts <- observation{policy.Load().(string), r.Header.Get("Origin"), r.Header.Get("Sec-Fetch-Mode"), recorded.Code}:
 					default:
 					}
 				}
