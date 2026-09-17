@@ -37,7 +37,7 @@ jobs:
             examples/*/go.sum
       - name: Build the current compiler
         run: go build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego
-      - name: Check example generation and fill behavior
+      - name: Generate the example candidate
         working-directory: examples/${{ matrix.project }}
         env:
           STEGO_REGISTRY: ${{ github.workspace }}/registry
@@ -48,6 +48,28 @@ jobs:
           "$RUNNER_TEMP/stego" deps
           "$RUNNER_TEMP/stego" apply
           "$RUNNER_TEMP/stego" drift
+      - name: Save the example candidate for review
+        working-directory: examples/${{ matrix.project }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/example-candidate"
+          git rev-parse HEAD > "$RUNNER_TEMP/example-candidate/source.txt"
+          sha256sum "$RUNNER_TEMP/stego" > "$RUNNER_TEMP/example-candidate/compiler.sha256"
+          tar -czf "$RUNNER_TEMP/example-candidate/generated.tar.gz" out go.mod go.sum .stego/state.yaml
+          cd "$RUNNER_TEMP/example-candidate"
+          sha256sum generated.tar.gz > generated.sha256
+      - name: Upload the example candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: example-candidate-${{ matrix.project }}
+          path: ${{ runner.temp }}/example-candidate
+          retention-days: 14
+          if-no-files-found: error
+      - name: Check example generation and fill behavior
+        working-directory: examples/${{ matrix.project }}
+        env:
+          STEGO_REGISTRY: ${{ github.workspace }}/registry
+          GOWORK: 'off'
+        run: |
           git diff --exit-code -- out go.mod go.sum fills service.yaml .stego/config.yaml
           test -z "$(git ls-files --others --exclude-standard -- out)"
           cp .stego/state.yaml "$RUNNER_TEMP/example-state.yaml"
