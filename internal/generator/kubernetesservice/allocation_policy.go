@@ -239,11 +239,21 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	guarded = append(guarded, allocationPolicy(base+".resources", resourceRules, reserved, variables, []any{validate(resourceRule, message)})...)
 	if len(serviceAccountCases) > 0 {
-		selected := "(" + marked("namespaceObject") + " && 'stego.dev/allocation-profile' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocation-profile'] in [" + strings.Join(serviceAccountProfiles, ",") + "])"
+		// Kubernetes 1.35 passes no namespace object to match conditions.
+		// Select by the request namespace, then check ownership in validation.
+		requestPatterns := []string{}
+		for _, p := range config.Profiles {
+			if len(p.ServiceAccounts) > 0 {
+				requestPatterns = append(requestPatterns, pattern("request.namespace", p))
+			}
+		}
+		selected := join(requestPatterns)
+		ownedProfile := "(" + marked("namespaceObject") + " && 'stego.dev/allocation-profile' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocation-profile'] in [" + strings.Join(serviceAccountProfiles, ",") + "])"
 		// Kubernetes can maintain the default account and image pull references.
 		// Only the allocator can create a declared owner account. Updates must
 		// retain the owner, generated name, and explicit token opt-in default.
 		allowed := "variables.o.metadata.name == 'default' || (" + join(serviceAccountCases) + " && (" + isAllocator + " || request.operation == 'UPDATE' || (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))))"
+		allowed = "namespaceObject != null && (!(" + ownedProfile + ") || (" + allowed + "))"
 		guarded = append(guarded, allocationPolicy(base+".service-accounts", []any{allocationRule("", "serviceaccounts")}, selected, variables, []any{validate(allowed, "ServiceAccount identity must match its allocation owner")})...)
 		// An unmarked replacement namespace must not recreate a prior owner's
 		// account. A common RBAC capability permits other trusted allocator
@@ -253,16 +263,9 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		guarded = append(guarded, allocationPolicy(base+".namespace-reservations", []any{allocationRule("", "namespaces")}, reserved, nil, []any{validate(capable, "Allocated namespace patterns require a trusted allocator")})...)
 		// A different trusted installation must not create this installation's
 		// account names, even if its profile uses literal account names.
-		patterns := []string{}
-		for _, p := range config.Profiles {
-			if len(p.ServiceAccounts) > 0 {
-				patterns = append(patterns, pattern("namespaceObject.metadata.name", p))
-			}
-		}
-		selectedIssuer := "namespaceObject != null && " + join(patterns)
 		generatedAccount := "((has(variables.o.metadata.name) && variables.o.metadata.name.matches('^sa-[0-9a-f]{32}-[a-z2-7]{26}$')) || (has(variables.o.metadata.generateName) && variables.o.metadata.generateName.startsWith('sa-')))"
-		issuerCheck := "request.operation == 'DELETE' || !" + generatedAccount + " || (has(namespaceObject.metadata.labels) && 'stego.dev/allocator' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocator'].matches('^[0-9a-f]{32}$') && has(variables.o.metadata.name) && variables.o.metadata.name.startsWith('sa-' + namespaceObject.metadata.labels['stego.dev/allocator'] + '-'))"
-		guarded = append(guarded, allocationPolicy(base+".account-issuers", []any{allocationRule("", "serviceaccounts")}, selectedIssuer, variables, []any{validate(issuerCheck, "ServiceAccount issuer must match its namespace allocator")})...)
+		issuerCheck := "namespaceObject != null && (request.operation == 'DELETE' || !" + generatedAccount + " || (has(namespaceObject.metadata.labels) && 'stego.dev/allocator' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocator'].matches('^[0-9a-f]{32}$') && has(variables.o.metadata.name) && variables.o.metadata.name.startsWith('sa-' + namespaceObject.metadata.labels['stego.dev/allocator'] + '-')))"
+		guarded = append(guarded, allocationPolicy(base+".account-issuers", []any{allocationRule("", "serviceaccounts")}, selected, variables, []any{validate(issuerCheck, "ServiceAccount issuer must match its namespace allocator")})...)
 	}
 	// Install the policies before the allocator receives permissions.
 	items = append(guarded, items...)

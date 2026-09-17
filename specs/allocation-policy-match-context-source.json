@@ -1,0 +1,10 @@
+{
+  "validator.go": {
+    "url": "https://raw.githubusercontent.com/kubernetes/apiserver/v0.35.6/pkg/admission/plugin/policy/validating/validator.go",
+    "sha256": "01e7977d13db75039f46048bfac16518648a7a72a2fe92f500639e77e16dbca0"
+  },
+  "matcher.go": {
+    "url": "https://raw.githubusercontent.com/kubernetes/apiserver/v0.35.6/pkg/admission/plugin/webhook/matchconditions/matcher.go",
+    "sha256": "0237d6d176bc65e6bf33b0033cf149123ddd5c744bcc6028b7ff7a392c16ae76"
+  }
+}

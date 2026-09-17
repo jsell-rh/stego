@@ -46,8 +46,26 @@ func TestAllocationServiceAccountValidation(t *testing.T) {
 	}
 	for _, item := range items {
 		m := item.(object)
-		if m["kind"] == "ValidatingAdmissionPolicy" && m["spec"].(object)["failurePolicy"] != "Fail" {
+		if m["kind"] != "ValidatingAdmissionPolicy" {
+			continue
+		}
+		spec := m["spec"].(object)
+		if spec["failurePolicy"] != "Fail" {
 			t.Fatal("policy permits admission failure")
+		}
+		for _, entry := range spec["matchConditions"].([]any) {
+			expression := entry.(object)["expression"].(string)
+			if strings.Contains(expression, "namespaceObject") || strings.Contains(expression, "variables.") {
+				t.Fatal("match condition uses unavailable context", expression)
+			}
+		}
+		name := m["metadata"].(object)["name"].(string)
+		if strings.HasSuffix(name, ".service-accounts") || strings.HasSuffix(name, ".account-issuers") {
+			condition := spec["matchConditions"].([]any)[0].(object)["expression"].(string)
+			validation := spec["validations"].([]any)[0].(object)["expression"].(string)
+			if !strings.Contains(condition, "request.namespace") || !strings.HasPrefix(validation, "namespaceObject != null && ") {
+				t.Fatal("account policy must select the request and require namespace data during validation")
+			}
 		}
 	}
 }
