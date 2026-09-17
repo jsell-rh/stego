@@ -126,9 +126,13 @@ the trusted installer. All 14 policies passed type checking. Independent
 cleanup verified 57 resource paths absent. The full race step passed 34
 packages, and all six CI jobs passed. The qualified source is on STEGO main.
 Compiler `931f712` is published as a verified immutable release. Hypershell
-has selected it on an adoption branch; regeneration and the consumer workflow
-remain pending. Account retirement and arbitrary external grants remain outside
-this result. See the
+adopted it on main at `39b8f40`. All 11 required live browser tests and all 52
+required API tests passed. Independent checks matched the source, 416 generated
+hashes, compiler signatures, and the actual console image. The workflow recorded
+24 ready-Pod account observations across two Gateways and three namespace
+incarnations. Both live tests have empty independent cleanup records and a free
+shared lease. The hosted core suite passed 738 cases. Account retirement and
+arbitrary external grants remain outside this result. See the
 [policy evidence and limits](allocation-control-account-policy.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).

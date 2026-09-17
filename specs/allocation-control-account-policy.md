@@ -71,7 +71,8 @@ remains available.
 
 Compiler `931f712` is published as an immutable release. The common installer
 verified the published compiler and build-record signatures. All main-branch
-checks passed before publication. Hypershell adoption remains pending. The account retirement and external grant
+checks passed before publication. Hypershell adopted the compiler after the
+complete consumer checks below passed. The account retirement and external grant
 limits above still apply. This result does not close the enterprise goal.
 
 The [release evidence](allocation-control-account-release-evidence.json) records
@@ -85,6 +86,22 @@ Hypershell installed the generated guard on jshell from compiler `931f712`.
 The consumer plan preserves 25 installed resources and adds the guard, its
 binding, and the unbound installer role. The operator verified all 28 resources,
 retained the three existing account identities, and released the test lease.
-The fixture correction passed 68 account cases in CI. The full live consumer
-workflow remains pending. See the [consumer installation evidence](https://github.com/jsell-rh/hypershell-stego/blob/75f76ba/acceptance/control-account-installation-evidence.json).
-This installation does not close the account retirement or external grant gaps.
+The fixture correction passed 68 account cases in CI.
+
+The full live consumer workflow passed at `fed0042` in run `35261639502`.
+All 11 required tests passed; the main test took 687.2 seconds. Independent checks
+matched 1,450 source files, 416 generated hashes, the signed compiler package,
+and the actual console image. Namespace and provisioner recovery passed. The
+workflow recorded 24 ready-Pod account observations with stable names and new
+account and Pod UIDs after namespace replacement. Worker account writes were
+denied. All three dashboard screenshots were reviewed.
+
+The separate API run `35263895912` passed all 52 required tests at `75f76ba`.
+Independent checks matched 1,451 source files, four generation snapshots, and the
+live compiler with its published signature records. Both live tests have empty
+independent cleanup records and a free shared lease. Hosted core checks passed
+738 cases, with three generation checks and service cleanup. The consumer main
+branch is now at `39b8f40`; its final commit changes only evidence and overviews.
+See the [consumer installation evidence](https://github.com/jsell-rh/hypershell-stego/blob/39b8f40/acceptance/control-account-installation-evidence.json).
+This result does not close account retirement, external grant, Sandbox setup,
+production capacity, or the broader enterprise requirements.
