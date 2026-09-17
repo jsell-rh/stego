@@ -261,3 +261,17 @@ The [historical record](enterprise-history.md) preserves earlier decisions,
 failed attempts, network and public workflow results, and source-specific
 limits. It does not replace the completion requirements above. The goal remains
 active until the full requested state is implemented and verified.
+
+
+## Common compiler installation
+
+STEGO now has a common installer for exact, authenticated Linux amd64 compiler
+packages. The existing Hypershell compiler `0057370` is published in an immutable
+release after its full compiler and signature gates passed. Installer source
+`5fdc97c` passed the real release and local package installation check. Both paths
+produced identical verified bytes without compiler execution. See
+[installation evidence and limits](compiler-installation.md).
+
+This supplies a durable package for one qualified compiler. Automatic release
+qualification, Hypershell regeneration script integration, complete offline
+inputs, and other supported installation targets remain open. C3 is not complete.

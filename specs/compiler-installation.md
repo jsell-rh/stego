@@ -82,4 +82,10 @@ and verification records. The 31,712,090-byte compiler SHA-256 is
 The compiler was not executed on the workstation. Six small installer checks
 and eight common verifier checks passed locally. The separate installation CI
 job repeats real release and local package verification without compiler execution.
-Its result is pending. Hypershell regeneration scripts are not yet changed.
+[Run 35204243151](https://github.com/jsell-rh/stego/actions/runs/35204243151)
+passed at installer source `5fdc97cf7fb3a0f07fe5ea17a46e93281735168a`.
+The six rejection checks passed. Real release installation and local package
+verification produced identical files and verification records. Independent
+inspection checked the exact source and completed job. Its log SHA-256 is
+`2643ce5f3f21ed6544a94a4124a669ff0f30a700d65475de89992059798b4526`.
+Hypershell regeneration scripts are not yet changed.
