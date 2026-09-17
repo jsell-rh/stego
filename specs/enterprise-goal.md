@@ -138,6 +138,16 @@ rule. Independent cleanup passed. The revised test must prove denial during
 the outage and recovery before further account creation. See the
 [browser startup record](browser-startup.md). These checks do not close C6 or H3.
 
+The revised CNPG workflow passed all 11 required tests at `cf232b0` in
+[35186648964](https://github.com/jsell-rh/hypershell-stego/actions/runs/35186648964).
+It verified provisioner outage denial and recovery, 48 startup log/span pairs
+from six browser runtime instances, all 415 generation hashes, CNPG replacement,
+and complete deletion. Independent cleanup passed at `2026-09-17T06:04:12Z`.
+No scheduling intervention was required. Hypershell remote `main` is `0175b0b`.
+The empty archive in the prior run remains unexplained and remains a failure.
+See [the startup evidence](browser-startup.md). C6, H3, and the full goal remain
+open.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.
@@ -172,10 +182,10 @@ the application must never perform automatic teardown.
 1. Check large retained-history costs in CI. The complete current deletion and
    provider discovery workflows passed, but functional checks do not prove
    production capacity.
-2. Qualify common startup diagnostics in the complete CNPG workflow and identify
-   the recovered browser initialization failure. The earlier public and CNPG dashboard workflows
-   passed, but the CNPG run needed scheduling assistance. Keep those limits
-   explicit. Live terminal behavior still requires evidence; the live Kata
+2. Identify the earlier recovered browser initialization failure. Common
+   startup diagnostics now have complete public and CNPG workflow evidence.
+   The latest CNPG run needed no scheduling intervention. Earlier results
+   retain their limits. Live terminal behavior still requires evidence; the live Kata
    test is deferred. See [the integration record](upstream-dashboard-integration.md).
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained

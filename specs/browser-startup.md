@@ -114,9 +114,8 @@ qualified Gateway console binary. Three saved dashboard images were inspected.
 Independent cleanup passed at `2026-09-17T04:30:02Z`.
 
 This is application evidence for the common startup and relay mechanisms. It
-does not identify the earlier recovered CNPG startup failure. The API runner
-needs a new result after its collection acknowledgement fix, and the complete
-CNPG workflow still needs qualification with this compiler. The full enterprise
+does not identify the earlier recovered CNPG startup failure. At that point, the API runner
+and complete CNPG workflow still needed qualification with this compiler. The full enterprise
 goal remains open.
 
 The next CNPG run, `35182853953` at Hypershell `c0c2d23`, failed during account
@@ -136,7 +135,7 @@ remain explicit in the application's `startup-cnpg-failure-evidence.json`.
 The application test now requires denied account creation during the deliberate
 outage, no account state from denied requests, and controller recovery after
 restart. It retains the production readiness rule and does not retry account
-writes. The complete revised workflow still requires qualification. The cause
+writes. The complete revised workflow was then awaiting qualification. The cause
 of the earlier recovered browser initialization failure remains unknown.
 
 Hypershell run `35184753568` at `fdd11d3` passed all 11 application tests,
@@ -148,3 +147,28 @@ cleanup at `2026-09-17T05:36:59Z` found no remaining test resources or lease.
 No scheduling intervention was required. The consumer collector now retains
 available evidence and reports missing required files, while still failing the
 gate. The compiler revision remains `83592be`; runtime code is unchanged.
+
+## Verified CNPG workflow
+
+Hypershell `cf232b0` passed all 11 required tests in
+[35186648964](https://github.com/jsell-rh/hypershell-stego/actions/runs/35186648964).
+The complete browser workflow took 737.75 seconds. All 1,359 source hashes
+match the tested commit. All 415 generated-file hashes match the initial and
+final snapshots and the saved archive. The console image matches its verified
+module binary. Three management console instances and three Gateway console
+instances supplied 48 matching startup log/span pairs, complete metrics, and
+no failed pairs. Three dashboard screenshots were reviewed.
+
+The deliberate provisioner outage denied account creation for both Gateways.
+Controllers recovered without account write retries or changes to SQL and
+credential identities. The final artifact matches an independent live capture.
+CNPG primary replacement, namespace recovery, denied access, encryption,
+three-account cleanup, final deletion, and correlated PostgreSQL telemetry
+passed. Independent cleanup at `2026-09-17T06:04:12Z` found no test resources,
+allocations, volumes, or held lease. No scheduling intervention was required.
+
+Hypershell remote `main` is `0175b0b` and includes this evidence. The compiler
+pin remains `83592be`. The previous empty archive and recovered browser startup
+failure remain unexplained. This result qualifies the current CNPG startup
+workflow; it does not close production capacity, live Kata isolation, or the
+full enterprise goal.

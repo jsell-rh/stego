@@ -81,11 +81,11 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell default branch `b21604b` pins all three modules to common registry
-and compiler revision `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. Only two
+Hypershell default branch `0175b0b` pins all three modules to common registry
+and compiler revision `83592bee5a17de6936cf521b94629e2a225a8d37`. Only two
 application archetypes remain in its local registries. The complete public
-workflow passed at `e8bb965`, and the complete CNPG dashboard workflow passed at
-`aed33a9`. Both retained all three generation manifests and independent cleanup
+workflow passed at `bf83eef`, and the complete CNPG dashboard workflow passed at
+`cf232b0`. Both retained all three generation manifests and independent cleanup
 evidence. See the [current application record](upstream-dashboard-integration.md).
 
 Hypershell runtime revision `399a41b` uses this model for its API,
@@ -111,6 +111,6 @@ workflow at `e8bb965` establishes the deployed dashboard behavior described
 above. The later expanded CNPG workflow is recorded in the
 [integration record](upstream-dashboard-integration.md).
 
-These Hypershell changes are on remote `main` at `b21604b` and the development
+These Hypershell changes are on remote `main` at `0175b0b` and the development
 branch. Earlier checkouts at `d6b1fe3` still contain the old local copies.
 Generated runtime files remain committed for review and repeated generation.

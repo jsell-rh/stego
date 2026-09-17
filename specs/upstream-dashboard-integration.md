@@ -6,13 +6,18 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell default branch `b21604b` contains the qualified application and uses
+Hypershell default branch `0175b0b` contains the qualified application and uses
 the pinned STEGO registry and compiler
-`db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
+`83592bee5a17de6936cf521b94629e2a225a8d37`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
 confidential browser clients, telemetry, deployment, and shared lifecycle
 operations. Hypershell supplies Gateway placement and access rules.
+
+The current complete CNPG workflow passed at `cf232b0` in
+[35186648964](https://github.com/jsell-rh/hypershell-stego/actions/runs/35186648964).
+It includes provisioner recovery and complete startup telemetry. No scheduling
+intervention was required. See [the verified startup workflow](browser-startup.md).
 
 The upstream dashboard build passed at `52db843` in
 [35164983445](https://github.com/jsell-rh/hypershell-stego/actions/runs/35164983445).
