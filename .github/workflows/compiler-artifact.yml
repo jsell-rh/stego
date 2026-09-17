@@ -40,6 +40,8 @@ jobs:
     timeout-minutes: 25
     outputs:
       artifact-id: ${{ steps.artifact.outputs.artifact-id }}
+      binary-sha256: ${{ steps.build.outputs.binary-sha256 }}
+      record-sha256: ${{ steps.build.outputs.record-sha256 }}
     env:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
@@ -55,11 +57,21 @@ jobs:
           timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_artifact.py
           timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_verification.py
       - name: Build twice with separate source trees and caches
+        id: build
         run: |
           timeout --signal=TERM --kill-after=5s 18m python3 -B scripts/check-compiler-artifact.py \
             --source "$GITHUB_WORKSPACE" --revision "$GITHUB_SHA" \
             --work "$RUNNER_TEMP/compiler-builds" --output "$RUNNER_TEMP/compiler-artifact" \
             --go "$(command -v go)"
+          python3 - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'compiler-artifact'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, name in [('binary-sha256', 'stego-linux-amd64'), ('record-sha256', 'build.json')]:
+                  with (root / name).open('rb') as source:
+                      output.write(key + '=' + hashlib.file_digest(source, 'sha256').hexdigest() + '\n')
+          PY
       - name: Save the checked compiler and build record
         id: artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -88,6 +100,28 @@ jobs:
           artifact-ids: ${{ needs.linux-amd64.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/compiler-artifact
+      - name: Require the exact bytes checked by the build job
+        env:
+          BINARY_SHA256: ${{ needs.linux-amd64.outputs.binary-sha256 }}
+          RECORD_SHA256: ${{ needs.linux-amd64.outputs.record-sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, re, stat
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'compiler-artifact'
+          for key, name, limit in [('BINARY_SHA256', 'stego-linux-amd64', 64 << 20), ('RECORD_SHA256', 'build.json', 1 << 20)]:
+              expected = os.environ[key]
+              if not re.fullmatch('[0-9a-f]{64}', expected):
+                  raise SystemExit('The build job did not supply a valid digest')
+              descriptor = os.open(root / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+              with os.fdopen(descriptor, 'rb') as source:
+                  info = os.fstat(source.fileno())
+                  if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= limit:
+                      raise SystemExit('The downloaded input is not a bounded regular file')
+                  digest = hashlib.file_digest(source, 'sha256').hexdigest()
+              if digest != expected:
+                  raise SystemExit('The downloaded bytes differ from the checked build')
+          PY
       - name: Sign the compiler and build record
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4

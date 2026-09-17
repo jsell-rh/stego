@@ -7,6 +7,8 @@ build job retains read-only repository permission. Only the signing job has
 OIDC and attestation write permission.
 
 The signing job retrieves the build job's exact artifact ID from the same run.
+It requires both downloaded file hashes to match the build job's outputs before
+it permits signing. A download warning cannot bypass this explicit comparison.
 It signs the executable and `build.json` with a pinned `actions/attest` action.
 The action creates a SLSA provenance statement and a Sigstore signature. These
 are the [GitHub artifact attestation mechanisms](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
