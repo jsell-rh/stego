@@ -31,3 +31,18 @@ The generated runtime tests check unchanged workload fields, command and typed
 API agreement, repeat generation, invalid identities, and rejection of both
 namespace and cluster permission grants. This contract does not add related
 namespace bindings or remove the shared-cluster Sandbox guard.
+
+## Focused evidence
+
+Source `436147e59eecc96a9a72ab17c401aa7d69d91569` passed
+[run 35225786869](https://github.com/jsell-rh/stego/actions/runs/35225786869),
+job `105216899026`. Independent checks matched the exact source archive and
+confirmed all 11 generated renderer tests. These include the three new account
+checks and nine invalid generated-identity cases. Repeat generation passed.
+The generated source checks the complete resource list before scope filtering.
+
+The runtime log SHA-256 is
+`60521390ec61a88be2fdb1cd81521fd2b25ef854a0c6b95a869087e9acd0a890`.
+The generated renderer SHA-256 is
+`0ad4ef95c73ecdc617ddfca1520025f48a94ab39ed7ca964613993a4ad15b559`.
+This evidence does not qualify a release or a live consumer deployment.
