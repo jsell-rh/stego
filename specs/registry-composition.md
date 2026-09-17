@@ -81,23 +81,29 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell default branch `0175b0b` pins all three modules to common registry
+Hypershell default branch `9e627a0` pins all three modules to common registry
 and compiler revision `83592bee5a17de6936cf521b94629e2a225a8d37`. Only two
-application archetypes remain in its local registries. The complete public
-workflow passed at `bf83eef`, and the complete CNPG dashboard workflow passed at
-`cf232b0`. Both retained all three generation manifests and independent cleanup
-evidence. See the [current application record](upstream-dashboard-integration.md).
+application archetypes remain in its local registries. No common component
+declarations remain there. The complete public workflow passed again at
+`0175b0b` in [run 35188311004](https://github.com/jsell-rh/hypershell-stego/actions/runs/35188311004).
+All 1,360 source hashes and 415 generated-file hashes matched. Its cleanup
+check verified the completed workflow's resources while the next authorized
+API test ran in its own namespace. The complete CNPG dashboard workflow passed
+at `cf232b0`; the later main CNPG check is a separate result. See the
+[current application record](upstream-dashboard-integration.md).
+
+The management UI in `components/web-console` and upstream dashboard inputs
+in `components/gateway-dashboard` remain application inputs. The committed
+`out`, `console/out`, and `gateway-console/out` directories remain generated
+output. They are not alternate copies of the compiler or its templates.
+
+## Earlier integration evidence
 
 Hypershell runtime revision `399a41b` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
 compiler to `8e0fae6f28276e192e8497c8acad487c765f3bb5`. Its local registries
 contain two application archetypes and no common component declarations.
 Application package paths are selected through `component_namespaces`.
-
-The management UI in `components/web-console` and upstream dashboard inputs
-in `components/gateway-dashboard` remain application inputs. The committed
-`out`, `console/out`, and `gateway-console/out` directories remain generated
-output. They are not alternate copies of the compiler or its templates.
 
 The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35161331243)
 verified composed Git and local inputs, repeated generation, dependencies,
@@ -111,6 +117,5 @@ workflow at `e8bb965` establishes the deployed dashboard behavior described
 above. The later expanded CNPG workflow is recorded in the
 [integration record](upstream-dashboard-integration.md).
 
-These Hypershell changes are on remote `main` at `0175b0b` and the development
-branch. Earlier checkouts at `d6b1fe3` still contain the old local copies.
+Earlier checkouts at `d6b1fe3` still contain the old local copies.
 Generated runtime files remain committed for review and repeated generation.

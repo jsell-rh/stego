@@ -106,3 +106,8 @@ runs. Each run made two isolated builds. Independent inspection found identical
 compiler bytes and identical build records across both runs. This adds a
 repeat on another hosted runner; both runs still use the same build procedure,
 Go toolchain, and hosting provider.
+
+The main-branch full compiler repeat,
+[35189507480](https://github.com/jsell-rh/stego/actions/runs/35189507480), passed
+all six jobs at the same exact `7b75de6` source. This is a separate result from
+the artifact comparison. It does not close the remaining C3 requirements.
