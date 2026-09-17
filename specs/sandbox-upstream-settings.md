@@ -71,10 +71,18 @@ not establish that every supported runtime needs either adjustment. Root inside
 a VM is also different from root on the host. The current source review alone
 cannot establish the required workspace behavior.
 
-First prove which changes remain necessary and their effect on workspace
-behavior. Check supported upstream settings and a small upstream fix before
-asking the user to select a service or a maintained fork. Keep Pod rejection
-rules separate: requiring an allocated account and a selected runtime does not
-require a service that changes Pods.
+The user then selected the current Hypershell and OpenShell setup. Keep the
+upstream workspace user and socket-volume behavior. Do not add a mutation
+service, a maintained fork, or a higher Kubernetes baseline for these fields.
+The Hypershell prototype's mutation policy and beta feature setup are being
+removed. Its previous Kata results remain historical evidence, not current
+compatibility evidence for unchanged upstream Pods.
+
+Continue the separate allocation and permission boundary through STEGO. The
+reference's declared privileged SCC binding belongs to the selected Sandbox
+account in its allocated namespace; it must not grant application workers the
+ability to change cluster policy. Pod rejection rules remain separate from
+setup changes. A declared runtime restriction is optional and does not select
+a runtime or require a mutation service.
 Any reusable admission service, certificate lifecycle, validation, and telemetry
 belong in STEGO. Hypershell must retain only its OpenShell integration policy.
