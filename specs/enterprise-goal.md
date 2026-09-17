@@ -270,10 +270,14 @@ composition change; C3 through C7 and H1 through H3 remain open.
   Gateway destinations. Supported DNS-aware providers are allowed; reject
   unsupported configurations and Technology Preview features.
 - Remove the database catalog and `database_id`. Reject retired request fields.
-  Support co-located external PostgreSQL or CNPG, with a separate logical
-  database and restricted login per Gateway. Deployment-backed databases are
-  removed. RDS creation belongs to external Terraform; PostgreSQL fixtures are
-  authorized for the current tests.
+  Use only operator-supplied, co-located PostgreSQL, with a separate logical
+  database and restricted login per Gateway. The user adopted
+  [Hypershell PR #300](https://github.com/openshift-online/hypershell/pull/300)
+  on 2026-09-17. This replaces the earlier CNPG requirement. Hypershell must not
+  create database servers or select providers. RDS creation belongs to external
+  Terraform; bounded PostgreSQL fixtures are authorized for the current tests.
+  Keep reusable SQL provisioning, access checks, deletion, and telemetry in
+  STEGO. Preserve earlier CNPG evidence as historical results.
 - Use public TLS passthrough and an operator-selected issuer. Internal trust is
   a separate explicit input.
 - Keep the upstream per-Gateway dashboard. Generate its common authentication,
