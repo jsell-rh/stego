@@ -176,82 +176,71 @@ check while another live cluster workflow is active.
 
 ## Consumer installation checks
 
-Hypershell uses the common compiler on its test branch. At `ad7cbb3`, the hosted
-browser workflow passed in run `35238144248`. Three browser instances each
-supplied all eight startup stages with correlated logs, traces, and metrics.
-Two images were reviewed. Seven image builds, entrypoint and user checks,
-231 UI tests, and three console generation checks also passed. The full core
-job failed in the namespace-count fixture. The hosted fixture does not run the
-real Gateway workload.
+Hypershell `51567dea428fecbc844dc4b67aea4afde82ffcad` passed the complete hosted
+CI run [35241823877](https://github.com/jsell-rh/hypershell-stego/actions/runs/35241823877).
+Independent log checks confirmed 720 cases, 313 top-level core tests, three
+generation checks, and container cleanup. The core log SHA-256 is
+`288a97e4b684581c8231b825786d9e9918d845fc96cc16df8890ed90df293a78`.
+Four live-only tests remain assigned to separate cluster checks.
 
-The server accepted dry runs for five policy changes and six additions.
-Only allocator, worker, and fixture inspector permissions change. Five other
-manifests remain equal. The policy has not been installed.
+Seven image builds passed their entrypoint and user checks. The UI jobs passed
+231 tests and three console generation checks. The hosted browser workflow
+passed in 100.93 seconds. Three browser instances each supplied all eight
+startup stages with matching logs, traces, and metrics. Fixture and service
+cleanup passed, and both saved browser images were reviewed. The browser log
+SHA-256 is
+`39da80ebcafa387987c60984acda89cc4f1c05ac85bb495fae3c6294925be977`.
+This hosted fixture does not run the real Gateway workload.
 
-The server check found two fixture defects. The inventory check assumed exactly
-19 resources, and the comparison rejected an omitted empty variable list.
-Hypershell `67cbac1` replaces the fixed count with exact recorded identities.
-It rejects missing, extra, duplicate, or replaced resources. The comparison
-accepts absent, null, or empty policy variables but preserves other values.
-All 31 focused Python tests passed.
-
-Hypershell `519b178` also checks the actual running Pods. It uses each
-Deployment's label selector and a list limit of four. The check requires one
-current, ready Pod with the expected namespace, account, explicit token setting,
-and UID. A terminating Pod can overlap its replacement but cannot establish
-readiness. Both Pod UIDs are included in the workflow evidence.
+The new workflow check reads actual Pods through each Deployment's label
+selector, with a list limit of four. It requires one current, ready Pod with
+the expected namespace, account, explicit token setting, and UID. A terminating
+Pod can overlap its replacement but cannot establish readiness. Both Pod UIDs
+are included in the live workflow evidence.
 
 [Run 35239610431](https://github.com/jsell-rh/hypershell-stego/actions/runs/35239610431)
-passed at `519b1781cbb9fda2d4f73fe3220942e53f4b5909`. Independent checks confirmed
-all 12 workload account-readiness cases and 36 Pod-evidence cases with race
-detection. The test log SHA-256 is
+passed all 12 workload account-readiness cases and 36 Pod-evidence cases with
+race detection at `519b178`. Its policy artifact matched all 1,441 source files
+and the published compiler records. The focused test log SHA-256 is
 `0a446eb059bbace93a696ce541b5f928134cf35d17f816b2effd1c969918108a`.
-The policy artifact matches all 1,441 source files and the published compiler
-records. All six manifests are byte-identical to the earlier reviewed plan.
-No generated runtime or policy change was needed for these evidence checks.
+A complete source comparison with `51567de` found only two changed test fixtures.
+The runtime, compiler selection, rendering inputs, and six policy manifests
+remain equal.
 
-The complete live consumer workflow remains required. The prepared policy
-update requires successful core application checks and an empty test
-installation. The operator login and restricted CI credential were refreshed.
-The intervening API repeat passed all 52 required tests; independent cleanup
-found no remaining API test resources or held lease at 15:22 UTC on 2026-09-17.
-No account-policy update has been applied. The live workflow must still prove
-account use and recovery with the new runtime and Pod checks.
+The operator installed the reviewed policy after the hosted checks and empty
+cluster checks passed. Independent API reads at 16:12:40 UTC on 2026-09-17
+confirmed all 25 resources, 19 retained object UIDs, six new object UIDs, and
+successful type checks for all six admission policies. The immutable
+installation record matched all six manifest hashes. Test resources were absent
+and the shared test lease was free. Validation was installed before the
+allocator received account-write permissions. The workload worker has account
+read access and cannot create or patch accounts.
 
-The core run passed 682 cases but failed
+The complete public Gateway workflow is now running at the same source in
+[35245165722](https://github.com/jsell-rh/hypershell-stego/actions/runs/35245165722).
+It must prove account use on real Pods, denied worker writes, restart and
+namespace replacement, the normal Gateway workflow, and complete cleanup.
+Installation readback and hosted CI do not replace that evidence. Hypershell
+adoption remains under qualification until this live gate passes.
+
+## Retained fixture failures
+
+The server dry run first exposed a fixed 19-resource inventory check and a
+comparison that rejected an omitted empty variable list. Hypershell `67cbac1`
+uses exact recorded identities and rejects missing, extra, duplicate, or
+replaced resources. Its comparison accepts absent, null, or empty variables
+but preserves other values. All 31 focused Python tests passed.
+
+Core run `35238144248` later passed 682 cases but failed
 `TestNamespaceCountWorkflowThroughGeneratedWorker`. Its TLS namespace fixture
-omitted the declared account annotations. The generated namespace check rejected
-that response before the worker became ready. Hypershell `96cbd4d` uses the
-common `ServiceAccountName` API to supply both annotations. The runtime check
-remains in place.
+omitted the new account annotations. The generated namespace check rejected
+that response before the worker became ready. Fix `96cbd4d` uses the common
+`ServiceAccountName` API to supply both annotations. The runtime check remains
+in place, and the complete core run above passed the fixed workflow.
 
-The next CI run found an incomplete installation fixture before image build.
-Hypershell `51567de` adds the namespace, Kubernetes list fields, and qualified
-resource names to that fixture. All eight focused Python tests passed. The
-incomplete CI run was cancelled; both acceptance jobs completed container
-cleanup before a new run started. Its interrupted checks are not passes.
-
-[Run 35241823877](https://github.com/jsell-rh/hypershell-stego/actions/runs/35241823877)
-is active at `51567dea428fecbc844dc4b67aea4afde82ffcad` with both fixture fixes.
-No generated runtime or policy changed in these fixes. The account policy
-remains uninstalled. Independent operator reads at 15:41 UTC on 2026-09-17
-found no test workloads, allocations, or held test lease. The prior apply helper
-is stale and must not be used. Complete CI checks and the real account workflow
-remain required.
-
-At the same `51567de` source, independent checks confirmed seven image builds,
-entrypoint and user settings, 231 UI tests, and three console generation checks.
-The hosted browser workflow passed in 100.93 seconds. Three browser instances
-each supplied all eight startup stages with matching logs, traces, and metrics.
-Fixture and service cleanup passed. Both saved browser images were reviewed.
-The browser log SHA-256 is
-`39da80ebcafa387987c60984acda89cc4f1c05ac85bb495fae3c6294925be977`.
-The core job is still active; these results do not qualify the real account
-workflow.
-
-A comparison of all 1,441 committed files confirmed that only the two fixture
-files changed after the verified `519b178` policy plan. The runtime, compiler
-selection, rendering inputs, and all six policy manifests remain equal. The
-prepared update requires this comparison, the current full CI result, and
-independent core, image, UI, and browser evidence before it can acquire the
-cluster test lease. It has not run.
+Run `35241622590` found another incomplete installation fixture before image
+build. Fix `51567de` adds its namespace, Kubernetes list fields, and qualified
+resource names. All eight focused Python tests passed. That incomplete CI run
+was cancelled, and both acceptance jobs completed container cleanup before the
+current run started. Its interrupted checks are not passes. These fixture
+failures and their logs remain part of the qualification record.
