@@ -107,7 +107,26 @@ race detector in 220.272 seconds. The CI log SHA-256 is
 Hypershell's [source and image check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35164983445)
 at `52db843` selected this adapter and passed. Independent comparison verified
 the complete build tree, all five generated DOM files, all 77 captured assets,
-repeated generation, and the published image binary. The selected bundle and
-Gateway console module must still be updated before the live gate runs.
-Source and image checks do not prove editor rendering, worker behavior,
-clipboard behavior, or performance.
+repeated generation, and the published image binary. Hypershell `c383e95` selects the checked assets and generated Gateway console
+module. The [module check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35165523591)
+verified its source, repeated generation, dependencies, and published image.
+
+The [live workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35165794034)
+at `c383e95` passed the rendered editor checks. Screenshots show separate lines,
+syntax colors, selection, and invalid-JSON feedback with a disabled submit
+button. The test also verified native keyboard input, a same-origin JSON worker,
+and a visible JSON error marker. The early document listener recorded no CSP
+violations. All 412 repeated generation hashes matched. Actual Chromium CA
+trust was checked separately.
+
+The complete workflow failed after 326.93 seconds. Its test inspection role
+could read the console state Secret but lacked the NetworkPolicy reads needed
+by the allocation verifier. The verifier correctly returned HTTP 403. The
+[application record](https://github.com/jsell-rh/hypershell-stego/blob/5f87ed6/acceptance/dashboard-style-live-evidence.json)
+retains the failure and editor evidence. Independent cleanup passed. Hypershell
+`5f87ed6` adds only the missing test policy and quota reads, with checks that
+reject broader permissions. Production roles are unchanged.
+
+Later recovery, viewer revocation, correlated dashboard telemetry, and final
+Gateway deletion still require a complete passing workflow. This result does
+not establish clipboard behavior or performance.
