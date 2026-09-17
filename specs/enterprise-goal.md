@@ -40,6 +40,25 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
+The latest failure-driven change is recorded in
+[observed client closure](observed-client-closure.md). A real Hypershell test
+failed after discovery and API/provisioner restart with compiler `0057370`.
+The unchanged test passed with `e206b41`: 20 journals survived the restart, all
+61 owned clients were removed, every closure journal authenticated, and a
+matching-name foreign client remained unchanged. Domain adapters did not change.
+The common fix passed both telemetry variants, real Keycloak, all six compiler
+jobs, separate builds, and independent signature checks. Its immutable release
+is published. Full Hypershell adoption checks are still in progress.
+
+The complete signed-compiler public and CNPG workflows passed on the preceding
+application runtime. The CNPG gate passed all 11 required tests, retained 415
+unchanged generated-file hashes, and independently verified cleanup. Its one
+secondary scheduling replacement remains an explicit fixture limitation. These
+results do not close production capacity, restore, fencing, or Sandbox isolation.
+
+The following source-specific records describe earlier steps.
+
+
 The user selected durable asynchronous Gateway deletion. The implementation
 returns HTTP 202 after durable acceptance, blocks new accounts, and retains
 visible deleting state until final cleanup. Retained account and journal scans
@@ -238,8 +257,11 @@ the application must never perform automatic teardown.
    10,000 and 100,000 synthetic grants. Known account and protected-journal
    cleanup also passed with 1,000 account rows and 2,000 provider clients over
    verified HTTPS. Median cleanup was 4.3863 seconds in a bounded protocol
-   fixture. Real Keycloak capacity, unknown-client discovery, complete process
-   recovery, other Gateway controllers, and production SLOs remain open.
+   fixture. The real unknown-client discovery and API/provisioner restart case
+   now has the bounded 61-client result above. Real Keycloak capacity, concurrent
+   discovery, state-service and database recovery, other Gateway controllers,
+   and production SLOs remain open. The production Gateway count, account count,
+   and cleanup-time target have been requested from the user.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    The latest CNPG run needed one secondary Pod replacement for scheduling.
@@ -248,9 +270,18 @@ the application must never perform automatic teardown.
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
    in the history; they do not establish DNS failover behavior.
-4. Complete the separate Sandbox allocation and permission boundary. The user
-   deferred the live Kata test because no suitable cluster is available. Record
-   this as a deferral, not evidence of runtime isolation.
+4. Complete the separate Sandbox allocation and permission boundary. This is
+   an implementation gap as well as a test deferral. At Hypershell `762824b`,
+   `gatewayworkload.New` rejects a Sandbox runtime when a control namespace is
+   configured. The trusted allocation controller has no Sandbox profile. The
+   older Sandbox path still creates its namespace and admission resources through
+   the workload client. Do not enable that path on shared clusters. Common
+   allocation, policy installation, verification, and cleanup must move through
+   STEGO's allocator; application placement, image selection, and OpenShell
+   workload rules remain domain policy. Verify namespace permissions and denied
+   writes independently of VM execution. The user deferred only the live Kata
+   test because no suitable cluster is available. That deferral is not evidence
+   of runtime isolation or permission-boundary completion.
 5. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
    telemetry coverage, full application parity, and measured capacity remain
