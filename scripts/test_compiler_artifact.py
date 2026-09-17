@@ -63,6 +63,19 @@ class ArtifactChecks(unittest.TestCase):
         self.assertFalse({"GH_TOKEN", "LD_PRELOAD", "CC"} & env.keys())
         self.assertNotIn("private", json.dumps(env))
 
+    def test_build_rejects_untrusted_sdk_before_executing_any_command(self):
+        source = self.root / "source"
+        source.mkdir()
+        go = self.root / "sdk" / "bin" / "go"
+        go.parent.mkdir(parents=True)
+        go.write_text("#!/bin/sh\necho 'go version go1.26.8 linux/amd64'\n")
+        go.chmod(0o755)
+        with patch.object(artifact, "command") as command:
+            with self.assertRaisesRegex(artifact.CheckError, "pinned official release"):
+                artifact.build(source, "a" * 40, self.root / "work", self.root / "output", go)
+            command.assert_not_called()
+        self.assertFalse((self.root / "output").exists())
+
     def test_module_records_require_checksums_and_unique_paths(self):
         value = {"Path": "example.org/module", "Version": "v1.0.0",
                  "Sum": "h1:" + base64.b64encode(b"a" * 32).decode(),

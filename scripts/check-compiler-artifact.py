@@ -18,6 +18,17 @@ import time
 
 
 GO_VERSION = "go1.26.8"
+# Reviewed against https://go.dev/dl/?mode=json&include=all. The inventory
+# records the archive's file paths, bytes, and executable bits.
+GO_RELEASE = {
+    "url": "https://dl.google.com/go/go1.26.8.linux-amd64.tar.gz",
+    "sha256": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b",
+    "size": 66897291,
+    "inventory": {
+        "sha256": "94168e19a28c7bdeaf3c281f88e3a3efab13f7d80e2694ae2dd4d71378da9289",
+        "files": 15036, "bytes": 232512886,
+    },
+}
 SETTINGS = {
     "GOENV": "off", "GOWORK": "off", "GOFLAGS": "", "GOTOOLCHAIN": "local",
     "GOOS": "linux", "GOARCH": "amd64", "GOAMD64": "v1", "CGO_ENABLED": "0",
@@ -87,6 +98,18 @@ def environment(root, goroot):
                 HOME=str(root / "home"), GOPATH=str(root / "gopath"),
                 GOMODCACHE=str(root / "modules"), GOCACHE=str(root / "cache"),
                 TMPDIR=str(root / "tmp"))
+
+
+def require_toolchain(go):
+    """Check the selected SDK before executing any of its programs."""
+    goroot = go.parent.parent
+    if go != goroot / "bin" / "go":
+        raise CheckError("The Go executable must be bin/go in the selected SDK")
+    expected = GO_RELEASE["inventory"]
+    actual = inventory(goroot, max_files=expected["files"], max_bytes=expected["bytes"])
+    if actual != expected:
+        raise CheckError("The Go SDK does not match the pinned official release")
+    return actual
 
 
 def command(args, cwd, env, *, timeout=180, limit=4 << 20):
@@ -180,11 +203,11 @@ def build(source, revision, work, output, go):
     for name in ["home", "tmp"]:
         (control / name).mkdir(parents=True, mode=0o700)
     env = environment(control, goroot)
+    toolchain = require_toolchain(go)
     if command([str(go), "version"], source, env).decode().strip() != f"go version {GO_VERSION} linux/amd64":
         raise CheckError("The selected Go toolchain does not match the build policy")
     clean_source(git, source, revision, env)
     source_identity = inventory(source, skip_git=True, max_files=20000, max_bytes=512 << 20)
-    toolchain = inventory(goroot)
     git_digest = digest(Path(git))
     results = []
     for name in ["first", "second-with-a-different-path"]:
@@ -236,7 +259,8 @@ def build(source, revision, work, output, go):
     if digest(artifact) != first["sha256"]:
         raise CheckError("The saved compiler artifact does not match")
     report = {"format": 1, "source_revision": revision, "source": source_identity,
-              "go_version": GO_VERSION, "toolchain": toolchain, "git_sha256": git_digest,
+              "go_version": GO_VERSION, "toolchain": toolchain,
+              "toolchain_release": GO_RELEASE, "git_sha256": git_digest,
               "build_flags": BUILD_FLAGS + ["-o", "<artifact>", "./cmd/stego"],
               "environment": SETTINGS, "isolated_source_trees_and_caches": 2,
               "build_module_proxy": "off", "telemetry_mode": "off", "modules": first["modules"],

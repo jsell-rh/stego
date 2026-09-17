@@ -21,7 +21,8 @@ source tree must remain clean and must match the original source inventory.
 
 The source and Go toolchain inventories contain regular-file hashes and
 executable bits. Symbolic links and special files are rejected. The check
-compares toolchain and Git executable hashes before and after both builds.
+requires the pinned official SDK inventory before the first Go command. It
+also compares toolchain and Git executable hashes before and after both builds.
 The compiler must report the selected commit, clean source, and exact Go
 version and target. A matching diagnostic record alone is insufficient: the
 two executable hashes must also match.
@@ -59,7 +60,7 @@ the unsigned build comparison described here.
 This check uses two isolated build directories on one runner with one Go
 toolchain. It tests reproducibility across source paths and caches. It does
 not establish an independent build, trusted runner operating-system identity,
-toolchain provenance, or resistance to a compromised builder. System libraries
+an independent toolchain build, or resistance to a compromised builder. System libraries
 used by the Git tool are not included in the toolchain inventory.
 
 Authenticated artifact provenance, release verification, supported-platform
@@ -136,4 +137,48 @@ The official inventory with its original executable bits has digest
 This explains the inventory difference and establishes official SDK file bytes
 for this recorded build. It does not establish which process changed the
 permissions, an independent toolchain build, or an uncompromised runner.
-The build procedure does not yet enforce this official-archive comparison.
+That historical build did not enforce this official-archive comparison. The
+current procedure below adds the check before SDK execution.
+
+## SDK preparation before execution
+
+The artifact job no longer selects Go from the runner's tool cache. It uses
+`scripts/prepare-compiler-toolchain.py` to download the fixed official archive
+over verified HTTPS. The archive URL, exact size, SHA-256, and extracted
+inventory are pinned in `scripts/check-compiler-artifact.py`. Changing the SDK
+requires a reviewed source change. No latest-version lookup occurs in CI.
+
+Preparation captures a private copy and checks its size and SHA-256 before
+archive parsing. Extraction permits regular files and directories only. It
+rejects links, devices, sparse files, repeated paths, path traversal, and special
+permission bits. File count, total size, individual file size, path length,
+and path depth have limits. Extracted files retain the official executable
+bits. The resulting inventory must equal all 15,036 pinned file records.
+The earlier cache layout with all files executable is no longer accepted.
+
+The downloader has connection, transfer, output, and process time limits. It
+uses system TLS roots and does not inherit proxy, loader, credential, or curl
+configuration. It does not follow redirects or select another source on failure.
+Preparation never executes a program from the SDK. It writes `toolchain.json`
+after the check. Failure removes the new incomplete directory; existing output
+is never replaced. The build repeats the inventory check before `go version`
+and after both builds. Its signed build record includes the official release
+identity as well as the observed toolchain inventory.
+
+For an offline SDK input, supply the archive explicitly:
+
+```sh
+python3 -B scripts/prepare-compiler-toolchain.py \
+  --archive /inputs/go1.26.8.linux-amd64.tar.gz \
+  --output /private/compiler-sdk
+```
+
+The output parent must exist. The output path must not exist. The same checksum
+and inventory rules apply to downloaded and offline input. This supplies the
+SDK only; it does not supply compiler source, modules, or application inputs.
+
+Ten small SDK checks cover capture, extraction, fixed download policy, changed
+inputs, and failure cleanup. An additional build check requires rejection of a
+substitute SDK before any command executes. The real archive preparation and
+two full compiler builds must also pass CI. These checks do not prove an
+uncompromised runner, system Python, curl, TLS store, or operating system.
