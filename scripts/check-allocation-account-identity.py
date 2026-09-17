@@ -238,7 +238,7 @@ class Check:
                    policy=CONTROL + ".widget-queue.service-accounts")
         stored_account = self.create(old_account, primary)
         old_identity = "system:serviceaccount:" + name + ":" + stored_account["metadata"]["name"]
-        policy = CONTROL + ".widget-queue.service-accounts"
+        policy = [CONTROL + ".widget-queue.service-accounts", CONTROL + ".widget-queue.allocation"]
         forged = copy.deepcopy(old_account)
         forged["metadata"]["name"] = account_name(CONTROL, owner2)
         self.probe("foreign owner account name", dry, forged, primary, policy=policy)
@@ -287,10 +287,10 @@ class Check:
         self.create(peer_account, peer)
         foreign = service_account(third)
         foreign["metadata"]["name"] = old_account["metadata"]["name"]
-        self.probe("previous installation account name rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts"])
+        self.probe("previous installation account name rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts", PEER + ".widget-queue.allocation"])
         del foreign["metadata"]["name"]
         foreign["metadata"]["generateName"] = old_account["metadata"]["name"] + "-"
-        self.probe("previous installation generateName rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts"])
+        self.probe("previous installation generateName rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts", PEER + ".widget-queue.allocation"])
         self.probe("peer installation cannot use retained grant", read,
                    user="system:serviceaccount:" + name + ":" + peer_account["metadata"]["name"])
         retained = self.get(binding)
