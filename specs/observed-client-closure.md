@@ -27,3 +27,21 @@ unchanged. CI results and application adoption are pending.
 Provider reads and remote writes are separate operations. The existing writer
 gate applies, but it cannot make an external administrator's changes atomic
 with the provider request. This change does not claim such a guarantee.
+
+## Verified branch result
+
+[Compiler run 35211690639](https://github.com/jsell-rh/stego/actions/runs/35211690639)
+passed all six jobs for `e206b41`. The full race suite passed in 34 packages.
+The three new closure tests passed with and without telemetry. The real
+Keycloak test passed in 63.10 seconds, including current and legacy clients
+without journals and unchanged mixed ownership after rejection. Provider
+container cleanup passed. The retained provider log has SHA-256
+`76fac83c4277d0013b6299f3672fc96f9aa3a3a65f49651449d63be838b93681`.
+
+[Artifact run 35211690739](https://github.com/jsell-rh/stego/actions/runs/35211690739)
+produced matching compiler bytes from two separate source trees and caches.
+Independent inspection matched all 1,199 source files, binary build identity,
+and checksums. The compiler SHA-256 is
+`93a74182dd6b90e55d703ab1f472fbba180a253177003cdee0cf7b830030b6d4`.
+This branch artifact is unsigned. Main checks, a signed package, and Hypershell
+adoption remain pending. No compiler or Go test ran on the workstation.
