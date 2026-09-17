@@ -126,8 +126,14 @@ The tested source is on remote main. Its main checks are tracked separately in
 [run 35210141631](https://github.com/jsell-rh/stego/actions/runs/35210141631),
 and its signed artifact check in
 [run 35210141579](https://github.com/jsell-rh/stego/actions/runs/35210141579).
-Those results were pending when this record was written. Hypershell keeps its
-qualified compiler pin while its live application checks finish.
+The signed artifact check passed. A separate local signature check verified
+the main workflow, exact source, binary, and build record without executing
+the compiler. Its bytes match the qualified branch artifact. The gate rejected
+a different source commit, changed compiler bytes with updated checksums, a
+changed build record, and an invalid signature bundle. Signature bundle SHA-256:
+`36e833ab2d29fc8ee48817aaef00cd814a30975acf53c1caa2e62c7fcb5421ea`.
+The main full-suite rerun is pending. Hypershell keeps its qualified compiler
+pin while its live application checks finish.
 
 ## Hypershell integration
 
