@@ -6,7 +6,7 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell candidate `e8bb965` uses the pinned STEGO registry and compiler
+Hypershell candidate `0d74978` uses the pinned STEGO registry and compiler
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
@@ -101,9 +101,25 @@ and tests its logs, traces, and metrics together. Unknown operations remain
 invalid. Both focused SQL signal tests passed in 0.015 seconds. No application
 or generated runtime code changed. See the [final cleanup record](https://github.com/jsell-rh/hypershell-stego/blob/e8bb965/acceptance/dashboard-final-cleanup-evidence.json).
 
-Final PostgreSQL telemetry, final browser log privacy, the complete public
-workflow, and the expanded CNPG gate still require a passing run. A failed run
-does not produce the final after-test generation manifest.
+[Run 35173393321](https://github.com/jsell-rh/hypershell-stego/actions/runs/35173393321)
+at `e8bb965` passed the complete public workflow in 670.99 seconds. Final SQL
+telemetry and browser log privacy passed. All four workload worker instances
+exported creation signals; three also exported linked schema logs, traces, and
+metrics. Cleanup denial and successful deletion had linked SQL signals. The
+run passed REST and gRPC access, events, restart, session key rotation, renewal,
+native dashboard and provider sign-out, recovery, and final Gateway deletion.
+
+All 412 generation hashes matched before and after the test and inside the
+saved archive. The three viewed screenshots match the terminal archive. The
+Gateway console binary matches the earlier qualified module build. Independent
+cleanup passed at `2026-09-17T02:31:24Z`; workloads and allocations were absent
+and the lease was free. See the [complete public result](https://github.com/jsell-rh/hypershell-stego/blob/0d74978/acceptance/dashboard-public-workflow-evidence.json).
+
+Later test changes require the Gateway console image record in the archive and
+require linked schema telemetry in public runs. All 20 collection cases and the
+two focused SQL signal tests passed. Application and generated runtime code did
+not change. The expanded CNPG gate remains open. This public result does not
+prove live Kata isolation, production capacity, or full application parity.
 
 ## Earlier editor integration
 

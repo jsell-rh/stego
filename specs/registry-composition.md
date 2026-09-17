@@ -81,12 +81,13 @@ a warning.
 
 ## Hypershell integration
 
-The current Hypershell candidate `e8bb965` pins all three modules to common
+The current Hypershell candidate `0d74978` pins all three modules to common
 registry and compiler revision `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`.
 Only two application archetypes remain in its local registries. The earlier
-registry checks below establish this separation. The latest complete live
-attempt passed final Gateway cleanup but failed its SQL telemetry acceptance
-check; see the [current application record](upstream-dashboard-integration.md).
+registry checks below establish this separation. The complete public dashboard
+workflow passed at `e8bb965`, including final cleanup, SQL telemetry, and all
+three generation manifests. The expanded CNPG gate remains open; see the
+[current application record](upstream-dashboard-integration.md).
 
 Hypershell runtime revision `399a41b` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and

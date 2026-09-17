@@ -92,24 +92,24 @@ upstream dashboard must now use these common parts in its complete workflow.
 
 The separate dashboard now uses the common pinned registry, generated browser
 backend, browser telemetry, and generated Monaco adapter. The latest completed
-live run, [35171991156](https://github.com/jsell-rh/hypershell-stego/actions/runs/35171991156)
-at Hypershell `4dd7d21`, passed editor behavior, SQL and namespace recovery,
+live run, [35173393321](https://github.com/jsell-rh/hypershell-stego/actions/runs/35173393321)
+at Hypershell `e8bb965`, passed the complete public workflow in 670.99 seconds.
+It passed editor behavior, SQL and namespace recovery,
 viewer membership, filtered lists, denied writes, and both access-removal paths.
 Native dashboard and Keycloak sign-out passed, as did authenticated correlation
 of dashboard telemetry, worker telemetry, and rendered service-account use.
 Three automation identities used the actual Gateway and were closed by durable
 deletion. Main Gateway deletion removed its namespace, SQL state, roles, and
-keys. With the identity fixture's corrected 900-second deadline, cleanup of all
-Gateways and final managed-cluster deletion passed. The supplied PostgreSQL
-server and installation data remained. The final SQL telemetry check failed
-because its operation list omitted the documented managed-schema operation.
-Hypershell `1f6f846` corrects this test and adds a passing regression check for
-schema logs, traces, and metrics. Independent cluster cleanup passed.
+keys. Cleanup of all Gateways and final managed-cluster deletion passed. The
+supplied PostgreSQL server and installation data remained. Final PostgreSQL
+telemetry, including schema operations, and browser log privacy passed. All 412
+generation hashes matched before and after the test and in the saved archive.
+Independent cluster cleanup passed at `2026-09-17T02:31:24Z`.
 The earlier HTTP 409 did not recur; its cause remains unknown. Full CI passed
-302 tests with four declared live skips. The generated application must still
-pass the complete cluster workflow. See the [current integration record](upstream-dashboard-integration.md)
+302 tests with four declared live skips. The generated dashboard must still
+pass the expanded CNPG workflow. See the [current integration record](upstream-dashboard-integration.md)
 and [native sign-out evidence](browser-logout-origin.md). These results do not
-close H1, H2, H3, or the separate dashboard gate.
+close H1, H2, H3, or the expanded CNPG gate.
 
 ## User decisions that remain in force
 
@@ -145,9 +145,9 @@ the application must never perform automatic teardown.
 1. Check large retained-history costs in CI. The complete current deletion and
    provider discovery workflows passed, but functional checks do not prove
    production capacity.
-2. Complete the separate upstream per-Gateway dashboard workflow. Its common
-   local transport and browser-session foundation have passed their recorded
-   checks, but that does not prove application deployment or terminal behavior.
+2. Complete the expanded CNPG workflow for the upstream per-Gateway dashboard.
+   The public deployment, recovery, and deletion workflow passed. CNPG and live
+   terminal behavior require their own evidence; the live Kata test is deferred.
    See [the integration record](upstream-dashboard-integration.md).
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
