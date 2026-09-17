@@ -295,6 +295,14 @@ failover, the production capacity target, live Kata isolation, or the complete
 enterprise goal. The common account allocation gate and consumer adoption
 remain separate work.
 
+The common service-account allocation gate also passed all twenty live probes,
+twelve policy type checks, and five namespace incarnations. Independent checks
+confirmed runner and manifest identity, all responses, and removal of 49
+resource paths. See the [issuer evidence](allocation-service-account-issuer-evidence.json).
+The common component can now proceed to publication and consumer adoption.
+Pod token authentication, Sandbox isolation, and the full consumer workflow
+with this new component remain separate gates.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.

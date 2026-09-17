@@ -158,3 +158,28 @@ Independent log checks confirmed all six jobs, all 34 compiler race-test
 packages, both generated examples, SQL credential preparation, and browser
 startup telemetry. The four new live issuer probes still need a separate run.
 This result does not qualify those probes or consumer adoption.
+
+## Isolated issuer rule
+
+The extended live gate passed all 20 probes with runner source `b8f5dd8` and
+the same qualified manifests from generator source `845977f`. It reused one
+namespace name five times, with distinct namespace UIDs. All twelve policies
+passed type checks. The gate created no Pods.
+
+The final namespace had another installation marker and no generated account
+annotations. It had no overlapping owner-account rule. The issuer rules denied
+the old installation's explicit account name and generated-name prefix. A
+literal account name and the new installation's own generated name remained
+valid. This closes the four pending issuer probes described above.
+
+Independent checks matched the exact runner and manifest bytes, all twenty
+responses, namespace and account identities, and removal of all 49 recorded
+resource paths. The test lease was released at `2026-09-17T14:38:31Z`. The
+[issuer evidence](allocation-service-account-issuer-evidence.json) retains the
+exact sources and limits. The earlier failed attempts remain failed records.
+
+These results qualify the common account component for publication. They use
+operator impersonation and do not prove Pod token authentication, a third
+allocator runtime, Sandbox VM isolation, or Hypershell adoption. The consumer
+must use a checked compiler package and pass its complete workflow after
+adoption.
