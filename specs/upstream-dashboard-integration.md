@@ -6,6 +6,53 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
+Hypershell candidate `ca8814f` uses the pinned STEGO registry and compiler
+`db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
+Gateway console keep local application composition and generated output. They
+contain no copied common component declarations. STEGO supplies sessions,
+confidential browser clients, telemetry, deployment, and shared lifecycle
+operations. Hypershell supplies Gateway placement and access rules.
+
+The upstream dashboard build passed at `52db843` in
+[35164983445](https://github.com/jsell-rh/hypershell-stego/actions/runs/35164983445).
+It uses the common browser client, telemetry, and dynamic style support. Its
+editor uses the checked local Monaco source adapter. See
+[browser dynamic styles](browser-dynamic-styles.md).
+
+[Live run 35167085887](https://github.com/jsell-rh/hypershell-stego/actions/runs/35167085887)
+at `5f87ed6` passed native editor input, layout, syntax colors, selection,
+JSON worker behavior, and the invalid JSON marker. No document content-policy
+violation occurred in those checks. It also passed SQL isolation and recovery,
+controller and workload namespace replacement, viewer membership, filtered
+lists, denied writes, both access-removal paths, and dashboard reload with the
+retained session. The test then failed after 504.29 seconds: the generated
+backend rejected the native sign-out form with HTTP 403. Independent cleanup
+passed at `2026-09-17T00:53:49Z` with no test resources or held test lease.
+The [application record](https://github.com/jsell-rh/hypershell-stego/blob/5429aae/acceptance/dashboard-signout-live-evidence.json)
+keeps the passing recovery evidence separate from that failure.
+
+STEGO now corrects the confirmation document's referrer policy. The
+[native browser regression check](browser-logout-origin.md) reproduced the old
+`Origin: null` rejection and passed session removal, token revocation, and
+provider redirect with the new policy. Strict Origin and CSRF checks remain.
+This uses a test provider endpoint; real Keycloak sign-out remains part of the
+full application gate.
+
+The generated Gateway console at `a19b611` passed
+[35168795823](https://github.com/jsell-rh/hypershell-stego/actions/runs/35168795823).
+All 129 archived source files and 124 downloaded module output and dependency
+files matched. Repeated generation, dependency checks, builds, and the published
+image binary and digest passed. Candidate `ca8814f` selects that exact module
+and records its final dependency hashes.
+
+[Run 35169043109](https://github.com/jsell-rh/hypershell-stego/actions/runs/35169043109)
+tests the new candidate through the public Gateway workflow. Its result must be
+checked before qualification. The earlier live failure did not prove provider
+sign-out, authenticated correlation of all three dashboard telemetry signals,
+or final Gateway deletion. The complete application and CNPG gates remain open.
+
+## Earlier editor integration
+
 STEGO compiler `8e0fae6` supplies the browser session backend, captured assets,
 browser client and telemetry packages, local application transport, deployment
 renderer, and owned image pull Secret operations. Its common runtime passed
