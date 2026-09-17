@@ -27,7 +27,6 @@ jobs:
       GOWORK: 'off'
       STEGO_ALLOCATION_NAMESPACE: stego-allocation-accounts-ci
       STEGO_ALLOCATION_PREFIX: stego-accounts-ci-
-      STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-accounts
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -37,6 +36,8 @@ jobs:
           go-version: '1.26.8'
           cache: true
       - name: Check generated account identities and policies
+        env:
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-accounts
         run: |
           set -o pipefail
           mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
