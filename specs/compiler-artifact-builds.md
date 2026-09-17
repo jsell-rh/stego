@@ -4,7 +4,7 @@ The `Compiler artifact check` workflow builds the Linux amd64 compiler twice
 from one exact Git commit. Each build uses a separate source tree, home,
 temporary directory, module cache, and build cache. It compares the executable
 bytes, module checksum records, and compiler version records before it saves
-an artifact. The first CI result for this check is pending.
+an artifact. The first CI result is recorded below.
 
 The check uses Go 1.26.8, `CGO_ENABLED=0`, `GOAMD64=v1`, `-trimpath`,
 `-buildvcs=true`, and `-mod=readonly`. It disables workspace files, user Go
@@ -62,3 +62,32 @@ Authenticated artifact provenance, release verification, supported-platform
 coverage, and complete application build inputs remain part of C3. The existing
 compiler and registry pins in Hypershell are unchanged. A successful result
 from this workflow must be inspected before any further completion claim.
+
+## Verified build result
+
+[Artifact run 35188962614](https://github.com/jsell-rh/stego/actions/runs/35188962614)
+passed at `7b75de63973119c8d754b9fef860a7f0883dd9a4`. Both isolated builds
+produced the same 31,706,776-byte executable. Its SHA-256 is
+`d302afe52ae36c675178c7366da9569a5e5e1943d7bfef0f26261b1229e5f126`.
+The build-record SHA-256 is
+`77ba6bd855fdf37290744883e78092b8482e1fc108283f7d81c2c2271ccccd40`.
+
+Independent verification of the downloaded artifact passed. All 1,181 source
+files match a Git archive of that exact commit. All 21 module records match
+its `go.sum`. Static inspection of the executable found 20 matching dependency
+records and the expected source revision, clean state, target, disabled CGO,
+and path-removal setting. This inspection did not execute the downloaded
+compiler on the workstation.
+
+The source inventory covers 9,390,237 bytes with digest
+`d54e1a544afca2ea024c0bf3b0dc6437d3fc11d8bbe2df2d1ee692638b5b1bf2`.
+The CI toolchain inventory covers 15,036 files and 232,512,886 bytes with digest
+`8a104c8dbc63490ec8282e81bf2c637062fe7a92e8c176a17cd38ce7408e0d8e`.
+The toolchain inventory is a recorded build input; it is not independent
+proof of toolchain provenance.
+
+Seven small control tests passed locally and in CI. They include changed,
+untracked, and ignored source files; links and size limits; inherited settings;
+module checksums; output limits; and termination of children after their parent
+exits. The existing full compiler suite is a separate check. These results
+verify this build procedure, not the remaining C3 requirements listed above.

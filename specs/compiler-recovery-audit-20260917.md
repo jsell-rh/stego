@@ -54,3 +54,12 @@ and complete build input identity remain part of C3.
 Do not replace these open requirements with repeated output hashes. Repeated
 generation and safe journal recovery are necessary evidence, but they do not
 establish compiler artifact trust or complete build input identity.
+
+## Later compiler artifact evidence
+
+The [controlled artifact build](compiler-artifact-builds.md) passed at `7b75de6`.
+Two clean source trees with separate caches produced identical compiler bytes.
+The downloaded binary, module records, embedded build settings, and all source
+hashes were independently checked. This adds exact compiler artifact identity
+and a fixed Go build procedure. It does not authenticate releases or establish
+complete application build inputs. C3 remains active.

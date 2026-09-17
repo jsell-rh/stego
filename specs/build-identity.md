@@ -37,7 +37,8 @@ manifests, and controlled builds remain required work.
 
 The [compiler artifact build check](compiler-artifact-builds.md) adds two
 isolated CI builds, exact executable digests, fixed Go settings, and source,
-toolchain, and module records. Its first result is pending. It does not turn
+toolchain, and module records. Its first CI result and independent artifact
+inspection passed at `7b75de6`. It does not turn
 the diagnostic metadata into authenticated release provenance.
 
 The pinned Hypershell generation script uses a fresh compiler checkout and a
