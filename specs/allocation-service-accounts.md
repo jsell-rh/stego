@@ -238,3 +238,20 @@ remains uninstalled. Independent operator reads at 15:41 UTC on 2026-09-17
 found no test workloads, allocations, or held test lease. The prior apply helper
 is stale and must not be used. Complete CI checks and the real account workflow
 remain required.
+
+At the same `51567de` source, independent checks confirmed seven image builds,
+entrypoint and user settings, 231 UI tests, and three console generation checks.
+The hosted browser workflow passed in 100.93 seconds. Three browser instances
+each supplied all eight startup stages with matching logs, traces, and metrics.
+Fixture and service cleanup passed. Both saved browser images were reviewed.
+The browser log SHA-256 is
+`39da80ebcafa387987c60984acda89cc4f1c05ac85bb495fae3c6294925be977`.
+The core job is still active; these results do not qualify the real account
+workflow.
+
+A comparison of all 1,441 committed files confirmed that only the two fixture
+files changed after the verified `519b178` policy plan. The runtime, compiler
+selection, rendering inputs, and all six policy manifests remain equal. The
+prepared update requires this comparison, the current full CI result, and
+independent core, image, UI, and browser evidence before it can acquire the
+cluster test lease. It has not run.
