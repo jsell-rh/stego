@@ -70,3 +70,19 @@ Hypershell has imported generated output from this release on its work branch.
 Hosted regeneration passed all three modules. The real unknown-client workflow
 and complete application checks remain in progress. The compiler result alone
 does not close those application requirements.
+
+## Hypershell failure and recovery
+
+The same real-provider test failed with compiler `0057370`, then passed with
+`e206b41` in [Hypershell run 35213091188](https://github.com/jsell-rh/hypershell-stego/actions/runs/35213091188).
+The test body, Keycloak fixture, and domain adapters did not change. Hosted
+regeneration changed only the common provider closure, embedded CLI compiler
+identity, and three state files.
+
+Twenty durable journals and a checkpoint survived API/provisioner restart.
+All 61 owned clients were then absent, all closure journals authenticated, and
+the account registration scope sealed. Account rows remained absent. Account
+creation was denied before and after restart. A matching-name foreign client
+remained unchanged. The check passed in 119.55 seconds, with provider and hosted
+service cleanup confirmed. This is application evidence for the common fix;
+it does not establish production capacity. Full application checks remain open.
