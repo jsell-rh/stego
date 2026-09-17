@@ -27,6 +27,10 @@ worker does not interpret these settings; enforcement belongs to Kubernetes
 admission. See the [admission reference](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/)
 and [RuntimeClass reference](https://kubernetes.io/docs/concepts/containers/runtime-class/).
 
-Generator, hosted, and live admission qualification are pending. This change is
-one part of the Sandbox allocation work. It does not enable Sandbox execution,
-change workspace setup, or close the deferred live Kata test.
+The [focused CI run](https://github.com/jsell-rh/stego/actions/runs/35265424651)
+passed three generator checks, 18 invalid-input cases, and 15 runner safety
+checks at `fe4e88b`. Independent checks matched the source archive and both
+rendered installations. The full race suite and live admission check remain
+pending. This change is one part of the Sandbox allocation work. It does not
+enable Sandbox execution, change workspace setup, require a mutation webhook,
+or close the deferred live Kata test.

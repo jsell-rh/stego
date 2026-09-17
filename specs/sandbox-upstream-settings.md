@@ -64,7 +64,17 @@ and feature state must also be checked; the Kubernetes version alone is not a
 support claim. See the
 [Kubernetes reference](https://kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/).
 
-The user has not selected a webhook or a higher cluster baseline. First prove
-which upstream changes remain necessary and their effect on workspace behavior.
+On 2026-09-17, the user asked why a webhook or fork was needed. Neither choice
+is an established requirement. The workspace user change reduces privileges;
+the memory volume addressed an earlier Kata socket failure. These reasons do
+not establish that every supported runtime needs either adjustment. Root inside
+a VM is also different from root on the host. The current source review alone
+cannot establish the required workspace behavior.
+
+First prove which changes remain necessary and their effect on workspace
+behavior. Check supported upstream settings and a small upstream fix before
+asking the user to select a service or a maintained fork. Keep Pod rejection
+rules separate: requiring an allocated account and a selected runtime does not
+require a service that changes Pods.
 Any reusable admission service, certificate lifecycle, validation, and telemetry
 belong in STEGO. Hypershell must retain only its OpenShell integration policy.
