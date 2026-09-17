@@ -280,7 +280,7 @@ class Check:
         assert retained["metadata"]["uid"] == binding["metadata"]["uid"] and retained["subjects"] == binding["subjects"]
         self.remove(stored_second)
         third = namespace(name, PEER, owner1)
-        self.create(third, peer)
+        stored_third = self.create(third, peer)
         quota["metadata"]["labels"] = third["metadata"]["labels"]
         self.create(quota, peer)
         peer_account = service_account(third)
@@ -295,8 +295,29 @@ class Check:
                    user="system:serviceaccount:" + name + ":" + peer_account["metadata"]["name"])
         retained = self.get(binding)
         assert retained["metadata"]["uid"] == binding["metadata"]["uid"] and retained["subjects"] == binding["subjects"]
+        # An operator can allocate the name to another installation without
+        # either tested installation's owner-account rules. This isolates the
+        # issuer guard: an overlapping owner guard cannot supply the denial.
+        self.remove(stored_third)
+        foreign_namespace = namespace(name, "stego-allocation-accounts-foreign-ci", owner1)
+        del foreign_namespace["metadata"]["annotations"]
+        self.create(foreign_namespace)
+        literal_account = {"apiVersion": "v1", "kind": "ServiceAccount",
+                           "metadata": {"namespace": name, "name": "foreign-worker"},
+                           "automountServiceAccountToken": False}
+        self.probe("foreign literal account remains available", dry, literal_account, allowed=True)
+        issuer_policies = [control + ".widget-queue.account-issuers" for control in [CONTROL, PEER]]
+        self.probe("foreign profile cannot recreate previous issuer", dry, old_account, policy=issuer_policies)
+        foreign_generated = copy.deepcopy(old_account)
+        del foreign_generated["metadata"]["name"]
+        foreign_generated["metadata"]["generateName"] = old_account["metadata"]["name"] + "-"
+        self.probe("foreign profile cannot generate previous issuer", dry, foreign_generated, policy=issuer_policies)
+        foreign_account = copy.deepcopy(literal_account)
+        foreign_account["metadata"]["name"] = account_name("stego-allocation-accounts-foreign-ci", owner1)
+        self.probe("foreign profile can use its own issuer", dry, foreign_account, allowed=True)
         self.result.update(retained_grant_unchanged=True, same_owner_recovery_allowed=True,
-                           owner_reuse_denied=True, installation_reuse_denied=True)
+                           owner_reuse_denied=True, installation_reuse_denied=True,
+                           issuer_guard_checked_without_owner_guards=True)
 
     def cleanup(self):
         self.deadline = time.monotonic() + 180

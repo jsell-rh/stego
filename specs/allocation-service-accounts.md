@@ -2,7 +2,9 @@
 
 This change is under qualification. Hypershell does not yet use it. The shared
 cluster Sandbox guard remains in place. Cross-namespace binding configuration
-and live admission tests are still required before that guard can be removed.
+and consumer deployment checks are still required before that guard can be
+removed. The initial live admission gate passed; see the
+[evidence and its limits](allocation-service-accounts-evidence.md).
 
 An allocation profile can declare `service_accounts` with one through eight
 aliases. Each alias is a distinct DNS label with at most ten bytes. `default`
@@ -112,6 +114,14 @@ It must also deny an unmarked replacement created by an ordinary namespace
 creator, and permit another registered allocator under its own ownership rules.
 That check requires no privileged Pod or Kata runtime. The deferred VM test
 does not replace this admission and authorization check.
+
+The runner also checks the issuer rule without overlapping owner-account rules.
+The operator creates a replacement namespace with another installation marker
+and no generated account annotations. Ordinary literal names and that
+installation's generated name must remain valid. The old installation's name
+and generated-name prefix must be denied by an exact `account-issuers` policy.
+An owner-account policy denial cannot satisfy these two probes. This focused
+case does not install or qualify a third allocator runtime.
 
 The live check runner is `scripts/check-allocation-account-identity.py`. Use
 the primary and peer manifests from the focused CI artifact. Keep their source
