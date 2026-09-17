@@ -84,7 +84,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	for _, p := range config.Profiles {
 		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
-		for _, alias := range p.ServiceAccounts {
+		for _, alias := range allocationAccountIdentities(p) {
 			nsCase += " && " + allocationServiceAccountAnnotationCEL(config, "variables.o", alias)
 		}
 		namespaceCases = append(namespaceCases, "("+nsCase+")")
@@ -132,9 +132,12 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 			if b.Namespace == "allocated" {
 				subjectNamespace = "namespaceObject.metadata.name"
 			}
+			if b.Namespace == "profile" {
+				subjectNamespace = celString(b.SubjectPrefix) + " + namespaceObject.metadata.name.substring(" + fmt.Sprint(len(p.Prefix)) + ")"
+			}
 			serviceAccount := celString(b.ServiceAccount)
 			accountCheck := "true"
-			managedAccount := b.Namespace == "allocated" && allocationHasServiceAccount(p, b.ServiceAccount)
+			managedAccount := (b.Namespace == "allocated" && allocationHasServiceAccount(p, b.ServiceAccount)) || b.Namespace == "profile"
 			if managedAccount {
 				serviceAccount = allocationServiceAccountCEL(b.ServiceAccount)
 			}
@@ -200,7 +203,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || object.metadata.labels["+celString(p.OwnerLabel)+"] == oldObject.metadata.labels["+celString(p.OwnerLabel)+"])")
 	}
 	for _, p := range config.Profiles {
-		for _, alias := range p.ServiceAccounts {
+		for _, alias := range allocationAccountIdentities(p) {
 			key := celString(allocationServiceAccountPrefix + alias)
 			oldHas := "(has(oldObject.metadata.annotations) && " + key + " in oldObject.metadata.annotations)"
 			newHas := "(has(object.metadata.annotations) && " + key + " in object.metadata.annotations)"

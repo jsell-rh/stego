@@ -134,8 +134,9 @@ func TestAllocationValidation(t *testing.T) {
 	}
 }
 
-func TestAllocationManifests(t *testing.T) {
-	c := allocationContext()
+func TestAllocationManifests(t *testing.T) { testAllocationManifests(t, allocationContext()) }
+func testAllocationManifests(t *testing.T, c gen.Context) {
+	t.Helper()
 	managedAccounts := os.Getenv("STEGO_ALLOCATION_SERVICE_ACCOUNTS") == "1"
 	if managedAccounts {
 		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["service_accounts"] = []any{"gateway"}

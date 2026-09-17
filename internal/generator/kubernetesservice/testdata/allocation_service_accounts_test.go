@@ -287,3 +287,167 @@ func TestAllocationServiceAccountReadinessRejectsInvalidInput(t *testing.T) {
 		t.Fatal("invalid account request reached Kubernetes")
 	}
 }
+
+func accountPeerFixture(t *testing.T, cycle bool) (*Allocator, *api) {
+	t.Helper()
+	a, s := accountFixture(t)
+	p := a.config.Profiles[0]
+	peer := p
+	peer.Name = "jobs"
+	peer.Prefix = "jobs-"
+	peer.ServiceAccounts = []string{"runner"}
+	peer.Bindings = []binding{{Role: "data", Namespace: "profile", SubjectProfile: p.Name, SubjectPrefix: p.Prefix, ServiceAccount: "gateway"}}
+	a.config.Profiles = append(a.config.Profiles, peer)
+	if cycle {
+		a.config.Profiles[0].Bindings = append(a.config.Profiles[0].Bindings, binding{Role: "data", Namespace: "profile", SubjectProfile: peer.Name, SubjectPrefix: peer.Prefix, ServiceAccount: "runner"})
+	}
+	return a, s
+}
+
+func TestAllocationServiceAccountPeerGrant(t *testing.T) {
+	a, s := accountPeerFixture(t, false)
+	ctx := context.Background()
+	if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	peer := a.config.Profiles[1]
+	owner := kube.Owner{peer.OwnerLabel: "owner-1"}
+	collection, want := a.bindingObject(peer, "jobs-12345678", 0, owner)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	got := s.objects[collection+"/"+kube.String(want, "metadata", "name")]
+	subjects, ok := got["subjects"].([]any)
+	if !ok || len(subjects) != 1 {
+		t.Fatal("related permission has no exact subject")
+	}
+	subject, ok := subjects[0].(map[string]any)
+	if !ok || subject["namespace"] != "tenant-12345678" || subject["name"] != a.serviceAccountName(peer, "owner-1", "gateway") {
+		t.Fatal("grant selected a different namespace or owner")
+	}
+	imported := a.serviceAccountName(peer, "owner-1", "gateway")
+	if _, ok := s.objects["/api/v1/namespaces/jobs-12345678/serviceaccounts/"+imported]; ok {
+		t.Fatal("imported account was created in the destination")
+	}
+}
+
+func TestAllocationServiceAccountPeerReadiness(t *testing.T) {
+	cases := map[string]struct {
+		pending bool
+		change  func(*Allocator, *api)
+	}{
+		"missing namespace": {true, func(a *Allocator, s *api) { delete(s.objects, "/api/v1/namespaces/tenant-12345678") }},
+		"missing account": {true, func(a *Allocator, s *api) {
+			delete(s.objects, "/api/v1/namespaces/tenant-12345678/serviceaccounts/"+a.serviceAccountName(a.config.Profiles[0], "owner-1", "gateway"))
+		}},
+		"other owner": {false, func(a *Allocator, s *api) {
+			s.objects["/api/v1/namespaces/tenant-12345678"]["metadata"].(map[string]any)["labels"].(map[string]any)[a.config.Profiles[0].OwnerLabel] = "owner-2"
+		}},
+		"terminating namespace": {true, func(a *Allocator, s *api) {
+			s.objects["/api/v1/namespaces/tenant-12345678"]["metadata"].(map[string]any)["deletionTimestamp"] = "2026-09-17T00:00:00Z"
+		}},
+		"denied account read": {false, func(a *Allocator, s *api) { s.failAccountRead = true }},
+		"wrong token setting": {false, func(a *Allocator, s *api) {
+			s.objects["/api/v1/namespaces/tenant-12345678/serviceaccounts/"+a.serviceAccountName(a.config.Profiles[0], "owner-1", "gateway")]["automountServiceAccountToken"] = true
+		}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a, s := accountPeerFixture(t, false)
+			ctx := context.Background()
+			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+				t.Fatal(err)
+			}
+			s.mu.Lock()
+			tc.change(a, s)
+			s.mu.Unlock()
+			err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1")
+			if err == nil || errors.Is(err, ErrPending) != tc.pending {
+				t.Fatal("invalid peer did not stop the grant", err)
+			}
+			peer := a.config.Profiles[1]
+			collection, want := a.bindingObject(peer, "jobs-12345678", 0, kube.Owner{peer.OwnerLabel: "owner-1"})
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if _, exists := s.objects[collection+"/"+kube.String(want, "metadata", "name")]; exists {
+				t.Fatal("permission granted before peer readiness")
+			}
+		})
+	}
+}
+
+func TestAllocationServiceAccountPeerCycle(t *testing.T) {
+	a, _ := accountPeerFixture(t, true)
+	ctx := context.Background()
+	if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); !errors.Is(err, ErrPending) {
+		t.Fatal("missing peer must remain pending", err)
+	}
+	if err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1"); err != nil {
+		t.Fatal("second profile did not recover", err)
+	}
+	if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+		t.Fatal("cyclic account dependency did not recover", err)
+	}
+}
+
+func TestAllocationServiceAccountPeerNamespaceRecovery(t *testing.T) {
+	a, s := accountPeerFixture(t, false)
+	ctx := context.Background()
+	for _, p := range a.config.Profiles {
+		if err := a.Ensure(ctx, p.Name, p.Prefix+"12345678", "owner-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.mu.Lock()
+	oldUID := kube.String(s.objects["/api/v1/namespaces/tenant-12345678"], "metadata", "uid")
+	for path := range s.objects {
+		if path == "/api/v1/namespaces/tenant-12345678" || strings.Contains(path, "/namespaces/tenant-12345678/") {
+			delete(s.objects, path)
+		}
+	}
+	s.mu.Unlock()
+	if err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1"); !errors.Is(err, ErrPending) {
+		t.Fatal("absent source namespace was accepted", err)
+	}
+	if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1"); err != nil {
+		t.Fatal("source recovery failed", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if kube.String(s.objects["/api/v1/namespaces/tenant-12345678"], "metadata", "uid") == oldUID {
+		t.Fatal("fixture did not replace the source namespace")
+	}
+	peer := a.config.Profiles[1]
+	collection, want := a.bindingObject(peer, "jobs-12345678", 0, kube.Owner{peer.OwnerLabel: "owner-1"})
+	if !kube.Contains(s.objects[collection+"/"+kube.String(want, "metadata", "name")], want) {
+		t.Fatal("source recovery changed the grant identity")
+	}
+}
+
+func TestAllocationServiceAccountPeerRejectsChangedSeal(t *testing.T) {
+	a, s := accountPeerFixture(t, false)
+	ctx := context.Background()
+	for _, p := range a.config.Profiles {
+		if err := a.Ensure(ctx, p.Name, p.Prefix+"12345678", "owner-1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.mu.Lock()
+	ns := s.objects["/api/v1/namespaces/jobs-12345678"]
+	ns["metadata"].(map[string]any)["annotations"].(map[string]any)[serviceAccountAnnotation+"gateway"] = a.serviceAccountName(a.config.Profiles[1], "owner-2", "gateway")
+	before := len(s.writes)
+	s.mu.Unlock()
+	if err := a.Ensure(ctx, "jobs", "jobs-12345678", "owner-1"); err == nil || errors.Is(err, ErrPending) {
+		t.Fatal("changed imported identity was accepted", err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.writes) != before {
+		t.Fatal("changed imported identity caused a write")
+	}
+}

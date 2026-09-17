@@ -18,7 +18,7 @@ type allocationRole struct {
 	Name, Scope string
 	Rules       []any
 }
-type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace string }
+type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type allocationIdentityField struct{ Field, Key string }
 type allocationNetworkPeer struct {
 	Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string
@@ -287,7 +287,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			}
 			for key := range b {
 				switch key {
-				case "role", "external_role", "service_account", "namespace", "external_namespace":
+				case "role", "external_role", "service_account", "namespace", "external_namespace", "subject_profile":
 				default:
 					return result, fmt.Errorf("unknown allocation binding field")
 				}
@@ -297,11 +297,16 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			sa, _ := b["service_account"].(string)
 			ns, _ := b["namespace"].(string)
 			externalNS, _ := b["external_namespace"].(string)
+			subjectProfile, _ := b["subject_profile"].(string)
+			_, hasSubjectProfile := b["subject_profile"]
+			if (ns == "profile") != hasSubjectProfile || (hasSubjectProfile && !label.MatchString(subjectProfile)) {
+				return result, fmt.Errorf("profile allocation subject requires one declared profile")
+			}
 			_, hasExternalNS := b["external_namespace"]
 			if (ns == "external") != hasExternalNS || (hasExternalNS && !label.MatchString(externalNS)) {
 				return result, fmt.Errorf("external allocation subject requires one literal namespace")
 			}
-			if !label.MatchString(sa) || (ns != "control" && ns != "allocated" && ns != "external") || (role == "") == (external == "") || (role != "" && roles[role] == "") || (external != "" && !resourceName.MatchString(external)) {
+			if !label.MatchString(sa) || (ns != "control" && ns != "allocated" && ns != "external" && ns != "profile") || (role == "") == (external == "") || (role != "" && roles[role] == "") || (external != "" && !resourceName.MatchString(external)) {
 				return result, fmt.Errorf("invalid allocation binding target")
 			}
 			if role != "" && roles[role] == "cluster" && ns != "allocated" {
@@ -310,14 +315,36 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 			if ns == "allocated" && len(p.ServiceAccounts) != 0 && !allocationHasServiceAccount(p, sa) {
 				return result, fmt.Errorf("allocated binding requires a declared ServiceAccount alias")
 			}
-			key := role + "/" + external + "/" + sa + "/" + ns + "/" + externalNS
+			key := role + "/" + external + "/" + sa + "/" + ns + "/" + externalNS + "/" + subjectProfile
 			if seen[key] {
 				return result, fmt.Errorf("duplicate allocation binding")
 			}
 			seen[key] = true
-			p.Bindings = append(p.Bindings, allocationBinding{Role: role, ExternalRole: external, ServiceAccount: sa, Namespace: ns, ExternalNamespace: externalNS})
+			p.Bindings = append(p.Bindings, allocationBinding{Role: role, ExternalRole: external, ServiceAccount: sa, Namespace: ns, ExternalNamespace: externalNS, SubjectProfile: subjectProfile})
 		}
 		result.Profiles = append(result.Profiles, p)
+	}
+	// Related subjects share the owner domain and namespace suffix. The caller
+	// cannot supply another namespace or an independent owner for the grant.
+	for i := range result.Profiles {
+		p := &result.Profiles[i]
+		for j := range p.Bindings {
+			b := &p.Bindings[j]
+			if b.Namespace != "profile" {
+				continue
+			}
+			var peer *allocationProfile
+			for k := range result.Profiles {
+				if result.Profiles[k].Name == b.SubjectProfile {
+					peer = &result.Profiles[k]
+					break
+				}
+			}
+			if peer == nil || peer.Name == p.Name || peer.OwnerLabel != p.OwnerLabel || peer.SuffixLength != p.SuffixLength || len(p.ServiceAccounts) == 0 || !allocationHasServiceAccount(*peer, b.ServiceAccount) {
+				return result, fmt.Errorf("related allocation subject requires a distinct profile with the same owner domain and suffix length and a declared account alias")
+			}
+			b.SubjectPrefix = peer.Prefix
+		}
 	}
 	workers, err := configList(ctx, "workers")
 	if err != nil {
@@ -360,7 +387,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 	for _, p := range result.Profiles {
 		for _, b := range p.Bindings {
 			totalBindings++
-			if b.Namespace != "allocated" && b.ServiceAccount == result.Allocator {
+			if b.Namespace != "allocated" && b.Namespace != "profile" && b.ServiceAccount == result.Allocator {
 				return result, fmt.Errorf("allocator cannot receive an allocated role")
 			}
 		}

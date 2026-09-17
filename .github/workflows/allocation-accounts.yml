@@ -29,6 +29,7 @@ jobs:
       GOWORK: 'off'
       STEGO_ALLOCATION_NAMESPACE: stego-allocation-accounts-ci
       STEGO_ALLOCATION_PREFIX: stego-accounts-ci-
+      STEGO_ALLOCATION_PEER_PREFIX: stego-account-jobs-ci-
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -49,7 +50,7 @@ jobs:
           git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
           go mod verify
           go test -v -race -count=1 -mod=readonly -timeout=6m ./internal/generator/kubernetesservice \
-            -run '^(TestAllocationServiceAccountValidation|TestAllocationServiceAccountManifests|TestGeneratedAllocationServiceAccountRuntime)$' \
+            -run '^(TestAllocationServiceAccountValidation|TestAllocationServiceAccountManifests|TestGeneratedAllocationServiceAccountRuntime|TestAllocationPeerBindingsValidation|TestAllocationPeerBindingsManifests)$' \
             | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
           python3 - "$STEGO_ALLOCATION_ARTIFACTS" <<'PY'
           from pathlib import Path
@@ -58,8 +59,8 @@ jobs:
           outer = (root / 'tests.log').read_text()
           runtime = (root / 'runtime.log').read_text()
           for log, names in [
-              (outer, ['TestAllocationServiceAccountValidation', 'TestAllocationServiceAccountManifests', 'TestGeneratedAllocationServiceAccountRuntime']),
-              (runtime, ['TestAllocationServiceAccountIdentity', 'TestAllocationServiceAccountsFollowLimits', 'TestAllocationServiceAccountRejectsChangedSeal', 'TestAllocationServiceAccountNamespaceReuse', 'TestAllocationServiceAccountConcurrentOwners', 'TestAllocationServiceAccountQuotaFailure', 'TestAllocationServiceAccountReadiness', 'TestAllocationServiceAccountReadinessRejectsInvalidInput']),
+              (outer, ['TestAllocationServiceAccountValidation', 'TestAllocationServiceAccountManifests', 'TestGeneratedAllocationServiceAccountRuntime', 'TestAllocationPeerBindingsValidation', 'TestAllocationPeerBindingsManifests']),
+              (runtime, ['TestAllocationServiceAccountIdentity', 'TestAllocationServiceAccountsFollowLimits', 'TestAllocationServiceAccountRejectsChangedSeal', 'TestAllocationServiceAccountNamespaceReuse', 'TestAllocationServiceAccountConcurrentOwners', 'TestAllocationServiceAccountQuotaFailure', 'TestAllocationServiceAccountReadiness', 'TestAllocationServiceAccountReadinessRejectsInvalidInput', 'TestAllocationServiceAccountPeerGrant', 'TestAllocationServiceAccountPeerReadiness', 'TestAllocationServiceAccountPeerCycle', 'TestAllocationServiceAccountPeerNamespaceRecovery', 'TestAllocationServiceAccountPeerRejectsChangedSeal']),
           ]:
               if '--- FAIL:' in log or '--- SKIP:' in log:
                   raise SystemExit('An account check failed or was skipped')
