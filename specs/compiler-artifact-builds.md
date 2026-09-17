@@ -50,6 +50,10 @@ SHA256SUMS` checks the saved file bytes. These checksums cannot authenticate
 themselves. An attacker who replaces both files can also replace the checksum
 list. Do not treat this record as a signed release or an installation policy.
 
+The separate [origin verification procedure](compiler-provenance.md) adds
+main-branch signatures and a fixed consumer policy. Its result is separate from
+the unsigned build comparison described here.
+
 ## Limits and next work
 
 This check uses two isolated build directories on one runner with one Go
