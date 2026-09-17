@@ -37,4 +37,26 @@ Do not treat one replica or this strategy as a complete single-writer guarantee.
 
 Regression tests check the existing default, both explicit choices, invalid
 values and types, stable generation, and equality of all output outside the
-selected RPC strategy. CI and Hypershell adoption remain pending.
+selected RPC strategy. Hypershell adoption remains pending.
+
+## Compiler evidence
+
+Source `4fc880bcec6bc2555aca6b5c86bb8b893eaf8254` passed all six jobs in
+[compiler run 35214371129](https://github.com/jsell-rh/stego/actions/runs/35214371129).
+Independent log checks confirmed both explicit rollout choices, the unchanged
+default, and rejection of empty, unknown, incorrect-case, null, boolean, and
+object values. The full race suite passed in 34 packages. Compiler log SHA-256:
+`7e1a719a16b8a62d4023516fcee22e815d35775d3c46f0679f83afc244c10085`.
+
+[Artifact run 35214370811](https://github.com/jsell-rh/stego/actions/runs/35214370811)
+built the compiler twice from separate source trees and caches. Independent
+inspection matched all 1,200 source files, the checksum file, and the embedded
+revision. Compiler SHA-256:
+`380a6e4f2bfcdc0b8dc067b1ac908d34583ef8b69ffeca7e40b5cb461537979d`.
+Build record SHA-256:
+`f5bbad36b9c72395902cc4777f0bbf8c16381c4054da8ebaba18e8c543947b57`.
+No compiler execution or Go test ran on the developer workstation.
+
+The tested source is on remote `main`. Its main signature and test checks must
+finish before release qualification. These compiler results do not establish
+live application behavior or distributed writer exclusion.
