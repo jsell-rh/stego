@@ -84,6 +84,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	for _, p := range config.Profiles {
 		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
+		items = append(items, allocationPodObjects(config, p, owner("namespaceObject", p)+" && "+pattern("request.namespace", p))...)
 		for _, alias := range allocationAccountIdentities(p) {
 			nsCase += " && " + allocationServiceAccountAnnotationCEL(config, "variables.o", alias)
 		}

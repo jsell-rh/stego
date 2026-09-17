@@ -1,0 +1,62 @@
+name: Allocation Pod restrictions
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/allocation-pods.yml'
+      - 'internal/generator/kubernetesservice/allocation*'
+      - 'registry/components/kubernetes-service/component.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: allocation-pods-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1GiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      STEGO_ALLOCATION_PREFIX: stego-pods-ci-
+      STEGO_ALLOCATION_NAMESPACE: stego-pods-control-ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check and render Pod restrictions
+        env:
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-pods
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
+          git rev-parse HEAD > "$STEGO_ALLOCATION_ARTIFACTS/source-commit"
+          git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
+          go mod verify
+          go test -v -race -count=1 -mod=readonly -timeout=3m ./internal/generator/kubernetesservice \
+            -run '^TestAllocationPod(Validation|Policy|Manifests)$' \
+            | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
+          git diff --exit-code
+      - name: Render the second installation
+        env:
+          STEGO_ALLOCATION_NAMESPACE: stego-pods-peer-ci
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-pods/peer
+        run: go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestAllocationPodManifests$'
+      - name: Save Pod restriction evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: allocation-pods-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/allocation-pods
+          retention-days: 14
+          if-no-files-found: error

@@ -224,6 +224,12 @@ func testAllocationManifests(t *testing.T, c gen.Context) {
 			}
 		}
 		expectedPolicies := 4
+		for _, raw := range c.ComponentConfig["allocation_profiles"].([]any) {
+			p := raw.(object)
+			if p["pod_runtime_class"] != nil || p["pod_service_account"] != nil {
+				expectedPolicies++
+			}
+		}
 		if managedAccounts {
 			expectedPolicies += 3
 		}
