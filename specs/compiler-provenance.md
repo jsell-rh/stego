@@ -71,8 +71,8 @@ Eight small local checks cover the wrapper's failure paths and input capture.
 They use a substitute signature checker. They do not prove cryptography.
 The main signing job separately verifies real signatures, then requires denial
 for a different source commit, a changed executable with matching replacement
-checksums, a changed build record, and an invalid signature bundle. No success
-for that live check is claimed until its result is inspected.
+checksums, a changed build record, and an invalid signature bundle. Valid inputs
+must pass again after these rejection checks.
 
 A successful signing job saves `compiler-provenance-<full-source-commit>` with
 the verified compiler, build record, checksums, bundle, verification record, and
@@ -112,4 +112,29 @@ The authenticated compiler SHA-256 was
 The build-record SHA-256 was
 `68c4936b7ab3912f87b78765d439cd36266f23ab17d6c9d2cfb895f555d09014`.
 This proves the corrected consumer command against those retained signatures.
-The corrected workflow still needs its own complete CI result.
+The corrected workflow result is recorded below.
+
+## Corrected main workflow result
+
+[Main run 35192910718](https://github.com/jsell-rh/stego/actions/runs/35192910718)
+passed at `8417750b65088fe60d70c291b184b501a0d6198d`. Both the controlled build
+and signing jobs passed. The consumer check accepted both real signatures,
+rejected all four changed inputs, and accepted the valid inputs again.
+
+An independent check with GitHub CLI 2.87.3 verified the downloaded signatures
+at `2026-09-17T07:11:22Z`. It required the exact source and signing identity
+described above. The signed executable, build record, and checksum list matched
+the independently checked branch build byte for byte. The downloaded compiler
+was not executed locally.
+
+| Input | SHA-256 |
+| --- | --- |
+| Compiler, 31,706,776 bytes | `03e72ba550a4acad042f02b1bae9fe9673691a9da8c725ea38ffd75117c2dabd` |
+| Build record | `fc01abde1a52def0cb2e7366d29832bc3f565638841fe2a54b4383d50d056217` |
+| Signature bundle | `d169d688082c6273c73578ba06b628de11d08198b50b379cb38e5a67432ca30a` |
+
+All six compiler jobs passed for this source in
+[branch run 35192150899](https://github.com/jsell-rh/stego/actions/runs/35192150899).
+The separate main repeat is not part of the signature result. The failed first
+signature run remains a failure. Permanent release delivery and complete
+offline application builds remain open.

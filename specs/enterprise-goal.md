@@ -169,7 +169,12 @@ first main CI verification failed because of mutually exclusive CLI options.
 The corrected command passed independent checks with the retained real
 signatures, including rejection cases. The corrected source `8417750` passed
 all six compiler jobs and the controlled artifact build, then reached remote
-`main`. Its new main signature gate is a separate required result. No failed
+`main`. The corrected main signature gate passed in
+[35192910718](https://github.com/jsell-rh/stego/actions/runs/35192910718).
+Independent verification accepted both signatures and confirmed that the
+compiler and build record match the checked branch build. All four rejection
+cases passed in CI, followed by another successful check of valid input.
+Permanent release delivery and complete offline builds remain open. No failed
 or incomplete run is treated as a pass.
 
 ## User decisions that remain in force
