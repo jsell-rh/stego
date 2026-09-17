@@ -47,7 +47,11 @@ func RelayBrowserTelemetry(ctx context.Context, signal string, data []byte, serv
 	ctx, cancel := context.WithTimeout(metadata.NewOutgoingContext(ctx, metadata.MD{}), ExportTimeout)
 	defer cancel()
 	resource := func() *resourcepb.Resource {
-		return &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{Key: "service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: service}}}}}
+		return &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+			{Key: "service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: service}}},
+			{Key: "stego.relay.service.name", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: runtime.service.service}}},
+			{Key: "stego.relay.instance.id", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: runtime.instance}}},
+		}}
 	}
 	scope := func() *commonpb.InstrumentationScope {
 		return &commonpb.InstrumentationScope{Name: "stego.browser", Version: "1.0.0"}
