@@ -81,16 +81,22 @@ a warning.
 
 ## Hypershell integration
 
-Hypershell default branch `9e627a0` pins all three modules to common registry
+Hypershell source `0175b0b` pins all three modules to common registry
 and compiler revision `83592bee5a17de6936cf521b94629e2a225a8d37`. Only two
 application archetypes remain in its local registries. No common component
 declarations remain there. The complete public workflow passed again at
 `0175b0b` in [run 35188311004](https://github.com/jsell-rh/hypershell-stego/actions/runs/35188311004).
 All 1,360 source hashes and 415 generated-file hashes matched. Its cleanup
 check verified the completed workflow's resources while the next authorized
-API test ran in its own namespace. The complete CNPG dashboard workflow passed
-at `cf232b0`; the later main CNPG check is a separate result. See the
-[current application record](upstream-dashboard-integration.md).
+API test ran in its own namespace. The main API gate passed all 51 required
+checks, and the core suite passed 307 top-level tests. The complete main CNPG
+workflow passed all 11 required tests in
+[run 35188311598](https://github.com/jsell-rh/hypershell-stego/actions/runs/35188311598).
+All 415 generated-file hashes matched. Independent cleanup confirmed that its
+resources and both observed volumes were absent. This run needed one secondary
+database Pod replacement for scheduling; it does not prove fixture placement
+without intervention. See the
+[main CNPG evidence](https://github.com/jsell-rh/hypershell-stego/blob/9dabb6c/acceptance/main-cnpg-workflow-evidence.md).
 
 The management UI in `components/web-console` and upstream dashboard inputs
 in `components/gateway-dashboard` remain application inputs. The committed
