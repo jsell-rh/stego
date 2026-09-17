@@ -138,3 +138,13 @@ outage, no account state from denied requests, and controller recovery after
 restart. It retains the production readiness rule and does not retry account
 writes. The complete revised workflow still requires qualification. The cause
 of the earlier recovered browser initialization failure remains unknown.
+
+Hypershell run `35184753568` at `fdd11d3` passed all 11 application tests,
+including deliberate provisioner outage and controller recovery. Its complete
+browser test took 742.70 seconds. The outer CI runner then failed during
+evidence collection and saved an empty archive. This remains a failed gate:
+final generation and telemetry artifacts cannot be verified. Independent
+cleanup at `2026-09-17T05:36:59Z` found no remaining test resources or lease.
+No scheduling intervention was required. The consumer collector now retains
+available evidence and reports missing required files, while still failing the
+gate. The compiler revision remains `83592be`; runtime code is unchanged.
