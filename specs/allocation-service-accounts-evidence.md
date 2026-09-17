@@ -34,11 +34,17 @@ started. Its job-level environment used the unavailable `runner` context.
 Commit `2628ab1` moved that setting into the running step. The later focused
 checks passed. The failed attempt remains a failure.
 
-The full suite passed at the earlier source `e1efece`, but that source predates
-the namespace reservation and installation guards. It does not qualify the
-latest source. The latest full suite and a real Kubernetes admission and
-authorization gate remain required. Hypershell has not adopted this component
-version. No compiler or Go test ran on the developer workstation.
+The full suite passed at source `2587af5` in
+[run 35223389766](https://github.com/jsell-rh/stego/actions/runs/35223389766).
+Independent checks confirmed all six jobs, all 34 packages in the race suite,
+the SQL lifecycle and browser schema checks, and both generated examples.
+The compiler job log SHA-256 is
+`42667217494bd76fe8b0dc4eca2fedfeb77428f0c9e68c0af6da1811f87f1286`.
+The SQL job log SHA-256 is
+`8f5a523bfc9428780a6aee2c72cc9c6b32a4ee06b2c48cae72cd45deac52d160`.
+A real Kubernetes admission and authorization gate remains required.
+Hypershell has not adopted this component version. No compiler or Go test ran
+on the developer workstation.
 
 The branch artifact check also passed at the same source in
 [run 35223389876](https://github.com/jsell-rh/stego/actions/runs/35223389876),
@@ -49,4 +55,4 @@ SHA-256 is `14ae4f89a34b1bb65fab90c8def7e96e45687bfe715b15fe066e9ef17298df6f`.
 
 The branch artifact has no release signature. The signature job was skipped,
 as required for a branch build. No release was published. This result does
-not replace the full suite or the live admission gate.
+not replace the live admission gate.
