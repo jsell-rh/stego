@@ -112,3 +112,27 @@ It must also deny an unmarked replacement created by an ordinary namespace
 creator, and permit another registered allocator under its own ownership rules.
 That check requires no privileged Pod or Kata runtime. The deferred VM test
 does not replace this admission and authorization check.
+
+The live check runner is `scripts/check-allocation-account-identity.py`. Use
+the primary and peer manifests from the focused CI artifact. Keep their source
+commit and hashes with the result. Run it with an explicit saved context:
+
+```sh
+python3 -B scripts/check-allocation-account-identity.py \
+  --oc /path/to/oc --context SAVED_CONTEXT \
+  --manifest /path/to/manifest.json \
+  --peer-manifest /path/to/peer/manifest.json \
+  --evidence /persistent/path/new-account-check
+```
+
+The runner requires both dedicated control namespaces to be absent. It creates
+no Pod and does not install the rendered Deployment. It checks both allocator
+installations, namespace reuse, account-name forgery, annotation changes, and
+access through a retained cross-namespace grant. Denied admission probes must
+name the expected policy. A transport failure is not an access-control pass.
+
+The check has a ten-minute limit and a separate three-minute cleanup limit.
+Each API call has a ten-second request limit. The creation journal records
+resource UIDs. Cleanup sends UID preconditions and does not delete a replacement
+object. A run passes only if both the checks and cleanup pass. Do not run this
+check while another live cluster workflow is active.
