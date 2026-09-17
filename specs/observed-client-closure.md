@@ -22,7 +22,7 @@ Regression tests cover direct and prepared closure, restart, repeated deletion,
 late clients, rejected and unconfirmed saves, changed identity, mixed ownership,
 and ownership changes between requests. The real Keycloak test covers current
 and legacy clients without journals and confirms that mixed ownership remains
-unchanged. CI results and application adoption are pending.
+unchanged. Compiler results are recorded below. Application checks remain in progress.
 
 Provider reads and remote writes are separate operations. The existing writer
 gate applies, but it cannot make an external administrator's changes atomic
@@ -45,3 +45,28 @@ and checksums. The compiler SHA-256 is
 `93a74182dd6b90e55d703ab1f472fbba180a253177003cdee0cf7b830030b6d4`.
 This branch artifact is unsigned. Main checks, a signed package, and Hypershell
 adoption remain pending. No compiler or Go test ran on the workstation.
+
+
+## Main and immutable release
+
+[Main run 35212383523](https://github.com/jsell-rh/stego/actions/runs/35212383523)
+passed all six jobs for the same source `e206b41`. Independent inspection again
+confirmed the new tests in both telemetry variants, the real Keycloak result,
+and 34 passing packages. The main compiler log SHA-256 is
+`61642f5d30f18f54a0714595530f9ece20cde1033422f113f0b9cf82baec72c1`.
+
+[Signed artifact run 35212383507](https://github.com/jsell-rh/stego/actions/runs/35212383507)
+passed. Local signature verification matched the exact source, main workflow,
+compiler bytes, and build record. The four rejection checks also passed.
+
+The [immutable compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-e206b41cb079280d9ed467f3cd3e7bd5d6037cdc)
+has ID `390633473`. All four draft assets were downloaded and matched against
+the independently authenticated package before publication. The published tag
+names the exact commit, and release immutability is enabled. The common
+installer then accepted the published package with the same verification record.
+No compiler or Go test was executed on the workstation.
+
+Hypershell has imported generated output from this release on its work branch.
+Hosted regeneration passed all three modules. The real unknown-client workflow
+and complete application checks remain in progress. The compiler result alone
+does not close those application requirements.
