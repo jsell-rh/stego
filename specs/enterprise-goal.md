@@ -87,7 +87,8 @@ passed all eleven required live tests in `35235034044`. Independent checks
 matched 1,434 source files, 416 generated hashes, compiler and image identity,
 and live recovery records. Independent cleanup found no test resources or held
 lease. The separate API and journal gates passed 52 and 28 required tests.
-The hosted browser gate passed; its core repeat remains in progress.
+The hosted browser and core repeat passed. The core log confirms 311 top-level
+tests, 670 test cases, three generation checks, and container cleanup.
 See [the database contract and evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/external-gateway-databases.md).
 
 The earlier hosted core run at `4897fc1` failed a cleanup recovery event deadline

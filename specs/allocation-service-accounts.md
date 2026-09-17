@@ -173,3 +173,30 @@ Each API call has a ten-second request limit. The creation journal records
 resource UIDs. Cleanup sends UID preconditions and does not delete a replacement
 object. A run passes only if both the checks and cleanup pass. Do not run this
 check while another live cluster workflow is active.
+
+## Consumer installation checks
+
+Hypershell adopted the common compiler on its test branch at `ad7cbb3`.
+The hosted browser workflow passed in run `35238144248`. Three browser
+instances each supplied all eight startup stages with correlated logs, traces,
+and metrics. Two images were reviewed. The core application job remains active.
+This hosted fixture does not run the real Gateway workload.
+
+Policy review matched the exact source, compiler records, and all 25 resources.
+The server accepted dry runs for five changes and six additions. Only the
+allocator, worker, and fixture inspector permissions change. Five other
+manifests remain equal. The policy has not been installed.
+
+The server check found two fixture defects. The inventory check assumed exactly
+19 resources, and the comparison rejected an omitted empty variable list.
+Hypershell `67cbac1` replaces the fixed count with exact recorded identities.
+It rejects missing, extra, duplicate, or replaced resources. The comparison
+accepts absent, null, or empty policy variables but preserves other values.
+All 31 focused Python tests passed. CI run `35238833718` rendered the same six
+manifests without any policy-byte change. These are test fixture corrections;
+the common runtime and its published compiler remain unchanged.
+
+The complete live consumer workflow remains required. The prepared policy
+update requires successful application checks and an empty test installation.
+The operator login must be refreshed before cluster changes or final cleanup
+verification. No account-policy update has been applied.
