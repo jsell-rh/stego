@@ -89,7 +89,17 @@ maps `@stego/browser-dom` to the generated `dom/index.js`. The dependency lock
 must retain the reviewed Monaco package. The source check downloads the exact
 npm archive, verifies its SHA-512 integrity, checks all 11 transformed sources,
 and rejects changed and already-transformed inputs. Local checks against the
-saved verified archive passed. The updated CI check remains required.
+saved verified archive passed. The [combined CI check](https://github.com/jsell-rh/stego/actions/runs/35164702752)
+at `9792927` also passed all 11 adapter files and six browser groups. The archived
+source and output hashes match the local adapter result. The generic Markdown
+sanitizer paths remained unchanged.
+
+The browser result SHA-256 is
+`3a7b56f79e1608c823c7a04b2eb0b86d76386ba4f556f2a04db7f64dfa7a87da`.
+The adapter result SHA-256 is
+`ce2c2f2f425f48fea6e79d73418f08dfe6b93f177c95d88fb7d9e3f3d0fb4931`.
+Compiler checks for `9792927` remain pending. This result does not qualify the
+generated backend or the application image.
 
 No Hypershell build currently selects this adapter. After compiler qualification,
 its build must adopt the common output, rebuild the captured assets and image,
