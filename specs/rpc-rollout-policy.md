@@ -57,6 +57,24 @@ Build record SHA-256:
 `f5bbad36b9c72395902cc4777f0bbf8c16381c4054da8ebaba18e8c543947b57`.
 No compiler execution or Go test ran on the developer workstation.
 
-The tested source is on remote `main`. Its main signature and test checks must
-finish before release qualification. These compiler results do not establish
+The tested source is on remote `main`. Its main signature and test checks also passed. These compiler results do not establish
 live application behavior or distributed writer exclusion.
+
+The main [full suite](https://github.com/jsell-rh/stego/actions/runs/35214954769)
+also passed all six jobs. Independent inspection confirmed the RPC cases and
+34 passing race-test packages. Main compiler log SHA-256:
+`ba4b4091eed5e8562c636cb07758d6ea5deef04dd17630a3451f887e31af6518`.
+The main [artifact check](https://github.com/jsell-rh/stego/actions/runs/35214954745)
+passed. Independent signature verification matched the exact source and both
+signed files to the checked branch build. All four changed-input cases were
+rejected. Signature bundle SHA-256:
+`4774c7552d526350b386797cd648550551461a9dfd375aae38766b1cd05b6cb0`.
+
+The [immutable compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-4fc880bcec6bc2555aca6b5c86bb8b893eaf8254)
+has ID `390652037`. All four draft assets were downloaded and matched to the
+authenticated package before publication. The published tag names the exact
+source. Installation through the common release installer passed without
+compiler execution and produced the same verification record. The first local
+installer command omitted its required `--gh` argument and stopped at argument
+validation. The corrected command passed. Hypershell generation and live rollout
+checks remain separate requirements.
