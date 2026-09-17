@@ -5,7 +5,7 @@ import (
  {{if .EmbeddedAssets}}"crypto/sha256"
  "encoding/hex"
  "html"{{end}}
- {{if .EmbeddedAssets}}telemetry {{printf "%q" .Telemetry}}{{end}}
+ telemetry {{printf "%q" .Telemetry}}
  "database/sql"
  {{if .EmbeddedAssets}}"embed"{{end}}
  "encoding/json"
@@ -33,26 +33,73 @@ type configuration struct{DynamicStyles bool;RuntimeConfigOffset int;Prefix,Role
 type options struct{Origin,Upstream,UpstreamCA,Issuer,IssuerCA,ClientID,SecretFile,KeyFile string}
 type Backend struct{ {{if .LocalApplication}}sockets socketSet;{{end}}telemetryMu sync.Mutex;telemetryLimits map[string]telemetryBucket;store *sessionStore;provider *oauthProvider;upstream *client.Client;origin *url.URL;config configuration;logoutTarget,logoutOrigin string;routes []*regexp.Regexp;close sync.Once;permits chan struct{}}
 
+// NewBrowserBackendWithTelemetry binds startup to the process telemetry runtime.
+// Generated assembly closes the backend before it closes that runtime.
+func NewBrowserBackendWithTelemetry(runtime *telemetry.Runtime,ctx context.Context,db *sql.DB)(*Backend,error){
+ if runtime==nil||ctx==nil{return nil,errors.New("browser startup requires a runtime and context")}
+ return NewBrowserBackend(runtime.Context(ctx),db)
+}
 // NewBrowserBackend uses compiler-owned database, HTTP, and telemetry resources.
 // Use schema.Bootstrap before startup. OAuth tokens stay in encrypted server state.
 func NewBrowserBackend(ctx context.Context,db *sql.DB)(*Backend,error){
- if os.Getenv("STEGO_HTTP_TLS_CERT")==""||os.Getenv("STEGO_HTTP_TLS_KEY")==""{return nil,errors.New("browser backend requires HTTPS")}
+ if err:=startupStep(ctx,telemetry.StartupBrowserTransport,func(context.Context)error{
+  if ctx==nil||db==nil{return errors.New("browser startup requires a context and database")}
+  if os.Getenv("STEGO_HTTP_TLS_CERT")==""||os.Getenv("STEGO_HTTP_TLS_KEY")==""{return errors.New("browser backend requires HTTPS")}
+  return nil
+ });err!=nil{return nil,err}
  o:=options{Origin:os.Getenv("STEGO_BROWSER_ORIGIN"),Upstream:os.Getenv("STEGO_BROWSER_API_URL"),UpstreamCA:os.Getenv("STEGO_BROWSER_API_CA_FILE"),Issuer:os.Getenv("STEGO_BROWSER_ISSUER"),IssuerCA:os.Getenv("STEGO_BROWSER_ISSUER_CA_FILE"),ClientID:os.Getenv("STEGO_BROWSER_CLIENT_ID"),SecretFile:os.Getenv("STEGO_BROWSER_CLIENT_SECRET_FILE"),KeyFile:os.Getenv("STEGO_BROWSER_SESSION_KEY_FILE")}
  return newBackend(ctx,db,o)
 }
+// The outcome contains no error text. A panic retains its normal behavior and
+// records an aborted step. The action keeps its original deadline and context.
+func startupStep(ctx context.Context,stage telemetry.StartupStage,action func(context.Context)error)error{
+ ctx,finish:=telemetry.TraceStartup(ctx,stage)
+ outcome:="aborted";defer func(){finish(outcome)}()
+ err:=action(ctx)
+ switch{case err==nil:outcome="success";case errors.Is(err,context.DeadlineExceeded):outcome="deadline";case errors.Is(err,context.Canceled):outcome="canceled";default:outcome="failure"}
+ return err
+}
 func newBackend(ctx context.Context,db *sql.DB,o options)(*Backend,error){
- origin,err:=httpsURL(o.Origin);if err!=nil||origin.Path!=""||origin.RawQuery!=""||origin.ForceQuery{return nil,errors.New("browser backend requires an HTTPS origin")}
- {{if .LocalApplication}}if o.Upstream!=""||o.UpstreamCA!="" {return nil,errors.New("local application address is compiler-owned")}{{else}}upstreamURL,err:=httpsURL(o.Upstream);if err!=nil||upstreamURL.Path!=""||upstreamURL.RawQuery!=""||upstreamURL.ForceQuery||cookieHost(upstreamURL)==cookieHost(origin){return nil,errors.New("browser API requires a separate HTTPS cookie host")}{{end}}
- issuer,err:=httpsURL(o.Issuer);if err!=nil||cookieHost(issuer)==cookieHost(origin){return nil,errors.New("browser issuer requires a separate HTTPS cookie host")}
- raw,err:=client.ReadPrivateFile(o.KeyFile);if err!=nil{return nil,errSession};keys,err:=sessionKeys(raw);clear(raw);if err!=nil{return nil,err}
- store,err:=newStore(ctx,db,keys...);for _,key:=range keys{clear(key)};if err!=nil{return nil,err}
- {{if .LocalApplication}}upstream:=client.NewLocalApplication(){{else}}upstream,err:=client.New(client.Options{BaseURL:o.Upstream,CAFile:o.UpstreamCA});if err!=nil{return nil,err}{{end}}
- provider,err:=discover(ctx,o);if err!=nil{upstream.Close();return nil,err}
- authorization,_:=httpsURL(provider.metadata.Authorization);if cookieHost(authorization)==cookieHost(origin){provider.close();upstream.Close();return nil,errors.New("browser authorization requires a separate HTTPS cookie host")}
+ var origin *url.URL
+ err:=startupStep(ctx,telemetry.StartupBrowserConfiguration,func(context.Context)error{
+  if ctx==nil||db==nil{return errors.New("browser startup requires a context and database")}
+  var err error
+  origin,err=httpsURL(o.Origin);if err!=nil||origin.Path!=""||origin.RawQuery!=""||origin.ForceQuery{return errors.New("browser backend requires an HTTPS origin")}
+  {{if .LocalApplication}}if o.Upstream!=""||o.UpstreamCA!="" {return errors.New("local application address is compiler-owned")}{{else}}upstreamURL,err:=httpsURL(o.Upstream);if err!=nil||upstreamURL.Path!=""||upstreamURL.RawQuery!=""||upstreamURL.ForceQuery||cookieHost(upstreamURL)==cookieHost(origin){return errors.New("browser API requires a separate HTTPS cookie host")}{{end}}
+  issuer,err:=httpsURL(o.Issuer);if err!=nil||cookieHost(issuer)==cookieHost(origin){return errors.New("browser issuer requires a separate HTTPS cookie host")}
+  return nil
+ });if err!=nil{return nil,err}
+ var keys [][]byte
+ err=startupStep(ctx,telemetry.StartupBrowserSessionKeys,func(context.Context)error{
+  raw,err:=client.ReadPrivateFile(o.KeyFile);if err!=nil{return errSession}
+  defer clear(raw)
+  keys,err=sessionKeys(raw);return err
+ });if err!=nil{return nil,err}
+ defer func(){for _,key:=range keys{clear(key)}}()
+ var store *sessionStore
+ err=startupStep(ctx,telemetry.StartupBrowserSessionSchema,func(step context.Context)error{
+  var err error;store,err=newStore(step,db,keys...);return err
+ });if err!=nil{return nil,err}
+ // The store has copied these keys. Clear them before network discovery.
+ for _,key:=range keys{clear(key)}
+ var upstream *client.Client
+ err=startupStep(ctx,telemetry.StartupBrowserUpstream,func(context.Context)error{
+  {{if .LocalApplication}}upstream=client.NewLocalApplication();return nil{{else}}var err error;upstream,err=client.New(client.Options{BaseURL:o.Upstream,CAFile:o.UpstreamCA});return err{{end}}
+ });if err!=nil{return nil,err}
+ var provider *oauthProvider
+ err=startupStep(ctx,telemetry.StartupBrowserDiscovery,func(step context.Context)error{
+  var err error;provider,err=discover(step,o);return err
+ });if err!=nil{upstream.Close();return nil,err}
+ err=startupStep(ctx,telemetry.StartupBrowserAuthorization,func(context.Context)error{
+  authorization,_:=httpsURL(provider.metadata.Authorization);if cookieHost(authorization)==cookieHost(origin){return errors.New("browser authorization requires a separate HTTPS cookie host")};return nil
+ });if err!=nil{provider.close();upstream.Close();return nil,err}
  b:=&Backend{store:store,provider:provider,upstream:upstream,origin:origin,permits:make(chan struct{},client.MaxConcurrentRequests)}
- if json.Unmarshal([]byte(generatedConfiguration),&b.config)!=nil{b.Close();return nil,errors.New("invalid generated browser configuration")}
- if b.config.LogoutScope=="identity_provider"{b.logoutTarget,b.logoutOrigin,err=provider.logoutTarget(origin);if err!=nil{b.Close();return nil,err}}
- for _,route:=range b.config.Routes{pattern:=regexp.QuoteMeta(route);pattern=strings.ReplaceAll(pattern,`\{id\}`,`[^/]+`);compiled,err:=regexp.Compile("^"+pattern+"$");if err!=nil{b.Close();return nil,errors.New("invalid generated browser route")};b.routes=append(b.routes,compiled)}
+ err=startupStep(ctx,telemetry.StartupBrowserRoutes,func(context.Context)error{
+  if json.Unmarshal([]byte(generatedConfiguration),&b.config)!=nil{return errors.New("invalid generated browser configuration")}
+  if b.config.LogoutScope=="identity_provider"{var err error;b.logoutTarget,b.logoutOrigin,err=provider.logoutTarget(origin);if err!=nil{return err}}
+  for _,route:=range b.config.Routes{pattern:=regexp.QuoteMeta(route);pattern=strings.ReplaceAll(pattern,`\{id\}`,`[^/]+`);compiled,err:=regexp.Compile("^"+pattern+"$");if err!=nil{return errors.New("invalid generated browser route")};b.routes=append(b.routes,compiled)}
+  return nil
+ });if err!=nil{b.Close();return nil,err}
  return b,nil
 }
 func(b *Backend)Close(){b.close.Do(func(){ {{if .LocalApplication}}b.sockets.close();b.sockets.wg.Wait();{{end}}b.provider.close();b.upstream.Close()})}

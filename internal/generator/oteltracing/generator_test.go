@@ -53,6 +53,11 @@ var databaseTests []byte
 //go:embed testdata/browser_test.go
 var browserTests []byte
 
+//go:embed testdata/startup_test.go
+var startupTests []byte
+
+func TestGeneratedStartupTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestStartup") }
+
 func TestGeneratedHTTPFinalStatus(t *testing.T) {
 	testGeneratedTracing(t, "^TestHTTPFinalStatusObservation$")
 }
@@ -80,7 +85,7 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, gen.File{Path: "tracing/config_test.go", Content: configTests}, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
+	files = append(files, gen.File{Path: "tracing/startup_test.go", Content: startupTests}, gen.File{Path: "tracing/config_test.go", Content: configTests}, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
 	files = append(files, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")

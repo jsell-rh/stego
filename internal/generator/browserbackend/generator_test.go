@@ -58,6 +58,45 @@ func TestGeneration(t *testing.T) {
 		}
 	}
 }
+func TestStartupAssembly(t *testing.T) {
+	ctx := fixture()
+	_, browser, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.OutputNamespace = "tracing"
+	ctx.ServiceName = "browser"
+	ctx.ComponentConfig = nil
+	_, runtime, err := new(oteltracing.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx.OutputNamespace = "store"
+	ctx.ComponentConfig = map[string]any{"migrations": "external"}
+	_, database, err := new(postgresadapter.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The dependency must work even when the input lists the browser first.
+	files, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: "out", GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: browser}, {Name: "otel-tracing", Wiring: runtime}, {Name: "postgres-adapter", Wiring: database}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var main []byte
+	for _, file := range files {
+		if file.Path == "main.go" {
+			main = file.Content
+		}
+	}
+	call := []byte("browser.NewBrowserBackendWithTelemetry(tracingRuntime, ctx, db)")
+	if !bytes.Contains(main, call) || bytes.Index(main, []byte("tracing.NewTracingRuntime(")) > bytes.Index(main, call) {
+		t.Fatal("startup lost its telemetry dependency")
+	}
+}
+func TestGeneratedBrowserStartup(t *testing.T) {
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^TestBrowserStartup")
+}
+
 func TestAuthorizationScopes(t *testing.T) {
 	g := new(Generator)
 	config := fixture().ComponentConfig

@@ -1,0 +1,91 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "sync"
+ "time"
+
+ "go.opentelemetry.io/otel/attribute"
+ "go.opentelemetry.io/otel/codes"
+ otellog "go.opentelemetry.io/otel/log"
+ "go.opentelemetry.io/otel/metric"
+ "go.opentelemetry.io/otel/trace"
+)
+
+type startupSignals struct{tracer trace.Tracer;logger otellog.Logger;duration metric.Float64Histogram;active metric.Int64UpDownCounter}
+func(r *Runtime)initStartupSignals()error{
+ if r.provider!=nil{r.startup.tracer=r.provider.Tracer("stego/startup")}
+ if r.signals.logs!=nil{r.startup.logger=r.signals.logs.Logger("stego/startup")}
+ if r.signals.meter!=nil{
+  meter:=r.signals.meter.Meter("stego/startup")
+  var err error
+  r.startup.duration,err=meter.Float64Histogram("stego.startup.duration",metric.WithUnit("s"),metric.WithExplicitBucketBoundaries(0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,30,60,300));if err!=nil{return errors.New("cannot create startup step metric")}
+  r.startup.active,err=meter.Int64UpDownCounter("stego.startup.active_steps",metric.WithUnit("{step}"));if err!=nil{return errors.New("cannot create startup step metric")}
+ }
+ return nil
+}
+// StartupStage permits fixed common stages. It cannot contain application input.
+type StartupStage uint8
+const (
+ StartupBrowserTransport StartupStage = iota + 1
+ StartupBrowserConfiguration
+ StartupBrowserSessionKeys
+ StartupBrowserSessionSchema
+ StartupBrowserUpstream
+ StartupBrowserDiscovery
+ StartupBrowserAuthorization
+ StartupBrowserRoutes
+)
+func(stage StartupStage)name()string{
+ switch stage{
+ case StartupBrowserTransport:return "browser.transport"
+ case StartupBrowserConfiguration:return "browser.configuration"
+ case StartupBrowserSessionKeys:return "browser.session_keys"
+ case StartupBrowserSessionSchema:return "browser.session_schema"
+ case StartupBrowserUpstream:return "browser.upstream"
+ case StartupBrowserDiscovery:return "browser.discovery"
+ case StartupBrowserAuthorization:return "browser.authorization"
+ case StartupBrowserRoutes:return "browser.routes"
+ default:return ""
+ }
+}
+// TraceStartup records a fixed initialization stage through the context runtime.
+// Unknown stages, nil contexts, and closed runtimes produce no events.
+// Finish accepts success, failure, canceled, deadline, or aborted. Other values
+// become failure. Finish is idempotent and must precede runtime close.
+func TraceStartup(ctx context.Context,stage StartupStage)(context.Context,func(string)){
+ name:=stage.name()
+ if ctx==nil||name==""{return ctx,func(string){}}
+ r,_:=ctx.Value(runtimeContextKey{}).(*Runtime)
+ if r==nil||r.closed.Load(){return ctx,func(string){}}
+ start:=time.Now()
+ var span trace.Span
+ if r.startup.tracer!=nil{ctx,span=r.startup.tracer.Start(ctx,"startup."+name,trace.WithSpanKind(trace.SpanKindInternal),trace.WithTimestamp(start),trace.WithAttributes(attribute.String("startup.stage",name)))}
+ if r.startup.active!=nil{r.startup.active.Add(ctx,1,metric.WithAttributes(attribute.String("startup.stage",name)))}
+ var once sync.Once
+ return ctx,func(outcome string){once.Do(func(){
+  end:=time.Now()
+  switch outcome{case "success","failure","canceled","deadline","aborted":default:outcome="failure"}
+  attrs:=[]attribute.KeyValue{attribute.String("startup.stage",name),attribute.String("outcome",outcome)}
+  failed:=outcome!="success"&&outcome!="canceled"
+  severity:=otellog.SeverityInfo;text:="INFO"
+  if failed{attrs=append(attrs,attribute.String("error.type",outcome));severity=otellog.SeverityError;text="ERROR"}
+  duration:=end.Sub(start).Seconds()
+  if r.startup.duration!=nil{r.startup.duration.Record(ctx,duration,metric.WithAttributes(attrs...));r.startup.active.Add(ctx,-1,metric.WithAttributes(attribute.String("startup.stage",name)))}
+  r.service.mu.Lock()
+  if !r.closed.Load(){
+   sc:=trace.SpanContextFromContext(ctx)
+   local:=localRecord{Time:end,Service:r.service.service,Instance:r.instance,Severity:text,Event:"startup.step.completed",Message:"Startup step completed",Stage:name,Outcome:outcome,DurationSeconds:&duration}
+   if failed{local.ErrorType=outcome}
+   if sc.IsValid(){local.TraceID=sc.TraceID().String();local.SpanID=sc.SpanID().String()}
+   if r.service.local!=nil{r.service.local.enqueue(local)}
+   if r.startup.logger!=nil{
+    var record otellog.Record
+    record.SetTimestamp(end);record.SetEventName(local.Event);record.SetBody(attribute.StringValue(local.Message));record.SetSeverity(severity);record.SetSeverityText(text);record.AddAttributes(attrs...);record.AddAttributes(attribute.Float64("duration_seconds",duration));r.startup.logger.Emit(ctx,record)
+   }
+  }
+  r.service.mu.Unlock()
+  if span!=nil{span.SetAttributes(attrs...);if failed{span.SetStatus(codes.Error,"")};span.End(trace.WithTimestamp(end))}
+ })}
+}

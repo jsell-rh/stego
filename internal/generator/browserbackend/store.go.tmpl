@@ -37,7 +37,7 @@ func newStore(ctx context.Context,db *sql.DB,keys ...[]byte)(*sessionStore,error
   block,err:=aes.NewCipher(key);if err!=nil{return nil,errSessionKeys};aead,err:=cipher.NewGCM(block);if err!=nil{return nil,errSessionKeys};readers=append(readers,aead)
  }
  ctx,cancel:=context.WithTimeout(ctx,5*time.Second);defer cancel()
- if err:=schema.Verify(ctx,db);err!=nil{return nil,errors.New("browser session schema or permissions differ")}
+ if err:=schema.Verify(ctx,db);err!=nil{return nil,errors.Join(errors.New("browser session schema or permissions differ"),err)}
  return &sessionStore{db:db,aead:readers[0],readers:readers},nil
 }
 func randomValue()(string,error){b:=make([]byte,32);if _,err:=io.ReadFull(rand.Reader,b);err!=nil{return "",errSession};return base64.RawURLEncoding.EncodeToString(b),nil}
