@@ -77,6 +77,7 @@ def actor(control):
 
 class Check:
     allocation_prefixes = (PREFIX,)
+    policy_count = 7
 
     def __init__(self, args):
         self.args = args
@@ -170,8 +171,8 @@ class Check:
             document = json.loads(raw)
             assert document["kind"] == "List"
             items = [item for item in document["items"] if item["kind"] not in ["Deployment", "NetworkPolicy"]]
-            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicy"]) == 7
-            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicyBinding"]) == 7
+            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicy"]) == self.policy_count
+            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicyBinding"]) == self.policy_count
             for item in items:
                 assert item["kind"] in ["ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding", "ClusterRole", "ClusterRoleBinding", "ServiceAccount"]
                 if item["kind"] == "ServiceAccount":

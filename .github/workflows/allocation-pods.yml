@@ -7,6 +7,8 @@ on:
       - '.github/workflows/allocation-pods.yml'
       - 'internal/generator/kubernetesservice/allocation*'
       - 'registry/components/kubernetes-service/component.yaml'
+      - 'scripts/check-allocation-pods.py'
+      - 'scripts/test_allocation_pods.py'
 
 permissions:
   contents: read
@@ -34,6 +36,10 @@ jobs:
         with:
           go-version: '1.26.8'
           cache: true
+      - name: Check live runner safety
+        run: |
+          timeout 15s python3 -B scripts/test_allocation_account_identity.py
+          timeout 15s python3 -B scripts/test_allocation_pods.py
       - name: Check and render Pod restrictions
         env:
           STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-pods
