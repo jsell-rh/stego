@@ -156,6 +156,22 @@ compiler jobs also passed. The check is on remote `main`. Authenticated artifact
 publication, toolchain provenance, and complete application build inputs remain
 open; C3 is not complete.
 
+The main Hypershell repeats at `0175b0b` are complete. The public and CNPG
+workflows both verified 1,360 source hashes, 415 generation hashes, and 48
+matching browser startup log/span pairs. The API gate passed all 51 required
+checks; the core suite passed 307 top-level tests. The CNPG repeat needed one
+owned secondary-Pod replacement for scheduling, then completed its recovery,
+deletion, and independent cleanup checks. Hypershell `9dabb6c` retains this
+evidence and its limits. See [browser startup](browser-startup.md).
+
+The [compiler signature verifier](compiler-provenance.md) is implemented. Its
+first main CI verification failed because of mutually exclusive CLI options.
+The corrected command passed independent checks with the retained real
+signatures, including rejection cases. The corrected source `8417750` passed
+all six compiler jobs and the controlled artifact build, then reached remote
+`main`. Its new main signature gate is a separate required result. No failed
+or incomplete run is treated as a pass.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.

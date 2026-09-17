@@ -172,3 +172,30 @@ pin remains `83592be`. The previous empty archive and recovered browser startup
 failure remain unexplained. This result qualifies the current CNPG startup
 workflow; it does not close production capacity, live Kata isolation, or the
 full enterprise goal.
+
+## Main workflow repeat
+
+Hypershell `0175b0b` passed the complete public workflow in
+[35188311004](https://github.com/jsell-rh/hypershell-stego/actions/runs/35188311004)
+and the complete CNPG workflow in
+[35188311598](https://github.com/jsell-rh/hypershell-stego/actions/runs/35188311598).
+Both verified all 1,360 source hashes and 415 generated-file hashes. Each
+retained six browser runtime instances with 48 matching startup log/span pairs,
+complete metrics, and no failed startup pairs. All three screenshots from each
+run were reviewed. The separate main API gate passed all 51 required checks;
+the core suite passed 307 top-level tests.
+
+The CNPG browser test took 749.98 seconds. Its complete evidence includes
+provisioner outage denial and recovery, database and namespace replacement,
+denied access, protected credentials, real automation accounts, durable deletion,
+and PostgreSQL telemetry. Independent cleanup passed at
+`2026-09-17T07:04:39Z`, with both test volumes and all test runtime absent.
+The final provisioner record matches an independent live capture.
+
+This repeat required one identity-checked replacement of the test secondary
+database Pod to resolve split CPU and memory capacity. Primary, storage, resource
+limits, and unrelated workloads were unchanged. The application test later
+performed its own deliberate database replacement. This result does not prove
+fixture placement without intervention. Hypershell revision `9dabb6c` retains
+the complete main CNPG record and this limit. The compiler pin is still
+`83592be`. Production capacity, live Kata isolation, and the full goal remain open.
