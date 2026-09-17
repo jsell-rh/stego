@@ -56,3 +56,17 @@ SHA-256 is `14ae4f89a34b1bb65fab90c8def7e96e45687bfe715b15fe066e9ef17298df6f`.
 The branch artifact has no release signature. The signature job was skipped,
 as required for a branch build. No release was published. This result does
 not replace the live admission gate.
+
+The live test runner and repeated generated runtime checks passed in
+[run 35224854351](https://github.com/jsell-rh/stego/actions/runs/35224854351),
+job `105213697937`, at source `7f59b08`. Independent checks matched the source
+archive and confirmed seven runner safety tests plus all six generated runtime
+cases. Both rendered manifests have the same hashes as the qualified generator
+source `2587af5`. The job log SHA-256 is
+`7329f57b081f860b2b323254d70b09ba2689c3af28eaa1364e314f77f0b43a9e`.
+
+The runner checks authorized recovery for the same owner and denied access for
+a different owner or installation while the old cross-namespace grant remains.
+It also checks allocator-only account creation and denies forged names and
+changed annotations. Those real API checks have not run yet. The runner safety
+tests use simulated API responses; they do not prove live admission.
