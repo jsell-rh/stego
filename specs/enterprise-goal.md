@@ -126,8 +126,13 @@ evidence at Hypershell `bf83eef` with compiler `83592be`. Run
 passed in 667.64 seconds. Six observed browser runtime instances supplied 48
 matching startup log/span pairs and complete metrics. All 415 generation hashes
 matched, and independent cleanup passed. See [browser startup](browser-startup.md).
-The candidate API runner recovery and CNPG workflow still require separate
-results. This does not close C6 or H3.
+The API runner recovery passed all 51 required checks at `8c37bb2` in
+[35182200900](https://github.com/jsell-rh/hypershell-stego/actions/runs/35182200900).
+All 415 generated-file hashes matched, the original Job reached `Complete`,
+and independent cleanup passed. The full application check at `bf83eef` also
+passed 307 top-level core tests, rendered management, console, and image checks.
+The complete CNPG workflow still requires its separate result. These checks
+do not close C6 or H3.
 
 ## User decisions that remain in force
 
