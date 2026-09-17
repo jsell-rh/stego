@@ -36,3 +36,36 @@ working branch while its earlier main application workflows finish.
 This is a SQL inventory baseline. Full account and journal cleanup, provider
 calls, transport, controller recovery, and concurrent load remain separate work.
 It does not establish a production SLO or close H3 or C6.
+
+## Account and protected-journal cleanup
+
+Hypershell [run 35203107357](https://github.com/jsell-rh/hypershell-stego/actions/runs/35203107357)
+passed at `aade64b9132e7b7d136871cf87f3a23918177409`, with the same compiler.
+The fixture has 1,000 active account rows and 1,000 additional provider clients.
+All 2,000 clients have encrypted cleanup journals prepared through the common
+Keycloak lifecycle. The measured path uses generated SQL, saved scan progress,
+protected state, the common client over verified HTTPS, deletion confirmation,
+account audit transactions, final inventory, and scope closure.
+
+Each of three samples closed all 1,000 accounts, deleted all 2,000 clients,
+and wrote exactly 1,000 success audits in 30 scan cycles. Every protected
+journal loaded with valid encryption and closure intent. Registration was sealed.
+An unrelated client remained intact. The store and client were reconstructed
+after the first 100 accounts; the next page reached the next 100 accounts.
+This proves object reconstruction, not a process or database-server restart.
+
+Median timed cleanup was 4.3863 seconds, with a range of 4.0940–4.4134 seconds.
+Maximum process RSS was 51,240,960 bytes, about 48.87 MiB. The test retained the
+same hard container limits as the grant scan. A repeat of all six grant-scan
+samples also passed. Both jobs built identical executable bytes. Independent
+checks verified source, compiler, toolchain, result, limits, and terminal state.
+The downloaded executables were not run locally. CI verified container removal;
+there was no independent operator inspection of the hosted runners afterward.
+See the [consumer record](https://github.com/jsell-rh/hypershell-stego/blob/df164f6/acceptance/cleanup-costs.md)
+for exact hashes and limits. The qualified branch will follow the existing
+main application checks.
+
+The Keycloak endpoint is a controlled HTTPS protocol fixture. Real Keycloak
+capacity, previously unknown provider clients, concurrent load, REST and gRPC,
+other Gateway controllers, and production SLOs remain open. No generated runtime
+change was needed for this fixture. H3 and C6 remain active.

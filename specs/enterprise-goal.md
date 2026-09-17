@@ -233,11 +233,13 @@ the application must never perform automatic teardown.
 
 ## Remaining application and enterprise work
 
-1. Extend the measured retained-history baseline to complete cleanup. The
-   [first SQL scan baseline](retained-history-costs.md) passed with 10,000 and
-   100,000 synthetic grants. Median complete scan times were 0.1028 and 1.0207
-   seconds in bounded hosted CI. Full account and journal cleanup, provider
-   calls, concurrent load, and production capacity remain open.
+1. Extend the [measured retained-history baselines](retained-history-costs.md)
+   to real provider capacity and concurrent load. The SQL grant scan passed at
+   10,000 and 100,000 synthetic grants. Known account and protected-journal
+   cleanup also passed with 1,000 account rows and 2,000 provider clients over
+   verified HTTPS. Median cleanup was 4.3863 seconds in a bounded protocol
+   fixture. Real Keycloak capacity, unknown-client discovery, complete process
+   recovery, other Gateway controllers, and production SLOs remain open.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    The latest CNPG run needed one secondary Pod replacement for scheduling.
