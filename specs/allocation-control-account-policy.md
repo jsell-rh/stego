@@ -35,3 +35,12 @@ tokens. It then removes the former owner's fixture permissions and tests recover
 through a separate identity with the generated installer role. It checks that
 neither allocator has this role and that the installer cannot use another
 installation's capability. The first live result for this fix is still required.
+
+The first full CI run for this change failed in an endpoint test observer.
+The observer required a variable list on every policy, but the new account
+policy has no variables. Its type assertion panicked. The renderer accepts
+the optional list. The test now accepts its absence, rejects other types, and
+still requires the endpoint policy with the exact endpoint data. The test is
+also part of focused account CI. The
+[failed run record](allocation-control-account-renderer-failure.json) remains
+available. No live check started with this failed full-suite prerequisite.

@@ -1,0 +1,21 @@
+{
+  "source": "5b6ae065be9d2b14ea4ec05233cc42bce49245b1",
+  "run": "https://github.com/jsell-rh/stego/actions/runs/35257037935",
+  "compiler_log_sha256": "8867e7fcc67461f527082900f70cbb89f2330c8a259c542ca35425b8e20fdf6b",
+  "passing_full_race_packages": 33,
+  "failed_package": "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+  "failed_tests": [
+    "TestGeneratedAllocationEndpointRenderer",
+    "TestAllocatedEndpointRendering"
+  ],
+  "failure": "The endpoint observer assumed that every admission policy has a non-null variables list. The new control account policy has no variables. The test panicked during a type assertion.",
+  "remaining_jobs": {
+    "resource-state-storage": "success",
+    "examples (user-management-rhsso)": "success",
+    "examples (user-management)": "success",
+    "keycloak-provider": "success",
+    "postgres-provisioning": "success"
+  },
+  "live_test_started": false,
+  "fix": "Accept an absent optional variables list, reject other types, and still require the endpoint policy and its exact endpoint data. Add this renderer test to focused account CI."
+}

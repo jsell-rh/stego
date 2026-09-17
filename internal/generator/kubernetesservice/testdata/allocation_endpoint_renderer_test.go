@@ -68,7 +68,16 @@ func TestAllocatedEndpointRendering(t *testing.T) {
 					deployment = true
 				}
 			case "ValidatingAdmissionPolicy":
-				variables := item["spec"].(map[string]any)["variables"].([]any)
+				rawVariables := item["spec"].(map[string]any)["variables"]
+				// Policies without endpoint data can omit the optional variables.
+				// The admission check below still requires the endpoint policy.
+				if rawVariables == nil {
+					continue
+				}
+				variables, ok := rawVariables.([]any)
+				if !ok {
+					t.Fatal("admission variables are not a list")
+				}
 				for _, raw := range variables {
 					v := raw.(map[string]any)
 					if v["name"] != "networkEndpoints" {
