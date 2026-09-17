@@ -69,6 +69,18 @@ class AccountRunnerTests(unittest.TestCase):
             check.probe("access", ["get"])
         self.assertEqual(check.probes, [])
 
+    def test_failed_probe_retains_bounded_response(self):
+        check = Fixture()
+        check.reply = subprocess.CompletedProcess([], 1, "", "connection refused " + "x" * 8192)
+        with self.assertRaisesRegex(RuntimeError, "access control"):
+            check.probe("access", ["get"])
+        self.assertEqual(check.probes, [])
+        observation = check.result["probe_observations"][0]
+        self.assertEqual(observation["name"], "access")
+        self.assertEqual(observation["returncode"], 1)
+        self.assertEqual(len(observation["stderr"]), 4096)
+        self.assertTrue(observation["stderr_truncated"])
+
     def test_denied_positive_case_is_not_a_pass(self):
         check = Fixture()
         check.reply = subprocess.CompletedProcess([], 1, "", "Error from server (Forbidden)")

@@ -118,6 +118,14 @@ class Check:
 
     def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
         result = self.run(command, obj, user)
+        # These probes use only fixed public test objects. Retain a bounded
+        # response before classification so a failed gate remains inspectable.
+        self.result.setdefault("probe_observations", []).append({
+            "name": name, "expected_allowed": allowed, "policy": policy,
+            "returncode": result.returncode, "stderr": result.stderr[:4096],
+            "stderr_truncated": len(result.stderr) > 4096,
+        })
+        self.save()
         if (result.returncode == 0) != allowed:
             raise RuntimeError("Unexpected probe result: " + name + ": " + result.stderr[:2048])
         if not allowed:
