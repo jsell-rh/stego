@@ -505,7 +505,14 @@ func TestBrowserAssemblyUsesDeclaredPool(t *testing.T) {
 	if pool == nil || pool.DatabaseOpener == nil {
 		t.Fatal("the browser has no declared pool factory without entities")
 	}
-	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: ctx.OutDirName, GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: backend}, {Name: "postgres-adapter", Wiring: pool}}})
+	ctx.OutputNamespace = ctx.PeerNamespaces["otel-tracing"]
+	ctx.ServiceName = "browser"
+	ctx.ComponentConfig = nil
+	_, runtime, err := new(oteltracing.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared, err := compiler.Assemble(compiler.AssemblerInput{ModuleName: ctx.ModuleName, OutDirName: ctx.OutDirName, GoVersion: "1.26.8", Wirings: []compiler.ComponentWiring{{Name: "browser-backend", Wiring: backend}, {Name: "postgres-adapter", Wiring: pool}, {Name: "otel-tracing", Wiring: runtime}}})
 	if err != nil {
 		t.Fatal(err)
 	}

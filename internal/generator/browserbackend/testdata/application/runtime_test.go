@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -131,7 +132,7 @@ func TestApplicationRefreshAndLogout(t *testing.T) {
 }
 func TestApplicationAddressIsCompilerOwned(t *testing.T) {
 	for _, o := range []options{{Origin: origin, Upstream: "http://127.0.0.1:8000"}, {Origin: origin, Upstream: "https://other.example"}, {Origin: origin, UpstreamCA: "unused.pem"}} {
-		_, err := newBackend(context.Background(), nil, o)
+		_, err := newBackend(context.Background(), &sql.DB{}, o)
 		require(t, err != nil && strings.Contains(err.Error(), "compiler-owned"), "runtime application address override accepted")
 	}
 }

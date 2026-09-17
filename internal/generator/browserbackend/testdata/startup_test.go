@@ -19,12 +19,14 @@ import (
 
 func TestBrowserStartupDiagnostics(t *testing.T) {
 	if mode := os.Getenv("STEGO_TEST_STARTUP_CHILD"); mode != "" {
-		for _, name := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_CERTIFICATE", "STEGO_OTEL_TOKEN_FILE", "OTEL_EXPORTER_OTLP_HEADERS"} {
-			t.Setenv(name, "")
+		// An empty endpoint disables export. Unsupported OTEL settings must
+		// remain rejected by the runtime, including OTEL_TRACES_EXPORTER.
+		for _, entry := range os.Environ() {
+			name, _, _ := strings.Cut(entry, "=")
+			if strings.HasPrefix(name, "OTEL_") || name == "STEGO_OTEL_TOKEN_FILE" {
+				t.Setenv(name, "")
+			}
 		}
-		t.Setenv("OTEL_TRACES_EXPORTER", "none")
-		t.Setenv("OTEL_LOGS_EXPORTER", "none")
-		t.Setenv("OTEL_METRICS_EXPORTER", "none")
 		r, err := telemetry.NewRuntime()
 		if err != nil {
 			t.Fatal(err)

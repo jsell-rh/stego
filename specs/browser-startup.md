@@ -55,3 +55,12 @@ failed identity-discovery dependency.
 
 The generated runtime tests require CI qualification. This change has not yet
 identified the earlier live failure and is not yet adopted by Hypershell.
+
+The first compiler run, `35178696741`, passed the generated telemetry suite but
+failed browser tests. The startup subprocess set `OTEL_TRACES_EXPORTER`, which
+the strict runtime does not support. It now clears telemetry settings and uses
+an empty endpoint to disable export. The pool assembly test now supplies the
+required telemetry dependency. The local application address test now supplies
+a non-nil database handle so it reaches the address check. These changes do not
+relax runtime validation. The PostgreSQL CI job also runs the focused startup
+tests so database-backed startup failures are reported before the full suite.
