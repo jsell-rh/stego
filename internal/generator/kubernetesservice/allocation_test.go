@@ -223,7 +223,7 @@ func testAllocationManifests(t *testing.T, c gen.Context) {
 				}
 			}
 		}
-		expectedPolicies := 3
+		expectedPolicies := 4
 		if managedAccounts {
 			expectedPolicies += 3
 		}

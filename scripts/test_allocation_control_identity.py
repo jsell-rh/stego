@@ -20,6 +20,25 @@ common_tests = load("common_tests", "test_allocation_account_identity.py")
 
 
 class ControlAuditTests(unittest.TestCase):
+    def test_installer_capability_requires_an_exact_result(self):
+        for allowed, code, output in [(True, 0, "yes\n"), (False, 1, "no\n")]:
+            check = object.__new__(audit.Check)
+            check.result = {}
+            check.save = Mock()
+            check.run = Mock(return_value=subprocess.CompletedProcess([], code, output, ""))
+            check.expect_capability("fixture-user", "/fixture-capability", allowed)
+            self.assertTrue(check.result["installer_authority_observations"][0]["matched"])
+
+    def test_installer_capability_error_cannot_establish_a_denial(self):
+        for code, output in [(1, ""), (1, "yes"), (0, "no"), (0, "yes")]:
+            check = object.__new__(audit.Check)
+            check.result = {}
+            check.save = Mock()
+            check.run = Mock(return_value=subprocess.CompletedProcess([], code, output, "private error"))
+            with self.assertRaisesRegex(RuntimeError, "Installer capability differs or its check failed"):
+                check.expect_capability("fixture-user", "/fixture-capability", False)
+            self.assertFalse(check.result["installer_authority_observations"][0]["matched"])
+
     def test_transport_requires_verified_direct_https(self):
         for cluster in [
             {"server": "http://api.test"}, {"server": "https://user@api.test"},

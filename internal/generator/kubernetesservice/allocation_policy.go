@@ -271,6 +271,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		guarded = append(guarded, allocationPolicy(base+".account-issuers", []any{allocationRule("", "serviceaccounts")}, selected, variables, []any{validate(issuerCheck, "ServiceAccount issuer must match its namespace allocator")})...)
 	}
 	// Install the policies before the allocator receives permissions.
+	guarded = append(guarded, allocationControlAccountObjects(config)...)
 	items = append(guarded, items...)
 	sort.Strings(bindNames)
 	unique := bindNames[:0]

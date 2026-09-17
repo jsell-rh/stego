@@ -263,10 +263,10 @@ def install_next_policies(path):
         in {"ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding"}
     ]
     expected = {
-        base + "." + suffix for suffix in ("allocation", "ownership", "resources")
+        base + "." + suffix for suffix in ("allocation", "ownership", "resources", "control-accounts")
     }
     if (
-        len(policies) != 6
+        len(policies) != 8
         or {item["metadata"]["name"] for item in policies} != expected
     ):
         raise RuntimeError("next fixture has unexpected policy names")
@@ -294,7 +294,7 @@ def install_next_policies(path):
 
 
 try:
-    for policy in [base + ".allocation", base + ".ownership", base + ".resources"]:
+    for policy in [base + "." + suffix for suffix in ("allocation", "ownership", "resources", "control-accounts")]:
         doc = json.loads(
             run(["get", "validatingadmissionpolicy", policy, "-o", "json"]).stdout
         )

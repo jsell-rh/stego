@@ -170,8 +170,8 @@ class Check:
             document = json.loads(raw)
             assert document["kind"] == "List"
             items = [item for item in document["items"] if item["kind"] not in ["Deployment", "NetworkPolicy"]]
-            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicy"]) == 6
-            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicyBinding"]) == 6
+            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicy"]) == 7
+            assert len([item for item in items if item["kind"] == "ValidatingAdmissionPolicyBinding"]) == 7
             for item in items:
                 assert item["kind"] in ["ValidatingAdmissionPolicy", "ValidatingAdmissionPolicyBinding", "ClusterRole", "ClusterRoleBinding", "ServiceAccount"]
                 if item["kind"] == "ServiceAccount":

@@ -77,6 +77,15 @@ def wait_for_token_rejection(fetch, record, now=time.monotonic, pause=time.sleep
 
 
 class Check(common.Check):
+    def expect_capability(self, user, path, allowed):
+        result = self.run(["auth", "can-i", "get", path], user=user)
+        expected = (0, "yes") if allowed else (1, "no")
+        actual = (result.returncode, result.stdout.strip())
+        self.result.setdefault("installer_authority_observations", []).append({"user": user, "path": path, "allowed": allowed, "matched": actual == expected})
+        self.save()
+        if actual != expected:
+            raise RuntimeError("Installer capability differs or its check failed")
+
     def expect_status(self, name, code, expected):
         self.result.setdefault("http_observations", []).append({"name": name, "status": code, "expected": expected})
         self.save()
@@ -119,6 +128,18 @@ class Check(common.Check):
         outsider_name = "replacement-owner"
         outsider = "system:serviceaccount:" + common.PEER + ":" + outsider_name
         self.create({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"namespace": common.PEER, "name": outsider_name}, "automountServiceAccountToken": False})
+        installer_name = "control-installer"
+        installer = "system:serviceaccount:" + common.PEER + ":" + installer_name
+        self.create({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"namespace": common.PEER, "name": installer_name}, "automountServiceAccountToken": False})
+        self.create({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding",
+                     "metadata": {"name": common.CONTROL + ".test-installer"},
+                     "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": common.CONTROL + ".widget-queue.control-account-installer"},
+                     "subjects": [{"kind": "ServiceAccount", "name": installer_name, "namespace": common.PEER}]})
+        capability = "/stego.dev/control-account-installation/" + common.CONTROL + "/widget-queue"
+        for identity in [primary, common.actor(common.PEER), outsider]:
+            self.expect_capability(identity, capability, False)
+        self.expect_capability(installer, capability, True)
+        self.expect_capability(installer, capability.replace(common.CONTROL + "/", common.PEER + "/"), False)
         self.role("ClusterRole", None, common.CONTROL + ".replacement-owner",
                   [{"apiGroups": [""], "resources": ["namespaces"], "verbs": ["create"]}], outsider_name)
         ns = common.namespace(common.PREFIX + uuid.uuid4().hex[:8], common.CONTROL, "owner-1")
@@ -153,7 +174,9 @@ class Check(common.Check):
         self.result["control_namespace_old_uid"] = old_namespace["metadata"]["uid"]
         self.result["control_namespace_new_uid"] = replacement["metadata"]["uid"]
         self.save()
-        expected_policies = [obj["metadata"]["name"] for obj in self.created if obj["kind"] == "ValidatingAdmissionPolicy"]
+        expected_policy = common.CONTROL + ".widget-queue.control-accounts"
+        ordinary_account = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "ordinary-account", "namespace": common.CONTROL}, "automountServiceAccountToken": False}
+        self.probe("unreserved control account", ["create", "--dry-run=server", "-f", "-"], ordinary_account, outsider, allowed=True)
         for name, path in targets.items():
             def record_rejection(code, seconds):
                 self.result.setdefault("old_token_rejection_observations", []).append({"account": name, "status": code, "seconds": seconds})
@@ -164,10 +187,13 @@ class Check(common.Check):
             result = self.run(["create", "--dry-run=server", "-f", "-", "-o", "json"], obj, outsider)
             if result.returncode:
                 # A transport or evaluation error cannot establish this boundary.
-                if not any("ValidatingAdmissionPolicy '" + policy + "' with binding '" + policy + "' denied request:" in result.stderr for policy in expected_policies):
+                if "ValidatingAdmissionPolicy '" + expected_policy + "' with binding '" + expected_policy + "' denied request:" not in result.stderr:
                     raise RuntimeError("Control account creation failed without an admission denial")
-                observations.append({"account": name, "creation_denied_by_admission": True})
+                observations.append({"account": name, "creation_denied_by_admission": True, "policy": expected_policy})
                 self.save()
+                assert self.get(obj) is None
+                generated = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"generateName": name[:-2], "namespace": common.CONTROL}, "automountServiceAccountToken": False}
+                self.probe(name + " generated name", ["create", "--dry-run=server", "-f", "-"], generated, outsider, policy=expected_policy)
                 continue
             created = self.create(obj, outsider)
             assert created["metadata"]["uid"] != old_accounts[name]["metadata"]["uid"]
@@ -191,6 +217,22 @@ class Check(common.Check):
             raise RuntimeError("A replacement namespace owner obtained retained control-account access")
         if not all(v.get("creation_denied_by_admission") for v in observations):
             raise RuntimeError("Control account creation was accepted; further identity checks are required")
+        # Recover only after the operator removes the former owner's account
+        # and token permissions. Installation does not make an untrusted
+        # control namespace safe for privileged accounts.
+        self.remove(self.get({"kind": "RoleBinding", "metadata": {"namespace": common.CONTROL, "name": "replacement-owner"}}))
+        self.remove(self.get({"kind": "Role", "metadata": {"namespace": common.CONTROL, "name": "replacement-owner"}}))
+        self.role("Role", common.CONTROL, "test-installer",
+                  [{"apiGroups": [""], "resources": ["serviceaccounts", "serviceaccounts/token"], "verbs": ["create"]}], installer_name)
+        restored = []
+        for name, path in targets.items():
+            account = self.create({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": name, "namespace": common.CONTROL}, "automountServiceAccountToken": False}, installer)
+            assert account["metadata"]["uid"] != old_accounts[name]["metadata"]["uid"]
+            self.expect_status(name + " trusted recovery", request_status(server, opener, path, self.token(common.CONTROL, name, installer)), 200)
+            restored.append({"account": name, "uid": account["metadata"]["uid"], "fresh_token_http_status": 200})
+        self.result["trusted_recovery_observations"] = restored
+        self.result["former_owner_account_permissions_removed"] = True
+        self.save()
 
 
 def main():

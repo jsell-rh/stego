@@ -73,3 +73,9 @@ all six full CI jobs passed before the audit. See the
 Reserve the generated allocator and declared control-worker account names for
 a trusted installer. The allocator must not receive this installer capability.
 Prove denied recreation and permitted installation before component publication.
+
+The common generator now emits the proposed
+[control account installation policy](allocation-control-account-policy.md).
+The revised live test checks its separate installer capability and recovery.
+Thirty small local runner checks passed. CI and live qualification remain
+required; this source change alone does not close the defect.
