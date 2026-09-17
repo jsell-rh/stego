@@ -176,15 +176,15 @@ check while another live cluster workflow is active.
 
 ## Consumer installation checks
 
-Hypershell adopted the common compiler on its test branch at `ad7cbb3`.
-The hosted browser workflow passed in run `35238144248`. Three browser
-instances each supplied all eight startup stages with correlated logs, traces,
-and metrics. Two images were reviewed. The core application job remains active.
-This hosted fixture does not run the real Gateway workload.
+Hypershell uses the common compiler on its test branch. At `ad7cbb3`, the hosted
+browser workflow passed in run `35238144248`. Three browser instances each
+supplied all eight startup stages with correlated logs, traces, and metrics.
+Two images were reviewed. Seven image builds, entrypoint and user checks,
+231 UI tests, and three console generation checks also passed. The full core
+job remains active. The hosted fixture does not run the real Gateway workload.
 
-Policy review matched the exact source, compiler records, and all 25 resources.
-The server accepted dry runs for five changes and six additions. Only the
-allocator, worker, and fixture inspector permissions change. Five other
+The server accepted dry runs for five policy changes and six additions.
+Only allocator, worker, and fixture inspector permissions change. Five other
 manifests remain equal. The policy has not been installed.
 
 The server check found two fixture defects. The inventory check assumed exactly
@@ -192,11 +192,27 @@ The server check found two fixture defects. The inventory check assumed exactly
 Hypershell `67cbac1` replaces the fixed count with exact recorded identities.
 It rejects missing, extra, duplicate, or replaced resources. The comparison
 accepts absent, null, or empty policy variables but preserves other values.
-All 31 focused Python tests passed. CI run `35238833718` rendered the same six
-manifests without any policy-byte change. These are test fixture corrections;
-the common runtime and its published compiler remain unchanged.
+All 31 focused Python tests passed.
+
+Hypershell `519b178` also checks the actual running Pods. It uses each
+Deployment's label selector and a list limit of four. The check requires one
+current, ready Pod with the expected namespace, account, explicit token setting,
+and UID. A terminating Pod can overlap its replacement but cannot establish
+readiness. Both Pod UIDs are included in the workflow evidence.
+
+[Run 35239610431](https://github.com/jsell-rh/hypershell-stego/actions/runs/35239610431)
+passed at `519b1781cbb9fda2d4f73fe3220942e53f4b5909`. Independent checks confirmed
+all 12 workload account-readiness cases and 36 Pod-evidence cases with race
+detection. The test log SHA-256 is
+`0a446eb059bbace93a696ce541b5f928134cf35d17f816b2effd1c969918108a`.
+The policy artifact matches all 1,441 source files and the published compiler
+records. All six manifests are byte-identical to the earlier reviewed plan.
+No generated runtime or policy change was needed for these evidence checks.
 
 The complete live consumer workflow remains required. The prepared policy
-update requires successful application checks and an empty test installation.
-The operator login must be refreshed before cluster changes or final cleanup
-verification. No account-policy update has been applied.
+update requires successful core application checks and an empty test
+installation. The operator login and restricted CI credential were refreshed.
+The intervening API repeat passed all 52 required tests; independent cleanup
+found no remaining API test resources or held lease at 15:22 UTC on 2026-09-17.
+No account-policy update has been applied. The live workflow must still prove
+account use and recovery with the new runtime and Pod checks.
