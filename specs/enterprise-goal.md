@@ -125,8 +125,10 @@ prefixes, verified installer permissions, and restored both accounts through
 the trusted installer. All 14 policies passed type checking. Independent
 cleanup verified 57 resource paths absent. The full race step passed 34
 packages, and all six CI jobs passed. The qualified source is on STEGO main.
-Signed release publication and consumer adoption remain pending. Account
-retirement and arbitrary external grants remain outside this result. See the
+Compiler `931f712` is published as a verified immutable release. Hypershell
+has selected it on an adoption branch; regeneration and the consumer workflow
+remain pending. Account retirement and arbitrary external grants remain outside
+this result. See the
 [policy evidence and limits](allocation-control-account-policy.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).

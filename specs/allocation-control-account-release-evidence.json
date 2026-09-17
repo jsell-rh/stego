@@ -1,0 +1,207 @@
+{
+  "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+  "release_id": 390963414,
+  "release_url": "https://github.com/jsell-rh/stego/releases/tag/compiler-931f712bda4507623bdf3bee8a359b9aeee7f86d",
+  "immutable": true,
+  "verified_release_installation": {
+    "format": 1,
+    "repository": "jsell-rh/stego",
+    "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+    "reference": "refs/heads/main",
+    "source_revision": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "predicate_type": "https://slsa.dev/provenance/v1",
+    "self_hosted_runners_allowed": false,
+    "artifact": {
+      "name": "stego-linux-amd64",
+      "sha256": "4bdc57eefa29568e8474518d138c1caab20ed44fd62dbfd9202ba6839a07b3ae",
+      "size": 31786435
+    },
+    "build_record_sha256": "65d3eea9d75c069f7736c32cf78728ab15f7079d1b90763cfa84f651bb03a002",
+    "bundle_sha256": "6fe7a81ed2588f74097fdebd08b88f7c999b28aeb103ee783710d8500248cbb6"
+  },
+  "full": {
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35259311017",
+    "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "checked_at": "2026-09-17T18:38:44.199469+00:00",
+    "jobs": {
+      "keycloak-provider": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "postgres-provisioning": "success",
+      "examples (user-management)": "success",
+      "resource-state-storage": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "6ac010646d857720200d3acd98e0d4341f7f347549946242c6ae14621fa5d166",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "99484273c4faad063a6ab6178c862a1d3299a06fa549f95186269dee32a9705f",
+    "generated_examples_passed": true
+  },
+  "focused": {
+    "run": 35259311040,
+    "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "checked_at": "2026-09-17T18:34:05.669117+00:00",
+    "source_archive_matches": true,
+    "required_generator_checks": [
+      "TestAllocationServiceAccountValidation",
+      "TestAllocationServiceAccountManifests",
+      "TestGeneratedAllocationServiceAccountRuntime",
+      "TestAllocationPeerBindingsValidation",
+      "TestAllocationPeerBindingsManifests",
+      "TestAllocationControlAccountManifests",
+      "TestGeneratedAllocationEndpointRenderer"
+    ],
+    "required_peer_runtime_checks": [
+      "TestAllocationServiceAccountPeerGrant",
+      "TestAllocationServiceAccountPeerReadiness",
+      "TestAllocationServiceAccountPeerCycle",
+      "TestAllocationServiceAccountPeerNamespaceRecovery",
+      "TestAllocationServiceAccountPeerRejectsChangedSeal"
+    ],
+    "runtime_top_level_passes": 13,
+    "runtime_pass_cases": 37,
+    "runner_safety_checks": 30,
+    "manifests": {
+      "manifest.json": {
+        "sha256": "e8e0d0e7ecbe6ea83b0bc0b1fb41f70441ab2ed06d93a7d9ff1302011f0d582e",
+        "only_control_account_guard_and_unbound_installer_role_added": true
+      },
+      "related/manifest.json": {
+        "sha256": "d2a69287b4c381af88eb64fb5845b7c457794701ea79fca2c84ce320ef299f6a",
+        "only_control_account_guard_and_unbound_installer_role_added": true
+      },
+      "peer/manifest.json": {
+        "sha256": "eab028a907a1257c57f7be4ea8f318b2484c2a4f22a813aec9f4d9880aaed1dc",
+        "only_control_account_guard_and_unbound_installer_role_added": true
+      }
+    },
+    "job_log_sha256": "1d4dcc80ab0bd06d73f7823a350ea270a83cc4e0e5f84c23fb41caa54d8fa88b",
+    "scope": "Hosted generator, runtime, and runner checks. Live installer permission and recovery checks remain required."
+  },
+  "renderer": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35259310982",
+    "job": 105330733290,
+    "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "checked_at": "2026-09-17T18:35:49.185208+00:00",
+    "source_archive_sha256": "af6164d24af4d56293d95e49c863ed24e792c929c36d4b7176c276ebd536f557",
+    "runtime_log_sha256": "d60dc73489d9e36145601650ed57a65a80c7d11167d6bdfdfb8124d67a061592",
+    "outer_log_sha256": "b2cd08a70ba0a2e360d775dc6096928ccfe178f40af317a4160c14154d29391f",
+    "generated_renderer_sha256": "0ad4ef95c73ecdc617ddfca1520025f48a94ab39ed7ca964613993a4ad15b559",
+    "required_account_tests": [
+      "TestExistingServiceAccountPreservesWorkload",
+      "TestExistingServiceAccountRejectsAmbiguousAuthority",
+      "TestExistingServiceAccountRejectsInvalidGeneratedIdentity"
+    ],
+    "invalid_generated_identity_cases": [
+      "missing_account",
+      "missing_deployment",
+      "multiple_accounts",
+      "multiple_deployments",
+      "different_namespace",
+      "different_account",
+      "missing_Pod",
+      "unknown_resource",
+      "cluster_binding"
+    ],
+    "runtime_tests_passed": 11,
+    "repeat_generation_passed": true,
+    "full_rbac_checked_before_scope_filtering": true,
+    "consumer_adopted": false,
+    "live_admission_proved": false,
+    "scope": "Generated renderer with workload field preservation, typed and command API agreement, immutable repeated output, and rejection of invalid or ambiguous account authority. This is not a live deployment or release result."
+  },
+  "artifact": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35259310965",
+    "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "checked_at": "2026-09-17T18:35:35.499138+00:00",
+    "source_inventory": {
+      "sha256": "794af07e8392fecb5b3b1876d94544add3da69cd9120b836b0ef8af063bf5739",
+      "files": 1235,
+      "bytes": 9830009
+    },
+    "binary_sha256": "4bdc57eefa29568e8474518d138c1caab20ed44fd62dbfd9202ba6839a07b3ae",
+    "build_record_sha256": "65d3eea9d75c069f7736c32cf78728ab15f7079d1b90763cfa84f651bb03a002",
+    "independent_hosted_builds": 2,
+    "binary_executed_locally": false,
+    "signed_provenance": false,
+    "release_published": false,
+    "scope": "Main build bytes and source inventory match the successful hosted build. The signature records also match. Separate local signature verification and full-suite qualification are required before release.",
+    "ci_signature_checks_passed": true,
+    "ci_rejection_cases": [
+      "different-source-commit",
+      "changed-compiler-with-matching-checksums",
+      "changed-build-record",
+      "invalid-signature-bundle"
+    ]
+  },
+  "assets": [
+    {
+      "name": "build.json",
+      "id": 570855250,
+      "size": 6882,
+      "sha256": "65d3eea9d75c069f7736c32cf78728ab15f7079d1b90763cfa84f651bb03a002"
+    },
+    {
+      "name": "provenance.jsonl",
+      "id": 570859185,
+      "size": 10637,
+      "sha256": "6fe7a81ed2588f74097fdebd08b88f7c999b28aeb103ee783710d8500248cbb6"
+    },
+    {
+      "name": "SHA256SUMS",
+      "id": 570859063,
+      "size": 161,
+      "sha256": "030ddabce77b0c859b11389276793e60c2e2d00bc7588eef50ff6246877768c7"
+    },
+    {
+      "name": "stego-linux-amd64",
+      "id": 570855249,
+      "size": 31786435,
+      "sha256": "4bdc57eefa29568e8474518d138c1caab20ed44fd62dbfd9202ba6839a07b3ae"
+    }
+  ],
+  "upload_timeout": {
+    "checked_at": "2026-09-17T18:40:56.577212+00:00",
+    "upload_processes": [],
+    "reason": "The four-file gh upload exceeded its 90-second process limit. The underlying cause is unknown.",
+    "release_id": 390963414,
+    "draft": true,
+    "present": [
+      "stego-linux-amd64",
+      "build.json"
+    ],
+    "missing": [
+      "SHA256SUMS",
+      "provenance.jsonl"
+    ],
+    "existing_asset_metadata_matches": true
+  },
+  "missing_inputs_uploaded_separately": true,
+  "compiler_executed_locally": false,
+  "consumer_adopted": false
+}

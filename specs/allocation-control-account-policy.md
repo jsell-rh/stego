@@ -69,6 +69,14 @@ passing result above. The
 [installation failure record](allocation-control-account-installation-failure.json)
 remains available.
 
-The qualified source is on STEGO main. Signed release publication and
-Hypershell adoption remain pending. The account retirement and external grant
+Compiler `931f712` is published as an immutable release. The common installer
+verified the published compiler and build-record signatures. All main-branch
+checks passed before publication. Hypershell adoption remains pending. The account retirement and external grant
 limits above still apply. This result does not close the enterprise goal.
+
+The [release evidence](allocation-control-account-release-evidence.json) records
+the source, signatures, asset hashes, and checks. The first four-file upload
+timed out after two files reached GitHub. The stopped process and partial draft
+were inspected. Only the two missing files were then uploaded. All four files
+were downloaded and matched against the authenticated package before publication.
+The published release was then checked through the common installer.
