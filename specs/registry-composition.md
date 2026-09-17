@@ -59,9 +59,8 @@ remote or fall back to the cache when `vendor` is set. A plain directory without
 Git metadata is not a verified vendored source.
 
 This option supplies registry inputs only. A complete offline build must also
-supply the pinned compiler and all build dependencies. Hypershell's current
-generation scripts still fetch the compiler from Git. Registry vendoring alone
-does not make those scripts work offline.
+supply the pinned compiler, its verification inputs, the build tools, and all
+build dependencies. Registry vendoring alone does not supply those inputs.
 
 ```yaml
 registry:
@@ -102,6 +101,33 @@ files or a power-loss recovery protocol. A failed or interrupted attempt can
 leave complete configuration files, empty directories, or a temporary file.
 The next attempt can use a complete configuration. If `service.yaml` exists,
 initialization stops and retains it. It reports only paths that it created.
+
+### Initialization evidence
+
+Source `cb4f0b9a7565563c9e28b1b9b06fe8490406408b` passed all six jobs in
+[compiler run 35209395064](https://github.com/jsell-rh/stego/actions/runs/35209395064).
+Independent log inspection confirmed all 13 selected initialization and registry
+tests, plus the complete race suite with 34 passing packages. The other jobs
+checked both examples, PostgreSQL provisioning, the real Keycloak provider,
+and generated state storage. Compiler log SHA-256:
+`3fa623f81cf6d5540a197ac65edf15c3f8c6eb8b9a5a3fdf378439de7699501c`.
+
+[Artifact run 35209395056](https://github.com/jsell-rh/stego/actions/runs/35209395056)
+built the same compiler twice with separate source trees and caches. Independent
+inspection matched all 1,197 source files, the compiler checksum, the build
+record, and the embedded source revision. Compiler SHA-256:
+`31c6b61be34934541da20fa3ff5614b88c3647f15dc3c3b59449a2c8ee46870b`.
+Build record SHA-256:
+`a86d5f5f954bac5be9ea61d25586638f7bbcf14bfad70736dd520290740ab6ab`.
+The branch artifact has no main signature and is not a consumer release.
+No compiler build or Go test ran on the developer workstation.
+
+The tested source is on remote main. Its main checks are tracked separately in
+[run 35210141631](https://github.com/jsell-rh/stego/actions/runs/35210141631),
+and its signed artifact check in
+[run 35210141579](https://github.com/jsell-rh/stego/actions/runs/35210141579).
+Those results were pending when this record was written. Hypershell keeps its
+qualified compiler pin while its live application checks finish.
 
 ## Hypershell integration
 
