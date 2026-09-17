@@ -59,6 +59,9 @@ class VerificationChecks(unittest.TestCase):
                                   ("--cert-identity", "https://github.com/jsell-rh/stego/.github/workflows/compiler-artifact.yml@refs/heads/main")]:
                 self.assertEqual(args[args.index(option) + 1], value)
             self.assertIn("--deny-self-hosted-runners", args)
+            # The CLI rejects these selectors together with --cert-identity.
+            for selector in ["--signer-workflow", "--signer-repo", "--cert-identity-regex"]:
+                self.assertNotIn(selector, args)
             self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
             calls.append(Path(args[3]).name)
             return b"verified"

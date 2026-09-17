@@ -60,7 +60,7 @@ def authenticate(gh, path, bundle, revision, environment):
     control.command([
         str(gh), "attestation", "verify", str(path), "--bundle", str(bundle),
         "--hostname", "github.com", "--repo", REPOSITORY,
-        "--signer-workflow", WORKFLOW, "--signer-digest", revision,
+        "--signer-digest", revision,
         "--cert-identity", "https://github.com/" + WORKFLOW + "@" + REFERENCE,
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
         "--source-ref", REFERENCE, "--source-digest", revision,

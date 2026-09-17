@@ -129,6 +129,13 @@ jobs:
           subject-path: |
             ${{ runner.temp }}/compiler-artifact/stego-linux-amd64
             ${{ runner.temp }}/compiler-artifact/build.json
+      - name: Retain the signature bundle before consumer verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: compiler-attestation-${{ github.sha }}
+          path: ${{ steps.attest.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 7
       - name: Verify origin and reject changed inputs
         env:
           GH_TOKEN: ${{ github.token }}

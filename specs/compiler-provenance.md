@@ -49,6 +49,9 @@ must accept all of these requirements:
 - The predicate is `https://slsa.dev/provenance/v1`.
 - The runner is hosted by GitHub.
 
+The exact certificate identity selects the workflow and branch. The CLI does
+not permit a separate `--signer-workflow` selector with `--cert-identity`.
+
 The wrapper fixes these requirements. It does not accept an alternate host,
 workflow, reference, issuer, or trust root. It retains operator authentication
 settings, but removes inherited debug, proxy, TLS-root, loader, and executable
@@ -77,6 +80,10 @@ rejection results. The original unsigned build artifact remains separate. Both
 artifacts have seven-day retention. Only the verified provenance result shows
 that this consumer policy passed.
 
+The separate `compiler-attestation-<full-source-commit>` artifact retains the
+signature bundle before consumer verification. It permits inspection if that
+check fails. Its presence alone does not establish a passing consumer check.
+
 A signature authenticates a statement from the selected workflow. It does not
 prove that the source is correct or that the hosted builder and Go toolchain
 were uncompromised. Main signing does not wait for the separate full compiler
@@ -84,3 +91,25 @@ workflow; check that result before selecting a compiler revision for production.
 This is not a permanent release channel or automatic consumer installation.
 Supported-platform coverage, complete application build inputs, independent
 toolchain trust, release policy, and full offline distribution remain open.
+
+## First signature check and correction
+
+[Main run 35191792983](https://github.com/jsell-rh/stego/actions/runs/35191792983)
+built and signed the compiler at `842728b`. Consumer verification failed because
+the command supplied two mutually exclusive identity selectors. No verified
+package was published by that run. The run remains a failure.
+
+The corrected command uses the exact certificate identity. All repository,
+source commit, signer commit, issuer, predicate, and runner checks remain.
+Independent checks with GitHub CLI 2.87.3 accepted both real signatures from
+the failed run. They rejected another source commit, changed compiler bytes
+with matching replacement checksums, a changed toolchain field in the build
+record with matching replacement checksums, and an invalid bundle. Valid inputs
+passed again after these rejection checks. The compiler was not executed.
+
+The authenticated compiler SHA-256 was
+`20fa98a3ec27f0fc6c6acf92072b70d1da1d61f065c2447fdefa572f7cb94f6a`.
+The build-record SHA-256 was
+`68c4936b7ab3912f87b78765d439cd36266f23ab17d6c9d2cfb895f555d09014`.
+This proves the corrected consumer command against those retained signatures.
+The corrected workflow still needs its own complete CI result.

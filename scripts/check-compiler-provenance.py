@@ -51,14 +51,20 @@ def check(inputs, bundle, revision, output, gh):
         shutil.rmtree(changed)
         shutil.copytree(inputs, changed)
         build = json.loads((changed / "build.json").read_text())
-        build["source_revision"] = other_revision
+        build["toolchain"]["sha256"] = "0" * 64
         (changed / "build.json").write_text(json.dumps(build))
+        (changed / "SHA256SUMS").write_text("".join(
+            f"{verification.control.digest(changed / name)}  {name}\n"
+            for name in [verification.BINARY, "build.json"]))
         deny("changed-build-record", changed)
         corrupt_bundle = root / "corrupt.jsonl"
         corrupt_bundle.write_text('{"not":"an attestation"}\n')
         deny("invalid-signature-bundle", inputs, selected_bundle=corrupt_bundle)
+        if verification.verify(inputs, bundle, revision, root / "valid-after-rejections", gh) != record:
+            raise verification.CheckError("The valid artifact changed after the rejection checks")
     result = {"source_revision": revision, "authenticated": record["artifact"],
-              "rejected": rejected, "downloaded_compiler_executed": False}
+              "rejected": rejected, "valid_after_rejections": True,
+              "downloaded_compiler_executed": False}
     (output / "rejection-checks.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 
