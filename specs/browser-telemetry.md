@@ -11,8 +11,18 @@ archetype whose only change is adding the common telemetry component.
 The private-browser command test checks generated client and relay identities,
 stable repeated generation, and unchanged output and state after a conflicting
 declaration. The generator tests cover defaults, either explicit selection, and
-conflicts. The full compiler CI result and Hypershell adoption remain separate
-requirements. The application evidence below predates this composition change.
+conflicts. All six compiler jobs passed at `0057370` in
+[run 35193927613](https://github.com/jsell-rh/stego/actions/runs/35193927613).
+Its saved log SHA-256 is
+`b0b42045b0589c03eb1245aa158d215c15474b435fc2cd0372fa5d4780dd56de`.
+The separate [native browser logout check](https://github.com/jsell-rh/stego/actions/runs/35193927572)
+passed both the generated-policy and no-referrer control cases.
+
+The [artifact check](https://github.com/jsell-rh/stego/actions/runs/35193927569)
+also passed. Independent inspection checked all 1,190 source records, module
+records, embedded build settings, and the official SDK inventory. The source
+is on remote `main`. Main signatures and Hypershell adoption have separate
+results. The application evidence below predates this composition change.
 
 ## Current application evidence
 

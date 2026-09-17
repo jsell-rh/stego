@@ -187,9 +187,11 @@ the earlier cache permission difference is no longer accepted. See the
 A further composition review found that Hypershell's local Gateway browser
 archetype adds only common browser telemetry. The common browser archetype now
 includes that runtime and resolves one client/relay identity. Conflicting
-identities fail before generation. This change still requires its full CI
-result and Hypershell adoption. Do not treat the current local Gateway browser
-archetype as domain policy. See [browser telemetry](browser-telemetry.md).
+identities fail before generation. Source `0057370` passed all six compiler
+jobs, the native browser logout check, and independent artifact inspection.
+It is on remote `main`. Hypershell adoption and main signatures remain separate
+checks. Do not treat the current local Gateway browser archetype as domain
+policy. See [browser telemetry](browser-telemetry.md).
 
 ## User decisions that remain in force
 

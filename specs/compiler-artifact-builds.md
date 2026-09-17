@@ -203,5 +203,9 @@ The downloaded compiler was not executed on the workstation.
 [Full compiler run 35193583091](https://github.com/jsell-rh/stego/actions/runs/35193583091)
 passed all six jobs at the same source. Its saved log SHA-256 is
 `cd86e49c7f3d11088d208f49a31f928ac2b87984d9204caf09199b7e7699672c`.
-The source is on remote `main`. Main artifact signing has a separate required
-result. These checks do not close the remaining C3 requirements.
+The source is on remote `main`. Its
+[main signing run 35194301580](https://github.com/jsell-rh/stego/actions/runs/35194301580)
+passed. Independent verification at `2026-09-17T07:27:06Z` accepted both real
+signatures and confirmed that the signed bytes match the checked branch build.
+All four rejection cases passed in CI, followed by another successful check
+of valid input. These checks do not close the remaining C3 requirements.
