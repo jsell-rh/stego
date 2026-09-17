@@ -365,6 +365,10 @@ capacity, and the other completion requirements remain open.
   a separate explicit input.
 - Keep the upstream per-Gateway dashboard. Generate its common authentication,
   deployment, and lifecycle in STEGO; retain its terminal contract.
+- Keep the current Hypershell and OpenShell Sandbox setup. Do not change the
+  workspace helper user or socket volume through a mutation service or a fork.
+  Complete the common namespace and permission controls separately. See
+  [the recorded Sandbox decision](sandbox-upstream-settings.md).
 - Allow people and authorized API automation for Gateway grants.
 - Use restricted jshell CI, one live test at a time. Do not use Playwright,
   privileged containers, or workstation performance tests. Verify cleanup before

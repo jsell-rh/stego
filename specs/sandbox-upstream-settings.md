@@ -38,44 +38,18 @@ The inspected settings do not expose a separate workspace helper user or the
 storage medium for that volume. Setting the Sandbox user does not remove the
 helper's explicit user setting.
 
-The proposed variant adjusts that helper to use the agent's non-root user and
-uses bounded memory storage for the internal socket volume. These adjustments
-still need workload evidence. A source comment about non-root copying is not a
-successful runtime test. Supplying a pre-existing workspace volume can avoid
-helper creation, but changes workspace setup and recovery. Do not select that
-path solely to avoid an admission service.
+The earlier prototype changed the helper to use the agent's non-root user and
+used bounded memory storage for the internal socket volume. The memory volume
+addressed a socket failure in the earlier Kata fixture. That result does not
+establish that every supported runtime needs these changes.
 
 ## Implementation direction
 
-Use supported upstream configuration for each setting it can express. Keep
-rejection rules separate from setup rules. The former must reject an unsafe
-request even if the latter is absent or fails to make the required change.
-
-For the remaining setup changes, compare a small upstream change with a common
-STEGO admission component. A common component must scope requests to its owned
-allocations, use bounded processing and verified TLS, manage certificate
-rotation, and expose the generated health and telemetry interfaces. Failure
-must block a Sandbox that needs the security adjustment. It must not change
-unrelated Pods.
-
-Kubernetes provides built-in mutation policies as an alternative to a webhook.
-The stable feature starts at Kubernetes 1.36. The supported OpenShift release
-and feature state must also be checked; the Kubernetes version alone is not a
-support claim. See the
-[Kubernetes reference](https://kubernetes.io/docs/reference/access-authn-authz/mutating-admission-policy/).
-
-On 2026-09-17, the user asked why a webhook or fork was needed. Neither choice
-is an established requirement. The workspace user change reduces privileges;
-the memory volume addressed an earlier Kata socket failure. These reasons do
-not establish that every supported runtime needs either adjustment. Root inside
-a VM is also different from root on the host. The current source review alone
-cannot establish the required workspace behavior.
-
-The user then selected the current Hypershell and OpenShell setup. Keep the
+On 2026-09-17, the user selected the current Hypershell and OpenShell setup. Keep the
 upstream workspace user and socket-volume behavior. Do not add a mutation
 service, a maintained fork, or a higher Kubernetes baseline for these fields.
-The Hypershell prototype's mutation policy and beta feature setup are being
-removed. Its previous Kata results remain historical evidence, not current
+Hypershell commit `b5c536c` removes the prototype's mutation policy and beta
+feature setup. Its previous Kata results remain historical evidence, not current
 compatibility evidence for unchanged upstream Pods.
 
 Continue the separate allocation and permission boundary through STEGO. The
@@ -84,5 +58,5 @@ account in its allocated namespace; it must not grant application workers the
 ability to change cluster policy. Pod rejection rules remain separate from
 setup changes. A declared runtime restriction is optional and does not select
 a runtime or require a mutation service.
-Any reusable admission service, certificate lifecycle, validation, and telemetry
-belong in STEGO. Hypershell must retain only its OpenShell integration policy.
+Keep common allocation, permission checks, and telemetry in STEGO. Hypershell
+must retain only its OpenShell integration policy.
