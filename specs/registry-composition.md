@@ -132,8 +132,12 @@ the compiler. Its bytes match the qualified branch artifact. The gate rejected
 a different source commit, changed compiler bytes with updated checksums, a
 changed build record, and an invalid signature bundle. Signature bundle SHA-256:
 `36e833ab2d29fc8ee48817aaef00cd814a30975acf53c1caa2e62c7fcb5421ea`.
-The main full-suite rerun is pending. Hypershell keeps its qualified compiler
-pin while its live application checks finish.
+The main full-suite rerun also passed all six jobs. Independent log inspection
+again confirmed all 13 selected tests and 34 passing packages with the race
+detector. Main compiler log SHA-256:
+`c492d65560844ffd10c6c67430f33e7c6d0955844dd40689b723ab366b86f60d`.
+Hypershell keeps its qualified compiler pin while its live application checks
+finish.
 
 ## Hypershell integration
 
