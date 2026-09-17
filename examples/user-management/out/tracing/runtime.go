@@ -41,6 +41,7 @@ const defaultService = "user-management"
 // global OpenTelemetry providers. Missing collector configuration disables export.
 // Local service logging remains enabled.
 type Runtime struct {
+	startup                    startupSignals
 	browserSampleRatio         float64
 	browserOnce                sync.Once
 	browserPermits             chan struct{}
@@ -140,6 +141,10 @@ func newRuntime(localOutput io.Writer) (*Runtime, error) {
 		return nil, err
 	}
 	if err := runtime.initDatabaseSignals(); err != nil {
+		runtime.Close()
+		return nil, err
+	}
+	if err := runtime.initStartupSignals(); err != nil {
 		runtime.Close()
 		return nil, err
 	}

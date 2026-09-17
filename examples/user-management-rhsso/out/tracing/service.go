@@ -56,6 +56,7 @@ type serviceLogs struct {
 	lifecycle bool
 }
 type localRecord struct {
+	Stage           string    `json:"startup.stage,omitempty"`
 	DatabaseCall    string    `json:"stego.db.call,omitempty"`
 	HTTPMethod      string    `json:"http.request.method,omitempty"`
 	HTTPStatus      int       `json:"http.response.status_code,omitempty"`
