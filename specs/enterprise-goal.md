@@ -107,8 +107,21 @@ probes, twelve policy type checks, and independent cleanup. Compiler `09efc7`
 adds account readiness checks and is published as a verified immutable release.
 Full compiler and renderer checks passed. Hypershell has adopted it on a test
 branch, with matching generated output and an explicit console module pin.
-Application checks are running. The complete consumer workflow remains required. See the
-[allocation evidence](allocation-service-accounts-evidence.md). Sandbox setup
+The complete external PostgreSQL consumer workflow passed at Hypershell
+`c253c04`: all 11 browser checks and all 52 API checks passed. Independent checks
+matched 1,447 source files, 416 generated hashes, compiler and image identity,
+24 ready-Pod account observations, and empty cluster cleanup. The core suite
+passed 738 cases. The prior console Pod-readiness failure remains recorded;
+the test now waits for current readiness while account errors still fail.
+See the [application record](https://github.com/jsell-rh/hypershell-stego/blob/f258441/acceptance/pod-readiness-evidence.md)
+and [allocation evidence](allocation-service-accounts-evidence.md).
+
+Related-profile grants remain on the qualification branch. Their compiler and
+fixture checks passed, but live permission checks and the separate control-account
+reuse audit remain required before publication. The control audit tests fresh
+account tokens after control namespace replacement while old grants remain.
+No safe boundary or exploit is claimed before that result. See the
+[control audit](allocation-control-account-audit.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).
 
