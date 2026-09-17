@@ -19,7 +19,7 @@ func accountFixture(t *testing.T) (*Allocator, *api) {
 func TestAllocationServiceAccountIdentity(t *testing.T) {
 	a, s := accountFixture(t)
 	name, err := a.ServiceAccountName("tenant", "tenant-12345678", "owner-1", "gateway")
-	if err != nil || name != "gateway-3fq6w77xbiorifsthf3yq75h2keu7q6p7ycl2y72bov3sl4n7mca" {
+	if err != nil || name != "sa-5d51bf49cb135b20c33008b416b3ad5d-3fq6w77xbiorifsthf3yq75h2i" {
 		t.Fatal("owner identity encoding changed", name, err)
 	}
 	again, err := a.ServiceAccountName("tenant", "tenant-87654321", "owner-1", "gateway")
@@ -96,7 +96,7 @@ func TestAllocationServiceAccountRejectsChangedSeal(t *testing.T) {
 	}
 	s.mu.Lock()
 	annotations := kube.Nested(s.objects["/api/v1/namespaces/tenant-12345678"], "metadata", "annotations").(map[string]any)
-	annotations[serviceAccountAnnotation+"gateway"] = "gateway-" + strings.Repeat("a", 52)
+	annotations[serviceAccountAnnotation+"gateway"] = "sa-" + a.marker + "-" + strings.Repeat("a", 26)
 	before := len(s.writes)
 	s.mu.Unlock()
 	if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err == nil {

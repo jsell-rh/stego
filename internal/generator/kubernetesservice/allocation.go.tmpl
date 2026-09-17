@@ -116,7 +116,7 @@ func (a *Allocator) serviceAccountName(p profile,ownerID,alias string)string{
  // encoding keeps each field separate, including punctuation in owner IDs.
  encoded,_:=json.Marshal([]string{"stego-allocation-service-account-v1",a.namespace,a.config.Allocator,p.OwnerLabel,ownerID,alias})
  digest:=sha256.Sum256(encoded)
- return alias+"-"+strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
+ return "sa-"+a.marker+"-"+strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:16]))
 }
 
 // ServiceAccountName returns the name for a declared allocation alias. It does

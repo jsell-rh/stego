@@ -221,7 +221,7 @@ func TestAllocationManifests(t *testing.T) {
 		}
 		expectedPolicies := 3
 		if managedAccounts {
-			expectedPolicies += 2
+			expectedPolicies += 3
 		}
 		if policies != expectedPolicies || bindings != 1 {
 			t.Fatal("wrong allocation guards")

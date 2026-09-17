@@ -16,7 +16,7 @@ func allocationServiceAccountCEL(alias string) string {
 	return "namespaceObject.metadata.annotations[" + celString(allocationServiceAccountPrefix+alias) + "]"
 }
 
-func allocationServiceAccountAnnotationCEL(objectName, alias string) string {
+func allocationServiceAccountAnnotationCEL(config allocationConfiguration, objectName, alias string) string {
 	key := celString(allocationServiceAccountPrefix + alias)
-	return "(has(" + objectName + ".metadata.annotations) && " + key + " in " + objectName + ".metadata.annotations && " + objectName + ".metadata.annotations[" + key + "].matches(" + celString("^"+alias+"-[a-z2-7]{52}$") + "))"
+	return "(has(" + objectName + ".metadata.annotations) && " + key + " in " + objectName + ".metadata.annotations && " + objectName + ".metadata.annotations[" + key + "].matches(" + celString("^sa-"+allocationMarker(config)+"-[a-z2-7]{26}$") + "))"
 }

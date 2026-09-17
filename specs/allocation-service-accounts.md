@@ -18,8 +18,8 @@ bindings:
     namespace: allocated
 ```
 
-STEGO generates the actual name from the alias and a full SHA-256 digest.
-The input is a JSON array with these strings, in order:
+STEGO generates the actual name from an installation tag and an owner tag.
+The owner tag input is a JSON array with these strings, in order:
 
 1. `stego-allocation-service-account-v1`
 2. The control namespace
@@ -28,9 +28,13 @@ The input is a JSON array with these strings, in order:
 5. The allocation owner ID
 6. The alias
 
-The digest uses lowercase base32 without padding. The result is the alias,
-one hyphen, and 52 digest characters. It fits the 63-byte ServiceAccount name
-limit. No owner ID is placed directly in the name. The name remains stable
+The owner tag is the first 128 bits of SHA-256, encoded as 26 lowercase base32
+characters without padding. The installation tag is STEGO's existing allocator
+marker: the first 128 bits of SHA-256 over the control namespace, a period, and
+the allocator ServiceAccount name, encoded as 32 lowercase hexadecimal digits.
+The result is `sa-`, the installation tag, one hyphen, and the owner tag. Its
+62 bytes fit the ServiceAccount name limit. The alias is included in the digest
+input. No owner ID is placed directly in the name. The name remains stable
 across allocator restarts and namespace replacement for the same owner.
 Another owner receives a different name. This is a cryptographic identity
 derivation; it is not a credential or an authorization decision.
@@ -65,6 +69,13 @@ ordinary namespace creators from taking a deleted allocation name without its
 ownership labels. Existing unrelated namespaces are not changed or deleted.
 When allocator instances share a namespace pattern, upgrade all of them before
 enabling this reservation. Do not grant the capability to application workers.
+
+A separate admission rule checks the installation tag on generated account
+names in the reserved namespace patterns. This rule also applies to namespaces
+owned by other registered allocators. Those allocators cannot create a former
+installation's account name, including through a profile that otherwise uses
+literal account names. The local owner rule then checks each declared alias
+against its immutable namespace annotation.
 
 The runtime rejects a changed stored name before it writes. Read-only namespace
 verification also checks the names. A first upgrade can add a missing annotation

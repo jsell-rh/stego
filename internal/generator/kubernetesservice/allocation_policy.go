@@ -85,7 +85,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	for _, p := range config.Profiles {
 		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
 		for _, alias := range p.ServiceAccounts {
-			nsCase += " && " + allocationServiceAccountAnnotationCEL("variables.o", alias)
+			nsCase += " && " + allocationServiceAccountAnnotationCEL(config, "variables.o", alias)
 		}
 		namespaceCases = append(namespaceCases, "("+nsCase+")")
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
@@ -139,7 +139,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 			}
 			if scope[b.Role] == "cluster" {
 				if managedAccount {
-					accountCheck = allocationServiceAccountAnnotationCEL("variables.o", b.ServiceAccount)
+					accountCheck = allocationServiceAccountAnnotationCEL(config, "variables.o", b.ServiceAccount)
 					serviceAccount = "variables.o.metadata.annotations[" + celString(allocationServiceAccountPrefix+b.ServiceAccount) + "]"
 				}
 				subjectNamespace = "variables.o.subjects[0].namespace"
@@ -203,7 +203,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 			key := celString(allocationServiceAccountPrefix + alias)
 			oldHas := "(has(oldObject.metadata.annotations) && " + key + " in oldObject.metadata.annotations)"
 			newHas := "(has(object.metadata.annotations) && " + key + " in object.metadata.annotations)"
-			unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || ("+oldHas+" ? ("+newHas+" && object.metadata.annotations["+key+"] == oldObject.metadata.annotations["+key+"]) : ("+isAllocator+" && "+allocationServiceAccountAnnotationCEL("object", alias)+")))")
+			unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || ("+oldHas+" ? ("+newHas+" && object.metadata.annotations["+key+"] == oldObject.metadata.annotations["+key+"]) : ("+isAllocator+" && "+allocationServiceAccountAnnotationCEL(config, "object", alias)+")))")
 		}
 	}
 	for _, p := range config.Profiles {
@@ -250,6 +250,17 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		reserved := "request.operation == 'CREATE' && object != null && " + join(serviceAccountNamespacePatterns)
 		capable := "authorizer.path(" + celString(allocationNamespaceCapability) + ").check('get').allowed()"
 		guarded = append(guarded, allocationPolicy(base+".namespace-reservations", []any{allocationRule("", "namespaces")}, reserved, nil, []any{validate(capable, "Allocated namespace patterns require a trusted allocator")})...)
+		// A different trusted installation must not create this installation's
+		// account names, even if its profile uses literal account names.
+		patterns := []string{}
+		for _, p := range config.Profiles {
+			if len(p.ServiceAccounts) > 0 {
+				patterns = append(patterns, pattern("namespaceObject.metadata.name", p))
+			}
+		}
+		selectedIssuer := "namespaceObject != null && " + join(patterns)
+		issuerCheck := "request.operation == 'DELETE' || !variables.o.metadata.name.matches('^sa-[0-9a-f]{32}-[a-z2-7]{26}$') || (has(namespaceObject.metadata.labels) && 'stego.dev/allocator' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocator'].matches('^[0-9a-f]{32}$') && variables.o.metadata.name.startsWith('sa-' + namespaceObject.metadata.labels['stego.dev/allocator'] + '-'))"
+		guarded = append(guarded, allocationPolicy(base+".account-issuers", []any{allocationRule("", "serviceaccounts")}, selectedIssuer, variables, []any{validate(issuerCheck, "ServiceAccount issuer must match its namespace allocator")})...)
 	}
 	// Install the policies before the allocator receives permissions.
 	items = append(guarded, items...)
