@@ -72,7 +72,7 @@ changed annotations. Those real API checks have not run yet. The runner safety
 tests use simulated API responses; they do not prove live admission.
 
 
-## Live checks remain incomplete
+## Earlier live failures
 
 Three live attempts used the same two generated manifests. All 12 policies
 passed server type checks. The first attempt could not classify the first
@@ -85,10 +85,9 @@ policy evaluation errors remain failures. Ten runner safety tests passed.
 The corrected attempt passed explicit and generated namespace-name denials,
 an unrelated generated namespace name, and authorized namespace creation.
 It then failed: the operator's dry-run request to create a declared owner
-ServiceAccount was accepted. The cause is not yet established. This result
-must not be accepted as a security pass or hidden by a retry. Further checks
-must retain the request, stored namespace, active policies, and response to
-separate policy behavior from test or installation behavior.
+ServiceAccount was accepted. The cause was later traced to missing namespace context in policy match
+conditions. See [the source analysis](allocation-policy-match-context.md).
+This result remains a failed security gate.
 
 All three attempts created no Pods. Independent reads confirmed removal of
 all recorded resources and reserved test namespaces after each attempt.
@@ -96,3 +95,49 @@ See the [failure records](allocation-service-accounts-live-failure.json).
 The common account change remains unreleased and is not used by Hypershell.
 The complete Gateway workflow with the earlier published compiler is a
 separate passing result.
+
+## Corrected live admission and authorization
+
+Generator source `845977ff1d98decb9d63de26682b98618177cdf5` and runner source
+`0dc886a2a5d93214504bd6ff314cd3c0f51dcf00` passed the dedicated jshell gate.
+The runner used the exact two manifests from
+[focused run 35228281358](https://github.com/jsell-rh/stego/actions/runs/35228281358).
+Independent checks matched the source, manifest bytes, all 16 probe results,
+and four distinct namespace UIDs for one reused namespace name.
+
+The gate denied non-allocator account creation, forged owner names, automatic
+token mounting, and changed owner annotations. It allowed the original owner
+to recover its account after namespace replacement. A different owner and a
+new installation could not use the original permission grant. That grant
+remained unchanged throughout the check. Both explicit and generated namespace
+name restrictions passed. An unrelated generated namespace name remained valid.
+
+All 12 policies passed server type checks. The gate created no Pods.
+Independent API reads at `2026-09-17T13:42:47Z` confirmed that all 49 recorded
+resource paths and reserved test namespaces were absent after cleanup.
+
+An intermediate run with the corrected manifests stopped after a proper denial
+came from another generated owner guard. The test required only one of the two
+equivalent guard names. The corrected runner accepts either exact policy and
+binding name. It still rejects unrelated errors and policy evaluation failures.
+This intermediate run remains failed; its independent cleanup also passed.
+
+The focused generated-runtime check passed all six cases and ten runner safety
+checks. The [renderer check](https://github.com/jsell-rh/stego/actions/runs/35228281203)
+passed all 11 runtime cases, including workload preservation, authority checks
+before scope filtering, and repeated generation. Independent artifact checks
+matched all 1,215 source files and compiler bytes from
+[two isolated builds](https://github.com/jsell-rh/stego/actions/runs/35228281221).
+The branch artifact has no release signature. The full compiler check for
+`845977f` was cancelled before a job started. Its successor at `0dc886a` is a
+separate check and must complete before release.
+
+The [machine-readable record](allocation-service-accounts-live-evidence.json)
+contains the source revisions, hashes, probe names, and check limits. Raw
+responses and the cleanup journal remain in persistent operator storage under
+`allocation-policy-match-context-20260917/live-owner-guards`.
+
+The live gate used operator impersonation. It proves Kubernetes admission and
+RBAC decisions, not authentication with Pod tokens or Sandbox VM isolation.
+Hypershell has not adopted this account component. Related allocation support,
+a complete consumer rollout, and release qualification remain required.

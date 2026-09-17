@@ -20,7 +20,8 @@ the request. Another allocator's namespace retains its own profile rules, while
 the issuer guard still rejects account names from the previous installation.
 
 The generator test rejects namespace and composed-variable dependencies in
-match conditions. The complete real admission and retained-grant gate must pass
-with the new generated manifests before release. The previous accepted request
+match conditions. The complete real admission and retained-grant gate passed with the new
+generated manifests. See [the live evidence](allocation-service-accounts-evidence.md#corrected-live-admission-and-authorization).
+Full compiler and release qualification remain required. The previous accepted request
 remains a failed gate. No generated account component from this branch has been
 released or adopted by Hypershell.
