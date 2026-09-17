@@ -64,3 +64,12 @@ required telemetry dependency. The local application address test now supplies
 a non-nil database handle so it reaches the address check. These changes do not
 relax runtime validation. The PostgreSQL CI job also runs the focused startup
 tests so database-backed startup failures are reported before the full suite.
+
+Browser telemetry now includes `stego.relay.service.name` and
+`stego.relay.instance.id`. STEGO sets both from the receiving backend runtime
+and replaces all browser-supplied resource attributes. The browser service name
+remains separate. These fields identify the relay process, not a browser tab
+or a user. They let an application test link rendered browser signals to the
+backend startup records. They do not make browser-supplied event content
+trusted. The common relay test checks all three signal types, forged resource
+attributes, and separate relay instances.

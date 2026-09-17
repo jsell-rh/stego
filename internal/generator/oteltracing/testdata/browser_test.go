@@ -40,11 +40,22 @@ func TestBrowserRelaySignalIdentity(t *testing.T) {
 			t.Fatal(signal, err)
 		}
 	}
-	send("traces", browserTrace())
+	checkResource := func(resource *resourcepb.Resource, owner *Runtime) {
+		t.Helper()
+		if len(resource.GetAttributes()) != 3 || value(resource.Attributes, "service.name").GetStringValue() != "example-browser" || value(resource.Attributes, "stego.relay.service.name").GetStringValue() != owner.service.service || value(resource.Attributes, "stego.relay.instance.id").GetStringValue() != owner.instance {
+			t.Fatal("browser resource or relay identity differs")
+		}
+	}
+	spoofed := browserTrace()
+	for _, key := range []string{"service.name", "stego.relay.service.name", "stego.relay.instance.id"} {
+		spoofed.ResourceSpans[0].Resource.Attributes = append(spoofed.ResourceSpans[0].Resource.Attributes, &commonpb.KeyValue{Key: key, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "private-forged"}}})
+	}
+	send("traces", spoofed)
 	select {
 	case batch := <-collector.received:
 		r := batch.ResourceSpans[0]
-		if len(r.Resource.Attributes) != 1 || r.Resource.Attributes[0].Key != "service.name" || r.Resource.Attributes[0].Value.GetStringValue() != "example-browser" || r.ScopeSpans[0].Scope.Name != "stego.browser" || r.ScopeSpans[0].Spans[0].TraceState != "" {
+		checkResource(r.Resource, runtime)
+		if r.ScopeSpans[0].Scope.Name != "stego.browser" || r.ScopeSpans[0].Spans[0].TraceState != "" {
 			t.Fatal("browser resource or vendor state escaped")
 		}
 	case <-time.After(time.Second):
@@ -54,21 +65,34 @@ func TestBrowserRelaySignalIdentity(t *testing.T) {
 	send("logs", &logcollector.ExportLogsServiceRequest{ResourceLogs: []*logpb.ResourceLogs{{ScopeLogs: []*logpb.ScopeLogs{{LogRecords: []*logpb.LogRecord{{TimeUnixNano: now, Body: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "workflow.created"}}}}}}}}})
 	select {
 	case batch := <-collector.logs:
-		if batch.ResourceLogs[0].Resource.Attributes[0].Value.GetStringValue() != "example-browser" {
-			t.Fatal("log identity differs")
-		}
+		checkResource(batch.ResourceLogs[0].Resource, runtime)
 	case <-time.After(time.Second):
 		t.Fatal("log was not delivered")
 	}
 	send("metrics", &metriccollector.ExportMetricsServiceRequest{ResourceMetrics: []*metricpb.ResourceMetrics{{ScopeMetrics: []*metricpb.ScopeMetrics{{Metrics: []*metricpb.Metric{{Name: "workflow.created", Data: &metricpb.Metric_Sum{Sum: &metricpb.Sum{DataPoints: []*metricpb.NumberDataPoint{{TimeUnixNano: now, Value: &metricpb.NumberDataPoint_AsInt{AsInt: 1}}}}}}}}}}}})
 	select {
 	case batch := <-collector.metrics:
-		if batch.ResourceMetrics[0].Resource.Attributes[0].Value.GetStringValue() != "example-browser" {
-			t.Fatal("metric identity differs")
-		}
+		checkResource(batch.ResourceMetrics[0].Resource, runtime)
 	case <-time.After(time.Second):
 		t.Fatal("metric was not delivered")
 	}
+	second, err := NewRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if second.instance == runtime.instance {
+		t.Fatal("relay instances share an identity")
+	}
+	ctx = second.Context(context.Background())
+	send("traces", spoofed)
+	select {
+	case batch := <-collector.received:
+		checkResource(batch.ResourceSpans[0].Resource, second)
+	case <-time.After(time.Second):
+		t.Fatal("second relay trace was not delivered")
+	}
+	ctx = runtime.Context(context.Background())
 	for _, data := range [][]byte{nil, bytes.Repeat([]byte{1}, BrowserTelemetryMaxBytes+1), {255}, {0xF8, 0x07, 0x01}} {
 		if err := RelayBrowserTelemetry(ctx, "traces", data, "example-browser"); !errors.Is(err, ErrBrowserTelemetryInput) {
 			t.Fatal("invalid payload accepted", err)
