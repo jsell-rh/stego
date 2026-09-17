@@ -87,8 +87,10 @@ the API application archetype remains local. All three modules select compiler
 and common registry `00573709fb15a2a54de4242aa8fdbabee325179a`.
 The corrected full suite and public workflow passed at `af43205`. The public
 run matched all 1,363 source hashes and 415 generated hashes; independent
-cleanup passed. The corrected API result and the CNPG check remain open. See
-the [current consumer record](https://github.com/jsell-rh/hypershell-stego/blob/48c354a/acceptance/common-browser-composition.md).
+cleanup passed. The corrected API run at `442e7ff` passed all 52 required
+tests, with matching source and generation records and independent cleanup.
+The CNPG check remains open. See the
+[current consumer record](https://github.com/jsell-rh/hypershell-stego/blob/854bbb1/acceptance/common-browser-composition.md).
 
 ### Earlier application checks
 

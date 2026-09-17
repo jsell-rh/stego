@@ -37,9 +37,13 @@ workflow passed. The public run checked all 1,363 source hashes, 415 generated
 hashes, and 48 matching startup log/span pairs. Independent cleanup passed.
 The first API run found a five-second fixture wait that did not permit the
 runtime's existing lease recovery bound. Consumer `442e7ff` corrects that wait
-and requires the deterministic unfinished-claim test. Its 52-test API run is
-in progress. CNPG qualification remains open. See the
-[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/48c354a/acceptance/common-browser-composition.md).
+and requires the deterministic unfinished-claim test. Its
+[52-test API run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35198198149)
+passed. Independent checks matched all 1,365 source files and 415 generated
+hashes across four snapshots. Cleanup passed. The unfinished-claim test
+preserved the original event identity after lease expiry. CNPG qualification
+remains open. See the
+[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/854bbb1/acceptance/common-browser-composition.md).
 The application evidence below predates this composition change.
 
 ## Current application evidence
