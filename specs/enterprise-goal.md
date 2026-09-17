@@ -285,8 +285,14 @@ the application must never perform automatic teardown.
    fixture. The real unknown-client discovery and API/provisioner restart case
    now has the bounded 61-client result above. Real Keycloak capacity, concurrent
    discovery, state-service and database recovery, other Gateway controllers,
-   and production SLOs remain open. The production Gateway count, account count,
-   and cleanup-time target have been requested from the user.
+   and production SLOs remain open. On 2026-09-17, the user set the first
+   application target at 100 Gateways per instance, 100 API service accounts
+   per Gateway, and Gateway cleanup within 30 seconds. These are performance
+   targets, not compiler validation limits or runtime admission limits. Larger
+   installations can have thousands of Gateways. Measure cleanup from acceptance
+   of the deletion request to confirmed cleanup with healthy dependencies. Keep
+   larger-scale, degraded-dependency, and concurrent-load results separate.
+   These targets have not yet been proved against real providers at that scale.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    An earlier CNPG run needed one secondary Pod replacement for scheduling;
