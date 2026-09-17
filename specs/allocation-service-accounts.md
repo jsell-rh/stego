@@ -1,9 +1,9 @@
 # Allocation ServiceAccount identity
 
-The common runtime is published. Hypershell adoption is under qualification.
-The shared cluster Sandbox guard remains in place. Cross-namespace binding configuration
-and consumer deployment checks are still required before that guard can be
-removed. The initial live admission gate passed; see the
+The common runtime is published. Hypershell adoption passed the complete Gateway
+workflow described below. The shared-cluster Sandbox guard remains in place.
+Cross-namespace bindings, Sandbox admission, and Sandbox workload checks are
+still required before that guard can be removed. The initial live admission gate passed; see the
 [evidence and its limits](allocation-service-accounts-evidence.md).
 
 An allocation profile can declare `service_accounts` with one through eight
