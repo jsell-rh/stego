@@ -40,21 +40,46 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
-The latest failure-driven change is recorded in
-[observed client closure](observed-client-closure.md). A real Hypershell test
-failed after discovery and API/provisioner restart with compiler `0057370`.
-The unchanged test passed with `e206b41`: 20 journals survived the restart, all
-61 owned clients were removed, every closure journal authenticated, and a
-matching-name foreign client remained unchanged. Domain adapters did not change.
-The common fix passed both telemetry variants, real Keycloak, all six compiler
-jobs, separate builds, and independent signature checks. Its immutable release
-is published. Full Hypershell adoption checks are still in progress.
+STEGO now combines a pinned common Git registry with distinct local application
+archetypes. Hypershell no longer copies common component declarations. Both
+consoles use the common browser archetype and telemetry runtime. The compiler
+and common registry have matching full revision pins. Generated code remains
+committed and checked for repeatable generation. Registry vendoring is explicit;
+it does not supply all inputs for an offline build. See
+[registry composition](registry-composition.md).
 
-The complete signed-compiler public and CNPG workflows passed on the preceding
-application runtime. The CNPG gate passed all 11 required tests, retained 415
-unchanged generated-file hashes, and independently verified cleanup. Its one
-secondary scheduling replacement remains an explicit fixture limitation. These
-results do not close production capacity, restore, fencing, or Sandbox isolation.
+Compiler `b8fdfd6` adds common database credential preparation. It checks server
+identity, stored ownership, and SQL names under the provisioning lock. The
+application selects and retains one candidate in protected state before SQL
+creation. All six branch and main compiler jobs passed, including the real SQL
+cases. The signed main package, exact source, two build outputs, and rejection
+cases were checked independently. Its immutable release and common installer
+also passed verification. Hypershell has adopted the generated API on its test
+branch; the dedicated API/SQL and full application checks remain in progress.
+See [the application record](https://github.com/jsell-rh/hypershell-stego/blob/87ff9a699fed03745b0a3d7155cd85fbd9408239/acceptance/database-credential-preparation.md).
+
+The complete CNPG Gateway workflow passed at Hypershell `b65439f` with compiler
+`4fc880b` in run `35217578495`. Independent checks matched 1,416 source files,
+415 generated hashes, compiler and image bytes, all 11 required tests, and
+cleanup. The workflow took 711.81 seconds and had no scheduling intervention.
+It included Gateway and namespace replacement, CNPG primary replacement,
+provider outage, denied requests, event delivery, and correlated telemetry.
+Three screenshots were reviewed. See
+[the CNPG record](https://github.com/jsell-rh/hypershell-stego/blob/5876138/acceptance/provisioner-rollout.md).
+This result does not qualify the later SQL credential API.
+
+The earlier hosted core run at `4897fc1` failed a cleanup recovery event deadline
+and an unrelated Keycloak client response comparison. Later scope comparisons
+follow the provider's unordered scope-name contract and retain checks for all
+other values. Two narrow repeats passed all 61 protected closure checks and
+15 comparison cases. They do not establish the cause of the earlier scope-array
+difference, which did not retain set membership. The event timeout also remains
+unexplained. Preserve those failed results. The current rendered browser and
+provider checks passed with compiler `b8fdfd6`; the full core and complete live
+workflow results for that compiler remain separate requirements.
+
+These results do not close production capacity, restore, fencing, Sandbox
+isolation, or complete application parity. The goal remains active.
 
 The following source-specific records describe earlier steps.
 
@@ -264,8 +289,8 @@ the application must never perform automatic teardown.
    and cleanup-time target have been requested from the user.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
-   The latest CNPG run needed one secondary Pod replacement for scheduling.
-   Each result retains its limits. Live terminal behavior still requires evidence; the live Kata
+   An earlier CNPG run needed one secondary Pod replacement for scheduling;
+   run `35217578495` did not. Each result retains its limits. Live terminal behavior still requires evidence; the live Kata
    test is deferred. See [the integration record](upstream-dashboard-integration.md).
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
@@ -303,6 +328,6 @@ release after its full compiler and signature gates passed. Installer source
 produced identical verified bytes without compiler execution. See
 [installation evidence and limits](compiler-installation.md).
 
-This supplies a durable package for one qualified compiler. Automatic release
-qualification, Hypershell regeneration script integration, complete offline
-inputs, and other supported installation targets remain open. C3 is not complete.
+This supplies a durable package for one qualified compiler. Hypershell now uses the common installer in its regeneration scripts.
+Automatic release qualification, complete offline inputs, and other supported
+installation targets remain open. C3 is not complete.
