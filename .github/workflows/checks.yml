@@ -4,6 +4,8 @@ on:
   push:
     paths-ignore:
       - '**/*.md'
+      # These files record completed checks and are not compiler inputs.
+      - 'specs/*-evidence.json'
   pull_request:
 
 env:
