@@ -98,10 +98,11 @@ func TestNativeLogoutBrowser(t *testing.T) {
 				}
 			}))
 			server.Config.ReadHeaderTimeout = 3 * time.Second
+			// Publish the complete handler state before StartTLS starts serving.
+			f.backend.origin, err = url.Parse("https://" + server.Listener.Addr().String())
+			require(t, err == nil, "invalid fixture origin")
 			server.StartTLS()
 			defer server.Close()
-			f.backend.origin, err = url.Parse(server.URL)
-			require(t, err == nil, "invalid fixture origin")
 			// Trust only the fixture certificate's public key, not all certificates.
 			key := sha256.Sum256(server.Certificate().RawSubjectPublicKeyInfo)
 			log, err := os.Create(filepath.Join(output, name+".browser.log"))

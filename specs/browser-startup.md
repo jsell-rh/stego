@@ -73,3 +73,9 @@ or a user. They let an application test link rendered browser signals to the
 backend startup records. They do not make browser-supplied event content
 trusted. The common relay test checks all three signal types, forged resource
 attributes, and separate relay instances.
+
+Native logout run `35179200926` detected a race in its test fixture. The fixture
+changed the backend origin after starting its HTTP server. The origin is now
+set from the reserved listener address before the server starts. The test still
+uses native form navigation and the race detector. The generated logout policy
+is unchanged; a new CI result is required.
