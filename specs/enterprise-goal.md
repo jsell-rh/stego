@@ -91,14 +91,15 @@ and [browser provider evidence](browser-client-evidence.json). The separate
 upstream dashboard must now use these common parts in its complete workflow.
 
 The separate dashboard now uses the common pinned registry, generated browser
-backend, browser telemetry, and generated Monaco adapter. Live run
-[35165794034](https://github.com/jsell-rh/hypershell-stego/actions/runs/35165794034)
-at Hypershell `c383e95` proved rendered editor layout, selection, keyboard input,
-and JSON worker diagnostics with no document CSP violations. The later
-allocation inspection failed because the test role lacked policy reads.
-The test role correction is pushed at `5f87ed6`; the complete workflow must be
-repeated. See [the editor evidence](browser-dynamic-styles.md). This result does
-not close H1, H2, H3, or the separate dashboard gate.
+backend, browser telemetry, and generated Monaco adapter. The latest completed
+live run, [35167085887](https://github.com/jsell-rh/hypershell-stego/actions/runs/35167085887)
+at Hypershell `5f87ed6`, passed editor behavior, SQL and namespace recovery,
+viewer membership, filtered lists, denied writes, and both access-removal paths.
+It then failed at native sign-out with HTTP 403. The common STEGO correction
+passed a real browser regression check; the generated application candidate
+must still pass the complete workflow. See the [current integration record](upstream-dashboard-integration.md)
+and [native sign-out evidence](browser-logout-origin.md). These results do not
+close H1, H2, H3, or the separate dashboard gate.
 
 ## User decisions that remain in force
 
