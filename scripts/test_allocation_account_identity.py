@@ -69,6 +69,25 @@ class AccountRunnerTests(unittest.TestCase):
             check.probe("access", ["get"])
         self.assertEqual(check.probes, [])
 
+    def test_equivalent_named_admission_guard_can_reject(self):
+        check = Fixture()
+        check.reply = subprocess.CompletedProcess([], 1, "", "The namespace is invalid: ValidatingAdmissionPolicy 'peer' with binding 'peer' denied request: reserved name")
+        check.probe("reserved", ["create"], policy=["primary", "peer"])
+        self.assertEqual(len(check.probes), 1)
+        self.assertFalse(check.probes[0]["allowed"])
+
+    def test_admission_error_and_unrelated_policy_are_not_denials(self):
+        for text in [
+            "ValidatingAdmissionPolicy 'primary' failed to evaluate: connection refused",
+            "ValidatingAdmissionPolicy 'unrelated' with binding 'unrelated' denied request: reserved name",
+            "ValidatingAdmissionPolicy 'primary-more' with binding 'primary-more' denied request: reserved name",
+        ]:
+            check = Fixture()
+            check.reply = subprocess.CompletedProcess([], 1, "", text)
+            with self.assertRaisesRegex(RuntimeError, "expected admission policy"):
+                check.probe("reserved", ["create"], policy=["primary", "peer"])
+            self.assertEqual(check.probes, [])
+
     def test_failed_probe_retains_bounded_response(self):
         check = Fixture()
         check.reply = subprocess.CompletedProcess([], 1, "", "connection refused " + "x" * 8192)

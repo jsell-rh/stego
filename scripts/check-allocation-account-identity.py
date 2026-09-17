@@ -129,10 +129,14 @@ class Check:
         if (result.returncode == 0) != allowed:
             raise RuntimeError("Unexpected probe result: " + name + ": " + result.stderr[:2048])
         if not allowed:
-            if "forbidden" not in result.stderr.lower():
+            policies = [policy] if isinstance(policy, str) else policy
+            if policies:
+                # Kubernetes can report a policy denial as Invalid. When
+                # equivalent guards overlap, either named guard can reject.
+                if not any("ValidatingAdmissionPolicy '" + item + "' with binding '" + item + "' denied request:" in result.stderr for item in policies):
+                    raise RuntimeError("The expected admission policy did not reject: " + name)
+            elif "forbidden" not in result.stderr.lower():
                 raise RuntimeError("Probe did not fail through access control: " + name)
-            if policy and policy not in result.stderr:
-                raise RuntimeError("The expected admission policy did not reject: " + name)
         self.probes.append({"name": name, "allowed": allowed, "policy": policy})
         self.save()
         print(json.dumps(self.probes[-1]), flush=True)
@@ -215,7 +219,8 @@ class Check:
         self.create({"apiVersion": rule["apiVersion"], "kind": "ClusterRoleBinding", "metadata": {"name": rule["metadata"]["name"]},
                      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": rule["metadata"]["name"]},
                      "subjects": [{"kind": "ServiceAccount", "namespace": CONTROL, "name": "ordinary"}]})
-        policy = CONTROL + ".widget-queue.namespace-reservations"
+        reservation_policies = [control + ".widget-queue.namespace-reservations" for control in [CONTROL, PEER]]
+        policy = reservation_policies
         self.probe("ordinary explicit reserved namespace", dry, namespace(name), outsider, policy=policy)
         generated = namespace(name)
         del generated["metadata"]["name"]
@@ -253,7 +258,7 @@ class Check:
         read = ["get", "configmap", grant_name, "-n", CONTROL, "-o", "json"]
         self.probe("original owner can use retained grant", read, user=old_identity, allowed=True)
         self.remove(stored_first)
-        self.probe("unmarked namespace reuse rejected", dry, namespace(name), outsider, policy=CONTROL + ".widget-queue.namespace-reservations")
+        self.probe("unmarked namespace reuse rejected", dry, namespace(name), outsider, policy=reservation_policies)
         recovered = self.create(first, primary)
         self.create(quota, primary)
         recovered_account = self.create(old_account, primary)
@@ -282,10 +287,10 @@ class Check:
         self.create(peer_account, peer)
         foreign = service_account(third)
         foreign["metadata"]["name"] = old_account["metadata"]["name"]
-        self.probe("previous installation account name rejected", dry, foreign, peer, policy=CONTROL + ".widget-queue.account-issuers")
+        self.probe("previous installation account name rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts"])
         del foreign["metadata"]["name"]
         foreign["metadata"]["generateName"] = old_account["metadata"]["name"] + "-"
-        self.probe("previous installation generateName rejected", dry, foreign, peer, policy=CONTROL + ".widget-queue.account-issuers")
+        self.probe("previous installation generateName rejected", dry, foreign, peer, policy=[CONTROL + ".widget-queue.account-issuers", PEER + ".widget-queue.service-accounts"])
         self.probe("peer installation cannot use retained grant", read,
                    user="system:serviceaccount:" + name + ":" + peer_account["metadata"]["name"])
         retained = self.get(binding)
