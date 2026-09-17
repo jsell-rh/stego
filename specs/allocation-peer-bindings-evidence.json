@@ -1,0 +1,24 @@
+{
+  "run": 35248772771,
+  "source": "9844ad48cf087a75c2ba3ebea215097fd93224d8",
+  "source_archive_matches": true,
+  "required_generator_checks": [
+    "TestAllocationServiceAccountValidation",
+    "TestAllocationServiceAccountManifests",
+    "TestGeneratedAllocationServiceAccountRuntime",
+    "TestAllocationPeerBindingsValidation",
+    "TestAllocationPeerBindingsManifests"
+  ],
+  "required_peer_runtime_checks": [
+    "TestAllocationServiceAccountPeerGrant",
+    "TestAllocationServiceAccountPeerReadiness",
+    "TestAllocationServiceAccountPeerCycle",
+    "TestAllocationServiceAccountPeerNamespaceRecovery",
+    "TestAllocationServiceAccountPeerRejectsChangedSeal"
+  ],
+  "runtime_top_level_passes": 13,
+  "runtime_pass_cases": 37,
+  "related_policies": 6,
+  "manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+  "scope": "Generated configuration, policy shape, and TLS fixture runtime checks. Live policy type checks, denied requests, and consumer use remain required."
+}

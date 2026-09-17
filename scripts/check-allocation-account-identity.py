@@ -21,6 +21,7 @@ KINDS = {
     "Namespace": ("/api/v1/namespaces", False),
     "ServiceAccount": ("/api/v1/namespaces/{namespace}/serviceaccounts", True),
     "ConfigMap": ("/api/v1/namespaces/{namespace}/configmaps", True),
+    "Secret": ("/api/v1/namespaces/{namespace}/secrets", True),
     "ResourceQuota": ("/api/v1/namespaces/{namespace}/resourcequotas", True),
     "Role": ("/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/roles", True),
     "RoleBinding": ("/apis/rbac.authorization.k8s.io/v1/namespaces/{namespace}/rolebindings", True),
@@ -75,6 +76,8 @@ def actor(control):
 
 
 class Check:
+    allocation_prefixes = (PREFIX,)
+
     def __init__(self, args):
         self.args = args
         self.created = []
@@ -323,7 +326,7 @@ class Check:
         self.deadline = time.monotonic() + 180
         errors = []
         # Remove allocation namespaces first, while their guards are installed.
-        allocated = [obj for obj in self.created if obj["kind"] == "Namespace" and obj["metadata"]["name"].startswith(PREFIX)]
+        allocated = [obj for obj in self.created if obj["kind"] == "Namespace" and obj["metadata"]["name"].startswith(self.allocation_prefixes)]
         # Reuse retains the previous UIDs in the journal. Only the last UID is live.
         live = {path(obj): obj for obj in self.created}
         for obj in allocated:
@@ -334,7 +337,7 @@ class Check:
             except Exception as error:
                 errors.append(str(error))
         for obj in reversed(list(live.values())):
-            if obj["metadata"].get("namespace", "").startswith(PREFIX) or obj in allocated:
+            if obj["metadata"].get("namespace", "").startswith(self.allocation_prefixes) or obj in allocated:
                 continue
             try:
                 self.remove(obj)

@@ -47,3 +47,20 @@ Sandbox namespaces. Hypershell must still declare the domain roles and lifecycle
 Sandbox admission, network policy, workload setup, and live isolation remain
 separate requirements. Qualification requires compiler and generated runtime
 checks, live admission and denied-request checks, and consumer workflow evidence.
+
+
+The focused check at `9844ad4` passed in
+[run 35248772771](https://github.com/jsell-rh/stego/actions/runs/35248772771).
+Independent verification matched the source archive, five generator checks,
+13 generated runtime tests, and 37 runtime cases. The related manifest contains
+six policies. This result checks their generated form, not server type checking
+or live admission. See the [focused evidence](allocation-peer-bindings-evidence.json).
+
+The live runner uses `related/manifest.json` and `peer/manifest.json` from that
+artifact. It creates no Pods. It checks exact grants, six malformed grant
+requests, destination-only read access, immutable imported identity, and source
+namespace replacement with another owner and then the original owner. It keeps
+the grant identity unchanged across replacement. Cleanup removes both namespace
+profiles before their admission guards, with UID preconditions. The ten common
+runner safety checks and five related-runner safety checks passed locally.
+The cluster check must wait for the active Hypershell tests and verified cleanup.
