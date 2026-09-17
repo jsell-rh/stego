@@ -10,6 +10,8 @@ on:
       - 'scripts/prepare-compiler-toolchain.py'
       - 'scripts/test_compiler_toolchain.py'
       - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/install-compiler.py'
+      - 'scripts/test_compiler_install.py'
       - 'scripts/test_compiler_verification.py'
       - 'scripts/check-compiler-provenance.py'
       - 'cmd/**'
@@ -24,6 +26,8 @@ on:
       - 'scripts/prepare-compiler-toolchain.py'
       - 'scripts/test_compiler_toolchain.py'
       - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/install-compiler.py'
+      - 'scripts/test_compiler_install.py'
       - 'scripts/test_compiler_verification.py'
       - 'scripts/check-compiler-provenance.py'
       - 'cmd/**'
@@ -56,6 +60,7 @@ jobs:
         run: |
           timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_artifact.py
           timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_verification.py
+          timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_install.py
           timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_toolchain.py
       - name: Check and extract the pinned official SDK before execution
         run: |
