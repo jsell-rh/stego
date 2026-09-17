@@ -88,6 +88,8 @@ jobs:
       - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
       - run: go mod verify
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
+      - name: Check registry initialization and exclusive file creation
+        run: go test -v -race -count=1 -mod=readonly -timeout=2m ./internal/compiler ./internal/registry ./cmd/stego -run '^(TestInitialize.*|TestRootCreateDoesNotReplaceFiles|TestResolveRegistryCapturedConfiguration|TestRunInit.*)$'
       - run: go test -race -count=1 -mod=readonly ./...
         env:
           STEGO_REQUIRE_NODE: '1'

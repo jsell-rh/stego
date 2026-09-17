@@ -79,6 +79,30 @@ has bounded directory depth and entry count. `STEGO_REGISTRY` remains an
 explicit diagnostic override; it replaces the configured source set and emits
 a warning.
 
+## Project initialization
+
+Create `.stego/config.yaml` before `stego init --archetype NAME` to select a
+pinned common registry and local application extensions. Initialization uses
+the same source resolver as generation. It keeps the configuration bytes,
+including comments. Duplicate artifacts remain errors; source order does not
+permit replacement. `STEGO_REGISTRY` keeps its explicit override behavior and
+warning. If no configuration exists, initialization uses that override or
+`./registry` and creates a local-source configuration.
+
+Initialization captures and validates the registry before it writes project
+files. It uses the same process lock as apply, then checks the captured inputs
+and configuration again. It rejects existing `service.yaml` paths, symbolic
+links, and invalid directory or configuration targets. Existing fills remain
+unchanged. It publishes each new file from a complete, flushed temporary file
+through an exclusive hard link. The filesystem must support hard links.
+There is no fallback that can replace an existing file.
+
+`service.yaml` is the last file published. This is not a transaction across all
+files or a power-loss recovery protocol. A failed or interrupted attempt can
+leave complete configuration files, empty directories, or a temporary file.
+The next attempt can use a complete configuration. If `service.yaml` exists,
+initialization stops and retains it. It reports only paths that it created.
+
 ## Hypershell integration
 
 Hypershell `17f6295` removes the remaining local browser archetype. Both consoles

@@ -143,107 +143,23 @@ func runInit(args []string) error {
 		return fmt.Errorf("--archetype is required")
 	}
 
+	if fs.NArg() != 0 {
+		return fmt.Errorf("init does not accept positional arguments")
+	}
 	projectDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
-
-	// Resolve the registry directory used during init.
-	registryDir := initRegistryDir(projectDir)
-
-	// Load registry to validate archetype exists.
-	reg, err := registry.Load(registryDir)
+	result, err := compiler.Initialize(compiler.InitOptions{ProjectDir: projectDir, Archetype: *archetype, Stderr: os.Stderr})
 	if err != nil {
 		return err
 	}
-
-	arch := reg.Archetype(*archetype)
-	if arch == nil {
-		available := make([]string, 0, len(reg.Archetypes()))
-		for name := range reg.Archetypes() {
-			available = append(available, name)
-		}
-		sort.Strings(available)
-		return fmt.Errorf("archetype %q not found in registry (available: %s)", *archetype, strings.Join(available, ", "))
-	}
-
-	// Generate service.yaml scaffold.
-	servicePath := filepath.Join(projectDir, "service.yaml")
-	if _, err := os.Stat(servicePath); err == nil {
-		return fmt.Errorf("service.yaml already exists in %s", projectDir)
-	}
-
-	// Derive a project name from the directory name.
-	projectName := filepath.Base(projectDir)
-
-	svc := types.ServiceDeclaration{
-		Kind:        "service",
-		Name:        projectName,
-		Archetype:   *archetype,
-		Language:    arch.Language,
-		Entities:    []types.Entity{},
-		Collections: []types.Collection{},
-	}
-
-	svcData, err := yaml.Marshal(svc)
-	if err != nil {
-		return fmt.Errorf("marshaling service.yaml: %w", err)
-	}
-
-	if err := os.WriteFile(servicePath, svcData, 0644); err != nil {
-		return fmt.Errorf("writing service.yaml: %w", err)
-	}
-
-	// Create .stego directory and config.yaml.
-	stegoDir := filepath.Join(projectDir, ".stego")
-	if err := os.MkdirAll(stegoDir, 0755); err != nil {
-		return fmt.Errorf("creating .stego directory: %w", err)
-	}
-
-	configPath := filepath.Join(stegoDir, "config.yaml")
-	if _, err := os.Stat(configPath); err != nil {
-		// Only create if it doesn't exist. Write with local registry path.
-		cfg := types.RegistryConfig{
-			Registry: []types.RegistrySource{
-				{
-					URL: registryDir,
-					Ref: "local",
-				},
-			},
-		}
-		cfgData, err := yaml.Marshal(cfg)
-		if err != nil {
-			return fmt.Errorf("marshaling config.yaml: %w", err)
-		}
-		if err := os.WriteFile(configPath, cfgData, 0644); err != nil {
-			return fmt.Errorf("writing config.yaml: %w", err)
-		}
-	}
-
-	// Create fills directory.
-	fillsDir := filepath.Join(projectDir, "fills")
-	if err := os.MkdirAll(fillsDir, 0755); err != nil {
-		return fmt.Errorf("creating fills directory: %w", err)
-	}
-
-	fmt.Printf("Initialized stego project %q with archetype %q\n", projectName, *archetype)
+	fmt.Printf("Initialized stego project %q with archetype %q\n", result.Name, *archetype)
 	fmt.Println("Created:")
-	fmt.Println("  service.yaml")
-	fmt.Println("  .stego/config.yaml")
-	fmt.Println("  fills/")
-	return nil
-}
-
-// initRegistryDir returns the registry directory for use during init.
-// Init needs a registry before config.yaml exists, so it uses STEGO_REGISTRY
-// or falls back to ./registry. When STEGO_REGISTRY is used, a warning is
-// printed to stderr per AC #4.
-func initRegistryDir(projectDir string) string {
-	if envReg := os.Getenv("STEGO_REGISTRY"); envReg != "" {
-		fmt.Fprintf(os.Stderr, "WARNING: using STEGO_REGISTRY override: %s (config.yaml registry settings ignored)\n", envReg)
-		return envReg
+	for _, path := range result.Created {
+		fmt.Printf("  %s\n", path)
 	}
-	return filepath.Join(projectDir, "registry")
+	return nil
 }
 
 // runFill dispatches fill subcommands.

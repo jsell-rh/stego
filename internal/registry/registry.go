@@ -166,6 +166,11 @@ func LoadConfig(path string) (*types.RegistryConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading registry config: %w", err)
 	}
+	return ParseConfig(data, path)
+}
+
+// ParseConfig validates an already captured configuration without another file read.
+func ParseConfig(data []byte, path string) (*types.RegistryConfig, error) {
 	var cfg types.RegistryConfig
 	if err := parser.DecodeStrict(data, path, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing registry config %s: %w", path, err)

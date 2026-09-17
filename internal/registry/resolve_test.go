@@ -572,3 +572,26 @@ func TestResolveRegistryRejectsUnsupportedComponentPins(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveRegistryCapturedConfiguration(t *testing.T) {
+	t.Setenv("STEGO_REGISTRY", "")
+	project := t.TempDir()
+	directory := filepath.Join(project, "registry")
+	if err := os.Mkdir(directory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	captured := []byte("registry:\n  - url: ./registry\n    ref: local\n")
+	writeConfig(t, project, types.RegistryConfig{Registry: []types.RegistrySource{{URL: "./absent", Ref: "local"}}})
+	resolved, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, ConfigData: captured})
+	if err != nil || len(resolved.Dirs) != 1 || resolved.Dirs[0] != directory {
+		t.Fatalf("captured config was not used: %+v, %v", resolved, err)
+	}
+	if _, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project}); err == nil {
+		t.Fatal("disk configuration should fail")
+	}
+	for _, invalid := range [][]byte{{}, []byte("registry: []\n"), []byte("unknown: true\n")} {
+		if _, err := registry.ResolveRegistry(registry.ResolveOptions{ProjectDir: project, ConfigData: invalid}); err == nil {
+			t.Fatal("invalid captured configuration accepted")
+		}
+	}
+}

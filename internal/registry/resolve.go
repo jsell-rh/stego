@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/jsell-rh/stego/internal/types"
 )
 
 // ResolveResult contains the resolved registry directory and metadata.
@@ -29,6 +31,8 @@ type ResolveResult struct {
 type ResolveOptions struct {
 	// ProjectDir is the project root (where .stego/ lives).
 	ProjectDir string
+	// ConfigData supplies captured configuration bytes. Nil reads config.yaml.
+	ConfigData []byte
 	// Stderr receives warning messages (e.g. STEGO_REGISTRY override).
 	// If nil, os.Stderr is used.
 	Stderr io.Writer
@@ -65,7 +69,13 @@ func ResolveRegistry(opts ResolveOptions) (*ResolveResult, error) {
 
 	// 2. Load config.yaml.
 	configPath := filepath.Join(opts.ProjectDir, ".stego", "config.yaml")
-	cfg, err := LoadConfig(configPath)
+	var cfg *types.RegistryConfig
+	var err error
+	if opts.ConfigData == nil {
+		cfg, err = LoadConfig(configPath)
+	} else {
+		cfg, err = ParseConfig(opts.ConfigData, configPath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("resolving registry: %w", err)
 	}

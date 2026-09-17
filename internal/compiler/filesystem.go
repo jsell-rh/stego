@@ -85,7 +85,16 @@ func writeRootFile(root *os.Root, name string, data []byte) (err error) {
 	return writeRootFileMode(root, name, data, 0644)
 }
 
-func writeRootFileMode(root *os.Root, name string, data []byte, mode os.FileMode) (err error) {
+func writeRootFileMode(root *os.Root, name string, data []byte, mode os.FileMode) error {
+	return publishRootFile(root, name, data, mode, true)
+}
+
+// createRootFile publishes complete bytes without replacing any existing path.
+func createRootFile(root *os.Root, name string, data []byte) error {
+	return publishRootFile(root, name, data, 0644, false)
+}
+
+func publishRootFile(root *os.Root, name string, data []byte, mode os.FileMode, replace bool) (err error) {
 	if err := checkFilePath(root, name); err != nil {
 		return err
 	}
@@ -118,8 +127,8 @@ func writeRootFileMode(root *os.Root, name string, data []byte, mode os.FileMode
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return err
 	}
-	if err := root.Rename(temporary, name); err != nil {
-		return err
+	if replace {
+		return root.Rename(temporary, name)
 	}
-	return nil
+	return root.Link(temporary, name)
 }
