@@ -6,7 +6,7 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell candidate `a29edb5` uses the pinned STEGO registry and compiler
+Hypershell candidate `4dd7d21` uses the pinned STEGO registry and compiler
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
@@ -62,8 +62,33 @@ Hypershell `a1165b2` adds a fixed error-code record and bounded, read-only
 Gateway state inspection on account creation failure. It excludes response
 bodies, reason text, and credentials. Its focused privacy test passed.
 [Run 35170428686](https://github.com/jsell-rh/hypershell-stego/actions/runs/35170428686)
-repeats the public workflow at `a29edb5` with these diagnostics. Final Gateway
-deletion and the complete application and CNPG gates remain open.
+at `a29edb5` passed creation and real Gateway use of three automation identities.
+Main Gateway deletion closed all three accounts, denied token issuance, removed
+their provider clients, and recorded their cleanup audits. It removed the
+Gateway namespace, SQL state, roles, and keys. The other Gateway and supplied
+PostgreSQL server remained available. All 412 repeated and archived generation
+hashes matched. The earlier HTTP 409 did not recur; its cause remains unknown.
+
+The test then failed after 791.79 seconds during the remaining Gateway cleanup.
+The identity-provider fixture had reached its 600-second Pod deadline, although
+the full browser test permits 900 seconds. Independent cleanup passed at
+`2026-09-17T01:48:04Z`. See the [main deletion and deadline record](https://github.com/jsell-rh/hypershell-stego/blob/4dd7d21/acceptance/dashboard-main-deletion-evidence.json).
+Hypershell `a5d1d16` aligns this fixture with the full test's 900-second limit.
+Other identity tests retain 600 seconds. CPU, memory, and outer Job limits are
+unchanged. Focused local checks passed.
+
+[Full CI 35168991363](https://github.com/jsell-rh/hypershell-stego/actions/runs/35168991363)
+at `ca8814f` passed all 302 expected top-level tests. Four declared live tests
+were skipped; CNPG and Sandbox jobs were not selected. Core acceptance took
+1536.774 seconds and browser acceptance took 95.119 seconds. The
+[full result record](https://github.com/jsell-rh/hypershell-stego/blob/bc64728/acceptance/dashboard-signout-full-evidence.json)
+contains the test names and log hash. It does not replace the complete cluster
+workflow.
+
+[Run 35171991156](https://github.com/jsell-rh/hypershell-stego/actions/runs/35171991156)
+repeats the public workflow at `4dd7d21` with the corrected fixture lifetime.
+Cleanup of every Gateway, final cluster deletion, final PostgreSQL telemetry,
+and the complete application and CNPG gates remain open.
 
 ## Earlier editor integration
 

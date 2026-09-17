@@ -92,15 +92,18 @@ upstream dashboard must now use these common parts in its complete workflow.
 
 The separate dashboard now uses the common pinned registry, generated browser
 backend, browser telemetry, and generated Monaco adapter. The latest completed
-live run, [35169043109](https://github.com/jsell-rh/hypershell-stego/actions/runs/35169043109)
-at Hypershell `ca8814f`, passed editor behavior, SQL and namespace recovery,
+live run, [35170428686](https://github.com/jsell-rh/hypershell-stego/actions/runs/35170428686)
+at Hypershell `a29edb5`, passed editor behavior, SQL and namespace recovery,
 viewer membership, filtered lists, denied writes, and both access-removal paths.
 Native dashboard and Keycloak sign-out passed, as did authenticated correlation
 of dashboard telemetry, worker telemetry, and rendered service-account use.
-The test then failed with HTTP 409 during account creation for final Gateway
-deletion. The response error code was not retained. Hypershell now records fixed
-error codes and bounded Gateway state on this failure. The generated application
-must still pass the complete workflow. See the [current integration record](upstream-dashboard-integration.md)
+Three automation identities used the actual Gateway and were closed by durable
+deletion. Main Gateway deletion removed its namespace, SQL state, roles, and
+keys. Remaining cleanup failed after the identity fixture's 600-second deadline.
+Hypershell now gives that fixture the full browser test's 900-second window.
+The earlier HTTP 409 did not recur; its cause remains unknown. Full CI passed
+302 tests with four declared live skips. The generated application must still
+pass the complete cluster workflow. See the [current integration record](upstream-dashboard-integration.md)
 and [native sign-out evidence](browser-logout-origin.md). These results do not
 close H1, H2, H3, or the separate dashboard gate.
 
