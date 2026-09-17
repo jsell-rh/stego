@@ -32,9 +32,14 @@ Hypershell `17f6295` adopts this composition for both consoles. Only its API
 application archetype remains local. Repeated generation, the UI asset build,
 the Gateway module, and all 28 journal recovery checks passed. Source `af43205`
 corrects a stale acceptance fixture path after the telemetry package moved from
-the API module to the console module. The corrected full and public checks
-are in progress. API and CNPG qualification remains open. See the
-[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/2d917a9/acceptance/common-browser-composition.md).
+the API module to the console module. The corrected full suite and public
+workflow passed. The public run checked all 1,363 source hashes, 415 generated
+hashes, and 48 matching startup log/span pairs. Independent cleanup passed.
+The first API run found a five-second fixture wait that did not permit the
+runtime's existing lease recovery bound. Consumer `442e7ff` corrects that wait
+and requires the deterministic unfinished-claim test. Its 52-test API run is
+in progress. CNPG qualification remains open. See the
+[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/48c354a/acceptance/common-browser-composition.md).
 The application evidence below predates this composition change.
 
 ## Current application evidence

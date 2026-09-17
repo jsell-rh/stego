@@ -81,6 +81,17 @@ a warning.
 
 ## Hypershell integration
 
+Hypershell `17f6295` removes the remaining local browser archetype. Both consoles
+now use the common `browser-service`, including its telemetry component. Only
+the API application archetype remains local. All three modules select compiler
+and common registry `00573709fb15a2a54de4242aa8fdbabee325179a`.
+The corrected full suite and public workflow passed at `af43205`. The public
+run matched all 1,363 source hashes and 415 generated hashes; independent
+cleanup passed. The corrected API result and the CNPG check remain open. See
+the [current consumer record](https://github.com/jsell-rh/hypershell-stego/blob/48c354a/acceptance/common-browser-composition.md).
+
+### Earlier application checks
+
 Hypershell source `0175b0b` pins all three modules to common registry
 and compiler revision `83592bee5a17de6936cf521b94629e2a225a8d37`. Only two
 application archetypes remain in its local registries. No common component
