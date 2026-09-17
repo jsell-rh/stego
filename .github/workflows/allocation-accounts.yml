@@ -12,6 +12,8 @@ on:
       - 'scripts/test_allocation_account_identity.py'
       - 'scripts/check-allocation-peer-bindings.py'
       - 'scripts/test_allocation_peer_bindings.py'
+      - 'scripts/check-allocation-control-identity.py'
+      - 'scripts/test_allocation_control_identity.py'
 
 permissions:
   contents: read
@@ -40,6 +42,7 @@ jobs:
         run: |
           timeout 15s python3 -B scripts/test_allocation_account_identity.py
           timeout 15s python3 -B scripts/test_allocation_peer_bindings.py
+          timeout 15s python3 -B scripts/test_allocation_control_identity.py
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26.8'
