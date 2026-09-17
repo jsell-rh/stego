@@ -65,6 +65,49 @@ class ControlAuditTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "^Fixture token issuance failed; private output is withheld$"):
             check.token("fixture", "account")
 
+    def test_cached_acceptance_must_end_in_token_rejection(self):
+        clock = [0.0]
+        statuses = iter([200, 200, 401])
+        records = []
+        audit.wait_for_token_rejection(lambda timeout: next(statuses), lambda code, seconds: records.append((code, seconds)),
+                                       now=lambda: clock[0], pause=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+        self.assertEqual(records, [(200, 0.0), (200, 1.0), (401, 2.0)])
+
+    def test_continued_token_access_fails_at_the_wait_limit(self):
+        clock = [0.0]
+        records = []
+        with self.assertRaisesRegex(RuntimeError, "rejection wait limit"):
+            audit.wait_for_token_rejection(lambda timeout: 200, lambda code, seconds: records.append((code, seconds)),
+                                           now=lambda: clock[0], pause=lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+        self.assertEqual(clock[0], 30)
+        self.assertEqual(len(records), 30)
+        self.assertTrue(all(code == 200 for code, seconds in records))
+
+    def test_authorization_denial_is_not_token_invalidation(self):
+        records = []
+        with self.assertRaisesRegex(RuntimeError, "unexpected HTTP status: 403"):
+            audit.wait_for_token_rejection(lambda timeout: 403, lambda code, seconds: records.append(code))
+        self.assertEqual(records, [403])
+
+    def test_network_failure_does_not_become_a_retry_or_denial(self):
+        fetch = Mock(side_effect=RuntimeError("fixture transport failed"))
+        record = Mock()
+        pause = Mock()
+        with self.assertRaisesRegex(RuntimeError, "fixture transport failed"):
+            audit.wait_for_token_rejection(fetch, record, pause=pause)
+        self.assertEqual(fetch.call_count, 1)
+        record.assert_not_called()
+        pause.assert_not_called()
+
+    def test_failed_http_expectation_saves_the_actual_status(self):
+        check = object.__new__(audit.Check)
+        check.result = {}
+        check.save = Mock()
+        with self.assertRaisesRegex(RuntimeError, "original token: 403"):
+            check.expect_status("original token", 403, 200)
+        self.assertEqual(check.result["http_observations"], [{"name": "original token", "status": 403, "expected": 200}])
+        check.save.assert_called_once()
+
     def test_control_namespace_cleanup_uses_latest_uid(self):
         old = audit.common.namespace(audit.common.CONTROL)
         old["metadata"]["uid"] = "old"

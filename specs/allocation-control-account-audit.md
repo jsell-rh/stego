@@ -42,3 +42,20 @@ The full check also passed at `62841ce` in
 All six jobs passed. The saved logs confirm 34 race-test packages, the required
 SQL credential and browser checks, and both generated examples. The live audit
 is still blocked by the application test and cleanup prerequisites.
+
+The first live audit at `62841ce` failed before fresh-account checks. Its
+immediate old-token HTTP 401 assertion failed, but it did not retain the actual
+HTTP status. No fresh-account reuse result was established. Independent cleanup
+verified all 47 recorded resource paths absent. The
+[failed result](allocation-control-account-audit-failure-evidence.json) is retained.
+
+The observer now saves each HTTP expectation and each token-rejection response.
+It waits at most 30 seconds for HTTP 401; continued HTTP 200 access fails at that
+limit. HTTP 403 and transport errors cannot establish token invalidation.
+Kubernetes can cache successful token authentication
+([authentication options](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubeapiserver/options/authentication.go),
+[authentication cache](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubeapiserver/authenticator/config.go)).
+That is a possible reason an immediate check is too strict, not a confirmed
+cause of this failure. The next live run must record the actual responses and
+still test both fresh account names. Thirteen local observer safety checks
+passed. The repeat remains required.

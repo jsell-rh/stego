@@ -13,6 +13,7 @@ import importlib.util
 import json
 from pathlib import Path
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,13 +42,13 @@ def transport(cluster):
     return server.rstrip("/"), opener
 
 
-def request_status(server, opener, path, token):
+def request_status(server, opener, path, token, timeout=10):
     # The token stays in memory. It is not a process argument or an artifact.
     if not path.startswith("/api/v1/namespaces/") or any(c in token for c in "\r\n") or not token:
         raise RuntimeError("The fixture credential request is invalid")
     request = urllib.request.Request(server + path, headers={"Authorization": "Bearer " + token})
     try:
-        with opener.open(request, timeout=10) as response:
+        with opener.open(request, timeout=timeout) as response:
             response.read(65537)
             return response.status
     except urllib.error.HTTPError as error:
@@ -58,7 +59,30 @@ def request_status(server, opener, path, token):
         raise RuntimeError("The fixture credential request failed") from None
 
 
+def wait_for_token_rejection(fetch, record, now=time.monotonic, pause=time.sleep):
+    started = now()
+    deadline = started + 30
+    while True:
+        remaining = deadline - now()
+        if remaining <= 0:
+            break
+        code = fetch(min(10, remaining))
+        record(code, round(now() - started, 3))
+        if code == 401:
+            return
+        if code != 200:
+            raise RuntimeError("Old token rejection returned an unexpected HTTP status: " + str(code))
+        pause(min(1, max(0, deadline - now())))
+    raise RuntimeError("Old token still permits access after the rejection wait limit")
+
+
 class Check(common.Check):
+    def expect_status(self, name, code, expected):
+        self.result.setdefault("http_observations", []).append({"name": name, "status": code, "expected": expected})
+        self.save()
+        if code != expected:
+            raise RuntimeError("Fixture HTTP status differs for " + name + ": " + str(code))
+
     def token(self, namespace, name, user=None):
         result = self.run(["create", "token", name, "-n", namespace, "--duration=10m"], user=user)
         if result.returncode:
@@ -115,8 +139,8 @@ class Check(common.Check):
         old_tokens = {name: self.token(common.CONTROL, name) for name in targets}
         ordinary = self.token(common.PEER, outsider_name)
         for name, path in targets.items():
-            assert request_status(server, opener, path, old_tokens[name]) == 200
-            assert request_status(server, opener, path, ordinary) == 403
+            self.expect_status(name + " original token", request_status(server, opener, path, old_tokens[name]), 200)
+            self.expect_status(name + " ordinary owner", request_status(server, opener, path, ordinary), 403)
         self.remove(old_namespace)
         replacement = self.create(common.namespace(common.CONTROL), outsider)
         assert replacement["metadata"]["uid"] != old_namespace["metadata"]["uid"]
@@ -126,10 +150,16 @@ class Check(common.Check):
                   [{"apiGroups": [""], "resources": ["serviceaccounts", "serviceaccounts/token"], "verbs": ["create"]}], outsider_name)
         observations = []
         self.result["control_account_observations"] = observations
+        self.result["control_namespace_old_uid"] = old_namespace["metadata"]["uid"]
+        self.result["control_namespace_new_uid"] = replacement["metadata"]["uid"]
+        self.save()
         expected_policies = [obj["metadata"]["name"] for obj in self.created if obj["kind"] == "ValidatingAdmissionPolicy"]
         for name, path in targets.items():
-            assert request_status(server, opener, path, old_tokens[name]) == 401
-            assert request_status(server, opener, path, ordinary) == 403
+            def record_rejection(code, seconds):
+                self.result.setdefault("old_token_rejection_observations", []).append({"account": name, "status": code, "seconds": seconds})
+                self.save()
+            wait_for_token_rejection(lambda timeout: request_status(server, opener, path, old_tokens[name], timeout), record_rejection)
+            self.expect_status(name + " ordinary owner", request_status(server, opener, path, ordinary), 403)
             obj = {"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": name, "namespace": common.CONTROL}, "automountServiceAccountToken": False}
             result = self.run(["create", "--dry-run=server", "-f", "-", "-o", "json"], obj, outsider)
             if result.returncode:
@@ -176,7 +206,7 @@ def main():
         check.exercise()
         check.result["checks_passed"] = True
     except Exception as error:
-        check.result["failure"] = str(error)
+        check.result["failure"] = str(error) or type(error).__name__
         raise
     finally:
         check.cleanup()
