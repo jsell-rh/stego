@@ -34,6 +34,10 @@ or infer compatibility from the compiler revision string.
 
 Focused tests cover legacy reads, saved-record preservation, unsupported
 versions before writes, interrupted state-only upgrades, exact legacy journal
-recovery, and future journal rejection. Full compiler and example CI is required
-before this change is qualified. This format does not establish compiler
-artifact trust, full build input identity, or power-loss recovery.
+recovery, and future journal rejection. All six jobs in
+[CI run 35175826484](https://github.com/jsell-rh/stego/actions/runs/35175826484)
+passed at `288d60b`, including the full race suite and both example projects.
+The compiler package passed in 112.593 seconds and the command package in
+72.292 seconds. See the [source and result record](state-format-evidence.json).
+This format does not establish compiler artifact trust, full build input
+identity, or power-loss recovery.

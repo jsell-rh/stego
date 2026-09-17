@@ -2,7 +2,8 @@
 
 This review covers the recovery part of C3 at compiler revision
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. It does not close C3.
-The current compiler, build identity code, and CI workflow match that revision.
+The review below applies to that revision. The later state format result is
+identified separately below.
 
 [CI run 35168719235](https://github.com/jsell-rh/stego/actions/runs/35168719235)
 passed all six jobs. The compiler job used
@@ -45,9 +46,10 @@ application build.
 The transaction and input manifest each have an explicit version. The reviewed
 `db75a77` state record has strict field decoding but no separate version field.
 The [state format change](state-format.md) adds an outer version and defines
-legacy upgrade and downgrade rules. Its focused checks passed; full compiler
-and example CI remains required. Compiler artifact trust and complete build
-input identity remain part of C3.
+legacy upgrade and downgrade rules. Its focused checks and all six compiler
+CI jobs passed at `288d60b`, including both example projects. See the
+[state format evidence](state-format-evidence.json). Compiler artifact trust
+and complete build input identity remain part of C3.
 
 Do not replace these open requirements with repeated output hashes. Repeated
 generation and safe journal recovery are necessary evidence, but they do not

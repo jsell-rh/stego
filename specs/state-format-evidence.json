@@ -1,0 +1,62 @@
+{
+  "source": "288d60b0952ef4df9fb9559b757ba9bcd4ba7852",
+  "run": "https://github.com/jsell-rh/stego/actions/runs/35175826484",
+  "result": "success",
+  "jobs": [
+    {
+      "name": "compiler",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:56:55Z"
+    },
+    {
+      "name": "keycloak-provider",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:50:26Z"
+    },
+    {
+      "name": "examples (user-management-rhsso)",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:49:30Z"
+    },
+    {
+      "name": "examples (user-management)",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:49:30Z"
+    },
+    {
+      "name": "resource-state-storage",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:49:44Z"
+    },
+    {
+      "name": "postgres-provisioning",
+      "conclusion": "success",
+      "startedAt": "2026-09-17T02:48:56Z",
+      "completedAt": "2026-09-17T02:50:19Z"
+    }
+  ],
+  "log_sha256": "e589c724ec79cdd98c286fa386d4e1ae419966e98067fdb4b3bf1e1dd4146299",
+  "focused_tests_seconds": 0.089,
+  "compiler_package_race_seconds": 112.593,
+  "command_package_race_seconds": 72.292,
+  "verified": [
+    "Legacy state read without file changes",
+    "Version 1 state writes without mutation of caller state",
+    "Unsupported version and type rejection before writes",
+    "State-only upgrade through the recovery journal",
+    "Exact legacy journal byte recovery",
+    "Future state journal rejection before output changes",
+    "Repeated generation in both example projects"
+  ],
+  "not_proved": [
+    "Power-loss and storage-failure recovery",
+    "Other operating-system runtime behavior",
+    "Compiler artifact trust",
+    "Complete build input identity"
+  ]
+}
