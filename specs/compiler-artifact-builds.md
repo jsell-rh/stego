@@ -115,3 +115,25 @@ The main-branch full compiler repeat,
 [35189507480](https://github.com/jsell-rh/stego/actions/runs/35189507480), passed
 all six jobs at the same exact `7b75de6` source. This is a separate result from
 the artifact comparison. It does not close the remaining C3 requirements.
+
+## Official SDK byte comparison
+
+An independent check compared the SDK inventory from artifact run
+[35190587406](https://github.com/jsell-rh/stego/actions/runs/35190587406), at
+`842728b`, with the [official Go release archive](https://go.dev/dl/).
+The selected archive is `go1.26.8.linux-amd64.tar.gz`, with 66,897,291 bytes and
+SHA-256 `d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b`.
+The downloaded archive matched that published size and digest. The check read
+the archive without extracting or executing its tools.
+
+All 15,036 file paths and all 232,512,886 file bytes match the reported SDK.
+The executable bits differ. The official archive marks 54 files executable;
+the reported CI inventory matches the same files with every executable bit set.
+Its digest is `8a104c8dbc63490ec8282e81bf2c637062fe7a92e8c176a17cd38ce7408e0d8e`.
+The official inventory with its original executable bits has digest
+`94168e19a28c7bdeaf3c281f88e3a3efab13f7d80e2694ae2dd4d71378da9289`.
+
+This explains the inventory difference and establishes official SDK file bytes
+for this recorded build. It does not establish which process changed the
+permissions, an independent toolchain build, or an uncompromised runner.
+The build procedure does not yet enforce this official-archive comparison.
