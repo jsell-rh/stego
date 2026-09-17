@@ -233,9 +233,11 @@ the application must never perform automatic teardown.
 
 ## Remaining application and enterprise work
 
-1. Check large retained-history costs in CI. The complete current deletion and
-   provider discovery workflows passed, but functional checks do not prove
-   production capacity.
+1. Extend the measured retained-history baseline to complete cleanup. The
+   [first SQL scan baseline](retained-history-costs.md) passed with 10,000 and
+   100,000 synthetic grants. Median complete scan times were 0.1028 and 1.0207
+   seconds in bounded hosted CI. Full account and journal cleanup, provider
+   calls, concurrent load, and production capacity remain open.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    The latest CNPG run needed one secondary Pod replacement for scheduling.
