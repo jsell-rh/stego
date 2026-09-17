@@ -1,24 +1,52 @@
 {
-  "run": 35248772771,
-  "source": "9844ad48cf087a75c2ba3ebea215097fd93224d8",
-  "source_archive_matches": true,
-  "required_generator_checks": [
-    "TestAllocationServiceAccountValidation",
-    "TestAllocationServiceAccountManifests",
-    "TestGeneratedAllocationServiceAccountRuntime",
-    "TestAllocationPeerBindingsValidation",
-    "TestAllocationPeerBindingsManifests"
-  ],
-  "required_peer_runtime_checks": [
-    "TestAllocationServiceAccountPeerGrant",
-    "TestAllocationServiceAccountPeerReadiness",
-    "TestAllocationServiceAccountPeerCycle",
-    "TestAllocationServiceAccountPeerNamespaceRecovery",
-    "TestAllocationServiceAccountPeerRejectsChangedSeal"
-  ],
-  "runtime_top_level_passes": 13,
-  "runtime_pass_cases": 37,
-  "related_policies": 6,
-  "manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
-  "scope": "Generated configuration, policy shape, and TLS fixture runtime checks. Live policy type checks, denied requests, and consumer use remain required."
+  "initial": {
+    "run": 35248772771,
+    "source": "9844ad48cf087a75c2ba3ebea215097fd93224d8",
+    "source_archive_matches": true,
+    "required_generator_checks": [
+      "TestAllocationServiceAccountValidation",
+      "TestAllocationServiceAccountManifests",
+      "TestGeneratedAllocationServiceAccountRuntime",
+      "TestAllocationPeerBindingsValidation",
+      "TestAllocationPeerBindingsManifests"
+    ],
+    "required_peer_runtime_checks": [
+      "TestAllocationServiceAccountPeerGrant",
+      "TestAllocationServiceAccountPeerReadiness",
+      "TestAllocationServiceAccountPeerCycle",
+      "TestAllocationServiceAccountPeerNamespaceRecovery",
+      "TestAllocationServiceAccountPeerRejectsChangedSeal"
+    ],
+    "runtime_top_level_passes": 13,
+    "runtime_pass_cases": 37,
+    "related_policies": 6,
+    "manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+    "scope": "Generated configuration, policy shape, and TLS fixture runtime checks. Live policy type checks, denied requests, and consumer use remain required."
+  },
+  "current": {
+    "run": 35249275310,
+    "source": "2e7080e2da7b5ef90dcf82dcf7d696dc8e0c9456",
+    "source_archive_matches": true,
+    "required_generator_checks": [
+      "TestAllocationServiceAccountValidation",
+      "TestAllocationServiceAccountManifests",
+      "TestGeneratedAllocationServiceAccountRuntime",
+      "TestAllocationPeerBindingsValidation",
+      "TestAllocationPeerBindingsManifests"
+    ],
+    "required_peer_runtime_checks": [
+      "TestAllocationServiceAccountPeerGrant",
+      "TestAllocationServiceAccountPeerReadiness",
+      "TestAllocationServiceAccountPeerCycle",
+      "TestAllocationServiceAccountPeerNamespaceRecovery",
+      "TestAllocationServiceAccountPeerRejectsChangedSeal"
+    ],
+    "runtime_top_level_passes": 13,
+    "runtime_pass_cases": 37,
+    "runner_safety_checks": 15,
+    "all_three_manifests_match_9844ad4": true,
+    "related_manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+    "job_log_sha256": "642122df0e275afabe8c089941e2209ac825d663a2860550af57e777149c63e1",
+    "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required."
+  }
 }

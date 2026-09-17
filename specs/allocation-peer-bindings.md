@@ -64,3 +64,12 @@ the grant identity unchanged across replacement. Cleanup removes both namespace
 profiles before their admission guards, with UID preconditions. The ten common
 runner safety checks and five related-runner safety checks passed locally.
 The cluster check must wait for the active Hypershell tests and verified cleanup.
+
+
+The refined source-read test passed at `2e7080e` in
+[run 35249275310](https://github.com/jsell-rh/stego/actions/runs/35249275310).
+Independent checks matched the source archive, all 13 runtime tests and 37 cases,
+and all 15 runner safety checks. The three manifests are byte-for-byte equal to
+those from `9844ad4`. The denied-read case now targets the related source account
+and also requires the control-worker grant to remain absent. Full compiler and
+live cluster qualification remain open.
