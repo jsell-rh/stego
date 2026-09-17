@@ -1,0 +1,220 @@
+{
+  "source": "5b49a6d7c8ac1a9ed7c694733437696aa2cf0f66",
+  "execution": {
+    "source": "5b49a6d7c8ac1a9ed7c694733437696aa2cf0f66",
+    "prior_run": 35251755817,
+    "started_at": "2026-09-17T18:04:46.657652+00:00",
+    "phase": "complete",
+    "updated_at": "2026-09-17T18:06:33.123798+00:00",
+    "pid": 3217406,
+    "returncode": 1
+  },
+  "result": {
+    "complete": false,
+    "pods_created": 0,
+    "probes": [],
+    "manifest_sha256": {
+      "stego-allocation-accounts-ci": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+      "stego-allocation-accounts-peer-ci": "0ac6c1f29c5505ab2c1b6925335edc689fea9f6d60286f96186eaa1af2bbc4c1"
+    },
+    "policies_type_checked": 12,
+    "http_observations": [
+      {
+        "name": "widget-queue original token",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "name": "widget-queue ordinary owner",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "name": "widget-data original token",
+        "status": 200,
+        "expected": 200
+      },
+      {
+        "name": "widget-data ordinary owner",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "name": "widget-queue ordinary owner",
+        "status": 403,
+        "expected": 403
+      },
+      {
+        "name": "widget-data ordinary owner",
+        "status": 403,
+        "expected": 403
+      }
+    ],
+    "control_account_observations": [
+      {
+        "account": "widget-queue",
+        "creation_denied_by_admission": false,
+        "old_account_uid": "9cf76ea9-5c37-4f79-8a68-76aaef9d7552",
+        "new_account_uid": "27ab552d-3102-4338-bf5c-c89bef4a459d",
+        "fresh_token_http_status": 200,
+        "retained_access_obtained": true
+      },
+      {
+        "account": "widget-data",
+        "creation_denied_by_admission": false,
+        "old_account_uid": "1759efc5-575c-4f1e-8ef5-daf9b09ed94d",
+        "new_account_uid": "c444dcd1-7c9e-4991-b49b-987d5749b72b",
+        "fresh_token_http_status": 200,
+        "retained_access_obtained": true
+      }
+    ],
+    "control_namespace_old_uid": "00b9d852-7bdc-48c7-8619-695869835bf3",
+    "control_namespace_new_uid": "32337e95-e6ce-4202-b7c0-53bd5d9f1af7",
+    "old_token_rejection_observations": [
+      {
+        "account": "widget-queue",
+        "status": 401,
+        "seconds": 0.111
+      },
+      {
+        "account": "widget-data",
+        "status": 401,
+        "seconds": 0.102
+      }
+    ],
+    "retained_grants_unchanged": true,
+    "old_tokens_rejected": true,
+    "ordinary_owner_tokens_denied": true,
+    "scope": "Admission and real short-lived token requests for fixed allocator and control-worker names after control namespace replacement. No Pods.",
+    "failure": "A replacement namespace owner obtained retained control-account access",
+    "cleanup_errors": [],
+    "cleanup_complete": true
+  },
+  "result_sha256": "655b9492808a54b0692add3e7a9445426140617a6aab986512001ac0fdfff6f8",
+  "runner_log_sha256": "c38548f7d6ee0622d81fb83d8784bb00ddb6e98af27d780ea5072d64d8aaa245",
+  "independent_cleanup": {
+    "checked_at": "2026-09-17T18:06:32.481163+00:00",
+    "complete": true,
+    "recorded_paths_absent": [
+      "/api/v1/namespaces/stego-accounts-ci-48f612a7",
+      "/api/v1/namespaces/stego-accounts-ci-48f612a7/secrets/public-probe",
+      "/api/v1/namespaces/stego-allocation-accounts-ci",
+      "/api/v1/namespaces/stego-allocation-accounts-ci/serviceaccounts/widget-data",
+      "/api/v1/namespaces/stego-allocation-accounts-ci/serviceaccounts/widget-queue",
+      "/api/v1/namespaces/stego-allocation-accounts-peer-ci",
+      "/api/v1/namespaces/stego-allocation-accounts-peer-ci/serviceaccounts/replacement-owner",
+      "/api/v1/namespaces/stego-allocation-accounts-peer-ci/serviceaccounts/widget-queue",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.service-accounts",
+      "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/stego-allocation-accounts-ci.replacement-owner",
+      "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/stego-allocation-accounts-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/stego-allocation-accounts-peer-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.replacement-owner",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.data",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.proof",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.review",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-peer-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-peer-ci.widget-queue.data",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-peer-ci.widget-queue.proof",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-peer-ci.widget-queue.review",
+      "/apis/rbac.authorization.k8s.io/v1/namespaces/stego-accounts-ci-48f612a7/rolebindings/stego-f047c49888c3d9cc73635a722ab92f62-0",
+      "/apis/rbac.authorization.k8s.io/v1/namespaces/stego-allocation-accounts-ci/rolebindings/replacement-owner",
+      "/apis/rbac.authorization.k8s.io/v1/namespaces/stego-allocation-accounts-ci/roles/replacement-owner"
+    ],
+    "reserved_test_namespaces_absent": true,
+    "test_passed": false
+  },
+  "focused": {
+    "run": 35255668888,
+    "source": "5b49a6d7c8ac1a9ed7c694733437696aa2cf0f66",
+    "source_archive_matches": true,
+    "required_generator_checks": [
+      "TestAllocationServiceAccountValidation",
+      "TestAllocationServiceAccountManifests",
+      "TestGeneratedAllocationServiceAccountRuntime",
+      "TestAllocationPeerBindingsValidation",
+      "TestAllocationPeerBindingsManifests"
+    ],
+    "required_peer_runtime_checks": [
+      "TestAllocationServiceAccountPeerGrant",
+      "TestAllocationServiceAccountPeerReadiness",
+      "TestAllocationServiceAccountPeerCycle",
+      "TestAllocationServiceAccountPeerNamespaceRecovery",
+      "TestAllocationServiceAccountPeerRejectsChangedSeal"
+    ],
+    "runtime_top_level_passes": 13,
+    "runtime_pass_cases": 37,
+    "runner_safety_checks": 28,
+    "all_three_manifests_match_9844ad4": true,
+    "related_manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+    "job_log_sha256": "49013cc4fc0ceb47c67c0bf5b35ac0f02534bcba9758d218c695cb11caf7d663",
+    "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required."
+  },
+  "full": {
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35255668909",
+    "source": "5b49a6d7c8ac1a9ed7c694733437696aa2cf0f66",
+    "checked_at": "2026-09-17T18:04:41.061286+00:00",
+    "jobs": {
+      "keycloak-provider": "success",
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "resource-state-storage": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "692caffba067117a45d3017851b091fac029a468302f02e80ce29edb1265aadc",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "a1df850665f0430198a20fa9fa736622372ecbe5e133cdc192911306f6c3f1f0",
+    "generated_examples_passed": true
+  },
+  "scope": "Confirmed retained permission reuse by fresh allocator and control-worker accounts after control namespace replacement. Public test data only. This is a failed security gate."
+}

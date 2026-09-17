@@ -116,11 +116,12 @@ the test now waits for current readiness while account errors still fail.
 See the [application record](https://github.com/jsell-rh/hypershell-stego/blob/f258441/acceptance/pod-readiness-evidence.md)
 and [allocation evidence](allocation-service-accounts-evidence.md).
 
-Related-profile grants remain on the qualification branch. Their compiler and
-fixture checks passed, but live permission checks and the separate control-account
-reuse audit remain required before publication. The control audit tests fresh
-account tokens after control namespace replacement while old grants remain.
-No safe boundary or exploit is claimed before that result. See the
+Related-profile grants remain on the qualification branch. All 12 live permission
+probes passed, with independent cleanup. The separate control-account audit
+confirmed a security defect: a replacement control namespace owner recreated
+both fixed account names and obtained retained grants with fresh tokens.
+The old tokens were rejected. Fix this boundary in the common generator before
+publication, then prove denied recreation and permitted installation. See the
 [control audit](allocation-control-account-audit.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).

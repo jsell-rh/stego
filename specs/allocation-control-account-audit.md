@@ -40,8 +40,7 @@ See the [recorded evidence](allocation-control-account-audit-evidence.json).
 The full check also passed at `62841ce` in
 [run 35252021322](https://github.com/jsell-rh/stego/actions/runs/35252021322).
 All six jobs passed. The saved logs confirm 34 race-test packages, the required
-SQL credential and browser checks, and both generated examples. The live audit
-is still blocked by the application test and cleanup prerequisites.
+SQL credential and browser checks, and both generated examples. The application test and cleanup prerequisites later passed.
 
 The first live audit at `62841ce` failed before fresh-account checks. Its
 immediate old-token HTTP 401 assertion failed, but it did not retain the actual
@@ -59,3 +58,18 @@ That is a possible reason an immediate check is too strict, not a confirmed
 cause of this failure. The next live run must record the actual responses and
 still test both fresh account names. Thirteen local observer safety checks
 passed. The repeat remains required.
+
+The repeat at `5b49a6d` confirmed a security defect. Both fixed account names
+were recreated by the replacement namespace owner. Each new account had a
+different UID. Fresh tokens obtained HTTP 200 from the retained allocator and
+worker grants. The old tokens returned HTTP 401; the ordinary owner token
+returned HTTP 403. The retained binding UIDs and subjects did not change.
+
+The security gate failed as required. Independent cleanup found all 47 recorded
+paths absent, and the shared test lease was released. The focused checks and
+all six full CI jobs passed before the audit. See the
+[complete repeat evidence](allocation-control-account-reuse-evidence.json).
+
+Reserve the generated allocator and declared control-worker account names for
+a trusted installer. The allocator must not receive this installer capability.
+Prove denied recreation and permitted installation before component publication.
