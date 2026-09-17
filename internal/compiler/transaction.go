@@ -156,12 +156,9 @@ func prepareTransaction(plan *Plan, relative string) (*transaction, error) {
 		}
 		tx.Operations = append(tx.Operations, op)
 	}
-	stateData, err := yaml.Marshal(plan.NewState)
+	stateData, err := encodeState(plan.NewState)
 	if err != nil {
 		return nil, err
-	}
-	if len(stateData) > parser.MaxDocumentBytes {
-		return nil, fmt.Errorf("state exceeds the %d-byte document limit", parser.MaxDocumentBytes)
 	}
 	before := tx.Expected[".stego/state.yaml"]
 	after := fileSnapshot{Exists: true, Hash: HashBytes(stateData), Mode: defaultOutputMode()}

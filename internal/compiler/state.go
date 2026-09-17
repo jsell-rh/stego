@@ -18,8 +18,29 @@ import (
 // State represents the contents of .stego/state.yaml, tracking the last
 // successful apply for change detection.
 type State struct {
+	// FormatVersion is zero for legacy state and StateFormatVersion for new state.
+	FormatVersion int `yaml:"format_version,omitempty"`
+
 	// LastApplied records the state of the last successful apply.
 	LastApplied *AppliedState `yaml:"last_applied,omitempty"`
+}
+
+// StateFormatVersion identifies the state format written by this compiler.
+const StateFormatVersion = 1
+
+// UnmarshalYAML requires an integer when a format version is present.
+// DecodeStrict checks field names before this method runs.
+func (state *State) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("state must be a mapping")
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == "format_version" && (node.Content[i+1].Kind != yaml.ScalarNode || node.Content[i+1].Tag != "!!int") {
+			return fmt.Errorf("state format version must be an integer")
+		}
+	}
+	type plainState State
+	return node.Decode((*plainState)(state))
 }
 
 // AppliedState captures the details of a single apply operation.
@@ -95,18 +116,12 @@ func decodeState(data []byte, path string) (*State, error) {
 // SaveState writes a State to the given path, creating parent directories
 // as needed.
 func SaveState(path string, state *State) error {
-	if err := validateStatePaths(state); err != nil {
+	data, err := encodeState(state)
+	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating state directory: %w", err)
-	}
-	data, err := yaml.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("marshaling state: %w", err)
-	}
-	if len(data) > parser.MaxDocumentBytes {
-		return fmt.Errorf("state exceeds the %d-byte document limit", parser.MaxDocumentBytes)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("writing state file: %w", err)
@@ -114,9 +129,29 @@ func SaveState(path string, state *State) error {
 	return nil
 }
 
+// Validate before any write. Upgrade a copy so reads and caller state stay unchanged.
+func encodeState(state *State) ([]byte, error) {
+	if err := validateStatePaths(state); err != nil {
+		return nil, err
+	}
+	current := *state
+	current.FormatVersion = StateFormatVersion
+	data, err := yaml.Marshal(&current)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling state: %w", err)
+	}
+	if len(data) > parser.MaxDocumentBytes {
+		return nil, fmt.Errorf("state exceeds the %d-byte document limit", parser.MaxDocumentBytes)
+	}
+	return data, nil
+}
+
 func validateStatePaths(state *State) error {
 	if state == nil {
 		return fmt.Errorf("state must not be nil")
+	}
+	if state.FormatVersion != 0 && state.FormatVersion != StateFormatVersion {
+		return fmt.Errorf("unsupported state format version %d; this compiler reads legacy version 0 and version %d", state.FormatVersion, StateFormatVersion)
 	}
 	if state.LastApplied == nil {
 		return nil

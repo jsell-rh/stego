@@ -673,6 +673,7 @@ func computePlan(
 
 	compilerBuild := buildidentity.Current()
 	newState := &State{
+		FormatVersion: StateFormatVersion,
 		LastApplied: &AppliedState{
 			Inputs:                manifest,
 			CompilerBuild:         &compilerBuild,
