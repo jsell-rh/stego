@@ -23,8 +23,23 @@ with a 256-byte limit. The runtime derives SQL names from their SHA-256 hash.
 Callers cannot select system databases or supply SQL identifiers. The application
 must retain the selected server and these keys for the resource's whole life.
 
-Call `NewDatabasePassword`, then store its result durably before calling
-`EnsureDatabase`. The password contains 32 random bytes encoded as 64 hexadecimal
+Call `PrepareDatabaseCredentials` with the selected server and resource key when
+the resource has no saved credentials. This call checks the server identity,
+ledger, and SQL names on one connection under the resource lock. An existing
+ledger record or SQL name prevents a new credential result. A deleted record
+returns `ErrDatabaseDeleted`. The call can initialize the private server ledger;
+it does not reserve a resource or create a database or role.
+
+Save the returned `ServerIdentity` and `Password` together in protected durable
+state before calling `EnsureDatabase`. Concurrent callers must select one saved
+result, for example through an exclusive state creation operation. A successful
+preparation does not reserve the key between calls. Repeated preparation cannot
+replace durable storage. Use the selected saved result for all later calls.
+Formatting omits both fields, and JSON encoding fails. Storage code must select
+these fields explicitly. Neither field can be sent to logs or telemetry.
+
+`NewDatabasePassword` remains available for callers that have their own durable
+credential protocol. The password contains 32 random bytes encoded as 64 hexadecimal
 characters. The runtime records only its hash. It sends a SCRAM verifier in
 password DDL, never the plaintext password. A changed or missing stored password
 must not be treated as permission to reset existing data. Password rotation needs
@@ -132,8 +147,10 @@ The Hypershell external provider and actual RDS workflow remain separate work.
 
 ## Durable server binding
 
-Call `DatabaseServerIdentity` during initial setup. Save its result with the
-resource credentials before `EnsureDatabase`. Set `Options.ServerIdentity` to
+`PrepareDatabaseCredentials` returns the server identity with the candidate
+password. `DatabaseServerIdentity` also remains available for initial setup.
+Save the identity with the resource credentials before `EnsureDatabase`.
+Set `Options.ServerIdentity` to
 that saved value on each later ensure or delete operation. A missing or different
 server marker returns `ErrDatabaseServer` before resource changes. This detects
 an empty replacement server even when its host name is unchanged.

@@ -19,6 +19,9 @@ var provisionSource string
 //go:embed schema.go.tmpl
 var schemaSource string
 
+//go:embed credentials.go.tmpl
+var credentialsSource string
+
 type Generator struct{}
 
 // MinimumGoVersion covers the pinned pgx dependency.
@@ -44,7 +47,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
 	}
 	var files []gen.File
-	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"provision.go", provisionSource}, {"schema.go", schemaSource}} {
+	for _, entry := range []struct{ name, source string }{{"client.go", source}, {"provision.go", provisionSource}, {"schema.go", schemaSource}, {"credentials.go", credentialsSource}} {
 		tmpl, err := template.New(entry.name).Parse(entry.source)
 		if err != nil {
 			return nil, nil, err

@@ -77,6 +77,9 @@ func TestClientPrivateTelemetry(t *testing.T) {
 	ctx, parentDone := telemetry.TraceDatabase(runtime.Context(context.Background()), "query")
 	options := Options{Password: "private-administrator"}
 	spec := DatabaseSpec{Key: DatabaseKey{"private-scope", "private-resource"}, Password: strings.Repeat("a", 64)}
+	if _, err := PrepareDatabaseCredentials(ctx, options, spec.Key); err == nil {
+		t.Fatal("invalid credential preparation accepted")
+	}
 	if _, err := EnsureDatabase(ctx, options, spec); err == nil {
 		t.Fatal("invalid identity accepted")
 	}
@@ -176,7 +179,7 @@ func TestClientPrivateTelemetry(t *testing.T) {
 			}
 		}
 	}
-	if len(spanIDs) != 8 || len(logIDs) != 8 || total != 8 || active != 0 || len(root) != 8 {
+	if len(spanIDs) != 9 || len(logIDs) != 9 || total != 9 || active != 0 || len(root) != 8 {
 		t.Fatal("missing or repeated client signals", len(spanIDs), len(logIDs), total, active)
 	}
 	outcomes := map[string]int{}
@@ -186,7 +189,7 @@ func TestClientPrivateTelemetry(t *testing.T) {
 		}
 		outcomes[outcome]++
 	}
-	if outcomes["failure"] != 5 || outcomes["busy"] != 1 || outcomes["canceled"] != 1 || outcomes["deadline"] != 1 {
+	if outcomes["failure"] != 6 || outcomes["busy"] != 1 || outcomes["canceled"] != 1 || outcomes["deadline"] != 1 {
 		t.Fatal("wrong client outcomes", outcomes)
 	}
 }

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"go.opentelemetry.io/otel"
 	metricSDK "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -19,6 +21,27 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
+
+func TestDatabaseCredentialPreparationValidation(t *testing.T) {
+	value := DatabaseCredentials{ServerIdentity: strings.Repeat("c", 64), Password: strings.Repeat("d", 64)}
+	for _, format := range []string{"%s", "%v", "%+v", "%#v", "%q"} {
+		for _, subject := range []any{value, &value, struct{ Value DatabaseCredentials }{value}, map[string]DatabaseCredentials{"value": value}} {
+			text := fmt.Sprintf(format, subject)
+			if strings.Contains(text, value.Password) || strings.Contains(text, value.ServerIdentity) {
+				t.Fatal("credential formatting disclosed its fields")
+			}
+		}
+	}
+	if data, err := json.Marshal(value); err == nil || len(data) != 0 {
+		t.Fatal("credentials were serialized without protected storage")
+	}
+	for _, ctx := range []context.Context{nil, context.Background()} {
+		result, err := PrepareDatabaseCredentials(ctx, Options{}, DatabaseKey{})
+		if err == nil || result != (DatabaseCredentials{}) {
+			t.Fatal("invalid preparation returned credentials")
+		}
+	}
+}
 
 func TestDatabaseNamesAndValidation(t *testing.T) {
 	a, err := DatabaseNames(DatabaseKey{Scope: "installation", Resource: "one'; DROP DATABASE postgres; --"})
@@ -128,12 +151,15 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	if _, err := DatabaseServerIdentity(ctx, wrong); !errors.Is(err, ErrDatabaseServer) {
 		t.Fatal("changed server accepted", err)
 	}
-	// A restored server without its identity cannot create or delete resources.
+	// A restored server without its identity cannot prepare, create, or delete resources.
 	exec(adminConn, "ALTER TABLE stego_provisioning.server_identity RENAME TO saved_server_identity")
 	candidatePassword, _ := NewDatabasePassword()
 	candidate := DatabaseSpec{Key: DatabaseKey{"binding-test", "missing"}, Password: candidatePassword, ConnectionLimit: 8}
 	if _, err := EnsureDatabase(ctx, provisioner, candidate); !errors.Is(err, ErrDatabaseServer) {
 		t.Fatal("missing server marker allowed creation", err)
+	}
+	if value, err := PrepareDatabaseCredentials(ctx, provisioner, candidate.Key); !errors.Is(err, ErrDatabaseServer) || value != (DatabaseCredentials{}) {
+		t.Fatal("missing marker allowed credential preparation", err)
 	}
 	if err := DeleteDatabase(ctx, provisioner, candidate.Key); !errors.Is(err, ErrDatabaseServer) {
 		t.Fatal("missing server marker allowed deletion", err)
@@ -175,6 +201,73 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 	if err = DeleteDatabase(ctx, provisioner, unsafe.Key); err != nil {
 		t.Fatal("reserved cleanup", err)
 	}
+
+	t.Run("credential-preparation", func(t *testing.T) {
+		candidate := spec("credential-preparation")
+		names, _ := DatabaseNames(candidate.Key)
+		reject := func(options Options, key DatabaseKey, want error) {
+			t.Helper()
+			value, err := PrepareDatabaseCredentials(ctx, options, key)
+			if !errors.Is(err, want) || value != (DatabaseCredentials{}) {
+				t.Fatal("preparation did not reject its state", err)
+			}
+		}
+		wrong := provisioner
+		wrong.ServerIdentity = strings.Repeat("0", 64)
+		reject(wrong, candidate.Key, ErrDatabaseServer)
+		stopped, cancel := context.WithCancel(ctx)
+		cancel()
+		if value, err := PrepareDatabaseCredentials(stopped, provisioner, candidate.Key); !errors.Is(err, context.Canceled) || value != (DatabaseCredentials{}) {
+			t.Fatal("canceled preparation returned credentials", err)
+		}
+		held, err := openProvision(ctx, provisioner, candidate.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = held.conn.Close(ctx) }()
+		reject(provisioner, candidate.Key, ErrDatabaseBusy)
+		other, err := PrepareDatabaseCredentials(ctx, provisioner, DatabaseKey{candidate.Key.Scope, "other-preparation"})
+		_ = held.conn.Close(ctx)
+		if err != nil || other.ServerIdentity != server || len(other.Password) != 64 {
+			t.Fatal("one resource lock blocked another resource", err)
+		}
+		for _, name := range []string{names.Owner, names.User} {
+			exec(bootstrap, "CREATE ROLE "+quoted(name)+" NOLOGIN")
+			reject(provisioner, candidate.Key, ErrDatabaseOwnership)
+			exec(bootstrap, "DROP ROLE "+quoted(name))
+		}
+		exec(bootstrap, "CREATE DATABASE "+quoted(names.Database))
+		reject(provisioner, candidate.Key, ErrDatabaseOwnership)
+		exec(bootstrap, "DROP DATABASE "+quoted(names.Database))
+		prepared, err := PrepareDatabaseCredentials(ctx, provisioner, candidate.Key)
+		if err != nil || prepared.ServerIdentity != server || len(prepared.Password) != 64 {
+			t.Fatal("credential preparation failed", err)
+		}
+		var absent bool
+		err = adminConn.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname IN ($2,$3)) AND NOT EXISTS(SELECT 1 FROM stego_provisioning.resources WHERE scope=$4 AND resource=$5)`, names.Database, names.Owner, names.User, candidate.Key.Scope, candidate.Key.Resource).Scan(&absent)
+		if err != nil || !absent {
+			t.Fatal("preparation created SQL resource state", err)
+		}
+		candidate.Password = prepared.Password
+		session, err := openProvision(ctx, provisioner, candidate.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = session.reserve(candidate)
+		_ = session.conn.Close(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reject(provisioner, candidate.Key, ErrDatabaseCredential)
+		if _, err = EnsureDatabase(ctx, provisioner, candidate); err != nil {
+			t.Fatal("saved candidate did not provision", err)
+		}
+		reject(provisioner, candidate.Key, ErrDatabaseCredential)
+		if err = DeleteDatabase(ctx, provisioner, candidate.Key); err != nil {
+			t.Fatal(err)
+		}
+		reject(provisioner, candidate.Key, ErrDatabaseDeleted)
+	})
 
 	t.Run("managed-schema", func(t *testing.T) {
 		managed := spec("browser-schema")
@@ -713,6 +806,9 @@ func TestDatabaseClientDoesNotUseGlobalProviders(t *testing.T) {
 	_, err := EnsureDatabase(ctx, Options{Password: "private-administrator"}, DatabaseSpec{Key: DatabaseKey{"private-scope", "private-resource"}, Password: strings.Repeat("a", 64)})
 	if err == nil {
 		t.Fatal("invalid specification accepted")
+	}
+	if _, err := PrepareDatabaseCredentials(ctx, Options{Password: "private-administrator"}, DatabaseKey{"private-scope", "private-resource"}); err == nil {
+		t.Fatal("invalid preparation accepted")
 	}
 	session := &provisionSession{ctx: ctx, key: DatabaseKey{"private-scope", "private-resource"}, names: DatabaseIdentity{"private-database", "private-owner", "private-login"}}
 	if err := session.quarantine(databaseRecord{}, 0); !errors.Is(err, ErrDatabaseIsolation) {
