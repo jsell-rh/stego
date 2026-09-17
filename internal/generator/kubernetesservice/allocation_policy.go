@@ -52,6 +52,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	networkCases := []string{}
 	serviceAccountCases := []string{}
 	serviceAccountProfiles := []string{}
+	serviceAccountNamespacePatterns := []string{}
 	isolatedNames := []string{}
 	scope := map[string]string{}
 	var items []any
@@ -90,6 +91,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
 		if len(p.ServiceAccounts) > 0 {
 			serviceAccountProfiles = append(serviceAccountProfiles, celString(p.Name))
+			serviceAccountNamespacePatterns = append(serviceAccountNamespacePatterns, pattern("object.metadata.name", p))
 			choices := []string{}
 			for _, alias := range p.ServiceAccounts {
 				choices = append(choices, "variables.o.metadata.name == "+allocationServiceAccountCEL(alias))
@@ -242,6 +244,12 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		// retain the owner, generated name, and explicit token opt-in default.
 		allowed := "variables.o.metadata.name == 'default' || (" + join(serviceAccountCases) + " && (" + isAllocator + " || request.operation == 'UPDATE' || (request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp))))"
 		guarded = append(guarded, allocationPolicy(base+".service-accounts", []any{allocationRule("", "serviceaccounts")}, selected, variables, []any{validate(allowed, "ServiceAccount identity must match its allocation owner")})...)
+		// An unmarked replacement namespace must not recreate a prior owner's
+		// account. A common RBAC capability permits other trusted allocator
+		// installations to use the same patterns under their own owner rules.
+		reserved := "request.operation == 'CREATE' && object != null && " + join(serviceAccountNamespacePatterns)
+		capable := "authorizer.path(" + celString(allocationNamespaceCapability) + ").check('get').allowed()"
+		guarded = append(guarded, allocationPolicy(base+".namespace-reservations", []any{allocationRule("", "namespaces")}, reserved, nil, []any{validate(capable, "Allocated namespace patterns require a trusted allocator")})...)
 	}
 	// Install the policies before the allocator receives permissions.
 	items = append(guarded, items...)
@@ -260,6 +268,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	}
 	if len(serviceAccountCases) > 0 {
 		rules = append(rules, object{"apiGroups": []string{""}, "resources": []string{"serviceaccounts"}, "verbs": []string{"get", "create", "patch"}})
+		rules = append(rules, object{"nonResourceURLs": []string{allocationNamespaceCapability}, "verbs": []string{"get"}})
 	}
 	if len(networkCases) > 0 {
 		rules = append(rules,

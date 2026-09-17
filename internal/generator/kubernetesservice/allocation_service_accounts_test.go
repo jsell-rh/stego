@@ -39,7 +39,7 @@ func TestAllocationServiceAccountValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, part := range []string{".service-accounts", "stego.dev/service-account-gateway", "automountServiceAccountToken", "[a-z2-7]{52}"} {
+	for _, part := range []string{".service-accounts", ".namespace-reservations", allocationNamespaceCapability, "stego.dev/service-account-gateway", "automountServiceAccountToken", "[a-z2-7]{52}"} {
 		if !strings.Contains(string(raw), part) {
 			t.Fatal("account guard missing", part)
 		}

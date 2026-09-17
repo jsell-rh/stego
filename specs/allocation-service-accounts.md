@@ -53,6 +53,19 @@ Kubernetes can maintain image pull references and its unbound default account.
 Namespace deletion can remove the accounts. Other actors cannot create an
 account with the previous owner's name after namespace reuse.
 
+Creation of namespaces that match these profiles requires a common allocator
+RBAC capability: `get` on the non-resource path
+`/stego.dev/namespace-allocation`. This path is not a service endpoint. The
+admission policy uses the API server's
+[authorization check](https://kubernetes.io/docs/reference/using-api/cel/#kubernetes-authorizer-library).
+Only trusted allocator identities receive this capability. Each allocator's
+own policy still limits its namespace profiles and ownership fields. This
+permits multiple registered allocator instances to share a cluster and prevents
+ordinary namespace creators from taking a deleted allocation name without its
+ownership labels. Existing unrelated namespaces are not changed or deleted.
+When allocator instances share a namespace pattern, upgrade all of them before
+enabling this reservation. Do not grant the capability to application workers.
+
 The runtime rejects a changed stored name before it writes. Read-only namespace
 verification also checks the names. A first upgrade can add a missing annotation
 through the allocator; an existing value cannot be replaced. The policies must
@@ -81,5 +94,7 @@ fixture checks generated object identities. It does not run Kubernetes RBAC.
 Qualification must also use a real API server to check the generated CEL,
 denied name and annotation changes, namespace deletion and reuse, and access
 from the replacement account while an old cross-namespace grant remains.
+It must also deny an unmarked replacement created by an ordinary namespace
+creator, and permit another registered allocator under its own ownership rules.
 That check requires no privileged Pod or Kata runtime. The deferred VM test
 does not replace this admission and authorization check.

@@ -4,6 +4,10 @@ import "slices"
 
 const allocationServiceAccountPrefix = "stego.dev/service-account-"
 
+// This RBAC capability selects trusted allocator identities. It is not an
+// HTTP endpoint. The API server uses it only for an authorization decision.
+const allocationNamespaceCapability = "/stego.dev/namespace-allocation"
+
 func allocationHasServiceAccount(p allocationProfile, alias string) bool {
 	return slices.Contains(p.ServiceAccounts, alias)
 }
