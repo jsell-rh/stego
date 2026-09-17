@@ -100,3 +100,12 @@ replace that namespace, and test whether an unrelated namespace owner can create
 those accounts and obtain their permissions. This is an open test requirement,
 not a confirmed exploit. The test must cover both allocator and worker grants.
 Any correction must preserve authorized installation and namespace cleanup.
+
+The related-namespace live check passed at `2e7080e` on 2026-09-17 after the
+corrected Hypershell browser and API runs passed. All 12 probes and 12 policy
+type checks passed. The test covered four namespace instances, denied a
+replacement owner, and let the original owner recover the unchanged grant.
+It created no Pods. Independent cleanup verified 48 resource paths absent.
+The [evidence record](allocation-peer-bindings-evidence.json) retains the result
+hash and scope. This does not close the separate control-account reuse audit,
+and the component is not yet published or adopted.

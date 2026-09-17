@@ -140,5 +140,81 @@
     ],
     "postgres_log_sha256": "20fab90374c889539a2ad6eebd3211981eba35b301784606b3485c7a1e6e5103",
     "generated_examples_passed": true
+  },
+  "live": {
+    "source": "2e7080e2da7b5ef90dcf82dcf7d696dc8e0c9456",
+    "prior_application_run": 35251755817,
+    "started_at": "2026-09-17T17:48:37.483193+00:00",
+    "completed_at": "2026-09-17T17:50:41.143147+00:00",
+    "probes": [
+      {
+        "name": "declared related grant accepted",
+        "allowed": true,
+        "policy": null
+      },
+      {
+        "name": "different namespace suffix denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "different source profile denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "different owner account denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "different account alias denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "different role denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "additional subject denied",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.allocation"
+      },
+      {
+        "name": "declared source reads destination",
+        "allowed": true,
+        "policy": null
+      },
+      {
+        "name": "source cannot read control namespace",
+        "allowed": false,
+        "policy": null
+      },
+      {
+        "name": "imported account annotation cannot change",
+        "allowed": false,
+        "policy": "stego-allocation-accounts-ci.widget-queue.ownership"
+      },
+      {
+        "name": "replacement owner cannot use retained grant",
+        "allowed": false,
+        "policy": null
+      },
+      {
+        "name": "original owner recovers related grant",
+        "allowed": true,
+        "policy": null
+      }
+    ],
+    "policies_type_checked": 12,
+    "namespace_incarnations": 4,
+    "pods_created": 0,
+    "recorded_paths_absent": 48,
+    "cleanup_verified": true,
+    "result_sha256": "235d1fcd75b78ed20fe692e02fdccb05e06592cd93172687be69a863a2671669",
+    "scope": "Live admission and RBAC through impersonation, with namespace replacement. No Pod token authentication or Sandbox execution was tested.",
+    "control_account_reuse_audit": "separate; not established by this result"
   }
 }
