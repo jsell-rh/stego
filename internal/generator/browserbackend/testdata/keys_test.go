@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -167,7 +168,7 @@ func TestBackendSessionKeyRotation(t *testing.T) {
 	// The key file is checked before database or provider access.
 	o := f.options
 	o.KeyFile = privateFile(t, "invalid-keys", keyRing(t, next, next))
-	b, err := newBackend(context.Background(), nil, o)
+	b, err := newBackend(context.Background(), &sql.DB{}, o)
 	require(t, b == nil && errors.Is(err, errSessionKeys), "invalid key ring did not fail at startup")
 	w := send(switched, "POST", "/auth/logout", "", []*http.Cookie{active}, mutationHeaders(csrf))
 	require(t, w.Code == 204, "logout after key switch failed")

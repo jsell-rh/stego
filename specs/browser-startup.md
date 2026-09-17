@@ -79,3 +79,10 @@ changed the backend origin after starting its HTTP server. The origin is now
 set from the reserved listener address before the server starts. The test still
 uses native form navigation and the race detector. The generated logout policy
 is unchanged; a new CI result is required.
+
+Run `35179358194` passed all five companion jobs and the generated telemetry
+suite, including relay identity checks. Its compiler job found one remaining
+fixture error in `TestBackendSessionKeyRotation`: a nil database handle stopped
+startup before key validation. The test now supplies an unconnected handle and
+still requires invalid keys to fail before database access. The focused startup
+gate includes that test. Full CI must pass before the compiler is promoted.

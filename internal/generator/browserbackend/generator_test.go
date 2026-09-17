@@ -94,7 +94,7 @@ func TestStartupAssembly(t *testing.T) {
 	}
 }
 func TestGeneratedBrowserStartup(t *testing.T) {
-	testGeneratedRuntime(t, new(Generator), fixture(), false, "^TestBrowserStartup")
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^(TestBrowserStartup.*|TestBackendSessionKeyRotation)$")
 }
 
 func TestAuthorizationScopes(t *testing.T) {
