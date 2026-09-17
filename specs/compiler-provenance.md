@@ -135,6 +135,9 @@ was not executed locally.
 
 All six compiler jobs passed for this source in
 [branch run 35192150899](https://github.com/jsell-rh/stego/actions/runs/35192150899).
-The separate main repeat is not part of the signature result. The failed first
-signature run remains a failure. Permanent release delivery and complete
-offline application builds remain open.
+The separate [main repeat 35192910714](https://github.com/jsell-rh/stego/actions/runs/35192910714)
+also passed all six jobs. Its saved log SHA-256 is
+`c39daffe24182e258778ccfdd187cec44454e8119bbd0d075f6d7a27cb2a4abc`.
+This is a separate compiler result. The failed first signature run remains a
+failure. Permanent release delivery and complete offline application builds
+remain open.

@@ -177,6 +177,20 @@ cases passed in CI, followed by another successful check of valid input.
 Permanent release delivery and complete offline builds remain open. No failed
 or incomplete run is treated as a pass.
 
+The compiler now checks the official Go archive and extracted SDK inventory
+before it executes Go. Source `403a7eb` passed the two-build artifact gate,
+independent source and artifact inspection, and all six compiler jobs. It is
+on remote `main`. The original executable bits now match the official archive;
+the earlier cache permission difference is no longer accepted. See the
+[SDK preparation evidence](compiler-artifact-builds.md).
+
+A further composition review found that Hypershell's local Gateway browser
+archetype adds only common browser telemetry. The common browser archetype now
+includes that runtime and resolves one client/relay identity. Conflicting
+identities fail before generation. This change still requires its full CI
+result and Hypershell adoption. Do not treat the current local Gateway browser
+archetype as domain policy. See [browser telemetry](browser-telemetry.md).
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.

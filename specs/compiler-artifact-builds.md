@@ -182,3 +182,26 @@ inputs, and failure cleanup. An additional build check requires rejection of a
 substitute SDK before any command executes. The real archive preparation and
 two full compiler builds must also pass CI. These checks do not prove an
 uncompromised runner, system Python, curl, TLS store, or operating system.
+
+## Verified SDK preparation result
+
+[Artifact run 35193583033](https://github.com/jsell-rh/stego/actions/runs/35193583033)
+passed at `403a7eb9fdc8bfbba41abc92021eeb8e5490727a`. Preparation accepted the
+official archive before any SDK program ran. Both isolated compiler builds
+matched. Independent inspection verified all 1,187 source records, 21 module
+records, 20 embedded dependency records, and the compiler build settings.
+
+The observed SDK inventory equals the official inventory, including executable
+bits: 15,036 files, 232,512,886 bytes, and SHA-256
+`94168e19a28c7bdeaf3c281f88e3a3efab13f7d80e2694ae2dd4d71378da9289`.
+The compiler has 31,706,776 bytes and SHA-256
+`bc20ea0d930778a024d34538ae9e4002f4022e67e69b177eff44be3aa8a78238`.
+The build-record SHA-256 is
+`e2c32e263d1da8281cd438a95a54146f8266d82fb813199434dc7823ba4899d8`.
+The downloaded compiler was not executed on the workstation.
+
+[Full compiler run 35193583091](https://github.com/jsell-rh/stego/actions/runs/35193583091)
+passed all six jobs at the same source. Its saved log SHA-256 is
+`cd86e49c7f3d11088d208f49a31f928ac2b87984d9204caf09199b7e7699672c`.
+The source is on remote `main`. Main artifact signing has a separate required
+result. These checks do not close the remaining C3 requirements.
