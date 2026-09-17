@@ -97,5 +97,48 @@
     "consumer_adopted": false,
     "live_admission_proved": false,
     "scope": "Generated renderer with workload field preservation, typed and command API agreement, immutable repeated output, and rejection of invalid or ambiguous account authority. This is not a live deployment or release result."
+  },
+  "full": {
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35249275355",
+    "source": "2e7080e2da7b5ef90dcf82dcf7d696dc8e0c9456",
+    "checked_at": "2026-09-17T17:07:34.667357+00:00",
+    "jobs": {
+      "resource-state-storage": "success",
+      "compiler": "success",
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "examples (user-management-rhsso)": "success",
+      "keycloak-provider": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "6e7dde85d4a8310a1dfe574aaf3ff74e10329188757255db02d72ebce14afddb",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "20fab90374c889539a2ad6eebd3211981eba35b301784606b3485c7a1e6e5103",
+    "generated_examples_passed": true
   }
 }

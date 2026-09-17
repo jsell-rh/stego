@@ -71,8 +71,7 @@ The refined source-read test passed at `2e7080e` in
 Independent checks matched the source archive, all 13 runtime tests and 37 cases,
 and all 15 runner safety checks. The three manifests are byte-for-byte equal to
 those from `9844ad4`. The denied-read case now targets the related source account
-and also requires the control-worker grant to remain absent. Full compiler and
-live cluster qualification remain open.
+and also requires the control-worker grant to remain absent. Live cluster qualification remains open.
 
 
 The branch artifact at `2e7080e` passed independent source and byte checks in
@@ -83,3 +82,21 @@ The unchanged deployment renderer also passed all 11 runtime checks at `9844ad4`
 in [run 35248772755](https://github.com/jsell-rh/stego/actions/runs/35248772755),
 including authority checks before scope filtering and repeated generation.
 These results do not replace the pending live admission check.
+
+The complete compiler check at `2e7080e` passed in
+[run 35249275355](https://github.com/jsell-rh/stego/actions/runs/35249275355).
+All six jobs passed. Independent log checks found 34 passing race-test packages,
+required PostgreSQL credential and browser checks, and both generated examples.
+The component is not published or adopted by the consumer.
+
+The next live check must wait for correction of Hypershell browser run
+35248320996. That run failed on a console Pod readiness observation before the
+network fault. Its cleanup passed. The earlier passing run does not replace it.
+
+Before publication, test control-namespace account reuse as a separate security
+case. Allocator and control-worker bindings use fixed account names. The current
+workload account guards do not cover the control namespace. Retain the bindings,
+replace that namespace, and test whether an unrelated namespace owner can create
+those accounts and obtain their permissions. This is an open test requirement,
+not a confirmed exploit. The test must cover both allocator and worker grants.
+Any correction must preserve authorized installation and namespace cleanup.
