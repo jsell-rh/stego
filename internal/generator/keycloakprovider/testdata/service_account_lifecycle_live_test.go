@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
 )
 
@@ -140,5 +141,83 @@ func testLiveServiceAccountLifecycle(t *testing.T, c *Client, ctx context.Contex
 			t.Fatal("closed account was reopened", err)
 		}
 	}
+	testLiveObservedServiceAccountClosure(t, c, ctx)
 	t.Log("Real service-account lifecycle passed creation, legacy migration, saved subject, lost journal acknowledgement, restart, signed token policy, disabled repair, resume, prepared closure, and late-create cleanup")
+}
+
+// Check clients from inventory with no saved account journal. Both ownership
+// formats are configured, but a mixed format must keep cleanup blocked.
+func testLiveObservedServiceAccountClosure(t *testing.T, c *Client, ctx context.Context) {
+	t.Helper()
+	for _, mode := range []string{"current", "legacy", "mixed"} {
+		_, f := newAccountLifecycleFixture(t, true)
+		identity := f.provider.identity
+		identity.ClientID = "observed-account-" + mode
+		f.key.ResourceID = identity.ClientID
+		f.provider.identity = identity
+		binding := identity.binding(identity.ClientID + "-id")
+		value, err := serviceAccountConfiguration(binding, ServiceAccountPolicy{DisplayName: "Observed account", AccessTokenLifetimeSeconds: 300})
+		if err != nil {
+			t.Fatal(err)
+		}
+		value.Enabled = true
+		if mode == "legacy" {
+			value.Attributes = identity.LegacyAttributes
+			binding.Attributes = identity.LegacyAttributes
+		}
+		if mode == "mixed" {
+			for key, v := range identity.LegacyAttributes {
+				value.Attributes[key] = v
+			}
+		}
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := c.admin(ctx, http.MethodPost, "/clients", body)
+		if err != nil || response.StatusCode != http.StatusCreated {
+			t.Fatal("observed account creation failed", err)
+		}
+		restart := func() *ServiceAccountClientLifecycle {
+			l, err := NewServiceAccountClientLifecycle(c, f.restart().journal, identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return l
+		}
+		if err = restart().PrepareCloseExisting(ctx, binding.ID); err != nil {
+			t.Fatal(err)
+		}
+		before, err := c.GetClient(ctx, binding.ID)
+		if err != nil || !before.Enabled {
+			t.Fatal("closure preparation changed the observed account", err)
+		}
+		err = restart().CloseExisting(ctx, binding.ID)
+		if mode == "mixed" {
+			if !errors.Is(err, ErrOwnership) {
+				t.Fatal("mixed ownership was accepted", err)
+			}
+			after, readErr := c.GetClient(ctx, binding.ID)
+			if readErr != nil || !reflect.DeepEqual(before, after) {
+				t.Fatal("rejected ownership changed the provider", readErr)
+			}
+			if err = c.DeleteClient(ctx, binding); err != nil {
+				t.Fatal("mixed fixture cleanup failed", err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal("observed account cleanup failed", mode, err)
+		}
+		if _, err = c.GetClient(ctx, binding.ID); !errors.Is(err, ErrNotFound) {
+			t.Fatal("observed account remains", mode, err)
+		}
+		if !f.read().Closed || f.read().Binding.ID != binding.ID {
+			t.Fatal("closure lost the provider identity")
+		}
+		if err = restart().Close(ctx); err != nil {
+			t.Fatal("observed closure retry failed", err)
+		}
+	}
+	t.Log("Real inventory closure passed current and legacy ownership, restart, confirmed absence, and mixed ownership rejection")
 }

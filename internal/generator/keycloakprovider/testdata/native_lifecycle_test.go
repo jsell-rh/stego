@@ -119,7 +119,7 @@ func (p *lifecycleProvider) InspectClient(_ context.Context, b ClientBinding) (C
 	if !reflect.DeepEqual(b, p.binding) {
 		return ClientRepresentation{}, ErrOwnership
 	}
-	return ClientRepresentation{}, nil
+	return ClientRepresentation{ID: p.binding.ID, ClientID: p.binding.ClientID, Attributes: p.binding.Attributes}, nil
 }
 func (p *lifecycleProvider) CreateDisabledNativeClient(_ context.Context, b ClientBinding, _ NativeClientPolicy) (ClientRepresentation, error) {
 	p.note("create")

@@ -178,6 +178,18 @@ func(l *clientLifecycle)close(ctx context.Context,expectedID string)error{
   record.Binding=binding;record.Phase="bound";record.Migration=""
   if _,err=l.save(ctx,snapshot,record);err!=nil{return err}
  }
+ err=l.provider.DeleteClient(ctx,record.Binding)
+ if !errors.Is(err,ErrOwnership)||record.Phase!="legacy"{return err}
+ // A known-ID closure can precede discovery of the ownership format. Check
+ // current ownership at the saved ID. Never search by the public client name.
+ binding:=l.identity.binding(record.Binding.ID)
+ value,err:=l.provider.InspectClient(ctx,binding);if err!=nil{return err}
+ if err=binding.CheckOwnership(value);err!=nil{return err}
+ // Mixed ownership requires a saved migration plan. Do not adopt it here.
+ for key:=range l.identity.LegacyAttributes{if _,present:=value.Attributes[key];present{return ErrOwnership}}
+ record.Binding=binding;record.Phase="bound"
+ if _,err=l.save(ctx,snapshot,record);err!=nil{return err}
+ // DeleteClient checks ownership again before it changes the provider.
  return l.provider.DeleteClient(ctx,record.Binding)
 }
 
