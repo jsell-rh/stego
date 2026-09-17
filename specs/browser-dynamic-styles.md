@@ -49,7 +49,9 @@ The first [CI browser check](https://github.com/jsell-rh/stego/actions/runs/3516
 proved that stylesheet nonces work and raw inline styles remain blocked. Its
 initial fragment implementation failed: Chromium reported style violations
 during template parsing, before insertion. The revised helper moves style
-attributes before parsing. The new browser result is still required.
+attributes before parsing. The [second browser check](https://github.com/jsell-rh/stego/actions/runs/35164494930)
+at `273c5cf` passed all six groups on Chrome 152.0.7977.82. This is a common
+runtime result, not a deployed editor result.
 
 The CI fixture checks computed HTML and SVG styles, incremental append and
 replacement, element counts, input limits, quoted values, comments, nonce
@@ -66,3 +68,30 @@ The [CSP specification](https://www.w3.org/TR/CSP3/#style-src-attr) defines the
 separate style-attribute control. An [upstream editor proposal](https://github.com/microsoft/vscode/pull/288813)
 uses generated style nodes, but its review reports rendering, clipboard, and
 cost defects. STEGO does not copy that implementation.
+
+## Reviewed Monaco adapter
+
+The generated DOM package includes `monaco-loader.cjs` and its source-hash
+manifest. This webpack loader supports Monaco 0.52.2. It changes 15 reviewed
+operations in 11 exact ESM files to call the common DOM helpers or direct DOM
+style properties. It verifies each complete source file before it changes any
+operation. Changed source bytes or a repeated transformation cause an error.
+It retains the dependency's license text.
+
+The adapter covers line rendering, wrapping measurements, syntax coloring,
+inline completion text, sticky lines, diff rendering, and stylesheet creation.
+It changes only tokenized code blocks in the editor's Markdown renderer. It does
+not change the generic Markdown sanitizer or DOMPurify. Those are untrusted
+content boundaries and must not use a trusted-render helper.
+
+The application build selects this generated loader for Monaco ESM files and
+maps `@stego/browser-dom` to the generated `dom/index.js`. The dependency lock
+must retain the reviewed Monaco package. The source check downloads the exact
+npm archive, verifies its SHA-512 integrity, checks all 11 transformed sources,
+and rejects changed and already-transformed inputs. Local checks against the
+saved verified archive passed. The updated CI check remains required.
+
+No Hypershell build currently selects this adapter. After compiler qualification,
+its build must adopt the common output, rebuild the captured assets and image,
+and prove the real editor. Syntax checks do not prove rendering, worker behavior,
+clipboard behavior, or performance.

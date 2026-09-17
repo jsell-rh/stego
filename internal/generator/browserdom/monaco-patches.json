@@ -1,0 +1,130 @@
+{
+  "version": "0.52.2",
+  "files": {
+    "vs/base/browser/dom.js": {
+      "sha256": "978afe6e6c74fca49d3a57c95ba37839dc38e12566b7efd764900b63b0100563",
+      "replacements": [
+        {
+          "before": "const style = document.createElement('style');",
+          "after": "const style = stegoCreateStyleElement(container.ownerDocument);",
+          "count": 1
+        },
+        {
+          "before": "const clone = globalStylesheet.cloneNode(true);",
+          "after": "const clone = globalStylesheet.cloneNode(true);\n    clone.setAttribute('nonce', stegoCreateStyleElement(targetWindow.document).nonce);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/base/browser/ui/contextview/contextview.js": {
+      "sha256": "38e92188f56f68da841e0807ef6bb5922d4b42b16c5b65d5bc8fc3de627589c1",
+      "replacements": [
+        {
+          "before": "const style = document.createElement('style');",
+          "after": "const style = stegoCreateStyleElement(this.container.ownerDocument);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/browser/view/viewLayer.js": {
+      "sha256": "a3f32838ea70ae8413e4d8a459310d03c0efcfaf75302b7f7bbf3512e94757df",
+      "replacements": [
+        {
+          "before": "this._domNode.innerHTML = newLinesHTML;",
+          "after": "stegoReplaceTrustedHTML(this._domNode, newLinesHTML);",
+          "count": 1
+        },
+        {
+          "before": "lastChild.insertAdjacentHTML('afterend', newLinesHTML);",
+          "after": "stegoAppendTrustedHTML(this._domNode, newLinesHTML);",
+          "count": 1
+        },
+        {
+          "before": "hugeDomNode.innerHTML = invalidLinesHTML;",
+          "after": "stegoReplaceTrustedHTML(hugeDomNode, invalidLinesHTML);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/browser/view/domLineBreaksComputer.js": {
+      "sha256": "8064fff470fe949c88b6d951827dda5d8f46d590b409f5d2745d5898cafeefa9",
+      "replacements": [
+        {
+          "before": "containerDomNode.innerHTML = trustedhtml;",
+          "after": "stegoReplaceTrustedHTML(containerDomNode, trustedhtml);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/standalone/browser/colorizer.js": {
+      "sha256": "1ce6b1072265c774d59113aaa227638bc8fe77236045237c25435b4a7c495cb9",
+      "replacements": [
+        {
+          "before": "domNode.innerHTML = trustedhtml;",
+          "after": "stegoReplaceTrustedHTML(domNode, trustedhtml);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/contrib/inlineCompletions/browser/view/ghostTextView.js": {
+      "sha256": "327d1fda46b02ebffcab91a73db0605c34151b910e855c9aa7ebe19911147a4d",
+      "replacements": [
+        {
+          "before": "domNode.innerHTML = trustedhtml;",
+          "after": "stegoReplaceTrustedHTML(domNode, trustedhtml);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/contrib/stickyScroll/browser/stickyScrollWidget.js": {
+      "sha256": "9f70775b1dacf021aa46d4401386f6c13a11251efcd391cd0e3003df861f9fcf",
+      "replacements": [
+        {
+          "before": "lineHTMLNode.innerHTML = newLine;",
+          "after": "stegoReplaceTrustedHTML(lineHTMLNode, newLine);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/browser/widget/markdownRenderer/browser/markdownRenderer.js": {
+      "sha256": "d1816660d167c68ff3d50f465172bff991b4a6fd39243dbb5523e346202b1bad",
+      "replacements": [
+        {
+          "before": "element.innerHTML = (MarkdownRenderer_1._ttpTokenizer?.createHTML(html) ?? html);",
+          "after": "stegoReplaceTrustedHTML(element, (MarkdownRenderer_1._ttpTokenizer?.createHTML(html) ?? html));",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/browser/widget/diffEditor/components/diffEditorViewZones/renderLines.js": {
+      "sha256": "c53fea0ada2bb2d69730a35f1498f19499446260daf6fff238ac7dbc03d773a0",
+      "replacements": [
+        {
+          "before": "domNode.innerHTML = trustedhtml;",
+          "after": "stegoReplaceTrustedHTML(domNode, trustedhtml);",
+          "count": 1
+        }
+      ]
+    },
+    "vs/editor/browser/widget/diffEditor/components/accessibleDiffViewer.js": {
+      "sha256": "681913a969fb62aab26b9ee534804cbeef35a5967a5d9842ce2bd3600dec4229",
+      "replacements": [
+        {
+          "before": "cell.insertAdjacentHTML('beforeend', html);",
+          "after": "stegoAppendTrustedHTML(cell, html);",
+          "count": 2
+        }
+      ]
+    },
+    "vs/editor/browser/widget/diffEditor/components/diffEditorViewZones/diffEditorViewZones.js": {
+      "sha256": "5157a3c829dd54faa53926a37f5eb465ea7b0150308f2c438bd4c58a4a1d0663",
+      "replacements": [
+        {
+          "before": "marginElement.setAttribute('style', `position:absolute;top:${i * modLineHeight}px;width:${renderOptions.lineDecorationsWidth}px;height:${modLineHeight}px;right:0;`);",
+          "after": "marginElement.style.cssText = `position:absolute;top:${i * modLineHeight}px;width:${renderOptions.lineDecorationsWidth}px;height:${modLineHeight}px;right:0;`;",
+          "count": 1
+        }
+      ]
+    }
+  }
+}

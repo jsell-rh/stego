@@ -1,0 +1,30 @@
+const assert = require('node:assert/strict');
+const {readFileSync, writeFileSync} = require('node:fs');
+const {join} = require('node:path');
+const {spawnSync} = require('node:child_process');
+const {createHash} = require('node:crypto');
+const loader = require('../monaco-loader.cjs');
+const patches = require('../monaco-patches.json');
+const [root, outputPath] = process.argv.slice(2);
+assert(root && outputPath, 'Source and result paths are required');
+const files = [];
+for (const [name, patch] of Object.entries(patches.files)) {
+  const source = readFileSync(join(root, name), 'utf8');
+  const output = loader.call({resourcePath:'/fixture/node_modules/monaco-editor/esm/' + name, cacheable:value=>assert.equal(value,true)}, source);
+  assert.equal(loader.transform(name, source), output);
+  assert(output.includes('from "@stego/browser-dom";'));
+  assert(output.includes('Licensed under the MIT License.'));
+  for (const {after, count} of patch.replacements) assert.equal(output.split(after).length - 1, count);
+  assert.throws(()=>loader.transform(name, source + '\n'), /reviewed Monaco/);
+  assert.throws(()=>loader.transform(name, output), /reviewed Monaco/);
+  const syntax = spawnSync(process.execPath, ['--check', '--input-type=module'], {input:output, timeout:5000, encoding:'utf8'});
+  assert.equal(syntax.status, 0, syntax.stderr);
+  files.push({name, source_sha256:patch.sha256, output_sha256:createHash('sha256').update(output).digest('hex')});
+}
+const sanitizer = 'element.innerHTML = sanitizeRenderedMarkdown(input);';
+assert.equal(loader.transform('vs/base/browser/markdownRenderer.js', sanitizer), sanitizer);
+assert.equal(loader.transform('vs/base/browser/dompurify/dompurify.js', sanitizer), sanitizer);
+assert.throws(()=>loader.call({resourcePath:'/other/editor.js',cacheable(){}},sanitizer),/ESM dependency/);
+assert.equal(files.length, 11);
+writeFileSync(outputPath, JSON.stringify({version:patches.version,files,changed_source_rejected:true,repeated_adaptation_rejected:true,sanitizer_paths_unchanged:true,syntax_passed:true}, null, 2)+'\n');
+console.log(`Monaco adapter: ${files.length} exact source files passed`);
