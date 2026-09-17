@@ -125,6 +125,12 @@ func TestInvalidConfig(t *testing.T) {
 		})
 	}
 }
+func TestGeneratedBrowserLogout(t *testing.T) {
+	if os.Getenv("STEGO_REQUIRE_BROWSER_LOGOUT") != "1" {
+		t.Skip("native browser check runs in CI")
+	}
+	testGeneratedRuntime(t, new(Generator), fixture(), false, "^TestNativeLogoutBrowser$")
+}
 func TestGeneratedRuntime(t *testing.T)                 { testGeneratedRuntime(t, new(Generator), fixture(), false) }
 func TestGeneratedLocalApplicationRuntime(t *testing.T) { testLocalApplicationRuntime(t, false, false) }
 func TestGeneratedCapturedApplicationRuntime(t *testing.T) {

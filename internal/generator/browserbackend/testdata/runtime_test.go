@@ -475,10 +475,17 @@ func TestLogoutConfirmation(t *testing.T) {
 	w := send(f.backend, "GET", "/auth/logout", "", []*http.Cookie{active}, nil)
 	require(t, w.Code == 200 && strings.Contains(w.Body.String(), `method="post"`) && strings.Contains(w.Body.String(), `name="csrf_token" value="`+csrf+`"`), "logout confirmation is unavailable")
 	require(t, !strings.Contains(w.Body.String(), "access-value") && !strings.Contains(w.Body.String(), "refresh-value"), "logout page contains tokens")
+	require(t, w.Header().Get("Referrer-Policy") == "same-origin", "native logout form cannot send its Origin")
+	require(t, send(f.backend, "GET", "/auth/session", "", []*http.Cookie{active}, nil).Header().Get("Referrer-Policy") == "no-referrer", "session response lost its privacy policy")
 	_, _, revokes := f.oidc.counts()
 	require(t, revokes == 0, "GET revoked a session")
 	require(t, send(f.backend, "GET", "/auth/logout", "", nil, http.Header{"Sec-Fetch-Site": {"cross-site"}}).Code == 200, "provider return was rejected")
 	require(t, send(f.backend, "GET", apiPrefix+"/records", "", []*http.Cookie{active}, nil).Code == 201, "GET removed access")
+	for _, origins := range [][]string{nil, {"null"}, {"https://sibling.example.test"}, {origin, origin}} {
+		headers := http.Header{"Origin": origins, "Content-Type": {"application/x-www-form-urlencoded"}}
+		w = send(f.backend, "POST", "/auth/logout", "csrf_token="+csrf, []*http.Cookie{active}, headers)
+		require(t, w.Code == 403, "invalid form Origin was accepted")
+	}
 	headers := http.Header{"Origin": {origin}, "Content-Type": {"application/x-www-form-urlencoded"}}
 	for _, body := range []string{"csrf_token=wrong", "csrf_token=" + csrf + "&csrf_token=" + csrf, "csrf_token=" + csrf + "&return_to=https://other.example", strings.Repeat("x", 4097)} {
 		w = send(f.backend, "POST", "/auth/logout", body, []*http.Cookie{active}, headers)

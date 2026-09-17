@@ -82,6 +82,9 @@ func(b *Backend)session(w http.ResponseWriter,r *http.Request){
 func(b *Backend)csrf(r *http.Request,value session)bool{return b.sameOrigin(r)&&len(r.Header.Values(CSRFHeader))==1&&value.CSRF!=""&&subtle.ConstantTimeCompare([]byte(r.Header.Get(CSRFHeader)),[]byte(value.CSRF))==1}
 var logoutPage=template.Must(template.New("logout").Parse(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign out</title></head><body><main><h1>Sign out</h1>{{"{{if .CSRF}}"}}<p>Confirm sign-out.{{"{{if .Provider}}"}} This also starts sign-out at the identity provider.{{"{{end}}"}}</p><form method="post" action="/auth/logout"><input type="hidden" name="csrf_token" value="{{"{{.CSRF}}"}}"><button type="submit">Sign out</button></form><p><a href="/">Cancel</a></p>{{"{{else}}"}}<p>This console session has ended.</p><p><a href="/">Return to the console</a></p>{{"{{end}}"}}</main></body></html>`))
 func(b *Backend)confirmLogout(w http.ResponseWriter,r *http.Request){
+ // Native form navigation needs the same-origin Origin header. The browser
+ // changes it to null under no-referrer. Cross-origin referrers remain hidden.
+ w.Header().Set("Referrer-Policy","same-origin")
  value,state,_,err:=b.store.read(r.Context(),cookieID(r,SessionCookie))
  if errors.Is(err,errStore){sessionError(w,err);return}
  csrf:="";if err==nil&&value.Kind=="active"&&(state=="active"||state=="refreshing"){csrf=value.CSRF}

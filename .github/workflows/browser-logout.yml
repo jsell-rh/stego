@@ -1,0 +1,75 @@
+name: Browser logout checks
+
+on:
+  push:
+    paths:
+      - 'internal/generator/browserbackend/**'
+      - '.github/workflows/browser-logout.yml'
+  pull_request:
+    paths:
+      - 'internal/generator/browserbackend/**'
+      - '.github/workflows/browser-logout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-logout-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    services:
+      postgres:
+        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_PASSWORD: stego_test
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --cpus=1 --memory=512m --pids-limit=256
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check the generated native sign-out form
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+          GOFLAGS: -p=2
+          STEGO_REQUIRE_POSTGRES: '1'
+          STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+          STEGO_REQUIRE_BROWSER_LOGOUT: '1'
+          STEGO_BROWSER_LOGOUT_ARTIFACTS: ${{ runner.temp }}/browser-logout
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_BROWSER_LOGOUT_ARTIFACTS"
+          go test -v -race -count=1 -mod=readonly -timeout=4m ./internal/generator/browserbackend \
+            -run '^TestGeneratedBrowserLogout$' | tee "$STEGO_BROWSER_LOGOUT_ARTIFACTS/tests.log"
+          python3 - "$STEGO_BROWSER_LOGOUT_ARTIFACTS/tests.log" <<'PY'
+          import re, sys
+          from pathlib import Path
+          log = Path(sys.argv[1]).read_text()
+          for name in ['TestGeneratedBrowserLogout', 'TestNativeLogoutBrowser',
+                       'TestNativeLogoutBrowser/no-referrer-control',
+                       'TestNativeLogoutBrowser/generated-policy']:
+              if not re.search(r'^\s*--- PASS: ' + re.escape(name) + r' ', log, re.M):
+                  raise SystemExit('Missing browser result: ' + name)
+          PY
+      - name: Retain the browser result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: browser-logout-${{ github.run_id }}
+          path: ${{ runner.temp }}/browser-logout
+          if-no-files-found: error
+          retention-days: 14
