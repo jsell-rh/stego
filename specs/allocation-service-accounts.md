@@ -216,8 +216,21 @@ and the shared test lease was free. Validation was installed before the
 allocator received account-write permissions. The workload worker has account
 read access and cannot create or patch accounts.
 
-The complete public Gateway workflow is now running at the same source in
-[35245165722](https://github.com/jsell-rh/hypershell-stego/actions/runs/35245165722).
+The first live run, `35245165722`, failed during installation inspection before
+it created a test Job. The CI reader role still named only the older admission
+policies. An independent request with the restricted CI identity confirmed
+`Forbidden` for a new policy. Its artifacts and empty-cluster check are retained.
+
+Hypershell `0ec01806b55f298ba427ec285c7863774b7a07d6` adds only named read access
+for the three new policies and their bindings. All eight focused Python tests
+passed. The operator updated the existing CI reader role with UID and version
+guards. The actual restricted CI identity then passed 12 policy and binding
+reads and 12 denial checks. Policy writes, unbounded lists, and an unrelated
+policy read remain denied. A comparison of all 1,441 files confirmed that only
+the CI setup script and its test changed after the qualified application source.
+
+The complete public Gateway workflow is now running at `0ec0180` in
+[35245846085](https://github.com/jsell-rh/hypershell-stego/actions/runs/35245846085).
 It must prove account use on real Pods, denied worker writes, restart and
 namespace replacement, the normal Gateway workflow, and complete cleanup.
 Installation readback and hosted CI do not replace that evidence. Hypershell
