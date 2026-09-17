@@ -53,8 +53,13 @@ configuration and key failures, canceled schema startup, and private-data
 exclusion. With PostgreSQL configured, they also check complete startup and a
 failed identity-discovery dependency.
 
-The generated runtime tests require CI qualification. This change has not yet
-identified the earlier live failure and is not yet adopted by Hypershell.
+Compiler revision `83592be` passed all six jobs in
+[35180190820](https://github.com/jsell-rh/stego/actions/runs/35180190820).
+The full race suite passed, including the generated browser backend and
+telemetry runtime. The PostgreSQL job passed all six startup subprocess modes
+and key rotation. Hypershell's candidate pins this compiler in all three
+modules. Its complete live qualification is still in progress. This change has
+not identified the earlier recovered startup failure.
 
 The first compiler run, `35178696741`, passed the generated telemetry suite but
 failed browser tests. The startup subprocess set `OTEL_TRACES_EXPORTER`, which
@@ -78,11 +83,15 @@ Native logout run `35179200926` detected a race in its test fixture. The fixture
 changed the backend origin after starting its HTTP server. The origin is now
 set from the reserved listener address before the server starts. The test still
 uses native form navigation and the race detector. The generated logout policy
-is unchanged; a new CI result is required.
+is unchanged. Native browser run
+[35180190817](https://github.com/jsell-rh/stego/actions/runs/35180190817) passed
+at `83592be`. The generated same-origin form returned HTTP 303. The no-referrer
+control sent a null Origin and was denied with HTTP 403.
 
 Run `35179358194` passed all five companion jobs and the generated telemetry
 suite, including relay identity checks. Its compiler job found one remaining
 fixture error in `TestBackendSessionKeyRotation`: a nil database handle stopped
 startup before key validation. The test now supplies an unconnected handle and
 still requires invalid keys to fail before database access. The focused startup
-gate includes that test. Full CI must pass before the compiler is promoted.
+gate includes that test. The complete run at `83592be` passed after this fixture
+correction. That compiler revision was then promoted to remote `main`.
