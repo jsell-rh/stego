@@ -89,8 +89,16 @@ The corrected full suite and public workflow passed at `af43205`. The public
 run matched all 1,363 source hashes and 415 generated hashes; independent
 cleanup passed. The corrected API run at `442e7ff` passed all 52 required
 tests, with matching source and generation records and independent cleanup.
-The CNPG check remains open. See the
-[current consumer record](https://github.com/jsell-rh/hypershell-stego/blob/854bbb1/acceptance/common-browser-composition.md).
+The CNPG run at `854bbb1` passed all 11 required tests in 766.91 seconds.
+Independent checks matched all 1,368 source files and 415 generated hashes.
+Six browser instances supplied all 48 startup log/span pairs with metrics and
+no failed pairs. Database replacement, access, recovery, and durable deletion
+passed. Independent cleanup confirmed that test runtime, allocations, volumes,
+and the Lease holder were absent. One owned secondary Pod replacement was needed
+for scheduling; the result does not prove fixture placement without intervention.
+Hypershell `8813797` is on remote `main` with these records. See the
+[current consumer record](https://github.com/jsell-rh/hypershell-stego/blob/8813797/acceptance/common-browser-composition.md).
+The full enterprise requirements remain open.
 
 ### Earlier application checks
 

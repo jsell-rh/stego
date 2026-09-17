@@ -189,9 +189,18 @@ archetype adds only common browser telemetry. The common browser archetype now
 includes that runtime and resolves one client/relay identity. Conflicting
 identities fail before generation. Source `0057370` passed all six compiler
 jobs, the native browser logout check, and independent artifact inspection.
-It is on remote `main`. Hypershell adoption and main signatures remain separate
-checks. Do not treat the current local Gateway browser archetype as domain
-policy. See [browser telemetry](browser-telemetry.md).
+Its main full suite and independent signature checks also passed. Hypershell
+now uses this common archetype for both consoles. Only its API application
+archetype remains local. The full suite, public workflow, 52-test API gate, and
+11-test CNPG workflow passed at their recorded sources. The CNPG run at `854bbb1`
+matched all 1,368 source files and 415 generated hashes. Six browser instances
+supplied 48 startup log/span pairs with complete metrics and no failed pairs.
+Database replacement, access, recovery, and durable deletion passed. Independent
+cleanup passed at `2026-09-17T08:46:58Z`. One owned secondary Pod replacement
+was needed for scheduling. Hypershell `8813797` is on remote `main` with the
+qualified changes and records. See [browser telemetry](browser-telemetry.md)
+and [registry composition](registry-composition.md). This completes that
+composition change; C3 through C7 and H1 through H3 remain open.
 
 ## User decisions that remain in force
 
@@ -229,8 +238,8 @@ the application must never perform automatic teardown.
    production capacity.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
-   The latest CNPG run needed no scheduling intervention. Earlier results
-   retain their limits. Live terminal behavior still requires evidence; the live Kata
+   The latest CNPG run needed one secondary Pod replacement for scheduling.
+   Each result retains its limits. Live terminal behavior still requires evidence; the live Kata
    test is deferred. See [the integration record](upstream-dashboard-integration.md).
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained

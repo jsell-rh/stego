@@ -41,9 +41,16 @@ and requires the deterministic unfinished-claim test. Its
 [52-test API run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35198198149)
 passed. Independent checks matched all 1,365 source files and 415 generated
 hashes across four snapshots. Cleanup passed. The unfinished-claim test
-preserved the original event identity after lease expiry. CNPG qualification
-remains open. See the
-[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/854bbb1/acceptance/common-browser-composition.md).
+preserved the original event identity after lease expiry.
+The [CNPG workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35199255353)
+at `854bbb1` passed all 11 required tests in 766.91 seconds. All 1,368 source
+files and 415 generated hashes matched. Six browser instances exported all 48
+startup log/span pairs, complete metrics, and no failed pairs. The provisioner
+recovery record matched an independent live capture. Three saved screenshots
+were viewed. Runtime and volume cleanup passed. One owned secondary Pod needed
+replacement for scheduling; this limit remains in the record. Hypershell
+`8813797` is on remote `main`. See the
+[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/8813797/acceptance/common-browser-composition.md).
 The application evidence below predates this composition change.
 
 ## Current application evidence
