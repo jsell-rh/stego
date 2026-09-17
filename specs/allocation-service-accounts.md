@@ -1,7 +1,7 @@
 # Allocation ServiceAccount identity
 
-This change is under qualification. Hypershell does not yet use it. The shared
-cluster Sandbox guard remains in place. Cross-namespace binding configuration
+The common runtime is published. Hypershell adoption is under qualification.
+The shared cluster Sandbox guard remains in place. Cross-namespace binding configuration
 and consumer deployment checks are still required before that guard can be
 removed. The initial live admission gate passed; see the
 [evidence and its limits](allocation-service-accounts-evidence.md).
@@ -56,8 +56,22 @@ accounts, confirm permission bindings, or check network policy. Continue to use
 `RequireNamespace` for the network checks. Account readiness is a point-in-time
 observation; the API server still enforces admission when it creates a Pod.
 
-This readiness method is under qualification and is not yet in a published
-compiler package or used by Hypershell.
+The readiness method is in the
+[immutable compiler release for `09efc7c`](https://github.com/jsell-rh/stego/releases/tag/compiler-09efc7c7e588ecf9a2e3b4d7f3b536cac48b81eb).
+The exact source passed all six jobs in
+[compiler run 35235710355](https://github.com/jsell-rh/stego/actions/runs/35235710355),
+including 34 race-test packages. The focused account run passed eight required
+runtime tests and 18 readiness cases. The renderer run passed eleven tests.
+Both policy manifests match the prior live admission qualification byte for byte.
+
+The [signed build](https://github.com/jsell-rh/stego/actions/runs/35236644870)
+passed two isolated builds, signature checks, and four altered-input rejection
+cases. The trusted installer verified the local package and the published
+release. All four uploaded release assets matched the verified bytes. The
+compiler SHA-256 is
+`eb87abafbb795753f95d705445264976734c37691897fc2f418268111d6e714e`.
+The compiler was not executed on the workstation. Hypershell generation,
+installation policy, and complete application checks remain separate gates.
 
 The allocator records the names in reserved namespace annotations. It applies
 the quota and network limits before it creates the accounts or their bindings.
