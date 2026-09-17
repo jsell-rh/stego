@@ -73,3 +73,13 @@ and all 15 runner safety checks. The three manifests are byte-for-byte equal to
 those from `9844ad4`. The denied-read case now targets the related source account
 and also requires the control-worker grant to remain absent. Full compiler and
 live cluster qualification remain open.
+
+
+The branch artifact at `2e7080e` passed independent source and byte checks in
+[run 35249275381](https://github.com/jsell-rh/stego/actions/runs/35249275381).
+The record covers 1,225 source files and two separate hosted builds. No compiler
+binary ran locally. This artifact has no release signature and is not published.
+The unchanged deployment renderer also passed all 11 runtime checks at `9844ad4`
+in [run 35248772755](https://github.com/jsell-rh/stego/actions/runs/35248772755),
+including authority checks before scope filtering and repeated generation.
+These results do not replace the pending live admission check.

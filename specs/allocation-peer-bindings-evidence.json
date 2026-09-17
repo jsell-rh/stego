@@ -48,5 +48,54 @@
     "related_manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
     "job_log_sha256": "642122df0e275afabe8c089941e2209ac825d663a2860550af57e777149c63e1",
     "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required."
+  },
+  "artifact": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35249275381",
+    "source": "2e7080e2da7b5ef90dcf82dcf7d696dc8e0c9456",
+    "checked_at": "2026-09-17T16:59:29.911153+00:00",
+    "source_inventory": {
+      "sha256": "bdbd322baf5757129aeed8ee7090ea575e7685d6429312779ccefd6ed1603de8",
+      "files": 1225,
+      "bytes": 9756969
+    },
+    "binary_sha256": "8d764a8e2236e02047088e17974e96604b2cc6bf89ef9a8d4309d6cab6952123",
+    "build_record_sha256": "c96fa6067dcf410e9d3084a49362668cbeb79f27aa7b9710d2ef4c63514e4bd8",
+    "independent_hosted_builds": 2,
+    "binary_executed_locally": false,
+    "signed_provenance": false,
+    "release_published": false,
+    "scope": "Branch build bytes and source inventory match the successful hosted build record. This is not a signed release or an admission test result."
+  },
+  "renderer": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35248772755",
+    "job": 105295593911,
+    "source": "9844ad48cf087a75c2ba3ebea215097fd93224d8",
+    "checked_at": "2026-09-17T16:59:43.374874+00:00",
+    "source_archive_sha256": "bd59931762adfb56cd53428f8c5859baec66b96775e42da72a3ef86e1587d799",
+    "runtime_log_sha256": "7c9720b55a1b637d7b93517e6e68c4aece47eb4c1c14a7198f1eb037a4cdf204",
+    "outer_log_sha256": "7f183edc0923cb39f258183cd995c650d82ec093aa4da058171fbf62bad40a76",
+    "generated_renderer_sha256": "0ad4ef95c73ecdc617ddfca1520025f48a94ab39ed7ca964613993a4ad15b559",
+    "required_account_tests": [
+      "TestExistingServiceAccountPreservesWorkload",
+      "TestExistingServiceAccountRejectsAmbiguousAuthority",
+      "TestExistingServiceAccountRejectsInvalidGeneratedIdentity"
+    ],
+    "invalid_generated_identity_cases": [
+      "missing_account",
+      "missing_deployment",
+      "multiple_accounts",
+      "multiple_deployments",
+      "different_namespace",
+      "different_account",
+      "missing_Pod",
+      "unknown_resource",
+      "cluster_binding"
+    ],
+    "runtime_tests_passed": 11,
+    "repeat_generation_passed": true,
+    "full_rbac_checked_before_scope_filtering": true,
+    "consumer_adopted": false,
+    "live_admission_proved": false,
+    "scope": "Generated renderer with workload field preservation, typed and command API agreement, immutable repeated output, and rejection of invalid or ambiguous account authority. This is not a live deployment or release result."
   }
 }
