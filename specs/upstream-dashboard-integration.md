@@ -121,6 +121,26 @@ two focused SQL signal tests passed. Application and generated runtime code did
 not change. The expanded CNPG gate remains open. This public result does not
 prove live Kata isolation, production capacity, or full application parity.
 
+[CNPG run 35174817413](https://github.com/jsell-rh/hypershell-stego/actions/runs/35174817413)
+at `0d74978` failed after 325.96 seconds because Gateway provisioning did not
+finish. SQL creation and schema operations, public Gateway health calls, and
+console credential retrieval succeeded. The run did not reach the complete
+dashboard or database restart checks. All 412 first, second, and archived file
+hashes matched; no after-test manifest was produced. Independent cleanup at
+`2026-09-17T02:53:42Z` confirmed removal of runtime, volumes, and allocations.
+
+The CNPG fixture's database ingress rule selected Gateway Pods by a label that
+the separate console Pods deliberately lack. Hypershell `f91bb90` adds a
+console peer restricted to allocated Gateway namespaces and TCP port 5432.
+The CI role can read only the named database policy, and preflight now requires
+the complete installed policy to match the expected policy. Regression checks
+also use the actual generated console Pod labels. The operator-owned policy
+and read grant were updated and checked through the restricted CI identity.
+The [network correction record](https://github.com/jsell-rh/hypershell-stego/blob/aed33a9/acceptance/dashboard-cnpg-network-evidence.json)
+retains the policy identity and the cleanup of a canceled diagnostic run.
+The corrected complete CNPG workflow remains required. The fixture correction
+does not change the application runtime or reduce the acceptance gate.
+
 ## Earlier editor integration
 
 STEGO compiler `8e0fae6` supplies the browser session backend, captured assets,
