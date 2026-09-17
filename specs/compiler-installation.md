@@ -61,8 +61,8 @@ an existing release or tag. A missing release is an error, not permission to
 select a different compiler. GitHub documents the
 [immutable release behavior](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
-Automatic release qualification and Hypershell script integration are not yet
-implemented. The installer does not establish source correctness, a trusted
+Automatic release qualification is not yet implemented. Hypershell script
+integration is committed on its work branch and awaits application CI checks. The installer does not establish source correctness, a trusted
 builder operating system, or an independent toolchain build.
 
 
@@ -88,4 +88,15 @@ The six rejection checks passed. Real release installation and local package
 verification produced identical files and verification records. Independent
 inspection checked the exact source and completed job. Its log SHA-256 is
 `2643ce5f3f21ed6544a94a4124a669ff0f30a700d65475de89992059798b4526`.
-Hypershell regeneration scripts are not yet changed.
+The six full compiler jobs also passed at this exact installer source in
+[run 35204243077](https://github.com/jsell-rh/stego/actions/runs/35204243077).
+Independent inspection checked each completed job and retained the full log.
+Its SHA-256 is
+`4d384ff5bc7453260cb7ac3e7e1b53402589e4ba59e40c366386df447c3d358f`.
+The preceding source `7bb4cc9` also passed all six jobs in run `35204032927`.
+
+Local package verification also passed with an empty home directory and no
+GitHub token or saved GitHub login. Release download under those conditions
+failed. These results do not establish an offline trust-root procedure.
+Hypershell source `8bb2965` now uses the common installer for its three modules;
+real generation and application checks for that integration remain pending.
