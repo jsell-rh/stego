@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +30,33 @@ func TestGeneration(t *testing.T) {
 		ctx.ComponentConfig = cfg
 		if g.ValidateContext(ctx) == nil {
 			t.Fatal("invalid configuration accepted")
+		}
+	}
+}
+
+func TestDefaultAndSharedIdentity(t *testing.T) {
+	for _, test := range []struct {
+		client, backend map[string]any
+		want            string
+	}{
+		{nil, nil, "service-browser"},
+		{nil, map[string]any{"telemetry_service_name": "selected"}, "selected"},
+		{map[string]any{"service_name": "selected"}, nil, "selected"},
+		{map[string]any{"service_name": "first"}, map[string]any{"telemetry_service_name": "second"}, ""},
+	} {
+		ctx := fixture()
+		ctx.ServiceName = "service-browser"
+		ctx.ComponentConfig = test.client
+		ctx.PeerConfigs = map[string]map[string]any{"browser-backend": test.backend}
+		files, _, err := new(Generator).Generate(ctx)
+		if test.want == "" {
+			if err == nil || len(files) != 0 {
+				t.Fatal("conflicting identity produced client files")
+			}
+			continue
+		}
+		if err != nil || len(files) != 3 || !strings.Contains(string(files[0].Content), `const serviceName="`+test.want+`";`) {
+			t.Fatal("client did not use the resolved identity", err)
 		}
 	}
 }

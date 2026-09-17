@@ -454,6 +454,39 @@ func TestRuntimeConfigBoundary(t *testing.T) {
 	}
 }
 
+func TestDefaultAndSharedTelemetryIdentity(t *testing.T) {
+	for _, test := range []struct {
+		client, backend map[string]any
+		want            string
+	}{
+		{nil, nil, "service-browser"},
+		{nil, map[string]any{"telemetry_service_name": "selected"}, "selected"},
+		{map[string]any{"service_name": "selected"}, nil, "selected"},
+		{map[string]any{"service_name": "first"}, map[string]any{"telemetry_service_name": "second"}, ""},
+	} {
+		ctx := fixture()
+		ctx.ServiceName = "service-browser"
+		for key, value := range test.backend {
+			ctx.ComponentConfig[key] = value
+		}
+		ctx.PeerConfigs = map[string]map[string]any{"browser-telemetry": test.client}
+		settings, _, err := new(Generator).resolveAssets(ctx)
+		if test.want == "" {
+			if err == nil {
+				t.Fatal("conflicting identity enabled the relay")
+			}
+			files, _, err := new(Generator).Generate(ctx)
+			if err == nil || len(files) != 0 {
+				t.Fatal("conflicting identity produced backend files")
+			}
+			continue
+		}
+		if err != nil || settings.TelemetryService != test.want || settings.RuntimeConfigOffset == 0 {
+			t.Fatal("backend did not bind the relay and runtime metadata", err)
+		}
+	}
+}
+
 func TestDynamicStyleDeclaration(t *testing.T) {
 	g := new(Generator)
 	ctx := fixture()

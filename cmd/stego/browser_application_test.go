@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -63,9 +66,50 @@ overrides:
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("repeated application changed compiler state", err)
 	}
-	for _, name := range []string{"out/browser/socket.go", "out/health/application.go", "out/deploy/render/manifest.json.tmpl"} {
+	for _, name := range []string{"out/browser/socket.go", "out/health/application.go", "out/deploy/render/manifest.json.tmpl", "out/browsertelemetry/index.js", "out/browsertelemetry/index.d.ts", "out/browsertelemetry/package.json"} {
 		if _, err := os.Stat(name); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for file, identity := range map[string]string{
+		"out/browsertelemetry/index.js": `const serviceName="private-browser";`,
+		"out/browser/backend.go":        `\"TelemetryService\":\"private-browser\"`,
+	} {
+		content, err := os.ReadFile(file)
+		if err != nil || !bytes.Contains(content, []byte(identity)) {
+			t.Fatal("common browser archetype lost its shared telemetry identity", file, err)
+		}
+	}
+	snapshot := func() map[string][32]byte {
+		t.Helper()
+		files := map[string][32]byte{}
+		if err := filepath.WalkDir("out", func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err == nil {
+				files[path] = sha256.Sum256(data)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return files
+	}
+	outputs := snapshot()
+	conflict := strings.Replace(declaration, "overrides:\n", "overrides:\n  browser-telemetry:\n    service_name: first-browser\n", 1)
+	conflict = strings.Replace(conflict, "  browser-backend:\n", "  browser-backend:\n    telemetry_service_name: second-browser\n", 1)
+	if err := os.WriteFile("service.yaml", []byte(conflict), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []func([]string) error{runValidate, runApply} {
+		if err := command(nil); err == nil {
+			t.Fatal("conflicting browser identity was accepted")
+		}
+		state, err := os.ReadFile(".stego/state.yaml")
+		if err != nil || !bytes.Equal(state, before) || !reflect.DeepEqual(outputs, snapshot()) {
+			t.Fatal("conflicting browser identity changed generated output or state", err)
 		}
 	}
 	for _, change := range []struct{ old, new string }{{"port: 8000", "port: 8443"}, {"files_secret: application-files", "files_secret: private-browser-files"}, {"database: true", "database: false"}} {

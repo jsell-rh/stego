@@ -21,6 +21,7 @@ import (
 	"github.com/jsell-rh/stego/internal/browserassets"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/browserdom"
+	"github.com/jsell-rh/stego/internal/generator/browseridentity"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 )
@@ -272,6 +273,13 @@ func (g *Generator) resolveAssets(ctx gen.Context) (settings, map[string][]byte,
 	s, err := g.config(ctx.ComponentConfig)
 	if err != nil {
 		return s, nil, err
+	}
+	client, present := ctx.PeerConfigs["browser-telemetry"]
+	if present || ctx.PeerNamespaces["browser-telemetry"] != "" {
+		s.TelemetryService, err = browseridentity.Resolve(ctx.ServiceName, client, ctx.ComponentConfig)
+		if err != nil {
+			return s, nil, err
+		}
 	}
 	content := ctx.Inputs
 	sources, err := g.InputFiles(ctx.ComponentConfig)

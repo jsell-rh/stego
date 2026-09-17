@@ -1,5 +1,19 @@
 # Browser telemetry runtime and relay
 
+## Common browser composition
+
+The common `browser-service` archetype now selects the browser telemetry
+runtime. The client and backend relay resolve one identity from the service
+name or an explicit component setting. Two different explicit identities fail
+validation before generation. This removes the need for an application
+archetype whose only change is adding the common telemetry component.
+
+The private-browser command test checks generated client and relay identities,
+stable repeated generation, and unchanged output and state after a conflicting
+declaration. The generator tests cover defaults, either explicit selection, and
+conflicts. The full compiler CI result and Hypershell adoption remain separate
+requirements. The application evidence below predates this composition change.
+
 ## Current application evidence
 
 The [complete public Gateway workflow](hypershell-public-gateway-complete-20260915.json)

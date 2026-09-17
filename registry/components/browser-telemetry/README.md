@@ -4,9 +4,16 @@ This component generates `@stego/browser-telemetry`. Add its output directory
 to the consumer's package workspace. The package pins its OpenTelemetry SDK
 and wire-format dependencies. It does not change global providers.
 
-Set `service_name` to the browser service identity. Use one through 64 lowercase
-letters, digits, dots, underscores, or hyphens. The first character is a letter.
-Enable the backend relay with the same `telemetry_service_name` value.
+The common `browser-service` archetype includes this runtime and the backend
+relay. Both use the service declaration's name by default. Set `service_name`
+or the backend's `telemetry_service_name` to select another identity. When both
+are supplied, they must agree. A conflict fails validation before output writes.
+Use one through 64 lowercase letters, digits, dots, underscores, or hyphens.
+The first character is a letter. Invalid explicit values cannot select a default.
+
+The component can also generate a client package without a backend in the same
+module. That client uses its explicit `service_name` or the service name. Its
+separate backend must enable the relay with the same identity.
 
 `createBrowserTelemetry` returns a tracer, logger, meter, and lifecycle methods.
 The generated backend puts public deployment settings in the HTML head. The
