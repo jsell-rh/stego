@@ -118,3 +118,23 @@ does not identify the earlier recovered CNPG startup failure. The API runner
 needs a new result after its collection acknowledgement fix, and the complete
 CNPG workflow still needs qualification with this compiler. The full enterprise
 goal remains open.
+
+The next CNPG run, `35182853953` at Hypershell `c0c2d23`, failed during account
+creation in the final deletion setup. The test deliberately restarted the
+console credential provisioner. Generated RPC logs show six `GetCredentials`
+calls with `UNAVAILABLE`, then recovery. The controller had marked the Gateways
+unavailable. The test checked provisioner process readiness but did not wait
+for Gateway controller recovery before the next account creation. The API
+returned HTTP 409 with `gateway_not_ready`.
+
+The failed run retained exact source and generation evidence before the test,
+CNPG primary replacement, namespace recovery, and independent cleanup. It did
+not reach the final generation snapshot or complete startup signal record.
+One test secondary Pod replacement was needed for scheduling. These limits
+remain explicit in the application's `startup-cnpg-failure-evidence.json`.
+
+The application test now requires denied account creation during the deliberate
+outage, no account state from denied requests, and controller recovery after
+restart. It retains the production readiness rule and does not retry account
+writes. The complete revised workflow still requires qualification. The cause
+of the earlier recovered browser initialization failure remains unknown.

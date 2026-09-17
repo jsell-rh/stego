@@ -131,8 +131,12 @@ The API runner recovery passed all 51 required checks at `8c37bb2` in
 All 415 generated-file hashes matched, the original Job reached `Complete`,
 and independent cleanup passed. The full application check at `bf83eef` also
 passed 307 top-level core tests, rendered management, console, and image checks.
-The complete CNPG workflow still requires its separate result. These checks
-do not close C6 or H3.
+The CNPG run at `c0c2d23` failed because the account test did not wait for
+Gateway controller recovery after its deliberate provisioner restart. Generated
+RPC logs show the dependency outage and recovery; the API retained its readiness
+rule. Independent cleanup passed. The revised test must prove denial during
+the outage and recovery before further account creation. See the
+[browser startup record](browser-startup.md). These checks do not close C6 or H3.
 
 ## User decisions that remain in force
 
