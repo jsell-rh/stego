@@ -1,0 +1,43 @@
+{
+  "sources": [
+    {
+      "reference_tag": "v0.0.109-rhaiv.0",
+      "source_commit": "681c9b2d8b9887f230cee4871bdbdbc9a362dfc8",
+      "files": {
+        "config.rs": {
+          "url": "https://raw.githubusercontent.com/opendatahub-io/openshell/681c9b2d8b9887f230cee4871bdbdbc9a362dfc8/crates/openshell-driver-kubernetes/src/config.rs",
+          "sha256": "90f7b123b5755dd5901b60d56770982caae4d0bf66dc17c22a2e6ceb30ec94ff"
+        },
+        "driver.rs": {
+          "url": "https://raw.githubusercontent.com/opendatahub-io/openshell/681c9b2d8b9887f230cee4871bdbdbc9a362dfc8/crates/openshell-driver-kubernetes/src/driver.rs",
+          "sha256": "d5d16c1abb346c9ef720ae1776c874c93ac38fcc0aa91c5ad17e79bfe3d1abe2"
+        }
+      },
+      "observed_settings": {
+        "runtime_class_default": true,
+        "workspace_init_user_fixed_at_zero": true,
+        "sidecar_state_empty_dir_medium_unset": true
+      }
+    },
+    {
+      "tag": "v0.0.116",
+      "source_commit": "d1155aa70042d3e2ee49dbfa15346b108b7c1d92",
+      "files": {
+        "config.rs": {
+          "url": "https://raw.githubusercontent.com/NVIDIA/OpenShell/d1155aa70042d3e2ee49dbfa15346b108b7c1d92/crates/openshell-driver-kubernetes/src/config.rs",
+          "sha256": "5c2813815be262ad7076f98827500835207c549feeb190faed4260d640034592"
+        },
+        "driver.rs": {
+          "url": "https://raw.githubusercontent.com/NVIDIA/OpenShell/d1155aa70042d3e2ee49dbfa15346b108b7c1d92/crates/openshell-driver-kubernetes/src/driver.rs",
+          "sha256": "bac8e200474ebd61914102d350c65ac28144abdbbeb1fe5a7b8802d5111490f7"
+        }
+      },
+      "observed_settings": {
+        "runtime_class_default": true,
+        "workspace_init_user_fixed_at_zero": true,
+        "sidecar_state_empty_dir_medium_unset": true
+      }
+    }
+  ],
+  "review_scope": "Source inspection only. No Sandbox workload ran."
+}
