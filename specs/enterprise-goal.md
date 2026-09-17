@@ -55,28 +55,40 @@ creation. All six branch and main compiler jobs passed, including the real SQL
 cases. The signed main package, exact source, two build outputs, and rejection
 cases were checked independently. Its immutable release and common installer
 also passed verification. Hypershell has adopted the generated API on its test
-branch; the dedicated API/SQL and full application checks remain in progress.
-See [the application record](https://github.com/jsell-rh/hypershell-stego/blob/87ff9a699fed03745b0a3d7155cd85fbd9408239/acceptance/database-credential-preparation.md).
+branch. Dedicated API/SQL, core, provider, journal, and browser checks passed.
+See [the application record](https://github.com/jsell-rh/hypershell-stego/blob/53ddb6744e698ec4b207d8ad044edb465b69ac4d/acceptance/database-credential-preparation.md).
 
-The complete CNPG Gateway workflow passed at Hypershell `b65439f` with compiler
-`4fc880b` in run `35217578495`. Independent checks matched 1,416 source files,
-415 generated hashes, compiler and image bytes, all 11 required tests, and
-cleanup. The workflow took 711.81 seconds and had no scheduling intervention.
-It included Gateway and namespace replacement, CNPG primary replacement,
-provider outage, denied requests, event delivery, and correlated telemetry.
-Three screenshots were reviewed. See
-[the CNPG record](https://github.com/jsell-rh/hypershell-stego/blob/5876138/acceptance/provisioner-rollout.md).
-This result does not qualify the later SQL credential API.
+The complete CNPG Gateway workflow passed at Hypershell `d9cd7e3` with compiler
+`b8fdfd6` in run `35224348179`. Independent checks matched 1,432 source files,
+416 generated file hashes before and after tests, the published compiler
+package, the console image, all 11 required tests, and cleanup. The main
+workflow took 728.81 seconds. It included login, owner grants, REST and gRPC,
+filtered lists, denied requests, events, service accounts, durable deletion,
+and recovery after namespace, database Pod, and provisioner replacement.
+Credential preparation exported the required correlated SQL signals. Six
+browser runtime instances supplied complete startup telemetry. Three dashboard
+images were reviewed. See [the CNPG record](https://github.com/jsell-rh/hypershell-stego/blob/53ddb6744e698ec4b207d8ad044edb465b69ac4d/acceptance/postgres-signal-cnpg.md).
+A later test-only database lifetime correction remains under live qualification.
 
 The earlier hosted core run at `4897fc1` failed a cleanup recovery event deadline
-and an unrelated Keycloak client response comparison. Later scope comparisons
-follow the provider's unordered scope-name contract and retain checks for all
-other values. Two narrow repeats passed all 61 protected closure checks and
-15 comparison cases. They do not establish the cause of the earlier scope-array
-difference, which did not retain set membership. The event timeout also remains
-unexplained. Preserve those failed results. The current rendered browser and
-provider checks passed with compiler `b8fdfd6`; the full core and complete live
-workflow results for that compiler remain separate requirements.
+and an unrelated Keycloak client response comparison. Later checks follow the
+provider's unordered scope-name contract and retain all other value checks.
+The full core suite at `c55b2e2` passed 309 top-level tests, including both
+earlier failure cases. The cause of the earlier scope-array difference and
+event timeout remains unknown. The first complete b8 CNPG run also failed its
+telemetry contract because it did not accept the common `prepare` operation.
+The later complete pass above requires that operation and its correlated
+signals. Preserve all failed results; a later pass does not establish their
+full cause.
+
+Common allocation account identity now has a 16-probe live admission and RBAC
+result, verified cleanup, full compiler checks, and renderer checks. An extended
+issuer-only case remains queued behind the current Gateway test. The common
+change is not released or adopted by Hypershell. Related allocation, account
+migration, and the complete consumer workflow remain required. See the
+[allocation evidence](allocation-service-accounts-evidence.md). Sandbox setup
+and admission remain separate from the deferred VM test; see the
+[upstream settings review](sandbox-upstream-settings.md).
 
 These results do not close production capacity, restore, fencing, Sandbox
 isolation, or complete application parity. The goal remains active.
