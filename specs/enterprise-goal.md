@@ -120,6 +120,15 @@ not established. See the [current integration record](upstream-dashboard-integra
 and [native sign-out evidence](browser-logout-origin.md). This closes the
 expanded CNPG workflow gate, but not H1, H2, H3, or the full enterprise goal.
 
+Common browser startup and relay telemetry now have complete public workflow
+evidence at Hypershell `bf83eef` with compiler `83592be`. Run
+[35180785681](https://github.com/jsell-rh/hypershell-stego/actions/runs/35180785681)
+passed in 667.64 seconds. Six observed browser runtime instances supplied 48
+matching startup log/span pairs and complete metrics. All 415 generation hashes
+matched, and independent cleanup passed. See [browser startup](browser-startup.md).
+The candidate API runner recovery and CNPG workflow still require separate
+results. This does not close C6 or H3.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.
@@ -154,8 +163,8 @@ the application must never perform automatic teardown.
 1. Check large retained-history costs in CI. The complete current deletion and
    provider discovery workflows passed, but functional checks do not prove
    production capacity.
-2. Improve common startup diagnostics and identify the recovered browser
-   initialization failure. The complete public and CNPG dashboard workflows
+2. Qualify common startup diagnostics in the complete CNPG workflow and identify
+   the recovered browser initialization failure. The earlier public and CNPG dashboard workflows
    passed, but the CNPG run needed scheduling assistance. Keep those limits
    explicit. Live terminal behavior still requires evidence; the live Kata
    test is deferred. See [the integration record](upstream-dashboard-integration.md).

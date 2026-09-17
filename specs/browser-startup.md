@@ -95,3 +95,26 @@ startup before key validation. The test now supplies an unconnected handle and
 still requires invalid keys to fail before database access. The focused startup
 gate includes that test. The complete run at `83592be` passed after this fixture
 correction. That compiler revision was then promoted to remote `main`.
+
+## Complete public Gateway workflow
+
+Hypershell `bf83eef` passed the
+[public workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35180785681)
+with compiler `83592be` in 667.64 seconds. The management console and Gateway
+console each exported startup records from three runtime instances. All 48
+stage log/span pairs match, duration metrics are present, and active-stage
+counts returned to zero. The test requires rendered dashboard signals and
+startup signals from the same backend relay instance.
+
+The complete test includes verified RPC, denied access, namespace and database
+recovery, account use, durable deletion, and linked worker telemetry. All 415
+generation hashes match across regeneration and the workflow. All 1,351 source
+hashes match the tested commit. The deployed image layer contains the exact
+qualified Gateway console binary. Three saved dashboard images were inspected.
+Independent cleanup passed at `2026-09-17T04:30:02Z`.
+
+This is application evidence for the common startup and relay mechanisms. It
+does not identify the earlier recovered CNPG startup failure. The API runner
+needs a new result after its collection acknowledgement fix, and the complete
+CNPG workflow still needs qualification with this compiler. The full enterprise
+goal remains open.
