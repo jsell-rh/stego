@@ -129,8 +129,10 @@ before scope filtering, and repeated generation. Independent artifact checks
 matched all 1,215 source files and compiler bytes from
 [two isolated builds](https://github.com/jsell-rh/stego/actions/runs/35228281221).
 The branch artifact has no release signature. The full compiler check for
-`845977f` was cancelled before a job started. Its successor at `0dc886a` is a
-separate check and must complete before release.
+`845977f` was cancelled before a job started. Its successor at `0dc886a` passed all six jobs in
+[run 35228525850](https://github.com/jsell-rh/stego/actions/runs/35228525850).
+Independent checks confirmed all 34 packages in the race suite, the required
+SQL and browser checks, and both generated examples.
 
 The [machine-readable record](allocation-service-accounts-live-evidence.json)
 contains the source revisions, hashes, probe names, and check limits. Raw
@@ -141,3 +143,11 @@ The live gate used operator impersonation. It proves Kubernetes admission and
 RBAC decisions, not authentication with Pod tokens or Sandbox VM isolation.
 Hypershell has not adopted this account component. Related allocation support,
 a complete consumer rollout, and release qualification remain required.
+
+The extended issuer test runner passed its ten safety checks at `b8f5dd8` in
+[run 35229286537](https://github.com/jsell-rh/stego/actions/runs/35229286537).
+All six generated runtime cases passed again. Independent inspection matched
+the source archive and both manifests to the qualified generator output.
+The four new probes isolate the issuer rule from overlapping owner rules.
+They have not run on the cluster yet. They must wait for the active Hypershell
+CNPG workflow and independent cleanup. No additional cluster test was started.
