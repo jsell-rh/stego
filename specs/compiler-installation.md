@@ -64,3 +64,22 @@ select a different compiler. GitHub documents the
 Automatic release qualification and Hypershell script integration are not yet
 implemented. The installer does not establish source correctness, a trusted
 builder operating system, or an independent toolchain build.
+
+
+## First published package
+
+The [immutable release for `00573709fb15a2a54de4242aa8fdbabee325179a`](https://github.com/jsell-rh/stego/releases/tag/compiler-00573709fb15a2a54de4242aa8fdbabee325179a)
+contains the compiler already selected by Hypershell. All six compiler jobs
+passed in run `35194639697`; build and signature jobs passed in `35194639679`.
+Both runs were checked again before publication. The release has ID `390573511`.
+Repository release immutability is enabled. The tag names the exact commit.
+All four uploaded assets were downloaded and compared before publication.
+
+Installer source `7bb4cc9` accepted both real signatures from the local package
+and then from the published release. Both installations have identical files
+and verification records. The 31,712,090-byte compiler SHA-256 is
+`e5894237467e81c6a3e7a7c8abd436192a74174726384c2f30716e63db3101bb`.
+The compiler was not executed on the workstation. Six small installer checks
+and eight common verifier checks passed locally. The separate installation CI
+job repeats real release and local package verification without compiler execution.
+Its result is pending. Hypershell regeneration scripts are not yet changed.

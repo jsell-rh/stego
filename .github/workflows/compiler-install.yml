@@ -1,0 +1,64 @@
+name: Compiler installation check
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/compiler-install.yml'
+      - 'scripts/install-compiler.py'
+      - 'scripts/test_compiler_install.py'
+      - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/check-compiler-artifact.py'
+  pull_request:
+    paths:
+      - '.github/workflows/compiler-install.yml'
+      - 'scripts/install-compiler.py'
+      - 'scripts/test_compiler_install.py'
+      - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/check-compiler-artifact.py'
+
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: compiler-install-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check installation rejection paths
+        run: timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_install.py
+      - name: Install the released compiler and verify its local package again
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          revision=00573709fb15a2a54de4242aa8fdbabee325179a
+          python3 -B scripts/install-compiler.py --release --revision "$revision" \
+            --gh "$(command -v gh)" --output "$RUNNER_TEMP/release-compiler"
+          python3 -B scripts/install-compiler.py --package "$RUNNER_TEMP/release-compiler" \
+            --revision "$revision" --gh "$(command -v gh)" --output "$RUNNER_TEMP/package-compiler"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          first, second = root / 'release-compiler', root / 'package-compiler'
+          for name in ['stego-linux-amd64', 'build.json', 'SHA256SUMS', 'provenance.jsonl', 'verified.json']:
+              if (first / name).read_bytes() != (second / name).read_bytes():
+                  raise SystemExit('Release and local package installation differ')
+          digest = hashlib.sha256((first / 'stego-linux-amd64').read_bytes()).hexdigest()
+          if digest != 'e5894237467e81c6a3e7a7c8abd436192a74174726384c2f30716e63db3101bb':
+              raise SystemExit('The released compiler has unexpected bytes')
+          print(json.dumps({'compiler_sha256': digest, 'both_installations_match': True,
+                            'downloaded_compiler_executed': False}))
+          PY
