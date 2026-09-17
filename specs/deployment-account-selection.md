@@ -46,3 +46,19 @@ The runtime log SHA-256 is
 The generated renderer SHA-256 is
 `0ad4ef95c73ecdc617ddfca1520025f48a94ab39ed7ca964613993a4ad15b559`.
 This evidence does not qualify a release or a live consumer deployment.
+
+
+All six jobs in [run 35225786785](https://github.com/jsell-rh/stego/actions/runs/35225786785)
+passed at the same source. Independent checks confirmed the 34-package race
+suite, SQL lifecycle and browser checks, and both generated examples.
+The separate allocation identity run also passed. Its six generated runtime
+checks and seven runner safety checks passed. Both manifests are unchanged
+from the checked allocation generator source `2587af5`.
+
+The compiler artifact from [run 35225786718](https://github.com/jsell-rh/stego/actions/runs/35225786718)
+matched all 1,211 source files and their executable flags. The hosted job built
+it twice in separate source trees and caches. Its SHA-256 is
+`e158fb8a0397724efa09d6bab9afe5007c9b3bdecc90dcecd31ef9054bc24bb5`.
+This branch artifact has no release signature and was not executed locally.
+See the [combined evidence record](deployment-account-selection-evidence.json).
+The live admission check and consumer adoption remain required.

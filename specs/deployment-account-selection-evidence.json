@@ -1,0 +1,133 @@
+{
+  "full": {
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35225786785",
+    "source": "436147e59eecc96a9a72ab17c401aa7d69d91569",
+    "checked_at": "2026-09-17T13:23:01.333012+00:00",
+    "jobs": {
+      "compiler": "success",
+      "postgres-provisioning": "success",
+      "resource-state-storage": "success",
+      "keycloak-provider": "success",
+      "examples (user-management)": "success",
+      "examples (user-management-rhsso)": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "a8595ab9fe537e7d6e9be5e85fb4b36099c48c09e15795fed59a163196e66bd6",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "8951c737b2fe1a9441224e274ca53301904c17ae0508a0a482c34801a42d169b",
+    "generated_examples_passed": true
+  },
+  "artifact": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35225786718",
+    "source": "436147e59eecc96a9a72ab17c401aa7d69d91569",
+    "checked_at": "2026-09-17T13:22:50.544351+00:00",
+    "source_inventory": {
+      "sha256": "ad5dd2fbbe0df60aa93815e11911a7df1883021c9688cc4d04f19477af0b28c5",
+      "files": 1211,
+      "bytes": 9626128
+    },
+    "binary_sha256": "e158fb8a0397724efa09d6bab9afe5007c9b3bdecc90dcecd31ef9054bc24bb5",
+    "build_record_sha256": "919cd5da745ca5f0dfbdc6548151475f432bf008399a756a8cf15dddd627db0f",
+    "independent_hosted_builds": 2,
+    "binary_executed_locally": false,
+    "signed_provenance": false,
+    "release_published": false,
+    "scope": "Branch build bytes and source inventory match the successful hosted build record. This is not a signed release or an admission test result."
+  },
+  "identity": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35225786699",
+    "job": 105216898454,
+    "source": "436147e59eecc96a9a72ab17c401aa7d69d91569",
+    "checked_at": "2026-09-17T13:22:44.128413+00:00",
+    "source_archive_sha256": "f297778ab6072aa3dd0df966a21efe337434014ee05e2816d7a0f3e4d9779c87",
+    "outer_log_sha256": "b44865051a9865aeb39fd8f75becdaf6a8f69d5a164a860d6d59860df5a96ad8",
+    "runtime_log_sha256": "91e00461ecb15f78f6b2a09c3d71dd56e6a76957356f420ea6a78dd7362c9e06",
+    "required_generated_runtime_tests": [
+      "TestAllocationServiceAccountIdentity",
+      "TestAllocationServiceAccountsFollowLimits",
+      "TestAllocationServiceAccountRejectsChangedSeal",
+      "TestAllocationServiceAccountNamespaceReuse",
+      "TestAllocationServiceAccountConcurrentOwners",
+      "TestAllocationServiceAccountQuotaFailure"
+    ],
+    "required_runtime_tests_passed": 6,
+    "source_validation_and_repeat_generation_passed": true,
+    "manifests": {
+      "manifest.json": {
+        "namespace": "stego-allocation-accounts-ci",
+        "allocator_marker": "f047c49888c3d9cc73635a722ab92f62",
+        "sha256": "dda67b0c3f7c06fd3c8e50fb15906b0c051e1d50910e7f748afe094e49327c86",
+        "policies": 6
+      },
+      "peer/manifest.json": {
+        "namespace": "stego-allocation-accounts-peer-ci",
+        "allocator_marker": "4506a6d4a74b7ec70934ba485ae53559",
+        "sha256": "866c12b46ace6c0fea89f098ee68bc987cd0c93867303a95baa7bed2de013051",
+        "policies": 6
+      }
+    },
+    "live_admission_checked": false,
+    "consumer_adopted": false,
+    "scope": "Generated runtime with a verified TLS API fixture, competing owners, name reuse, and two stable policy renders. A real Kubernetes admission and authorization gate remains required.",
+    "live_runner_safety_tests_passed": 7,
+    "job_log_sha256": "c82f73a623145c131bca2f63ba29d136484d00500ea58746b3397ce0cce00d33",
+    "manifests_match_qualified_generator_source": "2587af50528e18ad243fa9b33f22eaf92f8301bc"
+  },
+  "renderer": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35225786869",
+    "job": 105216899026,
+    "source": "436147e59eecc96a9a72ab17c401aa7d69d91569",
+    "checked_at": "2026-09-17T13:15:30.374908+00:00",
+    "source_archive_sha256": "f297778ab6072aa3dd0df966a21efe337434014ee05e2816d7a0f3e4d9779c87",
+    "runtime_log_sha256": "60521390ec61a88be2fdb1cd81521fd2b25ef854a0c6b95a869087e9acd0a890",
+    "outer_log_sha256": "3a1f8329d88822d0a48aab163d297e8a05f8aee180814da15a7af76f4ed84ac2",
+    "generated_renderer_sha256": "0ad4ef95c73ecdc617ddfca1520025f48a94ab39ed7ca964613993a4ad15b559",
+    "required_account_tests": [
+      "TestExistingServiceAccountPreservesWorkload",
+      "TestExistingServiceAccountRejectsAmbiguousAuthority",
+      "TestExistingServiceAccountRejectsInvalidGeneratedIdentity"
+    ],
+    "invalid_generated_identity_cases": [
+      "missing_account",
+      "missing_deployment",
+      "multiple_accounts",
+      "multiple_deployments",
+      "different_namespace",
+      "different_account",
+      "missing_Pod",
+      "unknown_resource",
+      "cluster_binding"
+    ],
+    "runtime_tests_passed": 11,
+    "repeat_generation_passed": true,
+    "full_rbac_checked_before_scope_filtering": true,
+    "consumer_adopted": false,
+    "live_admission_proved": false,
+    "scope": "Generated renderer with workload field preservation, typed and command API agreement, immutable repeated output, and rejection of invalid or ambiguous account authority. This is not a live deployment or release result."
+  }
+}
