@@ -273,6 +273,28 @@ qualified changes and records. See [browser telemetry](browser-telemetry.md)
 and [registry composition](registry-composition.md). This completes that
 composition change; C3 through C7 and H1 through H3 remain open.
 
+The external PostgreSQL-only Hypershell workflow passed at `62e82d5` in
+[run 35232271576](https://github.com/jsell-rh/hypershell-stego/actions/runs/35232271576).
+All eleven tests passed; the main workflow took 669.65 seconds. It checked
+Gateway creation, grants, filtered and denied access, REST and gRPC, events,
+accounts, dashboard behavior, PostgreSQL process restart, namespace and
+provisioner recovery, encrypted state, and durable deletion. All 1,427 source
+files and 416 generated hashes matched. Six browser instances supplied all
+eight startup stages with matching logs, traces, and metrics. The deployed
+compiler and console bytes matched their qualified records. Independent
+cleanup passed. The hosted core run at `29a238a` also passed 311 top-level tests,
+670 test cases, three regeneration checks, and container cleanup.
+
+The nine unused CNPG test role bindings were then removed with object identity
+and version checks. Independent RBAC checks confirmed five denied old
+permissions and two retained current test permissions. Shared CRDs and
+unrelated workloads were unchanged. See the
+[external database evidence](hypershell-external-database-workflow.json).
+This result qualifies the selected database path. It does not prove RDS
+failover, the production capacity target, live Kata isolation, or the complete
+enterprise goal. The common account allocation gate and consumer adoption
+remain separate work.
+
 ## User decisions that remain in force
 
 - Use the typed Go SDK; preserve HTTP contracts and behavior.

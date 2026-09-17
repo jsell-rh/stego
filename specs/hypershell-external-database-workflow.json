@@ -1,0 +1,128 @@
+{
+  "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35232271576",
+  "source": "62e82d5e8c09ca363decd37a109154a41a32e570",
+  "compiler": "b8fdfd6946a740430a2a4f41cf9aaae03a6d6793",
+  "seconds": 669.65,
+  "required_tests_passed": 11,
+  "source_files_match": 1427,
+  "generation_hashes_match": 416,
+  "evidence_archive_sha256": "fffd8c25f7ec90ed9161a0cc816cebc256cfb0012b46c2bf6a114a410adebaa2",
+  "compiler_sha256": "2913c048a2ddd64ca55af9ad4af485167ea6c07718fa55c577b475cb55608160",
+  "screenshots_viewed": true,
+  "database_restart": "PostgreSQL process restart in the same fixture Pod; no RDS failover claim",
+  "not_proved": [
+    "RDS failover",
+    "Live Kata isolation",
+    "Production capacity and remaining enterprise requirements"
+  ],
+  "core": {
+    "run": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35230828914",
+    "source": "29a238a9c0404aaf64ccfd0e248c849cd7193d2a",
+    "job_id": 105234169697,
+    "core_result": "success",
+    "test_pass_events": 670,
+    "top_level_passes": 311,
+    "separate_live_exclusions": [
+      "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+      "TestNamespaceCountWithLiveKubernetes",
+      "TestGeneratedKubernetesBrowserGatewayWorkflow",
+      "TestGeneratedKubernetesServiceGatewayWorkflow"
+    ],
+    "acceptance_seconds": 1513.35,
+    "log_sha256": "6a3d3a9fa101966db4f8967fc693182e9a4ee95803445c7f18aa4d2353bd8649",
+    "generation_drift_checks": 3,
+    "hosted_service_cleanup_passed": true,
+    "previous_failure_cases_passed": true,
+    "scope": "Core tests at this exact source. Browser and live cluster workflows have separate evidence. A pass does not establish the cause of earlier failures."
+  },
+  "namespace_recovery": {
+    "database_and_role_oids_unchanged": true,
+    "other_gateway_sql_unchanged": true,
+    "provider_data_unchanged": true,
+    "source_data_unchanged": true,
+    "sql_credentials_unchanged": true,
+    "ungranted_rpc_denied": true,
+    "viewer_lists_filtered": true,
+    "viewer_membership_recovered": true,
+    "viewer_writes_denied": true,
+    "workspace_and_gateway_revocation_verified": true
+  },
+  "provisioner_recovery": {
+    "account_write_retries": 0,
+    "current_unavailable_observations": true,
+    "denied_account_requests": 2,
+    "denied_requests_created_no_accounts": true,
+    "gateways": 2,
+    "running_healthy_gateways_after_restart": true,
+    "sql_and_credential_identities_preserved": true
+  },
+  "cleanup": {
+    "run": 35232271576,
+    "source": "62e82d5e8c09ca363decd37a109154a41a32e570",
+    "checked_at": "2026-09-17T14:35:39.507843+00:00",
+    "test_job_uid": "2732e685-6a55-4921-9739-84ea0323b8cf",
+    "runtime": [],
+    "fixtures": [],
+    "allocations": [],
+    "ci_jobs": [],
+    "lease_holder": "",
+    "empty": true
+  },
+  "retired_access": {
+    "checked_at": "2026-09-17T14:36:15.605412+00:00",
+    "removed_bindings_absent": 9,
+    "permission_checks": [
+      {
+        "identity": "system:serviceaccount:stego-ci-access:hypershell-ci",
+        "verb": "create",
+        "resource": "jobs.batch",
+        "namespace": "stego-cnpg-operator-ci",
+        "allowed": false
+      },
+      {
+        "identity": "system:serviceaccount:stego-ci-access:hypershell-ci",
+        "verb": "create",
+        "resource": "jobs.batch",
+        "namespace": "stego-cnpg-database-ci",
+        "allowed": false
+      },
+      {
+        "identity": "system:serviceaccount:stego-ci-access:hypershell-ci",
+        "verb": "create",
+        "resource": "clusters.postgresql.cnpg.io",
+        "namespace": "stego-cnpg-database-ci",
+        "allowed": false
+      },
+      {
+        "identity": "system:serviceaccount:stego-service-ci:service-check",
+        "verb": "get",
+        "resource": "clusters.postgresql.cnpg.io",
+        "namespace": "stego-cnpg-database-ci",
+        "allowed": false
+      },
+      {
+        "identity": "system:serviceaccount:stego-cnpg-operator-ci:cnpg-manager",
+        "verb": "create",
+        "resource": "pods",
+        "namespace": "stego-cnpg-database-ci",
+        "allowed": false
+      },
+      {
+        "identity": "system:serviceaccount:stego-ci-access:hypershell-ci",
+        "verb": "create",
+        "resource": "jobs.batch",
+        "namespace": "stego-service-ci",
+        "allowed": true
+      },
+      {
+        "identity": "system:serviceaccount:stego-service-ci:service-check",
+        "verb": "get",
+        "resource": "pods",
+        "namespace": "stego-service-ci",
+        "allowed": true
+      }
+    ],
+    "lease_empty": true,
+    "scope": "Live RBAC decisions through operator impersonation with the service account groups. This does not claim token authentication, Pod execution, or application behavior."
+  }
+}
