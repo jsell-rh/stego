@@ -28,6 +28,11 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 		permission(),
 		object{"scope": "cluster", "api_group": "", "resources": []any{"nodes"}, "verbs": []any{"get"}},
 	}
+	ctx.ComponentConfig["workers"] = append(ctx.ComponentConfig["workers"].([]any), object{
+		"name": "metadata", "package": "internal/task", "function": "Run", "kubernetes_api": true,
+		"external_endpoints":     []any{"kubernetes"},
+		"kubernetes_permissions": []any{object{"scope": "cluster", "api_group": "", "resources": []any{"nodes"}, "verbs": []any{"get"}}},
+	})
 	files, _, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +69,23 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 	command := exec.Command("go", "test", "-v", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/deploy")
 	command.Dir = dir
 	command.Env = append(os.Environ(), "GOWORK=off")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("generated scope checks: %v\n%s", err, output)
+	output, commandErr := command.CombinedOutput()
+	if evidence := os.Getenv("STEGO_DEPLOYMENT_ARTIFACTS"); evidence != "" {
+		if err := os.MkdirAll(evidence, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(evidence, "runtime.log"), output, 0600); err != nil {
+			t.Fatal(err)
+		}
+		generated, err := os.ReadFile(filepath.Join(dir, "out/deploy/resources.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(evidence, "generated-renderer.go"), generated, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if commandErr != nil {
+		t.Fatalf("generated scope checks: %v\n%s", commandErr, output)
 	}
 }

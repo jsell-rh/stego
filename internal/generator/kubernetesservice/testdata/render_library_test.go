@@ -21,6 +21,105 @@ func options() deployment.Options {
 	}
 }
 
+func TestExistingServiceAccountPreservesWorkload(t *testing.T) {
+	o := options()
+	o.RPCProcess, o.Scope, o.Egress = "records", "namespace", nil
+	o.OwnerLabels = map[string]string{"example.test/instance": "one"}
+	o.ImagePullSecrets = []string{"registry-auth"}
+	before, err := deployment.Resources(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := ""
+	want := []deployment.Resource{}
+	for _, item := range before {
+		if item.Kind == "ServiceAccount" {
+			original = item.Name
+			continue
+		}
+		want = append(want, item)
+	}
+	if original == "" {
+		t.Fatal("fixture has no generated account")
+	}
+	o.ExistingServiceAccount = "sa-" + strings.Repeat("a", 32) + "-" + strings.Repeat("b", 26)
+	after, err := deployment.Resources(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range after {
+		if item.Kind == "ServiceAccount" {
+			t.Fatal("externally managed account was emitted")
+		}
+		if item.Kind != "Deployment" {
+			continue
+		}
+		pod := item.Object["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+		if pod["serviceAccountName"] != o.ExistingServiceAccount {
+			t.Fatal("selected account was lost")
+		}
+		pod["serviceAccountName"] = original
+		found = true
+	}
+	if !found || !reflect.DeepEqual(want, after) {
+		t.Fatal("account selection changed other workload fields")
+	}
+	first, err := deployment.Render(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := deployment.Render(o)
+	if err != nil || !bytes.Equal(first, second) {
+		t.Fatal("account output is not stable", err)
+	}
+	// A caller's object edits must not enter another render.
+	for _, item := range after {
+		item.Object["kind"] = "changed"
+	}
+	third, err := deployment.Render(o)
+	if err != nil || !bytes.Equal(first, third) {
+		t.Fatal("returned object changed the next render", err)
+	}
+	o.OwnerLabels = nil
+	wantBytes, err := deployment.Render(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"--image", o.Image, "--namespace", o.Namespace, "--fs-group", "10001", "--scope", "namespace", "--rpc-process", "records", "--image-pull-secret", "registry-auth", "--existing-service-account", o.ExistingServiceAccount}
+	var command bytes.Buffer
+	if err := deployment.RenderCommand(args, &command); err != nil || !bytes.Equal(wantBytes, command.Bytes()) {
+		t.Fatal("command account selection differs", err)
+	}
+}
+
+func TestExistingServiceAccountRejectsAmbiguousAuthority(t *testing.T) {
+	for _, workload := range []string{"api", "queue", "metadata"} {
+		o := options()
+		o.Scope, o.ExistingServiceAccount = "namespace", "external-account"
+		if workload != "api" {
+			o.Worker = workload
+		}
+		if data, err := deployment.Render(o); err == nil || data != nil {
+			t.Fatal("generated RBAC accepted an external identity", workload)
+		}
+	}
+	for _, name := range []string{"../account", "account.other", "Account", "-", strings.Repeat("a", 64)} {
+		o := options()
+		o.Scope, o.RPCProcess, o.Egress, o.ExistingServiceAccount = "namespace", "records", nil, name
+		if data, err := deployment.Render(o); err == nil || data != nil {
+			t.Fatal("invalid account emitted output", name)
+		}
+	}
+	for _, scope := range []string{"", "all", "cluster"} {
+		o := options()
+		o.Scope, o.RPCProcess, o.Egress, o.ExistingServiceAccount = scope, "records", nil, "external-account"
+		if data, err := deployment.Render(o); err == nil || data != nil {
+			t.Fatal("external account accepted a non-namespace scope", scope)
+		}
+	}
+}
+
 func TestTypedRendererMatchesCommand(t *testing.T) {
 	for _, scope := range []string{"", "all", "cluster", "namespace"} {
 		o := options()

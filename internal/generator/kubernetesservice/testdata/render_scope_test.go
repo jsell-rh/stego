@@ -8,6 +8,44 @@ import (
 	"testing"
 )
 
+func TestExistingServiceAccountRejectsInvalidGeneratedIdentity(t *testing.T) {
+	fixture := func() []map[string]any {
+		return []map[string]any{
+			{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": "original", "namespace": "test"}},
+			{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": "workload", "namespace": "test"}, "spec": map[string]any{"template": map[string]any{"spec": map[string]any{"serviceAccountName": "original", "automountServiceAccountToken": false}}}},
+		}
+	}
+	for name, change := range map[string]func([]map[string]any) []map[string]any{
+		"missing account":      func(items []map[string]any) []map[string]any { return items[1:] },
+		"missing deployment":   func(items []map[string]any) []map[string]any { return items[:1] },
+		"multiple accounts":    func(items []map[string]any) []map[string]any { return append(items, items[0]) },
+		"multiple deployments": func(items []map[string]any) []map[string]any { return append(items, items[1]) },
+		"different namespace": func(items []map[string]any) []map[string]any {
+			items[0]["metadata"].(map[string]any)["namespace"] = "other"
+			return items
+		},
+		"different account": func(items []map[string]any) []map[string]any {
+			items[0]["metadata"].(map[string]any)["name"] = "other"
+			return items
+		},
+		"missing Pod":      func(items []map[string]any) []map[string]any { delete(items[1], "spec"); return items },
+		"unknown resource": func(items []map[string]any) []map[string]any { items[0]["kind"] = "Unknown"; return items },
+		"cluster binding": func(items []map[string]any) []map[string]any {
+			return append(items, map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": map[string]any{"name": "binding"}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			input, err := json.Marshal(map[string]any{"apiVersion": "v1", "kind": "List", "items": change(fixture())})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if output, err := withExistingServiceAccount(input, "external-account", "test"); err == nil || output != nil {
+				t.Fatal("invalid generated identity accepted")
+			}
+		})
+	}
+}
+
 func TestDeploymentScopePartition(t *testing.T) {
 	base := []string{"--image", "registry.example.test/team/widget@sha256:" + strings.Repeat("a", 64), "--namespace", "test"}
 	seen := map[string]bool{}

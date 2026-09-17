@@ -28,6 +28,7 @@ func RenderCommand(args []string, output io.Writer) error {
  worker:=flags.String("worker","","Declared controller worker")
  rpc:=flags.String("rpc-process","","Declared RPC process deployment")
  scope:=flags.String("scope","all","Resource scope: all, cluster, or namespace")
+ account:=flags.String("existing-service-account","","Externally managed account in the target namespace; requires namespace scope and no generated RBAC")
  group:=flags.Uint64("fs-group",65532,"Group for mounted files")
  var external endpointFlags
  var pullSecrets pullSecretFlags
@@ -41,7 +42,7 @@ func RenderCommand(args []string, output io.Writer) error {
   if !ok||err!=nil{return fmt.Errorf("invalid external endpoint")}
   bindings=append(bindings,EndpointBinding{Name:name,Address:endpoint})
  }
- data,err:=Render(Options{Image:*image,Namespace:*namespace,FSGroup:*group,Scope:*scope,Worker:*worker,RPCProcess:*rpc,Egress:bindings,ImagePullSecrets:pullSecrets})
+ data,err:=Render(Options{Image:*image,Namespace:*namespace,FSGroup:*group,Scope:*scope,Worker:*worker,RPCProcess:*rpc,Egress:bindings,ImagePullSecrets:pullSecrets,ExistingServiceAccount:*account})
  if err!=nil{return err}
  n,err:=output.Write(data);if err==nil&&n!=len(data){return io.ErrShortWrite};return err
 }
@@ -61,6 +62,11 @@ type Options struct{
  // ImagePullSecrets contains at most eight distinct Secret names in Namespace.
  // Credentials stay outside generation inputs and container mounts.
  ImagePullSecrets []string
+ // ExistingServiceAccount selects an account managed outside this renderer.
+ // It requires namespace scope and a workload with no generated RBAC. The
+ // account is omitted from output. The caller must verify its ownership and
+ // readiness before workload creation; rendering performs no API request.
+ ExistingServiceAccount string
 }
 
 // Render returns the complete checked resource list. It has no network or
@@ -83,6 +89,7 @@ func renderOptions(o Options,output io.Writer)error{
   external=append(external,value)
  }
  if o.Scope!="all"&&o.Scope!="cluster"&&o.Scope!="namespace"{return fmt.Errorf("invalid deployment scope")}
+ if o.ExistingServiceAccount!=""&&(o.Scope!="namespace"||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(o.ExistingServiceAccount)){return fmt.Errorf("an existing ServiceAccount requires a DNS label and namespace scope")}
  imagePattern:=regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
  if len(o.Image)>2048||!imagePattern.MatchString(o.Image)||!regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`).MatchString(o.Namespace)||o.FSGroup==0||o.FSGroup>2147483647{return fmt.Errorf("require an image digest, a DNS label namespace, and a nonzero group in 1..2147483647")}
  registry,_,_:=strings.Cut(o.Image,"/")
@@ -100,6 +107,8 @@ func renderOptions(o Options,output io.Writer)error{
  if err:=tmpl.Execute(&result,struct{Image,Namespace string;FSGroup uint64}{o.Image,o.Namespace,o.FSGroup});err!=nil{return fmt.Errorf("cannot render deployment")}
  completed,err:=completeExternalPeers(result.Bytes(),external);if err!=nil{return err}
  completed,err=withImagePullSecrets(completed,o.ImagePullSecrets);if err!=nil{return err}
+ // Check the full list before scope filtering can remove cluster permissions.
+ completed,err=withExistingServiceAccount(completed,o.ExistingServiceAccount,o.Namespace);if err!=nil{return err}
  completed,err=selectDeploymentScope(completed,o.Scope,o.Namespace);if err!=nil{return err}
  completed,err=labelResources(completed,o.OwnerLabels);if err!=nil{return err}
  _,err=output.Write(append(completed,'\n'));return err
@@ -136,6 +145,38 @@ func(f *endpointFlags)Set(value string)error{if len(*f)>=32||len(value)>160{retu
 type pullSecretFlags []string
 func(f *pullSecretFlags)String()string{return ""}
 func(f *pullSecretFlags)Set(value string)error{if len(*f)>=8||len(value)>253{return fmt.Errorf("image pull Secret limit exceeded")};*f=append(*f,value);return nil}
+
+func withExistingServiceAccount(input []byte,name,namespace string)([]byte,error){
+ if name==""{return input,nil}
+ decoder:=json.NewDecoder(bytes.NewReader(input));decoder.UseNumber()
+ var document map[string]any
+ if decoder.Decode(&document)!=nil||document["apiVersion"]!="v1"||document["kind"]!="List"{return nil,fmt.Errorf("invalid generated deployment")}
+ items,ok:=document["items"].([]any);if !ok{return nil,fmt.Errorf("invalid generated resource list")}
+ var account,pod map[string]any
+ selected:=make([]any,0,len(items))
+ for _,raw:=range items{
+  item,ok:=raw.(map[string]any);if !ok{return nil,fmt.Errorf("invalid generated resource")}
+  meta,_:=item["metadata"].(map[string]any)
+  if meta==nil||meta["namespace"]!=namespace{return nil,fmt.Errorf("external account workload has a different namespace or cluster resources")}
+  version,_:=item["apiVersion"].(string);kind,_:=item["kind"].(string)
+  switch version+"/"+kind{
+  case "v1/ServiceAccount":
+   if account!=nil{return nil,fmt.Errorf("external account workload has multiple generated accounts")};account=meta;continue
+  case "apps/v1/Deployment":
+   if pod!=nil{return nil,fmt.Errorf("external account workload has multiple Deployments")}
+   spec,_:=item["spec"].(map[string]any);template,_:=spec["template"].(map[string]any);pod,_=template["spec"].(map[string]any)
+   if pod==nil{return nil,fmt.Errorf("invalid generated Pod")}
+  case "v1/Service","networking.k8s.io/v1/NetworkPolicy":
+  default:return nil,fmt.Errorf("external account workload cannot contain generated RBAC or other identity resources")
+  }
+  selected=append(selected,item)
+ }
+ original,ok:=account["name"].(string)
+ if !ok||original==""||pod==nil||pod["serviceAccountName"]!=original{return nil,fmt.Errorf("generated workload and account identities differ")}
+ pod["serviceAccountName"]=name
+ document["items"]=selected
+ return json.MarshalIndent(document,"","  ")
+}
 
 func withImagePullSecrets(input []byte,names []string)([]byte,error){
  if len(names)==0{return input,nil}

@@ -1,0 +1,66 @@
+name: Deployment account selection
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/deployment-accounts.yml'
+      - 'internal/generator/kubernetesservice/render.go.tmpl'
+      - 'internal/generator/kubernetesservice/scope_test.go'
+      - 'internal/generator/kubernetesservice/testdata/render_*_test.go'
+      - 'registry/components/kubernetes-service/component.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-accounts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  renderer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1GiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check generated account selection
+        env:
+          STEGO_DEPLOYMENT_ARTIFACTS: ${{ runner.temp }}/deployment-accounts
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_DEPLOYMENT_ARTIFACTS"
+          git rev-parse HEAD > "$STEGO_DEPLOYMENT_ARTIFACTS/source-commit"
+          git archive HEAD | sha256sum > "$STEGO_DEPLOYMENT_ARTIFACTS/source-archive.sha256"
+          go mod verify
+          go test -v -race -count=1 -mod=readonly -timeout=3m ./internal/generator/kubernetesservice \
+            -run '^TestGeneratedDeploymentScopes$' | tee "$STEGO_DEPLOYMENT_ARTIFACTS/tests.log"
+          python3 - "$STEGO_DEPLOYMENT_ARTIFACTS/runtime.log" <<'PY'
+          from pathlib import Path
+          import re, sys
+          log = Path(sys.argv[1]).read_text()
+          if '--- FAIL:' in log or '--- SKIP:' in log:
+              raise SystemExit('An account selection check failed or was skipped')
+          for name in ['TestExistingServiceAccountPreservesWorkload', 'TestExistingServiceAccountRejectsAmbiguousAuthority', 'TestExistingServiceAccountRejectsInvalidGeneratedIdentity']:
+              if len(re.findall(r'^--- PASS: ' + name + r' \(', log, re.M)) != 1:
+                  raise SystemExit('A required account selection result is missing: ' + name)
+          PY
+          git diff --exit-code
+      - name: Save renderer evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: deployment-accounts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deployment-accounts
+          retention-days: 14
+          if-no-files-found: error
