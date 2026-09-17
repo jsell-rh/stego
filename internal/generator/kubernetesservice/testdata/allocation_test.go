@@ -20,19 +20,20 @@ import (
 )
 
 type api struct {
-	mu              sync.Mutex
-	objects         map[string]kube.Object
-	writes          []string
-	requests        int
-	failQuota       bool
-	failNetwork     bool
-	failNetworkRead bool
-	failNetworkList bool
-	failAccountRead bool
-	mutateNetwork   func(kube.Object)
-	incomplete      bool
-	networkList     func(kube.Object)
-	networkPatch    func(kube.Object, kube.Object) int
+	mu                    sync.Mutex
+	objects               map[string]kube.Object
+	writes                []string
+	requests              int
+	failQuota             bool
+	failNetwork           bool
+	failNetworkRead       bool
+	failNetworkList       bool
+	failAccountRead       bool
+	failAccountReadPrefix string
+	mutateNetwork         func(kube.Object)
+	incomplete            bool
+	networkList           func(kube.Object)
+	networkPatch          func(kube.Object, kube.Object) int
 }
 
 func fixture(t *testing.T) (*Allocator, *api) {
@@ -111,7 +112,7 @@ func fixture(t *testing.T) (*Allocator, *api) {
 		}
 		current, exists := state.objects[r.URL.Path]
 		if r.Method == "GET" {
-			if state.failAccountRead && strings.Contains(r.URL.Path, "/serviceaccounts/") {
+			if (state.failAccountRead || (state.failAccountReadPrefix != "" && strings.HasPrefix(r.URL.Path, state.failAccountReadPrefix))) && strings.Contains(r.URL.Path, "/serviceaccounts/") {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}

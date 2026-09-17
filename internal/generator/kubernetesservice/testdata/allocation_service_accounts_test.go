@@ -348,7 +348,9 @@ func TestAllocationServiceAccountPeerReadiness(t *testing.T) {
 		"terminating namespace": {true, func(a *Allocator, s *api) {
 			s.objects["/api/v1/namespaces/tenant-12345678"]["metadata"].(map[string]any)["deletionTimestamp"] = "2026-09-17T00:00:00Z"
 		}},
-		"denied account read": {false, func(a *Allocator, s *api) { s.failAccountRead = true }},
+		"denied account read": {false, func(a *Allocator, s *api) {
+			s.failAccountReadPrefix = "/api/v1/namespaces/tenant-12345678/serviceaccounts/"
+		}},
 		"wrong token setting": {false, func(a *Allocator, s *api) {
 			s.objects["/api/v1/namespaces/tenant-12345678/serviceaccounts/"+a.serviceAccountName(a.config.Profiles[0], "owner-1", "gateway")]["automountServiceAccountToken"] = true
 		}},
@@ -356,6 +358,7 @@ func TestAllocationServiceAccountPeerReadiness(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			a, s := accountPeerFixture(t, false)
+			a.config.Profiles[1].Bindings = append(a.config.Profiles[1].Bindings, binding{Role: "data", Namespace: "control", ServiceAccount: "widget-data"})
 			ctx := context.Background()
 			if err := a.Ensure(ctx, "tenant", "tenant-12345678", "owner-1"); err != nil {
 				t.Fatal(err)
@@ -374,6 +377,11 @@ func TestAllocationServiceAccountPeerReadiness(t *testing.T) {
 			if _, exists := s.objects[collection+"/"+kube.String(want, "metadata", "name")]; exists {
 				t.Fatal("permission granted before peer readiness")
 			}
+			collection, want = a.bindingObject(peer, "jobs-12345678", 1, kube.Owner{peer.OwnerLabel: "owner-1"})
+			if _, exists := s.objects[collection+"/"+kube.String(want, "metadata", "name")]; exists {
+				t.Fatal("control worker grant preceded peer readiness")
+			}
+
 		})
 	}
 }
