@@ -1,0 +1,26 @@
+{
+  "run": 35252021419,
+  "source": "62841ce7c6a1adb6da8b85f4595e2147e7ce158f",
+  "source_archive_matches": true,
+  "required_generator_checks": [
+    "TestAllocationServiceAccountValidation",
+    "TestAllocationServiceAccountManifests",
+    "TestGeneratedAllocationServiceAccountRuntime",
+    "TestAllocationPeerBindingsValidation",
+    "TestAllocationPeerBindingsManifests"
+  ],
+  "required_peer_runtime_checks": [
+    "TestAllocationServiceAccountPeerGrant",
+    "TestAllocationServiceAccountPeerReadiness",
+    "TestAllocationServiceAccountPeerCycle",
+    "TestAllocationServiceAccountPeerNamespaceRecovery",
+    "TestAllocationServiceAccountPeerRejectsChangedSeal"
+  ],
+  "runtime_top_level_passes": 13,
+  "runtime_pass_cases": 37,
+  "runner_safety_checks": 23,
+  "all_three_manifests_match_9844ad4": true,
+  "related_manifest_sha256": "5afbc5e883911397a62b20c3fec145ab031d874f62aab0131a53196bf1a1ebc4",
+  "job_log_sha256": "a3984927ceb604a6c21e0ecc827b5099364853d4cbf9f17596d39f50f730ea67",
+  "scope": "Current generated runtime and runner safety checks. Live policy evaluation, authorization, and consumer adoption remain required."
+}

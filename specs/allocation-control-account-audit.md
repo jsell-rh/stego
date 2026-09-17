@@ -29,3 +29,10 @@ uses the common 600-second execution and 180-second cleanup limits. Cleanup
 removes allocated namespaces before their guards and preserves any unrecorded
 replacement resource. Eight local runner safety checks passed. Live results are
 still required.
+
+[Hosted run 35252021419](https://github.com/jsell-rh/stego/actions/runs/35252021419)
+passed at `62841ce`. Independent checks matched the source archive, all five
+generator checks, 13 generated runtime tests with 37 cases, and 23 runner safety
+checks. All three manifests match the earlier qualified fixture. These results
+qualify the test inputs; they do not prove the live control-account boundary.
+See the [recorded evidence](allocation-control-account-audit-evidence.json).
