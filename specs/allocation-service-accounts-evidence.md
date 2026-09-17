@@ -70,3 +70,29 @@ a different owner or installation while the old cross-namespace grant remains.
 It also checks allocator-only account creation and denies forged names and
 changed annotations. Those real API checks have not run yet. The runner safety
 tests use simulated API responses; they do not prove live admission.
+
+
+## Live checks remain incomplete
+
+Three live attempts used the same two generated manifests. All 12 policies
+passed server type checks. The first attempt could not classify the first
+namespace denial. The diagnostic attempt retained the response: Kubernetes
+reported `Invalid`, and the peer installation's equivalent namespace policy
+issued the denial. The runner now accepts either exact namespace guard name
+with the admission-denial message. Transport errors, unrelated policies, and
+policy evaluation errors remain failures. Ten runner safety tests passed.
+
+The corrected attempt passed explicit and generated namespace-name denials,
+an unrelated generated namespace name, and authorized namespace creation.
+It then failed: the operator's dry-run request to create a declared owner
+ServiceAccount was accepted. The cause is not yet established. This result
+must not be accepted as a security pass or hidden by a retry. Further checks
+must retain the request, stored namespace, active policies, and response to
+separate policy behavior from test or installation behavior.
+
+All three attempts created no Pods. Independent reads confirmed removal of
+all recorded resources and reserved test namespaces after each attempt.
+See the [failure records](allocation-service-accounts-live-failure.json).
+The common account change remains unreleased and is not used by Hypershell.
+The complete Gateway workflow with the earlier published compiler is a
+separate passing result.
