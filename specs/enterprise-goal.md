@@ -116,13 +116,18 @@ the test now waits for current readiness while account errors still fail.
 See the [application record](https://github.com/jsell-rh/hypershell-stego/blob/f258441/acceptance/pod-readiness-evidence.md)
 and [allocation evidence](allocation-service-accounts-evidence.md).
 
-Related-profile grants remain on the qualification branch. All 12 live permission
-probes passed, with independent cleanup. The separate control-account audit
-confirmed a security defect: a replacement control namespace owner recreated
-both fixed account names and obtained retained grants with fresh tokens.
-The old tokens were rejected. Fix this boundary in the common generator before
-publication, then prove denied recreation and permitted installation. See the
-[control audit](allocation-control-account-audit.md). Sandbox setup
+Related-profile grants passed all 12 live permission probes with independent
+cleanup. The control-account audit then confirmed retained grant reuse after
+namespace replacement. The common generator now reserves the allocator and
+declared control-worker account names for a separate trusted installer.
+At `931f712`, the live regression denied both names and their generated-name
+prefixes, verified installer permissions, and restored both accounts through
+the trusted installer. All 14 policies passed type checking. Independent
+cleanup verified 57 resource paths absent. The full race step passed 34
+packages, and all six CI jobs passed. The qualified source is on STEGO main.
+Signed release publication and consumer adoption remain pending. Account
+retirement and arbitrary external grants remain outside this result. See the
+[policy evidence and limits](allocation-control-account-policy.md). Sandbox setup
 and admission remain separate from the deferred VM test; see the
 [upstream settings review](sandbox-upstream-settings.md).
 

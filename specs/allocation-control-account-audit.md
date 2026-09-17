@@ -79,3 +79,11 @@ The common generator now emits the proposed
 The revised live test checks its separate installer capability and recovery.
 Thirty small local runner checks passed. CI and live qualification remain
 required; this source change alone does not close the defect.
+
+The fix passed its live regression at `931f712`: both account names and their
+generated-name prefixes were denied to the replacement owner. A separately
+authorized installer restored both accounts after the former owner's rights
+were removed. All 14 policies passed type checking, and independent cleanup
+verified 57 resource paths absent. See the
+[policy result and limits](allocation-control-account-policy.md). The earlier
+failed security audit remains evidence of the defect before this fix.

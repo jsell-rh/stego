@@ -1,0 +1,71 @@
+{
+  "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+  "execution": {
+    "source": "931f712bda4507623bdf3bee8a359b9aeee7f86d",
+    "prior_run": 35251755817,
+    "started_at": "2026-09-17T18:26:42.787442+00:00",
+    "phase": "complete",
+    "updated_at": "2026-09-17T18:28:00.083222+00:00",
+    "pid": 3259721,
+    "returncode": 1
+  },
+  "result": {
+    "complete": false,
+    "pods_created": 0,
+    "probes": [],
+    "manifest_sha256": {
+      "stego-allocation-accounts-ci": "d2a69287b4c381af88eb64fb5845b7c457794701ea79fca2c84ce320ef299f6a",
+      "stego-allocation-accounts-peer-ci": "eab028a907a1257c57f7be4ea8f318b2484c2a4f22a813aec9f4d9880aaed1dc"
+    },
+    "failure": "A resource read failed: /apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.namespace-reservations",
+    "cleanup_errors": [],
+    "cleanup_complete": true
+  },
+  "result_sha256": "8c2d0a45aa8e73557629ff78307aa55d82f4feab7c761f1fb6f767d5d62eac8c",
+  "runner_log_sha256": "d29f228e4d7ef35cb9f57e844b00c0a0d287d742d431a792b90382d421ee6f22",
+  "independent_cleanup": {
+    "checked_at": "2026-09-17T18:27:59.455944+00:00",
+    "complete": true,
+    "recorded_paths_absent": [
+      "/api/v1/namespaces/stego-allocation-accounts-ci",
+      "/api/v1/namespaces/stego-allocation-accounts-ci/serviceaccounts/widget-queue",
+      "/api/v1/namespaces/stego-allocation-accounts-peer-ci",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.control-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies/stego-allocation-accounts-peer-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.account-issuers",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.control-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.namespace-reservations",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-ci.widget-queue.service-accounts",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.allocation",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.ownership",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.resources",
+      "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings/stego-allocation-accounts-peer-ci.widget-queue.service-accounts",
+      "/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/stego-allocation-accounts-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.control-account-installer",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.data",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.proof",
+      "/apis/rbac.authorization.k8s.io/v1/clusterroles/stego-allocation-accounts-ci.widget-queue.review"
+    ],
+    "reserved_test_namespaces_absent": true,
+    "test_passed": false
+  },
+  "readiness_checked_at": "2026-09-17T18:28:37.975586+00:00",
+  "api_ready": true,
+  "failed_resource_path_now_not_found": true,
+  "cause": "The fixture read failed before policy type checks. The original HTTP status and stderr were not retained. Its cause is unknown. The API readiness and cleaned path checks now pass.",
+  "permission_result_established": false
+}
