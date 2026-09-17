@@ -91,7 +91,7 @@ func TraceDatabase(ctx context.Context, call string) (context.Context, func(stri
 // The runtime accepts only fixed operation and outcome values, never SQL or errors.
 func TracePostgresOperation(ctx context.Context, operation string) (context.Context, func(string)) {
 	switch operation {
-	case "read", "server-identity", "ensure", "delete", "quarantine", "schema":
+	case "read", "server-identity", "prepare", "ensure", "delete", "quarantine", "schema":
 	default:
 		operation = "_OTHER"
 	}
