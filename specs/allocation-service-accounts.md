@@ -69,6 +69,9 @@ ordinary namespace creators from taking a deleted allocation name without its
 ownership labels. Existing unrelated namespaces are not changed or deleted.
 When allocator instances share a namespace pattern, upgrade all of them before
 enabling this reservation. Do not grant the capability to application workers.
+The reservation also checks `generateName` prefixes that overlap a declared
+prefix. The allocator uses explicit names; it does not use server-generated
+namespace or ServiceAccount names.
 
 A separate admission rule checks the installation tag on generated account
 names in the reserved namespace patterns. This rule also applies to namespaces

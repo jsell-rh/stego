@@ -91,7 +91,8 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		within := "(" + owner("namespaceObject", p) + " && " + pattern("namespaceObject.metadata.name", p) + " && " + owner("variables.o", p) + " && variables.o.metadata.labels[" + celString(p.OwnerLabel) + "] == namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "] && variables.o.metadata.namespace == namespaceObject.metadata.name)"
 		if len(p.ServiceAccounts) > 0 {
 			serviceAccountProfiles = append(serviceAccountProfiles, celString(p.Name))
-			serviceAccountNamespacePatterns = append(serviceAccountNamespacePatterns, pattern("object.metadata.name", p))
+			generated := "(has(object.metadata.generateName) && object.metadata.generateName != '' && (object.metadata.generateName.startsWith(" + celString(p.Prefix) + ") || " + celString(p.Prefix) + ".startsWith(object.metadata.generateName)))"
+			serviceAccountNamespacePatterns = append(serviceAccountNamespacePatterns, "("+pattern("object.metadata.name", p)+" || "+generated+")")
 			choices := []string{}
 			for _, alias := range p.ServiceAccounts {
 				choices = append(choices, "variables.o.metadata.name == "+allocationServiceAccountCEL(alias))
@@ -259,7 +260,8 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 			}
 		}
 		selectedIssuer := "namespaceObject != null && " + join(patterns)
-		issuerCheck := "request.operation == 'DELETE' || !variables.o.metadata.name.matches('^sa-[0-9a-f]{32}-[a-z2-7]{26}$') || (has(namespaceObject.metadata.labels) && 'stego.dev/allocator' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocator'].matches('^[0-9a-f]{32}$') && variables.o.metadata.name.startsWith('sa-' + namespaceObject.metadata.labels['stego.dev/allocator'] + '-'))"
+		generatedAccount := "(variables.o.metadata.name.matches('^sa-[0-9a-f]{32}-[a-z2-7]{26}$') || (has(variables.o.metadata.generateName) && variables.o.metadata.generateName.startsWith('sa-')))"
+		issuerCheck := "request.operation == 'DELETE' || !" + generatedAccount + " || (has(namespaceObject.metadata.labels) && 'stego.dev/allocator' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['stego.dev/allocator'].matches('^[0-9a-f]{32}$') && variables.o.metadata.name.startsWith('sa-' + namespaceObject.metadata.labels['stego.dev/allocator'] + '-'))"
 		guarded = append(guarded, allocationPolicy(base+".account-issuers", []any{allocationRule("", "serviceaccounts")}, selectedIssuer, variables, []any{validate(issuerCheck, "ServiceAccount issuer must match its namespace allocator")})...)
 	}
 	// Install the policies before the allocator receives permissions.
