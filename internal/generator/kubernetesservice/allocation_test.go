@@ -140,6 +140,9 @@ func TestAllocationManifests(t *testing.T) {
 	if managedAccounts {
 		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["service_accounts"] = []any{"gateway"}
 	}
+	if prefix := os.Getenv("STEGO_ALLOCATION_PREFIX"); prefix != "" {
+		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["namespace_prefix"] = prefix
+	}
 	if os.Getenv("STEGO_ALLOCATION_NETWORK") == "1" {
 		c.ComponentConfig["allocation_profiles"].([]any)[0].(object)["network_isolation"] = true
 	}
@@ -256,6 +259,9 @@ var allocationNetworkPeersTests []byte
 var allocationServiceAccountTests []byte
 
 func TestGeneratedAllocationRuntime(t *testing.T) { testGeneratedAllocationRuntime(t, "") }
+func TestGeneratedAllocationServiceAccountRuntime(t *testing.T) {
+	testGeneratedAllocationRuntime(t, "^TestAllocationServiceAccount")
+}
 func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
 	testGeneratedAllocationRuntime(t, "^TestAllocationNetwork")
 }

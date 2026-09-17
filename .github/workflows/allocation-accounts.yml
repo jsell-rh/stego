@@ -1,0 +1,78 @@
+name: Allocation account identity
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/allocation-accounts.yml'
+      - 'internal/generator/kubernetesservice/allocation*'
+      - 'internal/generator/kubernetesservice/testdata/allocation_service_accounts_test.go'
+      - 'registry/components/kubernetes-service/component.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: allocation-accounts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1GiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      STEGO_ALLOCATION_NAMESPACE: stego-allocation-accounts-ci
+      STEGO_ALLOCATION_PREFIX: stego-accounts-ci-
+      STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-accounts
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check generated account identities and policies
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
+          git rev-parse HEAD > "$STEGO_ALLOCATION_ARTIFACTS/source-commit"
+          git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
+          go mod verify
+          go test -v -race -count=1 -mod=readonly -timeout=6m ./internal/generator/kubernetesservice \
+            -run '^(TestAllocationServiceAccountValidation|TestAllocationServiceAccountManifests|TestGeneratedAllocationServiceAccountRuntime)$' \
+            | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
+          python3 - "$STEGO_ALLOCATION_ARTIFACTS" <<'PY'
+          from pathlib import Path
+          import re, sys
+          root = Path(sys.argv[1])
+          outer = (root / 'tests.log').read_text()
+          runtime = (root / 'runtime.log').read_text()
+          for log, names in [
+              (outer, ['TestAllocationServiceAccountValidation', 'TestAllocationServiceAccountManifests', 'TestGeneratedAllocationServiceAccountRuntime']),
+              (runtime, ['TestAllocationServiceAccountIdentity', 'TestAllocationServiceAccountsFollowLimits', 'TestAllocationServiceAccountRejectsChangedSeal', 'TestAllocationServiceAccountNamespaceReuse', 'TestAllocationServiceAccountConcurrentOwners', 'TestAllocationServiceAccountQuotaFailure']),
+          ]:
+              if '--- FAIL:' in log or '--- SKIP:' in log:
+                  raise SystemExit('An account check failed or was skipped')
+              for name in names:
+                  if len(re.findall(r'^--- PASS: ' + name + r' \(', log, re.M)) != 1:
+                      raise SystemExit('Required account result is missing: ' + name)
+          PY
+          git diff --exit-code
+      - name: Render the second allocator installation
+        env:
+          STEGO_ALLOCATION_NAMESPACE: stego-allocation-accounts-peer-ci
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/allocation-accounts/peer
+        run: go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestAllocationServiceAccountManifests$'
+      - name: Save account identity evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: allocation-accounts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/allocation-accounts
+          retention-days: 14
+          if-no-files-found: error
