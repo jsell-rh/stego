@@ -2,6 +2,8 @@ package kubernetesservice
 
 import (
 	"bytes"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,6 +20,12 @@ func rpcContext() gen.Context {
 
 func TestRPCDeploymentValidation(t *testing.T) {
 	cases := map[string]func(*gen.Context, map[string]any){
+		"empty rollout":        func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = "" },
+		"unknown rollout":      func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = "BlueGreen" },
+		"wrong rollout case":   func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = "recreate" },
+		"null rollout":         func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = nil },
+		"boolean rollout":      func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = true },
+		"object rollout":       func(c *gen.Context, p map[string]any) { p["rollout_strategy"] = map[string]any{"type": "Recreate"} },
 		"missing component":    func(c *gen.Context, p map[string]any) { delete(c.PeerNamespaces, "grpc-application") },
 		"missing declarations": func(c *gen.Context, p map[string]any) { c.PeerConfigs = nil },
 		"unknown process":      func(c *gen.Context, p map[string]any) { p["process"] = "unknown" },
@@ -75,5 +83,81 @@ func TestRPCDeploymentFiles(t *testing.T) {
 	}
 	if found != 2 {
 		t.Fatal("RPC deployment files missing")
+	}
+}
+
+func TestRPCDeploymentRolloutStrategies(t *testing.T) {
+	baseline, _, err := new(Generator).Generate(rpcContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(files []gen.File) (map[string]any, map[string]any) {
+		t.Helper()
+		for _, file := range files {
+			if file.Path != "deploy/render/rpc-records.json.tmpl" {
+				continue
+			}
+			raw := bytes.ReplaceAll(file.Content, []byte("{{.FSGroup}}"), []byte("65532"))
+			var list map[string]any
+			if err := json.Unmarshal(raw, &list); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range list["items"].([]any) {
+				resource := item.(map[string]any)
+				if resource["kind"] != "Deployment" {
+					continue
+				}
+				spec := resource["spec"].(map[string]any)
+				if spec["replicas"] != float64(1) {
+					t.Fatal("RPC replica count changed")
+				}
+				strategy := spec["strategy"].(map[string]any)
+				delete(spec, "strategy")
+				return list, strategy
+			}
+		}
+		t.Fatal("RPC Deployment is absent")
+		return nil, nil
+	}
+	baseManifest, baseStrategy := render(baseline)
+	rolling := map[string]any{"type": "RollingUpdate", "rollingUpdate": map[string]any{"maxUnavailable": float64(0), "maxSurge": float64(1)}}
+	if !reflect.DeepEqual(baseStrategy, rolling) {
+		t.Fatal("default rollout changed", baseStrategy)
+	}
+	for _, selected := range []string{"RollingUpdate", "Recreate"} {
+		t.Run(selected, func(t *testing.T) {
+			c := rpcContext()
+			c.ComponentConfig["rpc_processes"].([]any)[0].(map[string]any)["rollout_strategy"] = selected
+			files, _, err := new(Generator).Generate(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, _, err := new(Generator).Generate(c)
+			if err != nil || !reflect.DeepEqual(files, again) {
+				t.Fatal("RPC generation is not stable", err)
+			}
+			manifest, strategy := render(files)
+			expected := rolling
+			if selected == "Recreate" {
+				expected = map[string]any{"type": "Recreate"}
+			}
+			if !reflect.DeepEqual(strategy, expected) {
+				t.Fatal("incorrect rollout policy", strategy)
+			}
+			if !reflect.DeepEqual(manifest, baseManifest) {
+				t.Fatal("rollout changed other RPC resources")
+			}
+			if len(files) != len(baseline) {
+				t.Fatal("rollout changed the file set")
+			}
+			for i, file := range files {
+				if file.Path != baseline[i].Path {
+					t.Fatal("rollout changed a file path")
+				}
+				if file.Path != "deploy/render/rpc-records.json.tmpl" && !bytes.Equal(file.Bytes(), baseline[i].Bytes()) {
+					t.Fatal("rollout changed another component", file.Path)
+				}
+			}
+		})
 	}
 }

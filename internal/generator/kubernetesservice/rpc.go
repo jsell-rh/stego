@@ -12,8 +12,8 @@ import (
 )
 
 type rpcProcess struct {
-	Name, Namespace, Process string
-	Context                  gen.Context
+	Name, Namespace, Process, RolloutStrategy string
+	Context                                   gen.Context
 }
 
 func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
@@ -52,6 +52,14 @@ func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
 		name, _ := values["name"].(string)
 		component, _ := values["component"].(string)
 		process, _ := values["process"].(string)
+		strategy := "RollingUpdate"
+		if value, present := values["rollout_strategy"]; present {
+			var ok bool
+			strategy, ok = value.(string)
+			if !ok || (strategy != "RollingUpdate" && strategy != "Recreate") {
+				return nil, fmt.Errorf("RPC rollout_strategy must be RollingUpdate or Recreate")
+			}
+		}
 		namespace := ctx.PeerNamespaces[component]
 		if !label.MatchString(name) || len(ctx.ServiceName)+len(name)+1 > 50 || seen[name] {
 			return nil, fmt.Errorf("RPC deployment requires a distinct DNS label and a combined service name of at most 50 bytes")
@@ -92,7 +100,7 @@ func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
 		}
 		for key, value := range values {
 			switch key {
-			case "name", "component", "process":
+			case "name", "component", "process", "rollout_strategy":
 			case "env_secret", "files_secret":
 				s, ok := value.(string)
 				if !ok || !label.MatchString(s) {
@@ -111,7 +119,7 @@ func rpcProcesses(ctx gen.Context) ([]rpcProcess, error) {
 		if _, err := networkRulesForPorts(child, map[int]bool{9090: true}, ctx); err != nil {
 			return nil, err
 		}
-		result = append(result, rpcProcess{name, namespace, process, child})
+		result = append(result, rpcProcess{name, namespace, process, strategy, child})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
@@ -137,10 +145,14 @@ func rpcProcessFiles(ctx gen.Context) ([]gen.File, error) {
 		metadata := object{"name": p.Context.ServiceName, "namespace": "{{.Namespace}}"}
 		labels := object{"app.kubernetes.io/name": p.Context.ServiceName}
 		rules, _ := networkRulesForPorts(p.Context, map[int]bool{9090: true}, ctx)
+		strategy := object{"type": p.RolloutStrategy}
+		if p.RolloutStrategy == "RollingUpdate" {
+			strategy["rollingUpdate"] = object{"maxUnavailable": 0, "maxSurge": 1}
+		}
 		items := []any{
 			object{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": metadata, "automountServiceAccountToken": false},
 			object{"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy", "metadata": metadata, "spec": rules},
-			object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": object{"type": "RollingUpdate", "rollingUpdate": object{"maxUnavailable": 0, "maxSurge": 1}}, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
+			object{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": metadata, "spec": object{"replicas": 1, "revisionHistoryLimit": 2, "progressDeadlineSeconds": 180, "strategy": strategy, "selector": object{"matchLabels": labels}, "template": object{"metadata": object{"labels": labels}, "spec": pod}}},
 			object{"apiVersion": "v1", "kind": "Service", "metadata": metadata, "spec": object{"type": "ClusterIP", "selector": labels, "ports": []any{object{"name": "grpc", "port": 9090, "targetPort": "grpc"}}}},
 		}
 		access, _ := kubernetesAccess(p.Context)

@@ -381,3 +381,10 @@ The complete compiler run required PostgreSQL. The
 [result record](deployment-library-evidence.json) includes package results and
 the full log hash. This result does not prove a deployed dashboard or its
 Gateway lifecycle.
+
+## RPC rollout selection
+
+Each `rpc_processes` entry can select `rollout_strategy: Recreate` or
+`rollout_strategy: RollingUpdate`. The default remains `RollingUpdate`.
+Use the [RPC rollout contract](rpc-rollout-policy.md) to distinguish planned
+upgrade behavior from the still-required distributed fencing mechanism.
