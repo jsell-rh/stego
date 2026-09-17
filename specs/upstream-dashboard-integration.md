@@ -6,7 +6,7 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell candidate `ca8814f` uses the pinned STEGO registry and compiler
+Hypershell candidate `a29edb5` uses the pinned STEGO registry and compiler
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
@@ -35,8 +35,8 @@ STEGO now corrects the confirmation document's referrer policy. The
 [native browser regression check](browser-logout-origin.md) reproduced the old
 `Origin: null` rejection and passed session removal, token revocation, and
 provider redirect with the new policy. Strict Origin and CSRF checks remain.
-This uses a test provider endpoint; real Keycloak sign-out remains part of the
-full application gate.
+This regression uses a test provider endpoint. The real Keycloak result is
+recorded below.
 
 The generated Gateway console at `a19b611` passed
 [35168795823](https://github.com/jsell-rh/hypershell-stego/actions/runs/35168795823).
@@ -46,10 +46,24 @@ image binary and digest passed. Candidate `ca8814f` selects that exact module
 and records its final dependency hashes.
 
 [Run 35169043109](https://github.com/jsell-rh/hypershell-stego/actions/runs/35169043109)
-tests the new candidate through the public Gateway workflow. Its result must be
-checked before qualification. The earlier live failure did not prove provider
-sign-out, authenticated correlation of all three dashboard telemetry signals,
-or final Gateway deletion. The complete application and CNPG gates remain open.
+at `ca8814f` passed native dashboard confirmation, real Keycloak sign-out, and
+a new password login prompt. It also passed authenticated correlation of all
+three dashboard telemetry signals, worker telemetry, SQL and namespace recovery,
+and rendered service-account creation, token use, revoke, and delete.
+
+The test failed after 550.45 seconds when it created automation identities for
+final Gateway deletion. The API returned HTTP 409. The saved response did not
+identify the error code. Independent cleanup passed at
+`2026-09-17T01:23:23Z`; workloads and allocations were absent and the lease was
+free. The [result record](https://github.com/jsell-rh/hypershell-stego/blob/a29edb5/acceptance/dashboard-signout-recovery-evidence.json)
+retains these results and their hashes.
+
+Hypershell `a1165b2` adds a fixed error-code record and bounded, read-only
+Gateway state inspection on account creation failure. It excludes response
+bodies, reason text, and credentials. Its focused privacy test passed.
+[Run 35170428686](https://github.com/jsell-rh/hypershell-stego/actions/runs/35170428686)
+repeats the public workflow at `a29edb5` with these diagnostics. Final Gateway
+deletion and the complete application and CNPG gates remain open.
 
 ## Earlier editor integration
 

@@ -92,11 +92,14 @@ upstream dashboard must now use these common parts in its complete workflow.
 
 The separate dashboard now uses the common pinned registry, generated browser
 backend, browser telemetry, and generated Monaco adapter. The latest completed
-live run, [35167085887](https://github.com/jsell-rh/hypershell-stego/actions/runs/35167085887)
-at Hypershell `5f87ed6`, passed editor behavior, SQL and namespace recovery,
+live run, [35169043109](https://github.com/jsell-rh/hypershell-stego/actions/runs/35169043109)
+at Hypershell `ca8814f`, passed editor behavior, SQL and namespace recovery,
 viewer membership, filtered lists, denied writes, and both access-removal paths.
-It then failed at native sign-out with HTTP 403. The common STEGO correction
-passed a real browser regression check; the generated application candidate
+Native dashboard and Keycloak sign-out passed, as did authenticated correlation
+of dashboard telemetry, worker telemetry, and rendered service-account use.
+The test then failed with HTTP 409 during account creation for final Gateway
+deletion. The response error code was not retained. Hypershell now records fixed
+error codes and bounded Gateway state on this failure. The generated application
 must still pass the complete workflow. See the [current integration record](upstream-dashboard-integration.md)
 and [native sign-out evidence](browser-logout-origin.md). These results do not
 close H1, H2, H3, or the separate dashboard gate.
