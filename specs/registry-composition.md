@@ -81,6 +81,13 @@ a warning.
 
 ## Hypershell integration
 
+The current Hypershell candidate `e8bb965` pins all three modules to common
+registry and compiler revision `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`.
+Only two application archetypes remain in its local registries. The earlier
+registry checks below establish this separation. The latest complete live
+attempt passed final Gateway cleanup but failed its SQL telemetry acceptance
+check; see the [current application record](upstream-dashboard-integration.md).
+
 Hypershell runtime revision `399a41b` uses this model for its API,
 management console, and Gateway console. Each pins the common registry and
 compiler to `8e0fae6f28276e192e8497c8acad487c765f3bb5`. Its local registries

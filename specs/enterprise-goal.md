@@ -92,15 +92,19 @@ upstream dashboard must now use these common parts in its complete workflow.
 
 The separate dashboard now uses the common pinned registry, generated browser
 backend, browser telemetry, and generated Monaco adapter. The latest completed
-live run, [35170428686](https://github.com/jsell-rh/hypershell-stego/actions/runs/35170428686)
-at Hypershell `a29edb5`, passed editor behavior, SQL and namespace recovery,
+live run, [35171991156](https://github.com/jsell-rh/hypershell-stego/actions/runs/35171991156)
+at Hypershell `4dd7d21`, passed editor behavior, SQL and namespace recovery,
 viewer membership, filtered lists, denied writes, and both access-removal paths.
 Native dashboard and Keycloak sign-out passed, as did authenticated correlation
 of dashboard telemetry, worker telemetry, and rendered service-account use.
 Three automation identities used the actual Gateway and were closed by durable
 deletion. Main Gateway deletion removed its namespace, SQL state, roles, and
-keys. Remaining cleanup failed after the identity fixture's 600-second deadline.
-Hypershell now gives that fixture the full browser test's 900-second window.
+keys. With the identity fixture's corrected 900-second deadline, cleanup of all
+Gateways and final managed-cluster deletion passed. The supplied PostgreSQL
+server and installation data remained. The final SQL telemetry check failed
+because its operation list omitted the documented managed-schema operation.
+Hypershell `1f6f846` corrects this test and adds a passing regression check for
+schema logs, traces, and metrics. Independent cluster cleanup passed.
 The earlier HTTP 409 did not recur; its cause remains unknown. Full CI passed
 302 tests with four declared live skips. The generated application must still
 pass the complete cluster workflow. See the [current integration record](upstream-dashboard-integration.md)

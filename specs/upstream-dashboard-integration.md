@@ -6,7 +6,7 @@ only Gateway configuration and access rules.
 
 ## Current integration state
 
-Hypershell candidate `4dd7d21` uses the pinned STEGO registry and compiler
+Hypershell candidate `e8bb965` uses the pinned STEGO registry and compiler
 `db75a77da272fe05bbf6fdc3a3d1e0fede298f70`. The API, management console, and
 Gateway console keep local application composition and generated output. They
 contain no copied common component declarations. STEGO supplies sessions,
@@ -86,9 +86,24 @@ contains the test names and log hash. It does not replace the complete cluster
 workflow.
 
 [Run 35171991156](https://github.com/jsell-rh/hypershell-stego/actions/runs/35171991156)
-repeats the public workflow at `4dd7d21` with the corrected fixture lifetime.
-Cleanup of every Gateway, final cluster deletion, final PostgreSQL telemetry,
-and the complete application and CNPG gates remain open.
+at `4dd7d21` passed cleanup of every Gateway and final managed-cluster deletion
+with the corrected fixture lifetime. The supplied PostgreSQL server and
+installation data remained. Three automation accounts used the actual Gateway
+and passed durable cleanup. Editor, access recovery, dashboard sign-out, and
+worker telemetry checks also passed. All 412 repeated and archived generation
+hashes matched. Independent cleanup passed at `2026-09-17T02:08:59Z`.
+
+The test failed after 673.62 seconds at the final PostgreSQL telemetry check.
+Its operation list omitted `schema`, which the common runtime documents and
+emits for managed schemas. The saved logs contain 79 successful and two canceled
+schema events. Hypershell `1f6f846` adds this operation to the acceptance check
+and tests its logs, traces, and metrics together. Unknown operations remain
+invalid. Both focused SQL signal tests passed in 0.015 seconds. No application
+or generated runtime code changed. See the [final cleanup record](https://github.com/jsell-rh/hypershell-stego/blob/e8bb965/acceptance/dashboard-final-cleanup-evidence.json).
+
+Final PostgreSQL telemetry, final browser log privacy, the complete public
+workflow, and the expanded CNPG gate still require a passing run. A failed run
+does not produce the final after-test generation manifest.
 
 ## Earlier editor integration
 
