@@ -151,3 +151,10 @@ the source archive and both manifests to the qualified generator output.
 The four new probes isolate the issuer rule from overlapping owner rules.
 They have not run on the cluster yet. They must wait for the active Hypershell
 CNPG workflow and independent cleanup. No additional cluster test was started.
+
+The complete suite also passed at the extended runner source `b8f5dd8` in
+[run 35229286581](https://github.com/jsell-rh/stego/actions/runs/35229286581).
+Independent log checks confirmed all six jobs, all 34 compiler race-test
+packages, both generated examples, SQL credential preparation, and browser
+startup telemetry. The four new live issuer probes still need a separate run.
+This result does not qualify those probes or consumer adoption.
