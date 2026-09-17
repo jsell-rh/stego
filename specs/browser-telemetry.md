@@ -21,8 +21,21 @@ passed both the generated-policy and no-referrer control cases.
 The [artifact check](https://github.com/jsell-rh/stego/actions/runs/35193927569)
 also passed. Independent inspection checked all 1,190 source records, module
 records, embedded build settings, and the official SDK inventory. The source
-is on remote `main`. Main signatures and Hypershell adoption have separate
-results. The application evidence below predates this composition change.
+is on remote `main`. The [main full suite](https://github.com/jsell-rh/stego/actions/runs/35194639697)
+also passed all six jobs. Its saved log SHA-256 is
+`e8932be5ea456c06bdf6f2ab0cb7b9c7d20a1785a9e143f52fbe50e978a95924`.
+Independent verification of the [main signatures](https://github.com/jsell-rh/stego/actions/runs/35194639679)
+accepted the exact source and signer. The authenticated compiler SHA-256 is
+`e5894237467e81c6a3e7a7c8abd436192a74174726384c2f30716e63db3101bb`.
+
+Hypershell `17f6295` adopts this composition for both consoles. Only its API
+application archetype remains local. Repeated generation, the UI asset build,
+the Gateway module, and all 28 journal recovery checks passed. Source `af43205`
+corrects a stale acceptance fixture path after the telemetry package moved from
+the API module to the console module. The corrected full and public checks
+are in progress. API and CNPG qualification remains open. See the
+[consumer record](https://github.com/jsell-rh/hypershell-stego/blob/2d917a9/acceptance/common-browser-composition.md).
+The application evidence below predates this composition change.
 
 ## Current application evidence
 
