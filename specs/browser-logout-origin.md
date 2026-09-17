@@ -44,3 +44,11 @@ provider without a Referer header or cookie. The complete generated test took
 19.50 seconds. Its retained `tests.log` has SHA-256
 `4aef7937890ebe3fbd27b1f26817eb860a62066d1986e2ab40063bb78af4198c`.
 This result does not establish the complete Hypershell workflow.
+
+The same compiler revision passed
+[all six compiler CI jobs](https://github.com/jsell-rh/stego/actions/runs/35168719235).
+The generated browser backend passed with required PostgreSQL and race detection
+in 254.062 seconds. The separate managed browser schema check passed in
+16.360 seconds. Both examples, SQL provisioning, real Keycloak, and resource
+state storage checks passed. The complete CI log has SHA-256
+`085dc4c181d2f03c7cc8846c6380a0a8f45635750587c7d258783fee2e446b73`.
