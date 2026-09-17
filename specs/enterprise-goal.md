@@ -68,7 +68,22 @@ and recovery after namespace, database Pod, and provisioner replacement.
 Credential preparation exported the required correlated SQL signals. Six
 browser runtime instances supplied complete startup telemetry. Three dashboard
 images were reviewed. See [the CNPG record](https://github.com/jsell-rh/hypershell-stego/blob/53ddb6744e698ec4b207d8ad044edb465b69ac4d/acceptance/postgres-signal-cnpg.md).
-A later test-only database lifetime correction remains under live qualification.
+The final frozen CNPG run also passed at `53ddb67` in `35229065005`. All 11
+required tests passed; the main workflow took 700.42 seconds. Independent checks
+matched 1,438 source files, 416 generation hashes, compiler and image identity,
+six browser startup instances, and complete runtime and volume cleanup. The
+three dashboard images were reviewed. This run verified the corrected fixture
+deadlines. It is a historical result: the user has removed CNPG from the product
+scope. See [the final record](https://github.com/jsell-rh/hypershell-stego/blob/9cb10239c83d9b76e31f9403cfa35e34c70345ea/acceptance/retired-cnpg-final.md).
+
+The external-only Hypershell change removed the CNPG installer, credential
+projection, network additions, and CI jobs. Its hosted browser, 231 UI tests,
+and seven image builds passed. CI generated the replacement test policy;
+independent checks found one changed network validation rule among 19 cluster
+resources. The operator applied that exact rule after verified cleanup.
+The complete external PostgreSQL workflow is running in `35232271576` at
+`62e82d5`. The core checks and complete external workflow remain unqualified.
+See [the database contract and evidence](https://github.com/jsell-rh/hypershell-stego/blob/9cb10239c83d9b76e31f9403cfa35e34c70345ea/acceptance/external-gateway-databases.md).
 
 The earlier hosted core run at `4897fc1` failed a cleanup recovery event deadline
 and an unrelated Keycloak client response comparison. Later checks follow the
