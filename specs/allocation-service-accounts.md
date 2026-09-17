@@ -181,7 +181,8 @@ browser workflow passed in run `35238144248`. Three browser instances each
 supplied all eight startup stages with correlated logs, traces, and metrics.
 Two images were reviewed. Seven image builds, entrypoint and user checks,
 231 UI tests, and three console generation checks also passed. The full core
-job remains active. The hosted fixture does not run the real Gateway workload.
+job failed in the namespace-count fixture. The hosted fixture does not run the
+real Gateway workload.
 
 The server accepted dry runs for five policy changes and six additions.
 Only allocator, worker, and fixture inspector permissions change. Five other
@@ -216,3 +217,24 @@ The intervening API repeat passed all 52 required tests; independent cleanup
 found no remaining API test resources or held lease at 15:22 UTC on 2026-09-17.
 No account-policy update has been applied. The live workflow must still prove
 account use and recovery with the new runtime and Pod checks.
+
+The core run passed 682 cases but failed
+`TestNamespaceCountWorkflowThroughGeneratedWorker`. Its TLS namespace fixture
+omitted the declared account annotations. The generated namespace check rejected
+that response before the worker became ready. Hypershell `96cbd4d` uses the
+common `ServiceAccountName` API to supply both annotations. The runtime check
+remains in place.
+
+The next CI run found an incomplete installation fixture before image build.
+Hypershell `51567de` adds the namespace, Kubernetes list fields, and qualified
+resource names to that fixture. All eight focused Python tests passed. The
+incomplete CI run was cancelled; both acceptance jobs completed container
+cleanup before a new run started. Its interrupted checks are not passes.
+
+[Run 35241823877](https://github.com/jsell-rh/hypershell-stego/actions/runs/35241823877)
+is active at `51567dea428fecbc844dc4b67aea4afde82ffcad` with both fixture fixes.
+No generated runtime or policy changed in these fixes. The account policy
+remains uninstalled. Independent operator reads at 15:41 UTC on 2026-09-17
+found no test workloads, allocations, or held test lease. The prior apply helper
+is stale and must not be used. Complete CI checks and the real account workflow
+remain required.
