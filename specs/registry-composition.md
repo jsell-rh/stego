@@ -107,8 +107,9 @@ All 121 archived source files matched the local module. Revision `399a41b`
 selects that checked module and records its final dependency input hashes.
 Common compiler revision `8e0fae6` passed
 [all six CI jobs](https://github.com/jsell-rh/stego/actions/runs/35160694463).
-These results establish the registry integration. They do not establish a
-complete deployed dashboard. That application gate remains open in the
+These earlier results establish the registry integration. The later public
+workflow at `e8bb965` establishes the deployed dashboard behavior described
+above. The expanded CNPG gate remains open in the
 [integration record](upstream-dashboard-integration.md).
 
 These Hypershell changes are on the development branch. Hypershell `main`
