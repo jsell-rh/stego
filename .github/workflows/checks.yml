@@ -1,6 +1,7 @@
 name: Compiler checks
 
 on:
+  workflow_dispatch:
   push:
     paths-ignore:
       - '**/*.md'
