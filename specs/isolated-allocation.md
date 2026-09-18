@@ -1,0 +1,68 @@
+# Allocation for an isolated runtime
+
+This change is under qualification. Hypershell does not use it yet. Keep its
+Sandbox constructor guard until the complete allocation path is verified.
+
+An allocation profile defaults to `pod_security: restricted`. An explicit
+`pod_security: isolated-runtime` requires all of these settings:
+
+- An exact `pod_runtime_class` name.
+- A `pod_service_account` alias from the profile's declared accounts.
+- `network_isolation: true`.
+
+The operator must install and verify the runtime handler. A RuntimeClass name
+alone does not prove VM isolation. The generated declaration does not install a
+handler, select its nodes, or qualify its host configuration. See the
+[Kubernetes RuntimeClass reference](https://kubernetes.io/docs/concepts/containers/runtime-class/).
+
+The isolated mode sets the namespace's Pod Security Admission level to
+`privileged`. This permits root helpers and declared capabilities that the
+standard `restricted` level cannot accept. The generated admission policy still
+rejects privileged containers and host access. The namespace label and its
+allocation identity are immutable. A profile change cannot convert an existing
+restricted namespace to an isolated namespace. Plan such a change as an explicit
+allocation replacement. See the
+[Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+
+The policy requires the selected runtime and allocated account. It requires an
+explicit false value for automatic service-account token mounting. It rejects
+host network, PID, and IPC namespaces; host ports; host and inline remote storage;
+block devices; mount propagation; dynamic devices and extended resources;
+sysctls; Windows settings; unmasked proc storage; explicit privilege escalation;
+and ephemeral containers. Root users and the normal container capability defaults
+remain available inside the isolated runtime. No Pod setting is changed by STEGO.
+
+Added Linux capabilities require a `pod_capability_grants` entry with an exact
+container name, an image pinned by SHA-256, and an explicit capability list.
+The container must also drop all default capabilities and explicitly disable
+privilege escalation. The declaration permits at most eight grants, with at
+most 16 distinct capabilities per grant. These are declaration bounds, not
+Gateway capacity limits. Review each grant against the selected runtime and
+application. A pinned image does not constrain the command passed to that image.
+
+Pod annotations are denied unless listed in `pod_annotations`. The generated
+policy also permits `openshift.io/scc`, which OpenShift sets during admission.
+Application annotation keys must be qualified names. The compiler rejects
+reserved Kubernetes, OpenShift, and Kata settings. The operator must review
+allowed application annotations against the cluster's admission services.
+PersistentVolumeClaims use operator-controlled storage; this policy does not
+inspect the storage driver or prove volume isolation.
+
+The trusted allocator still creates accounts, resource limits, network policy,
+and exact role bindings. The Pod policy adds no permission to change admission
+policy or RuntimeClasses. Account bindings can use an existing operator role,
+including an OpenShift SCC role, only through the declared allocation binding.
+Application workers do not receive cluster-policy write access.
+
+Hypershell must retain its OpenShell-specific workload rules, selected images,
+and placement policy. Those declarations belong above these common controls.
+The upstream workspace-copy user and socket volume stay unchanged. The live
+Kata test remains deferred; an admission dry-run cannot replace that test.
+
+## Qualification
+
+The first CI attempt at `8f27297` passed declaration validation and manifest
+rendering but failed generated runtime compilation. A namespace check had also
+been added to an account lookup. Commit `a74c401` removes that erroneous check.
+The failed result is retained. Corrected-source CI and cluster admission checks
+remain pending. No result here establishes live Sandbox support.
