@@ -41,7 +41,9 @@ Gateway capacity limits. Review each grant against the selected runtime and
 application. A pinned image does not constrain the command passed to that image.
 
 Pod annotations are denied unless listed in `pod_annotations`. The generated
-policy also permits `openshift.io/scc`, which OpenShift sets during admission.
+policy also permits `openshift.io/scc` and
+`security.openshift.io/validated-scc-subject-type`, which OpenShift sets during
+admission. See the [OpenShift admission source](https://github.com/openshift/apiserver-library-go/blob/master/pkg/securitycontextconstraints/sccadmission/admission.go).
 Application annotation keys must be qualified names. The compiler rejects
 reserved Kubernetes, OpenShift, and Kata settings. The operator must review
 allowed application annotations against the cluster's admission services.
@@ -64,5 +66,7 @@ Kata test remains deferred; an admission dry-run cannot replace that test.
 The first CI attempt at `8f27297` passed declaration validation and manifest
 rendering but failed generated runtime compilation. A namespace check had also
 been added to an account lookup. Commit `a74c401` removes that erroneous check.
-The failed result is retained. Corrected-source CI and cluster admission checks
-remain pending. No result here establishes live Sandbox support.
+The failed result is retained. Corrected-source CI passed. The first cluster check type-checked all 16
+policies, then rejected the positive Pod because its annotation list did not
+include OpenShift's SCC subject-type annotation. The corrected policy permits
+that exact key. A new cluster check remains pending. No result here establishes live Sandbox support.

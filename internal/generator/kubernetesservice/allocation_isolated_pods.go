@@ -32,7 +32,7 @@ func allocationIsolatedPodConfig(values object, p *allocationProfile) error {
 		for _, raw := range entries {
 			key, ok := raw.(string)
 			domain, _, qualified := strings.Cut(key, "/")
-			if !ok || !qualified || !validLabelKey(key) || seen[key] || domain == "kubernetes.io" || strings.HasSuffix(domain, ".kubernetes.io") || domain == "openshift.io" || strings.Contains(domain, "katacontainers") {
+			if !ok || !qualified || !validLabelKey(key) || seen[key] || domain == "kubernetes.io" || strings.HasSuffix(domain, ".kubernetes.io") || domain == "openshift.io" || strings.HasSuffix(domain, ".openshift.io") || strings.Contains(domain, "katacontainers") {
 				return fmt.Errorf("Pod annotation requires a distinct application key")
 			}
 			seen[key] = true
@@ -98,7 +98,7 @@ func allocationIsolatedPodChecks(p allocationProfile, checks []any) ([]any, []an
 	add("variables.containers.all(c, (!has(c.volumeDevices) || size(c.volumeDevices) == 0) && (!has(c.volumeMounts) || c.volumeMounts.all(m, !has(m.mountPropagation) || m.mountPropagation == 'None')))", "Isolated containers cannot mount block devices or propagate mounts")
 	add("variables.containers.all(c, !has(c.resources) || ((!has(c.resources.claims) || size(c.resources.claims) == 0) && (!has(c.resources.limits) || c.resources.limits.all(k, k in ['cpu','memory','ephemeral-storage'])) && (!has(c.resources.requests) || c.resources.requests.all(k, k in ['cpu','memory','ephemeral-storage']))))", "Isolated containers cannot request extended resources or devices")
 	add("!has(object.spec.volumes) || object.spec.volumes.all(v, has(v.configMap) || has(v.downwardAPI) || has(v.emptyDir) || has(v.persistentVolumeClaim) || has(v.projected) || has(v.secret) || has(v.image))", "Isolated Pods require approved volume types")
-	annotations := []string{celString("openshift.io/scc")}
+	annotations := []string{celString("openshift.io/scc"), celString("security.openshift.io/validated-scc-subject-type")}
 	for _, key := range p.PodAnnotations {
 		annotations = append(annotations, celString(key))
 	}
