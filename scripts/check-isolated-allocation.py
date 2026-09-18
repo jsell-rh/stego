@@ -43,6 +43,14 @@ def isolated_pod(namespace, account):
 class Check(pods.Check):
     allocation_prefixes = (common.PREFIX, pods.UNRELATED)
 
+    def namespace_mode_probe(self, namespace):
+        # Both generated guards require the declared mode. Kubernetes can
+        # report either denial first; an unrelated denial is not sufficient.
+        self.probe("namespace mode is immutable", ["patch", "namespace", namespace, "--type=merge", "--dry-run=server", "-p",
+                   json.dumps({"metadata": {"labels": {"pod-security.kubernetes.io/enforce": "restricted"}}})],
+                   user=common.actor(common.CONTROL),
+                   policy=[common.CONTROL + ".widget-queue.ownership", common.CONTROL + ".widget-queue.allocation"])
+
     def grant_scc(self, namespace, control):
         labels = {k: v for k, v in namespace["metadata"]["labels"].items() if not k.startswith("pod-security.")}
         return self.create({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
@@ -194,9 +202,7 @@ class Check(pods.Check):
         self.pod_probe("matching platform seccomp annotation", changed, writer, allowed=True)
         changed["metadata"]["annotations"] = {"example.test/workload": "one"}
         self.pod_probe("declared application annotation", changed, writer, allowed=True)
-        self.probe("namespace mode is immutable", ["patch", "namespace", namespace, "--type=merge", "--dry-run=server", "-p",
-                   json.dumps({"metadata": {"labels": {"pod-security.kubernetes.io/enforce": "restricted"}}})],
-                   user=common.actor(common.CONTROL), policy=common.CONTROL + ".widget-queue.ownership")
+        self.namespace_mode_probe(namespace)
         self.create(common.namespace(pods.UNRELATED))
         self.wait_account(pods.UNRELATED, "default")
         unrelated = pods.pod(pods.UNRELATED, "default")

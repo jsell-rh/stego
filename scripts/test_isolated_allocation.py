@@ -25,6 +25,32 @@ class Fixture(isolated.Check):
 
 
 class IsolatedRunnerTests(unittest.TestCase):
+    def test_namespace_mode_requires_a_matching_guard(self):
+        class ModeFixture(isolated.Check):
+            def __init__(self, response):
+                self.response, self.result, self.probes, self.commands = response, {}, [], []
+
+            def run(self, command, obj=None, user=None):
+                self.commands.append(command)
+                return subprocess.CompletedProcess(command, 1, "", self.response)
+
+            def save(self):
+                pass
+
+        for name in ["ownership", "allocation", "pods.tenant"]:
+            policy = isolated.common.CONTROL + ".widget-queue." + name
+            check = ModeFixture("ValidatingAdmissionPolicy '" + policy + "' with binding '" + policy + "' denied request: mode differs")
+            if name == "pods.tenant":
+                with self.assertRaisesRegex(RuntimeError, "expected admission policy"):
+                    check.namespace_mode_probe("fixture")
+                self.assertEqual(check.probes, [])
+            else:
+                check.namespace_mode_probe("fixture")
+                self.assertEqual(len(check.probes), 1)
+            self.assertIn("--dry-run=server", check.commands[0])
+        with self.assertRaisesRegex(RuntimeError, "expected admission policy"):
+            ModeFixture("Forbidden: access denied").namespace_mode_probe("fixture")
+
     def test_no_pod_persistence(self):
         check = Fixture(None)
         with self.assertRaisesRegex(RuntimeError, "persistence is forbidden"):
