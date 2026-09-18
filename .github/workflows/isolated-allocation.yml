@@ -63,12 +63,12 @@ jobs:
           mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
           git rev-parse HEAD > "$STEGO_ALLOCATION_ARTIFACTS/source-commit"
           git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
+          cp go.mod go.sum "$STEGO_ALLOCATION_ARTIFACTS/"
+          git diff --binary -- go.mod go.sum > "$STEGO_ALLOCATION_ARTIFACTS/dependencies.patch"
           go mod verify
           go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/kubernetesservice \
             -run '^(TestAllocationPodRule.*|TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
             | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
-          cp go.mod go.sum "$STEGO_ALLOCATION_ARTIFACTS/"
-          git diff --binary -- go.mod go.sum > "$STEGO_ALLOCATION_ARTIFACTS/dependencies.patch"
           if [[ "${{ inputs.refresh_dependencies }}" != true ]]; then git diff --exit-code; fi
       - name: Render the second installation
         env:
