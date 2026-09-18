@@ -25,8 +25,12 @@ func networkProfileContext() gen.Context {
 
 func TestAllocationNetworkProfileValidation(t *testing.T) {
 	for name, change := range map[string]func(object, object){
-		"unknown":                func(p, peer object) { p["network_peers"].([]any)[0].(object)["peer_profile"] = "missing" },
-		"self":                   func(p, peer object) { p["network_peers"].([]any)[0].(object)["peer_profile"] = p["name"] },
+		"unknown": func(p, peer object) { p["network_peers"].([]any)[0].(object)["peer_profile"] = "missing" },
+		"self":    func(p, peer object) { p["network_peers"].([]any)[0].(object)["peer_profile"] = p["name"] },
+		"reserved namespace label": func(p, peer object) {
+			p["owner_label"] = "kubernetes.io/metadata.name"
+			peer["owner_label"] = "kubernetes.io/metadata.name"
+		},
 		"different owner domain": func(p, peer object) { peer["owner_label"] = "example.test/other" },
 		"different suffix":       func(p, peer object) { peer["suffix_length"] = 9 },
 		"unisolated target":      func(p, peer object) { delete(peer, "network_isolation") },

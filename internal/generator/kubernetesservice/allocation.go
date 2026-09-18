@@ -374,7 +374,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 					break
 				}
 			}
-			if peer == nil || peer.Name == p.Name || !peer.NetworkIsolation || peer.OwnerLabel != p.OwnerLabel || peer.SuffixLength != p.SuffixLength {
+			if peer == nil || peer.Name == p.Name || !peer.NetworkIsolation || peer.OwnerLabel != p.OwnerLabel || peer.SuffixLength != p.SuffixLength || p.OwnerLabel == "kubernetes.io/metadata.name" {
 				return result, fmt.Errorf("related network peer requires a distinct isolated profile with the same owner domain and suffix length")
 			}
 			n.PeerPrefix = peer.Prefix
