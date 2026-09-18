@@ -1,7 +1,7 @@
 # Application Pod rules
 
-This extension is under development. It is not a qualified compiler release.
-Hypershell has not adopted it.
+The common compiler extension is released. Hypershell integration is in progress.
+Its complete Sandbox workflow remains unverified.
 
 An allocation profile can add `pod_validations`. Each entry has a CEL
 `expression` and a fixed `message`. A profile must already require a Pod runtime
@@ -47,8 +47,7 @@ required. The generated admission rule requires all four namespace labels;
 workers cannot remove one or replace it with a selector expression. A namespace
 recreated for another owner does not match the retained rule.
 
-This is an implementation candidate. Release publication and consumer
-integration remain incomplete. A correct policy declaration does not prove
+Consumer integration remains incomplete. A correct policy declaration does not prove
 that a cluster network provider has enforced it.
 
 ## Qualification record
@@ -81,7 +80,7 @@ The [full compiler check](https://github.com/jsell-rh/stego/actions/runs/3534876
 passed at `3358afe`: all six jobs, both examples, and 34 packages with the race
 detector. Only two Python runner files changed between that source and
 `0f093fb`; compiler inputs did not change. Later changes only update these records.
-This candidate is not released or adopted by Hypershell. Network traffic,
+The initial check above preceded release. Network traffic,
 network-controller annotations, and live Kata execution are not proved by these
 dry runs. Hypershell must retain its Sandbox constructor guard until its full
 allocation and cleanup path is checked. Keep OpenShell's current setup; this
@@ -91,13 +90,13 @@ See [the result record](allocation-pod-rules-evidence.json). Detailed records an
 fixed source copies are under
 `~/.local/state/stego/runs/allocation-pod-rules-20260918/`.
 
-## Label presence candidate
+## Label presence
 
 A network peer can declare `pod_exists_label` instead of `pod_label` and
 `pod_value`. The compiler accepts one label key and rejects combined selectors.
 The generated rule requires exactly one `Exists` expression with that key, no
 values, and no other Pod selector. Namespace, owner, protocol, and port checks
-remain in force. This extension is under qualification and is not released.
+remain in force.
 
 The application needs this form because the pinned Agent Sandbox controller
 sets a separate tracking-label value for each Sandbox. This is a standard
@@ -117,5 +116,11 @@ policy. These checks do not prove CNI traffic or Kata execution. The
 [full compiler check](https://github.com/jsell-rh/stego/actions/runs/35350549513)
 also passed at `58d9bd4`: all six jobs, both generated examples, and 34 packages
 with the race detector. Only result records changed after that source. Release
-publication and consumer regeneration remain pending. See the
+publication has completed. Consumer regeneration remains pending. See the
 [label presence record](allocation-label-presence-evidence.json).
+
+The [signed compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781)
+is published. Two separate hosted builds produced identical bytes. The common
+installer authenticated the binary and build record. All four uploaded files
+matched the authenticated package. A second installation from the immutable
+release produced the same verification record. No compiler binary ran locally.

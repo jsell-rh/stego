@@ -56,7 +56,7 @@
       "runner.log": "7e7464e9fb0abefe0f92695a759d2d3b4037275f9dff1b72dd24de0b8a748d09"
     }
   },
-  "released": false,
+  "released": true,
   "consumer_adopted": false,
   "full_compiler": {
     "run": "https://github.com/jsell-rh/stego/actions/runs/35350549513",
@@ -125,5 +125,94 @@
       "specs/allocation-pod-rules.md"
     ],
     "local_go_tests_run": false
+  },
+  "release": {
+    "artifact-verification.json": {
+      "run": "https://github.com/jsell-rh/stego/actions/runs/35351457930",
+      "source": "0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781",
+      "checked_at": "2026-09-18T13:41:27.579970+00:00",
+      "source_inventory": {
+        "sha256": "4f69f99935e27909d2c7229b6e6e099f283a8b0f48cd27f9156e5f1fc47fd4b5",
+        "files": 1260,
+        "bytes": 10012605
+      },
+      "binary_sha256": "04ade59a50b6a9a28fd570053b1d9ef0bc78a8f3b5b7863d306e4dfe47193265",
+      "build_record_sha256": "cfebba051ff30e9d65e8fdaf23cc0a1398fd46175a4bb847b9c74ec15b163218",
+      "independent_hosted_builds": 2,
+      "binary_executed_locally": false,
+      "signed_provenance": false,
+      "release_published": false,
+      "scope": "Main build bytes and source inventory match the successful hosted build. The signature records also match. Separate local signature verification and full-suite qualification are required before release.",
+      "ci_signature_checks_passed": true,
+      "ci_rejection_cases": [
+        "different-source-commit",
+        "changed-compiler-with-matching-checksums",
+        "changed-build-record",
+        "invalid-signature-bundle"
+      ]
+    },
+    "local-installation.json": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "04ade59a50b6a9a28fd570053b1d9ef0bc78a8f3b5b7863d306e4dfe47193265",
+        "size": 38352469
+      },
+      "build_record_sha256": "cfebba051ff30e9d65e8fdaf23cc0a1398fd46175a4bb847b9c74ec15b163218",
+      "bundle_sha256": "2c1a978c82a1dfff121fe4539e674ce047d3a77b8bde3a476fd610c409eba129"
+    },
+    "draft-assets-verification.json": {
+      "release_id": 391506018,
+      "source": "0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781",
+      "assets": [
+        {
+          "name": "build.json",
+          "id": 572709698,
+          "size": 8471,
+          "sha256": "cfebba051ff30e9d65e8fdaf23cc0a1398fd46175a4bb847b9c74ec15b163218"
+        },
+        {
+          "name": "provenance.jsonl",
+          "id": 572709697,
+          "size": 10880,
+          "sha256": "2c1a978c82a1dfff121fe4539e674ce047d3a77b8bde3a476fd610c409eba129"
+        },
+        {
+          "name": "SHA256SUMS",
+          "id": 572709696,
+          "size": 161,
+          "sha256": "9150642a39cbd47a4ddb2a4c1950630e6c0a0c69c957cb93cc91accff2ca6a65"
+        },
+        {
+          "name": "stego-linux-amd64",
+          "id": 572709700,
+          "size": 38352469,
+          "sha256": "04ade59a50b6a9a28fd570053b1d9ef0bc78a8f3b5b7863d306e4dfe47193265"
+        }
+      ]
+    },
+    "release-installation.json": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "04ade59a50b6a9a28fd570053b1d9ef0bc78a8f3b5b7863d306e4dfe47193265",
+        "size": 38352469
+      },
+      "build_record_sha256": "cfebba051ff30e9d65e8fdaf23cc0a1398fd46175a4bb847b9c74ec15b163218",
+      "bundle_sha256": "2c1a978c82a1dfff121fe4539e674ce047d3a77b8bde3a476fd610c409eba129"
+    },
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-0fcdf3b6a2ff12e30cc6d812b0ac9fdfc9847781"
   }
 }
