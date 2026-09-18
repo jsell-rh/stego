@@ -44,6 +44,10 @@ Pod annotations are denied unless listed in `pod_annotations`. The generated
 policy also permits `openshift.io/scc` and
 `security.openshift.io/validated-scc-subject-type`, which OpenShift sets during
 admission. See the [OpenShift admission source](https://github.com/openshift/apiserver-library-go/blob/master/pkg/securitycontextconstraints/sccadmission/admission.go).
+OpenShift also emits `seccomp.security.alpha.kubernetes.io/pod`. The policy
+permits this key only with `runtime/default` and a matching structured
+`RuntimeDefault` seccomp profile. It rejects unconfined and local-profile values
+in that legacy key. See the [OpenShift SCC provider source](https://github.com/openshift/apiserver-library-go/blob/master/pkg/securitycontextconstraints/sccmatching/provider.go).
 Application annotation keys must be qualified names. The compiler rejects
 reserved Kubernetes, OpenShift, and Kata settings. The operator must review
 allowed application annotations against the cluster's admission services.
@@ -84,10 +88,22 @@ Both processes are terminal. Their UID journals and all planned resource names
 were checked after cleanup: all 59 paths were absent, including resources whose
 create requests had an uncertain result. The shared test lease was free.
 
+The full compiler run [35344821534](https://github.com/jsell-rh/stego/actions/runs/35344821534)
+passed at `5cb252d`. Independent log inspection confirmed all six jobs, 34
+packages with race checks, the PostgreSQL checks, and both generated examples.
+The runner update at `36afe5a` passed 31 safety checks and the focused generator
+and restart checks. Its generated manifests were unchanged.
+
+The fourth cluster attempt type-checked all 16 policies, then rejected the
+positive Pod on the annotation guard. Cleanup removed all 59 planned and
+recorded resource paths; the shared lease was released. A separate server
+dry-run in the test namespace identified OpenShift's legacy seccomp annotation.
+No Pod was stored. The correction permits only its RuntimeDefault pair and
+adds live checks for denied legacy values and undeclared application keys.
+This correction still needs CI and a complete live admission result.
+
 Evidence is retained under
-`~/.local/state/stego/runs/isolated-allocation-20260918/`. The corrected policy
-still needs a complete live admission result. Full compiler run `35344821534`
-is active at this source. The two earlier full runs were canceled after their
-sources had known compile or admission failures; they are not passing results.
-Do not remove the Hypershell guard or publish this compiler from the focused
-checks alone.
+`~/.local/state/stego/runs/isolated-allocation-20260918/`. The two earlier full
+runs were canceled after their sources had known compile or admission failures;
+they are not passing results. Do not remove the Hypershell guard or publish
+this compiler from the focused checks alone.

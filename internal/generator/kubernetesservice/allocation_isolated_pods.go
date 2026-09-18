@@ -102,7 +102,10 @@ func allocationIsolatedPodChecks(p allocationProfile, checks []any) ([]any, []an
 	for _, key := range p.PodAnnotations {
 		annotations = append(annotations, celString(key))
 	}
-	add("!has(object.metadata.annotations) || object.metadata.annotations.all(k, k in ["+strings.Join(annotations, ",")+"])", "Isolated Pods cannot set undeclared annotations")
+	// OpenShift emits this legacy key with the structured RuntimeDefault field.
+	// Permit only that pair; application declarations cannot grant legacy keys.
+	seccomp := "(k == 'seccomp.security.alpha.kubernetes.io/pod' && object.metadata.annotations[k] == 'runtime/default' && has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile) && object.spec.securityContext.seccompProfile.type == 'RuntimeDefault')"
+	add("!has(object.metadata.annotations) || object.metadata.annotations.all(k, k in ["+strings.Join(annotations, ",")+"] || "+seccomp+")", "Isolated Pods cannot set undeclared annotations")
 	choices := []string{}
 	for _, grant := range p.PodCapabilityGrants {
 		caps := []string{}

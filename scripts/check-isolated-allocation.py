@@ -132,6 +132,16 @@ class Check(pods.Check):
         changed = copy.deepcopy(valid)
         changed["metadata"]["annotations"] = {"io.katacontainers.config.hypervisor.shared_fs": "none"}
         self.pod_probe("runtime annotation override", changed, policy=policy)
+        for label, annotations in [
+            ("unconfined legacy seccomp", {"seccomp.security.alpha.kubernetes.io/pod": "unconfined"}),
+            ("local legacy seccomp", {"seccomp.security.alpha.kubernetes.io/pod": "localhost/other"}),
+            ("container legacy seccomp", {"container.seccomp.security.alpha.kubernetes.io/check": "unconfined"}),
+            ("undeclared application annotation", {"example.test/other": "one"}),
+        ]:
+            changed["metadata"]["annotations"] = annotations
+            self.pod_probe(label, changed, policy=policy)
+        changed["metadata"]["annotations"] = {"seccomp.security.alpha.kubernetes.io/pod": "runtime/default"}
+        self.pod_probe("matching platform seccomp annotation", changed, writer, allowed=True)
         changed["metadata"]["annotations"] = {"example.test/workload": "one"}
         self.pod_probe("declared application annotation", changed, writer, allowed=True)
         self.probe("namespace mode is immutable", ["patch", "namespace", namespace, "--type=merge", "--dry-run=server", "-p",
