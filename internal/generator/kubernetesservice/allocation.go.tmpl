@@ -25,7 +25,7 @@ import (
 type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type identityField struct { Field, Key string }
-type networkPeer struct { PeerProfile, PeerPrefix string; Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
+type networkPeer struct { PodExistsLabel, PeerProfile, PeerPrefix string; Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
 type profile struct { PodSecurity string; ServiceAccounts []string; NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
@@ -319,6 +319,10 @@ func (a *Allocator) networkSpec(p profile, name, ownerID string) networkSpec {
   if peer.Namespace=="control"{ns=a.namespace}
   if peer.Namespace=="allocated"{ns=name}
   target:=networkTarget{NamespaceSelector:&networkSelector{MatchLabels:map[string]string{"kubernetes.io/metadata.name":ns}},PodSelector:&networkSelector{MatchLabels:map[string]string{peer.PodLabel:peer.PodValue}}}
+  if peer.PodExistsLabel!="" {
+   expression,_:=json.Marshal(map[string]string{"key":peer.PodExistsLabel,"operator":"Exists"})
+   target.PodSelector=&networkSelector{MatchExpressions:[]json.RawMessage{expression}}
+  }
   if peer.Namespace=="profile" {
    ns=peer.PeerPrefix+strings.TrimPrefix(name,p.Prefix)
    target.NamespaceSelector.MatchLabels=map[string]string{"kubernetes.io/metadata.name":ns,"stego.dev/allocator":a.marker,"stego.dev/allocation-profile":peer.PeerProfile,p.OwnerLabel:ownerID}

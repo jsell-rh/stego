@@ -21,6 +21,7 @@ type allocationRole struct {
 type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type allocationIdentityField struct{ Field, Key string }
 type allocationNetworkPeer struct {
+	PodExistsLabel                                                        string `json:",omitempty"`
 	PeerProfile, PeerPrefix                                               string `json:",omitempty"`
 	Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string
 	Port                                                                  int

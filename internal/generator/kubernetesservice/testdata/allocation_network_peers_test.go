@@ -288,3 +288,49 @@ func TestAllocationNetworkPeersRelatedOwner(t *testing.T) {
 		t.Fatal("network grant to another owner was accepted")
 	}
 }
+
+func TestAllocationNetworkPeersExistenceAndRestart(t *testing.T) {
+	a, s := fixture(t)
+	p := &a.config.Profiles[0]
+	p.NetworkIsolation = true
+	p.NetworkPeers = []networkPeer{{Direction: "ingress", Namespace: "allocated", PodExistsLabel: "example.test/workload", Port: 8080, Protocol: "TCP"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	policy := s.objects[networkPath]
+	peer := policy["spec"].(map[string]any)["ingress"].([]any)[0].(map[string]any)["from"].([]any)[0].(map[string]any)
+	selector := peer["podSelector"].(map[string]any)
+	if len(selector) != 1 {
+		t.Fatal("unexpected existence selector", selector)
+	}
+	expressions := selector["matchExpressions"].([]any)
+	if len(expressions) != 1 {
+		t.Fatal(expressions)
+	}
+	requirement := expressions[0].(map[string]any)
+	if len(requirement) != 2 || requirement["key"] != "example.test/workload" || requirement["operator"] != "Exists" {
+		t.Fatal(requirement)
+	}
+	writes := len(s.writes)
+	s.mu.Unlock()
+	restarted, err := New(a.client, "control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.config.Profiles[0] = *p
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	if len(s.writes) != writes {
+		t.Fatal("read-only restart wrote resources")
+	}
+	requirement["operator"] = "DoesNotExist"
+	s.mu.Unlock()
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+		t.Fatal("changed existence selector accepted")
+	}
+}

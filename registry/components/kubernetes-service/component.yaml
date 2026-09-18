@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.27.0
+version: 1.28.0
 output_namespace: deploy
 config:
   local_applications:
@@ -99,8 +99,9 @@ config:
           namespace: {type: string, enum: [control, allocated, external, profile]}
           external_namespace: {type: string, optional: true}
           peer_profile: {type: string, optional: true}
-          pod_label: {type: string}
-          pod_value: {type: string}
+          pod_label: {type: string, optional: true}
+          pod_value: {type: string, optional: true}
+          pod_exists_label: {type: string, optional: true}
           port: {type: int}
           protocol: {type: string, enum: [TCP, UDP]}
       identity_config_map: {type: string, optional: true}

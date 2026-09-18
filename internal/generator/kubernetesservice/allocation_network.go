@@ -19,7 +19,7 @@ func allocationNetworkPeers(raw any, isolated bool) ([]allocationNetworkPeer, er
 		}
 		for key := range fields {
 			switch key {
-			case "direction", "namespace", "external_namespace", "peer_profile", "pod_label", "pod_value", "port", "protocol":
+			case "direction", "namespace", "external_namespace", "peer_profile", "pod_label", "pod_value", "pod_exists_label", "port", "protocol":
 			default:
 				return nil, fmt.Errorf("unknown allocation network peer field %q", key)
 			}
@@ -29,9 +29,19 @@ func allocationNetworkPeers(raw any, isolated bool) ([]allocationNetworkPeer, er
 		p.Namespace, _ = fields["namespace"].(string)
 		p.PodLabel, _ = fields["pod_label"].(string)
 		p.PodValue, _ = fields["pod_value"].(string)
+		if exists, present := fields["pod_exists_label"]; present {
+			p.PodExistsLabel, ok = exists.(string)
+			_, hasLabel := fields["pod_label"]
+			_, hasValue := fields["pod_value"]
+			if !ok || !validLabelKey(p.PodExistsLabel) || hasLabel || hasValue {
+				return nil, fmt.Errorf("pod_exists_label requires one label key and no Pod label value selector")
+			}
+		} else if !validLabelKey(p.PodLabel) || !labelValue.MatchString(p.PodValue) {
+			return nil, fmt.Errorf("allocation network peer requires a Pod label and value, or pod_exists_label")
+		}
 		p.Protocol, _ = fields["protocol"].(string)
 		p.Port, ok = fields["port"].(int)
-		if !ok || p.Port < 1 || p.Port > 65535 || (p.Direction != "ingress" && p.Direction != "egress") || !validLabelKey(p.PodLabel) || !labelValue.MatchString(p.PodValue) || (p.Protocol != "TCP" && p.Protocol != "UDP") {
+		if !ok || p.Port < 1 || p.Port > 65535 || (p.Direction != "ingress" && p.Direction != "egress") || (p.Protocol != "TCP" && p.Protocol != "UDP") {
 			return nil, fmt.Errorf("allocation network peer requires a direction, Pod label and value, numeric port, and TCP or UDP protocol")
 		}
 		peerProfile, hasPeer := fields["peer_profile"]
@@ -120,9 +130,15 @@ func allocationNetworkRulesCEL(p allocationProfile, direction string) string {
 			}
 			namespaceCheck = "(" + strings.Join(parts, " && ") + ")"
 		}
+		podPath := target + "[0].podSelector"
+		podCheck := selector(podPath, peer.PodLabel, celString(peer.PodValue))
+		if peer.PodExistsLabel != "" {
+			expression := podPath + ".matchExpressions[0]"
+			podCheck = "has(" + podPath + ") && (!has(" + podPath + ".matchLabels) || size(" + podPath + ".matchLabels) == 0) && has(" + podPath + ".matchExpressions) && size(" + podPath + ".matchExpressions) == 1 && " + expression + ".key == " + celString(peer.PodExistsLabel) + " && " + expression + ".operator == 'Exists' && (!has(" + expression + ".values) || size(" + expression + ".values) == 0)"
+		}
 		checks = append(checks, "has("+target+") && size("+target+") == 1 && !has("+target+"[0].ipBlock)",
 			namespaceCheck,
-			selector(target+"[0].podSelector", peer.PodLabel, celString(peer.PodValue)),
+			podCheck,
 			"has("+rule+".ports) && size("+rule+".ports) == 1 && has("+rule+".ports[0].port) && "+rule+".ports[0].port == "+fmt.Sprint(peer.Port)+" && has("+rule+".ports[0].protocol) && "+rule+".ports[0].protocol == "+celString(peer.Protocol)+" && !has("+rule+".ports[0].endPort)")
 	}
 	return "(" + strings.Join(checks, " && ") + ")"

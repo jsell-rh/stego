@@ -90,3 +90,15 @@ extension adds neither a mutation service nor an OpenShell fork.
 See [the result record](allocation-pod-rules-evidence.json). Detailed records and
 fixed source copies are under
 `~/.local/state/stego/runs/allocation-pod-rules-20260918/`.
+
+## Label presence candidate
+
+A network peer can declare `pod_exists_label` instead of `pod_label` and
+`pod_value`. The compiler accepts one label key and rejects combined selectors.
+The generated rule requires exactly one `Exists` expression with that key, no
+values, and no other Pod selector. Namespace, owner, protocol, and port checks
+remain in force. This extension is under qualification and is not released.
+
+The application needs this form because the pinned Agent Sandbox controller
+sets a separate tracking-label value for each Sandbox. This is a standard
+Kubernetes selector; no OpenShell-specific label is built into STEGO.
