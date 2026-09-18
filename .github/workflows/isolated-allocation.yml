@@ -67,9 +67,15 @@ jobs:
           git diff --binary -- go.mod go.sum > "$STEGO_ALLOCATION_ARTIFACTS/dependencies.patch"
           go mod verify
           go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/kubernetesservice \
-            -run '^(TestAllocationPodRule.*|TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
+            -run '^(TestAllocationPodRule.*|TestAllocationNetworkMetadata(Validation|StatusPolicy|CEL)|TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
             | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
           if [[ "${{ inputs.refresh_dependencies }}" != true ]]; then git diff --exit-code; fi
+      - name: Render node network metadata policy
+        env:
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation/network-metadata
+        run: |
+          go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice \
+            -run '^TestAllocationNetworkMetadataManifests$'
       - name: Check related network peers and restart
         env:
           STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation/network

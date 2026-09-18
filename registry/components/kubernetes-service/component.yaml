@@ -1,6 +1,6 @@
 kind: component
 name: kubernetes-service
-version: 1.28.0
+version: 1.29.0
 output_namespace: deploy
 config:
   local_applications:
@@ -65,6 +65,7 @@ config:
         optional: true
         items: {type: string}
       pod_security: {type: string, enum: [restricted, isolated-runtime], optional: true}
+      pod_network_provider: {type: string, enum: [openshift-ovn-node-identity], optional: true}
       pod_annotations:
         type: list
         optional: true

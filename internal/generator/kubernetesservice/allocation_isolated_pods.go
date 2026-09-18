@@ -23,6 +23,13 @@ func allocationIsolatedPodConfig(values object, p *allocationProfile) error {
 	if p.PodSecurity == "isolated-runtime" && (p.PodRuntimeClass == "" || p.PodServiceAccount == "" || values["network_isolation"] != true) {
 		return fmt.Errorf("isolated-runtime requires pod_runtime_class, pod_service_account, and network_isolation")
 	}
+	if raw, exists := values["pod_network_provider"]; exists {
+		provider, ok := raw.(string)
+		if p.PodSecurity != "isolated-runtime" || !ok || provider != "openshift-ovn-node-identity" {
+			return fmt.Errorf("pod_network_provider requires isolated-runtime and openshift-ovn-node-identity")
+		}
+		p.PodNetworkProvider = provider
+	}
 	if raw, exists := values["pod_annotations"]; exists {
 		entries, ok := raw.([]any)
 		if p.PodSecurity != "isolated-runtime" || !ok || len(entries) == 0 || len(entries) > 32 {
@@ -32,7 +39,7 @@ func allocationIsolatedPodConfig(values object, p *allocationProfile) error {
 		for _, raw := range entries {
 			key, ok := raw.(string)
 			domain, _, qualified := strings.Cut(key, "/")
-			if !ok || !qualified || !validLabelKey(key) || seen[key] || domain == "kubernetes.io" || strings.HasSuffix(domain, ".kubernetes.io") || domain == "openshift.io" || strings.HasSuffix(domain, ".openshift.io") || strings.Contains(domain, "katacontainers") {
+			if !ok || !qualified || !validLabelKey(key) || seen[key] || domain == "kubernetes.io" || strings.HasSuffix(domain, ".kubernetes.io") || domain == "openshift.io" || strings.HasSuffix(domain, ".openshift.io") || strings.Contains(domain, "katacontainers") || domain == "k8s.ovn.org" || domain == "k8s.v1.cni.cncf.io" {
 				return fmt.Errorf("Pod annotation requires a distinct application key")
 			}
 			seen[key] = true
@@ -101,6 +108,11 @@ func allocationIsolatedPodChecks(p allocationProfile, checks []any) ([]any, []an
 	annotations := []string{celString("openshift.io/scc"), celString("security.openshift.io/validated-scc-subject-type")}
 	for _, key := range p.PodAnnotations {
 		annotations = append(annotations, celString(key))
+	}
+	if p.PodNetworkProvider != "" {
+		annotations = append(annotations, celString(ovnPodNetworks), celString(multusNetworkStatus))
+		add(allocationNetworkMetadataCEL(ovnPodNetworks, "system:ovn-node:", "system:ovn-nodes"), "OVN Pod metadata requires the assigned network node identity")
+		add(allocationNetworkMetadataCEL(multusNetworkStatus, "system:multus:", "system:multus"), "Multus Pod metadata requires the assigned network node identity")
 	}
 	// OpenShift emits this legacy key with the structured RuntimeDefault field.
 	// Permit only that pair; application declarations cannot grant legacy keys.

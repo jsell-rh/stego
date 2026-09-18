@@ -64,7 +64,7 @@ func allocationPodObjects(config allocationConfiguration, p allocationProfile, i
 		checks = append(checks, object{"expression": rule.Expression, "message": rule.Message})
 	}
 	name := "{{.Namespace}}." + config.Allocator + ".pods." + p.Name
-	rules := []any{object{"apiGroups": []string{""}, "apiVersions": []string{"v1"}, "operations": []string{"CREATE", "UPDATE"}, "resources": []string{"pods", "pods/ephemeralcontainers"}, "scope": "Namespaced"}}
+	rules := []any{object{"apiGroups": []string{""}, "apiVersions": []string{"v1"}, "operations": []string{"CREATE", "UPDATE"}, "resources": []string{"pods", "pods/status", "pods/ephemeralcontainers"}, "scope": "Namespaced"}}
 	items := allocationPolicy(name, rules, "request.namespace != '{{.Namespace}}'", variables, checks)
 	// Select immutable allocator and profile labels. Two installations can use
 	// the same name pattern without applying their policy to each other's Pods.
