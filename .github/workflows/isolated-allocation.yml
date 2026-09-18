@@ -84,6 +84,13 @@ jobs:
           STEGO_ALLOCATION_NAMESPACE: stego-isolated-peer-ci
           STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation/peer
         run: go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestAllocationIsolatedManifests$'
+      - name: Render application rules in two installations
+        run: |
+          STEGO_ALLOCATION_ARTIFACTS="$RUNNER_TEMP/isolated-allocation/application" \
+            go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestApplicationAllocationManifests$'
+          STEGO_ALLOCATION_NAMESPACE=stego-isolated-peer-ci \
+          STEGO_ALLOCATION_ARTIFACTS="$RUNNER_TEMP/isolated-allocation/application/peer" \
+            go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestApplicationAllocationManifests$'
       - name: Save Pod restriction evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

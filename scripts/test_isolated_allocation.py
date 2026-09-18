@@ -14,6 +14,7 @@ spec.loader.exec_module(isolated)
 class Fixture(isolated.Check):
     def __init__(self, response, stored=None):
         self.response, self.stored, self.commands = response, stored, []
+        self.result = {}
 
     def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
         self.commands.append(command)
@@ -53,6 +54,17 @@ class IsolatedRunnerTests(unittest.TestCase):
         for allowed in [False, True]:
             with self.assertRaisesRegex(RuntimeError, "stored Pod"):
                 Fixture(obj, stored=obj).pod_probe("stored", obj, allowed=allowed)
+
+    def test_application_checks_use_only_dry_run(self):
+        namespace = isolated.common.PREFIX + "12345678"
+        account = isolated.common.account_name(isolated.common.CONTROL, "owner-1")
+        check = Fixture(isolated.isolated_pod(namespace, account))
+        check.created = [{"kind": "Namespace", "metadata": {"name": namespace}}]
+        check.application_probes()
+        self.assertEqual(len(check.commands), 9)
+        self.assertTrue(all(c == ["create", "--dry-run=server", "-f", "-", "-o", "json"] for c in check.commands))
+        self.assertTrue(check.result["application_rules_checked"])
+        self.assertTrue(check.result["related_network_admission_checked"])
 
     def test_fixture_is_bounded(self):
         obj = isolated.isolated_pod("fixture", "account")

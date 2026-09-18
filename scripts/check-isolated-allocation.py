@@ -20,6 +20,7 @@ common.CONTROL = "stego-isolated-control-ci"
 common.PEER = "stego-isolated-peer-ci"
 common.PREFIX = "stego-isolated-ci-"
 pods.UNRELATED = "stego-isolated-unrelated-ci"
+common.KINDS["NetworkPolicy"] = ("/apis/networking.k8s.io/v1/namespaces/{namespace}/networkpolicies", True)
 HELPER = "registry.invalid/stego/helper@sha256:" + "b" * 64
 
 
@@ -67,6 +68,55 @@ class Check(pods.Check):
                     raise RuntimeError("Admission changed the socket volume")
         if self.get(obj) is not None:
             raise RuntimeError("The dry-run left a stored Pod")
+
+    def application_probes(self):
+        namespace = next(obj["metadata"]["name"] for obj in self.created
+                         if obj["kind"] == "Namespace" and obj["metadata"]["name"].startswith(common.PREFIX))
+        account = common.account_name(common.CONTROL, "owner-1")
+        writer = "system:serviceaccount:" + common.CONTROL + ":pod-writer"
+        policy = common.CONTROL + ".widget-queue.pods.tenant"
+        pod = isolated_pod(namespace, account)
+        pod["spec"]["volumes"].append({"name": "client-identity", "secret": {"secretName": "client-identity"}})
+        mount = [{"name": "client-identity", "mountPath": "/identity", "readOnly": True}]
+        pod["spec"]["initContainers"][1]["volumeMounts"] = mount
+        self.pod_probe("application permits helper identity mount", pod, writer, allowed=True)
+        for label, container in [("workload", pod["spec"]["containers"][0]),
+                                 ("workspace", pod["spec"]["initContainers"][0])]:
+            container["volumeMounts"] = mount
+            self.pod_probe("application denies " + label + " identity mount", pod, writer, policy=policy)
+            del container["volumeMounts"]
+        labels = common.namespace(namespace, common.CONTROL, "owner-1")["metadata"]["labels"]
+        labels = {k: v for k, v in labels.items() if not k.startswith("pod-security.")}
+        target = {"kubernetes.io/metadata.name": "stego-rules-target-ci-" + namespace[len(common.PREFIX):],
+                  "stego.dev/allocator": labels["stego.dev/allocator"],
+                  "stego.dev/allocation-profile": "peer", "example.test/owner": "owner-1"}
+        network = {"apiVersion": "networking.k8s.io/v1", "kind": "NetworkPolicy",
+                   "metadata": {"name": "stego-allocation", "namespace": namespace, "labels": labels},
+                   "spec": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"],
+                            "egress": [{"to": [{"namespaceSelector": {"matchLabels": target},
+                                                 "podSelector": {"matchLabels": {"app": "service"}}}],
+                                        "ports": [{"protocol": "TCP", "port": 8080}]}]}}
+        command = ["create", "--dry-run=server", "-f", "-", "-o", "json"]
+        user = common.actor(common.CONTROL)
+        self.probe("related network owner and installation", command, network, user, allowed=True)
+        if self.get(network) is not None:
+            raise RuntimeError("Network dry-run left a stored policy")
+        for key, value in [("kubernetes.io/metadata.name", "stego-rules-target-ci-foreign"),
+                           ("stego.dev/allocator", "other-installation"),
+                           ("stego.dev/allocation-profile", "tenant"),
+                           ("example.test/owner", "owner-2"),
+                           ("example.test/owner", None)]:
+            changed = copy.deepcopy(network)
+            selected = changed["spec"]["egress"][0]["to"][0]["namespaceSelector"]["matchLabels"]
+            if value is None:
+                del selected[key]
+            else:
+                selected[key] = value
+            self.probe("related network denies " + key + (" removal" if value is None else " change"),
+                       command, changed, user, policy=common.CONTROL + ".widget-queue.allocation")
+            if self.get(network) is not None:
+                raise RuntimeError("Network dry-run left a stored policy")
+        self.result.update(application_rules_checked=True, related_network_admission_checked=True)
 
     def exercise(self):
         for name in [pods.RUNTIME, pods.OTHER_RUNTIME]:
@@ -163,6 +213,7 @@ class Check(pods.Check):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--application-rules", action="store_true")
     parser.add_argument("--oc", required=True)
     parser.add_argument("--context", required=True)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -172,6 +223,8 @@ def main():
     try:
         check.install()
         check.exercise()
+        if check.args.application_rules:
+            check.application_probes()
         check.result["checks_passed"] = True
     except Exception as error:
         check.result["failure"] = str(error)
