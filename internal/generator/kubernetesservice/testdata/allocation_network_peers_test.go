@@ -250,3 +250,41 @@ func TestAllocationNetworkHashRejectsChanges(t *testing.T) {
 		})
 	}
 }
+
+func TestAllocationNetworkPeersRelatedOwner(t *testing.T) {
+	a, s := fixture(t)
+	p := &a.config.Profiles[0]
+	p.NetworkIsolation = true
+	p.NetworkPeers = []networkPeer{{Direction: "egress", Namespace: "profile", PeerProfile: "peer", PeerPrefix: "peer-", PodLabel: "app", PodValue: "service", Port: 8080, Protocol: "TCP"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := a.Ensure(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	policy := s.objects[networkPath]
+	target := policy["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["to"].([]any)[0].(map[string]any)
+	labels := target["namespaceSelector"].(map[string]any)["matchLabels"].(map[string]any)
+	if len(labels) != 4 || labels["kubernetes.io/metadata.name"] != "peer-"+strings.TrimPrefix(networkName, p.Prefix) || labels["stego.dev/allocator"] != a.marker || labels["stego.dev/allocation-profile"] != "peer" || labels[p.OwnerLabel] != "owner-1" {
+		t.Fatal("related network peer lost owner or installation identity", labels)
+	}
+	writes := len(s.writes)
+	s.mu.Unlock()
+	restarted, err := New(a.client, "control")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.config.Profiles[0] = *p
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	if len(s.writes) != writes {
+		t.Fatal("read-only check wrote resources")
+	}
+	labels[p.OwnerLabel] = "owner-2"
+	s.mu.Unlock()
+	if err = restarted.RequireNamespace(ctx, "tenant", networkName, "owner-1"); err == nil {
+		t.Fatal("network grant to another owner was accepted")
+	}
+}

@@ -96,8 +96,9 @@ config:
         optional: true
         items:
           direction: {type: string, enum: [ingress, egress]}
-          namespace: {type: string, enum: [control, allocated, external]}
+          namespace: {type: string, enum: [control, allocated, external, profile]}
           external_namespace: {type: string, optional: true}
+          peer_profile: {type: string, optional: true}
           pod_label: {type: string}
           pod_value: {type: string}
           port: {type: int}

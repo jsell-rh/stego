@@ -25,7 +25,7 @@ import (
 type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type identityField struct { Field, Key string }
-type networkPeer struct { Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
+type networkPeer struct { PeerProfile, PeerPrefix string; Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
 type profile struct { PodSecurity string; ServiceAccounts []string; NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
@@ -312,13 +312,17 @@ type networkSpec struct {
  Ingress []networkRule `json:"ingress,omitempty"`
  Egress []networkRule `json:"egress,omitempty"`
 }
-func (a *Allocator) networkSpec(p profile, name string) networkSpec {
+func (a *Allocator) networkSpec(p profile, name, ownerID string) networkSpec {
  spec:=networkSpec{PodSelector:&networkSelector{},PolicyTypes:[]string{"Ingress","Egress"}}
  for _, peer:=range p.NetworkPeers {
   ns:=peer.ExternalNamespace
   if peer.Namespace=="control"{ns=a.namespace}
   if peer.Namespace=="allocated"{ns=name}
   target:=networkTarget{NamespaceSelector:&networkSelector{MatchLabels:map[string]string{"kubernetes.io/metadata.name":ns}},PodSelector:&networkSelector{MatchLabels:map[string]string{peer.PodLabel:peer.PodValue}}}
+  if peer.Namespace=="profile" {
+   ns=peer.PeerPrefix+strings.TrimPrefix(name,p.Prefix)
+   target.NamespaceSelector.MatchLabels=map[string]string{"kubernetes.io/metadata.name":ns,"stego.dev/allocator":a.marker,"stego.dev/allocation-profile":peer.PeerProfile,p.OwnerLabel:ownerID}
+  }
   rule:=networkRule{Ports:[]networkPort{ {Protocol:peer.Protocol,Port:peer.Port} }}
   if peer.Direction=="ingress"{rule.From=[]networkTarget{target};spec.Ingress=append(spec.Ingress,rule)}else{rule.To=[]networkTarget{target};spec.Egress=append(spec.Egress,rule)}
  }
@@ -360,9 +364,9 @@ func (a *Allocator) requireNetwork(ctx context.Context,p profile,name string,own
  if code==http.StatusNotFound{
   if !create{return ErrPending}
   meta:=metadata("stego-allocation",owner);meta["namespace"]=name
-  encoded,err:=networkBytes(a.networkSpec(p,name));if err!=nil{return err}
+  encoded,err:=networkBytes(a.networkSpec(p,name,owner[p.OwnerLabel]));if err!=nil{return err}
   meta["annotations"]=kube.Object{networkHashAnnotation:networkHash(encoded)}
-  desired:=kube.Object{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":meta,"spec":a.networkSpec(p,name)}
+  desired:=kube.Object{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":meta,"spec":a.networkSpec(p,name,owner[p.OwnerLabel])}
   if _,_,err=a.client.Request(ctx,http.MethodPost,collection,desired);err!=nil{return err}
   current,code,err=a.client.Request(ctx,http.MethodGet,collection+"/stego-allocation",nil)
   if err!=nil{return err};if code==http.StatusNotFound{return ErrPending}
@@ -381,7 +385,7 @@ func (a *Allocator) requireNetwork(ctx context.Context,p profile,name string,own
  decoder:=json.NewDecoder(bytes.NewReader(data));decoder.DisallowUnknownFields()
  if err=decoder.Decode(&spec);err!=nil||spec.PodSelector==nil||len(spec.PodSelector.MatchLabels)!=0||len(spec.PodSelector.MatchExpressions)!=0||len(spec.PolicyTypes)!=2{return errors.New("invalid allocation network policy shape")}
  if !(spec.PolicyTypes[0]=="Ingress"&&spec.PolicyTypes[1]=="Egress"||spec.PolicyTypes[0]=="Egress"&&spec.PolicyTypes[1]=="Ingress"){return errors.New("allocation network policy must restrict both directions")}
- expected:=a.networkSpec(p,name)
+ expected:=a.networkSpec(p,name,owner[p.OwnerLabel])
  actualJSON,err:=networkBytes(spec);if err!=nil{return err}
  expectedJSON,err:=networkBytes(expected);if err!=nil{return err}
  storedHash:=kube.Nested(current,"metadata","annotations",networkHashAnnotation)

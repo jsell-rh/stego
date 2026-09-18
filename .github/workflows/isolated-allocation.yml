@@ -70,6 +70,15 @@ jobs:
             -run '^(TestAllocationPodRule.*|TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
             | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
           if [[ "${{ inputs.refresh_dependencies }}" != true ]]; then git diff --exit-code; fi
+      - name: Check related network peers and restart
+        env:
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation/network
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
+          go test -v -race -count=1 -mod=readonly -timeout=4m ./internal/generator/kubernetesservice \
+            -run '^(TestAllocationNetwork(ProfileValidation|Peer.*)|TestGeneratedAllocationNetworkRuntime)$' \
+            | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
       - name: Render the second installation
         env:
           STEGO_ALLOCATION_NAMESPACE: stego-isolated-peer-ci

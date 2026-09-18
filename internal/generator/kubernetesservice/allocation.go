@@ -21,6 +21,7 @@ type allocationRole struct {
 type allocationBinding struct{ Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type allocationIdentityField struct{ Field, Key string }
 type allocationNetworkPeer struct {
+	PeerProfile, PeerPrefix                                               string `json:",omitempty"`
 	Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string
 	Port                                                                  int
 }
@@ -357,6 +358,26 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 				return result, fmt.Errorf("related allocation subject requires a distinct profile with the same owner domain and suffix length and a declared account alias")
 			}
 			b.SubjectPrefix = peer.Prefix
+		}
+	}
+	for i := range result.Profiles {
+		p := &result.Profiles[i]
+		for j := range p.NetworkPeers {
+			n := &p.NetworkPeers[j]
+			if n.Namespace != "profile" {
+				continue
+			}
+			var peer *allocationProfile
+			for k := range result.Profiles {
+				if result.Profiles[k].Name == n.PeerProfile {
+					peer = &result.Profiles[k]
+					break
+				}
+			}
+			if peer == nil || peer.Name == p.Name || !peer.NetworkIsolation || peer.OwnerLabel != p.OwnerLabel || peer.SuffixLength != p.SuffixLength {
+				return result, fmt.Errorf("related network peer requires a distinct isolated profile with the same owner domain and suffix length")
+			}
+			n.PeerPrefix = peer.Prefix
 		}
 	}
 	workers, err := configList(ctx, "workers")

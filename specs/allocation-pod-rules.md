@@ -33,3 +33,20 @@ Image selection, credential mounts, and domain storage ownership can use these
 additional rules. Keep those decisions in the application declaration. STEGO
 continues to provide namespace ownership, runtime and account restrictions,
 and the policy installation shape.
+
+## Related network peers
+
+An allocation network peer can use `namespace: profile` with `peer_profile`.
+The target must be a different network-isolated profile in the same declaration,
+with the same owner-label key and namespace suffix length. The compiler resolves
+its namespace prefix. The caller cannot supply a separate peer namespace.
+
+The generated selector requires the exact related namespace name, allocator
+identity, target profile, and current owner ID. The Pod selector and port remain
+required. The generated admission rule requires all four namespace labels;
+workers cannot remove one or replace it with a selector expression. A namespace
+recreated for another owner does not match the retained rule.
+
+This is an implementation candidate. Compiler, generated-runtime, and live
+admission checks are still required. A correct policy declaration does not prove
+that a cluster network provider has enforced it.

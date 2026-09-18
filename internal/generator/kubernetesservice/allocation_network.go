@@ -19,7 +19,7 @@ func allocationNetworkPeers(raw any, isolated bool) ([]allocationNetworkPeer, er
 		}
 		for key := range fields {
 			switch key {
-			case "direction", "namespace", "external_namespace", "pod_label", "pod_value", "port", "protocol":
+			case "direction", "namespace", "external_namespace", "peer_profile", "pod_label", "pod_value", "port", "protocol":
 			default:
 				return nil, fmt.Errorf("unknown allocation network peer field %q", key)
 			}
@@ -34,11 +34,20 @@ func allocationNetworkPeers(raw any, isolated bool) ([]allocationNetworkPeer, er
 		if !ok || p.Port < 1 || p.Port > 65535 || (p.Direction != "ingress" && p.Direction != "egress") || !validLabelKey(p.PodLabel) || !labelValue.MatchString(p.PodValue) || (p.Protocol != "TCP" && p.Protocol != "UDP") {
 			return nil, fmt.Errorf("allocation network peer requires a direction, Pod label and value, numeric port, and TCP or UDP protocol")
 		}
+		peerProfile, hasPeer := fields["peer_profile"]
+		if (p.Namespace == "profile") != hasPeer {
+			return nil, fmt.Errorf("peer_profile requires a related profile network peer")
+		}
 		external, exists := fields["external_namespace"]
 		switch p.Namespace {
 		case "control", "allocated":
 			if exists {
 				return nil, fmt.Errorf("external_namespace requires an external peer")
+			}
+		case "profile":
+			p.PeerProfile, ok = peerProfile.(string)
+			if !ok || !label.MatchString(p.PeerProfile) || exists {
+				return nil, fmt.Errorf("related network peer requires a profile name and no external namespace")
 			}
 		case "external":
 			p.ExternalNamespace, ok = external.(string)
@@ -46,7 +55,7 @@ func allocationNetworkPeers(raw any, isolated bool) ([]allocationNetworkPeer, er
 				return nil, fmt.Errorf("external network peer requires a literal namespace")
 			}
 		default:
-			return nil, fmt.Errorf("allocation network peer namespace must be control, allocated, or external")
+			return nil, fmt.Errorf("allocation network peer namespace must be control, allocated, external, or profile")
 		}
 		if seen[p] {
 			return nil, fmt.Errorf("duplicate allocation network peer")
@@ -95,8 +104,24 @@ func allocationNetworkRulesCEL(p allocationProfile, direction string) string {
 		if peer.Namespace == "allocated" {
 			ns = "namespaceObject.metadata.name"
 		}
+		namespaceCheck := selector(target+"[0].namespaceSelector", "kubernetes.io/metadata.name", ns)
+		if peer.Namespace == "profile" {
+			path := target + "[0].namespaceSelector"
+			labels := path + ".matchLabels"
+			pairs := [][2]string{
+				{"kubernetes.io/metadata.name", celString(peer.PeerPrefix) + " + namespaceObject.metadata.name.substring(" + fmt.Sprint(len(p.Prefix)) + ")"},
+				{"stego.dev/allocator", "namespaceObject.metadata.labels['stego.dev/allocator']"},
+				{"stego.dev/allocation-profile", celString(peer.PeerProfile)},
+				{p.OwnerLabel, "namespaceObject.metadata.labels[" + celString(p.OwnerLabel) + "]"},
+			}
+			parts := []string{"has(" + path + ")", "has(" + labels + ")", "size(" + labels + ") == 4", "(!has(" + path + ".matchExpressions) || size(" + path + ".matchExpressions) == 0)"}
+			for _, pair := range pairs {
+				parts = append(parts, celString(pair[0])+" in "+labels+" && "+labels+"["+celString(pair[0])+"] == "+pair[1])
+			}
+			namespaceCheck = "(" + strings.Join(parts, " && ") + ")"
+		}
 		checks = append(checks, "has("+target+") && size("+target+") == 1 && !has("+target+"[0].ipBlock)",
-			selector(target+"[0].namespaceSelector", "kubernetes.io/metadata.name", ns),
+			namespaceCheck,
 			selector(target+"[0].podSelector", peer.PodLabel, celString(peer.PodValue)),
 			"has("+rule+".ports) && size("+rule+".ports) == 1 && has("+rule+".ports[0].port) && "+rule+".ports[0].port == "+fmt.Sprint(peer.Port)+" && has("+rule+".ports[0].protocol) && "+rule+".ports[0].protocol == "+celString(peer.Protocol)+" && !has("+rule+".ports[0].endPort)")
 	}
