@@ -102,3 +102,17 @@ remain in force. This extension is under qualification and is not released.
 The application needs this form because the pinned Agent Sandbox controller
 sets a separate tracking-label value for each Sandbox. This is a standard
 Kubernetes selector; no OpenShell-specific label is built into STEGO.
+
+The [focused check](https://github.com/jsell-rh/stego/actions/runs/35350547635)
+passed at `58d9bd4`. It checked selector validation, CEL evaluation, generated
+runtime restart, and all 33 runner checks. The jshell admission check at this
+source passed 46 probes: seven allowed and 39 denied. Six new denials covered
+an empty Pod selector, another key, `DoesNotExist`, `In` with values, an extra
+expression, and extra equality labels. All 16 policies passed type checks.
+Three additional permission checks also passed.
+
+Cleanup completed. A separate check confirmed all 60 resource paths absent
+before the shared test lease was released. No probe stored a Pod or network
+policy. These checks do not prove CNI traffic or Kata execution. The full
+compiler check and release remain pending. See the
+[label presence record](allocation-label-presence-evidence.json).
