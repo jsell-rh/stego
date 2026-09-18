@@ -29,6 +29,7 @@ type allocationCapabilityGrant struct {
 	Capabilities []string
 }
 type allocationProfile struct {
+	PodValidations      []allocationPodRule         `json:"-"`
 	PodAnnotations      []string                    `json:"-"`
 	PodSecurity         string                      `json:",omitempty"`
 	PodCapabilityGrants []allocationCapabilityGrant `json:"-"`

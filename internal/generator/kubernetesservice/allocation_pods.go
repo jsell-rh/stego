@@ -25,7 +25,10 @@ func allocationPodConfig(values object, p *allocationProfile) error {
 		}
 		p.PodServiceAccount = alias
 	}
-	return allocationIsolatedPodConfig(values, p)
+	if err := allocationIsolatedPodConfig(values, p); err != nil {
+		return err
+	}
+	return allocationPodRules(values, p)
 }
 
 // These rules enforce the selected immutable Pod security profile.
@@ -53,6 +56,12 @@ func allocationPodObjects(config allocationConfiguration, p allocationProfile, i
 	var variables []any
 	if p.PodSecurity == "isolated-runtime" {
 		variables, checks = allocationIsolatedPodChecks(p, checks)
+	}
+	if len(p.PodValidations) > 0 && len(variables) == 0 {
+		variables = []any{object{"name": "containers", "expression": "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"}}
+	}
+	for _, rule := range p.PodValidations {
+		checks = append(checks, object{"expression": rule.Expression, "message": rule.Message})
 	}
 	name := "{{.Namespace}}." + config.Allocator + ".pods." + p.Name
 	rules := []any{object{"apiGroups": []string{""}, "apiVersions": []string{"v1"}, "operations": []string{"CREATE", "UPDATE"}, "resources": []string{"pods", "pods/ephemeralcontainers"}, "scope": "Namespaced"}}

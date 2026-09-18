@@ -3,6 +3,7 @@ module github.com/jsell-rh/stego
 go 1.26.8
 
 require (
+	cel.dev/cel-go v0.32.0
 	github.com/getkin/kin-openapi v0.144.0
 	github.com/oapi-codegen/oapi-codegen/v2 v2.8.0
 	gopkg.in/yaml.v3 v3.0.1
