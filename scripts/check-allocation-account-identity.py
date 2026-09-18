@@ -11,6 +11,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -34,6 +35,7 @@ CONTROL = "stego-allocation-accounts-ci"
 PEER = "stego-allocation-accounts-peer-ci"
 PREFIX = "stego-accounts-ci-"
 ANNOTATION = "stego.dev/service-account-gateway"
+INTENT_ANNOTATION = "stego.test/create-intent"
 
 
 def path(obj):
@@ -75,6 +77,22 @@ def actor(control):
     return "system:serviceaccount:" + control + ":widget-queue"
 
 
+def contains(actual, expected):
+    if isinstance(expected, dict):
+        return isinstance(actual, dict) and all(contains(actual.get(key), value) for key, value in expected.items())
+    if isinstance(expected, list):
+        return isinstance(actual, list) and len(actual) == len(expected) and all(contains(a, e) for a, e in zip(actual, expected))
+    return type(actual) is type(expected) and actual == expected
+
+
+def transient_create_error(stderr):
+    if "Error from server (" in stderr or "ValidatingAdmissionPolicy" in stderr:
+        return False
+    return any(value in stderr for value in ["Client.Timeout exceeded", "i/o timeout", "TLS handshake timeout",
+                                            "connection reset by peer", "connection refused", "unexpected EOF",
+                                            "Local create observation timed out"])
+
+
 class Check:
     allocation_prefixes = (PREFIX,)
     policy_count = 7
@@ -82,14 +100,26 @@ class Check:
     def __init__(self, args):
         self.args = args
         self.created = []
+        self.intents = []
         self.probes = []
         self.deadline = time.monotonic() + 600
         self.result = {"complete": False, "pods_created": 0, "probes": self.probes}
         args.evidence.mkdir(parents=True, exist_ok=False)
 
     def save(self):
-        (self.args.evidence / "created.json").write_text(json.dumps(self.created, indent=2) + "\n")
-        (self.args.evidence / "result.json").write_text(json.dumps(self.result, indent=2) + "\n")
+        for name, value in [("intents.json", self.intents), ("created.json", self.created), ("result.json", self.result)]:
+            target = self.args.evidence / name
+            pending = target.with_suffix(".tmp")
+            with pending.open("w") as stream:
+                stream.write(json.dumps(value, indent=2) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            pending.replace(target)
+        directory = os.open(self.args.evidence, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
     def run(self, args, obj=None, user=None):
         if time.monotonic() >= self.deadline:
@@ -108,17 +138,59 @@ class Check:
             raise RuntimeError("A resource read failed: " + path(obj))
         return json.loads(result.stdout)
 
-    def create(self, obj, user=None):
-        if self.get(obj) is not None:
-            raise RuntimeError("A test resource already exists: " + path(obj))
-        result = self.run(["create", "-f", "-", "-o", "json"], obj, user)
-        if result.returncode:
-            raise RuntimeError("Resource creation failed: " + path(obj) + ": " + result.stderr[:2048])
-        stored = json.loads(result.stdout)
+    def record_created(self, stored):
+        if not stored.get("metadata", {}).get("uid"):
+            raise RuntimeError("Created test resource has no UID")
         self.created.append({"apiVersion": stored["apiVersion"], "kind": stored["kind"],
                              "metadata": {k: stored["metadata"][k] for k in ["name", "namespace", "uid"] if k in stored["metadata"]}})
         self.save()
+
+    def recover_intent(self, intent):
+        stored = self.get(intent["object"])
+        if stored is None:
+            return None
+        if not contains(stored, intent["object"]):
+            raise RuntimeError("Uncertain create has a different owner or content: " + path(intent["object"]))
+        self.record_created(stored)
+        intent["resolved"] = True
+        self.save()
         return stored
+
+    def create(self, obj, user=None):
+        if self.get(obj) is not None:
+            raise RuntimeError("A test resource already exists: " + path(obj))
+        desired = copy.deepcopy(obj)
+        desired["metadata"].setdefault("annotations", {})[INTENT_ANNOTATION] = uuid.uuid4().hex
+        intent = {"object": desired, "resolved": False}
+        self.intents.append(intent)
+        self.save()  # Persist ownership proof before a request can reach Kubernetes.
+        for attempt in range(2):
+            try:
+                result = self.run(["create", "-f", "-", "-o", "json"], desired, user)
+            except subprocess.TimeoutExpired:
+                result = subprocess.CompletedProcess([], 1, "", "Local create observation timed out")
+            if not result.returncode:
+                stored = json.loads(result.stdout)
+                if not contains(stored, desired):
+                    raise RuntimeError("Created test resource differs from its intent: " + path(obj))
+                self.record_created(stored)
+                intent["resolved"] = True
+                self.save()
+                return stored
+            transient = transient_create_error(result.stderr)
+            self.result.setdefault("setup_observations", []).append({
+                "path": path(obj), "attempt": attempt + 1, "stderr": result.stderr[:2048],
+                "stderr_truncated": len(result.stderr) > 2048, "transient": transient,
+            })
+            self.save()
+            stored = self.recover_intent(intent)
+            if stored is not None and (transient or (attempt and "(AlreadyExists)" in result.stderr)):
+                return stored
+            if stored is not None or not transient or attempt:
+                raise RuntimeError("Resource creation failed: " + path(obj) + ": " + result.stderr[:2048])
+            # The name is still absent. Repeat this exact create once. A late
+            # first commit can only produce AlreadyExists, then an owned read.
+        raise RuntimeError("Resource creation did not finish: " + path(obj))
 
     def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
         result = self.run(command, obj, user)
@@ -326,6 +398,13 @@ class Check:
     def cleanup(self):
         self.deadline = time.monotonic() + 180
         errors = []
+        for intent in getattr(self, "intents", []):
+            if intent["resolved"]:
+                continue
+            try:
+                self.recover_intent(intent)
+            except Exception as error:
+                errors.append(str(error))
         # Remove allocation namespaces first, while their guards are installed.
         allocated = [obj for obj in self.created if obj["kind"] == "Namespace" and obj["metadata"]["name"].startswith(self.allocation_prefixes)]
         # Reuse retains the previous UIDs in the journal. Only the last UID is live.

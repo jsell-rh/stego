@@ -11,6 +11,8 @@ on:
       - 'scripts/test_allocation_pods.py'
       - 'scripts/check-isolated-allocation.py'
       - 'scripts/test_isolated_allocation.py'
+      - 'scripts/check-allocation-account-identity.py'
+      - 'scripts/test_allocation_setup.py'
       - 'internal/generator/kubernetesservice/testdata/allocation_isolated_test.go'
 
 permissions:
@@ -44,6 +46,7 @@ jobs:
           timeout 15s python3 -B scripts/test_allocation_account_identity.py
           timeout 15s python3 -B scripts/test_allocation_pods.py
           timeout 15s python3 -B scripts/test_isolated_allocation.py
+          timeout 15s python3 -B scripts/test_allocation_setup.py
       - name: Check and render Pod restrictions
         env:
           STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation
