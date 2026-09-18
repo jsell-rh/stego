@@ -149,7 +149,6 @@ func (a *Allocator) RequireServiceAccount(ctx context.Context,profileName,name,o
  if code!=http.StatusOK{return "",errors.New("allocation ServiceAccount read failed")}
  if current["apiVersion"]!="v1"||current["kind"]!="ServiceAccount"||!owner.Matches(current)||kube.String(current,"metadata","name")!=account||kube.String(current,"metadata","namespace")!=name||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""||current["automountServiceAccountToken"]!=false{return "",errors.New("allocation ServiceAccount identity or token settings differ")}
  if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending}
- if p.PodSecurity=="isolated-runtime"&&kube.String(current,"metadata","labels","pod-security.kubernetes.io/enforce")!=podSecurityLevel(p){return "",errors.New("namespace Pod security differs from its allocation")}
  return account,nil
 }
 
