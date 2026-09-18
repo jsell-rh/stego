@@ -100,7 +100,31 @@ recorded resource paths; the shared lease was released. A separate server
 dry-run in the test namespace identified OpenShift's legacy seccomp annotation.
 No Pod was stored. The correction permits only its RuntimeDefault pair and
 adds live checks for denied legacy values and undeclared application keys.
-This correction still needs CI and a complete live admission result.
+The correction passed [focused CI](https://github.com/jsell-rh/stego/actions/runs/35346459459)
+at `19cb3e2`. Source and artifact checks confirmed four generator checks, 29
+invalid-input cases, 31 runner safety checks, and allocator restart.
+
+The fifth cluster attempt at this source passed all 31 admission requests:
+five allowed and 26 denied. All 16 policies type-checked. The writer was also
+denied account creation, admission-policy changes, and RuntimeClass creation.
+The root workspace helper and ordinary socket volume were unchanged. No Pod
+was stored and no runtime handler was installed.
+
+The runner exited with failure during cleanup: one policy delete failed and
+the policy remained. A separate recovery checked its recorded UID, removed
+that exact policy, and independently confirmed all 60 planned and recorded
+resource paths absent. It then released the shared lease. The original failure
+record is unchanged. Admission passed; cleanup required recovery.
+
+Full compiler run [35346553521](https://github.com/jsell-rh/stego/actions/runs/35346553521)
+is active at `1ab6aea`. This revision changes only the compiler workflow's
+manual trigger after `19cb3e2`; compiler inputs are unchanged. The reproducible
+build check passed at this revision, but branch provenance signing was skipped.
+Neither a complete full-suite result nor signed release evidence is claimed.
+
+The consumer integration must also check annotations added later by network
+controllers. Server dry-run proves admission only. It does not check network
+attachment, VM startup, or Sandbox execution.
 
 Evidence is retained under
 `~/.local/state/stego/runs/isolated-allocation-20260918/`. The two earlier full
