@@ -275,6 +275,9 @@ func TestGeneratedAllocationNetworkRuntime(t *testing.T) {
 func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	t.Helper()
 	c := allocationContext()
+	if filter == "^TestIsolatedAllocation" {
+		c = isolatedAllocationContext()
+	}
 	if filter == "^TestAllocationEndpoint" {
 		p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
 		p["network_isolation"] = true
@@ -306,6 +309,9 @@ func testGeneratedAllocationRuntime(t *testing.T, filter string) {
 	}
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_test.go", Content: allocationRuntimeTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_uid_test.go", Content: allocationUIDTests})
+	if filter == "^TestIsolatedAllocation" {
+		files = append(files, gen.File{Path: "deploy/allocation/allocation_isolated_test.go", Content: allocationIsolatedTests})
+	}
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_deny_test.go", Content: allocationNetworkDenyTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_network_peers_test.go", Content: allocationNetworkPeersTests})
 	files = append(files, gen.File{Path: "deploy/allocation/allocation_service_accounts_test.go", Content: allocationServiceAccountTests})

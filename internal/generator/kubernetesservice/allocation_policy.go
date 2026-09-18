@@ -83,7 +83,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		return "(has(variables.o.roleRef) && variables.o.roleRef.apiGroup == 'rbac.authorization.k8s.io' && variables.o.roleRef.kind == 'ClusterRole' && variables.o.roleRef.name == " + celString(role) + " && has(variables.o.subjects) && size(variables.o.subjects) == 1 && variables.o.subjects[0].kind == 'ServiceAccount' && (!has(variables.o.subjects[0].apiGroup) || variables.o.subjects[0].apiGroup == '') && variables.o.subjects[0].name == " + sa + " && variables.o.subjects[0].namespace == " + ns + " && variables.o.metadata.name == " + name + ")"
 	}
 	for _, p := range config.Profiles {
-		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted')"
+		nsCase := "(" + owner("variables.o", p) + " && " + pattern("variables.o.metadata.name", p) + " && 'pod-security.kubernetes.io/enforce' in variables.o.metadata.labels && variables.o.metadata.labels['pod-security.kubernetes.io/enforce'] == " + celString(allocationPodSecurityLevel(p)) + ")"
 		items = append(items, allocationPodObjects(config, p, owner("namespaceObject", p)+" && "+pattern("request.namespace", p))...)
 		for _, alias := range allocationAccountIdentities(p) {
 			nsCase += " && " + allocationServiceAccountAnnotationCEL(config, "variables.o", alias)
@@ -201,6 +201,13 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 	// or changed. The policy applies to all actors, including a worker with a bug.
 	unchanged := []string{"object.metadata.labels['stego.dev/allocator'] == oldObject.metadata.labels['stego.dev/allocator']", "object.metadata.labels['stego.dev/allocation-profile'] == oldObject.metadata.labels['stego.dev/allocation-profile']", "object.metadata.labels['app.kubernetes.io/managed-by'] == oldObject.metadata.labels['app.kubernetes.io/managed-by']", "object.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'"}
 	for _, p := range config.Profiles {
+		if p.PodSecurity == "isolated-runtime" {
+			unchanged[len(unchanged)-1] = "object.metadata.labels['pod-security.kubernetes.io/enforce'] == oldObject.metadata.labels['pod-security.kubernetes.io/enforce']"
+			break
+		}
+	}
+	for _, p := range config.Profiles {
+		unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || object.metadata.labels['pod-security.kubernetes.io/enforce'] == "+celString(allocationPodSecurityLevel(p))+")")
 		unchanged = append(unchanged, "(oldObject.metadata.labels['stego.dev/allocation-profile'] != "+celString(p.Name)+" || object.metadata.labels["+celString(p.OwnerLabel)+"] == oldObject.metadata.labels["+celString(p.OwnerLabel)+"])")
 	}
 	for _, p := range config.Profiles {
@@ -227,7 +234,7 @@ func allocationObjects(config allocationConfiguration) ([]any, error) {
 		}
 	}
 	immutable := "request.operation == 'DELETE' || (request.operation == 'CREATE' ? (" + isAllocator + " && " + join(namespaceCases) + ") : (" + marked("oldObject") + " && " + marked("object") + " && " + strings.Join(unchanged, " && ") + "))"
-	guarded = append(guarded, allocationPolicy(base+".ownership", []any{allocationRule("", "namespaces")}, marked("object")+" || "+marked("oldObject"), variables, []any{validate(immutable, "Allocation identity and restricted Pod security are immutable")})...)
+	guarded = append(guarded, allocationPolicy(base+".ownership", []any{allocationRule("", "namespaces")}, marked("object")+" || "+marked("oldObject"), variables, []any{validate(immutable, "Allocation identity and Pod security are immutable")})...)
 	// A namespace worker must not remove the quota or change reserved bindings,
 	// even if an external role has broad permissions in that namespace.
 	reserved := "!has(request.name) || (request.resource.resource == 'resourcequotas' ? request.name == 'stego-allocation' : request.name.startsWith(" + celString("stego-"+marker+"-") + "))"

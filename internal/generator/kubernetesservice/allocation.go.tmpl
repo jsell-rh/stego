@@ -26,7 +26,7 @@ type role struct { Name, Scope string }
 type binding struct { Role, ExternalRole, ServiceAccount, Namespace, ExternalNamespace, SubjectProfile, SubjectPrefix string }
 type identityField struct { Field, Key string }
 type networkPeer struct { Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string; Port int }
-type profile struct { ServiceAccounts []string; NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
+type profile struct { PodSecurity string; ServiceAccounts []string; NetworkEndpoints []string; NetworkPeers []networkPeer; NetworkIsolation bool; IdentityConfigMap string; IdentityLabels, IdentityAnnotations []identityField; Name, Prefix, OwnerLabel, Manager string; SuffixLength int; Bindings []binding; Quota map[string]string }
 type configuration struct { Service, Allocator string; Roles []role; Profiles []profile }
 
 // Allocator applies the fixed namespace profiles in the service declaration.
@@ -149,6 +149,7 @@ func (a *Allocator) RequireServiceAccount(ctx context.Context,profileName,name,o
  if code!=http.StatusOK{return "",errors.New("allocation ServiceAccount read failed")}
  if current["apiVersion"]!="v1"||current["kind"]!="ServiceAccount"||!owner.Matches(current)||kube.String(current,"metadata","name")!=account||kube.String(current,"metadata","namespace")!=name||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""||current["automountServiceAccountToken"]!=false{return "",errors.New("allocation ServiceAccount identity or token settings differ")}
  if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending}
+ if p.PodSecurity=="isolated-runtime"&&kube.String(current,"metadata","labels","pod-security.kubernetes.io/enforce")!=podSecurityLevel(p){return "",errors.New("namespace Pod security differs from its allocation")}
  return account,nil
 }
 
@@ -247,13 +248,15 @@ func (a *Allocator) prune(ctx context.Context, p profile, name string, owner kub
  if pending{return ErrPending};return nil
 }
 
+func podSecurityLevel(p profile)string{if p.PodSecurity=="isolated-runtime"{return "privileged"};return "restricted"}
+
 // Ensure applies limits before it grants permissions. Each write checks the
 // existing owner. A conflict requires a new observation by the controller.
 func (a *Allocator) Ensure(ctx context.Context, profileName, name, ownerID string) error {
  p, owner, err := a.request(profileName, name, ownerID); if err != nil { return err }
  if err=a.checkExistingServiceAccountNames(ctx,p,name,ownerID,owner);err!=nil{return err}
  meta := metadata(name, owner)
- meta["labels"].(kube.Object)["pod-security.kubernetes.io/enforce"] = "restricted"
+ meta["labels"].(kube.Object)["pod-security.kubernetes.io/enforce"] = podSecurityLevel(p)
  if len(p.ServiceAccounts)!=0{
   annotations:=kube.Object{}
   for _,alias:=range accountIdentities(p){annotations[serviceAccountAnnotation+alias]=a.serviceAccountName(p,ownerID,alias)}
@@ -471,6 +474,7 @@ func (a *Allocator) NamespaceUID(ctx context.Context,profileName,name,ownerID st
  if err!=nil{return "",err};if code==404{return "",ErrPending}
  if !owner.Matches(current)||kube.String(current,"metadata","uid")==""||kube.String(current,"metadata","resourceVersion")==""{return "",errors.New("namespace allocation has a different identity")}
  if kube.String(current,"metadata","deletionTimestamp")!=""{return "",ErrPending}
+ if p.PodSecurity=="isolated-runtime"&&kube.String(current,"metadata","labels","pod-security.kubernetes.io/enforce")!=podSecurityLevel(p){return "",errors.New("namespace Pod security differs from its allocation")}
  if err=a.requireServiceAccountNames(p,current,ownerID);err!=nil{return "",err};return kube.String(current,"metadata","uid"),nil
 }
 

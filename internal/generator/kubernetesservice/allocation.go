@@ -24,7 +24,14 @@ type allocationNetworkPeer struct {
 	Direction, Namespace, ExternalNamespace, PodLabel, PodValue, Protocol string
 	Port                                                                  int
 }
+type allocationCapabilityGrant struct {
+	Name, Image  string
+	Capabilities []string
+}
 type allocationProfile struct {
+	PodAnnotations      []string                    `json:"-"`
+	PodSecurity         string                      `json:",omitempty"`
+	PodCapabilityGrants []allocationCapabilityGrant `json:"-"`
 	// Pod restrictions are installed as policies, not interpreted by the worker.
 	PodRuntimeClass, PodServiceAccount  string                  `json:"-"`
 	ServiceAccounts                     []string                `json:",omitempty"`
@@ -142,7 +149,7 @@ func allocationConfig(ctx gen.Context) (allocationConfiguration, error) {
 		}
 		for key := range values {
 			switch key {
-			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers", "network_endpoints", "service_accounts", "pod_runtime_class", "pod_service_account":
+			case "name", "namespace_prefix", "suffix_length", "owner_label", "manager", "bindings", "quota", "identity_config_map", "identity_labels", "identity_annotations", "network_isolation", "network_peers", "network_endpoints", "service_accounts", "pod_runtime_class", "pod_service_account", "pod_security", "pod_capability_grants", "pod_annotations":
 			default:
 				return result, fmt.Errorf("unknown allocation profile field")
 			}

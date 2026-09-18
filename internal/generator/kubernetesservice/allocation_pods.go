@@ -25,18 +25,18 @@ func allocationPodConfig(values object, p *allocationProfile) error {
 		}
 		p.PodServiceAccount = alias
 	}
-	return nil
+	return allocationIsolatedPodConfig(values, p)
 }
 
-// These rules add restrictions to the immutable restricted Pod security level.
+// These rules enforce the selected immutable Pod security profile.
 // The operator installs them before it grants allocator or workload access.
 func allocationPodObjects(config allocationConfiguration, p allocationProfile, identity string) []any {
 	if p.PodRuntimeClass == "" && p.PodServiceAccount == "" {
 		return nil
 	}
 	checks := []any{object{
-		"expression": "namespaceObject != null && " + identity + " && namespaceObject.metadata.labels['pod-security.kubernetes.io/enforce'] == 'restricted'",
-		"message":    "Pod requires a current allocation with restricted Pod security",
+		"expression": "namespaceObject != null && " + identity + " && namespaceObject.metadata.labels['pod-security.kubernetes.io/enforce'] == " + "'" + allocationPodSecurityLevel(p) + "'",
+		"message":    "Pod requires a current allocation with its declared Pod security",
 	}}
 	if p.PodRuntimeClass != "" {
 		checks = append(checks, object{
@@ -50,9 +50,13 @@ func allocationPodObjects(config allocationConfiguration, p allocationProfile, i
 			"message":    "Pod must use its allocated ServiceAccount and disable automatic token mounting",
 		})
 	}
+	var variables []any
+	if p.PodSecurity == "isolated-runtime" {
+		variables, checks = allocationIsolatedPodChecks(p, checks)
+	}
 	name := "{{.Namespace}}." + config.Allocator + ".pods." + p.Name
 	rules := []any{object{"apiGroups": []string{""}, "apiVersions": []string{"v1"}, "operations": []string{"CREATE", "UPDATE"}, "resources": []string{"pods", "pods/ephemeralcontainers"}, "scope": "Namespaced"}}
-	items := allocationPolicy(name, rules, "request.namespace != '{{.Namespace}}'", nil, checks)
+	items := allocationPolicy(name, rules, "request.namespace != '{{.Namespace}}'", variables, checks)
 	// Select immutable allocator and profile labels. Two installations can use
 	// the same name pattern without applying their policy to each other's Pods.
 	items[0].(object)["spec"].(object)["matchConstraints"].(object)["namespaceSelector"] = object{"matchLabels": object{

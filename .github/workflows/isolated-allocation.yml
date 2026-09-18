@@ -1,0 +1,69 @@
+name: Isolated allocation admission
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/isolated-allocation.yml'
+      - 'internal/generator/kubernetesservice/allocation*'
+      - 'registry/components/kubernetes-service/component.yaml'
+      - 'scripts/check-allocation-pods.py'
+      - 'scripts/test_allocation_pods.py'
+      - 'internal/generator/kubernetesservice/testdata/allocation_isolated_test.go'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolated-allocation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1GiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      STEGO_ALLOCATION_PREFIX: stego-isolated-ci-
+      STEGO_ALLOCATION_NAMESPACE: stego-isolated-control-ci
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check live runner safety
+        run: |
+          timeout 15s python3 -B scripts/test_allocation_account_identity.py
+          timeout 15s python3 -B scripts/test_allocation_pods.py
+      - name: Check and render Pod restrictions
+        env:
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation
+        run: |
+          set -o pipefail
+          mkdir -p "$STEGO_ALLOCATION_ARTIFACTS"
+          git rev-parse HEAD > "$STEGO_ALLOCATION_ARTIFACTS/source-commit"
+          git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
+          go mod verify
+          go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/kubernetesservice \
+            -run '^(TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
+            | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
+          git diff --exit-code
+      - name: Render the second installation
+        env:
+          STEGO_ALLOCATION_NAMESPACE: stego-isolated-peer-ci
+          STEGO_ALLOCATION_ARTIFACTS: ${{ runner.temp }}/isolated-allocation/peer
+        run: go test -v -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestAllocationIsolatedManifests$'
+      - name: Save Pod restriction evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isolated-allocation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/isolated-allocation
+          retention-days: 14
+          if-no-files-found: error
