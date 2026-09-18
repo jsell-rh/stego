@@ -1,0 +1,68 @@
+"""Check dry-run safety and unchanged workspace settings in the live runner."""
+import copy
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import unittest
+
+spec = importlib.util.spec_from_file_location("isolated", Path(__file__).with_name("check-isolated-allocation.py"))
+isolated = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(isolated)
+
+
+class Fixture(isolated.Check):
+    def __init__(self, response, stored=None):
+        self.response, self.stored, self.commands = response, stored, []
+
+    def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
+        self.commands.append(command)
+        return subprocess.CompletedProcess(command, 0 if allowed else 1, json.dumps(self.response), "")
+
+    def get(self, obj):
+        return self.stored
+
+
+class IsolatedRunnerTests(unittest.TestCase):
+    def test_no_pod_persistence(self):
+        check = Fixture(None)
+        with self.assertRaisesRegex(RuntimeError, "persistence is forbidden"):
+            check.create(isolated.isolated_pod("fixture", "account"))
+        self.assertEqual(check.commands, [])
+
+    def test_server_dry_run(self):
+        obj = isolated.isolated_pod("fixture", "account")
+        check = Fixture(obj)
+        check.pod_probe("valid", obj, allowed=True)
+        self.assertEqual(check.commands, [["create", "--dry-run=server", "-f", "-", "-o", "json"]])
+
+    def test_changes_are_not_accepted(self):
+        original = isolated.isolated_pod("fixture", "account")
+        changes = [lambda o: o["spec"].update(runtimeClassName="other"),
+                   lambda o: o["spec"].update(serviceAccountName="other"),
+                   lambda o: o["spec"]["initContainers"][0]["securityContext"].update(runAsUser=1000),
+                   lambda o: o["spec"]["volumes"][0]["emptyDir"].update(medium="Memory")]
+        for change in changes:
+            response = copy.deepcopy(original)
+            change(response)
+            with self.assertRaisesRegex(RuntimeError, "Admission changed"):
+                Fixture(response).pod_probe("changed", original, allowed=True)
+
+    def test_persisted_pod_fails(self):
+        obj = isolated.isolated_pod("fixture", "account")
+        for allowed in [False, True]:
+            with self.assertRaisesRegex(RuntimeError, "stored Pod"):
+                Fixture(obj, stored=obj).pod_probe("stored", obj, allowed=allowed)
+
+    def test_fixture_is_bounded(self):
+        obj = isolated.isolated_pod("fixture", "account")
+        for c in obj["spec"]["containers"] + obj["spec"]["initContainers"]:
+            self.assertEqual(set(c["resources"]["limits"]), {"cpu", "memory", "ephemeral-storage"})
+            self.assertIsNot(c["securityContext"].get("privileged"), True)
+        self.assertFalse(obj["spec"]["automountServiceAccountToken"])
+        self.assertEqual(obj["spec"]["initContainers"][0]["securityContext"], {"runAsUser": 0})
+        self.assertEqual(obj["spec"]["volumes"][0]["emptyDir"], {})
+
+
+if __name__ == "__main__":
+    unittest.main()
