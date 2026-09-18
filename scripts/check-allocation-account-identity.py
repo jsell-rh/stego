@@ -238,7 +238,12 @@ class Check:
         options = {"apiVersion": "v1", "kind": "DeleteOptions", "preconditions": {"uid": obj["metadata"]["uid"]}}
         result = self.run(["delete", "--raw=" + path(obj), "-f", "-"], options)
         if result.returncode:
-            raise RuntimeError("Test resource deletion failed: " + path(obj))
+            self.result.setdefault("cleanup_delete_observations", []).append({
+                "path": path(obj), "uid": obj["metadata"]["uid"], "returncode": result.returncode,
+                "stderr": result.stderr[:2048], "stderr_truncated": len(result.stderr) > 2048,
+            })
+            self.save()
+            raise RuntimeError("Test resource deletion failed: " + path(obj) + ": " + result.stderr[:2048])
         end = min(self.deadline, time.monotonic() + 60)
         while self.get(obj) is not None:
             if time.monotonic() >= end:

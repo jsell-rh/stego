@@ -136,6 +136,9 @@ class AccountRunnerTests(unittest.TestCase):
         self.assertFalse(check.result["complete"])
         self.assertFalse(check.result["cleanup_complete"])
         self.assertEqual(len(check.objects), 1)
+        observation = check.result["cleanup_delete_observations"][0]
+        self.assertEqual(observation["stderr"], "Error from server (Conflict)")
+        self.assertEqual(observation["uid"], "original-uid")
 
     def test_cleanup_does_not_turn_a_failed_check_into_a_pass(self):
         check = Fixture([namespace("original-uid")])
