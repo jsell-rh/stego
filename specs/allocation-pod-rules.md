@@ -113,6 +113,9 @@ Three additional permission checks also passed.
 
 Cleanup completed. A separate check confirmed all 60 resource paths absent
 before the shared test lease was released. No probe stored a Pod or network
-policy. These checks do not prove CNI traffic or Kata execution. The full
-compiler check and release remain pending. See the
+policy. These checks do not prove CNI traffic or Kata execution. The
+[full compiler check](https://github.com/jsell-rh/stego/actions/runs/35350549513)
+also passed at `58d9bd4`: all six jobs, both generated examples, and 34 packages
+with the race detector. Only result records changed after that source. Release
+publication and consumer regeneration remain pending. See the
 [label presence record](allocation-label-presence-evidence.json).

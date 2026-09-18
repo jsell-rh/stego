@@ -56,7 +56,74 @@
       "runner.log": "7e7464e9fb0abefe0f92695a759d2d3b4037275f9dff1b72dd24de0b8a748d09"
     }
   },
-  "full_compiler_pending": "https://github.com/jsell-rh/stego/actions/runs/35350549513",
   "released": false,
-  "consumer_adopted": false
+  "consumer_adopted": false,
+  "full_compiler": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35350549513",
+    "source": "58d9bd48bd957b3baa1e20fe7293f627812d5368",
+    "checked_at": "2026-09-18T13:38:58.198806+00:00",
+    "jobs": {
+      "resource-state-storage": "success",
+      "examples (user-management)": "success",
+      "compiler": "success",
+      "keycloak-provider": "success",
+      "examples (user-management-rhsso)": "success",
+      "postgres-provisioning": "success"
+    },
+    "full_race_suite_passed": true,
+    "passing_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "generated_examples_passed": true,
+    "log_sha256": "aab00e1b2b7229b762b6610418e7db8f93e2d47e583aca281030572d616e6826",
+    "reviewed_head": "59899b748758d280e03cb51082f0ff6d7f278436",
+    "compiler_inputs_unchanged_to_reviewed_head": true,
+    "post_check_changes": [
+      "specs/allocation-label-presence-evidence.json",
+      "specs/allocation-pod-rules.md"
+    ],
+    "local_go_tests_run": false
+  }
 }
