@@ -35,7 +35,18 @@ application failure that this candidate addresses. A live write check is still
 required; source inspection is not proof that a Sandbox can start.
 
 Source contracts are in OpenShift's
-[Pod identity checks](https://github.com/openshift/ovn-kubernetes/blob/main/go-controller/pkg/ovnwebhook/podadmission.go)
-and [Multus identity configuration](https://github.com/openshift/cluster-network-operator/blob/master/bindata/network/node-identity/self-hosted/node-identity-configmap.yml).
+[Pod identity checks](https://github.com/openshift/ovn-kubernetes/blob/fe886495f2f706c1912d1417daa768c2d78c0597/go-controller/pkg/ovnwebhook/podadmission.go)
+and [Multus identity configuration](https://github.com/openshift/cluster-network-operator/blob/61de77e4d4c4f65cd5b3d73e00308bfe837c1066/bindata/network/node-identity/self-hosted/node-identity-configmap.yml).
 Fixed copies and their source commits are retained under
 `~/.local/state/stego/runs/allocation-network-metadata-20260918/`.
+
+The [focused check](https://github.com/jsell-rh/stego/actions/runs/35352553358)
+passed at `ce23597`. It checked 36 network identity cases, 33 runner checks,
+configuration rejection, the Pod status rule, and the rendered provider policy.
+The common non-annotation checks are unchanged. Source archive and dependency
+checks passed. The first attempt failed because a test used an unpinned CEL
+import; the failure record is retained.
+
+The full compiler suite and live admission check are incomplete. This candidate
+is not a release and is not selected by Hypershell. See the
+[evidence record](allocation-network-metadata-evidence.json).

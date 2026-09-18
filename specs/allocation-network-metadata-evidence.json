@@ -1,0 +1,179 @@
+{
+  "focused": {
+    "source": "ce235973464b7043e7b18a78f28acf4ef74e0263",
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35352553358",
+    "checked_at": "2026-09-18T13:52:38.224287+00:00",
+    "source_archive_verified": true,
+    "readonly_dependencies_verified": true,
+    "network_identity_cel_cases": 36,
+    "runner_safety_tests": 33,
+    "pod_status_guard_present": true,
+    "common_non_annotation_guards_unchanged": true,
+    "network_metadata_policy_sha256": "3351090025be5e4a6ef694582f0ece23b38084f83ca400f7899e2acdfa884ada",
+    "log_sha256": "9b6221c6cc310656a603498729477cbad9dd4dfc46e6bd1a2e3a4853fc428b30",
+    "live_admission_checked": false,
+    "network_traffic_checked": false,
+    "kata_execution_checked": false,
+    "released": false
+  },
+  "cluster_observations": {
+    "checked_at": "2026-09-18T13:49:39.864433+00:00",
+    "context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+    "network_type": "OVNKubernetes",
+    "pod_annotation_keys": [
+      {
+        "name": "dns-default-dzlkt",
+        "keys": [
+          "cluster-autoscaler.kubernetes.io/enable-ds-eviction",
+          "k8s.ovn.org/pod-networks",
+          "k8s.v1.cni.cncf.io/network-status"
+        ]
+      },
+      {
+        "name": "dns-default-gh5wm",
+        "keys": [
+          "cluster-autoscaler.kubernetes.io/enable-ds-eviction",
+          "k8s.ovn.org/pod-networks",
+          "k8s.v1.cni.cncf.io/network-status"
+        ]
+      },
+      {
+        "name": "dns-default-jwqmq",
+        "keys": [
+          "cluster-autoscaler.kubernetes.io/enable-ds-eviction",
+          "k8s.ovn.org/pod-networks",
+          "k8s.v1.cni.cncf.io/network-status"
+        ]
+      },
+      {
+        "name": "dns-default-snnzh",
+        "keys": [
+          "cluster-autoscaler.kubernetes.io/enable-ds-eviction",
+          "k8s.ovn.org/pod-networks",
+          "k8s.v1.cni.cncf.io/network-status"
+        ]
+      },
+      {
+        "name": "node-resolver-b5pfh",
+        "keys": []
+      },
+      {
+        "name": "node-resolver-rj8j8",
+        "keys": []
+      },
+      {
+        "name": "node-resolver-s4p2w",
+        "keys": []
+      },
+      {
+        "name": "node-resolver-xq68q",
+        "keys": []
+      }
+    ],
+    "pod_status_roles": [
+      {
+        "name": "openshift-ovn-kubernetes-node-limited",
+        "rules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resources": [
+              "pods/status",
+              "nodes/status"
+            ],
+            "verbs": [
+              "patch",
+              "update"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "multus",
+        "rules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "resources": [
+              "pods/status"
+            ],
+            "verbs": [
+              "get",
+              "list",
+              "watch",
+              "patch",
+              "update"
+            ]
+          }
+        ]
+      }
+    ],
+    "node_identity_bindings": [
+      {
+        "name": "openshift-ovn-kubernetes-node-identity-limited",
+        "role": "openshift-ovn-kubernetes-node-limited",
+        "subjects": [
+          {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Group",
+            "name": "system:ovn-nodes"
+          }
+        ]
+      },
+      {
+        "name": "multus-group",
+        "role": "multus",
+        "subjects": [
+          {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Group",
+            "name": "system:multus"
+          }
+        ]
+      }
+    ],
+    "mutations": false
+  },
+  "source_contracts": {
+    "ovn-webhook.go": {
+      "repository": "openshift/ovn-kubernetes",
+      "source": "fe886495f2f706c1912d1417daa768c2d78c0597",
+      "path": "go-controller/cmd/ovnkube-identity/webhook/webhook.go",
+      "sha256": "55d0e62fdf65fd74356c0d83f351ec1e3dd7ca52174cb896f8f1f83a2cac53e5"
+    },
+    "node-identity-configmap.yml": {
+      "repository": "openshift/cluster-network-operator",
+      "source": "61de77e4d4c4f65cd5b3d73e00308bfe837c1066",
+      "path": "bindata/network/node-identity/self-hosted/node-identity-configmap.yml",
+      "sha256": "4a0440a1094dddfa5a956caad0360c94edfd69244661c79f8ddd07d873178cba"
+    },
+    "podadmission.go": {
+      "repository": "openshift/ovn-kubernetes",
+      "source": "fe886495f2f706c1912d1417daa768c2d78c0597",
+      "path": "go-controller/pkg/ovnwebhook/podadmission.go",
+      "sha256": "de909232ba2d3a1e8fe5d24792ad1d91ecd463394f62611c0b1d131b1c6c4d53"
+    },
+    "user.go": {
+      "repository": "openshift/ovn-kubernetes",
+      "source": "fe886495f2f706c1912d1417daa768c2d78c0597",
+      "path": "go-controller/pkg/ovnwebhook/user.go",
+      "sha256": "f426816270b5f7a9808985afe656aeacda9a762a88e6536e1d6fe02ef7f6c00c"
+    },
+    "csr-approver.go": {
+      "repository": "openshift/ovn-kubernetes",
+      "source": "fe886495f2f706c1912d1417daa768c2d78c0597",
+      "path": "go-controller/pkg/csrapprover/approver.go",
+      "sha256": "124fe9cf5fec7b01a14b6b0c6596f10ee57e9ad5c9a63b3c773fe3bc5421aad3"
+    }
+  },
+  "initial_failure": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35352483758",
+    "source": "e04748e06c89f0a05e6c0e9c53526b0ab80fb40e",
+    "reason": "The new test used an unpinned CEL import. Commit ce23597 uses the existing cel.dev/cel-go module."
+  },
+  "full_compiler_pending": "https://github.com/jsell-rh/stego/actions/runs/35352553321",
+  "released": false,
+  "consumer_adopted": false
+}
