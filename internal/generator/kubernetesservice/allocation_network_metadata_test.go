@@ -167,6 +167,7 @@ func TestAllocationNetworkMetadataManifests(t *testing.T) {
 	c := isolatedAllocationContext()
 	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
 	p["pod_network_provider"] = "openshift-ovn-node-identity"
+	p["pod_annotations"] = []any{"example.test/workload", "stego.test/create-intent"}
 	p["bindings"] = append(p["bindings"].([]any), object{"external_role": "system:openshift:scc:privileged", "service_account": "gateway", "namespace": "allocated"})
 	testAllocationManifests(t, c)
 }

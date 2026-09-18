@@ -16,6 +16,8 @@ on:
       - 'scripts/test_allocation_pods.py'
       - 'scripts/check-isolated-allocation.py'
       - 'scripts/test_isolated_allocation.py'
+      - 'scripts/check-network-metadata.py'
+      - 'scripts/test_network_metadata.py'
       - 'scripts/check-allocation-account-identity.py'
       - 'scripts/test_allocation_setup.py'
       - 'internal/generator/kubernetesservice/testdata/allocation_isolated_test.go'
@@ -54,6 +56,7 @@ jobs:
           timeout 15s python3 -B scripts/test_allocation_account_identity.py
           timeout 15s python3 -B scripts/test_allocation_pods.py
           timeout 15s python3 -B scripts/test_isolated_allocation.py
+          timeout 15s python3 -B scripts/test_network_metadata.py
           timeout 15s python3 -B scripts/test_allocation_setup.py
       - name: Check and render Pod restrictions
         env:
