@@ -70,3 +70,24 @@ The failed result is retained. Corrected-source CI passed. The first cluster che
 policies, then rejected the positive Pod because its annotation list did not
 include OpenShift's SCC subject-type annotation. The corrected policy permits
 that exact key. A new cluster check remains pending. No result here establishes live Sandbox support.
+
+At `5cb252d`, the [focused CI run](https://github.com/jsell-rh/stego/actions/runs/35344821570)
+passed all four generator checks, 29 invalid-input cases, 20 runner safety
+checks, and the generated allocator restart check. Independent inspection
+verified the source archive and both rendered installations. Each installation
+has eight admission policies; the isolated Pod policy has 14 validations.
+
+Two cluster attempts with this corrected source stopped on API request timeouts.
+The first had type-checked all 16 policies before RuntimeClass creation timed
+out. The repeat stopped during policy creation. Neither reached a Pod probe.
+Both processes are terminal. Their UID journals and all planned resource names
+were checked after cleanup: all 59 paths were absent, including resources whose
+create requests had an uncertain result. The shared test lease was free.
+
+Evidence is retained under
+`~/.local/state/stego/runs/isolated-allocation-20260918/`. The corrected policy
+still needs a complete live admission result. Full compiler run `35344821534`
+is active at this source. The two earlier full runs were canceled after their
+sources had known compile or admission failures; they are not passing results.
+Do not remove the Hypershell guard or publish this compiler from the focused
+checks alone.

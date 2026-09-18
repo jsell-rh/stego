@@ -6,6 +6,11 @@ local alias from that profile's `service_accounts`. It cannot select a literal
 account name, the default account, or an account imported from another profile.
 The normal requirement for a declared account binding still applies.
 
+The default security mode is `restricted`. The explicit
+[isolated-runtime mode](isolated-allocation.md) has separate requirements and
+uses generated host-access rules. That mode is under qualification and is not
+yet used by Hypershell.
+
 STEGO generates one ValidatingAdmissionPolicy and one denying binding for each
 profile with these settings. The policy selects the immutable allocator and
 profile labels. It requires current allocation identity and restricted Pod
