@@ -47,8 +47,8 @@ required. The generated admission rule requires all four namespace labels;
 workers cannot remove one or replace it with a selector expression. A namespace
 recreated for another owner does not match the retained rule.
 
-This is an implementation candidate. Compiler, generated-runtime, and live
-admission checks are still required. A correct policy declaration does not prove
+This is an implementation candidate. Full compiler qualification and consumer
+integration remain incomplete. A correct policy declaration does not prove
 that a cluster network provider has enforced it.
 
 ## Qualification record
