@@ -2,6 +2,11 @@ name: Isolated allocation admission
 
 on:
   workflow_dispatch:
+    inputs:
+      refresh_dependencies:
+        description: Resolve declared dependency changes and retain the review patch
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/isolated-allocation.yml'
@@ -41,6 +46,9 @@ jobs:
         with:
           go-version: '1.26.8'
           cache: true
+      - name: Resolve dependency candidate
+        if: inputs.refresh_dependencies == true
+        run: go mod tidy
       - name: Check live runner safety
         run: |
           timeout 15s python3 -B scripts/test_allocation_account_identity.py
@@ -57,9 +65,11 @@ jobs:
           git archive HEAD | sha256sum > "$STEGO_ALLOCATION_ARTIFACTS/source-archive.sha256"
           go mod verify
           go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/kubernetesservice \
-            -run '^(TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
+            -run '^(TestAllocationPodRule.*|TestAllocationIsolated(Validation|Policy|Manifests)|TestGeneratedIsolatedAllocationRuntime)$' \
             | tee "$STEGO_ALLOCATION_ARTIFACTS/tests.log"
-          git diff --exit-code
+          cp go.mod go.sum "$STEGO_ALLOCATION_ARTIFACTS/"
+          git diff --binary -- go.mod go.sum > "$STEGO_ALLOCATION_ARTIFACTS/dependencies.patch"
+          if [[ "${{ inputs.refresh_dependencies }}" != true ]]; then git diff --exit-code; fi
       - name: Render the second installation
         env:
           STEGO_ALLOCATION_NAMESPACE: stego-isolated-peer-ci
