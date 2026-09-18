@@ -141,7 +141,10 @@ func TestApplicationAllocationManifests(t *testing.T) {
 	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
 	p["bindings"] = append(p["bindings"].([]any), object{"external_role": "system:openshift:scc:privileged", "service_account": "gateway", "namespace": "allocated"})
 	p["pod_validations"] = []any{object{"expression": "variables.containers.all(c, !(c.name in ['check','workspace-copy']) || !has(c.volumeMounts) || c.volumeMounts.all(m, m.name != 'client-identity'))", "message": "Workload and workspace cannot mount client identity"}}
-	p["network_peers"] = []any{object{"direction": "egress", "namespace": "profile", "peer_profile": "peer", "pod_label": "app", "pod_value": "service", "port": 8080, "protocol": "TCP"}}
+	p["network_peers"] = []any{
+		object{"direction": "egress", "namespace": "profile", "peer_profile": "peer", "pod_label": "app", "pod_value": "service", "port": 8080, "protocol": "TCP"},
+		object{"direction": "ingress", "namespace": "profile", "peer_profile": "peer", "pod_exists_label": "example.test/workload", "port": 8080, "protocol": "TCP"},
+	}
 	peer := allocationContext().ComponentConfig["allocation_profiles"].([]any)[0].(object)
 	peer["name"] = "peer"
 	peer["namespace_prefix"] = "stego-rules-target-ci-"

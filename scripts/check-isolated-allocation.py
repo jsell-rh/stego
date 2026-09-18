@@ -104,6 +104,10 @@ class Check(pods.Check):
                             "egress": [{"to": [{"namespaceSelector": {"matchLabels": target},
                                                  "podSelector": {"matchLabels": {"app": "service"}}}],
                                         "ports": [{"protocol": "TCP", "port": 8080}]}]}}
+        selector = {"matchExpressions": [{"key": "example.test/workload", "operator": "Exists"}]}
+        network["spec"]["ingress"] = [{"from": [{"namespaceSelector": {"matchLabels": copy.deepcopy(target)},
+                                                "podSelector": selector}],
+                                       "ports": [{"protocol": "TCP", "port": 8080}]}]
         command = ["create", "--dry-run=server", "-f", "-", "-o", "json"]
         user = common.actor(common.CONTROL)
         self.probe("related network owner and installation", command, network, user, allowed=True)
@@ -124,7 +128,22 @@ class Check(pods.Check):
                        command, changed, user, policy=common.CONTROL + ".widget-queue.allocation")
             if self.get(network) is not None:
                 raise RuntimeError("Network dry-run left a stored policy")
-        self.result.update(application_rules_checked=True, related_network_admission_checked=True)
+        for label, replacement in [
+            ("empty", {}),
+            ("wrong key", {"matchExpressions": [{"key": "example.test/other", "operator": "Exists"}]}),
+            ("absent key", {"matchExpressions": [{"key": "example.test/workload", "operator": "DoesNotExist"}]}),
+            ("value selector", {"matchExpressions": [{"key": "example.test/workload", "operator": "In", "values": ["one"]}]}),
+            ("extra expression", {"matchExpressions": [{"key": "example.test/workload", "operator": "Exists"}, {"key": "other", "operator": "Exists"}]}),
+            ("extra label", {"matchExpressions": [{"key": "example.test/workload", "operator": "Exists"}], "matchLabels": {"app": "other"}}),
+        ]:
+            changed = copy.deepcopy(network)
+            changed["spec"]["ingress"][0]["from"][0]["podSelector"] = replacement
+            self.probe("label presence denies " + label, command, changed, user,
+                       policy=common.CONTROL + ".widget-queue.allocation")
+            if self.get(network) is not None:
+                raise RuntimeError("Network dry-run left a stored policy")
+        self.result.update(application_rules_checked=True, related_network_admission_checked=True,
+                           label_presence_admission_checked=True)
 
     def exercise(self):
         for name in [pods.RUNTIME, pods.OTHER_RUNTIME]:

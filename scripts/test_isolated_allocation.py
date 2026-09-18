@@ -87,10 +87,11 @@ class IsolatedRunnerTests(unittest.TestCase):
         check = Fixture(isolated.isolated_pod(namespace, account))
         check.created = [{"kind": "Namespace", "metadata": {"name": namespace}}]
         check.application_probes()
-        self.assertEqual(len(check.commands), 9)
+        self.assertEqual(len(check.commands), 15)
         self.assertTrue(all(c == ["create", "--dry-run=server", "-f", "-", "-o", "json"] for c in check.commands))
         self.assertTrue(check.result["application_rules_checked"])
         self.assertTrue(check.result["related_network_admission_checked"])
+        self.assertTrue(check.result["label_presence_admission_checked"])
 
     def test_fixture_is_bounded(self):
         obj = isolated.isolated_pod("fixture", "account")
