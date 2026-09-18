@@ -50,3 +50,41 @@ recreated for another owner does not match the retained rule.
 This is an implementation candidate. Compiler, generated-runtime, and live
 admission checks are still required. A correct policy declaration does not prove
 that a cluster network provider has enforced it.
+
+## Qualification record
+
+[Focused CI](https://github.com/jsell-rh/stego/actions/runs/35349083894)
+passed at `0f093fb`. The checks cover invalid CEL, credential mounts, unchanged
+common guards, related namespace owners, and generated allocator restart.
+All 33 runner checks passed. Source archive and artifact checks confirmed the
+committed dependencies and manifests from two installations.
+
+The jshell admission check at this source passed 40 probes: seven allowed and
+33 denied. All 16 policies passed type checks. The application rule permitted
+the helper's credential mount and denied the same mount in the workload and
+workspace containers. The related network rule permitted the declared selector
+and rejected five changes to its namespace or owner labels. Three additional
+permission checks denied account creation, policy changes, and runtime creation.
+
+The check retained the upstream workspace-copy user and ordinary socket volume.
+It stored no Pod or network policy from a probe. It installed no runtime handler.
+Cleanup completed without recovery. An independent check confirmed all 60
+planned and recorded resource paths absent, then released the shared lease.
+
+Two earlier attempts remain recorded as failures. The first stopped on a
+resource read before the test runner started. The second encountered a valid
+namespace-mode denial from a different generated guard than the test expected.
+The revised test accepts either of the two exact guards and rejects unrelated
+denials. Both failed attempts completed cleanup before another attempt started.
+
+The full compiler check at `3358afe` is still pending. Only two Python runner
+files changed between that source and `0f093fb`; compiler inputs did not change.
+This candidate is not released or adopted by Hypershell. Network traffic,
+network-controller annotations, and live Kata execution are not proved by these
+dry runs. Hypershell must retain its Sandbox constructor guard until its full
+allocation and cleanup path is checked. Keep OpenShell's current setup; this
+extension adds neither a mutation service nor an OpenShell fork.
+
+See [the result record](allocation-pod-rules-evidence.json). Detailed records and
+fixed source copies are under
+`~/.local/state/stego/runs/allocation-pod-rules-20260918/`.

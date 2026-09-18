@@ -1,7 +1,8 @@
 # Allocation for an isolated runtime
 
-This change is under qualification. Hypershell does not use it yet. Keep its
-Sandbox constructor guard until the complete allocation path is verified.
+The common mechanism is in compiler release `1ab6aea`. Hypershell's Sandbox
+integration is incomplete. Keep its constructor guard until the complete
+allocation path is verified.
 
 An allocation profile defaults to `pod_security: restricted`. An explicit
 `pod_security: isolated-runtime` requires all of these settings:
@@ -130,7 +131,8 @@ for byte comparison before publication.
 The [immutable compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-1ab6aeaad1e9862386c1d8c3d67e124f6814b048)
 is published. The common release installer then independently downloaded and
 authenticated it. No downloaded compiler was executed on the workstation.
-Hypershell has not adopted this compiler or enabled its Sandbox allocation path.
+Hypershell main has not adopted this compiler or enabled its Sandbox allocation
+path. A separate branch is checking compiler adoption.
 
 The consumer integration must also check annotations added later by network
 controllers. Server dry-run proves admission only. It does not check network
@@ -139,5 +141,5 @@ attachment, VM startup, or Sandbox execution.
 Evidence is retained under
 `~/.local/state/stego/runs/isolated-allocation-20260918/`. The two earlier full
 runs were canceled after their sources had known compile or admission failures;
-they are not passing results. Do not remove the Hypershell guard or publish
-this compiler from the focused checks alone.
+they are not passing results. Do not remove the Hypershell guard or qualify
+later compiler changes from focused checks alone.

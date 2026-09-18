@@ -1,0 +1,67 @@
+{
+  "focused": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35349083894",
+    "source": "0f093fb213ebd18701b9a99866498afa46ee7cb2",
+    "source_archive_verified": true,
+    "readonly_dependencies_verified": true,
+    "runner_safety_tests": 33,
+    "generated_runtime_restart_check": true,
+    "related_owner_runtime_check": true,
+    "common_guards_preserved": true,
+    "manifests": [
+      {
+        "namespace": "stego-isolated-control-ci",
+        "manifest_sha256": "79563b832db06bf1c3fc82c500d1717c0e9d4d3d3eb0335acf772cb9b6a32e6e",
+        "policies": 8,
+        "pod_validations": 15
+      },
+      {
+        "namespace": "stego-isolated-peer-ci",
+        "manifest_sha256": "18d2b4f0a71bee847da095f97c886e980807b98a82369167274ba8df8429f489",
+        "policies": 8,
+        "pod_validations": 15
+      }
+    ],
+    "log_sha256": "23d92489b1be91f3d0b146cd496eead7f6e74acf450c8efdb5b21ec23b6bd50a",
+    "live_admission_verified": false,
+    "unchanged_generator_source": "3358afec9ce00ab4fe2043ceec4b792b00a6d90b"
+  },
+  "live": {
+    "source": "0f093fb213ebd18701b9a99866498afa46ee7cb2",
+    "checked_at": "2026-09-18T13:18:40.882597+00:00",
+    "checks_passed": true,
+    "runner_returncode": 0,
+    "type_checked_policies": 16,
+    "allowed_probes": 7,
+    "denied_probes": 33,
+    "denied_capabilities": 3,
+    "application_rules_checked": true,
+    "related_network_admission_checked": true,
+    "dry_run_only": true,
+    "runtime_handler_installed": false,
+    "cleanup_complete": true,
+    "cleanup_required_recovery": false,
+    "all_create_intents_resolved": true,
+    "independent_cleanup_paths": 60,
+    "lease_released": true,
+    "network_traffic_checked": false,
+    "kata_execution_checked": false,
+    "sha256": {
+      "execution.json": "40e0d4f2dc2d2561784474ea8202c861dd6724fb5a377ea3b60727500f9750a2",
+      "frozen-source.json": "b6a323c6dab66de1c984c2c607be6759b3604a252e9fa4a0bab01cd3f22d7236",
+      "result/result.json": "110140803d928cc2d2fb009989713b45f873b4a8bfd202f1458b3fa497b1c023",
+      "result/created.json": "b115650a9dcebc9679c8ab045401f4612800dce765b89da2646e0650897635df",
+      "result/intents.json": "705541584aadbdb906f4bb6c6c7a3ddd5d3cba6249dcd030ce22d3c1f4821d61",
+      "independent-cleanup.json": "62a6f892b87460aa1b29dfb1a5df82f3d1518226c8bf0831b9e3271ddc76a36d",
+      "runner.log": "adb104cc192d5ce79c322ef34ad458b008281033bbb518a80a035bd9e3df6843"
+    }
+  },
+  "full_compiler": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35348765363",
+    "source": "3358afec9ce00ab4fe2043ceec4b792b00a6d90b",
+    "status": "in_progress",
+    "compiler_inputs_unchanged": true
+  },
+  "released": false,
+  "consumer_adopted": false
+}
