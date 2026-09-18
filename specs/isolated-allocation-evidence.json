@@ -95,5 +95,59 @@
     "generated_examples_passed": true
   },
   "consumer_adopted": false,
-  "live_kata_deferred": true
+  "live_kata_deferred": true,
+  "compiler_release": {
+    "source": "1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+    "immutable": true,
+    "signed_build_run": "https://github.com/jsell-rh/stego/actions/runs/35347226987",
+    "authenticated_package": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "44b473bf956f2dda698a1fe25abb4a11e167ff399954277685cb32ff8206ddde",
+        "size": 31824445
+      },
+      "build_record_sha256": "f9fafcc3e8e7dcf7b8fe89ee9db3151fd72cdcb04d208d8395c58c20c9d53a7e",
+      "bundle_sha256": "1397075d76f44562d4e331e0c87e49d9c44b8976b8123474bc1a0447f7724b01"
+    },
+    "draft_assets_verified": {
+      "release_id": 391475914,
+      "source": "1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+      "assets": [
+        {
+          "name": "build.json",
+          "id": 572634450,
+          "size": 6882,
+          "sha256": "f9fafcc3e8e7dcf7b8fe89ee9db3151fd72cdcb04d208d8395c58c20c9d53a7e"
+        },
+        {
+          "name": "provenance.jsonl",
+          "id": 572634452,
+          "size": 10774,
+          "sha256": "1397075d76f44562d4e331e0c87e49d9c44b8976b8123474bc1a0447f7724b01"
+        },
+        {
+          "name": "SHA256SUMS",
+          "id": 572634454,
+          "size": 161,
+          "sha256": "2a464e70d6e7a15cbe6cd6f3905a640191300f0f05b2a29088cefb971d5ead35"
+        },
+        {
+          "name": "stego-linux-amd64",
+          "id": 572634451,
+          "size": 31824445,
+          "sha256": "44b473bf956f2dda698a1fe25abb4a11e167ff399954277685cb32ff8206ddde"
+        }
+      ]
+    },
+    "release_download_authenticated": true,
+    "compiler_executed_locally": false
+  }
 }

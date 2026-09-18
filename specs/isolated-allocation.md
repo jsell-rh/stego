@@ -121,9 +121,16 @@ passed at `1ab6aea`. Independent log inspection confirmed all six jobs, 34
 packages in the race suite, PostgreSQL and browser checks, and both examples.
 This revision changes only the compiler workflow's manual trigger after
 `19cb3e2`; compiler inputs are unchanged. Main now contains this tested revision.
-The reproducible build check also passed, but branch provenance signing was
-skipped. A main-branch signature check is required before a compiler release.
-Hypershell has not adopted the new compiler.
+The [main build and signature checks](https://github.com/jsell-rh/stego/actions/runs/35347226987)
+also passed. Two separate compiler builds matched. Independent source-inventory
+checks and the common installer verified the compiler and build-record
+signatures. Four authenticated files were uploaded to a draft and downloaded
+for byte comparison before publication.
+
+The [immutable compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-1ab6aeaad1e9862386c1d8c3d67e124f6814b048)
+is published. The common release installer then independently downloaded and
+authenticated it. No downloaded compiler was executed on the workstation.
+Hypershell has not adopted this compiler or enabled its Sandbox allocation path.
 
 The consumer integration must also check annotations added later by network
 controllers. Server dry-run proves admission only. It does not check network
