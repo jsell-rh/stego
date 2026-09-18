@@ -131,12 +131,23 @@ class Check:
                               capture_output=True, text=True, timeout=15)
 
     def get(self, obj):
-        result = self.run(["get", "--raw=" + path(obj)])
-        if result.returncode:
+        for attempt in range(2):
+            try:
+                result = self.run(["get", "--raw=" + path(obj)])
+            except subprocess.TimeoutExpired:
+                result = subprocess.CompletedProcess([], 1, "", "Local read observation timed out")
+            if not result.returncode:
+                return json.loads(result.stdout)
             if "(NotFound)" in result.stderr:
                 return None
-            raise RuntimeError("A resource read failed: " + path(obj))
-        return json.loads(result.stdout)
+            transient = transient_create_error(result.stderr) or result.stderr == "Local read observation timed out"
+            self.result.setdefault("setup_read_observations", []).append({
+                "path": path(obj), "attempt": attempt + 1, "stderr": result.stderr[:2048], "transient": transient,
+            })
+            self.save()
+            if not transient or attempt:
+                raise RuntimeError("A resource read failed: " + path(obj) + ": " + result.stderr[:2048])
+        raise RuntimeError("A resource read did not finish: " + path(obj))
 
     def record_created(self, stored):
         if not stored.get("metadata", {}).get("uid"):

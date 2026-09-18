@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("safety", Path(__file__).with_name("test_allocation_account_identity.py"))
 safety = importlib.util.module_from_spec(spec)
@@ -116,6 +117,29 @@ class SetupRecoveryTests(unittest.TestCase):
         self.assertFalse(check.result["complete"])
         deletes = [obj for args, obj, user in check.commands if args[0] == "delete"]
         self.assertEqual(deletes[0]["preconditions"], {"uid": "late-uid"})
+
+    def test_setup_read_retries_a_transport_failure_once(self):
+        check = SetupFixture([])
+        obj = accounts.namespace("stego-setup-check")
+        replies = [subprocess.TimeoutExpired([], 15), subprocess.CompletedProcess([], 1, "", "Error from server (NotFound)")]
+        with patch.object(check, "run", side_effect=replies) as run:
+            self.assertIsNone(check.get(obj))
+            self.assertEqual(run.call_count, 2)
+        self.assertEqual(check.intents, [])
+
+    def test_repeated_read_timeout_is_not_absence(self):
+        check = SetupFixture([])
+        with patch.object(check, "run", side_effect=subprocess.TimeoutExpired([], 15)) as run:
+            with self.assertRaisesRegex(RuntimeError, "resource read failed"):
+                check.get(accounts.namespace("stego-setup-check"))
+            self.assertEqual(run.call_count, 2)
+
+    def test_denied_read_is_not_retried(self):
+        check = SetupFixture([])
+        with patch.object(check, "run", return_value=subprocess.CompletedProcess([], 1, "", "Error from server (Forbidden)")) as run:
+            with self.assertRaisesRegex(RuntimeError, "resource read failed"):
+                check.get(accounts.namespace("stego-setup-check"))
+            self.assertEqual(run.call_count, 1)
 
     def test_denial_message_cannot_be_classified_as_transport_failure(self):
         self.assertFalse(accounts.transient_create_error("Error from server (Forbidden): Client.Timeout exceeded"))
