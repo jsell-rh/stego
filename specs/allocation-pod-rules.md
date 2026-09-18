@@ -47,7 +47,7 @@ required. The generated admission rule requires all four namespace labels;
 workers cannot remove one or replace it with a selector expression. A namespace
 recreated for another owner does not match the retained rule.
 
-This is an implementation candidate. Full compiler qualification and consumer
+This is an implementation candidate. Release publication and consumer
 integration remain incomplete. A correct policy declaration does not prove
 that a cluster network provider has enforced it.
 
@@ -77,8 +77,10 @@ namespace-mode denial from a different generated guard than the test expected.
 The revised test accepts either of the two exact guards and rejects unrelated
 denials. Both failed attempts completed cleanup before another attempt started.
 
-The full compiler check at `3358afe` is still pending. Only two Python runner
-files changed between that source and `0f093fb`; compiler inputs did not change.
+The [full compiler check](https://github.com/jsell-rh/stego/actions/runs/35348765363)
+passed at `3358afe`: all six jobs, both examples, and 34 packages with the race
+detector. Only two Python runner files changed between that source and
+`0f093fb`; compiler inputs did not change. Later changes only update these records.
 This candidate is not released or adopted by Hypershell. Network traffic,
 network-controller annotations, and live Kata execution are not proved by these
 dry runs. Hypershell must retain its Sandbox constructor guard until its full
