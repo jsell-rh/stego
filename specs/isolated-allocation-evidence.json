@@ -52,9 +52,47 @@
     }
   },
   "full_compiler": {
-    "source": "1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+    "live_allocation_admission_checked": false,
+    "consumer_adopted": false,
     "run": "https://github.com/jsell-rh/stego/actions/runs/35346553521",
-    "status": "pending"
+    "source": "1ab6aeaad1e9862386c1d8c3d67e124f6814b048",
+    "checked_at": "2026-09-18T12:55:03.276738+00:00",
+    "jobs": {
+      "compiler": "success",
+      "resource-state-storage": "success",
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "keycloak-provider": "success",
+      "examples (user-management-rhsso)": "success"
+    },
+    "rpc_tests": [
+      "TestRPCDeploymentValidation",
+      "TestRPCDeploymentFiles",
+      "TestRPCDeploymentRolloutStrategies",
+      "TestRPCDeploymentRolloutStrategies/RollingUpdate",
+      "TestRPCDeploymentRolloutStrategies/Recreate",
+      "TestRPCDeploymentValidation/empty_rollout",
+      "TestRPCDeploymentValidation/unknown_rollout",
+      "TestRPCDeploymentValidation/wrong_rollout_case",
+      "TestRPCDeploymentValidation/null_rollout",
+      "TestRPCDeploymentValidation/boolean_rollout",
+      "TestRPCDeploymentValidation/object_rollout"
+    ],
+    "full_race_suite_passed": true,
+    "passing_packages": 34,
+    "compiler_log_sha256": "6a5e3f6bf201f5cfa73fbde082c199b81d845c5a5e3758b08effd6e5a23cd835",
+    "local_go_tests_run": false,
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "postgres_log_sha256": "4239105350c61dd4a48c6d26be9a62e9f0552c7f4523c2423aaab7b3b51f3c73",
+    "generated_examples_passed": true
   },
   "consumer_adopted": false,
   "live_kata_deferred": true

@@ -117,10 +117,13 @@ resource paths absent. It then released the shared lease. The original failure
 record is unchanged. Admission passed; cleanup required recovery.
 
 Full compiler run [35346553521](https://github.com/jsell-rh/stego/actions/runs/35346553521)
-is active at `1ab6aea`. This revision changes only the compiler workflow's
-manual trigger after `19cb3e2`; compiler inputs are unchanged. The reproducible
-build check passed at this revision, but branch provenance signing was skipped.
-Neither a complete full-suite result nor signed release evidence is claimed.
+passed at `1ab6aea`. Independent log inspection confirmed all six jobs, 34
+packages in the race suite, PostgreSQL and browser checks, and both examples.
+This revision changes only the compiler workflow's manual trigger after
+`19cb3e2`; compiler inputs are unchanged. Main now contains this tested revision.
+The reproducible build check also passed, but branch provenance signing was
+skipped. A main-branch signature check is required before a compiler release.
+Hypershell has not adopted the new compiler.
 
 The consumer integration must also check annotations added later by network
 controllers. Server dry-run proves admission only. It does not check network
