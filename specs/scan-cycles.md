@@ -109,7 +109,8 @@ unproved. The 30-second target is unchanged.
 ## Parallel actions by resource key
 
 Controller 1.23.0 adds the opt-in `ScanCycleParallel` API. Its typed options
-require 1–64 workers, an action time limit, and a resource key function. The
+require 1–64 workers, an action time limit, and a resource key function.
+`MaxParallelCycleWorkers` exposes the worker ceiling for startup checks. The
 runtime checks every key before page effects. Keys contain 1–512 valid UTF-8
 bytes, without NUL. The runtime does not store or log keys.
 

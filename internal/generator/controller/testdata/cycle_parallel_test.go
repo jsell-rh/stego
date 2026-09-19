@@ -285,7 +285,7 @@ func TestCycleParallelShortParentStartsNoAction(t *testing.T) {
 }
 
 func TestCycleParallelRejectsInvalidOptionsBeforeWork(t *testing.T) {
-	values := []ParallelCycleOptions[int]{parallelOptions(0), parallelOptions(-1), parallelOptions(65), {Workers: 2, ActionTimeout: 20 * time.Millisecond}, {Workers: 2, ActionTimeout: time.Nanosecond, Key: func(int) string { return "key" }}, {Workers: 2, ActionTimeout: 50 * time.Millisecond, Key: func(int) string { return "key" }}}
+	values := []ParallelCycleOptions[int]{parallelOptions(0), parallelOptions(-1), parallelOptions(MaxParallelCycleWorkers + 1), {Workers: 2, ActionTimeout: 20 * time.Millisecond}, {Workers: 2, ActionTimeout: time.Nanosecond, Key: func(int) string { return "key" }}, {Workers: 2, ActionTimeout: 50 * time.Millisecond, Key: func(int) string { return "key" }}}
 	for _, options := range values {
 		access := CheckpointAccess{Load: func(context.Context) (Checkpoint, error) {
 			t.Error("invalid options reached storage")
