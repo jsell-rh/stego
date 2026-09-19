@@ -5,6 +5,7 @@ package auth
 import (
 	"context"
 	"errors"
+	telemetry "github.com/example/service/out/tracing"
 	"net/http"
 	"os"
 	"strings"
@@ -19,12 +20,18 @@ type JWTHandler struct {
 }
 
 // NewJWTHandler validates trust and loads keys before the service accepts requests.
-func NewJWTHandler() (*JWTHandler, error) {
+func NewJWTHandler() (*JWTHandler, error) { return NewJWTHandlerWithContext(context.Background()) }
+
+// NewJWTHandlerWithContext uses the service lifetime for initial key retrieval.
+func NewJWTHandlerWithContext(ctx context.Context) (*JWTHandler, error) {
+	if ctx == nil {
+		return nil, errors.New("SSO startup requires a context")
+	}
 	enabled := os.Getenv("AUTH_ENABLED")
 	if enabled != "" && !strings.EqualFold(enabled, "true") {
 		return nil, errors.New("SSO authentication cannot be disabled")
 	}
-	verifier, err := NewJWKSVerifier(context.Background(), JWKSConfig{
+	verifier, err := NewJWKSVerifier(ctx, JWKSConfig{
 		Trust:  Config{Issuer: envOrDefault("STEGO_AUTH_ISSUER", ""), Audience: envOrDefault("STEGO_AUTH_AUDIENCE", "")},
 		URL:    envOrDefault("JWK_CERT_URL", "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"),
 		File:   envOrDefault("JWK_CERT_FILE", ""),
@@ -38,6 +45,15 @@ func NewJWTHandler() (*JWTHandler, error) {
 		"/api/user-mgmt/v1/metrics":     true,
 		"/api/user-mgmt/v1/openapi":     true,
 	}}, nil
+}
+
+// NewJWTHandlerWithTelemetry binds startup to the process-owned runtime.
+// The handler does not close that runtime.
+func NewJWTHandlerWithTelemetry(runtime *telemetry.Runtime, ctx context.Context) (*JWTHandler, error) {
+	if runtime == nil || ctx == nil {
+		return nil, errors.New("SSO startup requires a runtime and context")
+	}
+	return NewJWTHandlerWithContext(runtime.Context(ctx))
 }
 
 func (h *JWTHandler) Build() func(http.Handler) http.Handler {
