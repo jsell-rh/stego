@@ -420,23 +420,34 @@ the application must never perform automatic teardown.
    current work and commit budgets, page sizes, sweep cadence, and capacity
    fixture for the comparison. Compiler `d3ccd11` passed full branch and main qualification and was
    published as an authenticated immutable package. See the
-   [common runtime evidence](scan-parallel-evidence.json). Generated application
-   adoption and a new real-provider result are still required before any timing
-   improvement can be claimed.
+   [common runtime evidence](scan-parallel-evidence.json). Hypershell adopted
+   the generated runtime at `6c54674`. Its full check `35467115168` passed 327
+   top-level tests and 830 cases, with all 816 earlier cases retained. Both
+   restart tests and the browser, UI, and image jobs passed. Five conditional
+   tests and the Kata job remained excluded. See the
+   [application result](https://github.com/jsell-rh/hypershell-stego/blob/ecaee43/acceptance/scan-parallel-full-evidence.json).
+   The sixth capacity run `35468703943` now uses that exact source and the
+   unchanged fixture. A complete measured result is still required before
+   any timing improvement can be claimed.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
    required tests; its API gate passed all 52. Full main CI passed 315 top-level
    tests and 754 cases. The separate live browser attempt stopped before Job
    creation because the installed Sandbox candidate policy differs from main.
-   That policy mismatch and the Sandbox decision remain open.
+   That policy mismatch still needs the qualified Sandbox candidate. The user
+   has resolved the controller trust decision as recorded below.
 
-   Also address the whole-realm Gateway identity inventory window: 10,000
-   account clients plus Gateway and system clients exceed its current
-   10,000-client scan bound. The account-only capacity sample does not run that
-   controller, create all background accounts through the API, or qualify total
-   Gateway workload cleanup. Concurrent deletions, larger installations, and
-   degraded dependencies remain separate checks.
+   The whole-realm Gateway identity inventory has a separate candidate fix at
+   `739835e`. It uses the generated name-query cursor and scan for native and
+   console client prefixes, then verifies current ownership. Its 36 required
+   journal tests and real-provider recovery checks passed. The combined full
+   and live workflow results remain pending. This removes unrelated account
+   clients from the normal query; it does not remove the per-query window or
+   the controller's discovery deadline. The account-only capacity sample does
+   not run that controller, create all background accounts through the API, or
+   qualify total Gateway workload cleanup. Concurrent deletions, larger
+   installations, and degraded dependencies remain separate checks.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    An earlier CNPG run needed one secondary Pod replacement for scheduling;

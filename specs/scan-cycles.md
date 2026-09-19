@@ -137,8 +137,8 @@ This candidate follows Hypershell run `35463991341`. Complete account cleanup
 took 93.2722 seconds; the 30-second target failed. All selected provider objects
 were absent and background state was preserved. Saved passes had clean failure
 flags, but handled about 18–21 account rows before a wait of about 12 seconds.
-The bounded parallel candidate and its generated tests still require CI.
-No consumer timing improvement is claimed.
+The parallel runtime qualification is recorded below. The real-provider
+comparison remains pending. No consumer timing improvement is claimed.
 
 
 ## Parallel runtime qualification
@@ -157,3 +157,11 @@ release was downloaded and checked through the same installer. See the
 This proves the common runtime at the recorded source. Hypershell adoption and
 its real-provider capacity result remain separate. No timing improvement,
 distributed fencing, or exactly-once effect is claimed.
+
+
+Hypershell adopted this runtime at `6c54674`. Its full hosted run `35467115168`
+passed 327 top-level tests and 830 cases, including the unchanged serial restart
+fixture and the new parallel restart fixture. All earlier core cases remained
+present. The sixth capacity run `35468703943` uses that same source and unchanged
+measurement fixture. Its result is pending; application regression success
+alone does not establish the 30-second cleanup target.
