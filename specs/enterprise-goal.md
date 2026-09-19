@@ -396,6 +396,21 @@ the application must never perform automatic teardown.
    of the deletion request to confirmed cleanup with healthy dependencies. Keep
    larger-scale, degraded-dependency, and concurrent-load results separate.
    These targets have not yet been proved against real providers at that scale.
+   The first real account cleanup sample at that cardinality now fails. Hosted
+   run `35460485398` used PostgreSQL-backed production Keycloak, 100 Gateway
+   records, 9,900 seeded background accounts, and 100 accounts created through
+   REST and the generated provisioner. Account cleanup remained incomplete
+   through 120.0735 seconds after HTTP 202. No completion time or final background
+   preservation result was obtained. The test resources were removed. See the
+   [capacity result and limits](https://github.com/jsell-rh/hypershell-stego/blob/b479addd2ec15101a64d3bbf899a688edd12aaea/acceptance/provider-capacity-evidence.json).
+   Setup first exposed fixed application quotas. Hypershell now has operator
+   quota settings with the original defaults; 32 quota and recovery tests passed
+   with race checks. The main integration is `034b46b`. Its complete main CI is
+   still pending. Next, measure account cleanup progress and retry delay before
+   changing recovery cadence or budgets. Also address the whole-realm Gateway
+   identity inventory window: 10,000 account clients plus Gateway and system
+   clients exceed its current 10,000-client scan bound. The account-only sample
+   does not run that controller or qualify complete Gateway workload cleanup.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    An earlier CNPG run needed one secondary Pod replacement for scheduling;
