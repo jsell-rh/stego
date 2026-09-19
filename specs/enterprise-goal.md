@@ -418,9 +418,11 @@ the application must never perform automatic teardown.
    about 12 seconds apart. The next change uses the common keyed parallel scan
    runtime. Account rows and journals must use the same resource key. Keep the
    current work and commit budgets, page sizes, sweep cadence, and capacity
-   fixture for the comparison. The parallel runtime needs full qualification,
-   authenticated compiler delivery, generated application adoption, and a new
-   real-provider result before any timing improvement can be claimed.
+   fixture for the comparison. Compiler `d3ccd11` passed full branch and main qualification and was
+   published as an authenticated immutable package. See the
+   [common runtime evidence](scan-parallel-evidence.json). Generated application
+   adoption and a new real-provider result are still required before any timing
+   improvement can be claimed.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32

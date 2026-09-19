@@ -139,3 +139,21 @@ were absent and background state was preserved. Saved passes had clean failure
 flags, but handled about 18–21 account rows before a wait of about 12 seconds.
 The bounded parallel candidate and its generated tests still require CI.
 No consumer timing improvement is claimed.
+
+
+## Parallel runtime qualification
+
+Compiler `d3ccd11` supplies controller component `1.23.0`. All six branch and
+main compiler jobs passed, including 34 race-tested packages. The focused
+checks passed all 13 parallel cases in generated runtimes with and without
+telemetry. The cases cover key ordering, budget pauses, retained failures,
+cancellation, callback joins, safe prefix recovery, and save conflicts.
+
+Two isolated main builds produced identical bytes. The common installer
+verified both signatures, source identity, and workflow identity. The immutable
+release was downloaded and checked through the same installer. See the
+[complete qualification record](scan-parallel-evidence.json).
+
+This proves the common runtime at the recorded source. Hypershell adoption and
+its real-provider capacity result remain separate. No timing improvement,
+distributed fencing, or exactly-once effect is claimed.
