@@ -21,6 +21,9 @@ func TestGenerateSharedRuntime(t *testing.T) {
 		if !wiring.ConstructorReturnsError[0] || wiring.ConstructorDeferCalls[0] != "Stop()" || wiring.MiddlewareWrapExpr != "%s.Build()(%s)" {
 			t.Fatal("startup errors or shutdown are not wired")
 		}
+		if resources := wiring.ConstructorResources[0]; len(resources) != 1 || resources[0] != gen.ServiceContext {
+			t.Fatal("SSO startup does not use the service context")
+		}
 		if len(wiring.GoModRequires) != 1 || wiring.GoModRequires["github.com/golang-jwt/jwt/v5"] == "" {
 			t.Fatal("SSO does not use the common JWT dependency")
 		}

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -203,4 +204,23 @@ func TestSSOStartupRequiresTrust(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSSOStartupContext(t *testing.T) {
+	ssoFixture(t)
+	if h, err := NewJWTHandlerWithContext(nil); err == nil {
+		h.Stop()
+		t.Fatal("nil startup context accepted")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if h, err := NewJWTHandlerWithContext(ctx); err == nil {
+		h.Stop()
+		t.Fatal("canceled startup context accepted")
+	}
+	h, err := NewJWTHandlerWithContext(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Stop()
 }

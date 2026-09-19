@@ -6,17 +6,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
 func TestGeneratedSSOTrustPolicy(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedSSOTrustPolicy(t, telemetry) })
+	}
+}
+func testGeneratedSSOTrustPolicy(t *testing.T, telemetry bool) {
 	project := t.TempDir()
-	files, wiring, err := new(Generator).Generate(gen.Context{OutputNamespace: "auth"})
+	settings := gen.Context{OutputNamespace: "auth", ModuleName: "example.com/sso-test"}
+	if telemetry {
+		settings.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+	}
+	files, wiring, err := new(Generator).Generate(settings)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if telemetry {
+		peerFiles, peerWiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "sso-test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, peerFiles...)
+		for name, version := range peerWiring.GoModRequires {
+			wiring.GoModRequires[name] = version
+		}
+		tests, err := os.ReadFile("testdata/startup_telemetry_test.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, gen.File{Path: "auth/startup_telemetry_test.go", Content: tests})
 	}
 	for _, file := range files {
 		target := filepath.Join(project, file.Path)
@@ -35,8 +61,13 @@ func TestGeneratedSSOTrustPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	module := "module example.com/sso-test\ngo 1.26.8\n"
-	for name, version := range wiring.GoModRequires {
-		module += fmt.Sprintf("require %s %s\n", name, version)
+	names := make([]string, 0, len(wiring.GoModRequires))
+	for name := range wiring.GoModRequires {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		module += fmt.Sprintf("require %s %s\n", name, wiring.GoModRequires[name])
 	}
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0600); err != nil {
 		t.Fatal(err)

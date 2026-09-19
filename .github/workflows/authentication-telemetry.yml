@@ -6,8 +6,10 @@ on:
     paths:
       - '.github/workflows/authentication-telemetry.yml'
       - 'internal/generator/jwtauth/**'
+      - 'internal/generator/rhssoauth/**'
       - 'internal/generator/oteltracing/**'
       - 'registry/components/jwt-auth/**'
+      - 'registry/components/rh-sso-auth/**'
       - 'registry/components/otel-tracing/**'
       - 'go.mod'
       - 'go.sum'
@@ -15,8 +17,10 @@ on:
     paths:
       - '.github/workflows/authentication-telemetry.yml'
       - 'internal/generator/jwtauth/**'
+      - 'internal/generator/rhssoauth/**'
       - 'internal/generator/oteltracing/**'
       - 'registry/components/jwt-auth/**'
+      - 'registry/components/rh-sso-auth/**'
       - 'registry/components/otel-tracing/**'
       - 'go.mod'
       - 'go.sum'
@@ -51,8 +55,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/authentication-telemetry"
           go mod verify
           go test -json -race -count=1 -mod=readonly -timeout=8m \
-            ./internal/generator/jwtauth ./internal/generator/oteltracing \
-            -run '^(TestGeneratedAuthenticationRuntime|TestAuthenticationTelemetryPeerValidation|TestGeneratedAuthKeyTelemetry)$' \
+            ./internal/generator/jwtauth ./internal/generator/rhssoauth ./internal/generator/oteltracing \
+            -run '^(TestGeneratedAuthenticationRuntime|TestAuthenticationTelemetryPeerValidation|TestGeneratedAuthKeyTelemetry|TestGeneratedSSOTrustPolicy)$' \
             | tee "$RUNNER_TEMP/authentication-telemetry/tests.jsonl"
           git rev-parse HEAD > "$RUNNER_TEMP/authentication-telemetry/source-commit"
           git archive HEAD | sha256sum > "$RUNNER_TEMP/authentication-telemetry/source-archive.sha256"

@@ -64,3 +64,18 @@ cover both peer modes, all fixed outcomes, file and HTTPS refresh, bounded
 outage use, recovery, cooldown, stop, cancellation, trace sampling, correlated
 signals, private input removal, idempotent completion, and collector failure.
 The change does not establish a capacity result or close C6.
+
+
+Generated SSO startup now requests the service context. When the telemetry peer
+is selected, its constructor also depends on the process runtime and binds that
+runtime before the initial key load. The compiler starts the runtime first and
+closes the SSO handler before the runtime. The handler does not own the runtime.
+The no-argument `NewJWTHandler` remains available; direct callers can use
+`NewJWTHandlerWithContext` or the generated telemetry constructor.
+
+The SSO candidate checks startup success, invalid key input, cancellation,
+deadline expiry, missing dependencies, private data removal, and runtime
+ownership. Trust and payload tests run with and without the telemetry peer.
+Hosted qualification and refreshed SSO example output are still required.
+Hypershell currently uses its static public-key verifier, so these key-cache
+results do not prove a change to Hypershell's authentication behavior.

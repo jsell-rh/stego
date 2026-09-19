@@ -6,6 +6,7 @@ import (
  "net/http"
  "os"
  "strings"
+ {{if .Tracing}}telemetry {{printf "%q" .Tracing}}{{end}}
 
  "github.com/golang-jwt/jwt/v5"
 )
@@ -17,10 +18,14 @@ type JWTHandler struct {
 }
 
 // NewJWTHandler validates trust and loads keys before the service accepts requests.
-func NewJWTHandler() (*JWTHandler,error) {
+func NewJWTHandler() (*JWTHandler,error) {return NewJWTHandlerWithContext(context.Background())}
+
+// NewJWTHandlerWithContext uses the service lifetime for initial key retrieval.
+func NewJWTHandlerWithContext(ctx context.Context) (*JWTHandler,error) {
+ if ctx==nil{return nil,errors.New("SSO startup requires a context")}
  enabled:=os.Getenv("AUTH_ENABLED")
  if enabled!="" && !strings.EqualFold(enabled,"true") {return nil,errors.New("SSO authentication cannot be disabled")}
- verifier,err:=NewJWKSVerifier(context.Background(),JWKSConfig{
+ verifier,err:=NewJWKSVerifier(ctx,JWKSConfig{
   Trust:Config{Issuer:envOrDefault("STEGO_AUTH_ISSUER",{{printf "%q" .Issuer}}),Audience:envOrDefault("STEGO_AUTH_AUDIENCE",{{printf "%q" .Audience}})},
   URL:envOrDefault("JWK_CERT_URL",{{printf "%q" .URL}}),
   File:envOrDefault("JWK_CERT_FILE",{{printf "%q" .File}}),
@@ -33,6 +38,13 @@ func NewJWTHandler() (*JWTHandler,error) {
  }},nil
 }
 
+{{if .Tracing}}// NewJWTHandlerWithTelemetry binds startup to the process-owned runtime.
+// The handler does not close that runtime.
+func NewJWTHandlerWithTelemetry(runtime *telemetry.Runtime,ctx context.Context)(*JWTHandler,error){
+ if runtime==nil||ctx==nil{return nil,errors.New("SSO startup requires a runtime and context")}
+ return NewJWTHandlerWithContext(runtime.Context(ctx))
+}
+{{end}}
 func (h *JWTHandler) Build() func(http.Handler)http.Handler {
  return func(next http.Handler)http.Handler {
   return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){

@@ -105,12 +105,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return fallback
 	}
 	data := struct {
-		Package, Issuer, Audience, URL, File, CAFile string
-		PublicPaths                                  []string
+		Package, Issuer, Audience, URL, File, CAFile, Tracing string
+		PublicPaths                                           []string
 	}{
 		path.Base(ns), setting("issuer", ""), setting("audience", ""),
 		setting("jwk_cert_url", "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"),
-		setting("jwk_cert_file", ""), setting("jwk_ca_file", ""), paths,
+		setting("jwk_cert_file", ""), setting("jwk_ca_file", ""), "", paths,
+	}
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
 	}
 	tmpl, err := template.New("sso").Parse(ssoTemplate)
 	if err != nil {
@@ -131,7 +134,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	files = append(files, contextFile)
 	index := 0
-	wiring.Constructors = []string{path.Base(ns) + ".NewJWTHandler()"}
+	wiring.Constructors = []string{path.Base(ns) + ".NewJWTHandlerWithContext()"}
+	wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext}}
+	if data.Tracing != "" {
+		wiring.Constructors = []string{path.Base(ns) + ".NewJWTHandlerWithTelemetry(tracingRuntime)"}
+		wiring.ConstructorDeps = map[int][]string{0: {"tracingRuntime"}}
+	}
 	wiring.ConstructorReturnsError = map[int]bool{0: true}
 	wiring.MiddlewareConstructor = &index
 	wiring.MiddlewareWrapExpr = "%s.Build()(%s)"
