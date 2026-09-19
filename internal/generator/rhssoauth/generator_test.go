@@ -15,7 +15,7 @@ func TestGenerateSharedRuntime(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(files) != 6 {
+		if len(files) != 7 {
 			t.Fatalf("got %d files", len(files))
 		}
 		if !wiring.ConstructorReturnsError[0] || wiring.ConstructorDeferCalls[0] != "Stop()" || wiring.MiddlewareWrapExpr != "%s.Build()(%s)" {
