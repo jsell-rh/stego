@@ -21,6 +21,7 @@ const MaxParallelCycleWorkers = 64
 type ParallelCycleOptions[T any] struct {
 	Workers       int
 	ActionTimeout time.Duration
+	Retry         CycleRetryOptions
 	Key           func(T) string
 }
 
@@ -32,10 +33,10 @@ type ParallelCycleOptions[T any] struct {
 // Effects beyond a stopped prefix can repeat after restart. Continuation policy
 // calls are serial; it must not depend on the order in which actions finish.
 func ScanCycleParallel[T any](ctx context.Context, sourceVersion string, access CheckpointAccess, source CursorSource[T], emit func(context.Context, T) error, continueOnError func(error) bool, scan ScanOptions, budget ObservationOptions, options ParallelCycleOptions[T]) (CycleState, error) {
-	if options.Workers < 1 || options.Workers > MaxParallelCycleWorkers || options.Key == nil || options.ActionTimeout < time.Millisecond || options.ActionTimeout >= budget.WorkTimeout {
+	if options.Workers < 1 || options.Workers > MaxParallelCycleWorkers || options.Key == nil || options.ActionTimeout < time.Millisecond || options.ActionTimeout >= budget.WorkTimeout || options.Retry.validate(options.ActionTimeout) != nil {
 		return CycleState{Source: sourceVersion}, ErrScanContract
 	}
-	return scanCycle(ctx, sourceVersion, access, source, emit, continueOnError, scan, budget, CycleOptions{ActionTimeout: options.ActionTimeout}, &options)
+	return scanCycle(ctx, sourceVersion, access, source, emit, continueOnError, scan, budget, CycleOptions{ActionTimeout: options.ActionTimeout, Retry: options.Retry}, &options)
 }
 
 type cyclePageResult struct {
@@ -105,10 +106,8 @@ func runParallelCyclePage[T any](work context.Context, items []CursorItem[T], em
 				} else if !available {
 					event.budgetEnded = true
 				} else {
-					action, stop := context.WithTimeout(page, options.ActionTimeout)
 					event.started = true
-					event.err = errors.Join(emit(action, items[index].Value), observationContextError(action))
-					stop()
+					event.err = cycleActionWithRetry(page, options.ActionTimeout, options.Retry, func(action context.Context) error { return emit(action, items[index].Value) })
 				}
 				results <- event
 			}

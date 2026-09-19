@@ -62,6 +62,9 @@ var cycleBudgetTests []byte
 //go:embed testdata/cycle_parallel_test.go
 var cycleParallelTests []byte
 
+//go:embed testdata/cycle_retry_test.go
+var cycleRetryTests []byte
+
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
@@ -71,6 +74,12 @@ var processTests []byte
 func TestGeneratedCycleParallel(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestCycleParallel") })
+	}
+}
+
+func TestGeneratedCycleRetry(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestCycleRetry") })
 	}
 }
 
@@ -140,6 +149,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	files = append(files, gen.File{Path: "controller/state_protection_test.go", Content: stateProtectionTests}, gen.File{Path: "controller/state_journal_test.go", Content: stateJournalTests})
 	files = append(files, gen.File{Path: "controller/cycle_budget_test.go", Content: cycleBudgetTests})
 	files = append(files, gen.File{Path: "controller/cycle_parallel_test.go", Content: cycleParallelTests})
+	files = append(files, gen.File{Path: "controller/cycle_retry_test.go", Content: cycleRetryTests})
 	files = append(files, gen.File{Path: "controller/cycle_test.go", Content: cycleTests}, gen.File{Path: "controller/process_test.go", Content: processTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\n")
@@ -192,10 +202,24 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	if len(patterns) != 0 {
 		cmd.Args = append(cmd.Args, "-run="+strings.Join(patterns, "|"))
 	}
+	retryCheck := len(patterns) == 1 && patterns[0] == "^TestCycleRetry"
+	if retryCheck {
+		cmd.Args = append(cmd.Args, "-v")
+	}
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated controller: %v\n%s", err, output)
+	} else if retryCheck {
+		for _, name := range []string{"ResolvesCurrentFailureBeforeCursorAdvance", "LimitsAndErrorSelection", "DeadlineRequiresFullReserve", "CancellationStopsDelayAndSave", "DoesNotRetryCheckpointConflict", "RejectsInvalidPolicyBeforeStorage", "RetainsKeyOrderWithIndependentWork", "PeerFailureCancelsWaitingRetry"} {
+			if !strings.Contains(string(output), "--- PASS: TestCycleRetry"+name+" ") {
+				t.Fatalf("required generated retry result is absent: %s\n%s", name, output)
+			}
+		}
+		if strings.Contains(string(output), "--- SKIP:") {
+			t.Fatalf("generated retry check skipped a case:\n%s", output)
+		}
+		t.Logf("generated retry results:\n%s", output)
 	}
 	if os.Getenv("STEGO_STRESS_CONTROLLER") == "1" {
 		for _, procs := range []string{"1", "4"} {
