@@ -440,9 +440,15 @@ the application must never perform automatic teardown.
    new option is now qualified in compiler `3220812`: callers can wait after
    a complete round while the default still waits after each group. Its signed
    immutable release passed full branch and main checks. See the
-   [interval qualification](sweep-interval-evidence.json). Application adoption
-   and the next capacity measurement remain pending. The
-   evidence does not identify the cause of every failed provider call. See the
+   [interval qualification](sweep-interval-evidence.json). Application candidate
+   `6a8a882` passed full run `35471009094`: all 329 top-level tests and 844
+   cases remain, with the same five conditional exclusions. Browser, UI, image,
+   and both restart checks passed. The separate journal run passed all 36
+   required cases. See the [application qualification](https://github.com/jsell-rh/hypershell-stego/blob/df85c40/acceptance/sweep-round-validation.md).
+   The gate then started seventh capacity run `35472389423` with the unchanged
+   fixture. Its timing result remains pending, and the scheduling candidate is
+   not yet on application main. The evidence does not identify the cause of
+   every failed provider call. See the
    [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
