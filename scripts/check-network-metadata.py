@@ -47,6 +47,11 @@ class Check(isolated.Check):
         owned = [x for x in self.created if x["kind"] == "Namespace" and x["metadata"]["name"] == namespace]
         if len(owned) != 1 or not namespace.startswith(common.PREFIX):
             raise RuntimeError("Status fixture requires its recorded allocation namespace")
+        runtime = {"apiVersion": "node.k8s.io/v1", "kind": "RuntimeClass", "metadata": {"name": pods.RUNTIME}}
+        recorded = [x for x in self.created if x["kind"] == "RuntimeClass" and x["metadata"]["name"] == pods.RUNTIME]
+        current = self.get(runtime)
+        if len(recorded) != 1 or current is None or current["metadata"].get("uid") != recorded[0]["metadata"]["uid"] or current.get("handler") != self.handler:
+            raise RuntimeError("The recorded test runtime changed before Pod creation")
         obj = pending_pod(namespace, account, self.args.node)
         self.status_pod = common.Check.create(self, obj)
         self.result.update(pods_created=1, dry_run_only=False, runtime_handler_installed=False,
@@ -58,9 +63,12 @@ class Check(isolated.Check):
         stored = self.get(self.status_pod)
         if stored is None or stored["metadata"]["uid"] != self.status_pod["metadata"]["uid"]:
             raise RuntimeError("Status fixture Pod identity changed")
+        expected = pending_pod(stored["metadata"]["namespace"], self.status_pod["spec"]["serviceAccountName"], self.args.node)["spec"]
+        if not common.contains(stored.get("spec"), expected) or stored["spec"].get("initContainers") or stored["spec"].get("ephemeralContainers"):
+            raise RuntimeError("The metadata fixture lost its execution barriers or limits")
         state = stored.get("status", {})
         for field in ["containerStatuses", "initContainerStatuses", "ephemeralContainerStatuses"]:
-            if any(x.get("containerID") or x.get("state", {}).get("running") or x.get("state", {}).get("terminated")
+            if any(x.get("containerID") or any(key in x.get(part, {}) for key in ["running", "terminated"] for part in ["state", "lastState"])
                    for x in state.get(field, [])):
                 raise RuntimeError("The metadata fixture started a container")
         self.result.setdefault("pod_observations", []).append({

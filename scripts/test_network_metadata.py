@@ -18,6 +18,8 @@ class Fixture(network.Check):
         self.args = SimpleNamespace(node="worker.test")
         self.handler = "stego-no-runtime-test"
         self.created = [{"kind": "Namespace", "metadata": {"name": network.common.PREFIX + "12345678", "uid": "namespace-uid"}}]
+        self.runtime = {"kind": "RuntimeClass", "metadata": {"name": network.pods.RUNTIME, "uid": "runtime-uid"}, "handler": self.handler}
+        self.created.append(copy.deepcopy(self.runtime))
         self.intents, self.result, self.commands = [], {}, []
         self.status_pod = None
         self.stored = network.pending_pod(self.created[0]["metadata"]["name"], "account", self.args.node)
@@ -27,7 +29,7 @@ class Fixture(network.Check):
         pass
 
     def get(self, obj):
-        return copy.deepcopy(self.stored)
+        return copy.deepcopy(self.runtime if obj["kind"] == "RuntimeClass" else self.stored)
 
     def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
         self.commands.append((command, user, allowed, policy))
@@ -74,6 +76,18 @@ class NetworkMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "persistence is forbidden"):
             Fixture().create(check.stored)
 
+    def test_changed_runtime_blocks_pod_creation(self):
+        for key, value in [("uid", "other"), ("handler", "default")]:
+            check = Fixture()
+            if key == "uid":
+                check.runtime["metadata"][key] = value
+            else:
+                check.runtime[key] = value
+            with patch.object(network.common.Check, "create") as create:
+                with self.assertRaisesRegex(RuntimeError, "runtime changed"):
+                    check.create_status_pod(check.stored["metadata"]["namespace"], "account")
+                self.assertFalse(create.called)
+
     def test_runtime_handler_is_unique_to_the_check(self):
         check = Fixture()
         runtime = {"kind": "RuntimeClass", "handler": "original"}
@@ -99,11 +113,15 @@ class NetworkMetadataTests(unittest.TestCase):
         self.assertEqual(check.commands[-1][3], network.common.CONTROL + ".widget-queue.pods.tenant")
 
     def test_changed_uid_or_started_container_stops_the_check(self):
-        for mode in ["uid", "running", "terminated", "containerID"]:
+        for mode in ["uid", "running", "terminated", "containerID", "lastState", "limits"]:
             check = Fixture()
             check.status_pod = copy.deepcopy(check.stored)
             if mode == "uid":
                 check.stored["metadata"]["uid"] = "other"
+            elif mode == "limits":
+                check.stored["spec"]["containers"][0]["resources"]["limits"]["cpu"] = "20m"
+            elif mode == "lastState":
+                check.stored["status"] = {"containerStatuses": [{"lastState": {"terminated": {}}}]}
             else:
                 status = {"containerID": "test"} if mode == "containerID" else {"state": {mode: {"startedAt": "now"}}}
                 check.stored["status"] = {"containerStatuses": [status]}
