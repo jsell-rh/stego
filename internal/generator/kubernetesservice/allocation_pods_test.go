@@ -94,8 +94,8 @@ func TestAllocationPodPolicy(t *testing.T) {
 		t.Fatal("Pod policy must select one installation and fail closed")
 	}
 	rule := constraints["resourceRules"].([]any)[0].(object)
-	if !reflect.DeepEqual(rule["operations"], []string{"CREATE", "UPDATE"}) || !reflect.DeepEqual(rule["resources"], []string{"pods", "pods/ephemeralcontainers"}) || rule["scope"] != "Namespaced" {
-		t.Fatal("Pod policy must cover Pod writes and retain deletion")
+	if !reflect.DeepEqual(rule["operations"], []string{"CREATE", "UPDATE"}) || !reflect.DeepEqual(rule["resources"], []string{"pods", "pods/status", "pods/ephemeralcontainers"}) || rule["scope"] != "Namespaced" {
+		t.Fatal("Pod policy must cover main, status, and ephemeral writes and retain deletion")
 	}
 	raw, _ := json.Marshal(spec["validations"])
 	for _, text := range []string{"namespaceObject != null", "'restricted'", "stego.dev/service-account-gateway", "automountServiceAccountToken", "object.spec.runtimeClassName", "kata.test", "example.test/owner"} {
