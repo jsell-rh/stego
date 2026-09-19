@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestAuthKeyRefreshSignals(t *testing.T)    { testDatabaseSignals(t, false, "auth-keys") }
 func TestDatabaseSignals(t *testing.T)          { testDatabaseSignals(t, false) }
 func TestPostgresOperationSignals(t *testing.T) { testDatabaseSignals(t, true) }
 func TestSchemaOperationSignals(t *testing.T)   { testDatabaseSignals(t, true, "schema") }
@@ -37,6 +38,10 @@ func testDatabaseSignals(t *testing.T, provision bool, known ...string) {
 
 	if len(known) == 1 {
 		knownCall = known[0]
+	}
+	if knownCall == "auth-keys" {
+		signal, scopeName, callName, knownCall = TraceAuthKeyRefresh, "stego/auth-keys", "stego.auth.keys.source", "https"
+		event, durationMetric, activeMetric = "auth.keys.refresh.completed", "stego.auth.keys.refresh.duration", "stego.auth.keys.refresh.active"
 	}
 
 	for _, sample := range []string{"1", "0"} {
@@ -197,6 +202,50 @@ func TestPostgresOperationLocalAndCollectorFailure(t *testing.T) {
 	start := time.Now()
 	for range 16 {
 		_, done = TracePostgresOperation(r.Context(context.Background()), "ensure")
+		done("success")
+	}
+	if time.Since(start) > time.Second {
+		t.Fatal("blocked collector delayed client completions")
+	}
+	start = time.Now()
+	r.Close()
+	if time.Since(start) > ShutdownTimeout+time.Second {
+		t.Fatal("blocked collector exceeded the shared close bound")
+	}
+}
+
+func TestAuthKeyRefreshLocalAndCollectorFailure(t *testing.T) {
+	traceEnvironment(t)
+	var local bytes.Buffer
+	r, err := newRuntime(&local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, done := TraceAuthKeyRefresh(r.Context(context.Background()), "https")
+	done("success")
+	done("failure")
+	r.Close()
+	_, done = TraceAuthKeyRefresh(r.Context(context.Background()), "file")
+	done("failure")
+	if strings.Count(local.String(), `"event.name":"auth.keys.refresh.completed"`) != 1 || !strings.Contains(local.String(), `"operation":"https"`) {
+		t.Fatal("disabled export lost bounded local logging")
+	}
+	_, done = TraceAuthKeyRefresh(nil, "private-operation")
+	done("private-outcome")
+	_, done = TraceAuthKeyRefresh(context.Background(), "private-operation")
+	done("private-outcome")
+
+	collectorFixture(t, true)
+	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "otlp")
+	r, err = newRuntime(io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	start := time.Now()
+	for range 16 {
+		_, done = TraceAuthKeyRefresh(r.Context(context.Background()), "https")
 		done("success")
 	}
 	if time.Since(start) > time.Second {

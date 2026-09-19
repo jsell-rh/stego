@@ -37,5 +37,45 @@ The generated race tests use real TLS endpoints and signed tokens. They check
 trusted and untrusted certificates, rotation, removal, cooldown, provider outage,
 cache expiry, recovery, canceled requests, interrupted retrieval, repeated Stop,
 empty runtime state, redirects, and local and remote input limits. These are
-correctness checks, not capacity measurements. Key-source telemetry and measured
-cost remain part of the wider observability and performance requirements.
+correctness checks, not capacity measurements. Measured cost remains part of
+the wider performance requirements.
+
+The telemetry candidate uses the selected common `otel-tracing` peer and the
+runtime in the caller's context. With no peer or runtime, verification retains
+its existing behavior. It creates no provider, exporter, or background task.
+The process still owns telemetry startup and shutdown.
+
+Each actual refresh emits one `auth.keys.refresh.completed` completion and an
+`auth.keys.refresh` span. The fixed source classes are `file` and `https`.
+The duration histogram is `stego.auth.keys.refresh.duration`; the active counter
+is `stego.auth.keys.refresh.active`. The fixed outcomes are `success`, `failure`,
+`canceled`, `deadline`, and `aborted`. Unknown input becomes a fixed fallback.
+Completion is idempotent. Local output and OTLP export use the existing bounded
+queues and shutdown deadline.
+
+Cache hits, cooldown rejection, and stopped verifiers do not emit refresh work.
+Completion runs after the key-cache lock is released. No record contains a
+token, key ID, key document, file path, source URL, or provider error text.
+This change covers key retrieval and compilation after source validation; it
+does not add per-token logs or establish complete authentication observability.
+
+Hosted qualification and consumer adoption are pending. The generated tests
+cover both peer modes, all fixed outcomes, file and HTTPS refresh, bounded
+outage use, recovery, cooldown, stop, cancellation, trace sampling, correlated
+signals, private input removal, idempotent completion, and collector failure.
+The change does not establish a capacity result or close C6.
+
+
+Generated SSO startup now requests the service context. When the telemetry peer
+is selected, its constructor also depends on the process runtime and binds that
+runtime before the initial key load. The compiler starts the runtime first and
+closes the SSO handler before the runtime. The handler does not own the runtime.
+The no-argument `NewJWTHandler` remains available; direct callers can use
+`NewJWTHandlerWithContext` or the generated telemetry constructor.
+
+The SSO candidate checks startup success, invalid key input, cancellation,
+deadline expiry, missing dependencies, private data removal, and runtime
+ownership. Trust and payload tests run with and without the telemetry peer.
+Hosted qualification and refreshed SSO example output are still required.
+Hypershell currently uses its static public-key verifier, so these key-cache
+results do not prove a change to Hypershell's authentication behavior.

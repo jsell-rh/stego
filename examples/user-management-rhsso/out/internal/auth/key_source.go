@@ -147,6 +147,13 @@ func (v *JWKSVerifier) refresh(ctx context.Context, initial bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	stop := context.AfterFunc(v.stop, cancel)
 	defer func() { stop(); cancel() }()
+	source := "https"
+	if v.config.File != "" {
+		source = "file"
+	}
+	ctx, finish := beginKeyRefresh(ctx, source)
+	outcome := "aborted"
+	defer func() { finish(outcome) }()
 	data, err := v.read(ctx)
 	var keys map[string]*Verifier
 	if err == nil {
@@ -156,8 +163,15 @@ func (v *JWKSVerifier) refresh(ctx context.Context, initial bool) error {
 	defer v.mu.Unlock()
 	v.refreshing = false
 	if err != nil || ctx.Err() != nil || v.closed {
+		outcome = "failure"
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			outcome = "deadline"
+		} else if errors.Is(ctx.Err(), context.Canceled) {
+			outcome = "canceled"
+		}
 		return failure
 	}
+	outcome = "success"
 	v.keys = keys
 	v.loaded = v.now()
 	return nil

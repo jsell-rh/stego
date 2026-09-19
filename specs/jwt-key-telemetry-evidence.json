@@ -1,0 +1,66 @@
+{
+  "status": "partial qualification; full checks and consumer adoption remain pending",
+  "initial_source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
+  "initial_focused": {
+    "source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
+    "run": 35472590761,
+    "conclusion": "success",
+    "jobs": {
+      "authentication": "success"
+    },
+    "log_sha256": "0695e1a6629abfea174c8f024ea2486a6eaeec51543cd8c64ca872c6c53b44d9",
+    "artifacts_downloaded": true,
+    "required_passed": [
+      "TestAuthenticationTelemetryPeerValidation",
+      "TestGeneratedAuthKeyTelemetry",
+      "TestGeneratedAuthenticationRuntime",
+      "TestGeneratedAuthenticationRuntime/false",
+      "TestGeneratedAuthenticationRuntime/true"
+    ],
+    "source_archive_matches": true,
+    "test_log_sha256": "dbbd426dd8dad79e71ae1fe05477cb53fe4300fcdf71b6d24cb1d4b3a9549ee1"
+  },
+  "startup_source": "ea3896275f2fac7d337cc83f198077e520e8a7be",
+  "startup_focused": {
+    "source": "ea3896275f2fac7d337cc83f198077e520e8a7be",
+    "run": 35472880350,
+    "conclusion": "success",
+    "jobs": {
+      "authentication": "success"
+    },
+    "log_sha256": "c1b6e112f5cfcd97ede101c7f03a8be1b96cddace71b75a68cea4807621e9170",
+    "artifacts_downloaded": true,
+    "required_passed": [
+      "TestAuthenticationTelemetryPeerValidation",
+      "TestGeneratedAuthKeyTelemetry",
+      "TestGeneratedAuthenticationRuntime",
+      "TestGeneratedAuthenticationRuntime/false",
+      "TestGeneratedAuthenticationRuntime/true",
+      "TestGeneratedSSOTrustPolicy",
+      "TestGeneratedSSOTrustPolicy/false",
+      "TestGeneratedSSOTrustPolicy/true"
+    ],
+    "source_archive_matches": true,
+    "test_log_sha256": "2671ab12f6e06d025144f6759c91aa5fbeee30cafced969ebb696cb199296182"
+  },
+  "startup_example_import": {
+    "user-management": {
+      "source": "ea3896275f2fac7d337cc83f198077e520e8a7be",
+      "run": 35472880379,
+      "archive_sha256": "7589f2c497af56196dbb529c5ce9fd716f0098436fef0da2283276431bb0f410",
+      "compiler_sha256": "38a07de2921f09283a589832bf1c4f10562c9f61999b35b53c24dc08f355ebe1"
+    },
+    "user-management-rhsso": {
+      "source": "ea3896275f2fac7d337cc83f198077e520e8a7be",
+      "run": 35472880379,
+      "archive_sha256": "aac069b7923022ad0a3de57f450d0a13010196db379f03ae398b003785e335b7",
+      "compiler_sha256": "38a07de2921f09283a589832bf1c4f10562c9f61999b35b53c24dc08f355ebe1"
+    }
+  },
+  "limits": [
+    "First and startup full runs found stale committed example output. These failed results are retained.",
+    "Example generation uses a source-built CI compiler; it is not a claim of equality with the isolated release binary.",
+    "No compiler release or Hypershell adoption is qualified by these focused checks.",
+    "Hypershell selects its static public-key verifier; rotating-key telemetry does not prove a change to that authentication path."
+  ]
+}

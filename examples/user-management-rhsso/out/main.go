@@ -128,16 +128,16 @@ func run() (stegoErr error) {
 		return err
 	}
 	defer runtime.Close()
-	stegoStage = "component[7].constructor[0]"
-	jWTHandler, err := auth.NewJWTHandler()
-	if err != nil {
-		return err
-	}
-	defer jWTHandler.Stop()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
 	orgSettingsHandler := api.NewOrgSettingsHandler(store)
+	stegoStage = "component[7].constructor[0]"
+	jWTHandlerWithTelemetry, err := auth.NewJWTHandlerWithTelemetry(tracingRuntime, ctx)
+	if err != nil {
+		return err
+	}
+	defer jWTHandlerWithTelemetry.Stop()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)
@@ -165,7 +165,7 @@ func run() (stegoErr error) {
 	topMux.HandleFunc("GET /api/user-mgmt/v1", discoveryHandler.ServeMetadata)
 	topMux.HandleFunc("GET /livez", monitor.Live)
 	topMux.HandleFunc("GET /readyz", monitor.Ready)
-	topMux.Handle("/", tracingRuntime.Handler(cORSMiddleware(jWTHandler.Build()(tracingRuntime.Route(validationMiddleware(mux))))))
+	topMux.Handle("/", tracingRuntime.Handler(cORSMiddleware(jWTHandlerWithTelemetry.Build()(tracingRuntime.Route(validationMiddleware(mux))))))
 	stegoStage = "http.configure"
 	httpTLS, err := stegoHTTPTransport()
 	if err != nil {

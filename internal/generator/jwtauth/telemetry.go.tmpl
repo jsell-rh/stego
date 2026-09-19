@@ -1,0 +1,8 @@
+package {{.Package}}
+import (
+ "context"
+ {{if .Tracing}}telemetry {{printf "%q" .Tracing}}{{end}}
+)
+func beginKeyRefresh(ctx context.Context,source string)(context.Context,func(string)){
+ {{if .Tracing}}return telemetry.TraceAuthKeyRefresh(ctx,source){{else}}return ctx,func(string){}{{end}}
+}

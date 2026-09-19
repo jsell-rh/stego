@@ -29,13 +29,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260917114242-0224f3b1aa53
+        module_version: v0.0.0-20260919221659-ea3896275f2f
         vcs: git
-        revision: 0224f3b1aa53509dfb96652c8c211d1e59df66c5
+        revision: ea3896275f2fac7d337cc83f198077e520e8a7be
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: 845fbbe3e71c7624d0cad77da8be8430345e7ec5fe013b159895c14d922cddbf
+    registry_content_sha256: 74f2c05efa010efd594c3f1113b83bdbcc5f294ddafdef18ae86beea240f41eb
     components:
         health-check:
             version: 1.1.0
@@ -44,7 +44,7 @@ last_applied:
             version: 1.0.4
             sha: env-override
         otel-tracing:
-            version: 1.18.0
+            version: 1.19.0
             sha: env-override
         outbox:
             version: 1.1.0
@@ -56,7 +56,7 @@ last_applied:
             version: 3.1.0
             sha: env-override
         rh-sso-auth:
-            version: 2.0.0
+            version: 2.1.0
             sha: env-override
         tsl-search:
             version: 1.0.2
@@ -117,9 +117,10 @@ last_applied:
         internal/auth/context.go: dc4df6c35a2224b222d5e5899a37642d1ad57493c3cad21b4d496aa9e0491160
         internal/auth/grants.go: 91a304d5e8a6f764287a39cfc58d6b7c5d63359853dde87d9b9cd809de83dca8
         internal/auth/jwks.go: a8112269eb448cd7162747c7c97755f6e6f40d8360243e4939399d842726ab09
-        internal/auth/key_source.go: c445bf904bf9e1f039b324d78f6476cbc59028ca482096db009e4a6d5f5495c6
+        internal/auth/key_source.go: f54757d1354b0649ce023659de975cf38abcc1b7d204bc860dbea54c4d1909bb
         internal/auth/middleware.go: 8342641196802a57399a2ecaf0f79cd238b37235abd669282357012f93d5867c
-        internal/auth/sso.go: ca437bfc562d08e6afdfa1b5068a9fdf9cde036602debc94ff646b1f365bd1a6
+        internal/auth/sso.go: f3635376e151f1d4a882aa4144a4a3ec0cea82b3343756037041a771c17d6803
+        internal/auth/telemetry.go: 281eec9da5b1c153489354cbd6d1a016291078b265085dde89d56ea49f76ea17
         internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
         internal/events/runtime.go: 8f36c84a8ededf06068d90a52744a75b6cf4952d3f4d62d5209a4ad6ae85adcd
         internal/outbox/migrations/000001_outbox.sql: dd2a63ebf5b005cdb0a6e56433c4cc3fd4f0f0bde4c52e04c8433c08125b5437
@@ -147,11 +148,12 @@ last_applied:
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 50d3dc9b523f082eb1e08439ee4ca246836ff50bc41938f8ce0bc85679ac59fa
         internal/storage/transaction.go: 243f5b08893c7522ee098d2701f63c11265f999c06ea4cd33fa0c13f7f729e37
-        main.go: 7362578685c1077cce9f7b423dfe419dee50192ec3eacd6e0bfb2b0e9bbc58b5
+        main.go: 05ab76a59d6b2ed771348cfa1aba58a54bb7aebc863def26f5d76ee3efd3dd61
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
         slots/on_entity_changed_operators.go: b1edb4b33a83bbf8e56dd4b2199944b9c673921f2caecafd1d4178ed3188a55a
+        tracing/auth_keys.go: 06b56ab095f6f7417390be61fad5cc8860445653b823ad41667327ebc7f0c852
         tracing/browser.go: 24b3d639478fa6a18d48d1c7eddd9ee749ff07863deb6eb5aa13cbc4793f265b
         tracing/client.go: 37ee470ae71faa5e5daecd59d73b7874a0c38ea08e5eaed9d1ed2617ac241c67
         tracing/command.go: e34d452e8ffa1e6aade0f1d8ad1b4cdf2cb3ae51e2ae69137ef9c0c5b779f812
@@ -161,7 +163,7 @@ last_applied:
         tracing/http_client.go: ca9ed1cf57d3a8b33bca141a03733431859a7ed0d58ae92c301460f9438bf683
         tracing/http_observation.go: 56493be11d5e29efb771b5862d45ad2ef9e010e0b01b27766e61b0971862ea86
         tracing/identity.go: 2c7be8be622a167b67941ea98459f7540b8ba16b64a7631dad109db70c2c0bb6
-        tracing/runtime.go: d8a31fd1353310206539b8cccde28108a1025367f86f0a743fae66da9d4fe561
+        tracing/runtime.go: d3b9551b5e44cff41e5acc302e32361f0bb38125a8fe3ba8320508c063a4e19b
         tracing/service.go: c385c803aa9c54e37436cfb4a004a1ad468317b6d435498407a706dae9bcdac5
         tracing/signals.go: 3adee95980b02c32284916b7e46083f2cc0d0dc8394ca402c49177290ec163cb
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160

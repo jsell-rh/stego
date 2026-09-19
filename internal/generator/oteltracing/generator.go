@@ -51,6 +51,9 @@ var browserSource string
 //go:embed startup.go.tmpl
 var startupSource string
 
+//go:embed auth_keys.go.tmpl
+var authKeysSource string
+
 type Generator struct{}
 
 func (*Generator) MinimumGoVersion() string { return "1.26.0" }
@@ -71,7 +74,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	var files []gen.File
-	for _, item := range []struct{ name, source string }{{"runtime.go", source}, {"config.go", configSource}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}, {"client.go", clientSource}, {"http_client.go", httpClientSource}, {"http_observation.go", httpObservationSource}, {"command.go", commandSource}, {"startup.go", startupSource}, {"database.go", databaseSource}, {"browser.go", browserSource}} {
+	for _, item := range []struct{ name, source string }{{"auth_keys.go", authKeysSource}, {"runtime.go", source}, {"config.go", configSource}, {"signals.go", signalsSource}, {"service.go", serviceSource}, {"controller.go", controllerSource}, {"identity.go", identitySource}, {"client.go", clientSource}, {"http_client.go", httpClientSource}, {"http_observation.go", httpObservationSource}, {"command.go", commandSource}, {"startup.go", startupSource}, {"database.go", databaseSource}, {"browser.go", browserSource}} {
 		tmpl, err := template.New(item.name).Parse(item.source)
 		if err != nil {
 			return nil, nil, err

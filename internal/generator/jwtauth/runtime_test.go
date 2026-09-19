@@ -1,17 +1,29 @@
 package jwtauth
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/oteltracing"
 )
 
 func TestGeneratedAuthenticationRuntime(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedAuthenticationRuntime(t, telemetry) })
+	}
+}
+func testGeneratedAuthenticationRuntime(t *testing.T, telemetry bool) {
 	project := t.TempDir()
-	files, wiring, err := (&Generator{}).Generate(gen.Context{OutputNamespace: "auth"})
+	ctx := gen.Context{OutputNamespace: "auth", ModuleName: "example.com/auth-test"}
+	if telemetry {
+		ctx.PeerNamespaces = map[string]string{"otel-tracing": "tracing"}
+	}
+	files, wiring, err := (&Generator{}).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +33,25 @@ func TestGeneratedAuthenticationRuntime(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(project, "auth"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	if telemetry {
+		peerFiles, peerWiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "auth-test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, peerFiles...)
+		for name, version := range peerWiring.GoModRequires {
+			wiring.GoModRequires[name] = version
+		}
+		tests, err := os.ReadFile("testdata/key_source_telemetry_test.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, gen.File{Path: "auth/key_source_telemetry_test.go", Content: tests})
+	}
 	for _, file := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(project, file.Path)), 0755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(project, file.Path), file.Bytes(), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -47,7 +77,16 @@ func TestGeneratedAuthenticationRuntime(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project, "auth/key_source_test.go"), keySourceTests, 0644); err != nil {
 		t.Fatal(err)
 	}
-	module := "module example.com/auth-test\ngo 1.26.8\nrequire github.com/golang-jwt/jwt/v5 " + wiring.GoModRequires["github.com/golang-jwt/jwt/v5"] + "\n"
+	module := "module example.com/auth-test\ngo 1.26.8\nrequire (\n"
+	names := make([]string, 0, len(wiring.GoModRequires))
+	for name := range wiring.GoModRequires {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		module += name + " " + wiring.GoModRequires[name] + "\n"
+	}
+	module += ")\n"
 	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte(module), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +128,17 @@ func TestRolesClaimConfiguration(t *testing.T) {
 	for _, value := range []string{"", "roles", "realm_access.roles"} {
 		if _, _, err := new(Generator).Generate(gen.Context{ComponentConfig: map[string]any{"roles_claim": value}}); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestAuthenticationTelemetryPeerValidation(t *testing.T) {
+	for _, ctx := range []gen.Context{
+		{OutputNamespace: "auth", PeerNamespaces: map[string]string{"otel-tracing": "tracing"}},
+		{ModuleName: "example.com/test", OutputNamespace: "auth", PeerNamespaces: map[string]string{"otel-tracing": "../outside"}},
+	} {
+		if _, _, err := new(Generator).Generate(ctx); err == nil {
+			t.Fatal("invalid telemetry peer accepted")
 		}
 	}
 }
