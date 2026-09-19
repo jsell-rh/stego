@@ -478,9 +478,44 @@ the application must never perform automatic teardown.
    [retry evidence](controller-cycle-retry-evidence.json).
    Hypershell candidate `7333332` retains safe retry classes without changing
    public error messages. Journal run `35473973149` passed all 38 required tests,
-   including 33 status cases and both restart fixtures. Consumer regeneration
-   is next. The common retry option is not yet enabled in the application.
-   These results do not establish a new capacity result.
+   including 33 status cases and both restart fixtures. Consumer candidate
+   `51b2bb2` now uses compiler `ee348b8` and enables two attempts with a
+   25-millisecond delay for selected temporary failures. Its full run
+   `35474805484` passed 332 top-level tests and 937 cases, including all 816
+   baseline cases, 22 retry cases, and both restart fixtures. The five
+   conditional exclusions are unchanged. Browser, console, and image checks
+   passed; the Kata job remains deferred. Candidate generation and all 420
+   generated file hashes were checked. Application main still uses the earlier
+   qualified compiler.
+
+   Ninth capacity run `35475425102` at `b0952c4` used the same fixture as the
+   eighth run. Account cleanup took 61.5487 seconds and failed the unchanged
+   30-second target. All 100 selected rows, journals, provider clients, and
+   users closed or were removed. The 9,900 background rows and 10,007 other
+   clients stayed unchanged. Source, binary, compiler, resource-limit, and test
+   cleanup checks passed. This comparison does not show a timing improvement
+   and does not establish the cause of the difference. See the
+   [ninth result](https://github.com/jsell-rh/hypershell-stego/blob/69c5214/acceptance/capacity-ninth-evidence.json).
+
+   Source review found repeated provider deletion in the deleted-account
+   stream and the retained Gateway scan. Application candidate `018ce9c`
+   assigns that work to Gateway recovery when the exact retained parent is
+   deleted. Live or absent parents still use account recovery. STEGO keeps
+   ownership of scheduling, retry, saved progress, and provider lifecycle.
+   The candidate retains complete row and journal scans, provider inventory,
+   and late-effect checks. Its correctness and capacity gates remain open.
+
+   The normal live workflow now records complete Gateway cleanup observations
+   separately from the deliberate SQL-denial test. It checks namespaces, SQL
+   roles and databases, allocation bindings, final state, and owner HTTP 404.
+   Sequential observations give upper bounds; this is not a 100-account
+   capacity fixture. Live attempt `35476176959` stopped before workload
+   creation because the saved test installation lacks three named reads in
+   two inspection roles. Cleanup confirmed no test resources and all 32
+   standing resources unchanged. The corrected hosted plan at `4ea3e1e`
+   passed source and compiler checks and adds only those test reads. Production
+   roles, admission rules, network policy, and RuntimeClasses are unchanged.
+   A live timing result remains required.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
@@ -565,8 +600,9 @@ the application must never perform automatic teardown.
    run `35473552043`. Its signed immutable release is published. Independent
    source, module, build-policy, signature, and release-installation checks
    passed. See the [complete evidence](jwt-key-telemetry-evidence.json).
-   Consumer adoption remains open.
-   Hypershell uses its static public-key verifier. These rotating-key results
+   The regenerated Hypershell candidate includes this common implementation
+   through compiler `ee348b8`; its full checks passed at `51b2bb2`. Promotion
+   to application main remains open. Hypershell uses its static public-key verifier. These rotating-key results
    do not prove a change to that authentication path or close C6.
 6. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
