@@ -67,3 +67,31 @@ and both examples passed. The full log has SHA-256
 Raw evidence is in `provider-window-common-result` and
 `provider-window-full-ci.log` under the persistent Gateway cleanup run directory.
 The complete Hypershell checks remain separate.
+
+## Action time reserve
+
+Controller 1.22.0 adds `ScanCycleWithOptions` with `CycleOptions.ActionTimeout`.
+The timeout must be at least one millisecond and less than the work timeout.
+Before each action, the runtime checks the remaining work time. If a full action
+budget is not available, it stops the pass and saves the successful prefix.
+This planned stop does not add a failure flag. The next call resumes after that
+prefix. Each admitted action receives a context with its own timeout.
+
+An action error or a late nil return still adds failure evidence. A later pause
+cannot erase that evidence. Parent cancellation still prevents the save, and a
+save conflict still returns an error. The original `ScanCycle` API and checkpoint
+format remain unchanged. This API does not increase any time limit, add workers,
+or set application policy. Callbacks must honor cancellation and tolerate repeat
+work.
+
+The change follows Hypershell capacity run `35461469012`. Its diagnostic record
+showed 100 closed account rows by 43.1161 seconds, but the scope was not sealed
+at 120.0213 seconds. Two completed scans retained failure flags. Provider
+inventory never started. This record does not prove final provider absence or
+background preservation. The 30-second target failed. The next consumer test
+must check the action reserve before any scheduler or timeout change.
+
+Generated tests use a controlled clock to check multi-pass completion, retained
+provider failures, save conflicts, invalid limits, and parent cancellation.
+Both builds, with and without telemetry, require those checks in hosted CI.
+No qualification result is claimed before those checks pass.
