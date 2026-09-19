@@ -396,21 +396,45 @@ the application must never perform automatic teardown.
    of the deletion request to confirmed cleanup with healthy dependencies. Keep
    larger-scale, degraded-dependency, and concurrent-load results separate.
    These targets have not yet been proved against real providers at that scale.
-   The first real account cleanup sample at that cardinality now fails. Hosted
-   run `35460485398` used PostgreSQL-backed production Keycloak, 100 Gateway
-   records, 9,900 seeded background accounts, and 100 accounts created through
-   REST and the generated provisioner. Account cleanup remained incomplete
-   through 120.0735 seconds after HTTP 202. No completion time or final background
-   preservation result was obtained. The test resources were removed. See the
-   [capacity result and limits](https://github.com/jsell-rh/hypershell-stego/blob/b479addd2ec15101a64d3bbf899a688edd12aaea/acceptance/provider-capacity-evidence.json).
-   Setup first exposed fixed application quotas. Hypershell now has operator
-   quota settings with the original defaults; 32 quota and recovery tests passed
-   with race checks. The main integration is `034b46b`. Its complete main CI is
-   still pending. Next, measure account cleanup progress and retry delay before
-   changing recovery cadence or budgets. Also address the whole-realm Gateway
-   identity inventory window: 10,000 account clients plus Gateway and system
-   clients exceed its current 10,000-client scan bound. The account-only sample
-   does not run that controller or qualify complete Gateway workload cleanup.
+   Five real-provider runs now separate setup defects, failed cleanup, and
+   complete cleanup above the target. The fifth run, `35463991341`, used
+   Hypershell `032d56b` and compiler `58a3bcc`. It completed account cleanup in
+   93.2722 seconds after HTTP 202, so the 30-second target failed. All 100
+   selected clients and users were absent, all 100 journals and account rows
+   were closed, and all 100 success audits were present. The 9,900 background
+   account rows and 10,007 other clients retained their saved state. Source and
+   binary checks matched, and test resources were removed. See the
+   [five capacity results and limits](https://github.com/jsell-rh/hypershell-stego/blob/2904ec62f3530285b33c2702d0cf8ab167490c87/acceptance/provider-capacity.md).
+
+   The common action reserve removed the saved failure caused by starting work
+   too near the deadline. All sampled saved cycles in the fifth run had clean
+   failure flags. The unchanged six-account restart fixture also passed in
+   journal run `35463688587`, with all 33 required tests. Its earlier failure
+   remains recorded. Full hosted run `35463688329` passed 325 top-level tests
+   and 816 cases at the same source. These branch results do not promote the
+   pending Sandbox changes or qualify total Gateway cleanup.
+
+   The first five cleanup passes closed 18, 38, 59, 80, and 99 account rows,
+   about 12 seconds apart. The next change uses the common keyed parallel scan
+   runtime. Account rows and journals must use the same resource key. Keep the
+   current work and commit budgets, page sizes, sweep cadence, and capacity
+   fixture for the comparison. The parallel runtime needs full qualification,
+   authenticated compiler delivery, generated application adoption, and a new
+   real-provider result before any timing improvement can be claimed.
+
+   Setup first exposed fixed application quotas. Main `034b46b` now has operator
+   quota settings with the original defaults. Its journal gate passed all 32
+   required tests; its API gate passed all 52. Full main CI passed 315 top-level
+   tests and 754 cases. The separate live browser attempt stopped before Job
+   creation because the installed Sandbox candidate policy differs from main.
+   That policy mismatch and the Sandbox decision remain open.
+
+   Also address the whole-realm Gateway identity inventory window: 10,000
+   account clients plus Gateway and system clients exceed its current
+   10,000-client scan bound. The account-only capacity sample does not run that
+   controller, create all background accounts through the API, or qualify total
+   Gateway workload cleanup. Concurrent deletions, larger installations, and
+   degraded dependencies remain separate checks.
 2. Identify the earlier recovered browser initialization failure. Common
    startup diagnostics now have complete public and CNPG workflow evidence.
    An earlier CNPG run needed one secondary Pod replacement for scheduling;
