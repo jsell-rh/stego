@@ -64,7 +64,9 @@ func TestHTTPClientWireCompletion(t *testing.T) {
 	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
 		t.Fatal(err)
 	}
-	client, err := web.New(web.Options{BaseURL: server.URL, CAFile: ca, Timeout: time.Second})
+	// Size and outcome checks must not compete with the deliberate timeout case.
+	// The timeout request below keeps its own one-second deadline.
+	client, err := web.New(web.Options{BaseURL: server.URL, CAFile: ca, Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,12 @@ func TestHTTPClientWireCompletion(t *testing.T) {
 		failure    bool
 	}{{"/private-ok?secret=private-query", "", 200, false}, {"/private-denied", "403", 403, false}, {"/private-failed", "503", 503, false}, {"/private-redirect", "redirect", 302, true}, {"/private-large", "response", 200, true}, {"/private-timeout", "deadline", 0, true}} {
 		before := len(recorder.Ended())
-		response, err := client.Do(ctx, "GET", item.path, original, nil)
+		requestCtx, cancel := ctx, func() {}
+		if item.kind == "deadline" {
+			requestCtx, cancel = context.WithTimeout(ctx, time.Second)
+		}
+		response, err := client.Do(requestCtx, "GET", item.path, original, nil)
+		cancel()
 		if (err != nil) != item.failure {
 			t.Fatal("request result changed", item.path)
 		}
