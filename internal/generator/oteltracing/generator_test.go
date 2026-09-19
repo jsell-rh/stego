@@ -56,6 +56,8 @@ var browserTests []byte
 //go:embed testdata/startup_test.go
 var startupTests []byte
 
+func TestGeneratedAuthKeyTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestAuthKeyRefresh") }
+
 func TestGeneratedStartupTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestStartup") }
 
 func TestGeneratedHTTPFinalStatus(t *testing.T) {

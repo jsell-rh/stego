@@ -26,6 +26,9 @@ var grantsTemplate string
 //go:embed key_source.go.tmpl
 var keySourceTemplate string
 
+//go:embed telemetry.go.tmpl
+var telemetryTemplate string
+
 // Generator produces the jwt-auth component.
 type Generator struct{}
 
@@ -33,6 +36,14 @@ type Generator struct{}
 func (*Generator) MinimumGoVersion() string { return "1.21.0" }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if tracing := ctx.PeerNamespaces["otel-tracing"]; tracing != "" {
+		if err := gen.ValidateGoPackageNamespace(tracing); err != nil {
+			return err
+		}
+		if ctx.ModuleName == "" {
+			return fmt.Errorf("authentication telemetry requires a module name")
+		}
+	}
 	mode := setting(ctx, "mode", "middleware")
 	if mode != "middleware" && mode != "verifier" {
 		return fmt.Errorf("authentication mode must be middleware or verifier")
@@ -77,12 +88,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if ctx.ErrorTypeBase != "" {
 		errorType = ctx.ErrorTypeBase + "unauthorized"
 	}
-	data := struct{ Package, Header, Issuer, Audience, KeyFile, ErrorType, ErrorCode, RolesClaim string }{
+	data := struct{ Package, Header, Issuer, Audience, KeyFile, ErrorType, ErrorCode, RolesClaim, Tracing string }{
 		Package: path.Base(ns), Header: header,
 		Issuer: setting(ctx, "issuer", ""), Audience: setting(ctx, "audience", ""),
 		KeyFile: setting(ctx, "public_key_file", ""), ErrorType: errorType,
 		ErrorCode:  strings.ToUpper(strings.ReplaceAll(ctx.ServiceName, "-", "")) + "-AUT-001",
 		RolesClaim: rolesClaim,
+	}
+	if peer := ctx.PeerNamespaces["otel-tracing"]; peer != "" {
+		data.Tracing = path.Join(ctx.ModuleName, ctx.OutDirName, peer)
 	}
 	tmpl, err := template.New("middleware").Parse(middlewareTemplate)
 	if err != nil {
@@ -136,6 +150,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		return nil, nil, err
 	}
 	files = append(files, gen.File{Path: path.Join(ns, "key_source.go"), Content: remoteSource})
+	telemetry, err := template.New("telemetry").Parse(telemetryTemplate)
+	if err != nil {
+		return nil, nil, err
+	}
+	buf.Reset()
+	if err := telemetry.Execute(&buf, data); err != nil {
+		return nil, nil, err
+	}
+	telemetrySource, err := format.Source(buf.Bytes())
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, gen.File{Path: path.Join(ns, "telemetry.go"), Content: telemetrySource})
 	if err := gen.ValidateNamespace(ns, files); err != nil {
 		return nil, nil, err
 	}
