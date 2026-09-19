@@ -82,14 +82,22 @@ class Check(isolated.Check):
     def metadata_probe(self, name, changes, user=None, group=None, allowed=False, status=True):
         before = self.observe_status_pod()
         meta = before["metadata"]
-        command = ["patch", "pod", meta["name"], "-n", meta["namespace"], "--type=merge", "--dry-run=server", "-o", "json"]
-        if status:
-            command += ["--subresource=status"]
+        # The node roles can update status but cannot GET pods/status. Send a
+        # direct PUT; oc patch performs that extra read before its PATCH.
+        # Retain the observed UID and resource version in the complete object.
+        path = common.path(before) + ("/status" if status else "")
+        command = ["replace", "--raw=" + path + "?dryRun=All&fieldValidation=Strict", "-f", "-"]
         if group:
             command += ["--as-group=" + group, "--as-group=system:authenticated"]
-        command += ["-p", json.dumps({"metadata": {"uid": meta["uid"], "annotations": changes}})]
+        desired = copy.deepcopy(before)
+        annotations = desired["metadata"].setdefault("annotations", {})
+        for key, value in changes.items():
+            if value is None:
+                annotations.pop(key, None)
+            else:
+                annotations[key] = value
         policy = None if allowed else common.CONTROL + ".widget-queue.pods.tenant"
-        result = self.probe(name, command, user=user, allowed=allowed, policy=policy)
+        result = self.probe(name, command, obj=desired, user=user, allowed=allowed, policy=policy)
         if allowed:
             admitted = json.loads(result.stdout)
             if admitted["metadata"]["uid"] != meta["uid"]:
@@ -121,7 +129,7 @@ class Check(isolated.Check):
                      "spec": {"podSelector": {}, "policyTypes": ["Ingress", "Egress"]}}, common.actor(common.CONTROL))
         self.create({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "Role",
                      "metadata": {"namespace": namespace, "name": "status-writer"},
-                     "rules": [{"apiGroups": [""], "resources": ["pods", "pods/status"], "verbs": ["get", "patch"]}]})
+                     "rules": [{"apiGroups": [""], "resources": ["pods", "pods/status"], "verbs": ["get", "update"]}]})
         self.create({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
                      "metadata": {"namespace": namespace, "name": "status-writer"},
                      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "status-writer"},

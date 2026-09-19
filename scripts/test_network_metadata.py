@@ -32,16 +32,8 @@ class Fixture(network.Check):
         return copy.deepcopy(self.runtime if obj["kind"] == "RuntimeClass" else self.stored)
 
     def probe(self, name, command, obj=None, user=None, allowed=False, policy=None):
-        self.commands.append((command, user, allowed, policy))
-        admitted = copy.deepcopy(self.stored)
-        changes = json.loads(command[command.index("-p") + 1])["metadata"]["annotations"]
-        annotations = admitted["metadata"].setdefault("annotations", {})
-        for key, value in changes.items():
-            if value is None:
-                annotations.pop(key, None)
-            else:
-                annotations[key] = value
-        return subprocess.CompletedProcess(command, 0 if allowed else 1, json.dumps(admitted), "")
+        self.commands.append((command, user, allowed, policy, copy.deepcopy(obj)))
+        return subprocess.CompletedProcess(command, 0 if allowed else 1, json.dumps(obj), "")
 
 
 class NetworkMetadataTests(unittest.TestCase):
@@ -100,17 +92,21 @@ class NetworkMetadataTests(unittest.TestCase):
         check = Fixture()
         check.status_pod = check.stored
         check.metadata_probe("allowed", {network.MULTUS: "[]"}, "system:multus:worker.test", "system:multus", True)
-        command, user, allowed, policy = check.commands[0]
-        self.assertIn("--dry-run=server", command)
-        self.assertIn("--subresource=status", command)
+        command, user, allowed, policy, desired = check.commands[0]
+        self.assertEqual(command[:4], ["replace", "--raw=" + network.common.path(check.stored) + "/status?dryRun=All&fieldValidation=Strict", "-f", "-"])
         self.assertIn("--as-group=system:multus", command)
         self.assertEqual(user, "system:multus:worker.test")
-        self.assertEqual(json.loads(command[-1])["metadata"]["uid"], "pod-uid")
+        self.assertEqual(desired["metadata"]["uid"], "pod-uid")
+        self.assertEqual(desired["metadata"]["resourceVersion"], "1")
+        self.assertEqual(desired["spec"], check.stored["spec"])
         self.assertTrue(allowed)
         self.assertIsNone(policy)
         self.assertNotIn(network.MULTUS, check.stored["metadata"].get("annotations", {}))
         check.metadata_probe("denied", {network.MULTUS: "[]"}, "workload")
         self.assertEqual(check.commands[-1][3], network.common.CONTROL + ".widget-queue.pods.tenant")
+        check.metadata_probe("main", {"example.test/workload": "updated"}, "workload", allowed=True, status=False)
+        self.assertEqual(check.commands[-1][0][:4], ["replace", "--raw=" + network.common.path(check.stored) + "?dryRun=All&fieldValidation=Strict", "-f", "-"])
+        self.assertNotIn("example.test/workload", check.stored["metadata"].get("annotations", {}))
 
     def test_changed_uid_or_started_container_stops_the_check(self):
         for mode in ["uid", "running", "terminated", "containerID", "lastState", "limits"]:
