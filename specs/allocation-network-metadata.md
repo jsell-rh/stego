@@ -84,6 +84,14 @@ releases the shared test Lease. This check does not prove traffic or Kata execut
 Keep the current Hypershell and OpenShell workspace-copy user and socket volume.
 This change adds no mutation service and requires no OpenShell fork.
 
-The compiler and bounded metadata admission checks passed. This candidate
-is not a release and is not selected by Hypershell. See the
+The exact main source `eed9066` passed all six compiler jobs, with 34 packages
+checked by the race detector and both generated examples. All four focused main
+policy jobs passed. The [immutable compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-eed90662e4faa485032e3e2b0d056b6166f0d00b)
+is published. Two separate builds produced the same bytes. The common installer
+authenticated the build and its source. All four downloaded release assets
+matched, and a fresh release installation passed independent signature checks.
+No compiler ran on the developer workstation.
+
+Hypershell adoption and its application checks are separate. This release does
+not prove Sandbox traffic or Kata execution. See the
 [evidence record](allocation-network-metadata-evidence.json).

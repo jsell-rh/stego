@@ -173,7 +173,7 @@
     "source": "e04748e06c89f0a05e6c0e9c53526b0ab80fb40e",
     "reason": "The new test used an unpinned CEL import. Commit ce23597 uses the existing cel.dev/cel-go module."
   },
-  "released": false,
+  "released": true,
   "consumer_adopted": false,
   "previous_focused": {
     "source": "ce235973464b7043e7b18a78f28acf4ef74e0263",
@@ -350,5 +350,118 @@
     "lease_released": true,
     "result_sha256": "903b9dfd39b4a9008989db99b8c9562719d7c2b82a5e620b4c800e2f8fa45c90",
     "cleanup_sha256": "30eb7fc2627bd1dba3773269ecd558f1dae66225d503866e94e8ec30c463690a"
-  }
+  },
+  "main_full": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35452850769",
+    "source": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+    "checked_at": "2026-09-19T15:55:51.451930+00:00",
+    "jobs": {
+      "resource-state-storage": "success",
+      "compiler": "success",
+      "examples (user-management)": "success",
+      "examples (user-management-rhsso)": "success",
+      "keycloak-provider": "success",
+      "postgres-provisioning": "success"
+    },
+    "full_race_suite_passed": true,
+    "passing_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "generated_examples_passed": true,
+    "log_sha256": "1de478d56c8c36a6512813323f0d6c3dff9ad4320c41d3e5ad95467deed8004a",
+    "reviewed_head": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+    "compiler_inputs_unchanged_to_reviewed_head": true,
+    "post_check_changes": [],
+    "local_go_tests_run": false
+  },
+  "publication": {
+    "release": "https://github.com/jsell-rh/stego/releases/tag/compiler-eed90662e4faa485032e3e2b0d056b6166f0d00b",
+    "immutable": true,
+    "source": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+    "build_run": "https://github.com/jsell-rh/stego/actions/runs/35452857517",
+    "installation": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "79fce8d97b41ba12f07148c505fb9f43d5eb6d772eb4c295ee0cacab9343c026",
+        "size": 38362377
+      },
+      "build_record_sha256": "cfd9dade84a890ee77983b55bc9a8e511d4f9b884ec29d883c3c61f22d53d616",
+      "bundle_sha256": "ababd8f78eb4b6132008c1ed4c6001fc3c3cc31287fa4a0f1d1358d869d774c1"
+    },
+    "two_builds_match": true,
+    "downloaded_assets_match": true,
+    "independent_release_installation_verified": true,
+    "compiler_executed_locally": false
+  },
+  "main_policy_checks": [
+    {
+      "headSha": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+      "conclusion": "success",
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35452850762"
+    },
+    {
+      "headSha": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+      "conclusion": "success",
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35452850752"
+    },
+    {
+      "headSha": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+      "conclusion": "success",
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35452850784"
+    },
+    {
+      "headSha": "eed90662e4faa485032e3e2b0d056b6166f0d00b",
+      "conclusion": "success",
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35452850782"
+    }
+  ]
 }

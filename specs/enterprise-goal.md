@@ -417,7 +417,8 @@ the application must never perform automatic teardown.
    Pod status coverage and controlled OVN/Multus output updates. Its full compiler,
    focused, and bounded live metadata checks passed. The live result covers 40
    probes, real OVN metadata, and independent cleanup. It does not prove traffic
-   or Kata execution. It is not released or selected by Hypershell. Verify the actual
+   or Kata execution. The signed compiler at `eed9066` is published and its
+   release download is verified. Hypershell adoption is in progress. Verify the actual
    application allocation, namespace permissions, denied writes, and network
    behavior before enabling it. Keep the current upstream workspace-copy user
    and ordinary socket volume; add no mutation service or OpenShell fork for
