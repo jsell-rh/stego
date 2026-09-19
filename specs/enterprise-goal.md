@@ -437,6 +437,11 @@ the application must never perform automatic teardown.
    each group, including empty groups. Ten application groups add ten seconds
    per rotation before callback time. The next common scheduling change must
    preserve bounded work, group fairness, and existing caller defaults. The
+   new option is now qualified in compiler `3220812`: callers can wait after
+   a complete round while the default still waits after each group. Its signed
+   immutable release passed full branch and main checks. See the
+   [interval qualification](sweep-interval-evidence.json). Application adoption
+   and the next capacity measurement remain pending. The
    evidence does not identify the cause of every failed provider call. See the
    [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
 

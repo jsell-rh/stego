@@ -55,3 +55,28 @@ queries, provider calls, idle intervals, and group deadlines. More workers add
 overhead for empty actions; these results do not select a production worker
 count or establish application throughput. Hypershell retains its prior limit of
 eight concurrent recovery actions.
+
+
+## Interval selection
+
+Controller component `1.24.0`, supplied by compiler `3220812`, adds an optional
+interval mode. The default waits after each resource group. `SweepIntervalAfterRound`
+waits after the last group in the declared rotation. This removes repeated idle
+waits when an application has many groups. It can increase request rates.
+
+The new mode keeps the group order, bounded work, retry state, worker joins, and
+cancellation rules. Empty rounds still wait. Invalid modes fail before a source
+read. The option does not set a deadline for the whole round.
+
+All six branch and main jobs passed, including 34 race-tested packages. The
+focused check passed 14 generator cases and all 11 generated sweep cases with
+and without telemetry. Two isolated builds produced identical compiler bytes.
+The common installer authenticated the binary and build record, then checked
+the immutable release after download. See the
+[qualification record](sweep-interval-evidence.json).
+
+The first full run failed an HTTP fixture with a shared one-second timeout.
+The corrected fixture gives ordinary wire checks five seconds and keeps an
+explicit one-second deadline for the timeout case. Production HTTP limits did
+not change. The failed result remains recorded. Hypershell must adopt the new
+mode and repeat its capacity check before any timing improvement is claimed.
