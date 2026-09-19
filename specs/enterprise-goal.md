@@ -452,9 +452,17 @@ the application must never perform automatic teardown.
    clients retained their state. Resource limits and test cleanup passed. See
    the [seventh result](https://github.com/jsell-rh/hypershell-stego/blob/ad84170/acceptance/sweep-round-capacity-evidence.json).
    The scheduling candidate is not yet on application main. A separate
-   diagnostic correction at `c1b3580` retains canonical RPC statuses; eighth run
-   `35472990779` is active. Its changed collector must be identified in timing
-   comparisons. Earlier evidence does not identify the cause of every failed
+   diagnostic correction at `c1b3580` retains canonical RPC statuses. All 34
+   canonical status checks passed in eighth run `35472990779`. Account cleanup
+   took 44.9706 seconds and still failed the target. All selected accounts,
+   journals, provider identities, and audits were checked; background data stayed
+   unchanged. The first saved count of 100 closed rows occurs at 34.6770 seconds.
+   The scope closes at 44.6510 seconds. Its changed collector must be identified
+   in timing comparisons. See the [eighth result](https://github.com/jsell-rh/hypershell-stego/blob/65fa253/acceptance/capacity-eighth-evidence.json).
+   Three early delete deadlines and two internal errors precede a later scan
+   that closes the remaining rows. Review the common failed-work retry path
+   without removing durable progress or late-effect checks. The record does
+   not prove the cause of each server delay. Earlier evidence does not identify the cause of every failed
    provider call. See the
    [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
 
@@ -526,8 +534,12 @@ the application must never perform automatic teardown.
    documents, paths, addresses, or provider error text. Focused runs `35472590761`
    and `35472880350` passed at their recorded sources. The latter includes both
    SSO peer modes, startup cancellation, deadline expiry, and runtime ownership.
-   Corrected example output is committed from verified hosted archives. Full
-   compiler checks, release qualification, and consumer adoption remain pending.
+   Corrected example output is committed from verified hosted archives.
+   Intermediate source `a49bd5d` passed all six full jobs and 34 race-tested
+   packages. Startup source `ea38962` passed the same compiler packages but
+   failed the stale SSO example check. Candidate `2cd2237` corrects that output;
+   both examples passed in run `35473062128`, whose compiler job is still active.
+   Exact-source release qualification and consumer adoption remain pending.
    See the [candidate evidence](https://github.com/jsell-rh/stego/blob/2cd2237f7c83a476fa9d2f4f6168fd70e7e3f24e/specs/jwt-key-telemetry-evidence.json).
    Hypershell uses its static public-key verifier. These rotating-key results
    do not prove a change to that authentication path or close C6.
