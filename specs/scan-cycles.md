@@ -105,3 +105,36 @@ It was the only failed journal test; the other 32 passed with no skip.
 The fixture uses PostgreSQL and a bounded provider delay. It does not prove
 real-provider capacity. Consumer adoption and improved cleanup timing remain
 unproved. The 30-second target is unchanged.
+
+## Parallel actions by resource key
+
+Controller 1.23.0 adds the opt-in `ScanCycleParallel` API. Its typed options
+require 1–64 workers, an action time limit, and a resource key function. The
+runtime checks every key before page effects. Keys contain 1–512 valid UTF-8
+bytes, without NUL. The runtime does not store or log keys.
+
+Actions for equal keys run in source order, one at a time, within the call.
+Different keys can run at the same time. A page can contain the same resource
+under different source cursors, so cursor uniqueness is not a concurrency key.
+The caller must supply the resource identity. This is not a distributed lock.
+
+The runtime checks the full action time reserve before dispatch and before the
+worker starts an action. A planned stop waits for admitted actions. A terminal
+error stops admission and cancels the page. All workers stop before checkpoint
+storage. External effects can finish after a callback returns; the key queue
+does not fence those effects. Continuation policy calls are serial. The policy must not depend on
+action completion order. Effects beyond a stopped prefix can repeat after
+restart, so all effects must remain safe to repeat.
+
+Only the contiguous accepted prefix advances. Permitted action errors still
+retain the cycle failure flag. Cancellation after a peer failure cannot accept
+an interrupted action. Parent cancellation prevents saving. Conditional saves,
+source windows, and the checkpoint format retain their existing rules. The two
+existing sequential cycle APIs keep their behavior.
+
+This candidate follows Hypershell run `35463991341`. Complete account cleanup
+took 93.2722 seconds; the 30-second target failed. All selected provider objects
+were absent and background state was preserved. Saved passes had clean failure
+flags, but handled about 18–21 account rows before a wait of about 12 seconds.
+The bounded parallel candidate and its generated tests still require CI.
+No consumer timing improvement is claimed.

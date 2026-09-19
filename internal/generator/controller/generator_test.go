@@ -59,11 +59,20 @@ var cycleTests []byte
 //go:embed testdata/cycle_budget_test.go
 var cycleBudgetTests []byte
 
+//go:embed testdata/cycle_parallel_test.go
+var cycleParallelTests []byte
+
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
 //go:embed testdata/process_test.go
 var processTests []byte
+
+func TestGeneratedCycleParallel(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestCycleParallel") })
+	}
+}
 
 func TestGeneratedCycleActionBudget(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
@@ -124,6 +133,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests}, gen.File{Path: "controller/checkpoint_test.go", Content: checkpointTests})
 	files = append(files, gen.File{Path: "controller/state_protection_test.go", Content: stateProtectionTests}, gen.File{Path: "controller/state_journal_test.go", Content: stateJournalTests})
 	files = append(files, gen.File{Path: "controller/cycle_budget_test.go", Content: cycleBudgetTests})
+	files = append(files, gen.File{Path: "controller/cycle_parallel_test.go", Content: cycleParallelTests})
 	files = append(files, gen.File{Path: "controller/cycle_test.go", Content: cycleTests}, gen.File{Path: "controller/process_test.go", Content: processTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\n")

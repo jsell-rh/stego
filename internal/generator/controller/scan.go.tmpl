@@ -51,8 +51,21 @@ type ScanProgress struct { After string; Complete bool }
 // checks, repeat-safe effects, and later full scans remain required. This
 // function creates no durable acknowledgment and starts no background work.
 func ScanFrom[T any](ctx context.Context, after string, source CursorSource[T], emit func(T) error, options ScanOptions) (ScanProgress,error) {
+ if emit==nil{return ScanProgress{After:after},scanError("context, source, and emitter are required")}
+ return scanFromPages(ctx,after,source,func(ctx context.Context,items []CursorItem[T])(int,error){
+  for i,item:=range items{
+   if err:=ctx.Err();err!=nil{return i,err}
+   if err:=emit(item.Value);err!=nil{return i,err}
+  }
+  return len(items),nil
+ },options)
+}
+
+// scanFromPages keeps page validation and cursor progress common to both action
+// modes. The page action returns only its contiguous accepted prefix.
+func scanFromPages[T any](ctx context.Context,after string,source CursorSource[T],emitPage func(context.Context,[]CursorItem[T])(int,error),options ScanOptions)(ScanProgress,error){
  progress:=ScanProgress{After:after}
- if ctx == nil || source == nil || emit == nil { return progress,scanError("context, source, and emitter are required") }
+ if ctx == nil || source == nil || emitPage == nil { return progress,scanError("context, source, and emitter are required") }
  if len(after)>1024 || !utf8.ValidString(after) || strings.IndexByte(after,0)>=0 {return progress,scanError("initial cursor is invalid")}
  if options.PageSize < 1 || options.PageSize > 1000 { return progress,scanError("page size must be between 1 and 1000") }
  if options.MaxPages < 1 || options.MaxPages > 1000000 { return progress,scanError("page count must be between 1 and 1000000") }
@@ -66,11 +79,11 @@ func ScanFrom[T any](ctx context.Context, after string, source CursorSource[T], 
   if err != nil { return progress,err }
   if deadlineErr != nil { return progress,deadlineErr }
   if err := validateCursorPage(page, progress.After, options.PageSize); err != nil { return progress,scanError(err.Error()) }
-  for _, item := range page.Items {
-   if err := ctx.Err(); err != nil { return progress,err }
-   if err := emit(item.Value); err != nil { return progress,err }
-   progress.After=item.Cursor
-  }
+  prefix,err:=emitPage(ctx,page.Items)
+  if prefix<0||prefix>len(page.Items){return progress,scanError("page action returned an invalid prefix")}
+  if prefix>0{progress.After=page.Items[prefix-1].Cursor}
+  if err!=nil{return progress,err}
+  if prefix!=len(page.Items){return progress,scanError("page action stopped without an error")}
   if err := ctx.Err(); err != nil { return progress,err }
   if !page.More { progress.Complete=true; return progress,nil }
  }
