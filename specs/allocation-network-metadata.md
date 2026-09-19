@@ -50,8 +50,10 @@ import; the failure record is retained.
 The first full compiler check failed because an existing test omitted
 `pods/status` from its expected resources. Commit `8b5aef7` corrects that test.
 The [replacement full check](https://github.com/jsell-rh/stego/actions/runs/35451661881)
-is still running. Only the Python runner and its tests changed after that source.
-The latest focused check covers those changes.
+passed at `8b5aef7`: all six jobs, 34 packages with the race detector, and both
+generated examples. Compiler inputs are unchanged through `2f432ab`. Only the
+Python runner, its tests, and evidence records changed after that source. The
+latest focused check covers the runner changes.
 
 The fixed live-test sources and CI manifests are ready. No cluster test has
 started. The saved jshell context returned Unauthorized; login refresh is pending.
@@ -65,6 +67,6 @@ releases the shared test Lease. This check does not prove traffic or Kata execut
 Keep the current Hypershell and OpenShell workspace-copy user and socket volume.
 This change adds no mutation service and requires no OpenShell fork.
 
-The full compiler suite and live admission check are incomplete. This candidate
+The live admission check is incomplete. This candidate
 is not a release and is not selected by Hypershell. See the
 [evidence record](allocation-network-metadata-evidence.json).

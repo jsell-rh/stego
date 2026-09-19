@@ -173,7 +173,6 @@
     "source": "e04748e06c89f0a05e6c0e9c53526b0ab80fb40e",
     "reason": "The new test used an unpinned CEL import. Commit ce23597 uses the existing cel.dev/cel-go module."
   },
-  "full_compiler_pending": "https://github.com/jsell-rh/stego/actions/runs/35451661881",
   "released": false,
   "consumer_adopted": false,
   "previous_focused": {
@@ -226,5 +225,75 @@
     "container_execution_permitted": false,
     "network_traffic_checked": false,
     "kata_execution_checked": false
+  },
+  "full_compiler": {
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35451661881",
+    "source": "8b5aef7305883443d93515aa70fc98efbf77ac54",
+    "checked_at": "2026-09-19T15:33:55.229405+00:00",
+    "jobs": {
+      "resource-state-storage": "success",
+      "examples (user-management-rhsso)": "success",
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "keycloak-provider": "success",
+      "compiler": "success"
+    },
+    "full_race_suite_passed": true,
+    "passing_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "required_sql_passes": [
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestClientPrivateTelemetry",
+      "TestGeneratedPostgresClient",
+      "TestGeneratedManagedBrowserSchema",
+      "TestGeneratedBrowserStartup"
+    ],
+    "generated_examples_passed": true,
+    "log_sha256": "0a4228c7ff09ba8535bb8ec1e5854b852721b7f5fa2d9077ee2908abb175c85f",
+    "reviewed_head": "2f432abe4cf6003aac4fe99f477af47e755faed9",
+    "compiler_inputs_unchanged_to_reviewed_head": true,
+    "post_check_changes": [
+      "scripts/check-network-metadata.py",
+      "scripts/test_network_metadata.py",
+      "specs/allocation-network-metadata-evidence.json",
+      "specs/allocation-network-metadata.md"
+    ],
+    "local_go_tests_run": false
   }
 }
