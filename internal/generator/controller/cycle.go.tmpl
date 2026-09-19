@@ -60,8 +60,47 @@ func ValidateCycleTransition(previous,next CycleState)error{
 // CycleOptions gives each action a full time budget. The runtime stops the pass
 // before a new action if the remaining work time is shorter than ActionTimeout.
 // A stopped pass retains its successful prefix and does not add a failure.
-// An action error or late return still adds failure evidence.
-type CycleOptions struct { ActionTimeout time.Duration }
+// An unresolved action error or late return still adds failure evidence.
+type CycleOptions struct { ActionTimeout time.Duration; Retry CycleRetryOptions }
+
+// CycleRetryOptions permits a bounded retry before the cursor advances. Zero
+// values retain one attempt. Retryable must return promptly and be safe for
+// concurrent calls. It must select only errors for which repeating the whole
+// action is safe, including when an earlier result was lost. A successful retry
+// resolves this action's failure; it does not clear a saved cycle failure.
+// No checkpoint save or source read is retried by this policy.
+type CycleRetryOptions struct {
+ MaxAttempts int
+ Delay time.Duration
+ Retryable func(error)bool
+}
+const MaxCycleAttempts = 4
+func (r CycleRetryOptions) validate(timeout time.Duration)error{
+ if r.MaxAttempts<0||r.MaxAttempts>MaxCycleAttempts{return ErrScanContract}
+ if r.MaxAttempts<=1{if r.Delay!=0||r.Retryable!=nil{return ErrScanContract};return nil}
+ if r.Retryable==nil||r.Delay<time.Millisecond||r.Delay>time.Second||r.Delay>timeout{return ErrScanContract}
+ return nil
+}
+
+// Each retry starts only after the previous callback returns and its context
+// is canceled. The pass must retain the delay and one full action budget.
+// Parallel workers retain their resource key throughout the retry sequence.
+func cycleActionWithRetry(work context.Context,timeout time.Duration,retry CycleRetryOptions,emit func(context.Context)error)error{
+ for attempt:=1;;attempt++{
+  action:=work;cancel:=func(){}
+  if timeout>0{action,cancel=context.WithTimeout(work,timeout)}
+  err:=errors.Join(emit(action),observationContextError(action));cancel()
+  if err==nil{return nil}
+  if attempt>=max(1,retry.MaxAttempts)||observationContextError(work)!=nil||errors.Is(err,ErrScanContract)||errors.Is(err,ErrScanWindowLimit){return err}
+  if !retry.Retryable(err){return err}
+  end,ok:=work.Deadline()
+  if !ok||time.Until(end)<retry.Delay+timeout{return err}
+  timer:=time.NewTimer(retry.Delay)
+  select{case <-work.Done():timer.Stop();return errors.Join(err,observationContextError(work));case <-timer.C:}
+  if observationContextError(work)!=nil{return errors.Join(err,observationContextError(work))}
+  if time.Until(end)<timeout{return err}
+ }
+}
 
 var errCycleBudget = errors.New("scan action budget is not available")
 
@@ -69,7 +108,7 @@ var errCycleBudget = errors.New("scan action budget is not available")
 // Callbacks must honor their contexts. A source read still uses PageTimeout.
 // The checkpoint format and all failure and conditional-save rules are unchanged.
 func ScanCycleWithOptions[T any](ctx context.Context,sourceVersion string,access CheckpointAccess,source CursorSource[T],emit func(context.Context,T)error,continueOnError func(error)bool,scan ScanOptions,budget ObservationOptions,options CycleOptions)(CycleState,error){
- if options.ActionTimeout<time.Millisecond||options.ActionTimeout>=budget.WorkTimeout{return CycleState{Source:sourceVersion},ErrScanContract}
+ if options.ActionTimeout<time.Millisecond||options.ActionTimeout>=budget.WorkTimeout||options.Retry.validate(options.ActionTimeout)!=nil{return CycleState{Source:sourceVersion},ErrScanContract}
  return scanCycle(ctx,sourceVersion,access,source,emit,continueOnError,scan,budget,options,nil)
 }
 
@@ -111,16 +150,12 @@ func scanCycle[T any](ctx context.Context,sourceVersion string,access Checkpoint
    return page,nil
   }
   action:=func(value T)error{
-   action:=work
-   cancel:=func(){}
    if options.ActionTimeout>0{
     end,ok:=work.Deadline()
     if !ok{return ErrScanContract}
     if time.Until(end)<options.ActionTimeout{budgetEnded=true;return errCycleBudget}
-    action,cancel=context.WithTimeout(work,options.ActionTimeout)
    }
-   err:=errors.Join(emit(action,value),observationContextError(action))
-   cancel()
+   err:=cycleActionWithRetry(work,options.ActionTimeout,options.Retry,func(action context.Context)error{return emit(action,value)})
    if err==nil{return nil}
    result.Failed=true
    if actionFailure==nil{actionFailure=err}
