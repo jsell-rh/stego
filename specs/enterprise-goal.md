@@ -445,10 +445,17 @@ the application must never perform automatic teardown.
    cases remain, with the same five conditional exclusions. Browser, UI, image,
    and both restart checks passed. The separate journal run passed all 36
    required cases. See the [application qualification](https://github.com/jsell-rh/hypershell-stego/blob/df85c40/acceptance/sweep-round-validation.md).
-   The gate then started seventh capacity run `35472389423` with the unchanged
-   fixture. Its timing result remains pending, and the scheduling candidate is
-   not yet on application main. The evidence does not identify the cause of
-   every failed provider call. See the
+   The seventh capacity run `35472389423` completed with the unchanged fixture.
+   Account cleanup decreased from 92.3174 to 61.5320 seconds, but the 30-second
+   target still failed. All 100 selected accounts, journals, provider identities,
+   and success audits were checked. The 9,900 background rows and 10,007 other
+   clients retained their state. Resource limits and test cleanup passed. See
+   the [seventh result](https://github.com/jsell-rh/hypershell-stego/blob/ad84170/acceptance/sweep-round-capacity-evidence.json).
+   The scheduling candidate is not yet on application main. A separate
+   diagnostic correction at `c1b3580` retains canonical RPC statuses; eighth run
+   `35472990779` is active. Its changed collector must be identified in timing
+   comparisons. Earlier evidence does not identify the cause of every failed
+   provider call. See the
    [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
@@ -513,7 +520,18 @@ the application must never perform automatic teardown.
    [selected boundary](sandbox-upstream-settings.md).
    Keep the current upstream workspace-copy user and ordinary socket volume.
    Add no mutation service or OpenShell fork for those fields.
-5. Audit C1 through C7 and H1 through H3 against current source and complete
+5. Qualify the common key-refresh telemetry and its generated SSO startup.
+   Candidate `2cd2237` emits fixed source and outcome values through the existing
+   bounded logs, metrics, and trace runtime. It records no tokens, key IDs, key
+   documents, paths, addresses, or provider error text. Focused runs `35472590761`
+   and `35472880350` passed at their recorded sources. The latter includes both
+   SSO peer modes, startup cancellation, deadline expiry, and runtime ownership.
+   Corrected example output is committed from verified hosted archives. Full
+   compiler checks, release qualification, and consumer adoption remain pending.
+   See the [candidate evidence](https://github.com/jsell-rh/stego/blob/2cd2237f7c83a476fa9d2f4f6168fd70e7e3f24e/specs/jwt-key-telemetry-evidence.json).
+   Hypershell uses its static public-key verifier. These rotating-key results
+   do not prove a change to that authentication path or close C6.
+6. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
    telemetry coverage, full application parity, and measured capacity remain
    in scope. Preserve the one-writer requirement until cross-process fencing
