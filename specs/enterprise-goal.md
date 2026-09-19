@@ -462,9 +462,18 @@ the application must never perform automatic teardown.
    Three early delete deadlines and two internal errors precede a later scan
    that closes the remaining rows. Review the common failed-work retry path
    without removing durable progress or late-effect checks. The record does
-   not prove the cause of each server delay. Earlier evidence does not identify the cause of every failed
-   provider call. See the
+   not prove the cause of each server delay. Earlier evidence does not identify
+   the cause of every failed provider call. See the
    [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
+
+   Common candidate `d205073` adds explicit bounded action retries. Default
+   behavior and checkpoint encoding are unchanged. It retains saved failures,
+   complete action time budgets, key order, and cancellation. Fifty generated
+   cases passed in each telemetry mode in focused run `35473708792`; the full
+   compiler check is still active. Hypershell candidate `7333332` retains safe
+   retry classes without changing public error messages. Its journal check is
+   active. The common retry option is not yet enabled in the application.
+   Neither candidate establishes a new capacity result.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
@@ -503,6 +512,11 @@ the application must never perform automatic teardown.
    `7f81556`, with compiler `d3ccd11`. The promoted commit adds only acceptance
    records to that live source.
 
+   The main application repeat at `dbd8363` also passed 329 top-level tests and
+   844 cases in run `35472230170`. Browser, UI, image, and both restart modes
+   passed. Five conditional exclusions and the deferred Kata job remain in
+   the [source-specific result](https://github.com/jsell-rh/hypershell-stego/blob/876d193/acceptance/sandbox-activation-main-full-evidence.json).
+
    The live test checked REST and gRPC, filtered lists, denied writes, events,
    restart, deletion, telemetry, and worker Sandbox setup before and after
    recovery. All 1,502 source hashes and 417 generated file hashes matched.
@@ -540,9 +554,11 @@ the application must never perform automatic teardown.
    failed the stale SSO example check. Candidate `2cd2237` corrects that output;
    all six jobs and 34 race-tested packages passed in run `35473062128`.
    The qualified implementation is merged with the current goal records.
-   Exact-source main checks, release qualification, and consumer adoption remain
-   pending.
-   See the [candidate evidence](https://github.com/jsell-rh/stego/blob/2cd2237f7c83a476fa9d2f4f6168fd70e7e3f24e/specs/jwt-key-telemetry-evidence.json).
+   Exact main source `67c78e5` passed all six jobs and 34 race packages in
+   run `35473552043`. Its signed immutable release is published. Independent
+   source, module, build-policy, signature, and release-installation checks
+   passed. See the [complete evidence](jwt-key-telemetry-evidence.json).
+   Consumer adoption remains open.
    Hypershell uses its static public-key verifier. These rotating-key results
    do not prove a change to that authentication path or close C6.
 6. Audit C1 through C7 and H1 through H3 against current source and complete
