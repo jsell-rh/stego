@@ -458,8 +458,13 @@ the application must never perform automatic teardown.
    [application result](https://github.com/jsell-rh/hypershell-stego/blob/d318fb98b34f98be1b0288c6173be0aed6a32b2b/acceptance/sandbox-native-network-evidence.json).
    The native probes do not establish VM isolation or OpenShell Sandbox
    execution. The user deferred the live Kata test because no suitable cluster
-   is available. The candidate remains unmerged, and its constructor guard
-   still rejects Sandbox activation.
+   is available. The default branch still rejects configured Sandbox activation.
+   The candidate at `674c6e5` removes that temporary constructor rejection and
+   extends the native test through the actual Gateway worker's Sandbox setup.
+   Its adapter run `35467508365` passed 63 top-level tests, including four new
+   constructor cases. One SQL test without its fixture was skipped. Full
+   application and live native workflow checks remain required before promotion.
+   See the [activation record](https://github.com/jsell-rh/hypershell-stego/blob/6580008/acceptance/sandbox-activation.md).
 
    The pinned upstream Agent Sandbox controller has no namespace-only entry
    point. Its default permissions permit workload changes across namespaces.
@@ -467,8 +472,9 @@ the application must never perform automatic teardown.
    trusted cluster infrastructure. Keep its cluster-wide permissions with the
    operator-managed controller. Do not build a namespace-scoped entry point.
    Gateway workers and Sandbox accounts retain their existing permission
-   limits. This resolves the trust decision; it does not remove the current
-   constructor guard or establish live Sandbox execution. See the
+   limits. This resolves the trust decision. The later activation candidate has
+   separate qualification requirements; neither result establishes live
+   Sandbox execution. See the
    [selected boundary](sandbox-upstream-settings.md).
    Keep the current upstream workspace-copy user and ordinary socket volume.
    Add no mutation service or OpenShell fork for those fields.
