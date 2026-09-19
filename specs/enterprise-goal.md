@@ -426,9 +426,19 @@ the application must never perform automatic teardown.
    restart tests and the browser, UI, and image jobs passed. Five conditional
    tests and the Kata job remained excluded. See the
    [application result](https://github.com/jsell-rh/hypershell-stego/blob/ecaee43/acceptance/scan-parallel-full-evidence.json).
-   The sixth capacity run `35468703943` now uses that exact source and the
-   unchanged fixture. A complete measured result is still required before
-   any timing improvement can be claimed.
+   The sixth capacity run `35468703943` used that exact source and the
+   unchanged fixture. It completed account cleanup in 92.3174 seconds and
+   failed the 30-second target. All 100 selected identities and journals were
+   closed or removed. The 9,900 background rows and 10,007 other clients were
+   preserved. Source, binary, resource-limit, and test cleanup checks passed.
+   Parallel work did not establish a material timing improvement. Failed saved
+   cycles required another scan, and saved passes remained about 12 seconds
+   apart. Source review found that the common sweep waits one interval after
+   each group, including empty groups. Ten application groups add ten seconds
+   per rotation before callback time. The next common scheduling change must
+   preserve bounded work, group fairness, and existing caller defaults. The
+   evidence does not identify the cause of every failed provider call. See the
+   [sixth result](https://github.com/jsell-rh/hypershell-stego/blob/fb7377d/acceptance/provider-capacity-evidence.json).
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
