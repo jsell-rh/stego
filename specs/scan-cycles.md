@@ -93,5 +93,15 @@ must check the action reserve before any scheduler or timeout change.
 
 Generated tests use a controlled clock to check multi-pass completion, retained
 provider failures, save conflicts, invalid limits, and parent cancellation.
-Both builds, with and without telemetry, require those checks in hosted CI.
-No qualification result is claimed before those checks pass.
+Both generated variants, with and without telemetry, passed those checks.
+Source `58a3bcc` passed all six branch and main compiler jobs, including 34
+packages with race checks. The signed main build produced the same bytes as
+the branch build. The common installer verified the source and both signatures
+before and after immutable release publication. See the
+[qualification record](scan-action-budget-evidence.json).
+
+Hypershell's six-account test failed with the old compiler at `eed9066`.
+It was the only failed journal test; the other 32 passed with no skip.
+The fixture uses PostgreSQL and a bounded provider delay. It does not prove
+real-provider capacity. Consumer adoption and improved cleanup timing remain
+unproved. The 30-second target is unchanged.
