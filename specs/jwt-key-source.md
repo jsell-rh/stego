@@ -40,7 +40,7 @@ empty runtime state, redirects, and local and remote input limits. These are
 correctness checks, not capacity measurements. Measured cost remains part of
 the wider performance requirements.
 
-The telemetry candidate uses the selected common `otel-tracing` peer and the
+The telemetry runtime uses the selected common `otel-tracing` peer and the
 runtime in the caller's context. With no peer or runtime, verification retains
 its existing behavior. It creates no provider, exporter, or background task.
 The process still owns telemetry startup and shutdown.
@@ -59,7 +59,7 @@ token, key ID, key document, file path, source URL, or provider error text.
 This change covers key retrieval and compilation after source validation; it
 does not add per-token logs or establish complete authentication observability.
 
-Hosted qualification and consumer adoption are pending. The generated tests
+Compiler qualification is complete; consumer adoption remains open. The generated tests
 cover both peer modes, all fixed outcomes, file and HTTPS refresh, bounded
 outage use, recovery, cooldown, stop, cancellation, trace sampling, correlated
 signals, private input removal, idempotent completion, and collector failure.
@@ -73,9 +73,19 @@ closes the SSO handler before the runtime. The handler does not own the runtime.
 The no-argument `NewJWTHandler` remains available; direct callers can use
 `NewJWTHandlerWithContext` or the generated telemetry constructor.
 
-The SSO candidate checks startup success, invalid key input, cancellation,
+The SSO tests check startup success, invalid key input, cancellation,
 deadline expiry, missing dependencies, private data removal, and runtime
 ownership. Trust and payload tests run with and without the telemetry peer.
-Hosted qualification and refreshed SSO example output are still required.
+Hosted qualification and refreshed SSO example checks passed.
 Hypershell currently uses its static public-key verifier, so these key-cache
 results do not prove a change to Hypershell's authentication behavior.
+
+
+Compiler `67c78e5` is available as an
+[immutable signed release](https://github.com/jsell-rh/stego/releases/tag/compiler-67c78e599993cc6d01ebe740d17624fd40b6332d).
+All six exact-source main jobs passed, including 34 compiler race packages and
+both generated examples. All eight required focused authentication cases passed.
+Two isolated builds produced identical bytes. Independent verification checked
+the signatures, 1,284 source files, 28 module records, and build policy. Local
+package and release installation produced identical verified files. No downloaded
+compiler ran on the workstation. See the [complete evidence](jwt-key-telemetry-evidence.json).

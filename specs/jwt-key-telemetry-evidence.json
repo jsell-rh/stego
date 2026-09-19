@@ -1,5 +1,5 @@
 {
-  "status": "Candidate full checks passed; exact-source release and consumer checks remain pending",
+  "status": "Compiler release qualified; consumer adoption and complete authentication telemetry remain open",
   "initial_source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
   "initial_focused": {
     "source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
@@ -242,5 +242,141 @@
       "The nonverbose main race command does not expose all per-test skip decisions.",
       "Compiler distribution and consumer adoption require separate exact-source checks."
     ]
+  },
+  "main_focused": {
+    "source": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "run": 35473552039,
+    "conclusion": "success",
+    "jobs": {
+      "authentication": "success"
+    },
+    "log_sha256": "bf7a992d50b74fd49103518287bdfaf3f5f14693b6642e058f259d18f818f93a",
+    "artifacts_downloaded": true,
+    "required_passed": [
+      "TestAuthenticationTelemetryPeerValidation",
+      "TestGeneratedAuthKeyTelemetry",
+      "TestGeneratedAuthenticationRuntime",
+      "TestGeneratedAuthenticationRuntime/false",
+      "TestGeneratedAuthenticationRuntime/true",
+      "TestGeneratedSSOTrustPolicy",
+      "TestGeneratedSSOTrustPolicy/false",
+      "TestGeneratedSSOTrustPolicy/true"
+    ],
+    "source_archive_matches": true,
+    "test_log_sha256": "cca5f63f496f936f02651af5fa07373543b21138112242916020b3eb0c78de41"
+  },
+  "main_full": {
+    "source": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35473552043",
+    "conclusion": "success",
+    "jobs": {
+      "postgres-provisioning": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "resource-state-storage": "success",
+      "keycloak-provider": "success",
+      "examples (user-management)": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "log_sha256": "f3763e935f3fbad40a18846048de1778e24991a9b396021777e248c4471beeca",
+    "limits": [
+      "The nonverbose main race command does not expose all per-test skip decisions. Focused records provide named runtime cases."
+    ]
+  },
+  "main_artifact": {
+    "source_revision": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "source_inventory": {
+      "files": 1284,
+      "bytes": 10207410,
+      "sha256": "664b1821f12811783ebf20df753bb8433c191c830975f0422534b0ebc9ca6dc7"
+    },
+    "source_inventory_matches": true,
+    "module_records_checked": 28,
+    "toolchain_and_build_policy_match": true,
+    "signature": {
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "8d041bac484f9a5469a7f64f01cea34518fe7da3740dd70ccffddef3cc5e8bfd",
+        "size": 38378292
+      },
+      "build_record_sha256": "231ffcb9ce25f7277f633e178b7091f5160b5ca92187ef5d4b643675565e34b7",
+      "bundle_sha256": "db8f82a70382c4b17e8184e69dbecf762ae0673c12c697035928e7086480f214",
+      "format": 1,
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "reference": "refs/heads/main",
+      "repository": "jsell-rh/stego",
+      "self_hosted_runners_allowed": false,
+      "source_revision": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml"
+    },
+    "hosted_rejection_checks": {
+      "source_revision": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+      "authenticated": {
+        "name": "stego-linux-amd64",
+        "sha256": "8d041bac484f9a5469a7f64f01cea34518fe7da3740dd70ccffddef3cc5e8bfd",
+        "size": 38378292
+      },
+      "rejected": [
+        "different-source-commit",
+        "changed-compiler-with-matching-checksums",
+        "changed-build-record",
+        "invalid-signature-bundle"
+      ],
+      "valid_after_rejections": true,
+      "downloaded_compiler_executed": false
+    },
+    "downloaded_compiler_executed_locally": false
+  },
+  "release": {
+    "source": "67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "tag": "compiler-67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-67c78e599993cc6d01ebe740d17624fd40b6332d",
+    "immutable": true,
+    "downloaded_assets_match_authenticated_package": true,
+    "local_and_release_installations_match": true,
+    "downloaded_compiler_executed_locally": false,
+    "binary_sha256": "8d041bac484f9a5469a7f64f01cea34518fe7da3740dd70ccffddef3cc5e8bfd",
+    "build_record_sha256": "231ffcb9ce25f7277f633e178b7091f5160b5ca92187ef5d4b643675565e34b7",
+    "bundle_sha256": "db8f82a70382c4b17e8184e69dbecf762ae0673c12c697035928e7086480f214"
   }
 }
