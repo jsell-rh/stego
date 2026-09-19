@@ -1,16 +1,16 @@
 {
   "focused": {
-    "source": "ce235973464b7043e7b18a78f28acf4ef74e0263",
-    "run": "https://github.com/jsell-rh/stego/actions/runs/35352553358",
-    "checked_at": "2026-09-18T13:52:38.224287+00:00",
+    "source": "43f8220c3adeb30df5a424ac232ddefa5e192ee5",
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35451706671",
+    "checked_at": "2026-09-19T15:27:36.573596+00:00",
     "source_archive_verified": true,
     "readonly_dependencies_verified": true,
     "network_identity_cel_cases": 36,
-    "runner_safety_tests": 33,
+    "runner_safety_tests": 41,
     "pod_status_guard_present": true,
     "common_non_annotation_guards_unchanged": true,
-    "network_metadata_policy_sha256": "3351090025be5e4a6ef694582f0ece23b38084f83ca400f7899e2acdfa884ada",
-    "log_sha256": "9b6221c6cc310656a603498729477cbad9dd4dfc46e6bd1a2e3a4853fc428b30",
+    "network_metadata_policy_sha256": "3ba8e80ad687320e51e004a91fc1efedd6d6b686b3ac1f898eb24266c19b4d99",
+    "log_sha256": "6b2f63e0d2e5d313bb6e145bf163f1f413694e8e77c6d6df890419a3ffeb43c4",
     "live_admission_checked": false,
     "network_traffic_checked": false,
     "kata_execution_checked": false,
@@ -173,7 +173,58 @@
     "source": "e04748e06c89f0a05e6c0e9c53526b0ab80fb40e",
     "reason": "The new test used an unpinned CEL import. Commit ce23597 uses the existing cel.dev/cel-go module."
   },
-  "full_compiler_pending": "https://github.com/jsell-rh/stego/actions/runs/35352553321",
+  "full_compiler_pending": "https://github.com/jsell-rh/stego/actions/runs/35451661881",
   "released": false,
-  "consumer_adopted": false
+  "consumer_adopted": false,
+  "previous_focused": {
+    "source": "ce235973464b7043e7b18a78f28acf4ef74e0263",
+    "run": "https://github.com/jsell-rh/stego/actions/runs/35352553358",
+    "checked_at": "2026-09-18T13:52:38.224287+00:00",
+    "source_archive_verified": true,
+    "readonly_dependencies_verified": true,
+    "network_identity_cel_cases": 36,
+    "runner_safety_tests": 33,
+    "pod_status_guard_present": true,
+    "common_non_annotation_guards_unchanged": true,
+    "network_metadata_policy_sha256": "3351090025be5e4a6ef694582f0ece23b38084f83ca400f7899e2acdfa884ada",
+    "log_sha256": "9b6221c6cc310656a603498729477cbad9dd4dfc46e6bd1a2e3a4853fc428b30",
+    "live_admission_checked": false,
+    "network_traffic_checked": false,
+    "kata_execution_checked": false,
+    "released": false
+  },
+  "full_compiler_failure": {
+    "conclusion": "failure",
+    "headSha": "ce235973464b7043e7b18a78f28acf4ef74e0263",
+    "status": "completed",
+    "url": "https://github.com/jsell-rh/stego/actions/runs/35352553321",
+    "reason": "The existing Pod policy test omitted pods/status from its expected resources. Commit 8b5aef7 corrects that test and includes it in the focused check.",
+    "log_sha256": "f024a3b4a8c17f5dd4f44a95293616b487ba329dc091973d28b7141c5e9ed24e"
+  },
+  "cancelled_duplicate_full": {
+    "run": 35451706521,
+    "reason": "Only the Python live runner and its tests changed. Full compiler run 35451661881 covers the same compiler inputs. Focused run 35451706671 checks the changed runner.",
+    "changed_files": [
+      "scripts/check-network-metadata.py",
+      "scripts/test_network_metadata.py"
+    ],
+    "status": "completed",
+    "conclusion": "cancelled",
+    "terminal": {
+      "conclusion": "cancelled",
+      "headSha": "43f8220c3adeb30df5a424ac232ddefa5e192ee5",
+      "status": "completed",
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35451706521"
+    }
+  },
+  "live_check": {
+    "state": "prepared_not_started",
+    "reason": "The saved jshell context returned Unauthorized. The login refresh request is pending.",
+    "source": "43f8220c3adeb30df5a424ac232ddefa5e192ee5",
+    "frozen_source_record_sha256": "4c725b471f8c5cfa71a14f56bdd501ca3347ed9f7253d4486709d86fbc8d54c9",
+    "planned_stored_pods": 1,
+    "container_execution_permitted": false,
+    "network_traffic_checked": false,
+    "kata_execution_checked": false
+  }
 }
