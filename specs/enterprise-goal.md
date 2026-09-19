@@ -450,14 +450,16 @@ the application must never perform automatic teardown.
    required tests; its API gate passed all 52. Full main CI passed 315 top-level
    tests and 754 cases. The separate live browser attempt stopped before Job
    creation because the installed Sandbox candidate policy differs from main.
-   That policy mismatch still needs the qualified Sandbox candidate. The user
-   has resolved the controller trust decision as recorded below.
+   That earlier attempt remains a failed result. The later qualified Sandbox
+   workflow and promotion below close this setup mismatch. The user has
+   resolved the controller trust decision as recorded below.
 
    The whole-realm Gateway identity inventory has a separate candidate fix at
    `739835e`. It uses the generated name-query cursor and scan for native and
    console client prefixes, then verifies current ownership. Its 36 required
    journal tests and real-provider recovery checks passed. The combined full
-   and live workflow results remain pending. This removes unrelated account
+   check at `674c6e5` and live check at `7f81556` now passed. Main `dbd8363`
+   contains this qualified change. This removes unrelated account
    clients from the normal query; it does not remove the per-query window or
    the controller's discovery deadline. The account-only capacity sample does
    not run that controller, create all background accounts through the API, or
@@ -471,26 +473,29 @@ the application must never perform automatic teardown.
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
    in the history; they do not establish DNS failover behavior.
-4. Complete the Sandbox controller permission boundary and live Kata checks.
-   The Hypershell candidate at `d318fb9` now has complete application evidence
-   for separate Sandbox allocation and native network policy. Run `35457688315`
-   passed all 11 required workflow tests through the signed compiler at
-   `eed9066`. It checked 40 native Sandbox packet paths: 8 were allowed and 32
-   were denied. It also checked 24 Gateway packet paths, namespace replacement,
-   denied API and Kubernetes writes, restart, deletion, telemetry, and unchanged
-   regeneration. The temporary native RuntimeClass was removed. The production
-   installation was restored, all 32 installation resources were checked, and
-   the shared test lease was released. See the
-   [application result](https://github.com/jsell-rh/hypershell-stego/blob/d318fb98b34f98be1b0288c6173be0aed6a32b2b/acceptance/sandbox-native-network-evidence.json).
-   The native probes do not establish VM isolation or OpenShell Sandbox
-   execution. The user deferred the live Kata test because no suitable cluster
-   is available. The default branch still rejects configured Sandbox activation.
-   The candidate at `674c6e5` removes that temporary constructor rejection and
-   extends the native test through the actual Gateway worker's Sandbox setup.
-   Its adapter run `35467508365` passed 63 top-level tests, including four new
-   constructor cases. One SQL test without its fixture was skipped. Full
-   application and live native workflow checks remain required before promotion.
-   See the [activation record](https://github.com/jsell-rh/hypershell-stego/blob/6580008/acceptance/sandbox-activation.md).
+4. Complete live OpenShell Sandbox execution and the deferred Kata checks.
+   Hypershell main `dbd8363` now contains the qualified configured Sandbox
+   setup. Full run `35467762040` at `674c6e5` passed 329 top-level tests and
+   844 cases. Source `7f81556` adds only named read permissions to the test
+   inspector and checks those permissions; production source is unchanged.
+   Live run `35470884946` passed all 11 required Gateway workflow tests at
+   `7f81556`, with compiler `d3ccd11`. The promoted commit adds only acceptance
+   records to that live source.
+
+   The live test checked REST and gRPC, filtered lists, denied writes, events,
+   restart, deletion, telemetry, and worker Sandbox setup before and after
+   recovery. All 1,502 source hashes and 417 generated file hashes matched.
+   It checked 34 permissions, four denied Sandbox writes, six admission
+   denials, 24 Gateway network paths, and 40 native Sandbox packet paths.
+   Of the Sandbox paths, eight were allowed and 32 were denied. Test resources
+   and the temporary native RuntimeClass were removed. All 32 standing
+   installation resources were restored unchanged, and the shared lease is
+   free. See the [complete live result](https://github.com/jsell-rh/hypershell-stego/blob/dbd8363ed2aeb77483fe2cfb98a31f84e808ac18/acceptance/sandbox-activation-live-evidence.json).
+
+   The test used a PostgreSQL process restart within the fixture Pod; it does
+   not prove RDS failover. Native packet probes do not prove VM isolation or
+   OpenShell Sandbox execution. The user deferred the live Kata test because
+   no suitable cluster is available. Production capacity remains unproved.
 
    The pinned upstream Agent Sandbox controller has no namespace-only entry
    point. Its default permissions permit workload changes across namespaces.
@@ -498,9 +503,7 @@ the application must never perform automatic teardown.
    trusted cluster infrastructure. Keep its cluster-wide permissions with the
    operator-managed controller. Do not build a namespace-scoped entry point.
    Gateway workers and Sandbox accounts retain their existing permission
-   limits. This resolves the trust decision. The later activation candidate has
-   separate qualification requirements; neither result establishes live
-   Sandbox execution. See the
+   limits. Review the upstream installation when its pin changes. See the
    [selected boundary](sandbox-upstream-settings.md).
    Keep the current upstream workspace-copy user and ordinary socket volume.
    Add no mutation service or OpenShell fork for those fields.

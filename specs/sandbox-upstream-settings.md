@@ -12,11 +12,12 @@ to OpenShift's `privileged` security policy. That permission does not force each
 Pod to use `privileged: true`. The reference source does not require Kata or
 install a custom Sandbox admission webhook.
 
-The STEGO variant proposes stricter controls for a shared cluster. Its current
-Sandbox constructor still rejects use until separate allocation is configured.
-Keep that guard while the common allocation and admission design is incomplete.
-A passing Gateway workflow without Sandbox workloads does not qualify Sandbox
-support.
+The STEGO variant uses separate allocation and restricted application accounts
+for a shared cluster. Hypershell main `dbd8363` now permits configured Sandbox
+setup after the complete Gateway workflow passed at source `7f81556`. Namespace,
+account, certificate, and admission checks remain active. This result checks
+allocation and setup; it does not establish live OpenShell Sandbox execution.
+See the [live workflow evidence](https://github.com/jsell-rh/hypershell-stego/blob/dbd8363ed2aeb77483fe2cfb98a31f84e808ac18/acceptance/sandbox-activation-live-evidence.json).
 
 ## Settings checked
 
@@ -77,6 +78,7 @@ permission limits; they do not receive the external controller's permissions.
 Review the upstream installation and its permissions when its pin changes.
 
 This decision resolves the controller trust question. It does not change an
-installed controller or remove the application constructor guard. The live Kata
-test remains deferred. Native network and allocation checks do not establish
-live OpenShell Sandbox execution or VM isolation.
+installed controller. The qualified application now permits configured setup
+with the existing permission checks. The live Kata test remains deferred.
+Native network and allocation checks do not establish live OpenShell Sandbox
+execution or VM isolation.
