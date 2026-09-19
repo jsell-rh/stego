@@ -74,6 +74,12 @@ func TestGeneratedCycleParallel(t *testing.T) {
 	}
 }
 
+func TestGeneratedSweep(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestSweep") })
+	}
+}
+
 func TestGeneratedCycleActionBudget(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry, "^TestCycleActionBudget") })

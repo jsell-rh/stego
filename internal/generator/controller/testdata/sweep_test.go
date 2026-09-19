@@ -8,8 +8,100 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
+
+func TestSweepIntervalPlacementAndRetry(t *testing.T) {
+	for _, mode := range []SweepIntervalMode{SweepIntervalAfterGroup, SweepIntervalAfterRound} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				options := sweepOptions()
+				options.Interval = time.Second
+				options.IntervalMode = mode
+				start := time.Now()
+				var order []string
+				var times []time.Duration
+				groups := []SweepGroup[string]{}
+				for _, name := range []string{"empty", "retry", "last"} {
+					groups = append(groups, SweepGroup[string]{Name: name, Streams: []SweepStream[string]{{Name: "live", Page: func(_ context.Context, after string, _ int) (SweepPage[string], error) {
+						order = append(order, name)
+						times = append(times, time.Since(start))
+						if after != "" {
+							t.Error("a complete page did not reset its cursor")
+						}
+						if name == "empty" {
+							return SweepPage[string]{}, nil
+						}
+						return SweepPage[string]{Items: []SweepItem[string]{{Cursor: name, Value: name}}}, nil
+					}}}})
+				}
+				attempts := map[string]int{}
+				err := RunSweep(context.Background(), groups, func(_ context.Context, item string) error {
+					attempts[item]++
+					if item == "retry" && attempts[item] == 1 {
+						return errors.New("temporary provider failure")
+					}
+					if item == "last" && attempts[item] == 2 {
+						return denied
+					}
+					return nil
+				}, options)
+				if !errors.Is(err, denied) || strings.Join(order, ",") != "empty,retry,last,empty,retry,last" || attempts["retry"] != 2 || attempts["last"] != 2 {
+					t.Fatal("group order, retry, or terminal behavior changed", order, attempts, err)
+				}
+				for i, elapsed := range times {
+					want := time.Duration(i) * time.Second
+					if mode == SweepIntervalAfterRound {
+						want = time.Duration(i/len(groups)) * time.Second
+					}
+					if elapsed != want {
+						t.Fatal("interval applied at the wrong boundary", i, elapsed, want)
+					}
+				}
+			})
+		})
+	}
+}
+
+func TestSweepRoundWaitsWhenEmptyAndCancels(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		options := sweepOptions()
+		options.IntervalMode = SweepIntervalAfterRound
+		options.Interval = time.Second
+		calls := 0
+		groups := []SweepGroup[int]{}
+		for _, name := range []string{"one", "two", "three"} {
+			groups = append(groups, SweepGroup[int]{Name: name, Streams: []SweepStream[int]{{Name: "empty", Page: func(context.Context, string, int) (SweepPage[int], error) {
+				calls++
+				if calls > 9 {
+					return SweepPage[int]{}, ErrSweepContract
+				}
+				return SweepPage[int]{}, nil
+			}}}})
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		err := RunSweep(ctx, groups, func(context.Context, int) error { t.Error("empty source caused an action"); return nil }, options)
+		if err != nil || calls != 6 || time.Since(start) != 1500*time.Millisecond {
+			t.Fatal("empty rounds did not wait or cancellation did not end the wait", err, calls, time.Since(start))
+		}
+	})
+}
+
+func TestSweepRejectsUnknownIntervalModeBeforeReads(t *testing.T) {
+	options := sweepOptions()
+	options.IntervalMode = SweepIntervalMode(2)
+	groups := []SweepGroup[int]{{Name: "one", Streams: []SweepStream[int]{{Name: "live", Page: func(context.Context, string, int) (SweepPage[int], error) {
+		t.Error("invalid options reached the source")
+		return SweepPage[int]{}, nil
+	}}}}}
+	err := RunSweep(context.Background(), groups, func(context.Context, int) error { t.Error("invalid options reached an action"); return nil }, options)
+	if !errors.Is(err, ErrSweepContract) {
+		t.Fatal("unknown interval mode was accepted", err)
+	}
+}
 
 func sweepOptions() SweepOptions {
 	return SweepOptions{Workers: 2, PageSize: 10, MaxPagesPerCycle: 100, PassTimeout: 20 * time.Millisecond, Interval: time.Millisecond, Terminal: func(err error) bool { return errors.Is(err, denied) }}

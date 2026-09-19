@@ -125,6 +125,18 @@ use their declared order. If a stream uses the remaining budget, the next pass
 starts with the next stream. Thus a slow current-state scan cannot indefinitely
 prevent retained-history work. A full pass restores the declared order.
 
+`SweepOptions.IntervalMode` selects when the runtime waits. The default,
+`SweepIntervalAfterGroup`, applies `Interval` after every group pass, including
+an empty group. `SweepIntervalAfterRound` applies it once after all groups have
+had one pass. Each group keeps its own `PassTimeout`, cursor, and worker bound.
+A full round still waits when all sources are empty. Cancellation interrupts
+either wait. Invalid modes fail before any source call.
+
+Round mode reduces the time between retained-work scans but can increase
+provider and storage request rates. It does not reserve CPU, bound the total
+duration of a round independently of its group count, or establish a capacity
+target. Select the mode and interval from complete application measurements.
+
 Each page uses a fixed worker pool. Workers honor cancellation and join before
 the next page or group. The cursor advances only through the contiguous prefix
 whose actions started. A short page does not reset a partial cursor. A complete

@@ -45,7 +45,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/controller-cycles"
           go mod verify
           go test -json -race -count=1 -mod=readonly -timeout=10m ./internal/generator/controller \
-            -run '^TestGenerated(CycleParallel|CycleActionBudget|CycleWindow|ScanCheckpoint|SequenceScan)$' \
+            -run '^TestGenerated(Sweep|CycleParallel|CycleActionBudget|CycleWindow|ScanCheckpoint|SequenceScan)$' \
             | tee "$RUNNER_TEMP/controller-cycles/tests.jsonl"
           git rev-parse HEAD > "$RUNNER_TEMP/controller-cycles/source-commit"
           git archive HEAD | sha256sum > "$RUNNER_TEMP/controller-cycles/source-archive.sha256"
