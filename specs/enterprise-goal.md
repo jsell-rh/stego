@@ -404,27 +404,30 @@ the application must never perform automatic teardown.
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
    in the history; they do not establish DNS failover behavior.
-4. Complete adoption and live checks for the separate Sandbox allocation and
-   permission boundary. The Hypershell candidate at `7c4834e` declares the Sandbox
-   profile and uses STEGO's allocator for namespace, account, and policy work.
-   The workload client no longer creates those resources. Application placement,
-   image selection, and OpenShell rules remain in Hypershell. The constructor
-   guard still rejects Sandbox activation until the complete path is checked.
-   Its adapter gate passed 62 top-level tests and 40 Secret environment cases.
-   The candidate is not merged; see the
-   [application record](https://github.com/jsell-rh/hypershell-stego/blob/7dceaf4dc2f0b438ab7241d69ca7fc45dc781682/acceptance/sandbox-workflow.md).
-   The common [network metadata candidate](allocation-network-metadata.md) adds
-   Pod status coverage and controlled OVN/Multus output updates. Its full compiler,
-   focused, and bounded live metadata checks passed. The live result covers 40
-   probes, real OVN metadata, and independent cleanup. It does not prove traffic
-   or Kata execution. The signed compiler at `eed9066` is published and its
-   release download is verified. Hypershell adoption is in progress. Verify the actual
-   application allocation, namespace permissions, denied writes, and network
-   behavior before enabling it. Keep the current upstream workspace-copy user
-   and ordinary socket volume; add no mutation service or OpenShell fork for
-   these fields. The user deferred only the live Kata test because no suitable
-   cluster is available. That deferral does not prove runtime isolation or
-   completion of the permission boundary.
+4. Complete the Sandbox controller permission boundary and live Kata checks.
+   The Hypershell candidate at `d318fb9` now has complete application evidence
+   for separate Sandbox allocation and native network policy. Run `35457688315`
+   passed all 11 required workflow tests through the signed compiler at
+   `eed9066`. It checked 40 native Sandbox packet paths: 8 were allowed and 32
+   were denied. It also checked 24 Gateway packet paths, namespace replacement,
+   denied API and Kubernetes writes, restart, deletion, telemetry, and unchanged
+   regeneration. The temporary native RuntimeClass was removed. The production
+   installation was restored, all 32 installation resources were checked, and
+   the shared test lease was released. See the
+   [application result](https://github.com/jsell-rh/hypershell-stego/blob/d318fb98b34f98be1b0288c6173be0aed6a32b2b/acceptance/sandbox-native-network-evidence.json).
+   The native probes do not establish VM isolation or OpenShell Sandbox
+   execution. The user deferred the live Kata test because no suitable cluster
+   is available. The candidate remains unmerged, and its constructor guard
+   still rejects Sandbox activation.
+
+   The pinned upstream Agent Sandbox controller has no namespace-only entry
+   point. Its default permissions permit workload changes across namespaces.
+   The user has been asked to choose a namespace-scoped entry point that STEGO
+   builds, or to retain the unchanged controller as trusted cluster
+   infrastructure. No answer or controller change is recorded. See the
+   [permission review](https://github.com/jsell-rh/hypershell-stego/blob/00642af/acceptance/sandbox-controller-boundary.md).
+   Keep the current upstream workspace-copy user and ordinary socket volume.
+   Add no mutation service or OpenShell fork for those fields.
 5. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
    telemetry coverage, full application parity, and measured capacity remain
