@@ -469,8 +469,11 @@ the application must never perform automatic teardown.
    Common candidate `d205073` adds explicit bounded action retries. Default
    behavior and checkpoint encoding are unchanged. It retains saved failures,
    complete action time budgets, key order, and cancellation. Fifty generated
-   cases passed in each telemetry mode in focused run `35473708792`; the full
-   compiler check is still active. Hypershell candidate `7333332` retains safe
+   cases passed in each telemetry mode in focused run `35473708792`. All six
+   full jobs and 34 race packages passed in run `35473708806`. The qualified
+   candidate is merged; exact main release checks remain pending. See the
+   [retry evidence](controller-cycle-retry-evidence.json).
+   Hypershell candidate `7333332` retains safe
    retry classes without changing public error messages. Its journal check is
    active. The common retry option is not yet enabled in the application.
    Neither candidate establishes a new capacity result.

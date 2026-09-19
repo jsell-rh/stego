@@ -37,5 +37,9 @@ inventory checks remain necessary before an application reports cleanup.
 The generated tests cover both telemetry modes, serial and parallel use,
 default behavior, error selection, attempt limits, complete time reserves,
 parent and peer cancellation, key ordering, saved failure retention, and save
-conflicts. Qualification is pending. No application capacity improvement is
-claimed until the generated application uses this policy and passes its tests.
+conflicts. Candidate `d205073` passed all six full compiler jobs and 34 race
+packages. The focused check passed 50 named retry cases in each telemetry mode.
+See the [candidate evidence](controller-cycle-retry-evidence.json). Exact main
+release checks and consumer adoption remain pending. No application capacity
+improvement is claimed until the application uses this policy and passes its
+tests.
