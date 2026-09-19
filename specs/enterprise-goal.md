@@ -538,8 +538,10 @@ the application must never perform automatic teardown.
    Intermediate source `a49bd5d` passed all six full jobs and 34 race-tested
    packages. Startup source `ea38962` passed the same compiler packages but
    failed the stale SSO example check. Candidate `2cd2237` corrects that output;
-   both examples passed in run `35473062128`, whose compiler job is still active.
-   Exact-source release qualification and consumer adoption remain pending.
+   all six jobs and 34 race-tested packages passed in run `35473062128`.
+   The qualified implementation is merged with the current goal records.
+   Exact-source main checks, release qualification, and consumer adoption remain
+   pending.
    See the [candidate evidence](https://github.com/jsell-rh/stego/blob/2cd2237f7c83a476fa9d2f4f6168fd70e7e3f24e/specs/jwt-key-telemetry-evidence.json).
    Hypershell uses its static public-key verifier. These rotating-key results
    do not prove a change to that authentication path or close C6.

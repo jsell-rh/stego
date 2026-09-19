@@ -1,5 +1,5 @@
 {
-  "status": "partial qualification; full checks and consumer adoption remain pending",
+  "status": "Candidate full checks passed; exact-source release and consumer checks remain pending",
   "initial_source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
   "initial_focused": {
     "source": "f5a00255fbf73144ea34e139d48df150cff1e0cc",
@@ -62,5 +62,185 @@
     "Example generation uses a source-built CI compiler; it is not a claim of equality with the isolated release binary.",
     "No compiler release or Hypershell adoption is qualified by these focused checks.",
     "Hypershell selects its static public-key verifier; rotating-key telemetry does not prove a change to that authentication path."
-  ]
+  ],
+  "generation_full": {
+    "source": "a49bd5d5b9492895d35fdcb168b9c06e541c1304",
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35472715669",
+    "conclusion": "success",
+    "jobs": {
+      "resource-state-storage": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "postgres-provisioning": "success",
+      "keycloak-provider": "success",
+      "examples (user-management)": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "log_sha256": "2b9d5c34b815a217a02b218fb01810ba4d8c9b71b44e3a402d1c98ddc665aa0d",
+    "limits": [
+      "The main race command is not verbose. It does not expose all per-test skip decisions. Focused result records provide named authentication checks.",
+      "A full run with a failed example is not a qualified release."
+    ]
+  },
+  "startup_full": {
+    "source": "ea3896275f2fac7d337cc83f198077e520e8a7be",
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35472880379",
+    "conclusion": "failure",
+    "jobs": {
+      "keycloak-provider": "success",
+      "postgres-provisioning": "success",
+      "compiler": "success",
+      "examples (user-management-rhsso)": "failure",
+      "resource-state-storage": "success",
+      "examples (user-management)": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "log_sha256": "74d5ad675fab16dc2e652ac1ed3f3232a6e7a54203cbeb19ebf94eb9c6f692c8",
+    "limits": [
+      "The main race command is not verbose. It does not expose all per-test skip decisions. Focused result records provide named authentication checks.",
+      "A full run with a failed example is not a qualified release."
+    ]
+  },
+  "candidate_full": {
+    "source": "2cd2237f7c83a476fa9d2f4f6168fd70e7e3f24e",
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35473062128",
+    "conclusion": "success",
+    "jobs": {
+      "resource-state-storage": "success",
+      "examples (user-management)": "success",
+      "keycloak-provider": "success",
+      "examples (user-management-rhsso)": "success",
+      "compiler": "success",
+      "postgres-provisioning": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "log_sha256": "fecd50cd7ca3144bd862bd97a259063669d0fdc4a979a2f37060d1bce5344cf4",
+    "focused_source_production_unchanged": true,
+    "changed_from_focused_source": [
+      "examples/user-management-rhsso/.stego/state.yaml",
+      "examples/user-management-rhsso/out/internal/auth/sso.go",
+      "examples/user-management-rhsso/out/main.go",
+      "examples/user-management/.stego/state.yaml",
+      "specs/jwt-key-telemetry-evidence.json"
+    ],
+    "limits": [
+      "The nonverbose main race command does not expose all per-test skip decisions.",
+      "Compiler distribution and consumer adoption require separate exact-source checks."
+    ]
+  }
 }
