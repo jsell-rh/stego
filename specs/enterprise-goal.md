@@ -503,13 +503,31 @@ the application must never perform automatic teardown.
    deleted. Live or absent parents still use account recovery. STEGO keeps
    ownership of scheduling, retry, saved progress, and provider lifecycle.
    The candidate retains complete row and journal scans, provider inventory,
-   and late-effect checks. Its correctness and capacity gates remain open.
+   and late-effect checks. Journal run `35476194174` passed all 41 required
+   tests, including 11 owner selection cases, 33 RPC status cases, 22 retry
+   cases, and both restart fixtures.
+
+   Tenth capacity run `35476517343` at `4ea3e1e` passed account cleanup in
+   21.2756 seconds. The scope sealed at 21.0061 seconds. All 100 selected rows
+   and journals closed; their provider clients and users were absent. The
+   9,900 background rows and 10,007 other clients stayed unchanged. The six
+   fixture files match the ninth run. Source, compiler, binary, resource limits,
+   and test cleanup were verified. This is one passing account cleanup result.
+   It does not prove repeatable latency, concurrent or larger cleanup, or
+   complete Gateway workload and database cleanup. See the
+   [tenth run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35476517343).
+   The full application gate remains active.
 
    The normal live workflow now records complete Gateway cleanup observations
    separately from the deliberate SQL-denial test. It checks namespaces, SQL
    roles and databases, allocation bindings, final state, and owner HTTP 404.
-   Sequential observations give upper bounds; this is not a 100-account
-   capacity fixture. Live attempt `35476176959` stopped before workload
+   Sequential observations give upper bounds. Candidate `f924e96` now creates
+   100 accounts through REST on each measured Gateway and checks token issuance
+   before deletion. Completion requires removal of all provider clients and
+   users, authenticated closed journals, closed rows, and one success audit per
+   account. Its hosted compile gate and live execution remain required. This
+   two-Gateway workflow does not prove the whole production capacity target.
+   Live attempt `35476176959` stopped before workload
    creation because the saved test installation lacks three named reads in
    two inspection roles. Cleanup confirmed no test resources and all 32
    standing resources unchanged. The corrected hosted plan at `4ea3e1e`
