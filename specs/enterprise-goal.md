@@ -463,10 +463,13 @@ the application must never perform automatic teardown.
 
    The pinned upstream Agent Sandbox controller has no namespace-only entry
    point. Its default permissions permit workload changes across namespaces.
-   The user has been asked to choose a namespace-scoped entry point that STEGO
-   builds, or to retain the unchanged controller as trusted cluster
-   infrastructure. No answer or controller change is recorded. See the
-   [permission review](https://github.com/jsell-rh/hypershell-stego/blob/00642af/acceptance/sandbox-controller-boundary.md).
+   On 2026-09-19, the user selected the unchanged upstream controller as
+   trusted cluster infrastructure. Keep its cluster-wide permissions with the
+   operator-managed controller. Do not build a namespace-scoped entry point.
+   Gateway workers and Sandbox accounts retain their existing permission
+   limits. This resolves the trust decision; it does not remove the current
+   constructor guard or establish live Sandbox execution. See the
+   [selected boundary](sandbox-upstream-settings.md).
    Keep the current upstream workspace-copy user and ordinary socket volume.
    Add no mutation service or OpenShell fork for those fields.
 5. Audit C1 through C7 and H1 through H3 against current source and complete

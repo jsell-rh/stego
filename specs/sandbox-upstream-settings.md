@@ -60,3 +60,23 @@ setup changes. A declared runtime restriction is optional and does not select
 a runtime or require a mutation service.
 Keep common allocation, permission checks, and telemetry in STEGO. Hypershell
 must retain only its OpenShell integration policy.
+
+## Upstream controller trust decision
+
+On 2026-09-19, the user selected the unchanged upstream Agent Sandbox controller
+as trusted cluster infrastructure. Hypershell pins version v0.5.4 at commit
+`945016a7b97f46cd2edf8633d6b6a22d5355ecc1`. Its entry point has no namespace-only
+mode. Its controller role can change Pods, Services, and storage claims across
+the cluster. An optional cache label filter does not restrict API permissions.
+
+The operator owns this installation and its cluster-wide permissions. STEGO
+must not build a separate controller entry point for this integration. Common
+allocation, permission checks, and telemetry remain in STEGO. Gateway workers,
+Sandbox accounts, and application API identities retain their existing
+permission limits; they do not receive the external controller's permissions.
+Review the upstream installation and its permissions when its pin changes.
+
+This decision resolves the controller trust question. It does not change an
+installed controller or remove the application constructor guard. The live Kata
+test remains deferred. Native network and allocation checks do not establish
+live OpenShell Sandbox execution or VM isolation.
