@@ -471,12 +471,16 @@ the application must never perform automatic teardown.
    complete action time budgets, key order, and cancellation. Fifty generated
    cases passed in each telemetry mode in focused run `35473708792`. All six
    full jobs and 34 race packages passed in run `35473708806`. The qualified
-   candidate is merged; exact main release checks remain pending. See the
+   candidate is merged. Exact main `ee348b8` passed all six full jobs and 34
+   race packages in run `35474193099`. Focused checks passed in both telemetry
+   modes. The signed immutable compiler release is published; independent source,
+   dependency, build-policy, signature, and installer checks passed. See the
    [retry evidence](controller-cycle-retry-evidence.json).
-   Hypershell candidate `7333332` retains safe
-   retry classes without changing public error messages. Its journal check is
-   active. The common retry option is not yet enabled in the application.
-   Neither candidate establishes a new capacity result.
+   Hypershell candidate `7333332` retains safe retry classes without changing
+   public error messages. Journal run `35473973149` passed all 38 required tests,
+   including 33 status cases and both restart fixtures. Consumer regeneration
+   is next. The common retry option is not yet enabled in the application.
+   These results do not establish a new capacity result.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32

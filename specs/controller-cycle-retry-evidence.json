@@ -1,5 +1,5 @@
 {
-  "status": "Candidate checks passed; exact main release and consumer checks remain pending",
+  "status": "Signed main compiler release passed; consumer adoption and capacity checks remain pending",
   "candidate_source": "d205073206b248a0ec4281e2da599bccae9a068f",
   "focused": {
     "source": "d205073206b248a0ec4281e2da599bccae9a068f",
@@ -213,5 +213,282 @@
     "The default remains one attempt; a consumer must explicitly permit retries.",
     "Saved failures, conditional saves, callback deadlines, cancellation, and key order remain in force.",
     "No application has enabled this policy. It has no measured capacity result."
-  ]
+  ],
+  "main": {
+    "focused": {
+      "source": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+      "run": 35474193209,
+      "conclusion": "success",
+      "jobs": {
+        "cycles": "success"
+      },
+      "log_sha256": "61960da1e549e6f04723adb8eb4d74c74506fa958d979c394dd97acfa51ce377",
+      "artifacts_downloaded": true,
+      "required_passed": [
+        "TestGeneratedCycleActionBudget",
+        "TestGeneratedCycleActionBudget/false",
+        "TestGeneratedCycleActionBudget/true",
+        "TestGeneratedCycleParallel",
+        "TestGeneratedCycleParallel/false",
+        "TestGeneratedCycleParallel/true",
+        "TestGeneratedCycleRetry",
+        "TestGeneratedCycleRetry/false",
+        "TestGeneratedCycleRetry/true",
+        "TestGeneratedCycleWindow",
+        "TestGeneratedScanCheckpoint",
+        "TestGeneratedScanCheckpoint/false",
+        "TestGeneratedScanCheckpoint/true",
+        "TestGeneratedSequenceScan",
+        "TestGeneratedSweep",
+        "TestGeneratedSweep/false",
+        "TestGeneratedSweep/true"
+      ],
+      "source_archive_matches": true,
+      "test_log_sha256": "aec14ab77472227a23642254e0faa316ff01f191fa4cd35cc2370cdd37e5e8bc"
+    },
+    "generated_retry_cases": {
+      "source": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+      "run": 35474193209,
+      "modes": {
+        "false": {
+          "top_level_passes": 8,
+          "named_case_passes": 50,
+          "names": [
+            "TestCycleRetryCancellationStopsDelayAndSave",
+            "TestCycleRetryCancellationStopsDelayAndSave/false",
+            "TestCycleRetryCancellationStopsDelayAndSave/true",
+            "TestCycleRetryDeadlineRequiresFullReserve",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=false/enough=false",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=false/enough=true",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=true/enough=false",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=true/enough=true",
+            "TestCycleRetryDoesNotRetryCheckpointConflict",
+            "TestCycleRetryDoesNotRetryCheckpointConflict/false",
+            "TestCycleRetryDoesNotRetryCheckpointConflict/true",
+            "TestCycleRetryLimitsAndErrorSelection",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/contract",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/default",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/denied",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/exhausted",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/one",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/window",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/contract",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/default",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/denied",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/exhausted",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/one",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/window",
+            "TestCycleRetryPeerFailureCancelsWaitingRetry",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/0",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/1",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/2",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/3",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/4",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/5",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/6",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/7",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/8",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/0",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/1",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/2",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/3",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/4",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/5",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/6",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/7",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/8",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=false/prior=false",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=false/prior=true",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=true/prior=false",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=true/prior=true",
+            "TestCycleRetryRetainsKeyOrderWithIndependentWork"
+          ]
+        },
+        "true": {
+          "top_level_passes": 8,
+          "named_case_passes": 50,
+          "names": [
+            "TestCycleRetryCancellationStopsDelayAndSave",
+            "TestCycleRetryCancellationStopsDelayAndSave/false",
+            "TestCycleRetryCancellationStopsDelayAndSave/true",
+            "TestCycleRetryDeadlineRequiresFullReserve",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=false/enough=false",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=false/enough=true",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=true/enough=false",
+            "TestCycleRetryDeadlineRequiresFullReserve/parallel=true/enough=true",
+            "TestCycleRetryDoesNotRetryCheckpointConflict",
+            "TestCycleRetryDoesNotRetryCheckpointConflict/false",
+            "TestCycleRetryDoesNotRetryCheckpointConflict/true",
+            "TestCycleRetryLimitsAndErrorSelection",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/contract",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/default",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/denied",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/exhausted",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/one",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=false/window",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/contract",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/default",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/denied",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/exhausted",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/one",
+            "TestCycleRetryLimitsAndErrorSelection/parallel=true/window",
+            "TestCycleRetryPeerFailureCancelsWaitingRetry",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/0",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/1",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/2",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/3",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/4",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/5",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/6",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/7",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=false/8",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/0",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/1",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/2",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/3",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/4",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/5",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/6",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/7",
+            "TestCycleRetryRejectsInvalidPolicyBeforeStorage/parallel=true/8",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=false/prior=false",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=false/prior=true",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=true/prior=false",
+            "TestCycleRetryResolvesCurrentFailureBeforeCursorAdvance/parallel=true/prior=true",
+            "TestCycleRetryRetainsKeyOrderWithIndependentWork"
+          ]
+        }
+      },
+      "test_log_sha256": "aec14ab77472227a23642254e0faa316ff01f191fa4cd35cc2370cdd37e5e8bc"
+    },
+    "full": {
+      "source": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+      "run_url": "https://github.com/jsell-rh/stego/actions/runs/35474193099",
+      "conclusion": "success",
+      "jobs": {
+        "postgres-provisioning": "success",
+        "examples (user-management)": "success",
+        "compiler": "success",
+        "keycloak-provider": "success",
+        "resource-state-storage": "success",
+        "examples (user-management-rhsso)": "success"
+      },
+      "race_packages": [
+        "github.com/jsell-rh/stego/cmd/stego",
+        "github.com/jsell-rh/stego/internal/browserapplication",
+        "github.com/jsell-rh/stego/internal/browserassets",
+        "github.com/jsell-rh/stego/internal/buildidentity",
+        "github.com/jsell-rh/stego/internal/compiler",
+        "github.com/jsell-rh/stego/internal/gen",
+        "github.com/jsell-rh/stego/internal/generator/browserbackend",
+        "github.com/jsell-rh/stego/internal/generator/browseridentity",
+        "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+        "github.com/jsell-rh/stego/internal/generator/cliapplication",
+        "github.com/jsell-rh/stego/internal/generator/controller",
+        "github.com/jsell-rh/stego/internal/generator/gosdk",
+        "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+        "github.com/jsell-rh/stego/internal/generator/healthcheck",
+        "github.com/jsell-rh/stego/internal/generator/httpapplication",
+        "github.com/jsell-rh/stego/internal/generator/httpclient",
+        "github.com/jsell-rh/stego/internal/generator/jwtauth",
+        "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+        "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+        "github.com/jsell-rh/stego/internal/generator/oteltracing",
+        "github.com/jsell-rh/stego/internal/generator/outbox",
+        "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+        "github.com/jsell-rh/stego/internal/generator/postgresclient",
+        "github.com/jsell-rh/stego/internal/generator/restapi",
+        "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+        "github.com/jsell-rh/stego/internal/generator/tslsearch",
+        "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+        "github.com/jsell-rh/stego/internal/parser",
+        "github.com/jsell-rh/stego/internal/ports",
+        "github.com/jsell-rh/stego/internal/registry",
+        "github.com/jsell-rh/stego/internal/slot",
+        "github.com/jsell-rh/stego/internal/types"
+      ],
+      "packages_without_tests": [
+        "github.com/jsell-rh/stego/internal/generator/browserdom",
+        "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+        "github.com/jsell-rh/stego/internal/openapicontract"
+      ],
+      "log_sha256": "a287c2472038f9a2f77c9a831f33643c92f532c52ba368f8c46b8987ad92d369",
+      "limits": [
+        "The nonverbose main race command does not expose all per-test skip decisions. Focused records provide named runtime cases."
+      ]
+    },
+    "artifact": {
+      "source_revision": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+      "source_inventory": {
+        "files": 1287,
+        "bytes": 10245450,
+        "sha256": "6e632d606ec47a0b2412c9da18bc4e3025b60e31bc6edbbdcb67fefb55c1fad2"
+      },
+      "source_inventory_matches": true,
+      "module_records_checked": 28,
+      "toolchain_and_build_policy_match": true,
+      "signature": {
+        "artifact": {
+          "name": "stego-linux-amd64",
+          "sha256": "8b2282ce525dce17e2e5b7f6bbabd8072e8d34814ade430b3a80e29bcdb50af0",
+          "size": 38378292
+        },
+        "build_record_sha256": "2ffbd789531ba094ee7411a3859c4d3e28145bd75ad38331c1f337468d36c903",
+        "bundle_sha256": "5c6038d0c4eaa2c9f532818ea6c60a9371888eafbdf0d442a738189e9bde0899",
+        "format": 1,
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "reference": "refs/heads/main",
+        "repository": "jsell-rh/stego",
+        "self_hosted_runners_allowed": false,
+        "source_revision": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+        "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml"
+      },
+      "hosted_rejection_checks": {
+        "source_revision": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+        "authenticated": {
+          "name": "stego-linux-amd64",
+          "sha256": "8b2282ce525dce17e2e5b7f6bbabd8072e8d34814ade430b3a80e29bcdb50af0",
+          "size": 38378292
+        },
+        "rejected": [
+          "different-source-commit",
+          "changed-compiler-with-matching-checksums",
+          "changed-build-record",
+          "invalid-signature-bundle"
+        ],
+        "valid_after_rejections": true,
+        "downloaded_compiler_executed": false
+      },
+      "downloaded_compiler_executed_locally": false
+    }
+  },
+  "release": {
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+    "source": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+    "immutable": true,
+    "local_and_release_installations_match": true,
+    "compiler_executed_locally": false,
+    "verification": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "8b2282ce525dce17e2e5b7f6bbabd8072e8d34814ade430b3a80e29bcdb50af0",
+        "size": 38378292
+      },
+      "build_record_sha256": "2ffbd789531ba094ee7411a3859c4d3e28145bd75ad38331c1f337468d36c903",
+      "bundle_sha256": "5c6038d0c4eaa2c9f532818ea6c60a9371888eafbdf0d442a738189e9bde0899"
+    }
+  }
 }
