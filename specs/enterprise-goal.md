@@ -404,18 +404,25 @@ the application must never perform automatic teardown.
 3. Qualify native external DNS enforcement and failure behavior. Fixed-address
    isolation and address replacement have complete workflow evidence, retained
    in the history; they do not establish DNS failover behavior.
-4. Complete the separate Sandbox allocation and permission boundary. This is
-   an implementation gap as well as a test deferral. At Hypershell `762824b`,
-   `gatewayworkload.New` rejects a Sandbox runtime when a control namespace is
-   configured. The trusted allocation controller has no Sandbox profile. The
-   older Sandbox path still creates its namespace and admission resources through
-   the workload client. Do not enable that path on shared clusters. Common
-   allocation, policy installation, verification, and cleanup must move through
-   STEGO's allocator; application placement, image selection, and OpenShell
-   workload rules remain domain policy. Verify namespace permissions and denied
-   writes independently of VM execution. The user deferred only the live Kata
-   test because no suitable cluster is available. That deferral is not evidence
-   of runtime isolation or permission-boundary completion.
+4. Complete adoption and live checks for the separate Sandbox allocation and
+   permission boundary. The Hypershell candidate at `7c4834e` declares the Sandbox
+   profile and uses STEGO's allocator for namespace, account, and policy work.
+   The workload client no longer creates those resources. Application placement,
+   image selection, and OpenShell rules remain in Hypershell. The constructor
+   guard still rejects Sandbox activation until the complete path is checked.
+   Its adapter gate passed 62 top-level tests and 40 Secret environment cases.
+   The candidate is not merged; see the
+   [application record](https://github.com/jsell-rh/hypershell-stego/blob/7dceaf4dc2f0b438ab7241d69ca7fc45dc781682/acceptance/sandbox-workflow.md).
+   The common [network metadata candidate](allocation-network-metadata.md) adds
+   Pod status coverage and controlled OVN/Multus output updates. Its full compiler
+   and focused checks passed, but the live metadata check requires a refreshed
+   jshell login. It is not released or selected by Hypershell. Verify the actual
+   application allocation, namespace permissions, denied writes, and network
+   behavior before enabling it. Keep the current upstream workspace-copy user
+   and ordinary socket volume; add no mutation service or OpenShell fork for
+   these fields. The user deferred only the live Kata test because no suitable
+   cluster is available. That deferral does not prove runtime isolation or
+   completion of the permission boundary.
 5. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
    telemetry coverage, full application parity, and measured capacity remain
