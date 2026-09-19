@@ -414,9 +414,10 @@ the application must never perform automatic teardown.
    The candidate is not merged; see the
    [application record](https://github.com/jsell-rh/hypershell-stego/blob/7dceaf4dc2f0b438ab7241d69ca7fc45dc781682/acceptance/sandbox-workflow.md).
    The common [network metadata candidate](allocation-network-metadata.md) adds
-   Pod status coverage and controlled OVN/Multus output updates. Its full compiler
-   and focused checks passed, but the live metadata check requires a refreshed
-   jshell login. It is not released or selected by Hypershell. Verify the actual
+   Pod status coverage and controlled OVN/Multus output updates. Its full compiler,
+   focused, and bounded live metadata checks passed. The live result covers 40
+   probes, real OVN metadata, and independent cleanup. It does not prove traffic
+   or Kata execution. It is not released or selected by Hypershell. Verify the actual
    application allocation, namespace permissions, denied writes, and network
    behavior before enabling it. Keep the current upstream workspace-copy user
    and ordinary socket volume; add no mutation service or OpenShell fork for
