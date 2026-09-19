@@ -140,7 +140,7 @@ func TestCycleActionBudgetRejectsInvalidLimitsBeforeWork(t *testing.T) {
 		_, err := ScanCycleWithOptions(context.Background(), "input", CheckpointAccess{Load: func(context.Context) (Checkpoint, error) {
 			t.Fatal("invalid budget reached storage")
 			return Checkpoint{}, nil
-		}}, budgetSource(1), func(context.Context, int) error { t.Fatal("invalid budget started work"); return nil }, nil, ScanOptions{}, ObservationOptions{WorkTimeout: 50 * time.Millisecond, CommitTimeout: time.Second}, CycleOptions{ActionTimeout: duration})
+		}, Save: func(context.Context, int64, string) error { t.Fatal("invalid budget saved progress"); return nil }}, budgetSource(1), func(context.Context, int) error { t.Fatal("invalid budget started work"); return nil }, nil, ScanOptions{PageSize: 1, MaxPages: 1, PageTimeout: time.Second}, ObservationOptions{WorkTimeout: 50 * time.Millisecond, CommitTimeout: time.Second}, CycleOptions{ActionTimeout: duration})
 		if !errors.Is(err, ErrScanContract) {
 			t.Fatal("invalid action budget accepted", duration, err)
 		}
