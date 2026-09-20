@@ -363,3 +363,33 @@ func TestRegistryTokenScopeCannotExpandCredentials(t *testing.T) {
 		t.Fatal("selected token scope was rejected")
 	}
 }
+
+type registryCloseCheck struct {
+	io.Reader
+	closed bool
+}
+
+func (r *registryCloseCheck) Close() error { r.closed = true; return nil }
+
+func TestRegistryBlobCannotStartAuthenticationOrReceiveReferer(t *testing.T) {
+	body := &registryCloseCheck{Reader: strings.NewReader("private challenge detail")}
+	b := &registryBoundary{origin: "https://registry.example", prefix: "/v2/test/app/", blobs: map[string]bool{"https://blobs.example": true}, base: registryRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Referer") != "" {
+			t.Fatal("signed redirect query reached the blob destination")
+		}
+		return &http.Response{StatusCode: 401, Header: http.Header{"Www-Authenticate": {`Bearer realm="https://unapproved.example/token?private=value"`}}, Body: body}, nil
+	})}
+	b.remaining.Store(1000)
+	request, _ := http.NewRequest("GET", "https://blobs.example/layer", nil)
+	request.Header.Set("Referer", "https://registry.example/blob?private=value")
+	response, err := b.RoundTrip(request)
+	if err == nil || response != nil || !body.closed {
+		t.Fatal("blob authentication challenge escaped the boundary", err)
+	}
+	if strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "unapproved.example") {
+		t.Fatal("challenge details escaped through an error")
+	}
+	if request.Header.Get("Referer") == "" {
+		t.Fatal("the boundary changed the caller's header")
+	}
+}

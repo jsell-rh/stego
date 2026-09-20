@@ -78,6 +78,10 @@ func registryOriginSet(values []string) (map[string]bool, error) {
 // Apply the boundary below the library's authentication transport. This checks
 // token exchanges and redirects before the connection can send credentials.
 func (b *registryBoundary) RoundTrip(request *http.Request) (*http.Response, error) {
+	// Redirects can contain signed query strings. Do not send those strings
+	// to another endpoint through the automatic Referer header.
+	request = request.Clone(request.Context())
+	request.Header.Del("Referer")
 	handedOff := false
 	defer func() {
 		if !handedOff && request.Body != nil {
@@ -144,6 +148,12 @@ func (b *registryBoundary) RoundTrip(request *http.Request) (*http.Response, err
 	response, err := b.base.RoundTrip(request)
 	if err != nil {
 		return nil, errors.New("registry connection failed")
+	}
+	if b.blobs[origin] && response.StatusCode >= 400 {
+		// A public blob destination cannot start another authentication flow.
+		// This also keeps its challenge and response body out of library logs.
+		response.Body.Close()
+		return nil, errors.New("registry blob destination rejected the request")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		limit = imageMetadataLimit
