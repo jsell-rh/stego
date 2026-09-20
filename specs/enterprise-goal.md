@@ -49,8 +49,13 @@ jobs, 34 race-tested packages, both examples, and the branch build passed.
 The exact source passed all main checks and is published as a verified signed
 compiler. Its binary matches the qualified branch build. The
 [recovery record](postgres-invalid-drop-recovery.md) preserves the test limits.
-The next consumer workflow will combine this common fix with its separate
-fixture cleanup correction. It has no new live result yet.
+Consumer `d24e9da` combines this common fix with its qualified fixture cleanup
+correction. Hosted generation passed independent review of all 420 files,
+compiler identity, registry and input state, and the full provider template.
+Its six application checks are running. The next live workflow waits for those
+results and a fresh cluster preflight. See the
+[consumer adoption record](https://github.com/jsell-rh/hypershell-stego/blob/aedba8df2216bc5a7a803af2b672c7fd36f68213/acceptance/postgres-recovery-compiler.md).
+It has no new live result yet.
 
 The saved Go overlay fix is qualified and published in signed compiler
 `2084c32`. It preserves saved private proxy settings while excluding saved
@@ -142,8 +147,11 @@ module reference remains. See the
 The earlier `2f3b4fe` full run failed during fixture database removal. The
 failure remains recorded; no live test was dispatched from it. Candidate
 `5f70035` adds a separate bounded fixture cleanup and fixed diagnostic fields.
-Its full check is still running. The next live workflow will use the verified
-PostgreSQL recovery compiler after fresh generation and application checks.
+All six hosted checks passed, including 1,122 core cases across 354 top-level
+tests, eight provider checks, and 44 journal checks. See the
+[fixture result](https://github.com/jsell-rh/hypershell-stego/blob/aedba8df2216bc5a7a803af2b672c7fd36f68213/acceptance/database-fixture-cleanup-evidence.json).
+The combined consumer at `d24e9da` uses the signed PostgreSQL recovery compiler.
+Its new application checks must pass before the next live workflow.
 Neither `69b9e29` nor `5f70035` has new live evidence.
 
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
