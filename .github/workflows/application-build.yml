@@ -9,6 +9,10 @@ on:
       - cmd/stego/build.go
       - cmd/stego/main.go
       - scripts/check-application-build.py
+      - scripts/check-application-image.py
+      - cmd/stego/image.go
+      - go.mod
+      - go.sum
 
 permissions:
   contents: read
@@ -69,6 +73,12 @@ jobs:
           python3 scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
             --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
             --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA"
+      - name: Build images and check them with the container engine
+        timeout-minutes: 8
+        run: |
+          python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
+            --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
+            --output="$RUNNER_TEMP/image-evidence"
       - name: Retain build and rejection evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -81,6 +91,14 @@ jobs:
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
             ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/image-evidence/verification.json
+            ${{ runner.temp }}/image-evidence/engine-*.log
+            ${{ runner.temp }}/image-evidence/engine-*.json
+            ${{ runner.temp }}/image-evidence/first/image.json
+            ${{ runner.temp }}/image-evidence/first/build.json
+            ${{ runner.temp }}/image-evidence/first/trust.pem
+            ${{ runner.temp }}/image-evidence/first/oci/
+            ${{ runner.temp }}/image-evidence/second/image.json
 
   hypershell-api:
     runs-on: ubuntu-24.04
@@ -123,6 +141,12 @@ jobs:
             --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
             --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
             --compiler-revision="$GITHUB_SHA" --module=. --target=out
+      - name: Build the Hypershell image and check it with the container engine
+        timeout-minutes: 8
+        run: |
+          python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
+            --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
+            --output="$RUNNER_TEMP/image-evidence"
       - name: Retain the actual consumer build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -135,3 +159,11 @@ jobs:
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
             ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/image-evidence/verification.json
+            ${{ runner.temp }}/image-evidence/engine-*.log
+            ${{ runner.temp }}/image-evidence/engine-*.json
+            ${{ runner.temp }}/image-evidence/first/image.json
+            ${{ runner.temp }}/image-evidence/first/build.json
+            ${{ runner.temp }}/image-evidence/first/trust.pem
+            ${{ runner.temp }}/image-evidence/first/oci/
+            ${{ runner.temp }}/image-evidence/second/image.json
