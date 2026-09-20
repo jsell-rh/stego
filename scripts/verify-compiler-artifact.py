@@ -57,13 +57,18 @@ def verifier_environment():
 
 
 def authenticate(gh, path, bundle, revision, environment):
+    authenticate_subject(gh, path, bundle, revision, environment,
+                         REPOSITORY, ".github/workflows/compiler-artifact.yml", REFERENCE)
+
+
+def authenticate_subject(gh, path, bundle, revision, environment, repository, workflow, reference):
     control.command([
         str(gh), "attestation", "verify", str(path), "--bundle", str(bundle),
-        "--hostname", "github.com", "--repo", REPOSITORY,
+        "--hostname", "github.com", "--repo", repository,
         "--signer-digest", revision,
-        "--cert-identity", "https://github.com/" + WORKFLOW + "@" + REFERENCE,
+        "--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference,
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
-        "--source-ref", REFERENCE, "--source-digest", revision,
+        "--source-ref", reference, "--source-digest", revision,
         "--predicate-type", PREDICATE, "--digest-alg", "sha256",
         "--deny-self-hosted-runners", "--format", "json",
     ], path.parent, environment, timeout=90, limit=4 << 20)

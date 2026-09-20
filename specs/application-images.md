@@ -79,3 +79,36 @@ The test harness now gives the complete suite three minutes and disables cached
 results. Each database setup and cleanup still has a five-second limit. This
 changes the test budget only. The corrected source must pass full CI before
 promotion.
+
+## Signed record candidate
+
+`scripts/verify-application-records.py` accepts an explicit consumer policy and
+checks GitHub attestations for both the native build record and the image record.
+The policy selects the repository, workflow, branch, and full workflow commit.
+It also selects the application commit and build target, the compiler commit and
+executable digest, the entry point, and the CA bundle digest. Each selection is
+required. A consumer must obtain this policy from its trusted configuration. A
+policy supplied with an untrusted image does not establish trust.
+
+The verifier uses the same bounded GitHub CLI call as the compiler installer.
+It requires the GitHub Actions issuer, the exact workflow certificate identity,
+SLSA provenance, and GitHub-hosted runners. It first captures private copies of
+the records and signature bundle. Both signatures and all selected bindings
+must pass before it creates the result directory. It does not execute the
+application or the compiler.
+
+The result includes the authenticated image record digest. The consumer must
+then give that digest and the retained records to `stego image verify` to check
+the actual image. Signatures do not replace image content checks, vulnerability
+checks, or the live application workflow.
+
+The application build workflow has separate build and signing jobs. Build jobs
+have no signing permission. Signing jobs download records by artifact ID and
+compare their digests with the build job outputs before signing. Each job then
+checks the real signatures and rejection paths. Candidate branches can produce
+candidate signatures; the consumer policy must select their exact source. Such
+a signature does not authorize a production release.
+
+This candidate still uses the test CA fixture. Real signature evidence is
+pending. Registry publication and the Hypershell production publisher remain
+open.

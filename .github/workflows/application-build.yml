@@ -10,6 +10,10 @@ on:
       - cmd/stego/main.go
       - scripts/check-application-build.py
       - scripts/check-application-image.py
+      - scripts/verify-application-records.py
+      - scripts/test_application_records.py
+      - scripts/check-application-provenance.py
+      - scripts/verify-compiler-artifact.py
       - cmd/stego/image.go
       - go.mod
       - go.sum
@@ -23,6 +27,11 @@ concurrency:
 
 jobs:
   application:
+    outputs:
+      record-artifact: ${{ steps.record-artifact.outputs.artifact-id }}
+      build-sha256: ${{ steps.record-digests.outputs.build-sha256 }}
+      image-sha256: ${{ steps.record-digests.outputs.image-sha256 }}
+      compiler-sha256: ${{ steps.record-digests.outputs.compiler-sha256 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -58,6 +67,10 @@ jobs:
           print(json.dumps(record))
           PY
           python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/application-sdk"
+      - name: Check record policy and compiler verification
+        run: |
+          python3 -B scripts/test_application_records.py
+          python3 -B scripts/test_compiler_verification.py
       - name: Check input and process boundaries
         run: |
           mkdir -p "$RUNNER_TEMP/application-evidence"
@@ -79,6 +92,31 @@ jobs:
           python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
             --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
             --output="$RUNNER_TEMP/image-evidence"
+      - name: Capture the exact records for the separate signing job
+        id: record-digests
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          target = root / 'application-records'
+          target.mkdir(mode=0o700)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, name in [('build', 'build.json'), ('image', 'image.json')]:
+                  data = (root / 'image-evidence' / 'first' / name).read_bytes()
+                  (target / name).write_bytes(data)
+                  output.write(key + '-sha256=' + hashlib.sha256(data).hexdigest() + '\n')
+              with (root / 'stego').open('rb') as compiler:
+                  output.write('compiler-sha256=' + hashlib.file_digest(compiler, 'sha256').hexdigest() + '\n')
+          PY
+      - name: Save the records for the separate signing job
+        id: record-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: example-records-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/application-records/
       - name: Retain build and rejection evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -102,6 +140,11 @@ jobs:
             ${{ runner.temp }}/image-evidence/export-*/export.json
 
   hypershell-api:
+    outputs:
+      record-artifact: ${{ steps.record-artifact.outputs.artifact-id }}
+      build-sha256: ${{ steps.record-digests.outputs.build-sha256 }}
+      image-sha256: ${{ steps.record-digests.outputs.image-sha256 }}
+      compiler-sha256: ${{ steps.record-digests.outputs.compiler-sha256 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -148,6 +191,31 @@ jobs:
           python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
             --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
             --output="$RUNNER_TEMP/image-evidence"
+      - name: Capture the exact records for the separate signing job
+        id: record-digests
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          target = root / 'application-records'
+          target.mkdir(mode=0o700)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, name in [('build', 'build.json'), ('image', 'image.json')]:
+                  data = (root / 'image-evidence' / 'first' / name).read_bytes()
+                  (target / name).write_bytes(data)
+                  output.write(key + '-sha256=' + hashlib.sha256(data).hexdigest() + '\n')
+              with (root / 'stego').open('rb') as compiler:
+                  output.write('compiler-sha256=' + hashlib.file_digest(compiler, 'sha256').hexdigest() + '\n')
+          PY
+      - name: Save the records for the separate signing job
+        id: record-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hypershell-api-records-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/application-records/
       - name: Retain the actual consumer build evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -169,3 +237,104 @@ jobs:
             ${{ runner.temp }}/image-evidence/first/oci/
             ${{ runner.temp }}/image-evidence/second/image.json
             ${{ runner.temp }}/image-evidence/export-*/export.json
+
+  provenance:
+    # A consumer must select this workflow, branch, and exact commit. A signature
+    # from a candidate branch does not authorize a production release.
+    if: github.repository == 'jsell-rh/stego' && github.event_name == 'push'
+    needs: [application, hypershell-api]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: application
+            name: example
+            module: examples/user-management
+          - job: hypershell-api
+            name: hypershell-api
+            module: '.'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Retrieve only the records from the selected build job
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          artifact-ids: ${{ needs[matrix.job].outputs.record-artifact }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/application-records
+      - name: Check the build job digests and set the independent consumer policy
+        env:
+          BUILD_SHA256: ${{ needs[matrix.job].outputs.build-sha256 }}
+          IMAGE_SHA256: ${{ needs[matrix.job].outputs.image-sha256 }}
+          COMPILER_SHA256: ${{ needs[matrix.job].outputs.compiler-sha256 }}
+          SELECTED_APPLICATION: ${{ matrix.name }}
+          SELECTED_MODULE: ${{ matrix.module }}
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, importlib.util, json, os, re
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('records', 'scripts/verify-application-records.py')
+          records = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(records)
+          root = Path(os.environ['RUNNER_TEMP'])
+          for variable, name, limit in [('BUILD_SHA256', 'build.json', 16 << 20), ('IMAGE_SHA256', 'image.json', 64 << 10)]:
+              expected = os.environ[variable]
+              data = records.verification.regular_bytes(root / 'application-records' / name, limit)
+              if not re.fullmatch('[0-9a-f]{64}', expected) or hashlib.sha256(data).hexdigest() != expected:
+                  raise SystemExit('The retrieved record differs from the checked build')
+          policy = {
+              'format': 1, 'repository': os.environ['GITHUB_REPOSITORY'],
+              'workflow': '.github/workflows/application-build.yml', 'reference': os.environ['GITHUB_REF'],
+              'revision': os.environ['GITHUB_SHA'], 'compiler_revision': os.environ['GITHUB_SHA'],
+              'compiler_sha256': os.environ['COMPILER_SHA256'],
+              'application_revision': os.environ['GITHUB_SHA'] if os.environ['SELECTED_APPLICATION'] == 'example' else '0589cfc08d40591e3fc0b36ac1538e6f2ae0d917',
+              'module': os.environ['SELECTED_MODULE'], 'target': 'out', 'entrypoint': 'service',
+              'trust_store_sha256': '305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b',
+          }
+          (root / 'application-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
+          records.policy_bytes(root / 'application-policy.json')
+          build = (root / 'application-records' / 'build.json').read_bytes()
+          image = (root / 'application-records' / 'image.json').read_bytes()
+          records.check_binding(records.decode(build), records.decode(image), build, policy)
+          PY
+      - name: Sign the checked native build and image records
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            ${{ runner.temp }}/application-records/build.json
+            ${{ runner.temp }}/application-records/image.json
+      - name: Save the signature bundle before verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: application-signature-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ steps.attest.outputs.bundle-path }}
+            ${{ runner.temp }}/application-policy.json
+      - name: Verify both signatures and reject changed records or policy
+        timeout-minutes: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          timeout --signal=TERM --kill-after=5s 8m python3 -B scripts/check-application-provenance.py \
+            --inputs "$RUNNER_TEMP/application-records" --bundle "$ATTESTATION_BUNDLE" \
+            --policy "$RUNNER_TEMP/application-policy.json" --output "$RUNNER_TEMP/authenticated-records" \
+            --gh "$(command -v gh)"
+      - name: Save the authenticated records and rejection results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: authenticated-records-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/authenticated-records/
