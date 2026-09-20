@@ -452,3 +452,58 @@ func TestWidgetQuantitiesMatchKubernetes(t *testing.T) {
 		}
 	}
 }
+
+func TestWidgetDigestPinnedImageReferences(t *testing.T) {
+	digest := "@sha256:" + strings.Repeat("a", 64)
+	for _, tc := range []struct {
+		name, image string
+		valid       bool
+	}{
+		{"digest", "registry.example.org/team/widget" + digest, true},
+		{"registry port", "registry.example.org:5443/team/widget" + digest, true},
+		{"tag and digest", "registry.example.org/team/widget:v0.0.109-release.0" + digest, true},
+		{"registry port and tag", "registry.example.org:5443/team/widget:v1.2" + digest, true},
+		{"tag characters", "registry.example.org/team/widget:_Build-1.2" + digest, true},
+		{"maximum tag", "registry.example.org/team/widget:" + strings.Repeat("a", 128) + digest, true},
+		{"tag without digest", "registry.example.org/team/widget:v1.2", false},
+		{"empty tag", "registry.example.org/team/widget:" + digest, false},
+		{"long tag", "registry.example.org/team/widget:" + strings.Repeat("a", 129) + digest, false},
+		{"tag starts with dash", "registry.example.org/team/widget:-v1" + digest, false},
+		{"tag starts with dot", "registry.example.org/team/widget:.v1" + digest, false},
+		{"second tag", "registry.example.org/team/widget:v1:v2" + digest, false},
+		{"short digest", "registry.example.org/team/widget:v1@sha256:aaa", false},
+		{"uppercase digest", "registry.example.org/team/widget:v1@sha256:" + strings.Repeat("A", 64), false},
+		{"missing repository", "registry.example.org/:v1" + digest, false},
+		{"invalid registry port", "registry.example.org:65536/team/widget:v1" + digest, false},
+		{"query suffix", "registry.example.org/team/widget:v1" + digest + "?other", false},
+		{"trailing newline", "registry.example.org/team/widget:v1" + digest + "\n", false},
+		{"registry credentials", "user@registry.example.org/team/widget:v1" + digest, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := widget()
+			d.Containers[0].Image = tc.image
+			result, err := Build(d)
+			if !tc.valid {
+				if !errors.Is(err, ErrDeclaration) || result != nil {
+					t.Fatal("invalid image reference returned a workload")
+				}
+				return
+			}
+			if err != nil || len(result) != 2 {
+				t.Fatal("digest-pinned image reference was rejected", err)
+			}
+			body, err := json.Marshal(result[0].Object)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var deployment apps.Deployment
+			if err := json.Unmarshal(body, &deployment); err != nil {
+				t.Fatal(err)
+			}
+			containers := deployment.Spec.Template.Spec.Containers
+			if len(containers) != 1 || containers[0].Image != tc.image || containers[0].ImagePullPolicy != core.PullIfNotPresent {
+				t.Fatal("image reference or pull policy changed")
+			}
+		})
+	}
+}
