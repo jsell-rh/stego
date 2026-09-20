@@ -29,6 +29,9 @@ var signalTests []byte
 //go:embed testdata/service_test.go
 var serviceTests []byte
 
+//go:embed testdata/controller_trace_test.go
+var controllerTraceTests []byte
+
 //go:embed testdata/controller_test.go
 var controllerTests []byte
 
@@ -90,7 +93,7 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 		t.Fatal(err)
 	}
 	files = append(files, gen.File{Path: "tracing/startup_test.go", Content: startupTests}, gen.File{Path: "tracing/config_test.go", Content: configTests}, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
-	files = append(files, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
+	files = append(files, gen.File{Path: "tracing/controller_trace_test.go", Content: controllerTraceTests}, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")
 	var names []string
@@ -121,6 +124,10 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 	if pattern != "" {
 		testArgs = append(testArgs, "-run", pattern)
 	}
+	controllerCheck := pattern == "^TestController"
+	if controllerCheck {
+		testArgs = append(testArgs, "-v")
+	}
 	commands = append(commands, append(testArgs, "./..."))
 	for _, args := range commands {
 		command := exec.Command("go", args...)
@@ -128,6 +135,16 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 		command.Env = append(os.Environ(), "GOWORK=off")
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("generated tracing %v: %v\n%s", args, err, output)
+		} else if controllerCheck && args[0] == "test" {
+			for _, name := range []string{"TestControllerTraceBoundaries", "TestControllerTraceBoundaries/0", "TestControllerTraceBoundaries/1"} {
+				if !strings.Contains(string(output), "--- PASS: "+name+" ") {
+					t.Fatalf("required trace result is absent: %s\n%s", name, output)
+				}
+			}
+			if strings.Contains(string(output), "--- SKIP:") {
+				t.Fatalf("controller trace check skipped a case: %s", output)
+			}
+			t.Logf("generated controller trace results:\n%s", output)
 		}
 	}
 	if os.Getenv("STEGO_BENCH_DATABASE") == "1" {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,86 @@ import (
 type privateProcessError struct{}
 
 func (*privateProcessError) Error() string { panic("private-process-error") }
+
+func TestControllerCleanupWorkTelemetry(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprint(invalid), func(t *testing.T) {
+			output, err := os.CreateTemp(t.TempDir(), "cleanup-logs")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer output.Close()
+			saved := os.Stderr
+			os.Stderr = output
+			defer func() { os.Stderr = saved }()
+			t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			metrics := new(Metrics)
+			options := keyOptions()
+			options.Metrics = metrics
+			options.ResyncInterval = 5 * time.Millisecond
+			var calls atomic.Int32
+			options.Cleanup = func(ctx context.Context) (CleanupSample, error) {
+				if invalid {
+					return CleanupSample{Pending: -1}, nil
+				}
+				if calls.Add(1) == 1 {
+					return CleanupSample{}, new(privateProcessError)
+				}
+				return CleanupSample{}, nil
+			}
+			source := KeyedSource[string]{
+				Observe: func(ctx context.Context, sink *KeySink[string]) error {
+					sink.SetReady(true)
+					<-ctx.Done()
+					return ctx.Err()
+				},
+				Scan: func(context.Context, func(string) error) error { return nil },
+			}
+			done := make(chan error, 1)
+			go func() { done <- RunKeyed(ctx, source, func(context.Context, string) error { return nil }, options) }()
+			if !invalid {
+				awaitMetrics(t, metrics, func(s MetricsSnapshot) bool { return s.CleanupReadsSucceeded > 0 })
+				cancel()
+			}
+			select {
+			case err := <-done:
+				if invalid && !errors.Is(err, ErrMetricsContract) || !invalid && err != nil {
+					t.Fatal("cleanup result changed", err)
+				}
+			case <-time.After(4 * time.Second):
+				t.Fatal("cleanup did not stop")
+			}
+			body, err := os.ReadFile(output.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(body, []byte("private-process")) {
+				t.Fatal("cleanup error entered telemetry")
+			}
+			outcomes := map[string]int{}
+			for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+				var record map[string]any
+				if err := json.Unmarshal(line, &record); err != nil {
+					t.Fatal(err)
+				}
+				if record["event.name"] == "controller.work.completed" && record["operation"] == "cleanup" {
+					outcomes[record["outcome"].(string)]++
+					if record["retry"] == true {
+						t.Fatal("cleanup sample changed retry counters")
+					}
+				}
+			}
+			if outcomes["failure"] != 1 || !invalid && outcomes["success"] == 0 {
+				t.Fatal("cleanup work is absent or misclassified", outcomes)
+			}
+			if metrics.Snapshot().CleanupReadsFailed != 1 || metrics.Snapshot().Retries != 0 {
+				t.Fatal("cleanup changed native metrics")
+			}
+		})
+	}
+}
 
 func TestPendingResultTelemetryPreservesFailurePriority(t *testing.T) {
 	output, err := os.CreateTemp(t.TempDir(), "pending-logs")

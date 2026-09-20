@@ -1,7 +1,7 @@
 # Controller trace boundaries
 
-Status: open. This record identifies a common runtime change. It does not claim
-that the change is implemented or tested.
+Status: candidate implementation. Hosted checks and the real application workflow
+are required before release. No qualified result is claimed here.
 
 ## Evidence
 
@@ -54,3 +54,18 @@ Then check the complete Hypershell workflow with the signed compiler. Verify
 correlated logs, metrics, and traces for the same worker instances and independent
 trace IDs for separate attempts. Keep the cleanup-time measurement separate.
 Do not modify an active test source or infer production capacity from this check.
+
+## Candidate change
+
+The common telemetry entry point starts an independent root for each fixed
+operation. It retains the supplied context. It does not retain links or increase
+span limits. Provider calls inherit the operation context and keep their parent.
+Cleanup samples use the same entry point. Their result includes sample validation;
+failed samples keep their existing native counters and do not count as work retries.
+
+Generated trace tests cover serial and concurrent work, pending attempts, scans,
+cleanup samples, and successive watch contexts. They check exported parent IDs,
+HTTP, gRPC, and PostgreSQL child spans, and sampled and unsampled log correlation.
+The controller integration test checks cleanup failure, recovery, invalid samples,
+and native counters. Existing queue and watch tests remain required. A live
+Hypershell run must still prove trace separation through actual scheduling.

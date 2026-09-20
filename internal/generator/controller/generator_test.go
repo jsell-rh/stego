@@ -102,6 +102,10 @@ func TestGeneratedCycleWindow(t *testing.T) {
 	testGeneratedController(t, false, "^TestCycleWindow")
 }
 
+func TestGeneratedControllerTraceBoundaries(t *testing.T) {
+	testGeneratedController(t, true, "^TestControllerCleanupWorkTelemetry$")
+}
+
 func TestGeneratedPendingResult(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
@@ -214,13 +218,24 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 		cmd.Args = append(cmd.Args, "-run="+strings.Join(patterns, "|"))
 	}
 	retryCheck := len(patterns) == 1 && patterns[0] == "^TestCycleRetry"
-	if retryCheck {
+	traceCheck := len(patterns) == 1 && patterns[0] == "^TestControllerCleanupWorkTelemetry$"
+	if retryCheck || traceCheck {
 		cmd.Args = append(cmd.Args, "-v")
 	}
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated controller: %v\n%s", err, output)
+	} else if traceCheck {
+		for _, name := range []string{"TestControllerCleanupWorkTelemetry", "TestControllerCleanupWorkTelemetry/false", "TestControllerCleanupWorkTelemetry/true"} {
+			if !strings.Contains(string(output), "--- PASS: "+name+" ") {
+				t.Fatalf("required cleanup result is absent: %s\n%s", name, output)
+			}
+		}
+		if strings.Contains(string(output), "--- SKIP:") {
+			t.Fatalf("cleanup check skipped a case: %s", output)
+		}
+		t.Logf("generated cleanup trace results:\n%s", output)
 	} else if retryCheck {
 		for _, name := range []string{"ResolvesCurrentFailureBeforeCursorAdvance", "LimitsAndErrorSelection", "DeadlineRequiresFullReserve", "CancellationStopsDelayAndSave", "DoesNotRetryCheckpointConflict", "RejectsInvalidPolicyBeforeStorage", "RetainsKeyOrderWithIndependentWork", "PeerFailureCancelsWaitingRetry"} {
 			if !strings.Contains(string(output), "--- PASS: TestCycleRetry"+name+" ") {
