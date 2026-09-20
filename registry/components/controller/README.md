@@ -332,3 +332,9 @@ not close the source. Parent cancellation prevents the boundary save. A save
 conflict remains an error and leaves the persisted cursor unchanged. This lets
 bounded cleanup revisit a provider list after earlier deletions move entries
 behind an offset. It does not make offset pagination a snapshot.
+
+The public `Run` entry point also uses the common telemetry runtime. It records
+watch sessions, scans, reconciliation work, and queue counts. The configured
+buffer limit excludes the active action; reported capacity includes that action.
+See [public Run telemetry](../../../specs/controller-run-telemetry.md) for the
+lifecycle contract and exact-source verification.

@@ -31,3 +31,14 @@ is required for this change.
 
 This change covers `Run`. It does not establish telemetry coverage for every
 standalone scan or durable cycle helper. The complete C6 audit remains open.
+
+Source `c515f2208c27cfab51db0e9e7947089a1019bb01` passed all six compiler
+jobs. Independent review matched all 34 race-tested packages, both generated
+examples, and the exact registry digest. The focused suite passed 24 outer
+cases. The public Run checks passed 14 lifecycle cases without the peer and
+20 cases with it. The unsigned artifact passed the source, module, toolchain,
+and reproducibility checks.
+
+The exact source is now on main. Main signature and release qualification is
+in progress. The consumer compiler pin remains unchanged. See the
+[recorded evidence](controller-run-telemetry-evidence.json).

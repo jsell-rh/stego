@@ -40,6 +40,16 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
+The public `controller.Run` entry point now uses the common telemetry runtime.
+Exact source `c515f22` passed all six compiler jobs, all 34 race-tested packages,
+and both generated examples. The focused suite passed 24 outer controller
+cases, including 14 public Run lifecycle cases without the telemetry peer and
+20 cases with it. The TLS collector verified all three signals, independent
+operation traces, queue counts, privacy, and final flush. That exact source is
+on main; main signature and release qualification is in progress. Consumer
+pins are unchanged. See the [public Run evidence](controller-run-telemetry.md).
+This does not close the complete C6 telemetry audit.
+
 The common controller trace change is qualified and released in compiler
 `f6ebd0ba93983bfdcaefa15d8c3344b299af245e`. Reconciliation, scans, cleanup
 samples, and watch sessions have separate traces. Provider calls remain children
