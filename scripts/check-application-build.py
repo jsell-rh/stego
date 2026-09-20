@@ -22,18 +22,21 @@ def main():
     for name in ["compiler", "result", "evidence", "source"]:
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--revision", required=True)
+    parser.add_argument("--compiler-revision")
+    parser.add_argument("--module", default="examples/user-management")
+    parser.add_argument("--target", default="out")
     args = parser.parse_args()
     record_path = args.result / "build.json"
     binary = args.result / "application"
     record = json.loads(record_path.read_text())
     expected = sha(record_path)
     assert record["source_revision"] == args.revision
-    assert record["module"] == "examples/user-management" and record["target"] == "out"
+    assert record["module"] == args.module and record["target"] == args.target
     assert record["independent_builds"] == 2
     assert record["environment"]["GOPROXY"] == "off"
     assert record["artifact"]["sha256"] == sha(binary)
     assert record["build_compiler_artifact"]["sha256"] == sha(args.compiler)
-    assert record["build_compiler"]["revision"] == args.revision
+    assert record["build_compiler"]["revision"] == (args.compiler_revision or args.revision)
     assert record["build_compiler"]["source_state"] == "clean"
     assert record["generation_state_sha256"] == sha(args.source / record["module"] / ".stego/state.yaml")
     cases = []
@@ -56,8 +59,19 @@ def main():
     changed_binary.unlink()
     verify("wrong trusted digest", record_path, binary, "0" * 64, False)
 
+    def change_module_checksum(value):
+        for module in value["modules"]:
+            content = module.get("replacement", module)
+            if content.get("sum"):
+                current = content["sum"]
+                content["sum"] = "h1:" + ("A" if current[3] != "A" else "B") + current[4:]
+                return
+        raise AssertionError("The fixture must contain a remote compiled module")
+
     # Even a matching digest cannot make a record with a different build policy valid.
     for name, change in [
+        ("changed compiled module checksum", change_module_checksum),
+        ("missing compiled module", lambda r: r["modules"].pop()),
         ("single build", lambda r: r.update(independent_builds=1)),
         ("ambient compiler flags", lambda r: r["environment"].update(GOFLAGS="-race")),
         ("wrong toolchain", lambda r: r["toolchain"].update(sha256="0" * 64)),
@@ -74,10 +88,11 @@ def main():
         selected.write_text(data)
         verify(name, selected, binary, sha(selected), False)
         selected.unlink()
-    report = {"source": args.revision, "record_sha256": expected,
+    report = {"source": args.revision, "compiler_source": args.compiler_revision or args.revision,
+              "module": args.module, "target": args.target, "record_sha256": expected,
               "artifact_sha256": sha(binary), "cases": cases,
               "application_executed": False,
-              "scope": "The generated example executable and record. Image contents, signing, and Hypershell adoption remain separate checks."}
+              "scope": "The selected generated application executable and record. Image contents, signing, and Hypershell adoption remain separate checks."}
     (args.evidence / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report))
 

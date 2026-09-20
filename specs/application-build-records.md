@@ -54,7 +54,9 @@ not yet record image contents or a trust store. Private dependency transport
 policy, image assembly and verification, signing, and consumer integration
 remain required parts of the common build workflow.
 
-The focused CI check builds the committed generated example twice and checks
-changed executables, changed records, build settings, and input inventories.
+The focused CI check builds the committed generated example twice. A separate
+CI job builds the pinned Hypershell API twice with the same common command.
+Both jobs check changed executables, changed records, compiled modules, build
+settings, and input inventories. The Hypershell source stays unchanged.
 This is application evidence for the common mechanism. It does not replace the
 complete Hypershell application workflow or the existing signed compiler check.

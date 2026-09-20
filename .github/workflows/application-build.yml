@@ -81,3 +81,57 @@ jobs:
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
             ${{ runner.temp }}/application-work/*/source-change.json
+
+  hypershell-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+      CONSUMER_REVISION: 0589cfc08d40591e3fc0b36ac1538e6f2ae0d917
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          path: compiler
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/hypershell-stego
+          ref: ${{ env.CONSUMER_REVISION }}
+          persist-credentials: false
+          path: consumer
+      - name: Prepare the pinned official SDK
+        timeout-minutes: 5
+        run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/application-sdk"
+      - name: Build the exact candidate compiler
+        run: '"$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego'
+      - name: Build and verify the current Hypershell API
+        timeout-minutes: 30
+        run: |
+          test "$(git -C ../consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          mkdir -p "$RUNNER_TEMP/application-evidence"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --compiler-revision="$GITHUB_SHA" --module=. --target=out
+      - name: Retain the actual consumer build evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hypershell-build-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/application-evidence/*
+            ${{ runner.temp }}/application-result/*
+            ${{ runner.temp }}/application-work/*/source.tar
+            ${{ runner.temp }}/application-work/*/source-change.json
