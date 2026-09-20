@@ -1,0 +1,33 @@
+kind: component
+name: runtime-configuration
+version: 1.0.0
+output_namespace: configuration
+config:
+  groups:
+    type: list
+    items:
+      name:
+        type: string
+      fields:
+        type: list
+        items:
+          name:
+            type: string
+          env:
+            type: string
+          type:
+            type: string
+          default:
+            type: string
+          min:
+            type: string
+          max:
+            type: string
+          min_length:
+            type: int
+          max_length:
+            type: int
+requires: []
+provides:
+  - typed-runtime-configuration
+slots: []

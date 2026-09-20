@@ -1,0 +1,72 @@
+package {{.Package}}
+
+import (
+ "errors"
+ "fmt"
+ "io"
+ "os"
+ "strconv"
+ "strings"
+ "time"
+ "unicode"
+ "unicode/utf8"
+)
+
+var ErrConfiguration = errors.New("invalid runtime configuration")
+
+// Error identifies a declared field and a fixed reason. It retains no input.
+type Error struct { group, field, reason string }
+func(e *Error) Error() string { return "invalid runtime configuration: " + e.group + "." + e.field + " (" + e.reason + ")" }
+func(e *Error) Unwrap() error { return ErrConfiguration }
+func(e *Error) Group() string { return e.group }
+func(e *Error) Field() string { return e.field }
+func(e *Error) Reason() string { return e.reason }
+
+func boundedText(raw string) bool {
+ return len(raw)<=4096 && utf8.ValidString(raw) && strings.IndexFunc(raw, unicode.IsControl)==-1
+}
+func readString(raw string, minimum, maximum int)(string,bool){
+ return raw, boundedText(raw) && len(raw)>=minimum && len(raw)<=maximum
+}
+func readInteger(raw string, minimum, maximum int64)(int64,bool){
+ if len(raw)>20{return 0,false}
+ value,err:=strconv.ParseInt(raw,10,64)
+ return value,err==nil && strconv.FormatInt(value,10)==raw && value>=minimum && value<=maximum
+}
+func readDuration(raw string, minimum, maximum time.Duration)(time.Duration,bool){
+ if len(raw)>64{return 0,false}
+ value,err:=time.ParseDuration(raw)
+ return value,err==nil && value>=minimum && value<=maximum
+}
+func readBoolean(raw string)(bool,bool){return raw=="true",raw=="true"||raw=="false"}
+
+{{range .Groups}}{{$group := .}}
+// {{.Name}} holds validated configuration. Access a field explicitly to use it.
+type {{.Name}} struct {
+ {{range .Fields}}{{.Name}} {{kind .Type}}
+ {{end}}
+}
+func({{.Name}}) String()string{return "[redacted configuration]"}
+func({{.Name}}) GoString()string{return "[redacted configuration]"}
+func({{.Name}}) Format(state fmt.State, verb rune){_,_=io.WriteString(state,"[redacted configuration]")}
+func({{.Name}}) MarshalJSON()([]byte,error){return nil,ErrConfiguration}
+
+// Load{{.Name}} reads only this group's declared environment variables.
+func Load{{.Name}}()({{.Name}},error){return Read{{.Name}}(os.LookupEnv)}
+
+// Read{{.Name}} reads each field once. A failure returns no partial configuration.
+// The lookup must be trusted and return promptly. It is not a snapshot of os.Environ.
+func Read{{.Name}}(lookup func(string)(string,bool))({{.Name}},error){
+ if lookup==nil{return {{.Name}}{},&Error{group:{{quote .Name}},reason:"lookup"}}
+ var result {{.Name}}
+ {{range .Fields}}{
+ raw,present:=lookup({{quote .Env}})
+ {{if .Default}}if !present {raw={{quote (value .Default)}};present=true}{{end}}
+ if !present{return {{$group.Name}}{},&Error{group:{{quote $group.Name}},field:{{quote .Name}},reason:"missing"}}
+ value,ok:={{reader .}}
+ if !ok{return {{$group.Name}}{},&Error{group:{{quote $group.Name}},field:{{quote .Name}},reason:"invalid"}}
+ result.{{.Name}}=value
+ }{{end}}
+ return result,nil
+}
+{{end}}

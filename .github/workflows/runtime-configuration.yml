@@ -1,0 +1,78 @@
+name: Runtime configuration checks
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/runtime-configuration.yml'
+      - 'internal/generator/runtimeconfig/**'
+      - 'registry/components/runtime-configuration/**'
+      - 'cmd/stego/runtime_configuration_test.go'
+      - 'cmd/stego/main.go'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-configuration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 768MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check typed configuration and compiler preflight
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/runtime-configuration"
+          git rev-parse HEAD > "$RUNNER_TEMP/runtime-configuration/source-commit"
+          git archive HEAD | sha256sum > "$RUNNER_TEMP/runtime-configuration/source-archive.sha256"
+          go mod verify
+          go test -json -race -count=1 -mod=readonly -timeout=3m ./internal/generator/runtimeconfig \
+            | tee "$RUNNER_TEMP/runtime-configuration/generator.jsonl"
+          go test -json -race -count=1 -mod=readonly -timeout=3m ./cmd/stego -run '^TestRuntimeConfigurationCompilation$' \
+            | tee "$RUNNER_TEMP/runtime-configuration/compiler.jsonl"
+          python3 - "$RUNNER_TEMP/runtime-configuration" <<'PYCHECK'
+          import json, sys
+          from pathlib import Path
+          root = Path(sys.argv[1])
+          required = {'TestConfigurationDeclaration', 'TestConfigurationNumericContracts',
+                      'TestGeneratedConfiguration', 'TestRuntimeConfigurationCompilation'}
+          events = [json.loads(line) for name in ['generator.jsonl', 'compiler.jsonl']
+                    for line in (root/name).read_text().splitlines()]
+          assert required <= {e.get('Test') for e in events if e.get('Action') == 'pass'}
+          assert not any(e.get('Action') in ('fail', 'skip') for e in events)
+          nested = []
+          for event in events:
+              for line in event.get('Output', '').splitlines():
+                  if line.startswith('{"Time":'):
+                      nested.append(json.loads(line))
+          names = {'TestConfigurationDefaultsAndSingleRead', 'TestConfigurationRejectsValuesWithoutPartialResults',
+                   'TestConfigurationBoundsAndExplicitEmpty', 'TestConfigurationFormattingIsPrivate',
+                   'TestConfigurationReadsHaveNoSharedState', 'TestConfigurationEnvironmentLoader'}
+          for name in names:
+              assert sum(e.get('Action') == 'pass' and e.get('Test') == name for e in nested) == 2
+          assert not any(e.get('Action') in ('fail', 'skip') for e in nested)
+          PYCHECK
+          git diff --exit-code
+      - name: Retain configuration results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runtime-configuration-${{ github.sha }}
+          path: ${{ runner.temp }}/runtime-configuration/
+          if-no-files-found: error
+          retention-days: 14

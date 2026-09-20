@@ -38,6 +38,7 @@ import (
 	"github.com/jsell-rh/stego/internal/generator/postgresclient"
 	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/generator/rhssoauth"
+	"github.com/jsell-rh/stego/internal/generator/runtimeconfig"
 	"github.com/jsell-rh/stego/internal/generator/tslsearch"
 	"github.com/jsell-rh/stego/internal/generator/typescriptsdk"
 	"github.com/jsell-rh/stego/internal/parser"
@@ -718,29 +719,30 @@ func buildReconcilerInput() (compiler.ReconcilerInput, error) {
 
 func defaultGenerators() map[string]gen.Generator {
 	return map[string]gen.Generator{
-		"rest-api":            &restapi.Generator{},
-		"browser-backend":     &browserbackend.Generator{},
-		"browser-telemetry":   &browsertelemetry.Generator{},
-		"http-application":    &httpapplication.Generator{},
-		"go-sdk":              &gosdk.Generator{},
-		"typescript-sdk":      &typescriptsdk.Generator{},
-		"cli-application":     &cliapplication.Generator{},
-		"kubernetes-client":   &kubernetesclient.Generator{},
-		"kubernetes-workload": &kubernetesworkload.Generator{},
-		"keycloak-provider":   &keycloakprovider.Generator{},
-		"kubernetes-service":  &kubernetesservice.Generator{},
-		"postgres-client":     &postgresclient.Generator{},
-		"controller":          &controller.Generator{},
-		"grpc-application":    &grpcapplication.Generator{},
-		"grpc-processes":      &grpcapplication.ProcessGenerator{},
-		"outbox":              &outbox.Generator{},
-		"kafka-producer":      &kafkaproducer.Generator{},
-		"postgres-adapter":    &postgresadapter.Generator{},
-		"tsl-search":          &tslsearch.Generator{},
-		"jwt-auth":            &jwtauth.Generator{},
-		"rh-sso-auth":         &rhssoauth.Generator{},
-		"otel-tracing":        &oteltracing.Generator{},
-		"health-check":        &healthcheck.Generator{},
+		"rest-api":              &restapi.Generator{},
+		"browser-backend":       &browserbackend.Generator{},
+		"browser-telemetry":     &browsertelemetry.Generator{},
+		"http-application":      &httpapplication.Generator{},
+		"go-sdk":                &gosdk.Generator{},
+		"typescript-sdk":        &typescriptsdk.Generator{},
+		"cli-application":       &cliapplication.Generator{},
+		"kubernetes-client":     &kubernetesclient.Generator{},
+		"kubernetes-workload":   &kubernetesworkload.Generator{},
+		"runtime-configuration": &runtimeconfig.Generator{},
+		"keycloak-provider":     &keycloakprovider.Generator{},
+		"kubernetes-service":    &kubernetesservice.Generator{},
+		"postgres-client":       &postgresclient.Generator{},
+		"controller":            &controller.Generator{},
+		"grpc-application":      &grpcapplication.Generator{},
+		"grpc-processes":        &grpcapplication.ProcessGenerator{},
+		"outbox":                &outbox.Generator{},
+		"kafka-producer":        &kafkaproducer.Generator{},
+		"postgres-adapter":      &postgresadapter.Generator{},
+		"tsl-search":            &tslsearch.Generator{},
+		"jwt-auth":              &jwtauth.Generator{},
+		"rh-sso-auth":           &rhssoauth.Generator{},
+		"otel-tracing":          &oteltracing.Generator{},
+		"health-check":          &healthcheck.Generator{},
 	}
 }
 
