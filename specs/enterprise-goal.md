@@ -611,6 +611,11 @@ the application must never perform automatic teardown.
    `80b0e00`. It uses the standing installation and changes only test observations.
    It has no complete result yet. Require all 14 phase observations before a
    performance change is selected.
+   A [source review of pending work](controller-pending-review.md) found that
+   expected incomplete namespace work shares error retry delays and failure
+   telemetry. This is a common runtime distinction to review after the phase
+   data arrives. It does not establish the cause of the observed duration.
+   No queue, retry, or telemetry behavior has changed from this review.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32

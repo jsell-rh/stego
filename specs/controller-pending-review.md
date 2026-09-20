@@ -1,0 +1,68 @@
+# Pending controller work
+
+This source review applies to compiler `ee348b8` and Hypershell test source
+`80b0e00`. It identifies a runtime distinction that needs review. It does not
+identify the cause of the observed 53.95-second Gateway cleanup time.
+
+## Current behavior
+
+The generated keyed controller accepts an action that returns one error value.
+In `internal/generator/controller/keyed.go.tmpl`, every nonterminal action error
+uses the same capped retry schedule. The action receives a failure outcome
+unless the error is a timeout or cancellation. A later invalidation marks a
+queued key as changed but does not shorten its failed-action delay. The queue
+retains this delay across watch reconnection.
+
+`internal/generator/controller/metrics.go.tmpl` exposes four action outcomes:
+`success`, `failure`, `timeout`, and `canceled`. The common telemetry wrapper
+passes the action error to the trace and log completion code. There is no
+separate result for expected incomplete work. These controller templates are
+unchanged between the pinned compiler and the current documentation revision.
+
+Hypershell supplies two examples of expected incomplete work. Its namespace
+allocation controller returns `ErrPending` while an allocated namespace is
+still present or a required SQL cleanup record is incomplete. Its workload
+provider returns a different `ErrPending` while Gateway or Sandbox namespace
+removal is incomplete. The workload controller preserves that result through
+`RunObservation`. Both controllers use a one-second minimum and ten-second
+maximum retry delay. Neither terminal policy treats these pending results as
+terminal errors.
+
+Thus, expected incomplete work uses failure telemetry and the error retry
+schedule in these paths. This follows from the source. The effect on the live
+cleanup duration has not been measured. Do not classify the total duration as
+provider latency or change the retry policy from this source review alone.
+
+## Required review after the phase test
+
+The phase test records namespace removal, durable cleanup flags, finalization,
+and the later proof checks. Require all 14 observations and the complete
+workflow result before selecting a timing change.
+
+If a distinct pending result is added, STEGO must own the result contract,
+queue scheduling, and telemetry. The application must still decide whether its
+current authorized state is incomplete. The common runtime must not contain
+Gateway names, namespace order, SQL cleanup dependencies, or application roles.
+
+The design and tests must cover these conditions:
+
+- Pending work has a bounded recheck schedule. It does not occupy a worker while
+  waiting or create an unbounded set of timers or goroutines.
+- Pending work remains inside the existing queue capacity and preserves one
+  active action for each key. Other keys can still make progress.
+- Real errors, terminal errors, cancellation, and deadline expiry cannot be
+  hidden by a pending result. A commit error after incomplete provider work
+  remains an error.
+- Error retry delays still survive watch invalidations and reconnects. A faster
+  check for expected progress must not remove this protection from real errors.
+- A pending action does not imply successful provider work, a successful
+  observation commit, or resource readiness. Existing version, ownership, and
+  durable cleanup checks remain required.
+- Logs, metrics, and traces agree on the pending outcome. Labels remain fixed
+  and contain no keys, resource IDs, addresses, credentials, or provider errors.
+- Existing action contracts retain their documented behavior. Any new contract
+  is explicit and rejects invalid delays before work is scheduled.
+
+Validate the common behavior with an independent generated service as well as
+the Hypershell workflow. Pending scheduling does not supply distributed fencing,
+rollback detection, or proof of production capacity.
