@@ -46,7 +46,8 @@ can leave an invalid database that rejects the provider's alter operation.
 Source `3be6bce` now resumes removal after the existing ownership checks. The
 unchanged regression failed before the fix and passed after it. All six compiler
 jobs, 34 race-tested packages, both examples, and the branch build passed.
-The exact source is on main; signed release checks are running. The
+The exact source passed all main checks and is published as a verified signed
+compiler. Its binary matches the qualified branch build. The
 [recovery record](postgres-invalid-drop-recovery.md) preserves the test limits.
 The next consumer workflow will combine this common fix with its separate
 fixture cleanup correction. It has no new live result yet.

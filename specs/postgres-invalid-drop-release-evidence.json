@@ -1,0 +1,191 @@
+{
+  "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+  "scope": "Qualified main compiler and immutable signed release. Consumer generation and the full application workflow require separate evidence.",
+  "full": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "run": 35501922557,
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35501922557",
+    "conclusion": "success",
+    "jobs": {
+      "keycloak-provider": "success",
+      "compiler": "success",
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "examples (user-management-rhsso)": "success",
+      "resource-state-storage": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "example_files_match": [
+      {
+        "project": "user-management",
+        "files_match": 74,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "16da162c21531b64762d3963246155538892c4ab54704b4f183330e4872fb79b",
+        "state_compiler_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+        "archive_sha256": "7d61423bef8ab7d708c95bb53eae0bb2d1c66728c9a7bc8e2c3e1f2098a2eade"
+      },
+      {
+        "project": "user-management-rhsso",
+        "files_match": 70,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "16da162c21531b64762d3963246155538892c4ab54704b4f183330e4872fb79b",
+        "state_compiler_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+        "archive_sha256": "24a8d0bfdff63f40a0c5691e412f5811e9e1d8b2446946009a1a47b5caae693a"
+      }
+    ],
+    "log_sha256": "b26a39f22a353ff8aaa9a5ad31ff04fc76442402c7ff544dd0d321f667ebde39",
+    "qualified": true,
+    "limits": [
+      "The nonverbose full race command does not expose all per-test skip decisions. Named focused results cover invalid database recovery and ownership denial.",
+      "This is not a signed release or a Hypershell application result."
+    ]
+  },
+  "focused": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "run": 35501922597,
+    "qualified": true,
+    "source_archive_verified": true,
+    "regression_source": "3e8268458419dd4ab134d107060b24a590556d98",
+    "regression_run": 35501332715,
+    "unchanged_regression_test_bytes": true,
+    "passed_cases": [
+      "TestClientPrivateTelemetry",
+      "TestConfigurationIgnoresEnvironment",
+      "TestDatabaseClientDoesNotUseGlobalProviders",
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseNamesAndValidation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/foreign-owner",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/owned",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/replaced-database",
+      "TestDatabaseProvisioningLifecycle/managed-schema",
+      "TestGeneratedPostgresClient",
+      "TestInvalidIdentityAndCertificateAreRejected",
+      "TestInvalidReadDoesNotConnect",
+      "TestSchemaOperationValidation",
+      "TestVerifiedReadAgainstPostgres"
+    ],
+    "passed_case_count": 17,
+    "all_prior_passes_retained": true,
+    "no_skipped_cases": true,
+    "owned_invalid_database_recovery_passed": true,
+    "foreign_owner_and_replaced_database_denials_passed": true,
+    "test_server_container_cleanup_passed": true,
+    "test_log_sha256": "ae9d43b90c651fec82a24abecc38c4f0e68fbb9bca81f1469633feba38c31321",
+    "ci_log_sha256": "87c9d18ec54c5046ba7b5cb7114723a19751603c4bdd3c33220d25b269dbe181",
+    "scope": "Real PostgreSQL recovery from the constructed invalid catalog state, with a non-superuser provider. This does not prove physical crash timing, full compiler qualification, signed release, or consumer adoption."
+  },
+  "build": {
+    "run": 35501922549,
+    "source_inventory": {
+      "files": 1307,
+      "bytes": 10414037,
+      "sha256": "b13b6be7aaf837d2ba74410755a9aede59f528013401d686b63cddbd0e56c432"
+    },
+    "module_records_checked": 28,
+    "source_inventory_matches": true,
+    "toolchain_and_build_policy_match": true,
+    "hosted_rejection_checks": {
+      "source_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+      "authenticated": {
+        "name": "stego-linux-amd64",
+        "sha256": "e587de658b558a5634c950269fbcc776d15d55899afafe3665179b06839829bd",
+        "size": 38386516
+      },
+      "rejected": [
+        "different-source-commit",
+        "changed-compiler-with-matching-checksums",
+        "changed-build-record",
+        "invalid-signature-bundle"
+      ],
+      "valid_after_rejections": true,
+      "downloaded_compiler_executed": false
+    },
+    "downloaded_compiler_executed_locally": false
+  },
+  "branch_build_agreement": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "qualified_branch_artifact_run": 35501449242,
+    "signed_main_artifact_run": 35501922549,
+    "binary_sha256": "e587de658b558a5634c950269fbcc776d15d55899afafe3665179b06839829bd",
+    "source_and_binary_match": true
+  },
+  "release": {
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "immutable": true,
+    "independently_installed": true,
+    "installation": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "e587de658b558a5634c950269fbcc776d15d55899afafe3665179b06839829bd",
+        "size": 38386516
+      },
+      "build_record_sha256": "2f8af39235c9d9b27957cb479b8f659e68d714dea46dde7bbe8b40fe2b60b9b8",
+      "bundle_sha256": "e382b40096d2db1824fd8f07a486808ea22b61f36e92cce3b658990de0adc889"
+    },
+    "verified_at": "2026-09-20T09:27:40.277753+00:00"
+  },
+  "limits": [
+    "The recovery fixture constructs the PostgreSQL invalid database marker. It does not force a physical crash or checkpoint cancellation.",
+    "Whole-database rollback detection, the complete application workflow, the 30-second cleanup target, and production capacity remain separate requirements."
+  ]
+}

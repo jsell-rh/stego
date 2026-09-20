@@ -52,7 +52,23 @@ bytes, all prior passing cases, both ownership controls, repeat deletion,
 unrelated data checks, and private telemetry checks.
 
 The unsigned branch build passed source, module, toolchain, build-policy, and
-repeat-build review. This does not qualify a signed release. The exact source
-is now on main, where new release checks are running. Hypershell must select
-the verified signed package, regenerate, and pass its application checks.
-See the [fix record](postgres-invalid-drop-fix-evidence.json).
+repeat-build review. Its [fix record](postgres-invalid-drop-fix-evidence.json)
+remains separate from the later signed release result.
+
+## Signed release
+
+The exact source passed all six main jobs in
+[run 35501922557](https://github.com/jsell-rh/stego/actions/runs/35501922557).
+Independent review verified all 34 race-tested packages, both generated
+examples, and all 17 focused recovery cases. No focused case was skipped.
+
+The immutable [signed compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0)
+passed source, module, toolchain, build-policy, signature, and installation
+checks. The review matched 1,307 source files and 28 module records. Two isolated
+builds agreed, and the signed main binary matches the qualified branch binary.
+The review did not execute the downloaded compiler locally. See the
+[release record](postgres-invalid-drop-release-evidence.json).
+
+Hypershell must select this verified package, regenerate, and pass its complete
+application workflow. The constructed catalog-state test does not establish
+physical crash recovery or whole-database rollback detection.
