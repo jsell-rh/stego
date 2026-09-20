@@ -48,8 +48,8 @@ cases, including 14 public Run lifecycle cases without the telemetry peer and
 operation traces, queue counts, privacy, and final flush. That exact source is
 on main and released as an immutable signed compiler. The exact main checks,
 source and module review, artifact rejection checks, and release installer
-passed. Its binary matches the qualified branch build. The active consumer
-source still uses f6ebd0b. See the [public Run evidence](controller-run-telemetry.md).
+passed. Its binary matches the qualified branch build. The last live-qualified consumer
+source uses f6ebd0b. See the [public Run evidence](controller-run-telemetry.md).
 The [entry point audit](controller-entrypoint-audit.md) records remaining
 finite-helper coverage limits. The complete C6 audit remains open.
 
@@ -103,15 +103,25 @@ removed, the lease was free, and all 32 standing resources were unchanged.
 The new normal cleanup sample contained 100 REST-created accounts with
 verified token use. Whole cleanup was observed complete by 34.827 seconds.
 Allocation was still observed pending at 32.738 seconds. The 30-second target
-remains open. The separate API run `35499601572` is active at the same source.
+remains open. Separate API run `35499601572` passed all 52 required tests
+at the same source. Independent review matched source, repeated generation,
+and the signed compiler in the bounded test Pod. The joint audit found both
+fixtures absent, the lease free, and all 32 standing resources unchanged.
+See the [API evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-api-evidence.json).
 See the [consumer live evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-live-evidence.json)
 and [cleanup observations](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap.md).
 
 The [namespace cleanup review](namespace-cleanup-review.md) keeps the current
 namespace dependency barriers. Consumer candidate `2f3b4fe` uses the existing
-STEGO pending-result API for expected workload progress. Its hosted checks are
-pending. A separate candidate at `326c857` selects signed compiler c515f22;
-CI regeneration is in progress. Neither candidate has new live evidence.
+STEGO pending-result API for expected workload progress. Its focused adapter
+and allocation checks passed; full qualification is pending. Candidate
+`69b9e29` adds verified generation from signed compiler c515f22. Independent
+review matched the runtime template, registry content, compiler identity, and
+all 420 generated source and module files. Only five generated files changed.
+All 126 Gateway console source and module files stayed identical, so its Go
+module reference remains. Fresh application checks are running. The next live
+test must wait for all exact-source checks and a clean cluster preflight.
+Neither candidate has new live evidence.
 
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
 shows 7,500 millicores across all five nodes. The current server requests for
