@@ -1,0 +1,196 @@
+{
+  "recorded_at": "2026-09-20T12:51:42.011770+00:00",
+  "compiler_release": {
+    "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "id": 392428375,
+    "immutable": true,
+    "tag": "compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "tag_commit": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "binary": {
+      "name": "stego-linux-amd64",
+      "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21",
+      "size": 41636320
+    },
+    "build_record_sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a",
+    "assets": [
+      {
+        "name": "build.json",
+        "id": 576799203,
+        "size": 10250,
+        "sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a"
+      },
+      {
+        "name": "provenance.jsonl",
+        "id": 576799218,
+        "size": 10833,
+        "sha256": "e7b8d51a1a21afe467776fc0bee61fee5a8283a3d9b58e29c7f4719bae6a35e8"
+      },
+      {
+        "name": "SHA256SUMS",
+        "id": 576799205,
+        "size": 161,
+        "sha256": "7016d81363682e6f714fcd00bb28f7a887b5853a0fed52f69d45d34b181b6b00"
+      },
+      {
+        "name": "stego-linux-amd64",
+        "id": 576799208,
+        "size": 41636320,
+        "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21"
+      }
+    ],
+    "main_full_run": 35510989841,
+    "main_application_run": 35510989870,
+    "main_artifact_run": 35510989889,
+    "main_installation_run": 35510989964,
+    "candidate_and_main_bytes_identical": true,
+    "common_release_installer_result_matches_local_package": true,
+    "compiler_executed_locally": false
+  },
+  "common_delivery": {
+    "source": "a82691b1a1c0076212309db4084de8fdb0ea5300",
+    "full_run": 35510957817,
+    "application_run": 35510957862,
+    "full_jobs": [
+      "compiler",
+      "examples (user-management)",
+      "examples (user-management-rhsso)",
+      "keycloak-provider",
+      "postgres-provisioning",
+      "resource-state-storage"
+    ],
+    "native_and_source_checks": [
+      {
+        "application": "example",
+        "source": "a82691b1a1c0076212309db4084de8fdb0ea5300",
+        "module": "examples/user-management",
+        "artifact": {
+          "sha256": "22c10580ee339dd70581783e1b45910a2be92875d9a830fee0b4fda0c6631392",
+          "size": 48404321
+        },
+        "record_sha256": "21bfdf392d2b21f7a4264bd6378a107e4ac7c967cf699342123efaf165d19c41",
+        "source_inventory": {
+          "files": 1357,
+          "bytes": 10803828,
+          "sha256": "0fd561f408548e7cf95b7132f4d5d53751520353ef43155f6ec477f841db127a"
+        },
+        "source_archives_checked": 2,
+        "verification_cases": 10,
+        "source_verification_cases": 9,
+        "source_inputs_checked": 1357,
+        "modules": 53
+      },
+      {
+        "application": "hypershell-api",
+        "source": "0589cfc08d40591e3fc0b36ac1538e6f2ae0d917",
+        "module": ".",
+        "artifact": {
+          "sha256": "be88bf4d2c606991b9e6b5fe869b4d2a5c3b0c94b0d4ef67f6cd3eca6660cafb",
+          "size": 48738774
+        },
+        "record_sha256": "af0c1b27adb96ed349efc1c034b22502500706a99d4524d90b2d994a74506128",
+        "source_inventory": {
+          "files": 1615,
+          "bytes": 27136670,
+          "sha256": "90456a56f07ede9bca526d938a52f8da4b57e446807d4f53d0fdc43e7e069249"
+        },
+        "source_archives_checked": 2,
+        "verification_cases": 10,
+        "source_verification_cases": 9,
+        "source_inputs_checked": 1615,
+        "modules": 49
+      }
+    ],
+    "common_build_and_image_test_groups": 35,
+    "common_build_and_image_cases": 110,
+    "registry_checks": [
+      {
+        "application": "example",
+        "image_record_sha256": "5d68b1acc08c3b66eb89a07fafd7e0f8dc32a296b12dcf3f77ed1832104a9cde",
+        "manifest_sha256": "a4d8ce77c0d62326e2b609683961439859e4bc4d59a3c497f01fb0d1a7849fb8",
+        "cases": 6,
+        "actual_registry_bytes_match": true,
+        "fixture_stopped": true
+      },
+      {
+        "application": "hypershell-api",
+        "image_record_sha256": "0dc224dd3bbc2dc905fe900c54807e266cffc46eb4f2eddeadd09f5bbdae1dbc",
+        "manifest_sha256": "21dfdd1d7054ce5f41f8f3e847bc5a933d4f4ce519f2f03fed83979530a49ec2",
+        "cases": 6,
+        "actual_registry_bytes_match": true,
+        "fixture_stopped": true
+      }
+    ],
+    "shared_publisher_checks": [
+      {
+        "application": "example",
+        "image_set_sha256": "f2c211ed5b760e24894d45e63d116bb8c47bc73a2af7372c7a2a853f69f31068",
+        "reference": "127.0.0.1:41321/test/application@sha256:a4d8ce77c0d62326e2b609683961439859e4bc4d59a3c497f01fb0d1a7849fb8",
+        "source_and_image_preflight_checked": true,
+        "registry_receipt_checked": true
+      },
+      {
+        "application": "hypershell-api",
+        "image_set_sha256": "af255bddc483292526ba31dd392ba4f50a40848a259e635916f120f4f7173e8b",
+        "reference": "127.0.0.1:43009/test/application@sha256:21dfdd1d7054ce5f41f8f3e847bc5a933d4f4ce519f2f03fed83979530a49ec2",
+        "source_and_image_preflight_checked": true,
+        "registry_receipt_checked": true
+      }
+    ]
+  },
+  "evidence_files": {
+    "image-stage-main/ci-qualification.json": {
+      "sha256": "1311d2f4dac3a8e1c76deeb4556f61e2c6b52f4e1d1e36d407fa100972456f9b",
+      "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3"
+    },
+    "image-stage-main/application-qualification.json": {
+      "sha256": "d46a351809dbd0d5c5489acaf808b452ecf7d902cb15353bbc54fa9518db3168",
+      "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3"
+    },
+    "image-stage-main/image-qualification.json": {
+      "sha256": "dcc9572fea891c1abacea9a16c675ac6d8a95ca93051d99833f59b3fe0857b83",
+      "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3"
+    },
+    "image-stage-main/signature-qualification.json": {
+      "sha256": "b617bd4847b65cab5820c9b8598051d69b42a07148cef47d30b0daeb36fd59b3",
+      "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3"
+    },
+    "image-stage-main/registry-qualification.json": {
+      "sha256": "5b5e725bd2c88c90f69afa3fb3975f5943c1130dee993bed5887777cb86524ed",
+      "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3"
+    },
+    "registry-destinations/ci-qualification.json": {
+      "sha256": "4e517c138291462dee1ff110f9b0a623bdc6c119264cfad695cc20242e792300",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    },
+    "registry-destinations/application-qualification.json": {
+      "sha256": "1561bac8f21d3450970f60e67c45398f89fdbaf3223fce2d006096cc4a05afd5",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    },
+    "registry-destinations/image-qualification.json": {
+      "sha256": "01d79b15c32da488a016eaa4fecb6d46cb70d031107c2fb47214bf365bbf3d1b",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    },
+    "registry-destinations/signature-qualification.json": {
+      "sha256": "7028060c49d69d3f5cc9e369184de5e235648bf0de361a2845c50d65014f64eb",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    },
+    "registry-destinations/registry-qualification.json": {
+      "sha256": "44936f71c9a2ad1e29b85d692ef9c124c556f1c248254c0c6fd7ed73afb1edb8",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    },
+    "registry-destinations/delivery-qualification.json": {
+      "sha256": "a59a976d3267664d4c8d57a11cb1837aab822f440b3e47222a339a65ef1a2550",
+      "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
+    }
+  },
+  "scope": "Published compiler and common source, image, signature, and private TLS registry checks. The new live Hypershell image path remains unproved.",
+  "not_proved": [
+    "Complete live Hypershell adoption of this image path",
+    "Production application CA profile",
+    "Complete offline builds",
+    "Other installation platforms",
+    "Automatic release qualification",
+    "Full C3 or enterprise readiness"
+  ]
+}

@@ -1,9 +1,11 @@
 # Static Go application images
 
-This is candidate code. Native images for the independent example and current
-Hypershell API passed the artifact and container-engine checks. The next
-candidate also passed real record signature checks. Registry publication
-remains open. C3 is not complete.
+Compiler `c92f591` is published as an authenticated immutable release. Common
+image delivery source `a82691b` passed the source, native image, real signature,
+and private TLS registry checks for the example and Hypershell API. The complete
+Hypershell workflow with this new image path remains unproved. C3 is not complete.
+See the [current delivery evidence](application-delivery-evidence.json). Later
+sections retain source-specific results from earlier candidates.
 
 The common image command accepts a native application build record, its trusted
 digest, and the matching executable. It also requires an explicit CA bundle and

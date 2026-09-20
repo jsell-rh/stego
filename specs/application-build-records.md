@@ -1,9 +1,10 @@
 # Application build records
 
-This change is a candidate. The native build check passed for the generated
-example and the current Hypershell API. Full compiler checks also passed. Image
-verification, record signing, and image publisher adoption are still required.
-C3 remains open.
+The native build and source checks are included in published compiler
+`c92f591`. The generated example and Hypershell API passed native, source, image,
+real signature, and private TLS registry checks. Adoption by the complete live
+Hypershell workflow remains required. C3 remains open. See the
+[current delivery evidence](application-delivery-evidence.json).
 
 `stego build` selects one Git commit, module, and entry point. It checks the
 complete pinned Go SDK before execution. It creates two private source trees,
@@ -65,9 +66,10 @@ regeneration, remove completed compiler lock files before checking the complete
 snapshot again. Keep the checked source unchanged while using the result. This
 check does not freeze the source or replace image and signature verification.
 
-The candidate CI check exercises this command against the actual example and
-Hypershell API source inputs, then changes file contents, file presence, execute
-permission, and links. The new source checks are pending.
+The CI check exercises this command against the actual example and Hypershell
+API source inputs, then changes file contents, file presence, execute permission,
+and links. Each application passed all nine source verification cases in main
+run `35510989870`. The native verifier passed ten cases for each application.
 
 The caller must authenticate the record before it supplies that digest. Hash
 agreement does not authenticate the builder or source. The command does not

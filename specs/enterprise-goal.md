@@ -955,3 +955,24 @@ produced identical verified bytes without compiler execution. See
 This supplies a durable package for one qualified compiler. Hypershell now uses the common installer in its regeneration scripts.
 Automatic release qualification, complete offline inputs, and other supported
 installation targets remain open. C3 is not complete.
+
+
+## Common application image delivery
+
+Compiler `c92f591` is published as an authenticated immutable release. Its exact
+main source passed all six compiler jobs, the signed artifact check, and the
+example and Hypershell API source, native, image, signature, and registry checks.
+The common installer downloaded and authenticated the release without compiler
+execution. Candidate and main compiler bytes matched.
+
+Shared delivery source `a82691b` also passed the full compiler gate and actual
+private TLS registry publication for both applications. STEGO now owns signed
+record capture, complete source checks, image verification, bounded publication,
+and exact receipt checks for declared image sets. These checks cover an explicit
+operator policy for external registry storage destinations.
+
+Hypershell has committed the browser adoption and a workflow that selects its
+frozen fixture and signed images. Its complete live result is still pending.
+Keep production CA selection, offline inputs, automatic release qualification,
+other platforms, and the remaining C3 through C7 and H1 through H3 requirements
+open. See the [current delivery evidence](application-delivery-evidence.json).
