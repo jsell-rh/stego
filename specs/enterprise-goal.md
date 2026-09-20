@@ -65,12 +65,17 @@ The application did not include namespace allocation in its durable cleanup
 owners. The earlier passing checks did not cover this ordering requirement.
 See the [phase review](https://github.com/jsell-rh/hypershell-stego/blob/9b658d5/acceptance/cleanup-phase-review.md).
 
-Candidate `ecb3160` adds an allocation cleanup owner through the existing STEGO
+The candidate adds an allocation cleanup owner through the existing STEGO
 targeted cleanup and observation contracts. Namespace removal order remains
-Hypershell policy. Its adapter and focused deletion checks passed. Exact
-regeneration in run `35482869898` matched all 420 archived generated files and
-the verified compiler records. Full CI qualification remains in progress. The
-candidate must also pass the complete live workflow with the allocator stopped
+Hypershell policy. At `ecb3160`, its adapter, focused deletion, regeneration,
+and journal checks passed. Full run `35482437428` then failed three catalog and
+CLI tests: their controlled providers omitted allocation cleanup, so the API
+refused managed cluster deletion with HTTP 409. Candidate `6061469` corrects
+those fixtures and adds all three tests to the focused check. It also requires
+HTTP 409 after SQL and workload cleanup, before allocation completion. Its
+qualification is in progress. See the
+[candidate record](https://github.com/jsell-rh/hypershell-stego/blob/6061469/acceptance/allocation-finalization.md).
+The candidate must also pass the complete live workflow with the allocator stopped
 and restarted before it can replace the main runtime. The test must show that
 REST and gRPC retain the deleting Gateway until allocation cleanup completes.
 This correction does not prove the 30-second target, schema upgrades,
