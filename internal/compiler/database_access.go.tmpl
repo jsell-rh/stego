@@ -18,6 +18,7 @@ type object struct { schema, name, kind, privileges string }
 var objects = []object{
 {{range .Objects}} { {{printf "%q" .Schema}}, {{printf "%q" .Name}}, {{printf "%q" .Kind}}, {{range $i,$p := .Privileges}}{{if $i}} + "," + {{end}}{{printf "%q" $p}}{{end}} },
 {{end}}
+}
 var schemas = []string{ {{range .Schemas}}{{printf "%q" .}},{{end}} }
 
 // GrantRuntime grants only the compiled object permissions in one transaction.
