@@ -1,0 +1,64 @@
+name: Application image checks
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/application-image.yml
+      - internal/appbuild/image*.go
+      - cmd/stego/image.go
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GOFLAGS: -p=2
+      GOENV: 'off'
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+      GOAUTH: 'off'
+      GOPROXY: https://proxy.golang.org
+      GOSUMDB: sum.golang.org
+      GOVCS: '*:off'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Prepare the verified SDK
+        timeout-minutes: 5
+        run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/image-sdk"
+      - name: Resolve and retain dependency candidates
+        run: |
+          mkdir -p "$RUNNER_TEMP/image-evidence/dependencies"
+          "$RUNNER_TEMP/image-sdk/go/bin/go" mod tidy
+          "$RUNNER_TEMP/image-sdk/go/bin/go" mod verify
+          cp go.mod go.sum "$RUNNER_TEMP/image-evidence/dependencies/"
+          git rev-parse HEAD > "$RUNNER_TEMP/image-evidence/dependencies/source.txt"
+          git diff -- go.mod go.sum > "$RUNNER_TEMP/image-evidence/dependencies/dependencies.patch"
+      - name: Check image contents and rejection policy
+        run: |
+          "$RUNNER_TEMP/image-sdk/go/bin/go" test -json -race -count=1 -mod=readonly -timeout=3m ./internal/appbuild > "$RUNNER_TEMP/image-evidence/tests.jsonl"
+      - name: Require reviewed dependency locks
+        run: git diff --exit-code -- go.mod go.sum
+      - name: Build the exact command
+        run: '"$RUNNER_TEMP/image-sdk/go/bin/go" build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego'
+      - name: Retain image evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: application-image-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/image-evidence/

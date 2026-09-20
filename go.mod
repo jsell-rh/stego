@@ -43,3 +43,5 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 )
+
+require github.com/google/go-containerregistry v0.22.1
