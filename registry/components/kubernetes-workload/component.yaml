@@ -1,0 +1,8 @@
+kind: component
+name: kubernetes-workload
+version: 1.0.0
+output_namespace: workload
+requires: []
+provides:
+  - kubernetes-workload-construction
+slots: []
