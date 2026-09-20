@@ -40,16 +40,20 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
-Hypershell main `0aa8f0d` now contains the qualified compiler retry, cleanup
-ownership, and Sandbox integration changes. Live run `35478851396` at runtime
-source `4c6744b` passed all 11 required tests. Independent checks matched 1,544
-source files, 421 generation hashes, the signed compiler, six browser startup
-instances, and four inspected views. All test resources were removed. The exact
-tested CI inspection rules are now installed; all 32 standing objects passed
-verification. Automatic main checks are active. One Gateway with 100 REST-created
-accounts completed cleanup with an observed upper bound of 53.5477 seconds.
-This functional result does not prove the 30-second target or production
-capacity. See the [live evidence](https://github.com/jsell-rh/hypershell-stego/blob/0aa8f0d/acceptance/normal-cleanup-live-evidence.json).
+Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
+cleanup ownership, and Sandbox integration changes. Main live run `35479995475`
+passed all 11 required tests. Independent checks matched 1,548 source files,
+421 generation hashes, the signed compiler, six browser startup instances,
+and four inspected views. Browser test resources were removed. All 32 standing
+installation objects matched the adopted configuration. The API test is active
+in its separate namespace, and the full main suite is still active. Joint
+cleanup remains required before another live test.
+
+One Gateway with 100 REST-created accounts completed cleanup with an observed
+upper bound of 53.9497 seconds. The prior candidate observed 53.5477 seconds.
+These functional results do not prove the 30-second target or production
+capacity. Separate phase observations are needed to locate the delay. See the
+[main browser review](https://github.com/jsell-rh/hypershell-stego/blob/3df3f64/acceptance/main-browser-review.md).
 
 STEGO now combines a pinned common Git registry with distinct local application
 archetypes. Hypershell no longer copies common component declarations. Both
@@ -587,7 +591,11 @@ the application must never perform automatic teardown.
    generation and repeated asset archives match source. The saved compiler
    public records match the verified release. See the
    [hosted result review](https://github.com/jsell-rh/hypershell-stego/blob/2c55966/acceptance/main-hosted-review.md).
-   Main browser, API, and full test results remain separate and incomplete.
+   Main browser run `35479995475` then passed all 11 required tests. Source,
+   generation, compiler, telemetry, four views, and browser cleanup passed
+   independent checks. Its normal 100-account Gateway cleanup upper bound was
+   53.9497 seconds. The API and full main checks remain active. Their results
+   and the joint cleanup audit are required before the phase live test.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
