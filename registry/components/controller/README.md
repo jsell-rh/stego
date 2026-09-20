@@ -61,6 +61,26 @@ active action schedules another pass. Repeated changes cannot bypass a failed
 key's delay. Retry delay doubles from `RetryMin` to `RetryMax`; a successful pass
 resets it. Due retries precede newer work, so new events cannot starve them.
 
+`RunKeyedWithResult`, `RunKeyedWatchWithResult`, and
+`RunKeyedWatchesWithResult` accept an action that returns `(ReconcileResult,
+error)`. Set `RecheckAfter` when an authorized operation is still in progress.
+The delay must be from one millisecond to one hour. A zero result means that
+this pass needs no scheduled recheck. Invalid delays stop the controller.
+
+A pending result releases the worker and stays inside queue capacity. Events
+and watch reconnects do not shorten its delay. The next pass reads current
+state. A pending action with no error resets previous error backoff. An action
+error, deadline expiry, or cancellation discards the result; real failures keep
+the existing retry schedule. Do not turn a provider or commit error into a
+pending result. Pending work does not establish resource readiness, observation
+commit success, or cleanup completion.
+
+Logs, OTEL metrics and traces, and Prometheus action counters use the fixed
+`pending` outcome. Pending actions do not increment failed-action retry
+counters. `MetricsSnapshot.Pending` counts these actions. Keys remain in the
+queued count while they wait. The existing APIs that return only an error keep
+their previous scheduling behavior.
+
 A heap orders pending work by due time and insertion order. There is at most one
 heap entry for each pending key and no timer for each key. The worker waits for a
 change or the next due key. It does not poll the whole queue. The source scan has

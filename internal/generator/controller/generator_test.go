@@ -17,6 +17,9 @@ import (
 //go:embed testdata/runtime_test.go
 var runtimeTests []byte
 
+//go:embed testdata/pending_test.go
+var pendingTests []byte
+
 //go:embed testdata/keyed_test.go
 var keyedTests []byte
 
@@ -99,6 +102,14 @@ func TestGeneratedCycleWindow(t *testing.T) {
 	testGeneratedController(t, false, "^TestCycleWindow")
 }
 
+func TestGeneratedPendingResult(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedController(t, telemetry, "^(TestPendingResult|TestKey|TestMultipleKeyed|TestInvalidKeyed)")
+		})
+	}
+}
+
 func TestGeneratedController(t *testing.T) {
 	for _, telemetry := range []bool{false, true} {
 		t.Run(fmt.Sprint(telemetry), func(t *testing.T) { testGeneratedController(t, telemetry) })
@@ -142,7 +153,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 		t.Fatal(err)
 	}
 	files = append(files, gen.File{Path: "controller/runtime_test.go", Content: runtimeTests}, gen.File{Path: "controller/keyed_test.go", Content: keyedTests}, gen.File{Path: "controller/sweep_test.go", Content: sweepTests})
-	files = append(files, gen.File{Path: "controller/admission_test.go", Content: admissionTests})
+	files = append(files, gen.File{Path: "controller/admission_test.go", Content: admissionTests}, gen.File{Path: "controller/pending_test.go", Content: pendingTests})
 	files = append(files, gen.File{Path: "controller/stream_test.go", Content: streamTests}, gen.File{Path: "controller/observation_test.go", Content: observationTests})
 	files = append(files, gen.File{Path: "controller/scan_test.go", Content: scanTests}, gen.File{Path: "controller/sequence_test.go", Content: sequenceTests}, gen.File{Path: "controller/watch_keyed_test.go", Content: watchKeyedTests})
 	files = append(files, gen.File{Path: "controller/metrics_test.go", Content: metricsTests}, gen.File{Path: "controller/checkpoint_test.go", Content: checkpointTests})

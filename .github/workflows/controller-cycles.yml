@@ -6,12 +6,14 @@ on:
     paths:
       - '.github/workflows/controller-cycles.yml'
       - 'internal/generator/controller/**'
+      - 'internal/generator/oteltracing/**'
       - 'go.mod'
       - 'go.sum'
   pull_request:
     paths:
       - '.github/workflows/controller-cycles.yml'
       - 'internal/generator/controller/**'
+      - 'internal/generator/oteltracing/**'
       - 'go.mod'
       - 'go.sum'
 
@@ -45,10 +47,16 @@ jobs:
           mkdir -p "$RUNNER_TEMP/controller-cycles"
           go mod verify
           go test -json -race -count=1 -mod=readonly -timeout=10m ./internal/generator/controller \
-            -run '^TestGenerated(Sweep|CycleParallel|CycleRetry|CycleActionBudget|CycleWindow|ScanCheckpoint|SequenceScan)$' \
+            -run '^TestGenerated(PendingResult|Sweep|CycleParallel|CycleRetry|CycleActionBudget|CycleWindow|ScanCheckpoint|SequenceScan)$' \
             | tee "$RUNNER_TEMP/controller-cycles/tests.jsonl"
           git rev-parse HEAD > "$RUNNER_TEMP/controller-cycles/source-commit"
           git archive HEAD | sha256sum > "$RUNNER_TEMP/controller-cycles/source-archive.sha256"
+      - name: Check generated controller log, metric, and trace outcomes
+        run: |
+          set -euo pipefail
+          go test -json -race -count=1 -mod=readonly -timeout=4m ./internal/generator/oteltracing \
+            -run '^TestGeneratedControllerTelemetry$' \
+            | tee "$RUNNER_TEMP/controller-cycles/telemetry.jsonl"
       - name: Retain cycle check results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

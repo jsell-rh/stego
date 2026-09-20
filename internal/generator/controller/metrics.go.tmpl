@@ -19,7 +19,7 @@ var ErrMetricsInUse = errors.New("controller metrics already have an active queu
 type Metrics struct {
  mu sync.Mutex
  queue func() QueueMetrics
- actions [4]uint64
+ actions [5]uint64
  retries uint64
  scans [2]uint64
  reconnects uint64
@@ -38,7 +38,7 @@ type QueueMetrics struct { Capacity, Queued, Active, Retrying int; Waiting int64
 type MetricsSnapshot struct {
  Running bool
  Queue QueueMetrics
- Succeeded, Failed, TimedOut, Canceled, Retries, ScansSucceeded, ScansFailed, Reconnects uint64
+ Succeeded, Failed, TimedOut, Canceled, Pending, Retries, ScansSucceeded, ScansFailed, Reconnects uint64
  DurationBuckets [10]uint64
  DurationSeconds float64
  CleanupEnabled,CleanupAvailable bool
@@ -58,7 +58,7 @@ func(m *Metrics)detach(){if m!=nil{m.mu.Lock();m.queue=nil;m.cleanupAvailable=fa
 func(m *Metrics)Snapshot()MetricsSnapshot{
  if m==nil{return MetricsSnapshot{}}
  m.mu.Lock()
- s:=MetricsSnapshot{Succeeded:m.actions[0],Failed:m.actions[1],TimedOut:m.actions[2],Canceled:m.actions[3],Retries:m.retries,ScansSucceeded:m.scans[0],ScansFailed:m.scans[1],Reconnects:m.reconnects,DurationBuckets:m.durations,DurationSeconds:m.seconds}
+ s:=MetricsSnapshot{Succeeded:m.actions[0],Failed:m.actions[1],TimedOut:m.actions[2],Canceled:m.actions[3],Pending:m.actions[4],Retries:m.retries,ScansSucceeded:m.scans[0],ScansFailed:m.scans[1],Reconnects:m.reconnects,DurationBuckets:m.durations,DurationSeconds:m.seconds}
  s.CleanupEnabled=m.cleanupEnabled;s.CleanupAvailable=m.cleanupAvailable;s.CleanupPending=m.cleanupPending;s.CleanupOldest=m.cleanupOldest;s.CleanupSampleAt=m.cleanupSampleAt;s.CleanupReadsSucceeded=m.cleanupReads[0];s.CleanupReadsFailed=m.cleanupReads[1]
  queue:=m.queue
  // Queue snapshots do not call Metrics. This lock keeps detach and a later
@@ -113,14 +113,14 @@ func(m *Metrics)ServeHTTP(w http.ResponseWriter,r *http.Request){
  gauge("retry_keys","Queued keys waiting for a retry.",s.Queue.Retrying)
  gauge("admission_waiters","Calls in the waiting admission path.",s.Queue.Waiting)
  fmt.Fprint(w,"# HELP stego_controller_actions_total Completed actions by outcome.\n# TYPE stego_controller_actions_total counter\n")
- for i,label:=range []string{"success","failure","timeout","canceled"}{fmt.Fprintf(w,"stego_controller_actions_total{outcome=%q} %d\n",label,[]uint64{s.Succeeded,s.Failed,s.TimedOut,s.Canceled}[i])}
+ for i,label:=range []string{"success","failure","timeout","canceled","pending"}{fmt.Fprintf(w,"stego_controller_actions_total{outcome=%q} %d\n",label,[]uint64{s.Succeeded,s.Failed,s.TimedOut,s.Canceled,s.Pending}[i])}
  fmt.Fprintf(w,"# HELP stego_controller_retries_total Retries scheduled after failed actions.\n# TYPE stego_controller_retries_total counter\nstego_controller_retries_total %d\n",s.Retries)
  fmt.Fprint(w,"# HELP stego_controller_scans_total Completed scans by outcome.\n# TYPE stego_controller_scans_total counter\n")
  fmt.Fprintf(w,"stego_controller_scans_total{outcome=\"success\"} %d\nstego_controller_scans_total{outcome=\"failure\"} %d\n",s.ScansSucceeded,s.ScansFailed)
  fmt.Fprintf(w,"# HELP stego_controller_reconnects_total Watch reconnect attempts.\n# TYPE stego_controller_reconnects_total counter\nstego_controller_reconnects_total %d\n",s.Reconnects)
  fmt.Fprint(w,"# HELP stego_controller_action_duration_seconds Completed action duration including API and provider calls.\n# TYPE stego_controller_action_duration_seconds histogram\n")
  for i,limit:=range durationBounds{fmt.Fprintf(w,"stego_controller_action_duration_seconds_bucket{le=\"%g\"} %d\n",limit,s.DurationBuckets[i])}
- total:=s.Succeeded+s.Failed+s.TimedOut+s.Canceled
+ total:=s.Succeeded+s.Failed+s.TimedOut+s.Canceled+s.Pending
  fmt.Fprintf(w,"stego_controller_action_duration_seconds_bucket{le=\"+Inf\"} %d\nstego_controller_action_duration_seconds_count %d\nstego_controller_action_duration_seconds_sum %g\n",total,total,s.DurationSeconds)
  gauge("cleanup_enabled","A cleanup summary source is configured.",boolean(s.CleanupEnabled))
  gauge("cleanup_available","The last cleanup read succeeded.",boolean(s.CleanupAvailable))

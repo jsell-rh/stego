@@ -70,6 +70,8 @@ func TestGeneratedTelemetryConfiguration(t *testing.T) {
 
 func TestGeneratedTracing(t *testing.T) { testGeneratedTracing(t, "") }
 
+func TestGeneratedControllerTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestController") }
+
 func TestGeneratedPostgresOperationTelemetry(t *testing.T) {
 	testGeneratedTracing(t, "^(TestPostgresOperation|TestDatabaseSignals)")
 }

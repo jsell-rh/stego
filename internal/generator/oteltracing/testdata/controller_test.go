@@ -20,10 +20,15 @@ import (
 
 func TestControllerSignalsAndQueueAggregation(t *testing.T) {
 	for _, sample := range []string{"1", "0"} {
-		t.Run(sample, func(t *testing.T) { testControllerSignals(t, sample) })
+		t.Run(sample, func(t *testing.T) { testControllerSignals(t, sample, false) })
 	}
 }
-func testControllerSignals(t *testing.T, sample string) {
+func TestControllerPendingSignals(t *testing.T) {
+	for _, sample := range []string{"1", "0"} {
+		t.Run(sample, func(t *testing.T) { testControllerSignals(t, sample, true) })
+	}
+}
+func testControllerSignals(t *testing.T, sample string, pending bool) {
 	sink := collectorFixture(t, false)
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", sample)
 	t.Setenv("OTEL_METRIC_EXPORT_INTERVAL", "1000")
@@ -49,10 +54,21 @@ func testControllerSignals(t *testing.T, sample string) {
 	}
 	defer detach()
 	defer second()
-	ctx, finish := controller.Begin(context.Background(), "reconcile")
+	var ctx context.Context
+	wantOutcome := "failure"
+	if pending {
+		var finish func(ControllerWorkResult)
+		ctx, finish = controller.BeginResult(context.Background(), "reconcile")
+		finish(ControllerWorkResult{Pending: true, Retry: true})
+		finish(ControllerWorkResult{Error: errors.New("private-provider-credential"), Retry: true})
+		wantOutcome = "pending"
+	} else {
+		var finish func(error, bool)
+		ctx, finish = controller.Begin(context.Background(), "reconcile")
+		finish(errors.New("private-provider-credential"), true)
+		finish(nil, false)
+	}
 	id := trace.SpanContextFromContext(ctx).TraceID().String()
-	finish(errors.New("private-provider-credential"), true)
-	finish(nil, false)
 	controller.Event(ctx, "watch_started")
 	controller.Event(ctx, "private-event")
 	_, unknown := controller.Begin(ctx, "private-operation")
@@ -106,7 +122,7 @@ func testControllerSignals(t *testing.T, sample string) {
 			t.Fatal("controller signals did not arrive")
 		}
 	}
-	if (sample == "1" && !bytes.Equal(record.SpanId, span.SpanId)) || value(record.Attributes, "outcome").GetStringValue() != "failure" || !value(record.Attributes, "retry").GetBoolValue() || value(record.Attributes, "duration_seconds").GetDoubleValue() < 0 {
+	if (sample == "1" && !bytes.Equal(record.SpanId, span.SpanId)) || value(record.Attributes, "outcome").GetStringValue() != wantOutcome || value(record.Attributes, "retry").GetBoolValue() != !pending || value(record.Attributes, "duration_seconds").GetDoubleValue() < 0 {
 		t.Fatal("controller log correlation failed")
 	}
 	for name, want := range map[string]int64{"running": 2, "capacity": 10, "queued": 4, "active": 2, "retrying": 1, "waiting": 4, "ready": 1} {
@@ -117,17 +133,26 @@ func testControllerSignals(t *testing.T, sample string) {
 		}
 	}
 	histogram := metrics["stego.controller.work.duration"].GetHistogram().GetDataPoints()
-	if len(histogram) != 1 || histogram[0].Count != 1 || value(histogram[0].Attributes, "operation").GetStringValue() != "reconcile" {
+	if len(histogram) != 1 || histogram[0].Count != 1 || value(histogram[0].Attributes, "operation").GetStringValue() != "reconcile" || value(histogram[0].Attributes, "outcome").GetStringValue() != wantOutcome {
 		t.Fatal("controller duration differs")
 	}
 	retries := metrics["stego.controller.retries"].GetSum().GetDataPoints()
-	if len(retries) != 1 || retries[0].GetAsInt() != 1 {
+	if pending {
+		for _, point := range retries {
+			if point.GetAsInt() != 0 {
+				t.Fatal("pending work counted as an error retry")
+			}
+		}
+		if span != nil && span.GetStatus().GetCode() == tracepb.Status_STATUS_CODE_ERROR {
+			t.Fatal("pending work set an error span status")
+		}
+	} else if len(retries) != 1 || retries[0].GetAsInt() != 1 {
 		t.Fatal("retry count differs")
 	}
 	detach()
 	second()
 	runtime.Close()
-	if strings.Contains(output.String(), "private-") || !strings.Contains(output.String(), `"outcome":"failure"`) {
+	if strings.Contains(output.String(), "private-") || !strings.Contains(output.String(), `"outcome":"`+wantOutcome+`"`) {
 		t.Fatal("local controller logs are unsafe or absent")
 	}
 }
@@ -209,6 +234,50 @@ func TestControllerWorkOutcomes(t *testing.T) {
 	}
 	if _, err := runtime.ControllerTelemetry(); err == nil {
 		t.Fatal("closed runtime created controller telemetry")
+	}
+}
+
+func TestControllerPendingErrorPriority(t *testing.T) {
+	traceEnvironment(t)
+	var output bytes.Buffer
+	runtime, err := newRuntime(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	controller, err := runtime.ControllerTelemetry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		operation         string
+		result            ControllerWorkResult
+		outcome, severity string
+	}{
+		{"reconcile", ControllerWorkResult{Pending: true, Retry: true}, "pending", "INFO"},
+		{"reconcile", ControllerWorkResult{Pending: true, Error: errors.New("private-error"), Retry: true}, "failure", "WARN"},
+		{"reconcile", ControllerWorkResult{Pending: true, Error: context.DeadlineExceeded, Retry: true}, "timeout", "WARN"},
+		{"reconcile", ControllerWorkResult{Pending: true, Error: context.Canceled}, "canceled", "INFO"},
+		{"scan", ControllerWorkResult{Pending: true}, "success", "INFO"},
+		{"watch", ControllerWorkResult{Pending: true}, "success", "INFO"},
+	}
+	for _, item := range cases {
+		_, finish := controller.BeginResult(context.Background(), item.operation)
+		finish(item.result)
+	}
+	runtime.Close()
+	decoder := json.NewDecoder(&output)
+	for _, item := range cases {
+		var record localRecord
+		if err := decoder.Decode(&record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Outcome != item.outcome || record.Severity != item.severity || record.Retry != (item.result.Retry && item.result.Error != nil) {
+			t.Fatal("pending telemetry hid an error or changed operation", record)
+		}
+	}
+	if strings.Contains(output.String(), "private-error") {
+		t.Fatal("private error entered telemetry")
 	}
 }
 

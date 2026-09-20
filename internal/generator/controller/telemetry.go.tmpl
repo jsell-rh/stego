@@ -65,3 +65,20 @@ func controllerWork(ctx context.Context,operation string,work func(context.Conte
  return err,func(retry bool){end(err,retry)}
  {{else}}err=work(ctx);if err==nil{err=ctx.Err()};return err,func(bool){}{{end}}
 }
+
+// Expected progress has its own outcome. Context and callback failures discard
+// it before scheduling or telemetry. A panic still propagates without its value.
+func controllerResultWork(ctx context.Context,work func(context.Context)(ReconcileResult,error))(result ReconcileResult,err error,finish func(bool)){
+ {{if .Tracing}}telemetry,_:=ctx.Value(controllerTelemetryKey{}).(*tracing.ControllerTelemetry)
+ end:=func(tracing.ControllerWorkResult){}
+ if telemetry!=nil{ctx,end=telemetry.BeginResult(ctx,"reconcile")}
+ completed:=false
+ defer func(){if !completed{end(tracing.ControllerWorkResult{Error:errControllerPanic})}}()
+ {{end}}result,err=work(ctx)
+ if err==nil{err=ctx.Err()}
+ if err==nil{err=result.validate()}
+ if err!=nil{result=ReconcileResult{}}
+ {{if .Tracing}}completed=true
+ return result,err,func(retry bool){end(tracing.ControllerWorkResult{Error:err,Retry:retry,Pending:result.RecheckAfter>0})}
+ {{else}}return result,err,func(bool){}{{end}}
+}

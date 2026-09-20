@@ -19,6 +19,53 @@ type privateProcessError struct{}
 
 func (*privateProcessError) Error() string { panic("private-process-error") }
 
+func TestPendingResultTelemetryPreservesFailurePriority(t *testing.T) {
+	output, err := os.CreateTemp(t.TempDir(), "pending-logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	saved := os.Stderr
+	os.Stderr = output
+	defer func() { os.Stderr = saved }()
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+	ctx, closeTelemetry, err := startControllerTelemetry(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeTelemetry()
+	for _, failure := range []error{nil, new(privateProcessError), context.DeadlineExceeded, context.Canceled} {
+		result, got, finish := controllerResultWork(ctx, func(context.Context) (ReconcileResult, error) {
+			return ReconcileResult{RecheckAfter: time.Second}, failure
+		})
+		if got != failure || (got != nil && result != (ReconcileResult{})) {
+			t.Fatal("result hid the callback failure")
+		}
+		finish(got != nil)
+	}
+	closeTelemetry()
+	body, err := os.ReadFile(output.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("private-process")) {
+		t.Fatal("private error entered controller telemetry")
+	}
+	var outcomes []string
+	for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+		var record map[string]any
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["event.name"] == "controller.work.completed" {
+			outcomes = append(outcomes, record["outcome"].(string))
+		}
+	}
+	if fmt.Sprint(outcomes) != "[pending failure timeout canceled]" {
+		t.Fatal("controller outcomes differ", outcomes)
+	}
+}
+
 func TestMonitorOwnsSetupAndCleanupTelemetry(t *testing.T) {
 	for _, mode := range []string{"success", "failure", "canceled", "panic", "goexit"} {
 		t.Run(mode, func(t *testing.T) {
