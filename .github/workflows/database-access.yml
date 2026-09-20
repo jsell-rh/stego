@@ -1,0 +1,96 @@
+name: Database access contract
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/database-access.yml'
+      - 'internal/compiler/**'
+      - 'internal/gen/**'
+      - 'internal/generator/postgresadapter/**'
+      - 'internal/generator/outbox/**'
+      - 'internal/generator/browserbackend/**'
+  pull_request:
+    paths:
+      - '.github/workflows/database-access.yml'
+      - 'internal/compiler/**'
+      - 'internal/gen/**'
+      - 'internal/generator/postgresadapter/**'
+      - 'internal/generator/outbox/**'
+      - 'internal/generator/browserbackend/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-access-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  database-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 768MiB
+      GOFLAGS: -p=2
+      STEGO_REQUIRE_POSTGRES: '1'
+      STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
+    services:
+      postgres:
+        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_PASSWORD: stego_test
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --cpus=1 --memory=512m --pids-limit=256
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check generated installation and denied access
+        shell: bash
+        env:
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/database-access"
+          git rev-parse HEAD > "$RUNNER_TEMP/database-access/source-commit"
+          git archive HEAD | sha256sum > "$RUNNER_TEMP/database-access/source-archive.sha256"
+          go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/compiler \
+            -run '^Test(DatabaseAccessDeclaration|GeneratedDatabaseAccess)$' | tee "$RUNNER_TEMP/database-access/tests.log"
+          python3 - "$RUNNER_TEMP/database-access/tests.log" <<'PYRESULT'
+          import re, sys
+          from pathlib import Path
+          log = Path(sys.argv[1]).read_text()
+          assert "--- FAIL:" not in log and "--- SKIP:" not in log
+          required = [
+              "TestDatabaseAccessDeclaration", "TestGeneratedDatabaseAccess",
+              "TestDatabaseAccessCompleteAndRepeat", "TestDatabaseAccessMissingPermission",
+              "TestDatabaseAccessRejectsUnsafeSetup", "TestDatabaseAccessMutationRollback",
+              "TestDatabaseAccessBoundedLockWait",
+          ]
+          for name in required:
+              assert re.search(r"^\s*--- PASS: " + re.escape(name) + r" \(", log, re.M), name
+          modes = ["inherit", "membership", "superuser", "createdb", "createrole",
+                   "replication", "bypassrls", "nologin", "database-create", "database-temp",
+                   "schema-create", "marker-write", "marker-column-write", "public-marker-write",
+                   "grant-option", "sequence-update", "wrong-owner", "view", "row-security", "missing-object"]
+          for mode in modes:
+              assert re.search(r"^\s*--- PASS: TestDatabaseAccessRejectsUnsafeSetup/" + mode + r" \(", log, re.M), mode
+          print("All required generated database access checks passed.")
+          PYRESULT
+      - name: Save database access results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: database-access-${{ github.sha }}
+          path: ${{ runner.temp }}/database-access
+          if-no-files-found: error
+          retention-days: 14

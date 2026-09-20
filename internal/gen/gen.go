@@ -219,6 +219,10 @@ type Wiring struct {
 	// separately.
 	NeedsDB bool
 
+	// DatabaseAccess names the existing objects for the common installer.
+	// The compiler rejects duplicate ownership and unsafe permission sets.
+	DatabaseAccess []DatabaseObject
+
 	// DBBackend specifies which database driver the assembler should use in
 	// the generated main.go. "gorm" emits gorm.Open with the postgres driver;
 	// "sql" (or empty with NeedsDB=true) emits sql.Open for raw database/sql.

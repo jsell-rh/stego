@@ -431,6 +431,9 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if g.LocalApplicationPort != 0 {
 		wiring.GoModRequires["github.com/coder/websocket"] = httpclient.WebSocketVersion
 	}
+	wiring.DatabaseAccess = []gen.DatabaseObject{
+		{Schema: "public", Name: "stego_browser_sessions", Kind: "table", Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"}},
+	}
 	return files, wiring, nil
 }
 

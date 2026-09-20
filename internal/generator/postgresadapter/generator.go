@@ -270,6 +270,25 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			"gorm.io/driver/postgres": "v1.5.11",
 		},
 	}
+	for _, entity := range ctx.Entities {
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "public", Name: tableName(entity.Name), Kind: "table",
+			Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"},
+		})
+	}
+	if ctx.StorageContract != "" {
+		for _, name := range []string{"stego_scan_checkpoints", "stego_effect_bindings", "stego_resource_state", "stego_resource_state_scopes"} {
+			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+				Schema: "public", Name: name, Kind: "table",
+				Privileges: []string{"SELECT", "INSERT", "UPDATE"},
+			})
+		}
+	}
+	if ctx.ComponentConfig["schema_generation"] != nil {
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"},
+		})
+	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
 		return nil, nil, err
