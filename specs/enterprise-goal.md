@@ -192,6 +192,9 @@ including 37 compiler packages, both generated examples, real immutable release
 installation, and local package verification. The consumer compiler and installer
 pins remain unchanged. See the [diagnostic evidence](compiler-install-diagnostics-evidence.json).
 This change does not prove the cause of the earlier provider setup failure.
+The [main checks](compiler-install-diagnostics-main-evidence.json) also passed
+for `93104fb5`. Independent review matched both complete examples, all 37
+compiler packages, and the authenticated artifact source and bytes.
 
 The [workload boundary review](workload-boundary-review-20260920.md) separates
 the accepted common builder from remaining dependency conversion and console

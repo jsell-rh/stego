@@ -1,0 +1,56 @@
+{
+  "source": "93104fb543b85724ff772616f6c3c90baa8e853e",
+  "qualified": true,
+  "checked_at": "2026-09-20T23:03:27.223655+00:00",
+  "runs": {
+    "installation": {
+      "run": 35542922425,
+      "ci_sha256": "2fd9b667aaba32f89aba54210a1a94b1e5bc812439b10a3a0c1db6c984298651",
+      "log_sha256": "0f7ef5fa43f4be16ee29e0434f6b92c6ba9adfb1d26bdf9a14cfd746b5d0b6de"
+    },
+    "artifact": {
+      "run": 35542922367,
+      "ci_sha256": "b3994c3f7e38ea360ada757989af47fab0d0fe4542049ce5861acb2d60e57ad3",
+      "log_sha256": "ebdde7bc0bdf574451957a9ac5557310857487e05bc712ef94c317dbd7666883"
+    },
+    "full": {
+      "run": 35542922359,
+      "ci_sha256": "a94c5ead825340b32997548e9a5a329656b74aeb29d81f39033b11b1e44fa39e",
+      "log_sha256": "4dad532e6dae7eb60e311aea76c05a99b770d01d7e783cd56d7e0c07e86bc6f2"
+    },
+    "application_records": {
+      "run": 35542922363,
+      "ci_sha256": "4384d14f49b163e06e6fa26a6b4e4132047db3051a569c6d6ea50937679de6de",
+      "log_sha256": "f2e50e1295ee297bf9cc91f0789c633d3202efb9c52f6e1f199f9f53f98584e6"
+    }
+  },
+  "compiler_packages": 37,
+  "examples": {
+    "user-management": {
+      "tracked_content_matches": 76,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "b09031936b641a9a34f73b7392f9c34b24265c3ec06489ab2035e76c7b89a384"
+    },
+    "user-management-rhsso": {
+      "tracked_content_matches": 72,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "b04f00df103dcc5202784ce2f56ff0c9d5e8d5dcd87ef31775087e030030c473"
+    }
+  },
+  "artifact": {
+    "name": "stego-linux-amd64",
+    "sha256": "0d7d763fd4e5390ab8f69fe69d1a6bccd0720f320ffbb5b4885f97049e881ebd",
+    "size": 41716893
+  },
+  "source_inventory": {
+    "files": 1394,
+    "bytes": 11063405,
+    "sha256": "d91ce096a6d46697f088065463edcd1aaece2052d00552f7ca2f87a5d7567250"
+  },
+  "artifact_signature_independently_verified": true,
+  "verification_record_sha256": "0cba4285b186aee92a015a29d2411c2059ce91b4ffddf5d08819d8eeba217a39",
+  "real_release_and_package_installation_match": true,
+  "compiler_executed_locally": false,
+  "consumer_compiler_changed": false,
+  "scope": "Main checks for common installation diagnostics. Application build workflows passed; this record does not independently qualify new application images or change consumer pins."
+}
