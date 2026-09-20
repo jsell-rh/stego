@@ -79,3 +79,11 @@ application requires another mechanism. Do not bypass validation with raw maps.
 
 The implementation is a candidate. Generated tests, compiler checks, Hypershell
 adoption, and a complete live workflow must pass before a production claim.
+
+The update tests use the generated client through a TLS API fixture. They apply
+JSON merge patches and serialize real Kubernetes Deployment types. The checks
+cover field removal, strategy changes, removal of unsafe fields, retained API
+defaults, and convergence after one write. All 83 prior construction cases and
+11 added cases passed in the
+[recorded check](../../../specs/workload-update-evidence.json). This fixture does
+not replace cluster admission or the complete application workflow.

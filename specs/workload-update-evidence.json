@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "scope": "Common workload construction and update contract. This record does not prove cluster admission, production capacity, or complete application adoption.",
+  "corrected_source": "adbf638d7211991c7000e56db343aa459010341d",
+  "focused_run": "https://github.com/jsell-rh/stego/actions/runs/35530193096",
+  "focused_proof": {
+    "source": "adbf638d7211991c7000e56db343aa459010341d",
+    "run": 35530193096,
+    "qualified": true,
+    "cases": 94,
+    "prior_cases_retained": 83,
+    "added_cases": [
+      "TestMergePatchFixtureRules",
+      "TestWidgetDeclarationUpdatesRemoveOldValues",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/arguments",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/changed_literal",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/empty_environment_value",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/environment",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/mounts_and_volumes",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/pull_secrets",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/recreate_strategy",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/secret_to_empty_literal",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/unsafe_drift"
+    ],
+    "no_skips": true,
+    "source_archive_sha256": "22d8549fbd93f223c8e263769d3c6f214961cd1b9b86e44f3cba107734621ffc",
+    "test_log_sha256": "518ff38323e334975e2e919c1c7b469874e4c247f8aa57012accd51224f07884",
+    "checked_at": "2026-09-20T18:48:34.652151+00:00",
+    "scope": "Generated construction, API serialization, and TLS update fixture. Live cluster update tests remain required."
+  },
+  "reproduction_run": "https://github.com/jsell-rh/stego/actions/runs/35530020314",
+  "reproduction": {
+    "source": "a9815a95c28df8cf109ed78862758bba9d2074ae",
+    "run": 35530020314,
+    "failure_reproduced": true,
+    "failed_tests": [
+      "TestWidgetDeclarationUpdatesRemoveOldValues/arguments",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/environment",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/empty_environment_value",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/mounts_and_volumes",
+      "TestWidgetDeclarationUpdatesRemoveOldValues/pull_secrets",
+      "TestWidgetDeclarationUpdatesRemoveOldValues"
+    ],
+    "positive_update_passed": true,
+    "fixture_rules_passed": true,
+    "test_log_sha256": "7c14667cbdd6994c0acd0b8f9a466af08aaf8505e8c5227d93a45f7f607d8e41",
+    "scope": "A TLS API fixture applies merge-patch behavior and serializes real Kubernetes types. This is not a live cluster test."
+  },
+  "local_compiler_or_application_executed": false,
+  "live_adoption_required": true
+}
