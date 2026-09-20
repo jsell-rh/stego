@@ -196,4 +196,3 @@ do not supersede later exact-source evidence or the current next action.
 The database model uses a fresh-schema gate. Old or unknown schemas fail before
 writes. Existing installations require explicit operator teardown and recreation;
 the application must never perform automatic teardown.
-
