@@ -44,12 +44,13 @@ Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
 cleanup ownership, and Sandbox integration changes. Main live run `35479995475`
 passed all 11 required tests. Independent checks matched 1,548 source files,
 421 generation hashes, the signed compiler, six browser startup instances,
-and four inspected views. Browser test resources were removed. All 32 standing
-installation objects matched the adopted configuration. The API test is active
-in its separate namespace. Full main run `35479995448` passed 950 core cases
-across 334 top-level tests, retaining all 816 baseline cases. Browser, web
-console, and service image jobs passed; Kata remains deferred. Joint cleanup
-remains required before another live test.
+and four inspected views. All 11 main gates now have independently verified
+results. The API run passed all 52 required tests. Full main run `35479995448`
+passed 950 core cases across 334 top-level tests, retaining all 816 baseline
+cases. Browser, web console, and service image jobs passed; Kata remains
+deferred. Independent reads confirmed removal of both live fixtures and release
+of the shared lease. All 32 standing installation objects matched the adopted
+configuration. See the [complete main record](https://github.com/jsell-rh/hypershell-stego/blob/f89e796/acceptance/main-qualification.md).
 
 One Gateway with 100 REST-created accounts completed cleanup with an observed
 upper bound of 53.9497 seconds. The prior candidate observed 53.5477 seconds.
@@ -602,8 +603,14 @@ the application must never perform automatic teardown.
    web console, and service image jobs passed. The five core exclusions are
    unchanged, and Kata remains deferred. See the
    [full main result](https://github.com/jsell-rh/hypershell-stego/blob/9ba52eb/acceptance/main-full-evidence.json).
-   The API gate and joint cleanup audit are still required before the phase
-   live test.
+   API run `35479995493` passed all 52 required tests. Its 1,548 source files,
+   421 generation hashes, actual compiler bytes, Job limits, and private fixture
+   cleanup passed independent checks. Joint cleanup found no test resources,
+   a free lease, and all 32 standing objects unchanged. All 11 main gates passed
+   exact source and attempt checks. Phase run `35481347942` is now active at
+   `80b0e00`. It uses the standing installation and changes only test observations.
+   It has no complete result yet. Require all 14 phase observations before a
+   performance change is selected.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
