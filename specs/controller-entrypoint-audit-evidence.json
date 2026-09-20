@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "compiler_source": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+  "consumer_source": "8a5e38d1f7c55b9bb45750f3dfff62dd31a0d4be",
+  "checked_at": "2026-09-20T08:08:57.309153+00:00",
+  "files": {
+    "telemetry.go.tmpl": {
+      "sha256": "c6fd19f9a0f174ae3fbf5170f11ee3f4664c772eca356eca81140c73e746a318",
+      "exported_functions": []
+    },
+    "runtime.go.tmpl": {
+      "sha256": "8d4885fdd689a04b1caf56cbd5219232f25651f47342870ac70ae4304f0a9204",
+      "exported_functions": [
+        "Run"
+      ]
+    },
+    "watch_keyed.go.tmpl": {
+      "sha256": "c7b1ec9bdd7b4567994fc2a66f132ed2e9bfe56f357732b9e7f28ffc25a060d2",
+      "exported_functions": [
+        "RunKeyedWatch",
+        "RunKeyedWatches",
+        "RunKeyedWatchWithResult",
+        "RunKeyedWatchesWithResult"
+      ]
+    },
+    "keyed.go.tmpl": {
+      "sha256": "ea2a3eeb7dacede72632a2077113353d8e89c09044a0c708288d8d9a6a5bc98a",
+      "exported_functions": [
+        "RunKeyed",
+        "RunKeyedWithResult"
+      ]
+    },
+    "sweep.go.tmpl": {
+      "sha256": "57794ab34941063ad0ad8bc18b958045b0a3afda768626cee25d4b1447f3f90e",
+      "exported_functions": [
+        "RunSweep"
+      ]
+    },
+    "scan.go.tmpl": {
+      "sha256": "eed207303889578eff602b4c87e09bfc33da607d21bfb1e144ba36702b116f9d",
+      "exported_functions": [
+        "Scan",
+        "ScanFrom"
+      ]
+    },
+    "stream.go.tmpl": {
+      "sha256": "5f25eceb78c35d77927de7f5e8965ee4651da9d3b52cdcf3c303035555e1f336",
+      "exported_functions": [
+        "ScanStream"
+      ]
+    },
+    "checkpoint.go.tmpl": {
+      "sha256": "a41df4c3a7f0caaf9aff8c8116fe7c8b3e559c52a03736d9516f0054c70081bd",
+      "exported_functions": [
+        "ScanCheckpointed"
+      ]
+    },
+    "cycle.go.tmpl": {
+      "sha256": "cc702cfc72fb6df9c4de521d3058b3201c8b52a8c36bc9a7465797acd79e8068",
+      "exported_functions": [
+        "EncodeCycle",
+        "DecodeCycle",
+        "ValidateCycleTransition",
+        "ScanCycleWithOptions",
+        "ScanCycle"
+      ]
+    },
+    "cycle_parallel.go.tmpl": {
+      "sha256": "4bc00c7b1ec80e504054b6017dd4be7485cbe9eb691fc0412a80bc633dc24a9f",
+      "exported_functions": [
+        "ScanCycleParallel"
+      ]
+    },
+    "observation.go.tmpl": {
+      "sha256": "2abaf3e95e87f4f08ea729638dde8d2e32bf289e9c26ce7f2291c769edf8d693",
+      "exported_functions": [
+        "RunObservation"
+      ]
+    },
+    "monitor.go.tmpl": {
+      "sha256": "b91a197362c5ca455684e023c457faef5d9d1097e1a01e7c537aea48e37ee946",
+      "exported_functions": [
+        "Monitor"
+      ]
+    },
+    "process.go.tmpl": {
+      "sha256": "cf8f23fbcbe35476f483d6b4afa54bb20750599f3fcdb278ae569e26ab98f11f",
+      "exported_functions": [
+        "Main"
+      ]
+    }
+  },
+  "findings": [
+    "Run, keyed runners, keyed watch runners, and RunSweep establish the common telemetry owner and operation records. The exact main checks cover these runtime paths.",
+    "Main delegates process ownership through Monitor. Process and queue ownership are separate from finite helper operations.",
+    "Scan, ScanFrom, ScanStream, checkpointed scans, cycle scans, and RunObservation do not establish their own common controller telemetry owner or operation records. They retain the supplied context.",
+    "Hypershell uses scans inside controller callbacks and cycle helpers for identity and account cleanup. Those calls can inherit the enclosing operation context, but that does not prove per-helper or per-action telemetry.",
+    "Additional helper telemetry must preserve outer ownership, callback contexts, retry semantics, checkpoint commits, and failure priority. Standalone helper tests need explicit coverage before a broad C6 claim."
+  ],
+  "source_review_only": true,
+  "full_C6_proved": false,
+  "implementation_changed": false,
+  "peer_configuration_files": {
+    "internal/generator/controller/generator.go": "f8fb130f783c9e3714ba7e56be3a309b48c8b92cac393df0782d1835d6e35e3f",
+    "registry/archetypes/rest-crud/archetype.yaml": "8c448df66576eb0c422c1aacc36c620cf1bfbb7605844ee06ae7a1510c45e083",
+    "registry/archetypes/rpc-service/archetype.yaml": "3918e7cc936b15ea83a8e2b19e7b14e52d2879c9ec13b5a41b5659ca7fa8a5e0",
+    "registry/archetypes/browser-service/archetype.yaml": "a930399c9acdf91811ae66471a13dbfb7653ff5575e8eed1cbfc8803419bf3af"
+  },
+  "peer_scope": "The standard REST, RPC, and browser service archetypes include otel-tracing. A generated controller without that peer retains no-op instrumentation."
+}

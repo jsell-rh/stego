@@ -50,7 +50,8 @@ on main and released as an immutable signed compiler. The exact main checks,
 source and module review, artifact rejection checks, and release installer
 passed. Its binary matches the qualified branch build. The active consumer
 source still uses f6ebd0b. See the [public Run evidence](controller-run-telemetry.md).
-This does not close the complete C6 telemetry audit.
+The [entry point audit](controller-entrypoint-audit.md) records remaining
+finite-helper coverage limits. The complete C6 audit remains open.
 
 The common controller trace change is qualified and released in compiler
 `f6ebd0ba93983bfdcaefa15d8c3344b299af245e`. Reconciliation, scans, cleanup
@@ -97,6 +98,13 @@ all 1,103 core cases, with all prior cases retained. The focused allocation,
 adapter, and trace checks passed. Live workflow `35498460152` is active at
 that fixed source. A new cleanup time and live qualification remain required.
 See the [consumer hosted evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-hosted-evidence.json).
+
+The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
+shows 7,500 millicores across all five nodes. The current server requests for
+100 Gateways alone total 10,000 millicores, before consoles and other services.
+The full target cannot fit that CPU request profile on this cluster. A larger
+suitable test cluster or a separately measured resource profile is required.
+No request was reduced and no capacity test was started for this budget check.
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level
