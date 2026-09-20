@@ -19,16 +19,16 @@ var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 type object struct{ schema, name, kind, privileges string }
 
 var objects = []object{
-	{"public", "audit_events", "table", "DELETE" + "," + "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "org_settings", "table", "DELETE" + "," + "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "organizations", "table", "DELETE" + "," + "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "stego_effect_bindings", "table", "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "stego_resource_state", "table", "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "stego_resource_state_scopes", "table", "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "stego_scan_checkpoints", "table", "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"public", "users", "table", "DELETE" + "," + "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"stego_outbox", "messages", "table", "DELETE" + "," + "INSERT" + "," + "SELECT" + "," + "UPDATE"},
-	{"stego_outbox", "messages_sequence_seq", "sequence", "USAGE"},
+	{"public", "audit_events", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"public", "org_settings", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"public", "organizations", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"public", "stego_effect_bindings", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "stego_resource_state", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "stego_resource_state_scopes", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "stego_scan_checkpoints", "table", "INSERT,SELECT,UPDATE"},
+	{"public", "users", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"stego_outbox", "messages", "table", "DELETE,INSERT,SELECT,UPDATE"},
+	{"stego_outbox", "messages_sequence_seq", "sequence", ""},
 }
 var schemas = []string{"public", "stego_outbox"}
 
@@ -76,6 +76,9 @@ func GrantRuntime(ctx context.Context, conn *sql.Conn, runtimeRole string) (fail
 		}
 	}
 	for _, item := range objects {
+		if item.privileges == "" {
+			continue
+		}
 		if _, err = tx.ExecContext(ctx, "GRANT "+item.privileges+" ON "+strings.ToUpper(item.kind)+" "+quote(item.schema)+"."+quote(item.name)+" TO "+quote(runtimeRole)); err != nil {
 			return ErrAccess
 		}

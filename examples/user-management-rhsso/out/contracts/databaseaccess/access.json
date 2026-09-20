@@ -98,9 +98,7 @@
       "schema": "stego_outbox",
       "name": "messages_sequence_seq",
       "kind": "sequence",
-      "privileges": [
-        "USAGE"
-      ]
+      "privileges": []
     }
   ]
 }

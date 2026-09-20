@@ -29,9 +29,9 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260920155132-27473c2b72fd
+        module_version: v0.0.0-20260920155919-468ea86a81cf
         vcs: git
-        revision: 27473c2b72fd712dbd6b81f8fbe6d17ade766f98
+        revision: 468ea86a81cf3fe12d0b92b045f2e32f1d4dc2ce
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
@@ -99,8 +99,8 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
-        contracts/databaseaccess/access.go: d8d6134d01b1cb86aa6c89d04bd1a0e9d898f173daeee9b6ece2e8f437d40818
-        contracts/databaseaccess/access.json: 42e8bbd8f63d4b862772a0231e6d45122987eadfdc6307d1074ff3db9801f423
+        contracts/databaseaccess/access.go: b40076c802860c63c4ea852a483e20862eb795c514bf61b3394718be0074626d
+        contracts/databaseaccess/access.json: b22e2bd658f0bbf966d42a144bb233d0504d7df95506659ef9ccc969aa7cdb06
         contracts/events/events.go: db027ed6920450da2cfd51e0145f394eb82e248fa418f33efe9f6f41edce6d97
         contracts/storage/storage.go: d05ed1b436ae3af8e148bdf336a9f88c59cfa691ef41c07a46f1fdf8bb8f729f
         health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
