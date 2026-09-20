@@ -131,10 +131,18 @@ The bounded live count test then stopped before its application test: generation
 tried to create state under the read-only container home. Cleanup passed. A
 separate committed runner correction selects writable generation storage,
 verifies the complete compiler transfer before execution, and retains generation
-records. One corrected run is active against unchanged application source
-`e0f3d7b`. It checks ordinary Pods, namespace permissions, events, REST/gRPC, and
-restart. This test does not establish Kata isolation or actual OpenShell Sandbox
-execution. Keep one live test at a time.
+records. The second run completed generation, then failed because its workload
+render command omitted the required database endpoint. A corrected render
+fixture passed its hosted check. The third run reached allocator construction
+and failed because the test process did not receive the rendered network
+endpoints. Independent cleanup passed after each run. None of these runs proves
+live count behavior. The application source remained `e0f3d7b`.
+
+The next fixture supplies the generated allocator settings and selects the
+count role binding by role and subject identity. Its checks precede another
+live run. The live test must cover ordinary Pods, namespace permissions, events,
+REST/gRPC, and restart. It does not establish Kata isolation or actual OpenShell
+Sandbox execution. Keep one live test at a time.
 
 Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
 in the Gateway identity worker, Gateway workload worker, and account provisioner.
@@ -165,6 +173,11 @@ The [transport mapping audit](transport-mapping-audit-20260920.md) identifies
 the remaining conversion code and the application rules that it must preserve.
 It also records an unchecked catalog timestamp conversion for a focused failure
 test. This source review does not establish transport parity or runtime failure.
+
+The [workload boundary review](workload-boundary-review-20260920.md) separates
+the accepted common builder from remaining dependency conversion and console
+annotation assembly. Keep the upstream Sandbox setup and application policy
+outside the restricted workload profile.
 
 ## Remaining requirements
 
