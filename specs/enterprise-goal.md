@@ -516,7 +516,11 @@ the application must never perform automatic teardown.
    It does not prove repeatable latency, concurrent or larger cleanup, or
    complete Gateway workload and database cleanup. See the
    [tenth run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35476517343).
-   The full application gate remains active.
+   The full application gate at the same source passed in run `35476514171`:
+   334 top-level tests and 950 cases, including all 816 baseline cases, 22 retry
+   cases, 11 owner selection cases, and both restart fixtures. The five
+   conditional exclusions are unchanged. Browser, console, and image jobs
+   passed. The Kata job remains deferred.
 
    The normal live workflow now records complete Gateway cleanup observations
    separately from the deliberate SQL-denial test. It checks namespaces, SQL
@@ -525,7 +529,9 @@ the application must never perform automatic teardown.
    100 accounts through REST on each measured Gateway and checks token issuance
    before deletion. Completion requires removal of all provider clients and
    users, authenticated closed journals, closed rows, and one success audit per
-   account. Its hosted compile gate and live execution remain required. This
+   account. Hosted adapter run `35476824851` passed all 63 required tests,
+   six allocation cleanup tests, and 28 collection cases. The live test compiled.
+   The complete live run `35477799297` is active at that fixed source. This
    two-Gateway workflow does not prove the whole production capacity target.
    Live attempt `35476176959` stopped before workload
    creation because the saved test installation lacks three named reads in
