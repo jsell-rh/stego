@@ -40,9 +40,25 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-The accepted application is Hypershell main `82f71a26`, with runtime source
-`caffd04` and compiler `ad71bc71`. The main commit adds acceptance records to
-the tested runtime source. The common workload builder supplies Deployment and
+The accepted application is Hypershell main `1f93f1f8`, with runtime source
+`e0f3d7b` and compiler `8eeb1169`. It uses common typed connection settings in
+five worker entry points. Its hosted check passed 1,176 core cases. The corrected
+count workflow passed in 93.08 seconds. The complete browser workflow passed
+all 11 required tests in 547.23 seconds. Review checked 1,657 source files, 429
+generation hashes, all 430 generated archive files, seven signed images, and
+four screenshots. Cleanup removed the test resources, released the Lease, and
+preserved all 32 standing resources. See the
+[browser evidence](runtime-control-browser-evidence.json) and
+[count evidence](runtime-control-count-evidence.json).
+
+The browser repeat crossed the earlier failed API discovery request without a
+source or limit change. The first timeout remains unexplained and recorded.
+Normal cleanup of a Gateway with 100 live accounts took 32.96 seconds. The
+30-second target remains unmet. These results do not prove production capacity,
+RDS failover, live Kata isolation, or the remaining enterprise requirements.
+
+The earlier workload construction acceptance used main `82f71a26`, runtime
+`caffd04`, and compiler `ad71bc71`. Its records remain the baseline below. The common workload builder supplies Deployment and
 Service objects, security settings, probes, read-only Secret mounts, resource
 limits, and configuration digests. Hypershell declares OpenShell images,
 configuration, dependencies, placement, and domain policy.
@@ -77,7 +93,7 @@ read-return times, not exact transition times. The allocator already requests
 both retained state namespace removals in one pass after their dependencies.
 This record does not justify removing a dependency barrier or a finalizer.
 
-## Change under qualification
+## Configuration history and remaining extraction
 
 Compiler source `8eeb1169` adds common typed environment configuration. Explicit
 declarations select fields, environment names, defaults, and limits. The runtime
@@ -97,8 +113,7 @@ negative artifact-verification cases. The authenticated immutable
 [compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-8eeb11695416799cbc53fa42bba992a1ceeab810)
 is published. A fresh installation matched all five verified package files
 without running the compiler locally. See the
-[compiler evidence](runtime-configuration-evidence.json). Consumer acceptance
-remains open.
+[compiler evidence](runtime-configuration-evidence.json). Consumer acceptance is recorded above.
 
 Hypershell candidate `7ed1a7b7` declares four configuration groups and uses them
 in the namespace allocator and Sandbox count worker. Its generated package is
@@ -153,7 +168,7 @@ The first reviewer stopped on a missing newline between the compiler's final
 message and the Go test start marker. A corrected reviewer recognized that exact
 boundary and preserved the raw log. This result does not establish Kata isolation,
 actual OpenShell Sandbox execution, or production capacity. The exact-source
-browser workflow remains required. Keep one live test at a time.
+browser repeat later passed as recorded above. Keep one live test at a time.
 
 Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
 in the Gateway identity worker, Gateway workload worker, and account provisioner.
@@ -172,7 +187,7 @@ and signature review. The
 passed 1,176 core cases across 366 top-level tests. All 1,165 prior cases, test
 definitions, and five exclusions remain. Browser, UI, and service-image jobs
 passed; the Sandbox job remains deferred. Live count qualification passed with the recorded test-only changes. Corrected-source
-browser qualification remains open. The earlier failed runs cannot qualify this source.
+browser qualification passed in run 35544262375. The earlier failed runs cannot qualify this source.
 
 The exact-source [browser run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35543304070)
 failed after 377.37 seconds in its main workflow. The other ten required tests
@@ -183,13 +198,14 @@ left all 32 standing resources unchanged. Later checks found all five nodes
 ready without pressure and the API and network operators healthy. These later
 checks do not explain the failed request. See the
 [failure evidence](runtime-control-browser-failure-evidence.json).
-Hypershell main remains at `82f71a26`. One controlled repeat uses the same source,
-images, security controls, and limits. The failed result remains part of the
-acceptance record; it cannot qualify the candidate.
+The controlled repeat used the same source, images, security controls, and
+limits. It passed complete review and is recorded in the current accepted
+application above. The failed result remains part of the acceptance record;
+it cannot qualify the candidate or establish the timeout cause.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented
-in the consumer. Complete live validation remains required. Optional provider
+in the consumer. Complete live checks passed for this change. Optional provider
 connections, other settings, and repeated REST/gRPC conversion remain separate
 work. Neither candidate completes the enterprise requirements.
 
@@ -214,6 +230,14 @@ the accepted common builder from remaining dependency conversion and console
 annotation assembly. Keep the upstream Sandbox setup and application policy
 outside the restricted workload profile.
 
+The next extraction is consumer source `a1ad728`, which uses the released
+common renderer at compiler `5c4afa11`. It removes application annotation
+assembly and duplicate digest-format validation. Complete generation and module
+review passed, and the focused consumer check passed 43 cases across 11 tests.
+Its full application and image checks are active. It is not on Hypershell main;
+a complete workflow remains required. See the
+[compiler release evidence](deployment-configuration-main-evidence.json).
+
 ## Remaining requirements
 
 The completion table above remains authoritative. The following work is open;
@@ -227,7 +251,7 @@ a narrower passing check cannot close a broader requirement.
 | C6: runtime | Complete health, readiness, timeout, shutdown, resource-limit, and all-signal telemetry coverage. Direct finite controller helpers need explicit operation and parent contracts without duplicate telemetry owners. The earlier recovered browser initialization failure still lacks a proved cause. |
 | C7: compiler contracts | Audit typed wiring, capability validation, extension points, and compatibility against the original assessment. Generated Go compilation does not by itself prove a complete component contract. |
 | H1: application contracts | Complete parity evidence for REST, gRPC, RBAC, watches, SDK, CLI, UI, deployment, and the upstream dashboard terminal contract. |
-| H2: common mechanisms | Finish the current configuration adoption, then remove repeated mechanisms from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain clean generation without rh-trex-ai. |
+| H2: common mechanisms | Complete the common console rollout adoption and remove the remaining dependency conversion from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain clean generation without rh-trex-ai. |
 | H3: system behavior | Qualify supported deployment recovery, restore, concurrent and degraded-provider behavior, retained-history costs, and measured capacity. Preserve exact-source records and cleanup proof. |
 
 The initial capacity targets are 100 Gateways per instance, 100 service accounts

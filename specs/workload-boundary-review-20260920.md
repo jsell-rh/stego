@@ -4,7 +4,8 @@ The main Gateway workload extraction is complete in accepted Hypershell source
 `caffd04`, recorded on main `82f71a26`. STEGO constructs Deployments and Services
 from typed declarations. Hypershell selects OpenShell settings and dependencies.
 The later source `e0f3d7bb9ae93666e9a1381137a57df57a0416f8` retains that boundary.
-Its worker configuration changes remain under qualification.
+Its worker configuration changes are accepted on Hypershell main `1f93f1f8`
+after the complete count and browser workflows.
 
 This review checks the remaining assembly code at `e0f3d7b`. A source review
 does not establish complete application parity or production capacity.
@@ -30,8 +31,8 @@ restricted builder would weaken its guarantees.
 
 ## Next extraction boundary
 
-Complete the current configuration adoption before another runtime change.
-Then remove the remaining dependency conversion and console annotation assembly
+The current worker configuration adoption passed its complete workflow.
+Remove the remaining dependency conversion and console annotation assembly
 through typed common interfaces. The caller supplies authorized dependencies;
 the common implementation checks their representation and constructs the output.
 It must not infer Gateway ownership, grant rules, placement, release selection,
@@ -65,10 +66,12 @@ in 93.08 seconds. Review checked the unchanged runtime files, generated hashes,
 and complete cleanup. See the [count evidence](runtime-control-count-evidence.json).
 The generated allocator retains its endpoint and identity checks.
 
-The later browser run failed during a Kubernetes API TLS handshake after API
-restart. Independent cleanup passed. Its cause remains unknown; current-source
-browser acceptance is still open. See the
-[failure evidence](runtime-control-browser-failure-evidence.json).
+The first current-source browser run failed during a Kubernetes API TLS
+handshake after API restart. Independent cleanup passed. Its cause remains
+unknown. The controlled repeat passed all 11 required tests in 547.23 seconds,
+with complete generation, image, telemetry, screenshot, and cleanup review.
+See the [failure evidence](runtime-control-browser-failure-evidence.json) and
+[accepted repeat](runtime-control-browser-evidence.json).
 
 The common renderer candidate `c22cb19` adds a typed configuration digest option.
 It validates the digest and sets the Pod template annotation. Focused checks
@@ -77,8 +80,10 @@ The full compiler check passed 37 packages and both generated examples. The
 change is merged into STEGO. Its exact main source `5c4afa11` passed the same
 focused and full checks. Its signed compiler and build record passed independent
 verification. The immutable release is published; a fresh installation matched
-all five verified files. Hypershell regeneration is queued with this release.
-Consumer adoption and complete workflow checks remain required. See the
+all five verified files. Hypershell regeneration and nested-module selection
+passed full inventory review. Consumer `a1ad728` passed 43 focused cases across
+11 tests. Its full application and image checks are active; complete workflow
+acceptance remains required. See the
 [candidate evidence](deployment-configuration-evidence.json) and
 [main release evidence](deployment-configuration-main-evidence.json).
 The change does not move Gateway policy into STEGO.

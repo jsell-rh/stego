@@ -1,0 +1,153 @@
+{
+  "runtime_source": "e0f3d7bb9ae93666e9a1381137a57df57a0416f8",
+  "fixture_source": "70a3227e8e97ced903579ce1e70153722dbb67a8",
+  "compiler": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+  "run": 35544262375,
+  "qualified": true,
+  "required_tests": 11,
+  "main_scenario_seconds": 547.23,
+  "source_files_checked": 1656,
+  "generation_hashes_checked": 429,
+  "complete_generated_archive_files": 430,
+  "screenshots_reviewed": 4,
+  "signed_images": 7,
+  "coverage": [
+    "REST and gRPC Gateway contracts and access rules",
+    "Generated event delivery",
+    "Browser and upstream dashboard authentication",
+    "Worker and API restarts",
+    "PostgreSQL process restart with retained SQL and credentials",
+    "Namespace replacement and isolation",
+    "Denied cleanup and durable allocation finalization",
+    "Correlated logs, metrics, and traces"
+  ],
+  "cleanup": {
+    "owned_resources_absent": true,
+    "lease_free": true,
+    "standing_resources_unchanged": 32
+  },
+  "normal_cleanup_observation": {
+    "schema": 2,
+    "scope": "normal_gateway_cleanup",
+    "stage": "complete",
+    "observation": "sequential_completion_checks",
+    "target_seconds": 30,
+    "capacity_fixture": false,
+    "live_accounts_per_measured_gateway": 100,
+    "complete": true,
+    "installation_data_preserved": true,
+    "gateways": [
+      {
+        "gateway_id": "3Jc4GVAkce9hcXj0kOKoa0hoj7P",
+        "account_rows_before_request": 100,
+        "undeleted_account_rows_before_request": 100,
+        "accepted_response_observed_at": "2026-09-20T23:35:21.271670059Z",
+        "complete": true,
+        "observed_upper_bound_seconds": 32.963020274,
+        "within_target_observed": false,
+        "accounts_created_through_rest": 100,
+        "accounts_with_verified_token_issuance": 100,
+        "accounts_closed": 100,
+        "journals_closed": 100,
+        "provider_clients_absent": 100,
+        "provider_users_absent": 100,
+        "cleanup_success_audits": 100,
+        "account_scope_sealed": true,
+        "completion_observations": {
+          "account_cleanup_recorded": {
+            "last_pending_observed_seconds": 5.233333586,
+            "first_complete_after_last_pending_seconds": 6.28764,
+            "observed_regressions": 0
+          },
+          "account_proof_complete": {
+            "first_complete_after_last_pending_seconds": 32.96301408,
+            "observed_regressions": 0
+          },
+          "all_cleanup_recorded": {
+            "last_pending_observed_seconds": 30.805664471,
+            "first_complete_after_last_pending_seconds": 31.832014814,
+            "observed_regressions": 0
+          },
+          "allocation_bindings_absent": {
+            "first_complete_after_last_pending_seconds": 31.8512929,
+            "observed_regressions": 0
+          },
+          "allocation_cleanup_recorded": {
+            "last_pending_observed_seconds": 30.805663461,
+            "first_complete_after_last_pending_seconds": 31.832013804,
+            "observed_regressions": 0
+          },
+          "console_state_namespace_absent": {
+            "last_pending_observed_seconds": 29.737745525,
+            "first_complete_after_last_pending_seconds": 30.787048888,
+            "observed_regressions": 0
+          },
+          "gateway_finalized": {
+            "last_pending_observed_seconds": 30.805664036,
+            "first_complete_after_last_pending_seconds": 31.832014317,
+            "observed_regressions": 0
+          },
+          "gateway_namespace_absent": {
+            "last_pending_observed_seconds": 12.563493742,
+            "first_complete_after_last_pending_seconds": 13.622304143000001,
+            "observed_regressions": 0
+          },
+          "gateway_state_namespace_absent": {
+            "last_pending_observed_seconds": 28.609145651,
+            "first_complete_after_last_pending_seconds": 29.722453564,
+            "observed_regressions": 0
+          },
+          "identity_cleanup_recorded": {
+            "last_pending_observed_seconds": 0.048475366,
+            "first_complete_after_last_pending_seconds": 1.083286131,
+            "observed_regressions": 0
+          },
+          "owner_http_404": {
+            "first_complete_after_last_pending_seconds": 31.927353865,
+            "observed_regressions": 0
+          },
+          "sandbox_namespace_absent": {
+            "last_pending_observed_seconds": 18.939407127,
+            "first_complete_after_last_pending_seconds": 20.022674458,
+            "observed_regressions": 0
+          },
+          "sql_cleanup_recorded": {
+            "last_pending_observed_seconds": 20.023068366,
+            "first_complete_after_last_pending_seconds": 21.167411532,
+            "observed_regressions": 0
+          },
+          "sql_objects_absent": {
+            "first_complete_after_last_pending_seconds": 31.892220658,
+            "observed_regressions": 0
+          },
+          "workload_cleanup_recorded": {
+            "last_pending_observed_seconds": 20.023067958,
+            "first_complete_after_last_pending_seconds": 21.167411065,
+            "observed_regressions": 0
+          }
+        }
+      }
+    ]
+  },
+  "prior_failed_run": 35543304070,
+  "prior_failure_root_cause_established": false,
+  "proof_sha256": {
+    "image-delivery-verification.json": "a112f77d2e096133316f2bab104a739648945765410b0112564882a016513fc0",
+    "verification.json": "cb41570980e19bc45459daaef839343b0628f0e862b624a85507ffc4933765bf",
+    "controller-trace-verification.json": "7dbc39ed7c30326417c546b699a75569e15aec5358c00fa244a11e320c01fdd7",
+    "account-verification.json": "d0dda667afd5715985c21130c1da8275bfb756cc0f2e75e97edd77b48dc6e88b",
+    "phase-verification.json": "c4f763ffb9ac50238437a294017e8cea76089cbb667694eb6132d6a549539222",
+    "independent-cleanup.json": "003771fd32dd1de184b714b5f98205a3cb94e8632b5f9143c2745e576ab07ed8",
+    "admitted-pod-verification.json": "40242caf7934460eb65cb8ee2bc38c444be3f883d6ec7cdc7dab36ca01fe66f3",
+    "visual-review.json": "0cca20c0c68e5d61963f66423237ae6d9497d9a41ba11c809bcba99662b9f232",
+    "allocator-log-observation/cleanup-window-review.json": "aa58899a4238951b8bbd9a52bf8da1baf5a78d3b62a13e8fdf6938b1b0732b74",
+    "namespace-deletion-observation-current-gate/cleanup-window-review.json": "fbb80f0c367ef562653db0458e77a65cf395fe8ecc640367c82b1349a56e36a0",
+    "generation-inventory-review.json": "3f2a3038edc20d007e20a88e11a29d2bb9599eabf2b1df5b28f4926b5dc0ea28"
+  },
+  "not_proved": [
+    "RDS failover",
+    "Live Kata isolation",
+    "Production capacity and remaining enterprise requirements"
+  ],
+  "checked_at": "2026-09-20T23:40:13.335802+00:00"
+}
