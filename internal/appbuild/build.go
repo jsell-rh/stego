@@ -339,8 +339,11 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	}
 	sdk := filepath.Dir(filepath.Dir(o.Go))
 	toolchain, _, err := inventory(sdk, sdkIdentity.Files, sdkIdentity.Bytes)
-	if err != nil || toolchain != sdkIdentity {
-		return nil, errors.New("Go SDK differs from the pinned official release")
+	if err != nil {
+		return nil, fmt.Errorf("Go SDK inventory inspection failed: %w", err)
+	}
+	if toolchain != sdkIdentity {
+		return nil, fmt.Errorf("Go SDK differs from the pinned official release: files=%d bytes=%d SHA-256=%s", toolchain.Files, toolchain.Bytes, toolchain.SHA256)
 	}
 	git := "/usr/bin/git"
 	gitHash, _, err := fileDigest(git)
