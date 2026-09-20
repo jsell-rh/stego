@@ -1,0 +1,46 @@
+{
+  "reviewed_at": "2026-09-20T09:49:30.892447+00:00",
+  "compiler": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+  "consumer": "d24e9da78f6cb3c3ff7715b868ce91d29a1bd7df",
+  "review": "Source review only. No new build, test, or live qualification is claimed.",
+  "compiler_files_sha256": {
+    "internal/generator/kubernetesservice/generator.go": "3fa8188dcea54f2dc1b2b98d3e7a936e871199181b23f95797ff833ef12454a3",
+    "internal/generator/kubernetesservice/workers.go": "a168dd20df56ea66e4e67c85cc988694d99051e6e3b3a0d6135209618da787ee",
+    "internal/generator/kubernetesservice/generator_test.go": "753847bc06f1ba2ba2dbdd40177b74126af5c33b03049e4318ff2613e612ddf7",
+    "specs/project-input-manifests.md": "a0616995fd9e55245fc6b37cbbf399ca218cbd35c49edc545d9da7c0ce360549",
+    "specs/build-identity.md": "4a41c53c56cb33185152b2a81468ffd60ab520b48bee98a40ae3cbdfca923cbc"
+  },
+  "consumer_files_sha256": {
+    "out/deploy/Containerfile": "f330ecb550ec63a0825e7618026d113a8a0abb8c8dde7c2ae725b41054b090a1",
+    "out/deploy/Containerfile.dockerignore": "c3fd3dcf5dadfbbf78e90fc85f796348a130eeb502eb478f3c81c6519b431613",
+    "scripts/publish-service-image.sh": "002051ab74d8ab6fe917fa560629134183cfc24fdb0db7c113aa78c417ad503b",
+    "scripts/run-browser-deployment-pod.sh": "9ab1c9d9a233827c953f9780d3e4e564f3d3652cb43b07330cae81f9632b8c97",
+    "scripts/run-service-deployment-pod.sh": "352f3b02bcad1852660f3d67aaa02ae5f5af51633ebb1a2c802e29281ac10f55",
+    ".github/workflows/gateway-console.yml": "1afc226076012d2e798220c2dbce6c9e72b05e64c570db68e2275211a9b7e6be",
+    ".github/workflows/console-assets.yml": "b8f11ce5e559b748701e917d2c869ef44de3592228ac4a1fabd8a8d0cb3c2649",
+    "components/gateway-dashboard/Containerfile": "f057bc0165fd33af0294aef5e0071c7818666fa314156632204158634e9bcc4d"
+  },
+  "generated_containerfiles_sha256": {
+    "console/out/deploy/Containerfile": "5e6daad8047fdef67273b96be60fedf1be712ac31326e54936a67cb745d98cbe",
+    "gateway-console/out/deploy/Containerfile": "5e6daad8047fdef67273b96be60fedf1be712ac31326e54936a67cb745d98cbe",
+    "out/deploy/Containerfile": "f330ecb550ec63a0825e7618026d113a8a0abb8c8dde7c2ae725b41054b090a1",
+    "out/deploy/rpc/provisioner/Containerfile": "6fe28e4557ce02bb0e6096e4c38febcf479d9d7f730e0157e6fad9b4edfe90d7",
+    "out/deploy/workers/gateway-identity/Containerfile": "5f7395f954d74b6f2596b369c38a026e8c3c34213f7cadc9e51b20c09d1d2da9",
+    "out/deploy/workers/gateway-workload/Containerfile": "16b5cdee1f5f026f0a3e3c40280afc805c90673d76e7a40ce33640445e395771",
+    "out/deploy/workers/namespace-allocation/Containerfile": "4731db191181e103faeaee4ab5b9772012c07a306f7c227b90601c581c373c2e",
+    "out/deploy/workers/sandbox-count/Containerfile": "bb7d2d867c7ec732c2468b22e2c0a4b9c2d4e77dd73627cdd949623eed1b76b7"
+  },
+  "generated_containerfiles": 8,
+  "all_reviewed_bytes_match_exact_revisions": true,
+  "common_container_controls_present": true,
+  "application_build_paths": [
+    "Generated Containerfile with a separate executable comparison in Gateway console CI.",
+    "Handwritten image layer publisher in the bounded live browser fixture."
+  ],
+  "open_requirement": "A common application artifact record and verification mechanism that connects controlled inputs to actual executable and image bytes.",
+  "limits": [
+    "A signed compiler does not authenticate application artifacts.",
+    "Source review does not prove reproducible or authenticated application builds.",
+    "The current candidate still requires all hosted checks and the complete live Gateway workflow."
+  ]
+}

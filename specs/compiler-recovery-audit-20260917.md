@@ -63,3 +63,8 @@ The downloaded binary, module records, embedded build settings, and all source
 hashes were independently checked. This adds exact compiler artifact identity
 and a fixed Go build procedure. It does not authenticate releases or establish
 complete application build inputs. C3 remains active.
+
+The later [application build review](application-build-boundary.md) identifies
+the common generated image controls and the two Hypershell image build paths
+at compiler `3be6bce` and consumer `d24e9da`. It records the remaining common
+application artifact requirement. It does not replace the live workflow gate.
