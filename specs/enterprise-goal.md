@@ -40,7 +40,7 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
-Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
+The prior Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
 cleanup ownership, and Sandbox integration changes. Main live run `35479995475`
 passed all 11 required tests. Independent checks matched 1,548 source files,
 421 generation hashes, the signed compiler, six browser startup instances,
@@ -65,21 +65,46 @@ The application did not include namespace allocation in its durable cleanup
 owners. The earlier passing checks did not cover this ordering requirement.
 See the [phase review](https://github.com/jsell-rh/hypershell-stego/blob/9b658d5/acceptance/cleanup-phase-review.md).
 
-The candidate adds an allocation cleanup owner through the existing STEGO
-targeted cleanup and observation contracts. Namespace removal order remains
-Hypershell policy. At `ecb3160`, its adapter, focused deletion, regeneration,
-and journal checks passed. Full run `35482437428` then failed three catalog and
-CLI tests: their controlled providers omitted allocation cleanup, so the API
-refused managed cluster deletion with HTTP 409. Candidate `6061469` corrects
-those fixtures and adds all three tests to the focused check. It also requires
-HTTP 409 after SQL and workload cleanup, before allocation completion. Its
-qualification is in progress. See the
-[candidate record](https://github.com/jsell-rh/hypershell-stego/blob/6061469/acceptance/allocation-finalization.md).
-The candidate must also pass the complete live workflow with the allocator stopped
-and restarted before it can replace the main runtime. The test must show that
-REST and gRPC retain the deleting Gateway until allocation cleanup completes.
-This correction does not prove the 30-second target, schema upgrades,
-distributed fencing, or the other open completion requirements.
+The allocation fix at Hypershell `6061469` passed the complete browser workflow,
+the separate API gate, and ten hosted checks. It uses STEGO's existing targeted
+cleanup and observation contracts. Namespace removal order remains Hypershell
+policy. Main adopts this runtime with result records at `e9b9bf9`.
+
+Browser run `35485013231` passed all 11 required tests. With the allocator
+stopped, the other cleanup owners completed while two state namespaces remained.
+REST and gRPC retained the deleting Gateway. A replacement allocator completed
+removal before finalization. The normal deletion record contains all 15 required
+phase observations and no namespace observed present after finalization.
+API run `35486021140` passed all 52 required tests. Independent checks matched
+1,568 source files, 421 generation hashes, the signed compiler and its bytes in
+both bounded test Pods, 24 ready-Pod account observations, and four inspected
+UI images. Both fixtures were absent, the shared lease was free, and all 32
+standing installation objects were unchanged. See the
+[qualified application result](https://github.com/jsell-rh/hypershell-stego/blob/e9b9bf9/acceptance/allocation-finalization.md).
+
+The full suite passed 963 cases across 337 top-level tests. The earlier full
+run at `ecb3160` failed three catalog and CLI fixtures that omitted allocation
+cleanup. Source `6061469` corrected those fixtures; all three now pass. The
+placement test also requires HTTP 409 after SQL and workload cleanup, before
+allocation completion. The failed result remains recorded.
+
+Complete cleanup proof for one Gateway with 100 accounts took 58.1439 seconds.
+The 30-second whole-Gateway target remains unproved. The bounded account-only
+capacity check took 21.9520 seconds with 10,000 background clients. It does not
+include workload cleanup or prove production capacity.
+
+The account cleanup flag returned to pending 14 times. A separate regression
+at `bf6b4e5`, run `35486074519`, reproduced one cause: a clean partial rescan
+removed an earlier cleanup proof while its scope stayed sealed and its inputs
+stayed unchanged. It was the only failed test; all 169 earlier passing journal
+cases remained passing. Candidate `7fe2f3d` preserves the observation in that
+case and requires failures and changed inputs to invalidate it. It uses the
+existing common scan and storage contracts. Its CI and complete workflow
+qualification remain pending. It is not part of the qualified main runtime.
+See the [rescan candidate](https://github.com/jsell-rh/hypershell-stego/blob/7fe2f3d/acceptance/account-rescan-proof.md).
+This does not establish the cause of namespace removal latency. Schema upgrades,
+distributed fencing, restore, live Kata, full application parity, and the other
+open completion requirements remain unproved.
 
 STEGO now combines a pinned common Git registry with distinct local application
 archetypes. Hypershell no longer copies common component declarations. Both
