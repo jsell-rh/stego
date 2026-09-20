@@ -3,7 +3,8 @@
 Compiler `c92f591` is published as an authenticated immutable release. Common
 image delivery source `a82691b` passed the source, native image, real signature,
 and private TLS registry checks for the example and Hypershell API. The complete
-Hypershell workflow with this new image path remains unproved. C3 is not complete.
+Hypershell browser workflow passed with this path in run `35512430605`.
+Production CA selection and complete offline inputs remain open. C3 is not complete.
 See the [current delivery evidence](application-delivery-evidence.json). Later
 sections retain source-specific results from earlier candidates.
 
