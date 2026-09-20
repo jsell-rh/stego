@@ -565,6 +565,14 @@ the application must never perform automatic teardown.
    roles, admission rules, network policy, and RuntimeClasses are unchanged.
    The live timing result is now recorded. The next timing review must use
    the complete workflow evidence and preserve the verified cleanup behavior.
+   Application diagnostic candidate `80b0e00` records separate observations
+   for namespace removal, durable cleanup flags, and final proof checks. A
+   later pending read clears an earlier completion and records a regression.
+   Existing conditions, polling, population, and deadlines remain unchanged.
+   Hosted run `35480246600` must verify the observation cases and compile the
+   live test before another cluster attempt. No phase timing result is yet
+   available. Main regeneration and adapter checks were independently verified
+   at `0aa8f0d`; all 420 archived generation files match committed source.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
