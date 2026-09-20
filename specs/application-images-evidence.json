@@ -121,7 +121,17 @@
     "qualify-applications.py": "c80a2a898f669a2a5176fa3a545f8cabd55a80590ed048cabcc723b8f189fe6c",
     "qualify-images.py": "9ddd6d1b4a7c1753415ce809663fdc86ca95e3e61c0e5001445652f23e2cd0a0"
   },
-  "full_ci_pending": true,
+  "full_ci_pending": false,
   "main_promoted": false,
-  "compiler_released": false
+  "compiler_released": false,
+  "full_ci_failure": {
+    "source": "39c7c631b07c80869b2936b50e1be50e3cb797b5",
+    "run": 35507655349,
+    "job": 106070071409,
+    "test": "TestGeneratedStoreTransactions",
+    "reason": "The complete generated package exceeded its one-minute limit during database cleanup.",
+    "completed_case_seconds_including_subtests": 59.33,
+    "correction": "Use a three-minute suite limit and disable cached results. Keep the five-second database setup and cleanup limits.",
+    "corrected_source_qualification_pending": true
+  }
 }

@@ -23,7 +23,7 @@ image against the native build record without executing it. Partial work stays
 in a new private directory for inspection; it is not a successful image result.
 
 The image record does not authenticate itself. Signed records, actual registry
-publication and retrieval, container engine checks, and use in the Hypershell
+publication and retrieval, and use in the Hypershell
 publisher remain required. The actual Hypershell API and the independent example
 now use the same mechanism in the candidate CI check. The production publisher
 has not adopted it.
@@ -66,5 +66,16 @@ its saved bytes. The OCI publication identity remains separate.
 
 The test CA is an explicit public fixture, not a production CA selection. These
 checks did not start the application, publish to a registry, authenticate image
-records, or replace the live Gateway workflow. Full compiler CI for this exact
-candidate remains pending. Production publisher integration is still required.
+records, or replace the live Gateway workflow. Production publisher integration
+is still required.
+
+[Full compiler run 35507655349](https://github.com/jsell-rh/stego/actions/runs/35507655349)
+failed in the generated PostgreSQL transaction suite. Its one-minute package
+limit expired during database cleanup. The log contains 59.33 seconds of
+completed test cases, including subtests. It reports no earlier assertion
+failure or race. The result is a failure, not a qualified compiler release.
+
+The test harness now gives the complete suite three minutes and disables cached
+results. Each database setup and cleanup still has a five-second limit. This
+changes the test budget only. The corrected source must pass full CI before
+promotion.

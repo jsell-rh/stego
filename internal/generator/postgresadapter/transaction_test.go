@@ -190,7 +190,9 @@ require (
 			t.Fatal(err)
 		}
 	}
-	commands := [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-mod=readonly", "-timeout=60s", "-v", "./..."}}
+	// The full suite creates a private database for each case. Give the suite
+	// a separate time limit; each database setup and cleanup still has five seconds.
+	commands := [][]string{{"mod", "tidy", "-go=" + new(Generator).MinimumGoVersion()}, {"vet", "-mod=readonly", "./..."}, {"test", "-race", "-count=1", "-mod=readonly", "-timeout=3m", "-v", "./..."}}
 	if pattern != "" {
 		commands[2] = append(commands[2], "-run="+pattern)
 	}
