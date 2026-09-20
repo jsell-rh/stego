@@ -63,7 +63,9 @@ def matrix(path):
         names.add(name)
         if not relative_path(item['module'], allow_root=True) or not relative_path(item['target']):
             raise DeclarationError('An image module or target is not a safe relative path')
-        if not isinstance(item['entrypoint'], str) or not re.fullmatch(r'[a-z][a-z0-9_-]{0,63}', item['entrypoint']):
+        if (not isinstance(item['entrypoint'], str)
+                or not re.fullmatch(r'[a-z][a-z0-9_-]{0,62}', item['entrypoint'])
+                or item['entrypoint'] == 'etc'):
             raise DeclarationError('An image entry point is not supported')
     return {'include': images}
 

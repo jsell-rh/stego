@@ -77,6 +77,12 @@ class MatrixTests(unittest.TestCase):
             with self.assertRaises(control.DeclarationError):
                 control.matrix(self.path)
 
+    def test_entrypoint_matches_image_root_limits(self):
+        for value in ['etc', 'a' * 64]:
+            with self.subTest(value=value), self.assertRaises(control.DeclarationError):
+                self.read({'format': 1, 'images': [dict(self.image, entrypoint=value)]})
+        self.read({'format': 1, 'images': [dict(self.image, entrypoint='a' * 63)]})
+
     def test_non_regular_inputs(self):
         self.path.write_text(json.dumps({'format': 1, 'images': [self.image]}))
         link = self.root / 'link'
