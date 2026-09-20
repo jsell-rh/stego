@@ -1,7 +1,8 @@
 # Controller trace boundaries
 
-Status: candidate implementation. Hosted checks and the real application workflow
-are required before release. No qualified result is claimed here.
+Status: the common compiler is qualified and released. The real Hypershell
+workflow with this compiler remains required before application adoption is
+qualified. See the [compiler evidence](controller-trace-evidence.json).
 
 ## Evidence
 
@@ -55,7 +56,7 @@ correlated logs, metrics, and traces for the same worker instances and independe
 trace IDs for separate attempts. Keep the cleanup-time measurement separate.
 Do not modify an active test source or infer production capacity from this check.
 
-## Candidate change
+## Released change
 
 The common telemetry entry point starts an independent root for each fixed
 operation. It retains the supplied context. It does not retain links or increase
@@ -69,3 +70,36 @@ HTTP, gRPC, and PostgreSQL child spans, and sampled and unsampled log correlatio
 The controller integration test checks cleanup failure, recovery, invalid samples,
 and native counters. Existing queue and watch tests remain required. A live
 Hypershell run must still prove trace separation through actual scheduling.
+
+
+## Compiler qualification
+
+Compiler `f6ebd0ba93983bfdcaefa15d8c3344b299af245e` passed all six
+[main compiler jobs](https://github.com/jsell-rh/stego/actions/runs/35490158790).
+The race check passed 34 packages. Both examples matched their generated code,
+and their state snapshots contained only the expected compiler identity changes.
+The full log does not report every test skip. The separate focused checks supply
+named results for the changed controller behavior.
+
+The [controller check](https://github.com/jsell-rh/stego/actions/runs/35490158808)
+passed 21 outer cases. Each of its two trace cases checked 14 independent roots
+and 36 provider children, with sampled and unsampled log correlation. Two cleanup
+cases checked failure, recovery, invalid samples, and native counters. Existing
+error-only and explicit-result controller APIs remain covered. The
+[authentication check](https://github.com/jsell-rh/stego/actions/runs/35490158802)
+passed eight cases at the same source.
+
+The [signed build](https://github.com/jsell-rh/stego/actions/runs/35490158799)
+produced identical bytes in two isolated builds. Independent review checked
+1,292 source files, 28 module records, the build policy, signatures, four rejection
+cases, and the common installer. The
+[immutable release](https://github.com/jsell-rh/stego/releases/tag/compiler-f6ebd0ba93983bfdcaefa15d8c3344b299af245e)
+was downloaded and verified independently. Its installation record matches the
+verified build artifact. The downloaded compiler did not execute locally.
+
+Hypershell candidate `e026fb00159953615110fd7c7022ee6d53526db0` selects this
+release. Hosted regeneration and the committed Gateway console module update
+passed independent review. Its full consumer checks and live trace workflow are
+separate acceptance gates. No live trace, capacity, or cleanup-time result is
+claimed for this candidate. Keep the pending-result cleanup measurement on its
+separate frozen source and compiler.

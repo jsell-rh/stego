@@ -1,0 +1,129 @@
+{
+  "format": 1,
+  "compiler_source": "f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+  "qualified_scope": "Generated controller trace boundaries and authenticated compiler publication.",
+  "checks": {
+    "full": {
+      "run": 35490158790,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35490158790",
+      "qualified": true,
+      "verification_sha256": "0f86b1d991d9ffc39a9ed0e06ad959533e099ca1d0256505c08296dbc6620712",
+      "log_sha256": "7a3be254cd8e51d156e2c93dcc8e2e60b9a2499a2c53449289988b731667aa41",
+      "jobs": {
+        "compiler": "success",
+        "resource-state-storage": "success",
+        "examples (user-management)": "success",
+        "postgres-provisioning": "success",
+        "keycloak-provider": "success",
+        "examples (user-management-rhsso)": "success"
+      },
+      "race_packages": 34,
+      "examples": [
+        {
+          "project": "user-management",
+          "files_match": 74,
+          "state_snapshot_verified": true,
+          "state_difference_fields": [
+            "compiler_build.revision",
+            "compiler_build.module_version"
+          ],
+          "state_compiler_revision": "f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+          "archive_sha256": "417fec47be6a50e6d60af0d1f1f9706f46118aa1bf34cbc60fe672fd5e66985f"
+        },
+        {
+          "project": "user-management-rhsso",
+          "files_match": 70,
+          "state_snapshot_verified": true,
+          "state_difference_fields": [
+            "compiler_build.revision",
+            "compiler_build.module_version"
+          ],
+          "state_compiler_revision": "f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+          "archive_sha256": "7da92d519c68d45f3e9e9562b13cfbf602b692c9148b70aad43206944e05085e"
+        }
+      ],
+      "limits": [
+        "The nonverbose full race command does not expose all per-test skip decisions. Named focused results cover the selected controller and telemetry behavior.",
+        "This is not a signed release or a Hypershell application result."
+      ]
+    },
+    "controller": {
+      "run": 35490158808,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35490158808",
+      "qualified": true,
+      "verification_sha256": "65fa4677ae63af7c5b2c508fd9e3b2684e0d96e77e0c1cf15405097aeaaf4fd0",
+      "log_sha256": "78381743f754b12e5daab61823b12ac3c2bc1ec050b74bc6952438af597192fe",
+      "outer_cases": 21,
+      "trace_cases": 2,
+      "cleanup_cases": 2,
+      "roots_per_trace_case": 14,
+      "provider_children_per_trace_case": 36,
+      "source_archive_verified": true,
+      "pending_apis_retained": true
+    },
+    "authentication": {
+      "run": 35490158802,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35490158802",
+      "qualified": true,
+      "verification_sha256": "7382071d8bbebd14466d62aa3ccc64ce7f94a0f20b7ba7fdeda4186d76aeaec6",
+      "log_sha256": "92fcfda8dc1d87b3ed9c1c66fd0aa2fbe3a6724729d527ab3d0eb55be5e5d814",
+      "passed_cases": 8,
+      "source_archive_verified": true
+    }
+  },
+  "release": {
+    "id": 392317684,
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+    "tag": "compiler-f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+    "immutable": true,
+    "published_at": "2026-09-20T05:01:45Z",
+    "signed_build_run": 35490158799,
+    "signed_build_url": "https://github.com/jsell-rh/stego/actions/runs/35490158799",
+    "installation": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "f6ebd0ba93983bfdcaefa15d8c3344b299af245e",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "5a6a497e058232d86cdfcfbbe8b3562234e8f68c0a5ccfe0e703756d559edcd7",
+        "size": 38386516
+      },
+      "build_record_sha256": "3da99515b2ca5a0566d292b2460bfca0976a0aee2790eb1c6beaecd4fc755b7f",
+      "bundle_sha256": "b2c7d853822ca5712b9baa82d58e579c77838352ccb0972ed17626d442ac250d"
+    },
+    "source_inventory": {
+      "files": 1292,
+      "bytes": 10323528,
+      "sha256": "da68e656fed7eae6bad4848a13ea80dabbe430dd8f9204e08f2f6c2a51cfea2c"
+    },
+    "module_records_checked": 28,
+    "source_inventory_matches": true,
+    "toolchain_and_build_policy_match": true,
+    "rejection_checks": [
+      "different-source-commit",
+      "changed-compiler-with-matching-checksums",
+      "changed-build-record",
+      "invalid-signature-bundle"
+    ],
+    "release_and_artifact_installations_match": true,
+    "compiler_executed_locally": false
+  },
+  "not_proved": [
+    "Live Hypershell trace separation with this compiler.",
+    "Production capacity or the 30-second whole-Gateway cleanup target.",
+    "Complete enterprise readiness or full application parity."
+  ],
+  "application_candidate": {
+    "source": "e026fb00159953615110fd7c7022ee6d53526db0",
+    "compiler_pin_source": "bf3e5ee57af8cca9956880c8474ae881dae7052e",
+    "generated_source": "6dcf55ace60de49b0ae74478a951abdb87ed426d",
+    "generation_run": 35490646018,
+    "module_refresh_run": 35490752208,
+    "generated_files_checked": 420,
+    "live_trace_workflow_qualified": false
+  }
+}

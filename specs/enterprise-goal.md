@@ -40,6 +40,17 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
+The common controller trace change is qualified and released in compiler
+`f6ebd0ba93983bfdcaefa15d8c3344b299af245e`. Reconciliation, scans, cleanup
+samples, and watch sessions have separate traces. Provider calls remain children
+of their operation. All six compiler jobs, focused trace and cleanup cases,
+authentication checks, and signed release verification passed. Hypershell has a
+regenerated candidate; its complete consumer checks and live trace proof remain
+required. The separate pending-result workflow retains its frozen source and
+compiler for the cleanup comparison. See the
+[trace contract and evidence](controller-trace-boundaries.md). This result does
+not close C6, H3, or the full goal.
+
 The prior Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
 cleanup ownership, and Sandbox integration changes. Main live run `35479995475`
 passed all 11 required tests. Independent checks matched 1,548 source files,
