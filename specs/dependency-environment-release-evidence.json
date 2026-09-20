@@ -1,0 +1,160 @@
+{
+  "source": "2084c32d2cf40ca4b63627e454382272fe28da93",
+  "scope": "Qualified main compiler and immutable signed release. Complete application build inputs and consumer adoption are separate requirements.",
+  "full": {
+    "source": "2084c32d2cf40ca4b63627e454382272fe28da93",
+    "run": 35501048201,
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35501048201",
+    "conclusion": "success",
+    "jobs": {
+      "examples (user-management)": "success",
+      "postgres-provisioning": "success",
+      "resource-state-storage": "success",
+      "keycloak-provider": "success",
+      "compiler": "success",
+      "examples (user-management-rhsso)": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "example_files_match": [
+      {
+        "project": "user-management",
+        "files_match": 74,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "152f8e1fcf4c18f7ad6d41d1eb2add2317edcef0394157b664101a8bdcf9f387",
+        "state_compiler_revision": "2084c32d2cf40ca4b63627e454382272fe28da93",
+        "archive_sha256": "5cb38825f8e7f8fbba94cf9bf39bd53856adb59602441f89eb358f6f8652ae4a"
+      },
+      {
+        "project": "user-management-rhsso",
+        "files_match": 70,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "152f8e1fcf4c18f7ad6d41d1eb2add2317edcef0394157b664101a8bdcf9f387",
+        "state_compiler_revision": "2084c32d2cf40ca4b63627e454382272fe28da93",
+        "archive_sha256": "d4f1e06631eeb8c979217327bd451529d5b140878d2bd366f9a310d476d77c66"
+      }
+    ],
+    "log_sha256": "8ed22b2cd8c182f1c8c6caf81083a5c49cb2f76274793704ee601a7826c3ce7e",
+    "qualified": true,
+    "limits": [
+      "The nonverbose full race command does not expose all per-test skip decisions. Named focused results cover the saved Go configuration and dependency recovery behavior.",
+      "This is not a signed release or a Hypershell application result."
+    ]
+  },
+  "focused": {
+    "source": "2084c32d2cf40ca4b63627e454382272fe28da93",
+    "run": 35501048196,
+    "qualified": true,
+    "regression_source": "1d4f43e8793b38af1fc87aa38eacbe833773a548",
+    "regression_run": 35500594177,
+    "unchanged_regression_test_bytes": true,
+    "only_runner_change": "Override GOFLAGS with a non-empty blank value; preserve saved private configuration.",
+    "passed_cases": 18,
+    "passed_top_level": [
+      "TestDependencyCommandsPreserveSavedProxyConfiguration",
+      "TestDependencyFailuresPreserveProjectFiles",
+      "TestDependencyRecoveryCompletesBothModuleFiles",
+      "TestDependencyResolutionHoldsProjectLock",
+      "TestDependencyResolutionIgnoresSavedSourceOverlay",
+      "TestDependencyResolutionRejectsChangedExternalReplacement",
+      "TestDependencyResolutionRequiresAppliedCode",
+      "TestDependencyResolutionUsesLocalReplacementsAndPreservesThem",
+      "TestResolvedModuleCannotLowerComponentMinimum"
+    ],
+    "no_skipped_cases": true,
+    "source_archive_verified": true,
+    "tests_sha256": "480d44a2f34670e8bfc7e752751c067659d52f855f5eacffc34cde539b110b0f",
+    "ci_log_sha256": "ddb9381fdf8e863651b1cebeb459a8695be43f63a4cda9f1d9085a78ba3984b5",
+    "scope": "The real Go source-overlay regression, saved proxy control, and existing dependency snapshot, lock, transaction, and recovery tests. Full compiler, signed release, and consumer adoption remain separate."
+  },
+  "build": {
+    "run": 35501048202,
+    "source_inventory": {
+      "files": 1304,
+      "bytes": 10401669,
+      "sha256": "ac8a0cc95e38b395ab090316eb58bfc9b944870025266091fbb4f5fdb41cf610"
+    },
+    "module_records_checked": 28,
+    "source_inventory_matches": true,
+    "toolchain_and_build_policy_match": true,
+    "downloaded_compiler_executed_locally": false
+  },
+  "branch_build_agreement": {
+    "source": "2084c32d2cf40ca4b63627e454382272fe28da93",
+    "qualified_branch_artifact_run": 35500702477,
+    "signed_main_artifact_run": 35501048202,
+    "binary_sha256": "8f4acaad61734a73b9159562e7adc6dc16e19edff99983cbd31814fef83ae2a7",
+    "source_and_binary_match": true
+  },
+  "release": {
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-2084c32d2cf40ca4b63627e454382272fe28da93",
+    "immutable": true,
+    "independently_installed": true,
+    "installation": {
+      "format": 1,
+      "repository": "jsell-rh/stego",
+      "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+      "reference": "refs/heads/main",
+      "source_revision": "2084c32d2cf40ca4b63627e454382272fe28da93",
+      "predicate_type": "https://slsa.dev/provenance/v1",
+      "self_hosted_runners_allowed": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "8f4acaad61734a73b9159562e7adc6dc16e19edff99983cbd31814fef83ae2a7",
+        "size": 38386516
+      },
+      "build_record_sha256": "fd5507b49b301fdf1b30fbf94b08b8c9076e9bd1a0c2b15d834bfcabce68f78b",
+      "bundle_sha256": "ae0b13ad5558b1acc16523efa19bd0061d866073643c72649a8aac0f7762c426"
+    },
+    "verified_at": "2026-09-20T09:10:28.507246+00:00"
+  }
+}
