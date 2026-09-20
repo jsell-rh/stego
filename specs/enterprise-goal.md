@@ -90,14 +90,22 @@ Independent review matched the complete source, repeated generation, and signed
 compiler bytes. The joint cleanup audit found both fixtures absent, the lease
 free, and all 32 standing resources unchanged. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
 
-The next application candidate `8a5e38d` requests both state namespace deletions
-after their common SQL and workload prerequisites. It still requires both to
-finish before finalization. STEGO retains all provider ownership, conditional
-delete, scheduling, and telemetry mechanisms. Independent review confirmed
-all 1,103 core cases, with all prior cases retained. The focused allocation,
-adapter, and trace checks passed. Live workflow `35498460152` is active at
-that fixed source. A new cleanup time and live qualification remain required.
-See the [consumer hosted evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-hosted-evidence.json).
+Consumer `8a5e38d` requests both state namespace deletions after their common
+SQL and workload prerequisites. It still requires both to finish before
+finalization. STEGO retains provider ownership, conditional deletion,
+scheduling, and telemetry. Full checks passed all 1,103 core cases, with all
+prior cases retained. Focused allocation, adapter, and trace checks passed.
+Live workflow `35498460152` then passed all 11 required tests. Independent
+review matched 1,593 source files, 421 generated hashes, the signed f6ebd0b
+compiler, nine worker instances, and four viewed images. Both fixtures were
+removed, the lease was free, and all 32 standing resources were unchanged.
+
+The new normal cleanup sample contained 100 REST-created accounts with
+verified token use. Whole cleanup was observed complete by 34.827 seconds.
+Allocation was still observed pending at 32.738 seconds. The 30-second target
+remains open. The separate API run `35499601572` is active at the same source.
+See the [consumer live evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-live-evidence.json)
+and [cleanup observations](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap.md).
 
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
 shows 7,500 millicores across all five nodes. The current server requests for
