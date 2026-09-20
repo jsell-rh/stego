@@ -5,7 +5,9 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -47,8 +49,130 @@ class RecordChecks(unittest.TestCase):
         self.image["build_record_sha256"] = hashlib.sha256(build).hexdigest()
         (self.inputs / "image.json").write_text(json.dumps(self.image))
 
-    def verify(self):
-        return records.verify(self.inputs, self.bundle, self.policy_path, self.output, Path(sys.executable))
+    def verify(self, image=None):
+        return records.verify(self.inputs, self.bundle, self.policy_path, self.output, Path(sys.executable), image)
+
+    def make_image(self):
+        image = self.root / "oci"
+        (image / "blobs/sha256").mkdir(parents=True)
+        (image / "oci-layout").write_bytes(b"layout fixture")
+        (image / "index.json").write_bytes(b"index fixture")
+        for role in ["manifest", "config", "layer"]:
+            data = (role + " fixture").encode()
+            digest = hashlib.sha256(data).hexdigest()
+            self.image[role] = {"sha256": digest, "size": len(data)}
+            (image / "blobs/sha256" / digest).write_bytes(data)
+        self.write()
+        return image
+
+    def test_capture_authenticates_before_image_reads_and_preserves_private_bytes(self):
+        image = self.make_image()
+        calls = []
+        def authenticate(*args):
+            calls.append("authenticated")
+        capture = records.capture_image
+        def checked_capture(*args):
+            self.assertEqual(calls, ["authenticated", "authenticated"])
+            return capture(*args)
+        with patch.object(records.verification, "authenticate_subject", side_effect=authenticate), \
+                patch.object(records, "capture_image", side_effect=checked_capture):
+            result = self.verify(image)
+        self.assertTrue(result["image_blob_bytes_checked"])
+        self.assertFalse(result["image_contents_checked"])
+        self.assertFalse(result["registry_publication_checked"])
+        for path in image.rglob("*"):
+            captured = self.output / "oci" / path.relative_to(image)
+            if path.is_file():
+                self.assertEqual(path.read_bytes(), captured.read_bytes())
+                self.assertEqual(captured.stat().st_mode & 0o777, 0o600)
+                path.write_bytes(b"replaced after capture")
+                self.assertNotEqual(path.read_bytes(), captured.read_bytes())
+            else:
+                self.assertEqual(captured.stat().st_mode & 0o777, 0o700)
+
+    def test_capture_rejects_changed_missing_extra_linked_and_special_inputs(self):
+        changes = ["digest", "size", "missing", "extra-file", "extra-directory", "extra-blob",
+                   "file-link", "blob-link", "directory-link", "root-link", "fifo", "large-index"]
+        for change in changes:
+            image = self.make_image()
+            layer = image / "blobs/sha256" / self.image["layer"]["sha256"]
+            if change == "digest":
+                layer.write_bytes(b"x" * layer.stat().st_size)
+            elif change == "size":
+                layer.write_bytes(b"short")
+            elif change == "missing":
+                layer.unlink()
+            elif change == "extra-file":
+                (image / "extra").write_bytes(b"extra")
+            elif change == "extra-directory":
+                (image / "empty").mkdir()
+            elif change == "extra-blob":
+                (layer.parent / ("0" * 64)).write_bytes(b"extra")
+            elif change in {"file-link", "blob-link", "fifo"}:
+                selected = layer if change == "blob-link" else image / "index.json"
+                selected.unlink()
+                if change == "fifo":
+                    os.mkfifo(selected)
+                else:
+                    selected.symlink_to(self.inputs / "build.json")
+            elif change in {"directory-link", "root-link"}:
+                selected = image / "blobs" if change == "directory-link" else image
+                saved = self.root / "saved"
+                selected.rename(saved)
+                selected.symlink_to(saved, target_is_directory=True)
+            elif change == "large-index":
+                (image / "index.json").write_bytes(b"x" * ((64 << 10) + 1))
+            with self.subTest(change=change), patch.object(records.verification, "authenticate_subject"):
+                with self.assertRaises((records.CheckError, OSError)):
+                    self.verify(image)
+                self.assertFalse(self.output.exists())
+                self.assertEqual(list(self.root.glob(".stego-records-*")), [])
+            if image.is_symlink():
+                image.unlink()
+            else:
+                shutil.rmtree(image)
+            if (self.root / "saved").exists():
+                shutil.rmtree(self.root / "saved")
+
+    def test_capture_rejects_invalid_blob_selection_before_file_access(self):
+        image = self.make_image()
+        original = copy.deepcopy(self.image)
+        cases = [None, {}, {"sha256": "../escape", "size": 1},
+                 {"sha256": "0" * 64, "size": True}, {"sha256": "0" * 64, "size": 0},
+                 {"sha256": "0" * 64, "size": (64 << 10) + 1},
+                 dict(original["manifest"], extra=True), original["layer"]]
+        for identity in cases:
+            self.image = copy.deepcopy(original)
+            self.image["manifest"] = identity
+            self.write()
+            with self.subTest(identity=identity), patch.object(records.verification, "authenticate_subject"), \
+                    patch.object(records, "image_directory") as read:
+                with self.assertRaises(records.CheckError):
+                    self.verify(image)
+                read.assert_not_called()
+                self.assertFalse(self.output.exists())
+
+    def test_capture_signature_failure_does_not_read_image(self):
+        with patch.object(records.verification, "authenticate_subject", side_effect=records.CheckError("Signature rejected")), \
+                patch.object(records, "capture_image") as capture:
+            with self.assertRaisesRegex(records.CheckError, "Signature rejected"):
+                self.verify(self.root / "absent-image")
+            capture.assert_not_called()
+        self.assertFalse(self.output.exists())
+
+    def test_capture_output_failure_removes_copied_image(self):
+        image = self.make_image()
+        original = Path.open
+        def fail_result(path, *args, **kwargs):
+            if path == self.output / "verified.json":
+                self.assertTrue((self.output / "oci/index.json").is_file())
+                raise OSError("Result write failed")
+            return original(path, *args, **kwargs)
+        with patch.object(records.verification, "authenticate_subject"), patch.object(Path, "open", fail_result):
+            with self.assertRaisesRegex(OSError, "Result write failed"):
+                self.verify(image)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.root.glob(".stego-records-*")), [])
 
     def test_exact_consumer_policy_and_both_signatures_precede_output(self):
         calls = []
@@ -72,6 +196,7 @@ class RecordChecks(unittest.TestCase):
         self.assertTrue(result["records_authenticated"])
         self.assertFalse(result["image_contents_checked"])
         self.assertFalse(result["registry_publication_checked"])
+        self.assertNotIn("image_blob_bytes_checked", result)
         self.assertEqual(self.output.stat().st_mode & 0o777, 0o700)
         self.assertEqual((self.output / "image.json").stat().st_mode & 0o777, 0o600)
 

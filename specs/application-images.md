@@ -98,6 +98,16 @@ the records and signature bundle. Both signatures and all selected bindings
 must pass before it creates the result directory. It does not execute the
 application or the compiler.
 
+The optional `--image` argument captures the selected OCI files in `output/oci`
+after authentication. The capture checks the signed manifest, configuration,
+and layer sizes and digests. It rejects missing files, extra entries, links,
+and special files. It uses directory descriptors and bounded reads, and writes
+private copies. The OCI marker and index have size limits but are not accepted
+as valid OCI data by this step. The result adds `image_blob_bytes_checked: true`
+and keeps `image_contents_checked: false`. The consumer must still use the
+compiler to check the complete image. A failed capture leaves no result
+directory.
+
 The result includes the authenticated image record digest. The consumer must
 then give that digest and the retained records to `stego image verify` to check
 the actual image. Signatures do not replace image content checks, vulnerability
