@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -257,6 +258,9 @@ func BuildImage(ctx context.Context, options ImageOptions) (*ImageRecord, error)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return nil, errors.New("image checks require Linux amd64")
 	}
 	if !validEntrypoint(options.Entrypoint) || !hashPattern.MatchString(options.BuildRecordSHA256) || !hashPattern.MatchString(options.TrustStoreSHA256) {
 		return nil, errors.New("image entry point and expected input digests are required")

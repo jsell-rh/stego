@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -260,6 +261,9 @@ func VerifyImage(ctx context.Context, recordPath, imageRoot, buildPath, expected
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return nil, errors.New("image checks require Linux amd64")
 	}
 	data, err := readImageBytes(recordPath, imageMetadataLimit)
 	if err != nil {
