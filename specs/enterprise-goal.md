@@ -40,6 +40,23 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
+The complete application check exposed a test database cleanup timeout. Review
+of that failure found a common PostgreSQL recovery defect: an interrupted drop
+can leave an invalid database that rejects the provider's alter operation.
+Source `3be6bce` now resumes removal after the existing ownership checks. The
+unchanged regression failed before the fix and passed after it. All six compiler
+jobs, 34 race-tested packages, both examples, and the branch build passed.
+The exact source is on main; signed release checks are running. The
+[recovery record](postgres-invalid-drop-recovery.md) preserves the test limits.
+The next consumer workflow will combine this common fix with its separate
+fixture cleanup correction. It has no new live result yet.
+
+The saved Go overlay fix is qualified and published in signed compiler
+`2084c32`. It preserves saved private proxy settings while excluding saved
+source flags from dependency resolution. See the
+[release evidence](dependency-environment-release-evidence.json). This closes
+one input-control defect; complete application build inputs remain open.
+
 The public `controller.Run` entry point now uses the common telemetry runtime.
 Exact source `c515f22` passed all six compiler jobs, all 34 race-tested packages,
 and both generated examples. The focused suite passed 24 outer controller
@@ -112,16 +129,21 @@ See the [consumer live evidence](https://github.com/jsell-rh/hypershell-stego/bl
 and [cleanup observations](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap.md).
 
 The [namespace cleanup review](namespace-cleanup-review.md) keeps the current
-namespace dependency barriers. Consumer candidate `2f3b4fe` uses the existing
-STEGO pending-result API for expected workload progress. Its focused adapter
-and allocation checks passed; full qualification is pending. Candidate
-`69b9e29` adds verified generation from signed compiler c515f22. Independent
-review matched the runtime template, registry content, compiler identity, and
-all 420 generated source and module files. Only five generated files changed.
+namespace dependency barriers. Consumer `69b9e29` uses the existing STEGO
+pending-result API for expected workload progress and signed compiler c515f22.
+All six hosted checks passed, including 1,121 core cases across 353 top-level
+tests. Independent generation review matched the runtime template, registry
+content, compiler identity, and all 420 generated source and module files.
 All 126 Gateway console source and module files stayed identical, so its Go
-module reference remains. Fresh application checks are running. The next live
-test must wait for all exact-source checks and a clean cluster preflight.
-Neither candidate has new live evidence.
+module reference remains. See the
+[full consumer record](https://github.com/jsell-rh/hypershell-stego/blob/e8fa5111535d40a77ed76c87f7a4ef374de80738/acceptance/workload-pending-full-evidence.json).
+
+The earlier `2f3b4fe` full run failed during fixture database removal. The
+failure remains recorded; no live test was dispatched from it. Candidate
+`5f70035` adds a separate bounded fixture cleanup and fixed diagnostic fields.
+Its full check is still running. The next live workflow will use the verified
+PostgreSQL recovery compiler after fresh generation and application checks.
+Neither `69b9e29` nor `5f70035` has new live evidence.
 
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
 shows 7,500 millicores across all five nodes. The current server requests for

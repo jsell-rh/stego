@@ -1,0 +1,155 @@
+{
+  "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+  "qualified_at": "2026-09-20T09:17:43.957905+00:00",
+  "scope": "Exact branch source qualified for promotion. Main release checks, signed installation, and consumer adoption are separate requirements.",
+  "full": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "run": 35501449244,
+    "run_url": "https://github.com/jsell-rh/stego/actions/runs/35501449244",
+    "conclusion": "success",
+    "jobs": {
+      "keycloak-provider": "success",
+      "postgres-provisioning": "success",
+      "compiler": "success",
+      "examples (user-management)": "success",
+      "examples (user-management-rhsso)": "success",
+      "resource-state-storage": "success"
+    },
+    "race_packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "packages_without_tests": [
+      "github.com/jsell-rh/stego/internal/generator/browserdom",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+      "github.com/jsell-rh/stego/internal/openapicontract"
+    ],
+    "example_files_match": [
+      {
+        "project": "user-management",
+        "files_match": 74,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "16da162c21531b64762d3963246155538892c4ab54704b4f183330e4872fb79b",
+        "state_compiler_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+        "archive_sha256": "7edf1226aecef663c80ed9d9e765a05e197b38578425dc7197e40490be6c2f2b"
+      },
+      {
+        "project": "user-management-rhsso",
+        "files_match": 70,
+        "state_snapshot_verified": true,
+        "state_difference_fields": [
+          "compiler_build.revision",
+          "compiler_build.module_version",
+          "registry_content_sha256"
+        ],
+        "registry_content_sha256": "16da162c21531b64762d3963246155538892c4ab54704b4f183330e4872fb79b",
+        "state_compiler_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+        "archive_sha256": "a98d58d4f251a5a484b2210b1124d94fb43c21109faceff9fa5fda863d4477c2"
+      }
+    ],
+    "log_sha256": "1c647d9d08a9c8562c131cffe5dd35cbb87db6da80b884a1ac96d5fcb908172e",
+    "qualified": true,
+    "limits": [
+      "The nonverbose full race command does not expose all per-test skip decisions. Named focused results cover invalid database recovery and ownership denial.",
+      "This is not a signed release or a Hypershell application result."
+    ]
+  },
+  "focused": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "run": 35501449255,
+    "qualified": true,
+    "source_archive_verified": true,
+    "regression_source": "3e8268458419dd4ab134d107060b24a590556d98",
+    "regression_run": 35501332715,
+    "unchanged_regression_test_bytes": true,
+    "passed_cases": [
+      "TestClientPrivateTelemetry",
+      "TestConfigurationIgnoresEnvironment",
+      "TestDatabaseClientDoesNotUseGlobalProviders",
+      "TestDatabaseCredentialPreparationValidation",
+      "TestDatabaseNamesAndValidation",
+      "TestDatabaseProvisioningLifecycle",
+      "TestDatabaseProvisioningLifecycle/credential-preparation",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/foreign-owner",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/owned",
+      "TestDatabaseProvisioningLifecycle/invalid-database-drop/replaced-database",
+      "TestDatabaseProvisioningLifecycle/managed-schema",
+      "TestGeneratedPostgresClient",
+      "TestInvalidIdentityAndCertificateAreRejected",
+      "TestInvalidReadDoesNotConnect",
+      "TestSchemaOperationValidation",
+      "TestVerifiedReadAgainstPostgres"
+    ],
+    "passed_case_count": 17,
+    "all_prior_passes_retained": true,
+    "no_skipped_cases": true,
+    "owned_invalid_database_recovery_passed": true,
+    "foreign_owner_and_replaced_database_denials_passed": true,
+    "test_server_container_cleanup_passed": true,
+    "test_log_sha256": "f2cc179eb291875711acceb9020a2f42184fb786737b03d02b638b1c2137a89b",
+    "ci_log_sha256": "97c2c5348175e948d76d964880b8a3530d6590841d46c43c3cf2e1588a33ff2c",
+    "scope": "Real PostgreSQL recovery from the constructed invalid catalog state, with a non-superuser provider. This does not prove physical crash timing, full compiler qualification, signed release, or consumer adoption."
+  },
+  "branch_build": {
+    "source": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+    "run": 35501449242,
+    "source_inventory": {
+      "files": 1307,
+      "bytes": 10414037,
+      "sha256": "b13b6be7aaf837d2ba74410755a9aede59f528013401d686b63cddbd0e56c432"
+    },
+    "module_records_checked": 28,
+    "toolchain_and_build_policy_match": true,
+    "artifact_sha256": "e587de658b558a5634c950269fbcc776d15d55899afafe3665179b06839829bd",
+    "artifact_size": 38386516,
+    "test_log_sha256": "75b8ea68559550f01ba2f2cbd75998c18e28b0c131373f09c7d15cafc8092a20",
+    "downloaded_compiler_executed_locally": false,
+    "provenance_job": "skipped",
+    "signature_verified": false,
+    "qualified": true,
+    "scope": "Unsigned branch build and hosted reproducibility check. This does not qualify a published or installable signed compiler."
+  },
+  "limits": [
+    "The fixture constructs the invalid catalog marker on a disposable PostgreSQL server. It does not force a physical crash or a checkpoint cancellation.",
+    "The full application workflow and its cleanup time require current consumer evidence.",
+    "Whole-database rollback detection and the full enterprise goal remain open."
+  ]
+}

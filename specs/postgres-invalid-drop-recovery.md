@@ -29,8 +29,8 @@ object and recorded state. Unrelated application data must remain unchanged.
 
 The catalog injection is test code only. It does not test physical crash timing
 or force a real checkpoint cancellation. Those claims require separate evidence.
-Focused and full hosted checks must qualify this change before release and
-consumer adoption. Component version is 1.5.1.
+Focused and full hosted checks qualified source 3be6bce for promotion. Signed
+release and consumer adoption require separate checks. Component version is 1.5.1.
 
 Regression run [35501332715](https://github.com/jsell-rh/stego/actions/runs/35501332715)
 used the unchanged provider template from compiler 2084c32. The owned invalid
@@ -39,3 +39,20 @@ denial cases and all 11 other selected cases passed. No case was skipped.
 The server container was removed. The [regression record](postgres-invalid-drop-regression-evidence.json)
 contains source and result hashes. This expected failure does not qualify a
 compiler. The fix retains the exact regression test bytes.
+
+
+## Fix qualification
+
+Exact source `3be6bce` passed all six compiler jobs in
+[run 35501449244](https://github.com/jsell-rh/stego/actions/runs/35501449244).
+All 34 race-tested packages and both generated examples passed independent
+result review. The focused [recovery run](https://github.com/jsell-rh/stego/actions/runs/35501449255)
+passed all 17 cases with no skips. It retained the exact failing regression
+bytes, all prior passing cases, both ownership controls, repeat deletion,
+unrelated data checks, and private telemetry checks.
+
+The unsigned branch build passed source, module, toolchain, build-policy, and
+repeat-build review. This does not qualify a signed release. The exact source
+is now on main, where new release checks are running. Hypershell must select
+the verified signed package, regenerate, and pass its application checks.
+See the [fix record](postgres-invalid-drop-fix-evidence.json).
