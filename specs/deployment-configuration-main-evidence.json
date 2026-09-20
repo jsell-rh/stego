@@ -1,0 +1,43 @@
+{
+  "source": "5c4afa11c289e086893a8fbc5da1aca5f1e64b64",
+  "runs": {
+    "renderer": 35544304732,
+    "artifact": 35544304719,
+    "full": 35544304746
+  },
+  "qualified": true,
+  "generated_cases": 69,
+  "compiler_packages": 37,
+  "examples": {
+    "user-management": {
+      "tracked_content_matches": 76,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "5e0ce41268053c62725fbf235aaa9333fd1f5b3b912d21681e2c8cb7120b2265"
+    },
+    "user-management-rhsso": {
+      "tracked_content_matches": 72,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "5d05fc66acc99c3f4a731d5042b368c8883d2f93697491c0a821ed2f3a6eff82"
+    }
+  },
+  "artifact": {
+    "name": "stego-linux-amd64",
+    "sha256": "9a5279451b44ad22784aeb7909b92845745389144b3f66be1287519aecfe1f05",
+    "size": 41721093
+  },
+  "signature_verified": true,
+  "release": "https://github.com/jsell-rh/stego/releases/tag/compiler-5c4afa11c289e086893a8fbc5da1aca5f1e64b64",
+  "immutable_release": true,
+  "fresh_installation_matches_verified_files": 5,
+  "compiler_executed_locally": false,
+  "consumer_adopted": false,
+  "scope": "Common configuration rollout renderer. Consumer regeneration and complete workflow remain required.",
+  "proof_sha256": {
+    "checks/35544304746/qualification.json": "b7c25e41585ec44b4b8c1531648e30851584d9d55b34c9536133107afd7247ae",
+    "checks/35544304732/qualification.json": "8ce43814db5c9cc7d60f0167b4ac6fdbc72eefa22debf994f3451c63b6dddec8",
+    "signature-qualification.json": "292982929835f5245e03421d910d27c3d2aa0e9d65a685c539a2ad62ad761f71",
+    "release-installation-review.json": "d52dad72c2ad5df5a42a9b08728a2ad9a6b0fe7a2bb56be9d2d7ebb9c99240a6",
+    "release-publication-review.json": "ac6f0d62363b5377d1e3980560dcf33c71f371d6aa749b5cac8a92b9f26ba069"
+  },
+  "checked_at": "2026-09-20T23:31:01.168472+00:00"
+}

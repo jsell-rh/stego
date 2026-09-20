@@ -74,8 +74,13 @@ The common renderer candidate `c22cb19` adds a typed configuration digest option
 It validates the digest and sets the Pod template annotation. Focused checks
 passed 69 generated cases, including independent API, worker, and RPC examples.
 The full compiler check passed 37 packages and both generated examples. The
-change is merged into STEGO. Signed main-artifact checks and consumer adoption
-remain required. See the [compiler evidence](deployment-configuration-evidence.json).
+change is merged into STEGO. Its exact main source `5c4afa11` passed the same
+focused and full checks. Its signed compiler and build record passed independent
+verification. The immutable release is published; a fresh installation matched
+all five verified files. Hypershell regeneration is queued with this release.
+Consumer adoption and complete workflow checks remain required. See the
+[candidate evidence](deployment-configuration-evidence.json) and
+[main release evidence](deployment-configuration-main-evidence.json).
 The change does not move Gateway policy into STEGO.
 
 See the [enterprise goal](enterprise-goal.md) and the
