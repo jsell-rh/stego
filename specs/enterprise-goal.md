@@ -536,8 +536,10 @@ the application must never perform automatic teardown.
    Independent checks confirmed that test resources were removed, all 32
    standing resources were restored, and the shared lease is free. Candidate
    `4c6744b` retains terminal Pod status when the completion record is absent.
-   Five local status cases and eight completion cases pass. Hosted run
-   `35478679579` checks this change before another live attempt. This
+   Hosted run `35478679579` passed five status cases, eight completion cases,
+   all 63 required adapter tests, six allocation cleanup tests, and 28 collection
+   cases. The live test compiled. Run `35478851396` now checks the complete
+   workflow at that fixed source under the shared test lease. This
    two-Gateway workflow does not prove the whole production capacity target.
    Live attempt `35476176959` stopped before workload
    creation because the saved test installation lacks three named reads in
