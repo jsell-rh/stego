@@ -1,0 +1,54 @@
+# Application build records
+
+This change is a candidate. CI qualification, image verification, record signing,
+and Hypershell adoption are required before C3 can be closed.
+
+`stego build` selects one Git commit, module, and entry point. It checks the
+complete pinned Go SDK before execution. It creates two private source trees,
+module caches, and build caches. Each tree comes from the selected Git archive.
+Links, special files, submodules, path escapes, and excessive input sizes fail.
+The work and result directories must be new and outside the input repository.
+
+The command checks generated files and generation inputs against saved state.
+It downloads modules through the fixed public proxy, then disables module
+downloads for compilation. Go settings and caches do not come from the caller.
+Local module replacements must remain inside the recorded source snapshot.
+The command records remote module checksums and local replacement paths. It
+disables CGO, workspace selection, automatic toolchain selection, automatic PGO,
+Go telemetry, and source stamping. It never runs the application executable.
+
+Both builds must have identical executable bytes, source inventories, modules,
+and Go build settings. The SDK and Git executable are checked again afterward.
+The result directory contains `application`, `build.json`, and `SHA256SUMS`.
+Failures retain the work directory for inspection. A partial result is not a
+successful build. Do not reuse an interrupted work or result directory.
+
+For example, in a limited Linux amd64 CI job:
+
+```sh
+stego build --source=/checkout --revision=FULL_COMMIT_ID \
+  --module=console --target=out --go=/opt/go/bin/go \
+  --work=/results/build-work --output=/results/application
+```
+
+`stego build verify` requires the expected build record digest from a trusted
+source. It checks canonical record bytes, build policy, executable bytes, and
+the executable's Go build settings. It does not execute the application.
+
+```sh
+stego build verify --record=/results/application/build.json \
+  --artifact=/results/application/application --record-sha256=TRUSTED_DIGEST
+```
+
+The caller must authenticate the record before it supplies that digest. Hash
+agreement does not authenticate the builder or source. The command does not
+provide an OS sandbox or prove that a compiler cannot read other host files.
+Run it in a disposable CI environment with resource and time limits. It does
+not yet record image contents or a trust store. Private dependency transport
+policy, image assembly and verification, signing, and consumer integration
+remain required parts of the common build workflow.
+
+The focused CI check builds the committed generated example twice and checks
+changed executables, changed records, build settings, and input inventories.
+This is application evidence for the common mechanism. It does not replace the
+complete Hypershell application workflow or the existing signed compiler check.

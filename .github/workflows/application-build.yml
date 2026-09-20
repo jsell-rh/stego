@@ -1,0 +1,63 @@
+name: Application build records
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/application-build.yml
+      - internal/appbuild/**
+      - cmd/stego/build.go
+      - cmd/stego/main.go
+      - scripts/check-application-build.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check input and process boundaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/application-evidence"
+          go test -json -race -count=1 -mod=readonly -timeout=3m ./internal/appbuild > "$RUNNER_TEMP/application-evidence/unit.jsonl"
+      - name: Build the exact compiler
+        run: go build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego
+      - name: Build and verify the generated example
+        timeout-minutes: 30
+        run: |
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
+            --module=examples/user-management --target=out --go="$(go env GOROOT)/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
+          python3 scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA"
+      - name: Retain build and rejection evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: application-build-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/application-evidence/*
+            ${{ runner.temp }}/application-result/*
+            ${{ runner.temp }}/application-work/*/source.tar
