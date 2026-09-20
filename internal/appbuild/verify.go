@@ -16,6 +16,25 @@ var hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // authenticate that source. The caller must verify provenance before this call.
 // The executable is inspected as data and is never started.
 func Verify(recordPath, artifactPath, expectedSHA256 string) (*Record, error) {
+	record, err := readBuildRecord(recordPath, expectedSHA256)
+	if err != nil {
+		return nil, err
+	}
+	actual, bytes, err := fileDigest(artifactPath)
+	if err != nil || (Artifact{actual, bytes}) != record.Artifact {
+		return nil, errors.New("application executable differs from the build record")
+	}
+	settings, err := binarySettings(artifactPath)
+	if err != nil || !reflect.DeepEqual(settings, record.BinarySettings) {
+		return nil, errors.New("application executable settings differ from the build record")
+	}
+	if err := checkCompiledModules(artifactPath, record); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func readBuildRecord(recordPath, expectedSHA256 string) (*Record, error) {
 	if !hashPattern.MatchString(expectedSHA256) {
 		return nil, errors.New("a trusted build record digest is required")
 	}
@@ -50,17 +69,6 @@ func Verify(recordPath, artifactPath, expectedSHA256 string) (*Record, error) {
 		return nil, errors.New("application build record is not canonical")
 	}
 	if err := validateRecord(&record); err != nil {
-		return nil, err
-	}
-	actual, bytes, err := fileDigest(artifactPath)
-	if err != nil || (Artifact{actual, bytes}) != record.Artifact {
-		return nil, errors.New("application executable differs from the build record")
-	}
-	settings, err := binarySettings(artifactPath)
-	if err != nil || !reflect.DeepEqual(settings, record.BinarySettings) {
-		return nil, errors.New("application executable settings differ from the build record")
-	}
-	if err := checkCompiledModules(artifactPath, &record); err != nil {
 		return nil, err
 	}
 	return &record, nil

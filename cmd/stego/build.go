@@ -12,6 +12,20 @@ import (
 )
 
 func runBuild(args []string) error {
+	if len(args) > 0 && args[0] == "verify-source" {
+		flags := flag.NewFlagSet("build verify-source", flag.ContinueOnError)
+		record := flags.String("record", "", "build record file")
+		expected := flags.String("record-sha256", "", "build record digest from verified provenance")
+		source := flags.String("source", "", "complete source snapshot without Git metadata or build caches")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || *record == "" || *expected == "" || *source == "" {
+			return fmt.Errorf("build verify-source requires --record, --record-sha256, and --source")
+		}
+		_, err := appbuild.VerifySource(*record, *expected, *source)
+		return err
+	}
 	if len(args) > 0 && args[0] == "verify" {
 		flags := flag.NewFlagSet("build verify", flag.ContinueOnError)
 		record := flags.String("record", "", "build record file")

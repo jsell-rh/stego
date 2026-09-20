@@ -48,6 +48,27 @@ stego build verify --record=/results/application/build.json \
   --artifact=/results/application/application --record-sha256=TRUSTED_DIGEST
 ```
 
+`stego build verify-source` compares a complete source snapshot with that native
+record. It uses the same strict record reader and source inventory as the build
+command. It rejects changed, missing, or additional files, changed executable
+bits, links, special files, and excessive file counts or bytes. The selected
+record digest must come from authenticated provenance. No source is executed.
+
+```sh
+stego build verify-source --record=/results/application/build.json \
+  --record-sha256=TRUSTED_DIGEST --source=/work/application
+```
+
+Supply a source snapshot without Git metadata, dependency caches, or other work
+files. Run this check before a deployment job adds test dependencies. After
+regeneration, remove completed compiler lock files before checking the complete
+snapshot again. Keep the checked source unchanged while using the result. This
+check does not freeze the source or replace image and signature verification.
+
+The candidate CI check exercises this command against the actual example and
+Hypershell API source inputs, then changes file contents, file presence, execute
+permission, and links. The new source checks are pending.
+
 The caller must authenticate the record before it supplies that digest. Hash
 agreement does not authenticate the builder or source. The command does not
 provide an OS sandbox or prove that a compiler cannot read other host files.

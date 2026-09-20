@@ -51,6 +51,54 @@ def main():
         cases.append({"name": name, "expected_success": success, "exit_code": process.returncode})
 
     verify("original", record_path, binary, expected, True)
+    # This is the source transfer used by a deployment job. Copy only inputs
+    # from the record that the native verifier has already accepted.
+    source_cases = []
+    snapshot = args.evidence / "checked-source"
+    snapshot.mkdir(mode=0o700)
+    def verify_source(name, selected=snapshot, success=False, digest=expected):
+        process = subprocess.run([
+            str(args.compiler), "build", "verify-source", "--record=" + str(record_path),
+            "--record-sha256=" + digest, "--source=" + str(selected),
+        ], capture_output=True, timeout=30)
+        assert (process.returncode == 0) == success, (name, process.stderr)
+        source_cases.append({"name": name, "expected_success": success, "exit_code": process.returncode})
+    try:
+        for item in record["inputs"]:
+            target = snapshot / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(args.source / item["path"], target)
+        verify_source("original source", success=True)
+        verify_source("wrong source record digest", digest="0" * 64)
+        selected = snapshot / args.module / "go.mod"
+        original_data, original_mode = selected.read_bytes(), selected.stat().st_mode & 0o777
+        selected.write_bytes(original_data + b"\n")
+        verify_source("changed source file")
+        selected.unlink()
+        verify_source("missing source file")
+        selected.write_bytes(original_data)
+        selected.chmod(original_mode ^ 0o100)
+        verify_source("changed source executable bit")
+        selected.chmod(original_mode)
+        extra = snapshot / "unexpected.go"
+        extra.write_text("package unexpected\n")
+        verify_source("added source file")
+        extra.unlink()
+        selected.unlink()
+        selected.symlink_to((args.source / args.module / "go.mod").resolve())
+        verify_source("linked source file")
+        selected.unlink()
+        selected.write_bytes(original_data)
+        selected.chmod(original_mode)
+        linked_root = args.evidence / "linked-source"
+        linked_root.symlink_to(snapshot.resolve(), target_is_directory=True)
+        try:
+            verify_source("linked source root", selected=linked_root)
+        finally:
+            linked_root.unlink()
+        verify_source("restored source", success=True)
+    finally:
+        shutil.rmtree(snapshot)
     changed_binary = args.evidence / "changed-application"
     shutil.copyfile(binary, changed_binary)
     with changed_binary.open("ab") as stream:
@@ -91,6 +139,7 @@ def main():
     report = {"source": args.revision, "compiler_source": args.compiler_revision or args.revision,
               "module": args.module, "target": args.target, "record_sha256": expected,
               "artifact_sha256": sha(binary), "cases": cases,
+              "source_cases": source_cases, "source_inputs_checked": len(record["inputs"]),
               "application_executed": False,
               "scope": "The selected generated application executable and record. Image contents, signing, and Hypershell adoption remain separate checks."}
     (args.evidence / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
