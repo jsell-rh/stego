@@ -41,6 +41,10 @@ def main():
         created = True
         bundle = args.output / 'ca-certificates.crt'
         command(['docker', 'cp', container + ':/etc/ssl/certs/ca-certificates.crt', str(bundle)])
+        notice = args.output / 'ca-certificates-copyright.txt'
+        command(['docker', 'cp', container + ':/usr/share/doc/ca-certificates/copyright', str(notice)])
+        notice_data = notice.read_bytes()
+        assert 0 < len(notice_data) <= 64 << 10
         data = bundle.read_bytes()
         assert 0 < len(data) <= 1 << 20
         pattern = rb'-----BEGIN CERTIFICATE-----\s+([A-Za-z0-9+/=\s]+?)-----END CERTIFICATE-----'
@@ -59,7 +63,9 @@ def main():
                   'image_id': inspected[0]['Id'], 'platform': 'linux/amd64',
                   'path': '/etc/ssl/certs/ca-certificates.crt',
                   'bundle': {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)},
-                  'CA_certificates': certificates, 'container_started': False,
+                  'CA_certificates': certificates,
+                  'source_notice': {'sha256': hashlib.sha256(notice_data).hexdigest(), 'size': len(notice_data)},
+                  'container_started': False,
                   'production_adoption_checked': False}
     finally:
         if created:

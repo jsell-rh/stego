@@ -118,8 +118,11 @@ verification authenticated the downloaded records and matched them to the
 saved native builds, OCI images, and container-engine results. All 25 common
 build and image test groups passed, with 83 cases including subtests.
 
-This candidate still uses the test CA fixture. Full compiler CI remains pending.
-Registry publication and the Hypershell production publisher remain open.
+This candidate still uses the test CA fixture.
+[Full compiler run 35508205464](https://github.com/jsell-rh/stego/actions/runs/35508205464)
+and the reproducible compiler artifact check also passed independent
+verification. Registry publication and the Hypershell production publisher
+remain open.
 
 ## Registry transport candidate
 
@@ -158,3 +161,17 @@ SDK image used by the existing publisher. It creates a restricted container to
 copy the file and never starts that container. It records the source image,
 image configuration, bundle digest, certificate digests, and cleanup result.
 Capture and adoption of that CA bundle are still pending.
+
+[Registry candidate run 35508605666](https://github.com/jsell-rh/stego/actions/runs/35508605666)
+passed all 32 build, image, and registry test groups, with 101 cases including
+subtests. It then failed the required dependency-lock check. The added indirect
+dependencies were reviewed and committed. No existing dependency version changed.
+The corrected source must pass CI before use.
+
+The same run captured the existing publisher CA bundle: 224,449 bytes, 150 CA
+certificates, digest `714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5`.
+Independent inspection confirmed all certificate digests and CA constraints.
+The bundle contains the Baltimore CyberTrust Root, which expired on 2025-05-12.
+This is evidence about the current publisher input, not approval of that bundle
+as the new production trust profile. Selection and update of the production root
+set, its source notices, and live adoption remain open.
