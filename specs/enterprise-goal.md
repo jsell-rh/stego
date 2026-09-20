@@ -52,9 +52,11 @@ compiler. Its binary matches the qualified branch build. The
 Consumer `d24e9da` combines this common fix with its qualified fixture cleanup
 correction. Hosted generation passed independent review of all 420 files,
 compiler identity, registry and input state, and the full provider template.
-Its six application checks are running. The next live workflow waits for those
-results and a fresh cluster preflight. See the
-[consumer adoption record](https://github.com/jsell-rh/hypershell-stego/blob/aedba8df2216bc5a7a803af2b672c7fd36f68213/acceptance/postgres-recovery-compiler.md).
+All six application checks passed independent verification. The full check
+passed 1,122 core cases across 354 top-level tests, with all 1,103 baseline
+cases retained. Focused checks and the selected Gateway console module passed.
+The next live workflow requires a fresh cluster preflight. See the
+[consumer adoption record](https://github.com/jsell-rh/hypershell-stego/blob/72eb2b87f2b6fb2b08ebbf9bbbe2f006995edb7f/acceptance/postgres-recovery-compiler.md).
 It has no new live result yet.
 
 The saved Go overlay fix is qualified and published in signed compiler
@@ -151,7 +153,7 @@ All six hosted checks passed, including 1,122 core cases across 354 top-level
 tests, eight provider checks, and 44 journal checks. See the
 [fixture result](https://github.com/jsell-rh/hypershell-stego/blob/aedba8df2216bc5a7a803af2b672c7fd36f68213/acceptance/database-fixture-cleanup-evidence.json).
 The combined consumer at `d24e9da` uses the signed PostgreSQL recovery compiler.
-Its new application checks must pass before the next live workflow.
+Its new application checks passed. The complete live workflow remains pending.
 Neither `69b9e29` nor `5f70035` has new live evidence.
 
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
