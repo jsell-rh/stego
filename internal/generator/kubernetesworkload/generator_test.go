@@ -9,10 +9,15 @@ import (
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/httpapplication"
+	"github.com/jsell-rh/stego/internal/generator/kubernetesclient"
 )
 
 //go:embed testdata/workload_test.go
 var runtimeTests []byte
+
+//go:embed testdata/updates_test.go
+var updateTests []byte
 
 func TestWorkloadNamespaceAndConfiguration(t *testing.T) {
 	for _, ctx := range []gen.Context{{OutputNamespace: "../escape"}, {OutputNamespace: "workload", ComponentConfig: map[string]any{"security_override": true}}} {
@@ -39,7 +44,29 @@ func TestGeneratedWorkloadConstruction(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(project, "workload"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.8\nrequire k8s.io/api v0.35.0\nrequire k8s.io/apimachinery v0.35.0\n"), files[0].Path: files[0].Bytes(), "workload/workload_test.go": runtimeTests} {
+	contents := map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.8\nrequire k8s.io/api v0.35.0\nrequire k8s.io/apimachinery v0.35.0\n"), files[0].Path: files[0].Bytes(), "workload/workload_test.go": runtimeTests, "workload/updates_test.go": updateTests}
+	clientContext := gen.Context{ModuleName: "example.com/widget", OutputNamespace: "kubernetes", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}, StorageContract: "example.com/widget/contracts/storage", AuthPackage: "example.com/widget/auth", ComponentConfig: map[string]any{"factory_package": "sample"}}
+	clientFiles, _, err := new(kubernetesclient.Generator).Generate(clientContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range clientFiles {
+		contents[file.Path] = file.Bytes()
+	}
+	clientContext.OutputNamespace = "application"
+	httpFiles, _, err := new(httpapplication.Generator).Generate(clientContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range httpFiles {
+		if file.Path == "application/client/client.go" {
+			contents[file.Path] = file.Bytes()
+		}
+	}
+	for name, data := range contents {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(project, name)), 0700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(project, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}

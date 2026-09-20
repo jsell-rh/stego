@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/workload-construction.yml'
       - 'internal/generator/kubernetesworkload/**'
+      - 'internal/generator/kubernetesclient/**'
+      - 'internal/generator/httpapplication/client.go.tmpl'
       - 'registry/components/kubernetes-workload/**'
 
 permissions:
@@ -54,7 +56,7 @@ jobs:
                   line = line.strip()
                   if line.startswith('{"Time":'):
                       nested.append(json.loads(line))
-          required = {'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
+          required = {'TestWidgetDeclarationUpdatesRemoveOldValues', 'TestMergePatchFixtureRules', 'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
                       'TestWidgetMultipleContainersAndProfiles', 'TestWidgetDependencyRollout',
                       'TestWidgetOptionalFieldsSurviveAPISerialization',
                       'TestWidgetKubernetesAPIRoundTrip', 'TestWidgetQuantitiesMatchKubernetes',
