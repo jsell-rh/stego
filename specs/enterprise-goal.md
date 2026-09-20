@@ -111,13 +111,18 @@ five recorded exclusions are retained. Adapter, browser, UI, and service-image
 checks passed. Seven application images and seven browser fixture images passed
 the separate source, content, registry, and signature reviews.
 
-Complete live qualification remains required. The service workflow started
-after a fresh preflight verified that the shared Lease was free, test Jobs were
-absent, and all 32 standing resources were unchanged. Its result and cleanup
-must pass before the browser workflow starts. The existing bounded live count
-test can then check the changed count worker with ordinary Pods, namespace
-permissions, events, REST/gRPC, and restart. This test does not establish Kata
-isolation or actual OpenShell Sandbox execution. Keep one live test at a time.
+The service Deployment workflow passed in 119.43 seconds. Review checked seven
+signed images, ready API and identity worker Pods before and after replacement,
+and all 429 live generation hashes. The manifest contains the 428 output and
+module files plus the pinned Gateway console compiler revision. All ready Pod
+restart counts were zero. Cleanup removed the test namespace and owned resources,
+released the shared Lease, and left all 32 standing resources unchanged.
+
+The [browser workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540651284)
+started after that review and cleanup. Its result is pending. The existing bounded
+live count test can then check the changed count worker with ordinary Pods,
+namespace permissions, events, REST/gRPC, and restart. This test does not establish
+Kata isolation or actual OpenShell Sandbox execution. Keep one live test at a time.
 
 Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
 in the Gateway identity worker, Gateway workload worker, and account provisioner.
@@ -127,8 +132,12 @@ were stale; those tests did not run. Hosted
 [regeneration](https://github.com/jsell-rh/hypershell-stego/actions/runs/35539887087)
 refreshed the state. Review confirmed that only those three hashes and their
 combined digest changed, with all 427 other output and module files unchanged.
-The corrected source is committed and pushed. Its new application checks and
-live qualification remain open. The earlier failed runs cannot qualify it.
+The corrected source is committed and pushed. Its
+[focused recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540007357)
+passed 172 cases across 44 top-level tests and seven packages. Artifact events
+matched the job log. Seven application images passed source, content, registry,
+and signature review. The full application check and live qualification remain
+open. The earlier failed runs cannot qualify this source.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented
