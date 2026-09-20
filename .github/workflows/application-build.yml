@@ -14,6 +14,8 @@ on:
       - scripts/registry-fixture.go
       - scripts/verify-application-records.py
       - scripts/test_application_records.py
+      - scripts/application-images.py
+      - scripts/test_application_delivery.py
       - scripts/check-application-provenance.py
       - scripts/verify-compiler-artifact.py
       - cmd/stego/image.go
@@ -72,6 +74,7 @@ jobs:
       - name: Check record policy and compiler verification
         run: |
           python3 -B scripts/test_application_records.py
+          python3 -B scripts/test_application_delivery.py
           python3 -B scripts/test_compiler_verification.py
       - name: Check input and process boundaries
         run: |
@@ -100,6 +103,7 @@ jobs:
           "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
           python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
             --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --source="$GITHUB_WORKSPACE" \
             --output="$RUNNER_TEMP/registry-evidence"
       - name: Capture the exact records for the separate signing job
         id: record-digests
@@ -143,6 +147,9 @@ jobs:
             ${{ runner.temp }}/registry-evidence/published/registry.json
             ${{ runner.temp }}/registry-evidence/retrieved/registry.json
             ${{ runner.temp }}/registry-evidence/retrieved/oci/
+            ${{ runner.temp }}/registry-evidence/delivery/source-check.json
+            ${{ runner.temp }}/registry-evidence/delivery/publication.json
+            ${{ runner.temp }}/registry-evidence/delivery/application/registry.json
             ${{ runner.temp }}/image-evidence/verification.json
             ${{ runner.temp }}/image-evidence/engine-*.log
             ${{ runner.temp }}/image-evidence/engine-*.json
@@ -211,6 +218,7 @@ jobs:
           "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
           python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
             --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --source="$GITHUB_WORKSPACE/consumer" \
             --output="$RUNNER_TEMP/registry-evidence"
       - name: Capture the exact records for the separate signing job
         id: record-digests
@@ -254,6 +262,9 @@ jobs:
             ${{ runner.temp }}/registry-evidence/published/registry.json
             ${{ runner.temp }}/registry-evidence/retrieved/registry.json
             ${{ runner.temp }}/registry-evidence/retrieved/oci/
+            ${{ runner.temp }}/registry-evidence/delivery/source-check.json
+            ${{ runner.temp }}/registry-evidence/delivery/publication.json
+            ${{ runner.temp }}/registry-evidence/delivery/application/registry.json
             ${{ runner.temp }}/image-evidence/verification.json
             ${{ runner.temp }}/image-evidence/engine-*.log
             ${{ runner.temp }}/image-evidence/engine-*.json

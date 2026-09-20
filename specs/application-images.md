@@ -108,6 +108,32 @@ and keeps `image_contents_checked: false`. The consumer must still use the
 compiler to check the complete image. A failed capture leaves no result
 directory.
 
+`scripts/application-images.py stage` applies a trusted reusable signer policy
+to all targets in an application declaration. The policy omits `module`,
+`target`, and `entrypoint`; these fields come from the trusted declaration.
+The caller supplies the selected workflow run, attempt, and downloaded artifact
+directory. The command authenticates and captures every image before it writes
+the complete set. `images.json` records the selected targets and digests. Its
+SHA-256 digest is an input to the publication step and must travel through a
+trusted channel with the publishing compiler digest.
+
+`scripts/application-images.py publish` first checks that set digest and copies
+the selected compiler after a digest check. It checks the full source snapshot
+and each image with this private compiler before it reads registry credentials
+or publishes an image. It accepts either a private canonical credential file
+or an explicit token file and username. The token option permits Kubernetes
+projected files. Token contents do not enter command arguments or result files.
+Compiler subprocesses use a restricted environment, bounded output, and time
+limits. The command has a 15-minute limit for the complete set.
+
+The publisher checks each registry receipt before it returns a digest reference.
+Only `publication.json` marks a complete set. A failed publication can leave
+individual images in the registry and diagnostic records in the result
+directory. It removes private compiler and credential copies on success or
+failure. The caller must retain the records and inspect the failed operation
+before a retry. The initial delivery profile uses one registry origin for
+authentication and storage; it does not approve external token or blob origins.
+
 The result includes the authenticated image record digest. The consumer must
 then give that digest and the retained records to `stego image verify` to check
 the actual image. Signatures do not replace image content checks, vulnerability
