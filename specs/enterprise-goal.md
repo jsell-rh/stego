@@ -174,6 +174,14 @@ the remaining conversion code and the application rules that it must preserve.
 It also records an unchecked catalog timestamp conversion for a focused failure
 test. This source review does not establish transport parity or runtime failure.
 
+Common compiler installation diagnostics now identify release metadata, asset
+download, and signature-verification failures with fixed public messages. Private
+command output remains withheld. All four hosted workflows passed for `7f6d38ba`,
+including 37 compiler packages, both generated examples, real immutable release
+installation, and local package verification. The consumer compiler and installer
+pins remain unchanged. See the [diagnostic evidence](compiler-install-diagnostics-evidence.json).
+This change does not prove the cause of the earlier provider setup failure.
+
 The [workload boundary review](workload-boundary-review-20260920.md) separates
 the accepted common builder from remaining dependency conversion and console
 annotation assembly. Keep the upstream Sandbox setup and application policy

@@ -1,0 +1,51 @@
+{
+  "source": "7f6d38ba2104c24f103d3947ede14f17a372867f",
+  "qualified": true,
+  "checked_at": "2026-09-20T22:50:55.352101+00:00",
+  "runs": {
+    "installation": {
+      "run": 35542454521,
+      "ci_sha256": "f4e1f7060225855b77d20eca5e19a9f72ae0b5e003e9fb76f0c2dbdbc8a996a4",
+      "log_sha256": "ad81337be16a5fc0c3e8e5606e6334ad5ecadf628c0598d450b4c54eb398ad8e"
+    },
+    "artifact": {
+      "run": 35542454601,
+      "ci_sha256": "ef8c1bed195bca74cc5886b478b94e4b4b810f4d726857882423748baae3e7d2",
+      "log_sha256": "6da8673432f904f49d5cf01e5cccf26366faa1784f75e8a980e99c85bd55ca3c"
+    },
+    "full": {
+      "run": 35542454640,
+      "ci_sha256": "bd4c527efcd4ee8dfcbf7cbd8b1dbef30101363a2e67f27ebd3fbd9e5f6f84d0",
+      "log_sha256": "eeb3529b09c2b593e71c25c09ad0dc7e2b749109cbbff20066d11566ba5d2b82"
+    },
+    "application_records": {
+      "run": 35542454517,
+      "ci_sha256": "de63b6134697ebf52e24e5810c2a305f6c94d96d219b9f5651e2b408f9c3ff32",
+      "log_sha256": "3190a78e9016140ac6b48983d11fa09aa18d8568e623d188cf294f27de22ce4f"
+    }
+  },
+  "compiler_packages": 37,
+  "examples": {
+    "user-management": {
+      "tracked_content_matches": 76,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "d5fcb0a452d151faa71532de12d3fd97b9de0baacde2cf6ad938988d8517d251"
+    },
+    "user-management-rhsso": {
+      "tracked_content_matches": 72,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "daee180f88f9c221c682492169671f684e6a2826026addf3a7d6824fc32fe878"
+    }
+  },
+  "real_release_and_package_installation_match": true,
+  "installation_rejection_roots": 9,
+  "candidate_artifact": {
+    "name": "stego-linux-amd64",
+    "sha256": "0308c7cb66899a02fa5b349a8c17f072678f6c5582e56b86b9f41020792f1cba",
+    "size": 41716893
+  },
+  "candidate_artifact_signed": false,
+  "consumer_compiler_changed": false,
+  "consumer_tooling_changed": false,
+  "scope": "Installation failure diagnostics only. Fixed phase messages preserve private output, authentication order, bounds, and unpublished failure state. Application build workflows passed; this record does not independently qualify a new application image or compiler release."
+}
