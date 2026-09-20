@@ -1,8 +1,9 @@
 # Static Go application images
 
 This is candidate code. Native images for the independent example and current
-Hypershell API passed the artifact and container-engine checks. Registry
-publication and record authentication remain open. C3 is not complete.
+Hypershell API passed the artifact and container-engine checks. The next
+candidate also passed real record signature checks. Registry publication
+remains open. C3 is not complete.
 
 The common image command accepts a native application build record, its trusted
 digest, and the matching executable. It also requires an explicit CA bundle and
@@ -22,9 +23,9 @@ changed hashes, and excessive sizes. It checks the executable extracted from the
 image against the native build record without executing it. Partial work stays
 in a new private directory for inspection; it is not a successful image result.
 
-The image record does not authenticate itself. Signed records, actual registry
-publication and retrieval, and use in the Hypershell
-publisher remain required. The actual Hypershell API and the independent example
+The image record does not authenticate itself. The signed-record candidate
+checks its origin against an explicit consumer policy. Actual registry
+publication, retrieval, and use in the Hypershell publisher remain required. The actual Hypershell API and the independent example
 now use the same mechanism in the candidate CI check. The production publisher
 has not adopted it.
 
@@ -109,6 +110,13 @@ checks the real signatures and rejection paths. Candidate branches can produce
 candidate signatures; the consumer policy must select their exact source. Such
 a signature does not authorize a production release.
 
-This candidate still uses the test CA fixture. Real signature evidence is
-pending. Registry publication and the Hypershell production publisher remain
-open.
+[Application run 35508205453](https://github.com/jsell-rh/stego/actions/runs/35508205453)
+passed for source `4e9991e0e220f5900aefd75fdd452e641a3df52f` and unchanged
+Hypershell source `0589cfc08d40591e3fc0b36ac1538e6f2ae0d917`. Each application
+passed both real signature checks and all seven rejection cases. Independent
+verification authenticated the downloaded records and matched them to the
+saved native builds, OCI images, and container-engine results. All 25 common
+build and image test groups passed, with 83 cases including subtests.
+
+This candidate still uses the test CA fixture. Full compiler CI remains pending.
+Registry publication and the Hypershell production publisher remain open.
