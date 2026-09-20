@@ -46,8 +46,10 @@ and both generated examples. The focused suite passed 24 outer controller
 cases, including 14 public Run lifecycle cases without the telemetry peer and
 20 cases with it. The TLS collector verified all three signals, independent
 operation traces, queue counts, privacy, and final flush. That exact source is
-on main; main signature and release qualification is in progress. Consumer
-pins are unchanged. See the [public Run evidence](controller-run-telemetry.md).
+on main and released as an immutable signed compiler. The exact main checks,
+source and module review, artifact rejection checks, and release installer
+passed. Its binary matches the qualified branch build. The active consumer
+source still uses f6ebd0b. See the [public Run evidence](controller-run-telemetry.md).
 This does not close the complete C6 telemetry audit.
 
 The common controller trace change is qualified and released in compiler
@@ -90,9 +92,11 @@ free, and all 32 standing resources unchanged. See the [consumer verification re
 The next application candidate `8a5e38d` requests both state namespace deletions
 after their common SQL and workload prerequisites. It still requires both to
 finish before finalization. STEGO retains all provider ownership, conditional
-delete, scheduling, and telemetry mechanisms. Focused allocation and adapter
-CI jobs passed. Full hosted qualification and a new live timing result remain
-required. The source is frozen on its remote branch.
+delete, scheduling, and telemetry mechanisms. Independent review confirmed
+all 1,103 core cases, with all prior cases retained. The focused allocation,
+adapter, and trace checks passed. Live workflow `35498460152` is active at
+that fixed source. A new cleanup time and live qualification remain required.
+See the [consumer hosted evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-hosted-evidence.json).
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level

@@ -146,5 +146,218 @@
     }
   },
   "main_promotion": "c515f2208c27cfab51db0e9e7947089a1019bb01",
-  "signed_release": "Pending main qualification. The consumer pin remains f6ebd0b."
+  "signed_release": {
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-c515f2208c27cfab51db0e9e7947089a1019bb01",
+    "tag": "compiler-c515f2208c27cfab51db0e9e7947089a1019bb01",
+    "immutable": true,
+    "target_commit": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+    "qualified_at": "2026-09-20T08:06:41.958872+00:00",
+    "package_sha256": {
+      "stego-linux-amd64": "5e79e1b601cf29488cb9e3e6cbaee49a605c60ca523e37bfc2bc083240622a1a",
+      "build.json": "56469740e06d04b4bbf2932548bb99cb671f8f3c1325fbcd2bc95674cd4b612a",
+      "provenance.jsonl": "65c294f538903356e7b52f33f63225928a12f8d5285e1866791798c04f75011d",
+      "SHA256SUMS": "0c69901ef58948e85a5712d0addd2e35c5b92925a0ac5200f5c5b9001b63f5bd"
+    },
+    "installed_from_release": {
+      "record_sha256": "9108b5042b3127df77d8518c2c00b0a12dc5feb2ba72f8e32c367c0418f752d5",
+      "result": {
+        "format": 1,
+        "repository": "jsell-rh/stego",
+        "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+        "reference": "refs/heads/main",
+        "source_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "self_hosted_runners_allowed": false,
+        "artifact": {
+          "name": "stego-linux-amd64",
+          "sha256": "5e79e1b601cf29488cb9e3e6cbaee49a605c60ca523e37bfc2bc083240622a1a",
+          "size": 38386516
+        },
+        "build_record_sha256": "56469740e06d04b4bbf2932548bb99cb671f8f3c1325fbcd2bc95674cd4b612a",
+        "bundle_sha256": "65c294f538903356e7b52f33f63225928a12f8d5285e1866791798c04f75011d"
+      }
+    },
+    "matches_locally_verified_package": true,
+    "downloaded_compiler_executed_locally": false
+  },
+  "qualified_main_checks": {
+    "full_run": {
+      "run": 35498177434,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35498177434",
+      "record_sha256": "279ec12b0e660964a6bcc92a14239c316bbdc572843274ffd6befc1fe8ec7df7",
+      "result": {
+        "source": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+        "run": 35498177434,
+        "run_url": "https://github.com/jsell-rh/stego/actions/runs/35498177434",
+        "conclusion": "success",
+        "jobs": {
+          "postgres-provisioning": "success",
+          "examples (user-management)": "success",
+          "compiler": "success",
+          "keycloak-provider": "success",
+          "resource-state-storage": "success",
+          "examples (user-management-rhsso)": "success"
+        },
+        "race_packages": [
+          "github.com/jsell-rh/stego/cmd/stego",
+          "github.com/jsell-rh/stego/internal/browserapplication",
+          "github.com/jsell-rh/stego/internal/browserassets",
+          "github.com/jsell-rh/stego/internal/buildidentity",
+          "github.com/jsell-rh/stego/internal/compiler",
+          "github.com/jsell-rh/stego/internal/gen",
+          "github.com/jsell-rh/stego/internal/generator/browserbackend",
+          "github.com/jsell-rh/stego/internal/generator/browseridentity",
+          "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+          "github.com/jsell-rh/stego/internal/generator/cliapplication",
+          "github.com/jsell-rh/stego/internal/generator/controller",
+          "github.com/jsell-rh/stego/internal/generator/gosdk",
+          "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+          "github.com/jsell-rh/stego/internal/generator/healthcheck",
+          "github.com/jsell-rh/stego/internal/generator/httpapplication",
+          "github.com/jsell-rh/stego/internal/generator/httpclient",
+          "github.com/jsell-rh/stego/internal/generator/jwtauth",
+          "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+          "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+          "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+          "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+          "github.com/jsell-rh/stego/internal/generator/oteltracing",
+          "github.com/jsell-rh/stego/internal/generator/outbox",
+          "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+          "github.com/jsell-rh/stego/internal/generator/postgresclient",
+          "github.com/jsell-rh/stego/internal/generator/restapi",
+          "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+          "github.com/jsell-rh/stego/internal/generator/tslsearch",
+          "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+          "github.com/jsell-rh/stego/internal/parser",
+          "github.com/jsell-rh/stego/internal/ports",
+          "github.com/jsell-rh/stego/internal/registry",
+          "github.com/jsell-rh/stego/internal/slot",
+          "github.com/jsell-rh/stego/internal/types"
+        ],
+        "packages_without_tests": [
+          "github.com/jsell-rh/stego/internal/generator/browserdom",
+          "github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen",
+          "github.com/jsell-rh/stego/internal/openapicontract"
+        ],
+        "example_files_match": [
+          {
+            "project": "user-management",
+            "files_match": 74,
+            "state_snapshot_verified": true,
+            "state_difference_fields": [
+              "compiler_build.revision",
+              "compiler_build.module_version",
+              "registry_content_sha256"
+            ],
+            "registry_content_sha256": "152f8e1fcf4c18f7ad6d41d1eb2add2317edcef0394157b664101a8bdcf9f387",
+            "state_compiler_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+            "archive_sha256": "3eff2c1e59a834a32f9cd231eeefba9839cc21e024aea6e7ca491ec3e263ec2b"
+          },
+          {
+            "project": "user-management-rhsso",
+            "files_match": 70,
+            "state_snapshot_verified": true,
+            "state_difference_fields": [
+              "compiler_build.revision",
+              "compiler_build.module_version",
+              "registry_content_sha256"
+            ],
+            "registry_content_sha256": "152f8e1fcf4c18f7ad6d41d1eb2add2317edcef0394157b664101a8bdcf9f387",
+            "state_compiler_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+            "archive_sha256": "30263dee3d09a40382def6fcdf8b525f94afa5e63dd155eb80c3dd9c6f2871b8"
+          }
+        ],
+        "log_sha256": "e2253e1fbc4bd5ae62a4a0513f4c8c88c7a6f38a154d90e47b38bbd537f6fbac",
+        "qualified": true,
+        "limits": [
+          "The nonverbose full race command does not expose all per-test skip decisions. Named focused results cover the selected controller and telemetry behavior.",
+          "This is not a signed release or a Hypershell application result."
+        ]
+      }
+    },
+    "focused_run": {
+      "run": 35498177376,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35498177376",
+      "record_sha256": "3b828abb4dd513a34d393f0b56c3e4dc33056a3a0efc37d8e8ebe0625528df92",
+      "result": {
+        "source": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+        "run": 35498177376,
+        "qualified": true,
+        "source_archive_verified": true,
+        "outer_controller_cases": 24,
+        "generated_run_cases_by_peer": {
+          "false": 14,
+          "true": 20
+        },
+        "sampled_and_unsampled_export_checked": true,
+        "logs_metrics_traces_and_queue_checked": true,
+        "private_callback_data_excluded": true,
+        "retained_lifecycle_cases_per_peer": 14,
+        "invalid_exporter_and_queue_limit_before_source_checked": true,
+        "tests_sha256": "571d610b16bc0a178bb872353110f99b497f3c0cc7ac66107605cfc0f05f7075",
+        "telemetry_sha256": "89c94b66caec9ed18b517cbb03449642fce4a17074b9495d041002b71eef0c87",
+        "scope": "The public Run entry point and the retained focused generated controller checks. Full compiler checks and release qualification remain separate."
+      }
+    },
+    "signed_artifact_run": {
+      "run": 35498177386,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35498177386",
+      "record_sha256": "f509737e399d0505923566b71ec7b7c512a2d2825bbb833ed4538f568ec56b2e",
+      "result": {
+        "source_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+        "source_inventory": {
+          "files": 1295,
+          "bytes": 10357047,
+          "sha256": "736b6d197c05cf7c9884423ceeaf32dec2c757290522c6e56e766e18478692d5"
+        },
+        "source_inventory_matches": true,
+        "module_records_checked": 28,
+        "toolchain_and_build_policy_match": true,
+        "signature": {
+          "artifact": {
+            "name": "stego-linux-amd64",
+            "sha256": "5e79e1b601cf29488cb9e3e6cbaee49a605c60ca523e37bfc2bc083240622a1a",
+            "size": 38386516
+          },
+          "build_record_sha256": "56469740e06d04b4bbf2932548bb99cb671f8f3c1325fbcd2bc95674cd4b612a",
+          "bundle_sha256": "65c294f538903356e7b52f33f63225928a12f8d5285e1866791798c04f75011d",
+          "format": 1,
+          "predicate_type": "https://slsa.dev/provenance/v1",
+          "reference": "refs/heads/main",
+          "repository": "jsell-rh/stego",
+          "self_hosted_runners_allowed": false,
+          "source_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+          "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml"
+        },
+        "hosted_rejection_checks": {
+          "source_revision": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+          "authenticated": {
+            "name": "stego-linux-amd64",
+            "sha256": "5e79e1b601cf29488cb9e3e6cbaee49a605c60ca523e37bfc2bc083240622a1a",
+            "size": 38386516
+          },
+          "rejected": [
+            "different-source-commit",
+            "changed-compiler-with-matching-checksums",
+            "changed-build-record",
+            "invalid-signature-bundle"
+          ],
+          "valid_after_rejections": true,
+          "downloaded_compiler_executed": false
+        },
+        "downloaded_compiler_executed_locally": false
+      }
+    }
+  },
+  "branch_build_agreement": {
+    "record_sha256": "90c4f2bb99da461b4b9365137e806ecfddf68c0a081eda630cda4d86c74cb15d",
+    "result": {
+      "source": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+      "qualified_branch_artifact_run": 35497706392,
+      "signed_main_artifact_run": 35498177386,
+      "binary_sha256": "5e79e1b601cf29488cb9e3e6cbaee49a605c60ca523e37bfc2bc083240622a1a",
+      "source_and_binary_match": true
+    }
+  },
+  "consumer_adoption": "Pending. The active Hypershell source retains compiler f6ebd0b."
 }

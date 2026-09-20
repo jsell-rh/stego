@@ -4,7 +4,7 @@ The public `controller.Run` function did not start the common telemetry runtime.
 It supplied only the optional application observer. The keyed controller and
 sweep entry points already used the common runtime.
 
-The candidate adds the same runtime owner to `Run`. Each watch session, scan,
+The change adds the same runtime owner to `Run`. Each watch session, scan,
 and reconciliation has an independent operation trace. Provider calls remain
 children of that operation. The common provider exports fixed log fields,
 metrics, and traces. Resource values and callback errors do not enter telemetry.
@@ -39,6 +39,13 @@ cases. The public Run checks passed 14 lifecycle cases without the peer and
 20 cases with it. The unsigned artifact passed the source, module, toolchain,
 and reproducibility checks.
 
-The exact source is now on main. Main signature and release qualification is
-in progress. The consumer compiler pin remains unchanged. See the
+The same source passed all exact main checks. Independent review confirmed
+both signatures, the source inventory, 28 module records, the build policy,
+and all four artifact rejection cases. The signed main binary matches the
+qualified branch binary. The immutable [compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-c515f2208c27cfab51db0e9e7947089a1019bb01)
+was published and accepted by the common release installer. The compiler was
+not executed on the workstation. See the
 [recorded evidence](controller-run-telemetry-evidence.json).
+
+The active Hypershell test source still uses compiler f6ebd0b. Consumer adoption
+and the full helper telemetry audit remain separate work.
