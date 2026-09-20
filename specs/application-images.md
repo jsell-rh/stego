@@ -120,3 +120,41 @@ build and image test groups passed, with 83 cases including subtests.
 
 This candidate still uses the test CA fixture. Full compiler CI remains pending.
 Registry publication and the Hypershell production publisher remain open.
+
+## Registry transport candidate
+
+`stego image publish` takes an authenticated image record digest, the native
+record, and the OCI image. It checks the complete image before it makes a private
+copy for publication. It writes a tag derived from the manifest digest, reads
+that tag back, retrieves the image by digest, and checks the native executable
+and complete image again. `stego image retrieve` performs the same retrieval
+checks. A result record is written only after all checks pass.
+
+Registry access requires an explicit repository and a CA bundle with its trusted
+digest. Publication also requires a private credentials file with canonical JSON:
+`{"username":"selected-user","password":"selected-secret"}` followed by a
+newline. The file must have no group or other permissions. The command does not
+use an ambient credential helper, keychain, proxy, or host trust store.
+
+The client requires verified HTTPS for every connection, including loopback.
+Separate token origins require explicit approval. Token requests must keep the
+selected repository scope. Separate blob origins also require approval and must
+not receive credentials or request bodies. Request counts, response headers,
+response bytes, total bytes, connections, and operation time have limits. Remote
+errors do not include credentials, token responses, or redirect query strings.
+
+The transport uses the pinned registry library for authentication and image
+publication. It retrieves the three known manifest, configuration, and layer
+objects directly with bounded reads. It does not accept a remote image index,
+an alternate platform, or a different manifest in place of the selected image.
+
+The candidate CI gate will publish the actual example and Hypershell API images
+to a private TLS registry, repeat publication, and retrieve them. It also checks
+rejection of changed records, registry CA selections, and credentials. These
+checks are pending. They do not establish a production registry deployment.
+
+A separate bounded CI job will capture the public CA file from the same pinned
+SDK image used by the existing publisher. It creates a restricted container to
+copy the file and never starts that container. It records the source image,
+image configuration, bundle digest, certificate digests, and cleanup result.
+Capture and adoption of that CA bundle are still pending.

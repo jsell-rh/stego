@@ -10,6 +10,8 @@ on:
       - cmd/stego/main.go
       - scripts/check-application-build.py
       - scripts/check-application-image.py
+      - scripts/check-application-registry.py
+      - scripts/registry-fixture.go
       - scripts/verify-application-records.py
       - scripts/test_application_records.py
       - scripts/check-application-provenance.py
@@ -92,6 +94,13 @@ jobs:
           python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
             --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
             --output="$RUNNER_TEMP/image-evidence"
+      - name: Publish and retrieve through the private TLS registry
+        timeout-minutes: 6
+        run: |
+          "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
+          python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
+            --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --output="$RUNNER_TEMP/registry-evidence"
       - name: Capture the exact records for the separate signing job
         id: record-digests
         run: |
@@ -129,6 +138,11 @@ jobs:
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
             ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/registry-evidence/verification.json
+            ${{ runner.temp }}/registry-evidence/fixture.log
+            ${{ runner.temp }}/registry-evidence/published/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/oci/
             ${{ runner.temp }}/image-evidence/verification.json
             ${{ runner.temp }}/image-evidence/engine-*.log
             ${{ runner.temp }}/image-evidence/engine-*.json
@@ -191,6 +205,13 @@ jobs:
           python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
             --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
             --output="$RUNNER_TEMP/image-evidence"
+      - name: Publish and retrieve through the private TLS registry
+        timeout-minutes: 6
+        run: |
+          "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
+          python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
+            --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --output="$RUNNER_TEMP/registry-evidence"
       - name: Capture the exact records for the separate signing job
         id: record-digests
         run: |
@@ -228,6 +249,11 @@ jobs:
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
             ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/registry-evidence/verification.json
+            ${{ runner.temp }}/registry-evidence/fixture.log
+            ${{ runner.temp }}/registry-evidence/published/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/oci/
             ${{ runner.temp }}/image-evidence/verification.json
             ${{ runner.temp }}/image-evidence/engine-*.log
             ${{ runner.temp }}/image-evidence/engine-*.json

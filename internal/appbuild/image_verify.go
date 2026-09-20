@@ -265,6 +265,33 @@ func VerifyImage(ctx context.Context, recordPath, imageRoot, buildPath, expected
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return nil, errors.New("image checks require Linux amd64")
 	}
+	record, err := readTrustedImageRecord(recordPath, expectedSHA256)
+	if err != nil {
+		return nil, err
+	}
+	root, err := newImageDirectory(work)
+	if err != nil {
+		return nil, err
+	}
+	savedBuild := filepath.Join(root, "build.json")
+	if _, err = captureImageInput(ctx, buildPath, savedBuild, 16<<20, record.BuildRecordSHA256); err != nil {
+		return nil, err
+	}
+	application := filepath.Join(root, "application")
+	if err = verifyImageContents(ctx, imageRoot, record, application); err != nil {
+		return nil, err
+	}
+	build, err := Verify(savedBuild, application, record.BuildRecordSHA256)
+	if err != nil {
+		return nil, err
+	}
+	if build.Artifact != record.Application {
+		return nil, errors.New("image differs from the verified application")
+	}
+	return record, ctx.Err()
+}
+
+func readTrustedImageRecord(recordPath, expectedSHA256 string) (*ImageRecord, error) {
 	data, err := readImageBytes(recordPath, imageMetadataLimit)
 	if err != nil {
 		return nil, err
@@ -283,24 +310,5 @@ func VerifyImage(ctx context.Context, recordPath, imageRoot, buildPath, expected
 	if err = validateImageRecord(&record); err != nil {
 		return nil, err
 	}
-	root, err := newImageDirectory(work)
-	if err != nil {
-		return nil, err
-	}
-	savedBuild := filepath.Join(root, "build.json")
-	if _, err = captureImageInput(ctx, buildPath, savedBuild, 16<<20, record.BuildRecordSHA256); err != nil {
-		return nil, err
-	}
-	application := filepath.Join(root, "application")
-	if err = verifyImageContents(ctx, imageRoot, &record, application); err != nil {
-		return nil, err
-	}
-	build, err := Verify(savedBuild, application, record.BuildRecordSHA256)
-	if err != nil {
-		return nil, err
-	}
-	if build.Artifact != record.Application {
-		return nil, errors.New("image differs from the verified application")
-	}
-	return &record, ctx.Err()
+	return &record, nil
 }

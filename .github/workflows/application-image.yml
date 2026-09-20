@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - .github/workflows/application-image.yml
+      - scripts/capture-image-ca.py
       - internal/appbuild/image*.go
       - cmd/stego/image.go
       - go.mod
@@ -62,3 +63,22 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           path: ${{ runner.temp }}/image-evidence/
+
+  trust-store:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Capture and inspect the CA bundle from the current pinned SDK image
+        timeout-minutes: 6
+        run: python3 -B scripts/capture-image-ca.py --output "$RUNNER_TEMP/publisher-ca"
+      - name: Retain the CA bundle and its source evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: publisher-ca-${{ github.sha }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/publisher-ca/
