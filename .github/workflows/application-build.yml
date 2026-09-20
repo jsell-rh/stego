@@ -99,6 +99,7 @@ jobs:
             ${{ runner.temp }}/image-evidence/first/trust.pem
             ${{ runner.temp }}/image-evidence/first/oci/
             ${{ runner.temp }}/image-evidence/second/image.json
+            ${{ runner.temp }}/image-evidence/export-*/export.json
 
   hypershell-api:
     runs-on: ubuntu-24.04
@@ -167,3 +168,4 @@ jobs:
             ${{ runner.temp }}/image-evidence/first/trust.pem
             ${{ runner.temp }}/image-evidence/first/oci/
             ${{ runner.temp }}/image-evidence/second/image.json
+            ${{ runner.temp }}/image-evidence/export-*/export.json

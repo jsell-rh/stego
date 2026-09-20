@@ -107,11 +107,21 @@ def main():
 
     # Docker supplies an independent image and filesystem reader. Creating a
     # container does not start the application. No privileged container is used.
-    transport = args.output / 'image.oci.tar'
-    with tarfile.open(transport, 'w') as archive:
-        for path in sorted((first / 'oci').rglob('*')):
-            if path.is_file():
-                archive.add(path, arcname=str(path.relative_to(first / 'oci')), recursive=False)
+    export_records = []
+    for label, source in [('first', first), ('second', second)]:
+        work = args.output / ('export-' + label)
+        command([args.compiler, 'image', 'export', '--record=' + str(source / 'image.json'),
+                 '--record-sha256=' + sha(source / 'image.json'), '--image=' + str(source / 'oci'),
+                 '--build-record=' + str(build), '--work=' + str(work)])
+        exported = json.loads((work / 'export.json').read_text())
+        archive = work / 'image.docker.tar'
+        assert exported['archive'] == {'sha256': sha(archive), 'size': archive.stat().st_size}
+        assert exported['image_record_sha256'] == sha(source / 'image.json')
+        assert exported['source_oci_manifest_sha256'] == record['manifest']['sha256']
+        assert exported['configuration_sha256'] == record['config']['sha256']
+        export_records.append(exported)
+    assert export_records[0] == export_records[1]
+    transport = args.output / 'export-first/image.docker.tar'
     command(['docker', 'image', 'load', '--input', transport], log=args.output / 'engine-load.log')
     image_id = 'sha256:' + record['config']['sha256']
     inspected = json.loads(command(['docker', 'image', 'inspect', image_id]).stdout)
@@ -136,7 +146,7 @@ def main():
     report = {'compiler_source': os.environ['GITHUB_SHA'], 'application_source': build_record['source_revision'],
               'image_record_sha256': sha(first / 'image.json'), 'manifest': record['manifest'], 'configuration': record['config'],
               'application': record['application'], 'trust_store': record['trust_store'], 'cases': cases,
-              'independent_images': 2, 'engine_id': image_id, 'engine_files_match': True, 'application_executed': False,
+              'independent_images': 2, 'export': export_records[0], 'engine_id': image_id, 'engine_files_match': True, 'application_executed': False,
               'registry_publication_checked': False, 'records_authenticated': False}
     (args.output / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report))

@@ -13,7 +13,7 @@ import (
 
 func runImage(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("image requires build or verify")
+		return fmt.Errorf("image requires build, verify, or export")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -38,7 +38,7 @@ func runImage(args []string) error {
 		}
 		_, err := appbuild.BuildImage(ctx, options)
 		return err
-	case "verify":
+	case "verify", "export":
 		record := flags.String("record", "", "image record")
 		expected := flags.String("record-sha256", "", "trusted image record digest")
 		image := flags.String("image", "", "OCI image directory")
@@ -48,11 +48,15 @@ func runImage(args []string) error {
 			return err
 		}
 		if flags.NArg() != 0 {
-			return fmt.Errorf("image verify accepts no positional arguments")
+			return fmt.Errorf("image verification accepts no positional arguments")
+		}
+		if args[0] == "export" {
+			_, err := appbuild.ExportImage(ctx, *record, *image, *build, *expected, *work)
+			return err
 		}
 		_, err := appbuild.VerifyImage(ctx, *record, *image, *build, *expected, *work)
 		return err
 	default:
-		return fmt.Errorf("image requires build or verify")
+		return fmt.Errorf("image requires build, verify, or export")
 	}
 }

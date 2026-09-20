@@ -25,3 +25,11 @@ The image record does not authenticate itself. Signed records, actual registry
 publication and retrieval, container engine checks, and use in the Hypershell
 publisher remain required. The actual Hypershell API and the independent example
 must exercise the same common image mechanism before it can be adopted.
+
+`stego image export` verifies the image and its native executable record before
+it writes a Docker-format transport archive. The OCI manifest remains the
+publication identity. The export record identifies the transport bytes and the
+unchanged configuration. The saved archive is read again with the library, and
+its configuration, layer, and filesystem hashes must match. CI loads this
+archive into Docker and reads the files from a stopped container. This check
+does not claim that a registry published the OCI manifest.
