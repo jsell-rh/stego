@@ -1,8 +1,9 @@
 # Service database role setup
 
-This review covers STEGO source `5f68b279` and the failed Hypershell service
-Deployment at `2af3ec4`. It identifies a remaining setup contract. It does not
-qualify the corrected application or close C5, C6, or H3.
+This review covers STEGO source `5f68b279`, the failed Hypershell service
+Deployment at `2af3ec4`, and the corrected workflow at `c85c608`. It identifies
+a remaining setup contract. The complete corrected workflow passed; the
+common installation interface and C5, C6, and H3 remain open.
 
 The generated API checks the schema-generation marker before it serves
 requests. The service fixture granted access to application tables and the
@@ -39,10 +40,20 @@ writers stopped. A full queue can block later exports. Candidate `c85c608`
 adds a continuous reader with bounded correlation state. It preserves privacy
 checks and requires complete evidence from the same four instances. New checks
 cover full queues, replacement instances, missing signals, invalid identities,
-and privacy failures. The old result did not record queue saturation, so a new
-live test must establish whether this corrects the failure. See the
+and privacy failures. The old result did not record queue saturation. The
+correction therefore required its own live result. See the
 [telemetry failure record](https://github.com/jsell-rh/hypershell-stego/blob/c85c608f079325c07911cf8a44fea5513511c5de/acceptance/service-image-telemetry-failure-evidence.json).
 
+
+The corrected workflow passed on jshell at `c85c608`. The full hosted gate
+retained all 1,122 prior core cases and passed 20 new cases. All seven signed
+image targets passed. The live test checked 407 signal batches and required
+complete telemetry from both API and both identity-worker instances. All four
+Pods became ready with the expected images and no observed restarts. Creation,
+atomic grants, access filtering, rollback, events, HTTPS and gRPC, and Pod
+replacement passed. The test took 120.06 seconds. Complete cleanup passed.
+The earlier failure remains recorded; its missing saturation data still limits
+the causal conclusion. See the [complete service result](https://github.com/jsell-rh/hypershell-stego/blob/4b2440708f213b6f6f269600abca6d2d7aa132dc/acceptance/service-image-deployment-live-evidence.json).
 
 STEGO already has a related installation boundary for browser sessions. Its
 [generated schema package](../internal/generator/browserbackend/schema_package.go.tmpl)
@@ -50,10 +61,10 @@ separates bootstrap with owner authorization from runtime verification and suppl
 session-table grants. The PostgreSQL adapter supplies marker bootstrap and
 verification, but its documented marker grants still require caller SQL.
 
-Complete the corrected service Deployment workflow before a further runtime
-change. Then use this failure to define a common installation contract for
-STEGO's private schema permissions. The contract must preserve separate owner
-and runtime roles. The service process must not grant itself permissions.
+The corrected service Deployment workflow is complete. Next, use the setup
+failure to define a common installation contract for STEGO's private schema
+permissions. The contract must preserve separate owner and runtime roles.
+The service process must not grant itself permissions.
 It must not change unrelated roles, remove operator grants, grant access to all
 future tables, or conceal missing access by disabling verification.
 

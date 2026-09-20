@@ -184,7 +184,7 @@
       "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
     }
   },
-  "scope": "Published compiler, common source, image, signature, registry checks, and complete live Hypershell browser adoption. Results are limited to the recorded sources and environment.",
+  "scope": "Published compiler, common source, image, signature, registry checks, complete live Hypershell browser adoption, and separate service Deployment adoption. Results are limited to the recorded sources and environments.",
   "not_proved": [
     "Production application CA profile",
     "Complete offline builds",
@@ -192,8 +192,7 @@
     "Automatic release qualification",
     "Full C3 or enterprise readiness",
     "The 30-second cleanup target and full production capacity",
-    "Live Kata isolation and OpenShell Sandbox execution",
-    "Verified replacement of the service Deployment image publisher"
+    "Live Kata isolation and OpenShell Sandbox execution"
   ],
   "live_hypershell": {
     "qualified": true,
@@ -243,5 +242,86 @@
     },
     "original_verifier_failures_preserved": true,
     "application_test_restarted": false
+  },
+  "live_service_deployment": {
+    "qualified": true,
+    "source": "c85c608f079325c07911cf8a44fea5513511c5de",
+    "evidence_url": "https://github.com/jsell-rh/hypershell-stego/blob/4b2440708f213b6f6f269600abca6d2d7aa132dc/acceptance/service-image-deployment-live-evidence.json",
+    "evidence_sha256": "3c6bc26389ca75068ddc9e9be3c6d48c4bdeda614893cb820a844482f58c9083",
+    "hosted_checks": {
+      "full_run": 35518217555,
+      "full_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35518217555",
+      "image_run": 35518211837,
+      "image_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35518211837",
+      "image_jobs_passed": 15,
+      "image_targets_qualified": 7,
+      "core_cases_passed": 1142,
+      "prior_core_cases_retained": 1122,
+      "added_core_cases": 20,
+      "core_top_level_tests": 358,
+      "core_conditional_skips": [
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGeneratedKubernetesBrowserGatewayWorkflow",
+        "TestGeneratedKubernetesServiceGatewayWorkflow",
+        "TestNamespaceCountWithLiveKubernetes",
+        "TestRealProviderAccountCapacity"
+      ],
+      "rendered_browser_test_passed": true,
+      "live_kata_deferred": true
+    },
+    "live": {
+      "namespace": "stego-service-20260920-66cfbb",
+      "job_uid": "ab20b3f3-de4a-4bc5-a9c0-c05134cd6907",
+      "pod_uid": "45e24e29-af14-4cf4-9836-ecc71f50cd28",
+      "test": "TestGeneratedKubernetesServiceGatewayWorkflow",
+      "seconds": 120.06,
+      "race_detection": true,
+      "job_deadline_seconds": 1800,
+      "job_retries": 0,
+      "admitted_limits_checked": true,
+      "no_privileged_containers": true,
+      "same_job_and_pod_transfers_checked": true,
+      "source_inventory": {
+        "files": 1628,
+        "bytes": 27191146,
+        "sha256": "46eba7ac4c69a6e05425dd50f5d929aa83445d52f7050c7d8574539944df3e72"
+      },
+      "generated_hashes_matched": 421,
+      "generation_passes": 2,
+      "post_test_hashes_equal": true,
+      "images_verified_and_published": 7,
+      "ready_pods": {
+        "hypershell": 2,
+        "hypershell-gateway-identity": 2
+      },
+      "observed_restart_counts_zero": true,
+      "startup_failure_stages_observed": 0,
+      "telemetry_batches_checked": 407,
+      "telemetry_complete_instances": {
+        "api": 2,
+        "identity_worker": 2
+      }
+    },
+    "compilers": {
+      "generation_revision": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+      "publication_revision": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+      "actual_sha256": {
+        "generation": "e587de658b558a5634c950269fbcc776d15d55899afafe3665179b06839829bd",
+        "publication": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21"
+      }
+    },
+    "cleanup": {
+      "source": "c85c608f079325c07911cf8a44fea5513511c5de",
+      "checked_at": "2026-09-20T15:40:53.788900+00:00",
+      "phase": "cleanup",
+      "existing_test_jobs_and_pods_absent": true,
+      "lease_free": true,
+      "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+      "standing_resources_unchanged": 32,
+      "namespace": "stego-service-20260920-66cfbb",
+      "owned_resources_absent": true
+    },
+    "previous_failures_preserved": true,
+    "scope": "Separate service Deployment adoption of the common publisher. The browser result keeps its own recorded source. This result does not complete C3 through C7 or H1 through H3."
   }
 }

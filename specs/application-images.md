@@ -296,3 +296,13 @@ through reusable signer `d863fcb`. All seven targets passed the eleven invalid
 record or policy cases. The live workflow used the authenticated records and
 checked the actual source and image contents before publication. These checks
 still use the test CA. See the [current evidence](application-delivery-evidence.json).
+
+
+The separate Hypershell service Deployment workflow also passed at source
+`c85c608`. Consumer image run `35518211837` supplied all seven signed images.
+The common publisher checked the complete source and image set inside the
+bounded cluster Job. Both API Pods and both identity-worker Pods became ready
+with those exact images. The workflow passed access, transaction, event,
+restart, telemetry, and generation checks. Cleanup passed. This result still
+uses the test CA and does not qualify production capacity or full enterprise
+readiness. See the [service adoption result](https://github.com/jsell-rh/hypershell-stego/blob/4b2440708f213b6f6f269600abca6d2d7aa132dc/acceptance/service-image-deployment-live-evidence.json).

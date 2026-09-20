@@ -987,19 +987,24 @@ remove the remaining state namespaces. One Gateway with 100 normal accounts
 had an observed cleanup upper bound of 32.48 seconds. The 30-second target
 remains open. This is not evidence for 100 Gateways or production capacity.
 
+The separate service Deployment workflow also passed at source `c85c608`.
+It now uses the common STEGO image publisher. The complete hosted gate retained
+all 1,122 prior core cases and passed 20 new cases. All seven signed image
+targets passed. The live test checked HTTPS and gRPC, creation, atomic owner
+grants, access filtering, rollback, events, Keycloak reconciliation, and worker
+and API Pod replacement. All four Pods used the expected images and supplied
+correlated logs and traces, plus metrics. The test checked 407 signal batches,
+1,628 source files, and 421 generated file hashes. It took 120.06 seconds.
+Complete cleanup passed, with all 32 standing resources unchanged.
+
+The earlier startup and telemetry failures remain recorded. The service
+fixture now shares schema-marker grants with the process and browser fixtures.
+Its signal reader consumes batches during the workflow and bounds correlation
+state. The seven runtime executables did not change from the prior candidate.
+The [database role review](service-database-role-review.md) identifies the next
+common installation contract; it does not move application policy into STEGO.
+
 Keep production CA selection, offline inputs, automatic release qualification,
-other platforms, the service Deployment publisher, and the remaining C3 through
-C7 and H1 through H3 requirements open. The separate API test does not publish
-images. Service Deployment source `2af3ec4` removes the old publisher and uses
-the common STEGO delivery path. Its live test failed at API readiness. Review
-found missing schema-marker read grants in the service fixture. Candidate
-`c275c4f` shares the fixture grants across process, browser, and service tests.
-Its full hosted gate and all seven image checks passed. The live test passed
-API startup and Pod replacement, but failed the final correlated telemetry
-check. Cleanup passed. The test collector can block exports after 64 batches;
-candidate `c85c608` reads those batches during the workflow and keeps bounded
-correlation state. Its hosted and live checks remain pending. The
-[database role review](service-database-role-review.md) records the failure,
-the existing common checks, and the remaining installation contract.
-Live Kata remains deferred. See the
+other platforms, capacity, and the remaining C3 through C7 and H1 through H3
+requirements open. Live Kata remains deferred. See the
 [current delivery evidence](application-delivery-evidence.json).
