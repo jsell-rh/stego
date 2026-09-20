@@ -58,6 +58,7 @@ jobs:
           nested = []
           for event in events:
               for line in event.get('Output', '').splitlines():
+                  line = line.strip()
                   if line.startswith('{"Time":'):
                       nested.append(json.loads(line))
           names = {'TestConfigurationDefaultsAndSingleRead', 'TestConfigurationRejectsValuesWithoutPartialResults',
