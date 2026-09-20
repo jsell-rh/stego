@@ -1,0 +1,106 @@
+{
+  "format": 1,
+  "objects": [
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "org_settings",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "organizations",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "stego_effect_bindings",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "stego_resource_state",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "stego_resource_state_scopes",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "stego_scan_checkpoints",
+      "kind": "table",
+      "privileges": [
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "postgres-adapter",
+      "schema": "public",
+      "name": "users",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "outbox",
+      "schema": "stego_outbox",
+      "name": "messages",
+      "kind": "table",
+      "privileges": [
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE"
+      ]
+    },
+    {
+      "component": "outbox",
+      "schema": "stego_outbox",
+      "name": "messages_sequence_seq",
+      "kind": "sequence",
+      "privileges": [
+        "USAGE"
+      ]
+    }
+  ]
+}

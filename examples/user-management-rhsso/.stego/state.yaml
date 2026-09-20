@@ -29,13 +29,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260920043722-a5758625855e
+        module_version: v0.0.0-20260920155132-27473c2b72fd
         vcs: git
-        revision: a5758625855e5a739e49f95ffdf77c046f2f3be7
+        revision: 27473c2b72fd712dbd6b81f8fbe6d17ade766f98
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
-    registry_content_sha256: 2cc7124048d777be444fc067ffac0e7400a3666a72904cdafbcea9af0ab71d91
+    registry_content_sha256: 913b370bae8fd2b330cfc90e3721aeceb95a30bcdfcdcface053199be1380cfb
     components:
         health-check:
             version: 1.1.0
@@ -47,10 +47,10 @@ last_applied:
             version: 1.19.0
             sha: env-override
         outbox:
-            version: 1.1.0
+            version: 1.2.0
             sha: env-override
         postgres-adapter:
-            version: 4.9.0
+            version: 4.10.0
             sha: env-override
         rest-api:
             version: 3.1.0
@@ -99,6 +99,8 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
+        contracts/databaseaccess/access.go: d8d6134d01b1cb86aa6c89d04bd1a0e9d898f173daeee9b6ece2e8f437d40818
+        contracts/databaseaccess/access.json: 42e8bbd8f63d4b862772a0231e6d45122987eadfdc6307d1074ff3db9801f423
         contracts/events/events.go: db027ed6920450da2cfd51e0145f394eb82e248fa418f33efe9f6f41edce6d97
         contracts/storage/storage.go: d05ed1b436ae3af8e148bdf336a9f88c59cfa691ef41c07a46f1fdf8bb8f729f
         health/health.go: 303258996e35b5a3dd592d8d7a2ec7b8a63067edf2dd8bc946f22bb7f7d3dbeb
