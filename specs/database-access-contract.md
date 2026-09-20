@@ -62,7 +62,17 @@ short lock deadline. A database-local test event trigger rejects a grant after
 it changes a schema ACL. The test requires rollback of that grant and the
 preceding CONNECT grant. See the [event trigger contract](https://www.postgresql.org/docs/18/event-trigger-definition.html).
 
-This change is a candidate. The first installer passed its bounded PostgreSQL
-checks at source `27473c2`. Startup process checks, complete hosted checks,
-compiler release, browser installation adoption, and the complete Hypershell
-workflow remain required. No production or application result is claimed here.
+This change is a candidate. Source `468ea86a` passed all 44 bounded PostgreSQL
+checks in [hosted run 35521273847](https://github.com/jsell-rh/stego/actions/runs/35521273847).
+The saved source archive and result artifact hashes match. The generated REST
+process reached HTTP configuration with complete access. Missing marker access
+and excess table access stopped startup at `database.access`, before handlers
+or tasks started. The output contained none of the selected private database
+values. Normal outbox inserts passed with direct sequence access denied.
+
+The first complete compiler check found an old registry version assertion and
+stale generated examples. The assertion and examples are now updated. Complete
+hosted checks, compiler release, browser installation adoption, and the complete
+Hypershell workflow remain required. No production or application result is
+claimed here. PostgreSQL 18 has test evidence; versions 16 and 17 still need
+separate checks before a support claim.
