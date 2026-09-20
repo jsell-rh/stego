@@ -573,6 +573,14 @@ the application must never perform automatic teardown.
    live test before another cluster attempt. No phase timing result is yet
    available. Main regeneration and adapter checks were independently verified
    at `0aa8f0d`; all 420 archived generation files match committed source.
+   Automatic capacity run `35479995472` at the same main source passed account
+   cleanup in 16.8819 seconds; the scope sealed at 16.4927 seconds. All selected
+   accounts, protected journals, provider identities, and audits passed. The
+   9,900 background rows and 10,007 other clients were preserved. Source, binary,
+   compiler, resource limits, and test cleanup were independently checked. All
+   six fixture files match the tenth run. Two account-only passes do not prove
+   the complete Gateway target or identify the cause of its 53.55-second upper
+   bound. The complete phase result remains required.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
