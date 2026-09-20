@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "source": "1d4f43e8793b38af1fc87aa38eacbe833773a548",
+  "unchanged_dependency_runner_source": "3e9b4985730001b787a737d2cb7e5aa096135922",
+  "matches_released_compiler": "c515f2208c27cfab51db0e9e7947089a1019bb01",
+  "dependency_runner_sha256": "d95cdea5c53e1055ac4f190ed8bed5be9e453f3d22e499544a6414fdd6b418e4",
+  "run": 35500594177,
+  "url": "https://github.com/jsell-rh/stego/actions/runs/35500594177",
+  "observed_conclusion": "failure",
+  "regression_reproduced": true,
+  "failed_test": "TestDependencyResolutionIgnoresSavedSourceOverlay",
+  "passed_top_level": [
+    "TestDependencyCommandsPreserveSavedProxyConfiguration",
+    "TestDependencyFailuresPreserveProjectFiles",
+    "TestDependencyRecoveryCompletesBothModuleFiles",
+    "TestDependencyResolutionHoldsProjectLock",
+    "TestDependencyResolutionRejectsChangedExternalReplacement",
+    "TestDependencyResolutionRequiresAppliedCode",
+    "TestDependencyResolutionUsesLocalReplacementsAndPreservesThem",
+    "TestResolvedModuleCannotLowerComponentMinimum"
+  ],
+  "passed_cases": 17,
+  "no_skipped_cases": true,
+  "source_archive_verified": true,
+  "test_log_sha256": "aa801f4688f90e70926831b84df80655158f8b9d0e083018a9922fe6fea41769",
+  "ci_log_sha256": "83a73c02103c6af2ee76b9c0e8848ffdd8ab58cb136690e12c1a8caa38a4a9da",
+  "checked_at": "2026-09-20T08:51:13.571569+00:00",
+  "scope": "Expected regression failure with unchanged dependency code and a saved external source overlay. This is evidence of a defect, not a qualified compiler result. The private proxy configuration control and all other selected dependency tests passed."
+}

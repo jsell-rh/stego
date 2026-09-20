@@ -264,8 +264,10 @@ func runDependencyCommand(ctx context.Context, directory, modPath string, args .
 	args = append(append([]string{}, args[:2]...), append([]string{"-modfile=" + modPath}, args[2:]...)...)
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = directory
-	// Use this module. Do not inherit workspace or alternate-module flags.
-	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	// Use this module. Do not inherit workspace or build flags. An empty
+	// GOFLAGS value falls back to saved Go settings. A space parses as no
+	// flags and still permits saved private proxy and module settings.
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS= ")
 	cmd.WaitDelay = time.Second
 	var output boundedCommandOutput
 	cmd.Stdout, cmd.Stderr = &output, &output
