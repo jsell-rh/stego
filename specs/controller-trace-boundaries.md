@@ -22,8 +22,8 @@ wraps the whole watch session. That session supplies its context to
 Compiler `7a674e6c038b9fcf9735de78e66a30956c6feb0b` retains this behavior.
 
 A watch can remain open for a long time. Its repeated work can therefore add
-many spans to one trace. Parent-based sampling also selects the whole session
-together. Trace boundaries must follow bounded operations.
+many spans to one trace. The configured trace-ID ratio sampler selects work in
+the same trace together. Trace boundaries must follow bounded operations.
 
 ## Required behavior
 
