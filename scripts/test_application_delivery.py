@@ -69,6 +69,8 @@ class DeliveryTests(unittest.TestCase):
                    "reference": repository + "@sha256:" + selected["manifest_sha256"],
                    "image_record_sha256": selected["image_record_sha256"], "registry_ca_sha256": "e" * 64,
                    "token_origins": [], "blob_origins": [], "image_contents_verified": True}
+        for flag, field in [("--token-origin", "token_origins"), ("--blob-origin", "blob_origins")]:
+            receipt[field] = [args[i + 1] for i, value in enumerate(args) if value == flag]
         (work / "registry.json").write_text(json.dumps(receipt))
         return b""
 
@@ -121,6 +123,38 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaisesRegex(delivery.CheckError, "receipt differs"):
                 self.publish()
         self.assertFalse((self.output / "publication.json").exists())
+
+    def test_explicit_registry_destinations_reach_the_compiler_and_receipt(self):
+        policy = self.root / "registry-policy.json"
+        value = {"format": 1, "token_origins": ["https://tokens.test"], "blob_origins": ["https://storage.test"]}
+        policy.write_text(json.dumps(value))
+        with patch.object(delivery.records.verification.control, "command", side_effect=self.command) as command:
+            self.publish(policy_file=policy)
+        for call in command.call_args_list:
+            args = call.args[0]
+            if args[1:3] == ["image", "publish"]:
+                self.assertEqual(args[-4:], ["--token-origin", "https://tokens.test", "--blob-origin", "https://storage.test"])
+        receipt = json.loads((self.output / "api/registry.json").read_text())
+        self.assertEqual(receipt["blob_origins"], value["blob_origins"])
+        self.assertEqual(receipt["token_origins"], value["token_origins"])
+
+    def test_registry_policy_rejects_unknown_duplicate_or_unbounded_fields(self):
+        policy = self.root / "registry-policy.json"
+        values = [{}, {"format": True, "token_origins": [], "blob_origins": []},
+                  {"format": 1, "token_origins": [], "blob_origins": [], "allow_all": True},
+                  {"format": 1, "token_origins": "https://tokens.test", "blob_origins": []}]
+        for origins in [["https://storage.test"] * 2, [None], ["x" * 2049], [str(n) for n in range(9)]]:
+            values.append({"format": 1, "token_origins": [], "blob_origins": origins})
+        for value in values:
+            policy.write_text(json.dumps(value))
+            with self.subTest(value=value), patch.object(delivery.records.verification.control, "command") as command:
+                with self.assertRaises(delivery.CheckError):
+                    self.publish(policy_file=policy)
+                command.assert_not_called()
+                self.assertFalse(self.output.exists())
+        policy.write_text('{"format":1,"format":1,"token_origins":[],"blob_origins":[]}')
+        with self.assertRaises(delivery.CheckError):
+            self.publish(policy_file=policy)
 
     def test_manifest_paths_duplicates_and_unknown_fields_are_rejected(self):
         original = copy.deepcopy(self.items)

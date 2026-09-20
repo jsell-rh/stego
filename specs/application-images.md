@@ -131,8 +131,15 @@ Only `publication.json` marks a complete set. A failed publication can leave
 individual images in the registry and diagnostic records in the result
 directory. It removes private compiler and credential copies on success or
 failure. The caller must retain the records and inspect the failed operation
-before a retry. The initial delivery profile uses one registry origin for
-authentication and storage; it does not approve external token or blob origins.
+before a retry. The default delivery profile uses one registry origin for
+authentication and storage. The optional `--registry-policy` file can approve
+external destinations. It has format 1 and two required arrays, `token_origins`
+and `blob_origins`. Each array can select at most eight explicit HTTPS origins.
+The common compiler validates the origins and keeps credential destinations
+separate from blob destinations. Blob requests cannot send registry credentials
+or request bodies. The publisher checks the same origin lists in each receipt.
+The registry CA bundle must cover all selected destinations. The caller must
+obtain this policy from trusted operator configuration, not from a redirect.
 
 The result includes the authenticated image record digest. The consumer must
 then give that digest and the retained records to `stego image verify` to check

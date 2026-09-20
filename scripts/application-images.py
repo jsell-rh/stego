@@ -118,13 +118,36 @@ def token_credentials(path, username, output):
         stream.write(json.dumps(credentials, separators=(",", ":")).encode() + b"\n")
 
 
+def registry_policy(path):
+    if path is None:
+        return {"token_origins": [], "blob_origins": []}
+    value = records.decode(records.verification.regular_bytes(path, 16 << 10))
+    if (set(value) != {"format", "token_origins", "blob_origins"}
+            or type(value["format"]) is not int or value["format"] != 1):
+        raise CheckError("The registry destination policy fields or format differ")
+    for name in ["token_origins", "blob_origins"]:
+        origins = value[name]
+        if (not isinstance(origins, list) or len(origins) > 8
+                or any(not isinstance(origin, str) or not 1 <= len(origin) <= 2048 for origin in origins)
+                or len(origins) != len(set(origins))):
+            raise CheckError("The registry destination policy has invalid origins")
+    # The compiler validates HTTPS origin syntax, separation of blob and
+    # credential origins, and the boundary of every actual request.
+    return {key: value[key] for key in ["token_origins", "blob_origins"]}
+
+
 def publish(images, expected, source, compiler, compiler_sha256, repository, ca, ca_sha256,
-            output, credentials=None, token_file=None, username=None):
+            output, credentials=None, token_file=None, username=None, policy_file=None):
     images, source, compiler, ca = (path.absolute() for path in [images, source, compiler, ca])
     if (credentials is None) == (token_file is None) or (token_file is None) != (username is None):
         raise CheckError("Select credentials or an explicit token file and username")
     if not isinstance(repository, str) or not repository or repository.endswith("/"):
         raise CheckError("Select a registry and repository prefix without a final slash")
+    policy = registry_policy(policy_file)
+    origins = []
+    for field, flag in [("token_origins", "--token-origin"), ("blob_origins", "--blob-origin")]:
+        for origin in policy[field]:
+            origins.extend([flag, origin])
     output = new_output(output)
     output.mkdir(mode=0o700)
     # Failure leaves bounded diagnostic records. Only publication.json marks
@@ -171,12 +194,12 @@ def publish(images, expected, source, compiler, compiler_sha256, repository, ca,
             command(["image", "publish", "--record", str(target / "image.json"),
                      "--record-sha256", image["image_record_sha256"], "--build-record", str(target / "build.json"),
                      "--image", str(target / "oci"), "--work", str(work), "--repository", destination,
-                     "--registry-ca", str(ca), "--registry-ca-sha256", ca_sha256, "--credentials", str(credentials)])
+                     "--registry-ca", str(ca), "--registry-ca-sha256", ca_sha256, "--credentials", str(credentials), *origins])
             receipt = records.decode(records.verification.regular_bytes(work / "registry.json", 64 << 10))
             reference = destination + "@sha256:" + image["manifest_sha256"]
             expected_receipt = {"format": 1, "operation": "publish", "repository": destination,
                                 "reference": reference, "image_record_sha256": image["image_record_sha256"],
-                                "registry_ca_sha256": ca_sha256, "token_origins": [], "blob_origins": [],
+                                "registry_ca_sha256": ca_sha256, **policy,
                                 "image_contents_verified": True}
             if receipt != expected_receipt:
                 raise CheckError("The registry receipt differs from the selected image")
@@ -198,7 +221,7 @@ def main():
         publishing.add_argument("--" + name, type=Path, required=True)
     for name in ["set-sha256", "compiler-sha256", "repository", "registry-ca-sha256"]:
         publishing.add_argument("--" + name, required=True)
-    for name in ["credentials", "token-file"]:
+    for name in ["credentials", "token-file", "registry-policy"]:
         publishing.add_argument("--" + name, type=Path)
     publishing.add_argument("--username")
     args = parser.parse_args()
@@ -213,7 +236,7 @@ def main():
     else:
         result = publish(args.images, args.set_sha256, args.source, args.compiler, args.compiler_sha256,
                          args.repository, args.registry_ca, args.registry_ca_sha256, args.output,
-                         args.credentials, args.token_file, args.username)
+                         args.credentials, args.token_file, args.username, args.registry_policy)
     print(json.dumps(result, indent=2))
 
 
