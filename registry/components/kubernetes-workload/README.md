@@ -87,3 +87,11 @@ defaults, and convergence after one write. All 83 prior construction cases and
 11 added cases passed in the
 [recorded check](../../../specs/workload-update-evidence.json). This fixture does
 not replace cluster admission or the complete application workflow.
+
+Image references must include a registry, repository, and lowercase SHA-256
+digest. An optional tag can precede the digest. The builder preserves the full
+reference. Kubernetes uses the digest for the pull when both are present.
+Tags follow the [Kubernetes image name rules](https://kubernetes.io/docs/concepts/containers/images/#image-names)
+and can contain at most 128 characters. The full reference remains limited to
+512 bytes. A tag without a digest is rejected. An invalid reference returns
+no resources.
