@@ -100,22 +100,41 @@ without running the compiler locally. See the
 [compiler evidence](runtime-configuration-evidence.json). Consumer acceptance
 remains open.
 
-Hypershell candidate `72cc1786` declares four configuration groups and uses them
-in the namespace allocator and Sandbox count worker. It is committed and pushed,
-but has no generated configuration package yet. Do not treat the compiler pin
-or the worker source as a complete application change. Next actions are:
+Hypershell candidate `7ed1a7b7` declares four configuration groups and uses them
+in the namespace allocator and Sandbox count worker. Its generated package is
+committed and pushed. [Regeneration](https://github.com/jsell-rh/hypershell-stego/actions/runs/35538564130)
+passed for seed `72cc1786`. Review checked all 428 output and module files, all
+419 output hashes, and all 41 captured input hashes. The
+[full application check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35538751914)
+passed 1,165 core cases across 364 top-level tests. All 1,162 prior cases and the
+five recorded exclusions are retained. Adapter, browser, UI, and service-image
+checks passed. Seven application images and seven browser fixture images passed
+the separate source, content, registry, and signature reviews.
 
-1. Regenerate the frozen consumer source in CI. Review the output, compiler
-   identity, input records, and unchanged module files before committing it.
-2. Run the existing application checks, including startup privacy, provider
-   setup ordering, REST/gRPC, restart, and repeated generation.
-3. Verify the complete bounded service and browser workflows and their cleanup
-   before promoting the consumer. Keep one live cluster test at a time.
+Complete live qualification remains required. The service workflow started
+after a fresh preflight verified that the shared Lease was free, test Jobs were
+absent, and all 32 standing resources were unchanged. Its result and cleanup
+must pass before the browser workflow starts. The existing bounded live count
+test can then check the changed count worker with ordinary Pods, namespace
+permissions, events, REST/gRPC, and restart. This test does not establish Kata
+isolation or actual OpenShell Sandbox execution. Keep one live test at a time.
+
+Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
+in the Gateway identity worker, Gateway workload worker, and account provisioner.
+It adds checks for private configuration failures before provider setup. Its
+first application checks stopped because three recorded worker input hashes
+were stale; those tests did not run. Hosted
+[regeneration](https://github.com/jsell-rh/hypershell-stego/actions/runs/35539887087)
+refreshed the state. Review confirmed that only those three hashes and their
+combined digest changed, with all 427 other output and module files unchanged.
+The corrected source is committed and pushed. Its new application checks and
+live qualification remain open. The earlier failed runs cannot qualify it.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented
-in the consumer and requires application validation. Connection assembly in
-other workers and repeated REST/gRPC conversion remain separate work.
+in the consumer. Complete live validation remains required. Optional provider
+connections, other settings, and repeated REST/gRPC conversion remain separate
+work. Neither candidate completes the enterprise requirements.
 
 ## Remaining requirements
 
