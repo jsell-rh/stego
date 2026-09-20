@@ -1,0 +1,165 @@
+{
+  "source": "e9b9bf90d37ec4a083e59ed79922c8e6a88d9dff",
+  "run": 35486475436,
+  "timing_sha256": "fee2b09824c0f6ce81303eec6793a464fae041fca2dfc5193673b64ff019b9c8",
+  "log_prefix_sha256": "9cf340a8ffca05b97a0563dbd6a1e80a2787a61b8038873b01cb7bff6c3c936d",
+  "log_prefix_records": 6015,
+  "complete_log_coverage_claimed": false,
+  "limitations": [
+    "The log tail and polling can omit records.",
+    "The time window uses wall clocks from different Pods. Clock alignment is not independently verified.",
+    "Events have no resource key. Other work can occur in this window.",
+    "A shared trace ID does not by itself prove a parent span relationship.",
+    "These observations do not establish the cause of cleanup latency or production capacity."
+  ],
+  "compiler": "ee348b819bb43a738a6aad2fc14cb76ce3b1ec21",
+  "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35486475436",
+  "required_browser_tests": 11,
+  "source_files_match": 1570,
+  "generation_hashes_match": 421,
+  "evidence_archive_sha256": "d79f3e1bcb2add461e2a243c76c4a818ddd5ebd7b1e336b316cdd3eaed11a72d",
+  "browser_fixture_absent": true,
+  "standing_resources_unchanged": 32,
+  "api_run": 35486475480,
+  "api_qualification_pending": true,
+  "sample": {
+    "start": "2026-09-20T03:43:54.160568+00:00",
+    "end": "2026-09-20T03:44:52.388165+00:00",
+    "whole_cleanup_upper_bound_seconds": 58.227597024,
+    "records_in_window": 258,
+    "http_methods": {
+      "GET": 224,
+      "DELETE": 5
+    },
+    "http_statuses": {
+      "200": 93,
+      "404": 136
+    },
+    "http_durations": {
+      "count": 229,
+      "min_seconds": 0.0031345,
+      "median_seconds": 0.005848958,
+      "p95_seconds": 0.019446752,
+      "max_seconds": 0.05805169
+    },
+    "controller_outcomes": {
+      "failure": 8,
+      "success": 21
+    },
+    "controller_durations": {
+      "count": 29,
+      "min_seconds": 0.003403321,
+      "median_seconds": 0.061387109,
+      "p95_seconds": 0.208941843,
+      "max_seconds": 0.248280935
+    }
+  },
+  "selected_events": [
+    {
+      "seconds_after_accept": 0.047539,
+      "event": "http.client.request.completed",
+      "outcome": "success",
+      "duration_seconds": 0.023874482,
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "seconds_after_accept": 0.047609,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.039631773,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 1.078077,
+      "event": "http.client.request.completed",
+      "outcome": "success",
+      "duration_seconds": 0.012880384,
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "seconds_after_accept": 1.078185,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.030458904,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 3.128447,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.049213203,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 7.147154,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.017607971,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 15.255719,
+      "event": "http.client.request.completed",
+      "outcome": "success",
+      "duration_seconds": 0.02301574,
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "seconds_after_accept": 15.255816,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.10820994,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 25.320516,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.06383889,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 35.470921,
+      "event": "http.client.request.completed",
+      "outcome": "success",
+      "duration_seconds": 0.014114701,
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "seconds_after_accept": 35.47104,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.150072675,
+      "operation": "reconcile",
+      "retry": true
+    },
+    {
+      "seconds_after_accept": 45.589595,
+      "event": "http.client.request.completed",
+      "outcome": "success",
+      "duration_seconds": 0.016938981,
+      "method": "DELETE",
+      "status": 200
+    },
+    {
+      "seconds_after_accept": 45.589683,
+      "event": "controller.work.completed",
+      "outcome": "failure",
+      "duration_seconds": 0.117761969,
+      "operation": "reconcile",
+      "retry": true
+    }
+  ],
+  "production_capacity_proved": false,
+  "retry_policy_changed": false
+}

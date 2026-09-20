@@ -99,10 +99,26 @@ removed an earlier cleanup proof while its scope stayed sealed and its inputs
 stayed unchanged. It was the only failed test; all 169 earlier passing journal
 cases remained passing. Candidate `7fe2f3d` preserves the observation in that
 case and requires failures and changed inputs to invalidate it. It uses the
-existing common scan and storage contracts. Its CI and complete workflow
-qualification remain pending. It is not part of the qualified main runtime.
+existing common scan and storage contracts. Journal run `35486427733` passed
+all 172 cases, including the three new checks and all 169 earlier cases.
+Real-provider run `35486753166` passed its six tests and 15 snapshot cases.
+It closed all 61 protected identities after interruption and preserved the
+unrelated client. The full suite and complete workflow remain pending.
+The candidate is not part of the qualified main runtime.
 See the [rescan candidate](https://github.com/jsell-rh/hypershell-stego/blob/7fe2f3d/acceptance/account-rescan-proof.md).
-This does not establish the cause of namespace removal latency. Schema upgrades,
+
+The automatic main browser check at `e9b9bf9`, run `35486475436`, also passed
+all 11 required tests. Its source, generated output, compiler, account identity,
+cleanup order, four images, and browser resource removal passed independent
+checks. All 32 standing resources were unchanged. Normal whole-Gateway cleanup
+took 58.2276 seconds. The API test and full suites are still separate checks.
+Existing allocator logs show short HTTP requests and retry intervals that
+follow the configured exponential delay. The source treats normal waiting as
+a failed action. The next common controller review must distinguish expected
+progress from failure while retaining failure backoff and cleanup correctness.
+See the [evidence and required behavior](controller-pending-review.md).
+
+These results do not prove the 30-second target. Schema upgrades,
 distributed fencing, restore, live Kata, full application parity, and the other
 open completion requirements remain unproved.
 

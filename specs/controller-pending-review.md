@@ -2,7 +2,8 @@
 
 This source review applies to compiler `ee348b8` and Hypershell test source
 `80b0e00`. It identifies a runtime distinction that needs review. It does not
-identify the cause of the observed 53.95-second Gateway cleanup time.
+identify the cause of the observed 53.95-second Gateway cleanup time. The
+current main workflow and request timing are recorded below.
 
 ## Current behavior
 
@@ -99,5 +100,42 @@ recovery merely because the public resource is finalized. Any common change
 still needs independent generated-service checks and the application workflow.
 
 The 30-second whole-Gateway target, distributed fencing, and the other open
-enterprise requirements remain unproved. The candidate allocation fix has not
+enterprise requirements remain unproved. At that checkpoint, the candidate allocation fix had not
 yet passed its new live pause-and-recovery check.
+
+## Current main workflow and request timing
+
+Hypershell main `e9b9bf9` passed all 11 browser workflow tests in
+[run 35486475436](https://github.com/jsell-rh/hypershell-stego/actions/runs/35486475436).
+Independent checks verified 1,570 source files, 421 generation hashes, the
+actual signed compiler bytes, and the bounded test Job. The test retained the
+deleting Gateway while its allocator was stopped. It completed deletion only
+after the allocator resumed and removed the state namespaces.
+
+Normal cleanup of one Gateway with 100 accounts took 58.2276 seconds. The
+30-second target remains open. The account observation returned to pending
+14 times. The separate account rescan fix is not part of this source.
+
+A read-only observer retained safe fields from the allocator's existing
+structured logs. In the cleanup time window, it recorded 229 HTTP requests.
+Their maximum duration was 0.0581 seconds. Eight reconciliation results reported
+failure at approximately 0.05, 1.08, 3.13, 7.15, 15.26, 25.32, 35.47, and 45.59
+seconds after the observed DELETE response. These intervals follow the
+configured retry delay: one second, then two, four, eight, and ten seconds.
+
+The observer used a bounded log tail and can omit records. Its time window
+compares clocks in different Pods. The records contain no resource key, so
+other work can occur in the window. These observations support investigation
+of the retry policy. They do not prove the cause of every cleanup delay or
+predict the result of a runtime change. See the
+[saved measurement summary](controller-pending-evidence.json).
+
+The source distinction described above remains unchanged. This measured
+window now supports the common runtime review. It does not replace the safety
+requirements or the independent generated-service checks. The application
+must retain namespace dependency order and durable cleanup ownership checks.
+Only verified absence can complete namespace cleanup.
+
+No runtime or retry policy changed in this review. The current API test and
+full hosted suites remain separate from this completed browser result. Live
+Kata isolation, restore, fencing, and production capacity remain open.
