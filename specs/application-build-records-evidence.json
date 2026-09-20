@@ -49,7 +49,47 @@
   "scope": "Native executable build evidence only. Image contents, record authentication, and the production image publisher remain open.",
   "application_workflow": "https://github.com/jsell-rh/stego/actions/runs/35506669775",
   "qualifier_sha256": "c80a2a898f669a2a5176fa3a545f8cabd55a80590ed048cabcc723b8f189fe6c",
-  "full_ci_qualification_pending": true,
+  "full_ci_qualification_pending": false,
   "main_promoted": false,
-  "compiler_release_published": false
+  "compiler_release_published": false,
+  "compiler_checks": {
+    "qualified_at": "2026-09-20T11:11:26.775512+00:00",
+    "source": "f7587160e4e3a8a3963c63f299fc38f0b64a37ec",
+    "full_run": 35506669820,
+    "passed_jobs": [
+      "compiler",
+      "examples (user-management)",
+      "examples (user-management-rhsso)",
+      "keycloak-provider",
+      "postgres-provisioning",
+      "resource-state-storage"
+    ],
+    "examples": [
+      {
+        "name": "user-management",
+        "unchanged_generated_and_module_files": 74,
+        "archive_sha256": "736b36a23618730c856dd6f4c5679d24d8d96b2d135d19df33a2171e537d8d59"
+      },
+      {
+        "name": "user-management-rhsso",
+        "unchanged_generated_and_module_files": 70,
+        "archive_sha256": "edec1081923ba1c7cb7d47c0df5360d79f593ae0555453ddc3d36c452bf3a71a"
+      }
+    ],
+    "compiler_run": 35506675763,
+    "compiler_artifact": {
+      "name": "stego-linux-amd64",
+      "sha256": "3b31cd301486083d74cbb7e1c57060acc6cce3293c0b12856d520a2f6afa4c2e",
+      "size": 39497717
+    },
+    "compiler_record_sha256": "70ac495a585c61c9cbf0e450efac06f9a560c71f0e5d728d5bd48e2efa08394f",
+    "source_inventory": {
+      "sha256": "384298dd84d3b4499e2660cd3f5f25b82a32642f5eecbf1793f4445d12086780",
+      "files": 1327,
+      "bytes": 10528213
+    },
+    "candidate_provenance_signed": false,
+    "local_compiler_execution": false,
+    "qualifier_sha256": "ed3b0299eb04b91e279ccd7512f103783fc10ce13db2d5c4c4bb542ab03be020"
+  }
 }

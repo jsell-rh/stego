@@ -1,7 +1,7 @@
 # Application build records
 
 This change is a candidate. The native build check passed for the generated
-example and the current Hypershell API. Full compiler qualification, image
+example and the current Hypershell API. Full compiler checks also passed. Image
 verification, record signing, and image publisher adoption are still required.
 C3 remains open.
 
@@ -91,3 +91,10 @@ This check did not execute the application or publish an image. It does not
 replace the REST, gRPC, restart, or cleanup checks for the running Gateway
 workflow. Application record authentication, image content and trust-store
 verification, and use in the production publisher remain open.
+
+[Compiler check run 35506669820](https://github.com/jsell-rh/stego/actions/runs/35506669820)
+passed all six jobs. The saved example output and module files matched the
+selected source: 74 files for user-management and 70 for user-management-rhsso.
+[Compiler artifact run 35506675763](https://github.com/jsell-rh/stego/actions/runs/35506675763)
+also passed. Its source inventory, executable, and record hashes passed the
+independent check. This candidate artifact is not signed or released.
