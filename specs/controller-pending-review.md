@@ -66,3 +66,38 @@ The design and tests must cover these conditions:
 Validate the common behavior with an independent generated service as well as
 the Hypershell workflow. Pending scheduling does not supply distributed fencing,
 rollback detection, or proof of production capacity.
+
+## Completed phase evidence
+
+Hypershell run 35481347942 completed all eleven required tests at source 80b0e00.
+Its source, generated output, compiler records, screenshots, account records,
+and cleanup were checked. The fourteen phase records show finalization at
+29.73 seconds, followed by a Gateway state namespace still present at 51.69
+seconds. Complete cleanup proof took 54.34 seconds. The final account proof
+used about 1.42 seconds. See the
+[application review](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/cleanup-phase-review.md).
+
+This evidence requires a correctness fix before a scheduling change. The
+application had no cleanup owner for namespace allocation. Its candidate now
+uses the existing generated targeted cleanup records and observation runtime.
+The namespace and SQL removal order remains application policy. STEGO does not
+need Gateway-specific queue or storage behavior for that fix.
+
+The account cleanup flag changed from complete back to pending thirteen times.
+In the reviewed application source, RecoverGatewayCleanup sets its completion
+value from the current bounded scan and inventory result, then always supplies
+that value to RecordCleanup. A bounded scan that has not reached its end can
+therefore supply false during a repeated verification. The source explicitly
+requires repeated checks for late provider effects. This is a possible source
+of the observed changes, not proof of their exact cause or latency effect.
+
+A later change must distinguish incomplete verification from new evidence of
+unfinished work. It must preserve checks for changed generations, new journal
+members, provider failures, late effects, and failed observation commits. Do
+not keep a completion record merely to reduce event count. Do not stop retained
+recovery merely because the public resource is finalized. Any common change
+still needs independent generated-service checks and the application workflow.
+
+The 30-second whole-Gateway target, distributed fencing, and the other open
+enterprise requirements remain unproved. The candidate allocation fix has not
+yet passed its new live pause-and-recovery check.
