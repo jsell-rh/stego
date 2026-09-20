@@ -193,7 +193,7 @@
     "Full C3 or enterprise readiness",
     "The 30-second cleanup target and full production capacity",
     "Live Kata isolation and OpenShell Sandbox execution",
-    "Removal of the API-only legacy image publisher"
+    "Verified replacement of the service Deployment image publisher"
   ],
   "live_hypershell": {
     "qualified": true,

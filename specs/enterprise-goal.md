@@ -988,6 +988,9 @@ had an observed cleanup upper bound of 32.48 seconds. The 30-second target
 remains open. This is not evidence for 100 Gateways or production capacity.
 
 Keep production CA selection, offline inputs, automatic release qualification,
-other platforms, the API-only legacy publisher, and the remaining C3 through
-C7 and H1 through H3 requirements open. Live Kata remains deferred. See the
+other platforms, the service Deployment publisher, and the remaining C3 through
+C7 and H1 through H3 requirements open. The separate API test does not publish
+images. Service Deployment source `2af3ec4` removes the old publisher and uses
+the common STEGO delivery path; its live verification is still pending.
+Live Kata remains deferred. See the
 [current delivery evidence](application-delivery-evidence.json).
