@@ -82,7 +82,7 @@ jobs:
           modes = ["inherit", "membership", "superuser", "createdb", "createrole",
                    "replication", "bypassrls", "nologin", "database-create", "database-temp",
                    "schema-create", "marker-write", "marker-column-write", "public-marker-write",
-                   "grant-option", "sequence-update", "wrong-owner", "view", "row-security", "missing-object"]
+                   "grant-option", "sequence-update", "sequence-usage", "wrong-owner", "view", "row-security", "missing-object"]
           for mode in modes:
               assert re.search(r"^\s*--- PASS: TestDatabaseAccessRejectsUnsafeSetup/" + mode + r" \(", log, re.M), mode
           for mode in ["complete", "missing-marker-read", "excess-table-write"]:

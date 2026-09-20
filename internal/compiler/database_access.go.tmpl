@@ -16,7 +16,7 @@ var roleName = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 type object struct { schema, name, kind, privileges string }
 var objects = []object{
-{{range .Objects}} { {{printf "%q" .Schema}}, {{printf "%q" .Name}}, {{printf "%q" .Kind}}, {{range $i,$p := .Privileges}}{{if $i}} + "," + {{end}}{{printf "%q" $p}}{{end}} },
+{{range .Objects}} { {{printf "%q" .Schema}}, {{printf "%q" .Name}}, {{printf "%q" .Kind}}, {{printf "%q" (join .Privileges ",")}} },
 {{end}}
 }
 var schemas = []string{ {{range .Schemas}}{{printf "%q" .}},{{end}} }
@@ -41,6 +41,7 @@ func GrantRuntime(ctx context.Context, conn *sql.Conn, runtimeRole string) (fail
   if _,err=tx.ExecContext(ctx,"GRANT USAGE ON SCHEMA "+quote(schema)+" TO "+quote(runtimeRole));err!=nil{return ErrAccess}
  }
  for _,item:=range objects {
+  if item.privileges=="" {continue}
   if _,err=tx.ExecContext(ctx,"GRANT "+item.privileges+" ON "+strings.ToUpper(item.kind)+" "+quote(item.schema)+"."+quote(item.name)+" TO "+quote(runtimeRole));err!=nil{return ErrAccess}
  }
  if _,err=identity(ctx,tx,runtimeRole,true,true);err!=nil{return err}

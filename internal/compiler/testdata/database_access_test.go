@@ -209,6 +209,9 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 		"DELETE FROM public.stego_resource_state",
 		"DELETE FROM public.stego_resource_state_scopes",
 		"DELETE FROM public.stego_scan_checkpoints",
+		"SELECT nextval('stego_outbox.messages_sequence_seq')",
+		"SELECT last_value FROM stego_outbox.messages_sequence_seq",
+		"SELECT setval('stego_outbox.messages_sequence_seq',1)",
 	} {
 		denied(t, f.runtime, statement)
 	}
@@ -240,7 +243,7 @@ func TestDatabaseAccessMissingPermission(t *testing.T) {
 }
 
 func TestDatabaseAccessRejectsUnsafeSetup(t *testing.T) {
-	for _, mode := range []string{"inherit", "membership", "superuser", "createdb", "createrole", "replication", "bypassrls", "nologin", "database-create", "database-temp", "schema-create", "marker-write", "marker-column-write", "public-marker-write", "grant-option", "sequence-update", "wrong-owner", "view", "row-security", "missing-object"} {
+	for _, mode := range []string{"inherit", "membership", "superuser", "createdb", "createrole", "replication", "bypassrls", "nologin", "database-create", "database-temp", "schema-create", "marker-write", "marker-column-write", "public-marker-write", "grant-option", "sequence-update", "sequence-usage", "wrong-owner", "view", "row-security", "missing-object"} {
 		t.Run(mode, func(t *testing.T) {
 			f := fixture(t)
 			role := identifier(f.role)
@@ -278,6 +281,8 @@ func TestDatabaseAccessRejectsUnsafeSetup(t *testing.T) {
 				statement = "GRANT SELECT ON public.records TO " + role + " WITH GRANT OPTION"
 			case "sequence-update":
 				statement = "GRANT UPDATE ON SEQUENCE stego_outbox.messages_sequence_seq TO " + role
+			case "sequence-usage":
+				statement = "GRANT USAGE ON SEQUENCE stego_outbox.messages_sequence_seq TO " + role
 			case "wrong-owner":
 				statement = "ALTER TABLE public.records OWNER TO " + identifier(f.auditor)
 			case "view":

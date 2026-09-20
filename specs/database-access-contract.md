@@ -14,6 +14,11 @@ DELETE permission. Their existing structure and state checks remain required.
 Application entity tables receive the permissions needed by generated storage.
 Application request authorization stays in the application.
 
+An empty sequence privilege set means inspection without direct runtime access.
+The outbox uses this form: inserts use its identity column, and the runtime
+cannot call sequence functions or read sequence state directly. The database
+test requires a successful outbox insert and denied direct sequence access.
+
 `GrantRuntime(ctx, ownerConnection, runtimeRole)` operates on schemas and roles
 that already exist. The current connection role must own the database and
 declared relations. The runtime must be a separate login with NOINHERIT, no

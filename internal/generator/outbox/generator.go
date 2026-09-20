@@ -89,7 +89,8 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	wiring := &gen.Wiring{GoModRequires: map[string]string{"github.com/google/uuid": "v1.6.0", "github.com/jackc/pgx/v5": "v5.11.0"}}
 	wiring.DatabaseAccess = []gen.DatabaseObject{
 		{Schema: "stego_outbox", Name: "messages", Kind: "table", Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"}},
-		{Schema: "stego_outbox", Name: "messages_sequence_seq", Kind: "sequence", Privileges: []string{"USAGE"}},
+		// Identity inserts do not need direct sequence access.
+		{Schema: "stego_outbox", Name: "messages_sequence_seq", Kind: "sequence", Privileges: []string{}},
 	}
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}

@@ -37,7 +37,7 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 		}
 		for _, input := range component.Wiring.DatabaseAccess {
 			object := input
-			object.Privileges = append([]string(nil), input.Privileges...)
+			object.Privileges = append([]string{}, input.Privileges...)
 			key := object.Schema + "." + object.Name
 			if component.Name == "" || !databaseIdentifier.MatchString(object.Schema) || !databaseIdentifier.MatchString(object.Name) || strings.HasPrefix(object.Schema, "pg_") || object.Schema == "information_schema" || seen[key] || len(objects) >= 4096 {
 				return nil, fmt.Errorf("component %q has an invalid or duplicate database object", component.Name)
@@ -45,7 +45,7 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 			if object.Kind != "table" && object.Kind != "sequence" {
 				return nil, fmt.Errorf("component %q has an unsupported database object kind", component.Name)
 			}
-			if len(object.Privileges) == 0 || len(object.Privileges) > 4 {
+			if (len(object.Privileges) == 0 && object.Kind != "sequence") || len(object.Privileges) > 4 {
 				return nil, fmt.Errorf("component %q has an invalid database privilege set", component.Name)
 			}
 			sort.Strings(object.Privileges)
@@ -80,7 +80,7 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 		Objects []databaseAccessObject
 		Schemas []string
 	}{objects, names}
-	tmpl, err := template.New("database-access").Parse(databaseAccessSource)
+	tmpl, err := template.New("database-access").Funcs(template.FuncMap{"join": strings.Join}).Parse(databaseAccessSource)
 	if err != nil {
 		return nil, err
 	}
