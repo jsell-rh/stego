@@ -695,6 +695,76 @@ func TestDatabaseProvisioningLifecycle(t *testing.T) {
 		t.Fatal("partial deletion did not resume", err)
 	}
 
+	// PostgreSQL retains datconnlimit=-2 if a drop stops after invalidation.
+	// Reproduce that catalog state on this dedicated server. This does not
+	// simulate the timing of a physical crash or a canceled checkpoint.
+	t.Run("invalid-database-drop", func(t *testing.T) {
+		for _, mode := range []string{"owned", "foreign-owner", "replaced-database"} {
+			t.Run(mode, func(t *testing.T) {
+				candidate := spec("invalid-drop-" + mode)
+				names, err := EnsureDatabase(ctx, provisioner, candidate)
+				if err != nil {
+					t.Fatal("create invalid-drop fixture", err)
+				}
+				if mode == "owned" {
+					exec(adminConn, "UPDATE stego_provisioning.resources SET state='deleting' WHERE scope=$1 AND resource=$2", candidate.Key.Scope, candidate.Key.Resource)
+					exec(bootstrap, "ALTER ROLE "+quoted(names.User)+" NOLOGIN")
+					exec(bootstrap, "ALTER ROLE "+quoted(names.Owner)+" NOLOGIN")
+				} else if mode == "foreign-owner" {
+					exec(bootstrap, "ALTER DATABASE "+quoted(names.Database)+" OWNER TO "+quoted(o.User))
+				} else {
+					exec(bootstrap, "DROP DATABASE "+quoted(names.Database)+" WITH (FORCE)")
+					exec(bootstrap, "CREATE DATABASE "+quoted(names.Database)+" OWNER "+quoted(names.Owner))
+					exec(bootstrap, "REVOKE ALL ON DATABASE "+quoted(names.Database)+" FROM PUBLIC")
+				}
+				exec(bootstrap, "ALTER DATABASE "+quoted(names.Database)+" ALLOW_CONNECTIONS false")
+				exec(bootstrap, "UPDATE pg_catalog.pg_database SET datconnlimit=-2 WHERE datname=$1", names.Database)
+				var oid uint32
+				var limit int
+				if err := bootstrap.QueryRow(ctx, "SELECT oid,datconnlimit FROM pg_catalog.pg_database WHERE datname=$1", names.Database).Scan(&oid, &limit); err != nil || limit != -2 {
+					t.Fatal("invalid database fixture was not established", err)
+				}
+				if mode == "owned" {
+					if _, err := EnsureDatabase(ctx, provisioner, candidate); !errors.Is(err, ErrDatabaseDeleted) {
+						t.Fatal("invalid deleting database was recreated", err)
+					}
+					// Each call opens a new provider session. No connection state
+					// from the interrupted operation is required for recovery.
+					if err := DeleteDatabase(ctx, provisioner, candidate.Key); err != nil {
+						var remote *Error
+						if errors.As(err, &remote) {
+							t.Fatalf("invalid database drop did not resume: stage=%s SQLSTATE=%s", remote.Stage, remote.SQLState)
+						}
+						t.Fatal("invalid database drop did not resume", err)
+					}
+					var absent bool
+					if err := adminConn.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1)
+					 AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname IN ($2,$3))
+					 AND EXISTS(SELECT 1 FROM stego_provisioning.resources WHERE scope=$4 AND resource=$5 AND state='deleted')`, names.Database, names.Owner, names.User, candidate.Key.Scope, candidate.Key.Resource).Scan(&absent); err != nil || !absent {
+						t.Fatal("invalid database cleanup was not complete", err)
+					}
+					if err := DeleteDatabase(ctx, provisioner, candidate.Key); err != nil {
+						t.Fatal("repeated invalid database cleanup failed", err)
+					}
+				} else {
+					if err := DeleteDatabase(ctx, provisioner, candidate.Key); !errors.Is(err, ErrDatabaseOwnership) {
+						t.Fatal("foreign invalid database was accepted", err)
+					}
+					var retained bool
+					if err := adminConn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1 AND oid=$2 AND datconnlimit=-2)
+					 AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=$3 AND rolcanlogin)
+					 AND EXISTS(SELECT 1 FROM stego_provisioning.resources WHERE scope=$4 AND resource=$5 AND state='ready')`, names.Database, oid, names.User, candidate.Key.Scope, candidate.Key.Resource).Scan(&retained); err != nil || !retained {
+						t.Fatal("denied cleanup changed a foreign database or recorded state", err)
+					}
+				}
+				var marker int
+				if err := other.QueryRow(ctx, "SELECT value FROM public.marker").Scan(&marker); err != nil || marker != 99 {
+					t.Fatal("invalid database cleanup changed unrelated data", err)
+				}
+			})
+		}
+	})
+
 	// A role with the same name and a different OID is not an owned role.
 	swapped := spec("replaced-role")
 	reserved, err := openProvision(ctx, provisioner, swapped.Key)

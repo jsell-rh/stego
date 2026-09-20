@@ -1,0 +1,78 @@
+name: PostgreSQL recovery checks
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/postgres-recovery.yml'
+      - 'internal/generator/postgresclient/**'
+      - 'registry/components/postgres-client/**'
+  pull_request:
+    paths:
+      - '.github/workflows/postgres-recovery.yml'
+      - 'internal/generator/postgresclient/**'
+      - 'registry/components/postgres-client/**'
+permissions:
+  contents: read
+concurrency:
+  group: postgres-invalid-drop-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  postgres-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 768MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      STEGO_REQUIRE_POSTGRES: '1'
+      STEGO_REQUIRE_PROVISIONING_POSTGRES: '1'
+    services:
+      postgres:
+        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_PASSWORD: stego_provision_test
+          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
+        ports:
+          - 5432/tcp
+        options: >-
+          --cpus=1 --memory=512m --pids-limit=256
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.8'
+          cache: true
+      - name: Check invalid database recovery on a dedicated server
+        env:
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/postgres-recovery"
+          git rev-parse HEAD > "$RUNNER_TEMP/postgres-recovery/source-commit"
+          git archive HEAD | sha256sum > "$RUNNER_TEMP/postgres-recovery/source-archive.sha256"
+          go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/postgresclient -run '^TestGeneratedPostgresClient$' \
+            | tee "$RUNNER_TEMP/postgres-recovery/tests.log"
+          python3 - "$RUNNER_TEMP/postgres-recovery/tests.log" <<'PYRESULT'
+          import re, sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text()
+          root = 'TestDatabaseProvisioningLifecycle/invalid-database-drop'
+          for name in [root, root + '/owned', root + '/foreign-owner', root + '/replaced-database']:
+              if not re.search(r'--- PASS: ' + re.escape(name) + r' \(', text):
+                  raise SystemExit('A required recovery result is missing: ' + name)
+          if '--- FAIL:' in text or '--- SKIP:' in text:
+              raise SystemExit('The generated provider has failed or skipped cases')
+          PYRESULT
+      - name: Save recovery results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: postgres-recovery-${{ github.sha }}
+          path: ${{ runner.temp }}/postgres-recovery
+          if-no-files-found: error
+          retention-days: 14

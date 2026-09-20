@@ -703,13 +703,19 @@ func DeleteDatabase(ctx context.Context, o Options, key DatabaseKey) (err error)
 			}
 		}
 	}
-	var present bool
-	if e := s.conn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname=$1)", s.names.Database).Scan(&present); e != nil {
-		return safeError(ctx, "delete", e)
+	var connectionLimit int
+	err = s.conn.QueryRow(ctx, "SELECT datconnlimit FROM pg_catalog.pg_database WHERE datname=$1", s.names.Database).Scan(&connectionLimit)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return safeError(ctx, "delete", err)
 	}
-	if present {
-		if err = s.exec("delete", "ALTER DATABASE "+quoted(s.names.Database)+" ALLOW_CONNECTIONS false"); err != nil {
-			return err
+	if err == nil {
+		// An interrupted DROP can leave PostgreSQL's invalid marker (-2).
+		// That state already denies connections and cannot be altered. The
+		// ownership checks above still apply before removal can resume.
+		if connectionLimit != -2 {
+			if err = s.exec("delete", "ALTER DATABASE "+quoted(s.names.Database)+" ALLOW_CONNECTIONS false"); err != nil {
+				return err
+			}
 		}
 		if err = s.exec("delete", "DROP DATABASE "+quoted(s.names.Database)+" WITH (FORCE)"); err != nil {
 			return err

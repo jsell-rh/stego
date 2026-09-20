@@ -1,0 +1,39 @@
+{
+  "source": "3e8268458419dd4ab134d107060b24a590556d98",
+  "base": "2084c32d2cf40ca4b63627e454382272fe28da93",
+  "run": 35501332715,
+  "regression_reproduced": true,
+  "qualified": false,
+  "conclusion": "failure",
+  "failed_cases": [
+    "TestDatabaseProvisioningLifecycle",
+    "TestDatabaseProvisioningLifecycle/invalid-database-drop",
+    "TestDatabaseProvisioningLifecycle/invalid-database-drop/owned",
+    "TestGeneratedPostgresClient"
+  ],
+  "passed_cases": [
+    "TestClientPrivateTelemetry",
+    "TestConfigurationIgnoresEnvironment",
+    "TestDatabaseClientDoesNotUseGlobalProviders",
+    "TestDatabaseCredentialPreparationValidation",
+    "TestDatabaseNamesAndValidation",
+    "TestDatabaseProvisioningLifecycle/credential-preparation",
+    "TestDatabaseProvisioningLifecycle/invalid-database-drop/foreign-owner",
+    "TestDatabaseProvisioningLifecycle/invalid-database-drop/replaced-database",
+    "TestDatabaseProvisioningLifecycle/managed-schema",
+    "TestInvalidIdentityAndCertificateAreRejected",
+    "TestInvalidReadDoesNotConnect",
+    "TestSchemaOperationValidation",
+    "TestVerifiedReadAgainstPostgres"
+  ],
+  "no_skipped_cases": true,
+  "failure": "The owned invalid database could not be removed because ALTER DATABASE returned SQLSTATE 55000.",
+  "foreign_owner_and_replaced_database_denials_passed": true,
+  "production_template_unchanged": true,
+  "production_template_sha256": "6b95426bc0556a807e0220df9d8d1fc0a895bb27871d647390f9d9db5225be81",
+  "source_archive_sha256": "98cf5a8d677853ab87bdd5236c2a9f1eda10066012ca16e81ad0a81f319f1083",
+  "test_log_sha256": "3c097c5fcacfa696504095320dd39b02b8d4eaa4b1984a75c60a7550329f32eb",
+  "ci_log_sha256": "96a49fcd80197e42c1d53c743b7ede9788a9ea0174c32e07e62d508fd7a936b5",
+  "test_server_container_cleanup_passed": true,
+  "scope": "Deterministic recovery from the catalog state that PostgreSQL retains after an interrupted drop. The fixture injects that state on a disposable server. Physical crash and cancellation timing are not tested."
+}
