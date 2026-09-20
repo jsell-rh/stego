@@ -233,6 +233,9 @@ func ConfigurationDigest(input []Dependency) (string, error) {
 // Build returns a Deployment and, when requested, a ClusterIP Service. It
 // accepts no raw Pod fields or security overrides. Invalid input returns no
 // resources. Returned objects do not share mutable input maps or slices.
+// Null members explicitly remove absent fields owned by this profile when
+// the generated Kubernetes client applies a merge patch. API defaults and
+// fields outside this profile remain under their existing owner.
 func Build(d Deployment) ([]Resource, error) {
 	if !labelName.MatchString(d.Name) || !labelName.MatchString(d.Namespace) || !dnsName(d.ServiceAccount) || d.ServiceAccount == "default" || d.Replicas > 2147483647 || (d.Strategy != "Recreate" && d.Strategy != "RollingUpdate") || d.FSGroup == 0 || d.FSGroup > 2147483647 || d.RunAsUser > 2147483647 || d.RunAsGroup > 2147483647 || d.TerminationGraceSeconds < 1 || d.TerminationGraceSeconds > 3600 || len(d.Containers) < 1 || len(d.Containers) > 16 || len(d.Volumes) > 64 || len(d.ImagePullSecrets) > 16 || len(d.ServicePorts) > 32 {
 		return nil, ErrDeclaration
@@ -344,7 +347,7 @@ func Build(d Deployment) ([]Resource, error) {
 				return nil, ErrDeclaration
 			}
 			envSeen[v.Name] = true
-			item := Object{"name": v.Name}
+			item := Object{"name": v.Name, "value": nil, "valueFrom": nil}
 			if v.Secret != "" || v.Key != "" {
 				if v.Value != "" || !dnsName(v.Secret) || len(v.Key) < 1 || len(v.Key) > 253 || !fileKey.MatchString(v.Key) {
 					return nil, ErrDeclaration
@@ -392,7 +395,7 @@ func Build(d Deployment) ([]Resource, error) {
 			paths = append(paths, m.Path)
 			mountSeen[m.Name] = true
 			usedVolumes[m.Name] = true
-			mount := Object{"name": m.Name, "mountPath": m.Path}
+			mount := Object{"name": m.Name, "mountPath": m.Path, "readOnly": nil}
  if readOnly { mount["readOnly"] = true }
  mounted = append(mounted, mount)
 		}
@@ -408,7 +411,7 @@ func Build(d Deployment) ([]Resource, error) {
 		if e != nil {
 			return nil, e
 		}
-		container := Object{"name": c.Name, "image": c.Image, "imagePullPolicy": "IfNotPresent", "ports": exposed, "resources": Object{"requests": quantities(c.Requests), "limits": quantities(c.Limits)}, "securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []string{"ALL"}}}, "startupProbe": startup, "readinessProbe": readiness, "livenessProbe": liveness}
+		container := Object{"name": c.Name, "image": c.Image, "imagePullPolicy": "IfNotPresent", "ports": exposed, "resources": Object{"requests": quantities(c.Requests), "limits": quantities(c.Limits)}, "securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "privileged": nil, "runAsNonRoot": true, "runAsUser": nil, "runAsGroup": nil, "seccompProfile": nil, "procMount": nil, "capabilities": Object{"drop": []string{"ALL"}, "add": nil}}, "startupProbe": startup, "readinessProbe": readiness, "livenessProbe": liveness, "args": nil, "env": nil, "envFrom": nil, "volumeMounts": nil, "command": nil, "workingDir": nil, "volumeDevices": nil, "lifecycle": nil}
  if len(args) != 0 { container["args"] = args }
  if len(environment) != 0 { container["env"] = environment }
  if len(mounted) != 0 { container["volumeMounts"] = mounted }
@@ -433,10 +436,10 @@ func Build(d Deployment) ([]Resource, error) {
 	if d.RunAsGroup != 0 {
 		security["runAsGroup"] = d.RunAsGroup
 	}
-	pod := Object{"serviceAccountName": d.ServiceAccount, "automountServiceAccountToken": d.KubernetesAPI, "terminationGracePeriodSeconds": d.TerminationGraceSeconds, "securityContext": security, "containers": containers}
+	pod := Object{"serviceAccountName": d.ServiceAccount, "automountServiceAccountToken": d.KubernetesAPI, "terminationGracePeriodSeconds": d.TerminationGraceSeconds, "securityContext": security, "containers": containers, "volumes": nil, "imagePullSecrets": nil, "initContainers": nil, "hostNetwork": nil, "hostPID": nil, "hostIPC": nil, "shareProcessNamespace": nil}
  if len(volumes) != 0 { pod["volumes"] = volumes }
  if len(pullSecrets) != 0 { pod["imagePullSecrets"] = pullSecrets }
-	strategy := Object{"type": d.Strategy}
+	strategy := Object{"type": d.Strategy, "rollingUpdate": nil}
 	if d.Strategy == "RollingUpdate" {
 		strategy["rollingUpdate"] = Object{"maxSurge": 1, "maxUnavailable": 0}
 	}

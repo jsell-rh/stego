@@ -57,11 +57,17 @@ only authorized configuration, and keep credentials in Secret references.
 The library bounds inputs before it builds objects. It rejects duplicate names,
 ambiguous environment sources, overlapping mounts, missing probe or Service
 ports, and unsafe paths. Errors have fixed text. Failure returns no resources.
-Results do not share mutable maps or slices with the declaration. Empty optional
-lists, empty literal environment values, and false writable-mount flags are
-omitted. This matches the Kubernetes API response format and prevents repeated
-patches caused by fields that disappear during serialization. Resource quantities
-use canonical API units. Tests check generated Deployments and Services through
+Results do not share mutable maps or slices with the declaration. Fields owned
+by this profile use explicit JSON null values when the declaration removes them.
+The generated Kubernetes client treats a missing response field as matching
+this null value and uses null to remove an old field in a merge patch. This
+preserves convergence without retaining old arguments, environment sources,
+mounts, volumes, pull references, or deployment strategy settings. The profile
+also clears unsupported host namespace access, init containers, command and
+environment overrides, and container security overrides. API defaults such as
+DNS policy and restart policy remain intact. Admission and fields outside the
+profile still require their own policy. Resource quantities use canonical API
+units. Tests check generated Deployments and Services through
 the Kubernetes API types. These types are test dependencies only; generated
 consumer code uses the Go standard library.
 

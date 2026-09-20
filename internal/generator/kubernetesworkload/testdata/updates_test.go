@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -83,19 +82,51 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 	cases := []struct {
 		name   string
 		change func(*Deployment)
+		drift  func(*apps.Deployment)
 		check  func(apps.Deployment) bool
 	}{
-		{"arguments", func(d *Deployment) { d.Containers[0].Args = nil }, func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.Containers[0].Args) == 0 }},
-		{"environment", func(d *Deployment) { d.Containers[0].Env = nil }, func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.Containers[0].Env) == 0 }},
-		{"empty_environment_value", func(d *Deployment) { d.Containers[0].Env[0].Value = "" }, func(d apps.Deployment) bool {
+		{name: "arguments", change: func(d *Deployment) { d.Containers[0].Args = nil }, check: func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.Containers[0].Args) == 0 }},
+		{name: "environment", change: func(d *Deployment) { d.Containers[0].Env = nil }, check: func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.Containers[0].Env) == 0 }},
+		{name: "empty_environment_value", change: func(d *Deployment) { d.Containers[0].Env[0].Value = "" }, check: func(d apps.Deployment) bool {
 			v := d.Spec.Template.Spec.Containers[0].Env
 			return len(v) == 1 && v[0].Name == "MODE" && v[0].Value == ""
 		}},
-		{"mounts_and_volumes", func(d *Deployment) { d.Containers[0].Mounts = nil; d.Volumes = nil }, func(d apps.Deployment) bool {
+		{name: "mounts_and_volumes", change: func(d *Deployment) { d.Containers[0].Mounts = nil; d.Volumes = nil }, check: func(d apps.Deployment) bool {
 			return len(d.Spec.Template.Spec.Volumes) == 0 && len(d.Spec.Template.Spec.Containers[0].VolumeMounts) == 0
 		}},
-		{"pull_secrets", func(d *Deployment) { d.ImagePullSecrets = nil }, func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.ImagePullSecrets) == 0 }},
-		{"changed_literal", func(d *Deployment) { d.Containers[0].Env[0].Value = "updated" }, func(d apps.Deployment) bool { return d.Spec.Template.Spec.Containers[0].Env[0].Value == "updated" }},
+		{name: "pull_secrets", change: func(d *Deployment) { d.ImagePullSecrets = nil }, check: func(d apps.Deployment) bool { return len(d.Spec.Template.Spec.ImagePullSecrets) == 0 }},
+		{name: "changed_literal", change: func(d *Deployment) { d.Containers[0].Env[0].Value = "updated" }, check: func(d apps.Deployment) bool { return d.Spec.Template.Spec.Containers[0].Env[0].Value == "updated" }},
+		{name: "recreate_strategy", change: func(d *Deployment) { d.Strategy = "Recreate" }, check: func(d apps.Deployment) bool {
+			return d.Spec.Strategy.Type == apps.RecreateDeploymentStrategyType && d.Spec.Strategy.RollingUpdate == nil
+		}},
+		{name: "secret_to_empty_literal", change: func(d *Deployment) { d.Containers[0].Env[0].Value = "" }, drift: func(d *apps.Deployment) {
+			d.Spec.Template.Spec.Containers[0].Env = []core.EnvVar{{Name: "MODE", ValueFrom: &core.EnvVarSource{SecretKeyRef: &core.SecretKeySelector{LocalObjectReference: core.LocalObjectReference{Name: "old-secret"}, Key: "mode"}}}}
+		}, check: func(d apps.Deployment) bool {
+			v := d.Spec.Template.Spec.Containers[0].Env
+			return len(v) == 1 && v[0].Value == "" && v[0].ValueFrom == nil
+		}},
+		{name: "unsafe_drift", change: func(*Deployment) {}, drift: func(d *apps.Deployment) {
+			yes, no, root := true, false, int64(0)
+			p := &d.Spec.Template.Spec
+			p.HostNetwork = true
+			p.HostPID = true
+			p.HostIPC = true
+			p.ShareProcessNamespace = &yes
+			p.InitContainers = []core.Container{{Name: "unexpected", Image: "unexpected"}}
+			c := &p.Containers[0]
+			c.Command = []string{"unexpected"}
+			c.EnvFrom = []core.EnvFromSource{{Prefix: "UNEXPECTED", ConfigMapRef: &core.ConfigMapEnvSource{LocalObjectReference: core.LocalObjectReference{Name: "unexpected"}}}}
+			c.SecurityContext.Privileged = &yes
+			c.SecurityContext.RunAsNonRoot = &no
+			c.SecurityContext.RunAsUser = &root
+			c.SecurityContext.Capabilities.Add = []core.Capability{"SYS_ADMIN"}
+			c.SecurityContext.SeccompProfile = &core.SeccompProfile{Type: core.SeccompProfileTypeUnconfined}
+		}, check: func(d apps.Deployment) bool {
+			p := d.Spec.Template.Spec
+			c := p.Containers[0]
+			sc := c.SecurityContext
+			return !p.HostNetwork && !p.HostPID && !p.HostIPC && p.ShareProcessNamespace == nil && len(p.InitContainers) == 0 && len(c.Command) == 0 && len(c.EnvFrom) == 0 && sc.Privileged == nil && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot && sc.RunAsUser == nil && sc.SeccompProfile == nil && len(sc.Capabilities.Add) == 0
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,7 +174,7 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 						return
 					}
 					meta, ok := patch["metadata"].(map[string]any)
-					if !ok || meta["uid"] != "widget-uid" || meta["resourceVersion"] != strconv.Itoa(writes+1) {
+					if !ok || meta["uid"] != "widget-uid" || meta["resourceVersion"] != observed["metadata"].(map[string]any)["resourceVersion"] {
 						t.Error("missing identity guard")
 						w.WriteHeader(http.StatusConflict)
 						return
@@ -162,7 +193,13 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 						return
 					}
 					writes++
-					typed.ResourceVersion = strconv.Itoa(writes + 1)
+					version, err := strconv.Atoi(typed.ResourceVersion)
+					if err != nil {
+						t.Error(err)
+						w.WriteHeader(500)
+						return
+					}
+					typed.ResourceVersion = strconv.Itoa(version + 1)
 					current, err = json.Marshal(typed)
 					if err != nil {
 						t.Error(err)
@@ -203,6 +240,14 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 			if beforeWrites != 0 {
 				t.Fatal("API defaults caused a write")
 			}
+			if tc.drift != nil {
+				tc.drift(&initial)
+				initial.ResourceVersion = "2"
+				raw, _ := deploymentBytes(t, initial)
+				mu.Lock()
+				current = raw
+				mu.Unlock()
+			}
 			tc.change(&d)
 			wanted := render(t, d)[0]
 			updated, err := client.Ensure(ctx, wanted.Collection, kube.Object(wanted.Object), owner)
@@ -223,7 +268,7 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 			afterWrites := writes
 			mu.Unlock()
 			if afterWrites != 1 {
-				t.Fatal(fmt.Sprintf("expected one update, got %d", afterWrites))
+				t.Fatalf("expected one update, got %d", afterWrites)
 			}
 		})
 	}

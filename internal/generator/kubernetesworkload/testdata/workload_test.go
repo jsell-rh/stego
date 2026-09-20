@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	kube "example.com/widget/kubernetes"
 	apps "k8s.io/api/apps/v1"
 	core "k8s.io/api/core/v1"
 	apiResource "k8s.io/apimachinery/pkg/api/resource"
@@ -44,7 +45,7 @@ func TestWidgetSecurityAndService(t *testing.T) {
 		t.Fatal("Pod security differs")
 	}
 	c := p["containers"].([]Object)[0]
-	want = Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []string{"ALL"}}}
+	want = Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "privileged": nil, "runAsNonRoot": true, "runAsUser": nil, "runAsGroup": nil, "seccompProfile": nil, "procMount": nil, "capabilities": Object{"drop": []string{"ALL"}, "add": nil}}
 	if !reflect.DeepEqual(c["securityContext"], want) {
 		t.Fatal("container security differs")
 	}
@@ -73,11 +74,28 @@ func TestWidgetSecurityAndService(t *testing.T) {
 	if bytes.Contains(body, []byte("private-database-value")) {
 		t.Fatal("dependency data exposed")
 	}
-	for _, key := range []string{"hostNetwork", "hostPID", "hostIPC", "hostPath", "privileged", "subPath", "exec"} {
-		if bytes.Contains(body, []byte(`"`+key+`"`)) {
-			t.Fatalf("unexpected field %s", key)
+	var decoded any
+	if json.Unmarshal(body, &decoded) != nil {
+		t.Fatal("invalid resource JSON")
+	}
+	forbidden := map[string]bool{"hostNetwork": true, "hostPID": true, "hostIPC": true, "hostPath": true, "privileged": true, "subPath": true, "exec": true}
+	var inspect func(any)
+	inspect = func(value any) {
+		switch item := value.(type) {
+		case map[string]any:
+			for key, field := range item {
+				if forbidden[key] && field != nil {
+					t.Fatalf("unexpected field %s", key)
+				}
+				inspect(field)
+			}
+		case []any:
+			for _, field := range item {
+				inspect(field)
+			}
 		}
 	}
+	inspect(decoded)
 }
 func TestWidgetInputsAreNotAliased(t *testing.T) {
 	d := widget()
@@ -305,13 +323,13 @@ func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
 	p := pod(t, render(t, d))
 	c := p["containers"].([]Object)[0]
 	for _, name := range []string{"volumes", "imagePullSecrets"} {
-		if _, exists := p[name]; exists {
-			t.Fatal("empty optional Pod field", name)
+		if value, exists := p[name]; !exists || value != nil {
+			t.Fatal("missing explicit Pod field removal", name)
 		}
 	}
 	for _, name := range []string{"args", "env", "volumeMounts"} {
-		if _, exists := c[name]; exists {
-			t.Fatal("empty optional container field", name)
+		if value, exists := c[name]; !exists || value != nil {
+			t.Fatal("missing explicit container field removal", name)
 		}
 	}
 	d.Containers[0].Env = []Env{{Name: "EMPTY", Value: ""}}
@@ -329,7 +347,11 @@ func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	roundTrip, err := json.Marshal(env)
-	if err != nil || !bytes.Equal(raw, roundTrip) {
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeEnv, afterEnv any
+	if json.Unmarshal(raw, &beforeEnv) != nil || json.Unmarshal(roundTrip, &afterEnv) != nil || !kube.Contains(kube.Object{"env": afterEnv}, kube.Object{"env": beforeEnv}) {
 		t.Fatal("empty environment value changes after serialization")
 	}
 	p = pod(t, render(t, widget()))
@@ -352,7 +374,7 @@ func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
 			t.Fatal(err)
 		}
 		var before, after Object
-		if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !reflect.DeepEqual(before, after) {
+		if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !kube.Contains(kube.Object(after), kube.Object(before)) {
 			t.Fatal("mount changes after serialization")
 		}
 	}
@@ -413,34 +435,14 @@ func TestWidgetKubernetesAPIRoundTrip(t *testing.T) {
 	}
 }
 func containsFields(actual, wanted any) bool {
-	switch w := wanted.(type) {
-	case map[string]any:
-		a, ok := actual.(map[string]any)
-		if !ok {
-			return false
-		}
-		for key, value := range w {
-			v, exists := a[key]
-			if !exists || !containsFields(v, value) {
-				return false
-			}
-		}
-		return true
-	case []any:
-		a, ok := actual.([]any)
-		if !ok || len(a) != len(w) {
-			return false
-		}
-		for i, value := range w {
-			if !containsFields(a[i], value) {
-				return false
-			}
-		}
-		return true
-	default:
-		return reflect.DeepEqual(actual, wanted)
+	a, ok := actual.(map[string]any)
+	if !ok {
+		return false
 	}
+	w, ok := wanted.(map[string]any)
+	return ok && kube.Contains(kube.Object(a), kube.Object(w))
 }
+
 func TestWidgetQuantitiesMatchKubernetes(t *testing.T) {
 	for _, value := range []int64{1, 32, 100, 500, 999, 1000, 1001, 1023, 1024, 1025, 1536, 2048, 1000000, 1000001, 1 << 20, 1 << 30, 1 << 40} {
 		cpu := apiResource.NewMilliQuantity(value, apiResource.DecimalSI).String()
