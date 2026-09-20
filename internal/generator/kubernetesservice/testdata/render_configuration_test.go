@@ -18,6 +18,7 @@ func TestConfigurationDigestChangesOnlyPodAnnotation(t *testing.T) {
 			t.Run(target+"/"+scope, func(t *testing.T) {
 				o := options()
 				o.Scope = scope
+				o.OwnerLabels = map[string]string{"example.test/instance": "one"}
 				args := []string{"--image", o.Image, "--namespace", o.Namespace, "--fs-group", "10001", "--scope", scope}
 				switch target {
 				case "queue":
@@ -48,7 +49,13 @@ func TestConfigurationDigestChangesOnlyPodAnnotation(t *testing.T) {
 					t.Fatal(err)
 				}
 				var command bytes.Buffer
-				if err := deployment.RenderCommand(append(args, "--configuration-digest", o.ConfigurationDigest), &command); err != nil || !bytes.Equal(first, command.Bytes()) {
+				commandOptions := o
+				commandOptions.OwnerLabels = nil
+				commandOutput, err := deployment.Render(commandOptions)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := deployment.RenderCommand(append(args, "--configuration-digest", o.ConfigurationDigest), &command); err != nil || !bytes.Equal(commandOutput, command.Bytes()) {
 					t.Fatal("command and typed configuration differ", err)
 				}
 				for _, digest := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
@@ -95,6 +102,7 @@ func TestConfigurationDigestChangesOnlyPodAnnotation(t *testing.T) {
 func TestConfigurationDigestRejectsInvalidValues(t *testing.T) {
 	for _, digest := range []string{strings.Repeat("a", 63), strings.Repeat("a", 65), strings.Repeat("A", 64), strings.Repeat("z", 64), strings.Repeat("a", 63) + "\n", "private-configuration-canary"} {
 		o := options()
+		o.OwnerLabels = map[string]string{"example.test/instance": "one"}
 		o.ConfigurationDigest = digest
 		if data, err := deployment.Render(o); err == nil || err.Error() != "invalid configuration digest" || data != nil {
 			t.Fatal("invalid digest produced output or a public value", err)
