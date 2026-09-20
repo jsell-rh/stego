@@ -991,6 +991,11 @@ Keep production CA selection, offline inputs, automatic release qualification,
 other platforms, the service Deployment publisher, and the remaining C3 through
 C7 and H1 through H3 requirements open. The separate API test does not publish
 images. Service Deployment source `2af3ec4` removes the old publisher and uses
-the common STEGO delivery path; its live verification is still pending.
+the common STEGO delivery path. Its live test failed at API readiness. Review
+found missing schema-marker read grants in the service fixture. Candidate
+`c275c4f` shares the fixture grants across process, browser, and service tests;
+its hosted and live verification remain pending. The
+[database role review](service-database-role-review.md) records the failure,
+the existing common checks, and the remaining installation contract.
 Live Kata remains deferred. See the
 [current delivery evidence](application-delivery-evidence.json).
