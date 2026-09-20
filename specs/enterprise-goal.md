@@ -55,9 +55,18 @@ compiler identity, registry and input state, and the full provider template.
 All six application checks passed independent verification. The full check
 passed 1,122 core cases across 354 top-level tests, with all 1,103 baseline
 cases retained. Focused checks and the selected Gateway console module passed.
-The next live workflow requires a fresh cluster preflight. See the
-[consumer adoption record](https://github.com/jsell-rh/hypershell-stego/blob/72eb2b87f2b6fb2b08ebbf9bbbe2f006995edb7f/acceptance/postgres-recovery-compiler.md).
-It has no new live result yet.
+The complete live workflow now passes for the same source. Independent checks
+verified 11 required tests, actual compiler bytes, 1,608 source files, 421
+generated hashes, restart recovery, all three telemetry signals, and four
+rendered browser views. Allocation pause and recovery preserved the deletion
+barrier through REST and gRPC. The normal deletion sample used 100 accounts
+created through REST with verified tokens. Complete cleanup was observed at
+31.373211219 seconds. This does not prove the 30-second target or production
+capacity. Both fixtures were absent and 32 standing resources were unchanged.
+The separate API check is in progress. See the
+[consumer evidence](https://github.com/jsell-rh/hypershell-stego/blob/39e8cc8604c495183ee6860fa52f6baacbddc9c0/acceptance/postgres-recovery-live.md).
+The record discloses a stale verifier digest correction. The same artifacts
+passed after correction; the live test was not repeated.
 
 The saved Go overlay fix is qualified and published in signed compiler
 `2084c32`. It preserves saved private proxy settings while excluding saved
@@ -73,8 +82,9 @@ cases, including 14 public Run lifecycle cases without the telemetry peer and
 operation traces, queue counts, privacy, and final flush. That exact source is
 on main and released as an immutable signed compiler. The exact main checks,
 source and module review, artifact rejection checks, and release installer
-passed. Its binary matches the qualified branch build. The last live-qualified consumer
-source uses f6ebd0b. See the [public Run evidence](controller-run-telemetry.md).
+passed. Its binary matches the qualified branch build. The current live-qualified
+consumer uses the later compiler `3be6bce`. See the
+[public Run evidence](controller-run-telemetry.md).
 The [entry point audit](controller-entrypoint-audit.md) records remaining
 finite-helper coverage limits. The complete C6 audit remains open.
 
