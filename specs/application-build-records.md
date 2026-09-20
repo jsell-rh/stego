@@ -1,7 +1,9 @@
 # Application build records
 
-This change is a candidate. CI qualification, image verification, record signing,
-and Hypershell adoption are required before C3 can be closed.
+This change is a candidate. The native build check passed for the generated
+example and the current Hypershell API. Full compiler qualification, image
+verification, record signing, and image publisher adoption are still required.
+C3 remains open.
 
 `stego build` selects one Git commit, module, and entry point. It checks the
 complete pinned Go SDK before execution. It creates two private source trees,
@@ -60,3 +62,32 @@ Both jobs check changed executables, changed records, compiled modules, build
 settings, and input inventories. The Hypershell source stays unchanged.
 This is application evidence for the common mechanism. It does not replace the
 complete Hypershell application workflow or the existing signed compiler check.
+
+## Native application evidence
+
+[Application build run 35506669775](https://github.com/jsell-rh/stego/actions/runs/35506669775)
+used candidate `f7587160e4e3a8a3963c63f299fc38f0b64a37ec`. The separate API job
+used unchanged Hypershell source `0589cfc08d40591e3fc0b36ac1538e6f2ae0d917`.
+Both jobs passed. Independent artifact inspection checked executable and record
+hashes, both captured source archives, every recorded input, and all ten
+verification cases for each application. The common package passed 19 test
+groups with 55 cases, including subtests. No group failed or was skipped.
+
+The example record contains 1,327 source files and 53 modules. The Hypershell
+record contains 1,615 source files and 49 modules. Module counts include the
+main application. Both builds preserved their inputs and produced identical
+executable bytes from separate source trees and caches. See the
+[evidence record](application-build-records-evidence.json) for exact hashes.
+
+The earlier checks exposed two separate SDK issues. The inventory encoding
+needed the established ASCII filename format. After that correction, an
+independent check still found a different runner SDK inventory. The build now
+uses the verified official SDK; its pinned identity did not change. A later
+build rejected source changes. The default module download and compiled-module
+inventory passed while retaining that rejection check. Earlier failed runs
+remain recorded; they are not passes.
+
+This check did not execute the application or publish an image. It does not
+replace the REST, gRPC, restart, or cleanup checks for the running Gateway
+workflow. Application record authentication, image content and trust-store
+verification, and use in the production publisher remain open.

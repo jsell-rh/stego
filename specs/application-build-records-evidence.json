@@ -1,0 +1,55 @@
+{
+  "qualified_at": "2026-09-20T11:05:08.762058+00:00",
+  "source": "f7587160e4e3a8a3963c63f299fc38f0b64a37ec",
+  "run": 35506669775,
+  "applications": [
+    {
+      "application": "example",
+      "source": "f7587160e4e3a8a3963c63f299fc38f0b64a37ec",
+      "module": "examples/user-management",
+      "artifact": {
+        "sha256": "22c10580ee339dd70581783e1b45910a2be92875d9a830fee0b4fda0c6631392",
+        "size": 48404321
+      },
+      "record_sha256": "91d2be7b1cc9f6eb94185cc3269aa38cfda2cb1cbfc0253e64779d26639805d8",
+      "source_inventory": {
+        "files": 1327,
+        "bytes": 10528213,
+        "sha256": "384298dd84d3b4499e2660cd3f5f25b82a32642f5eecbf1793f4445d12086780"
+      },
+      "source_archives_checked": 2,
+      "verification_cases": 10,
+      "modules": 53
+    },
+    {
+      "application": "hypershell-api",
+      "source": "0589cfc08d40591e3fc0b36ac1538e6f2ae0d917",
+      "module": ".",
+      "artifact": {
+        "sha256": "be88bf4d2c606991b9e6b5fe869b4d2a5c3b0c94b0d4ef67f6cd3eca6660cafb",
+        "size": 48738774
+      },
+      "record_sha256": "25f72f5b885e25641a5d5581716cdcb85e567f77d5bea40b3de5507cd0b63c2c",
+      "source_inventory": {
+        "files": 1615,
+        "bytes": 27136670,
+        "sha256": "90456a56f07ede9bca526d938a52f8da4b57e446807d4f53d0fdc43e7e069249"
+      },
+      "source_archives_checked": 2,
+      "verification_cases": 10,
+      "modules": 49
+    }
+  ],
+  "unit_roots": 19,
+  "unit_cases": 55,
+  "source_archive_sha256": "7be5cd0dbd6ea97de4837310a29ee9cfbdc6d15f65ca7f6fefc4c9210f999424",
+  "application_artifacts_authenticated": false,
+  "image_publication_checked": false,
+  "applications_executed_locally": false,
+  "scope": "Native executable build evidence only. Image contents, record authentication, and the production image publisher remain open.",
+  "application_workflow": "https://github.com/jsell-rh/stego/actions/runs/35506669775",
+  "qualifier_sha256": "c80a2a898f669a2a5176fa3a545f8cabd55a80590ed048cabcc723b8f189fe6c",
+  "full_ci_qualification_pending": true,
+  "main_promoted": false,
+  "compiler_release_published": false
+}
