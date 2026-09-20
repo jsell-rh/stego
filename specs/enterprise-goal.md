@@ -60,9 +60,11 @@ A deterministic hosted test then proved that the inventory failed when cleanup
 removed a client between the list and its current-state read. Hypershell fix
 `a5bf571` skips only that typed not-found result. STEGO already supplies the
 common error contract; current ownership checks and retained cleanup proof stay
-in place. Fresh full, provider, journal, allocation, and adapter checks are
-running. The next live test requires all five checks to pass. No failed or
-pending consumer replaces main. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
+in place. Fresh full, provider, journal, allocation, and adapter checks passed
+at that source. The full check passed 1,093 core cases across 347 top-level
+tests. The bounded live workflow has started after a fresh cluster preflight;
+its result and the separate API gate remain required. No failed or pending
+consumer replaces main. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level

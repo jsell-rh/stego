@@ -133,7 +133,14 @@ read error still stops the scan. Page bounds and cleanup journals remain require
 The original recovery test is unchanged. See the
 [fix and failure evidence](https://github.com/jsell-rh/hypershell-stego/blob/a5bf5717448086b093f5cac4cab0b516b706353a/acceptance/keycloak-inventory-removal.md).
 
-Fresh hosted checks are pending on that exact source. A new bounded live test
-requires all of them to pass and requires a fresh cluster cleanup audit. Complete
-live trace proof, the separate API gate, the cleanup-time target, and production
-capacity remain unproved for this candidate. The signed compiler is unchanged.
+All five fresh hosted checks passed on that exact source. Independent review
+verified 1,093 full core cases across 347 top-level tests, all 982 baseline cases,
+the rendered browser test, 33 inventory cases, seven real-provider tests,
+44 journal tests, and 99 trace and Pod-guard cases. See the
+[hosted evidence](https://github.com/jsell-rh/hypershell-stego/blob/0916fa782498d0d55206417c5f2a01a921c7de8f/acceptance/keycloak-inventory-hosted-evidence.json).
+
+The [bounded live workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35495952596)
+started after a fresh preflight found both test fixtures absent, the shared lease
+free, and all 32 standing installation resources unchanged. Complete live trace
+proof, the separate API gate, the cleanup-time target, and production capacity
+remain unproved for this candidate. The signed compiler is unchanged.
