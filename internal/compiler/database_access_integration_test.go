@@ -11,6 +11,7 @@ import (
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/outbox"
 	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
+	"github.com/jsell-rh/stego/internal/generator/restapi"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -24,6 +25,8 @@ func TestGeneratedDatabaseAccess(t *testing.T) {
 	ctx := gen.Context{ModuleName: "example.com/access-test", OutDirName: "out", StorageContract: "example.com/access-test/out/contracts/storage",
 		ComponentConfig: map[string]any{"migrations": "external", "schema_generation": "fresh-v1"},
 		Entities:        []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
+	ctx.Collections = []types.Collection{{Name: "records", Entity: "Record", Operations: []types.Operation{types.OpRead}}}
+	ctx.PeerNamespaces = map[string]string{"postgres-adapter": "storage", "outbox": "queue", "rest-api": "api"}
 	var files []gen.File
 	var wirings []compiler.ComponentWiring
 	for _, c := range []struct {
@@ -31,6 +34,7 @@ func TestGeneratedDatabaseAccess(t *testing.T) {
 		generator       gen.Generator
 	}{
 		{"postgres-adapter", "storage", new(postgresadapter.Generator)}, {"outbox", "queue", new(outbox.Generator)},
+		{"rest-api", "api", new(restapi.Generator)},
 	} {
 		ctx.OutputNamespace = c.namespace
 		generated, wiring, err := c.generator.Generate(ctx)

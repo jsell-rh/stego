@@ -223,6 +223,10 @@ type Wiring struct {
 	// The compiler rejects duplicate ownership and unsafe permission sets.
 	DatabaseAccess []DatabaseObject
 
+	// VerifyDatabaseAccess requires a separate runtime role before startup.
+	// The component must also declare its database objects and database use.
+	VerifyDatabaseAccess bool
+
 	// DBBackend specifies which database driver the assembler should use in
 	// the generated main.go. "gorm" emits gorm.Open with the postgres driver;
 	// "sql" (or empty with NeedsDB=true) emits sql.Open for raw database/sql.

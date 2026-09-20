@@ -81,3 +81,51 @@ func TestDatabaseAccessDeclaration(t *testing.T) {
 		t.Fatal("service without database objects changed")
 	}
 }
+
+func TestDatabaseAccessStartup(t *testing.T) {
+	for _, backend := range []string{"", "gorm"} {
+		for _, used := range []bool{false, true} {
+			w := databaseOpenerFixture()
+			w.DBBackend = backend
+			w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
+			w.VerifyDatabaseAccess = true
+			if used {
+				w.Routes = []string{`mux.Handle("/",store)`}
+			}
+			files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.8", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range files {
+				if file.Path != "main.go" {
+					continue
+				}
+				text := string(file.Bytes())
+				call := "stegodatabaseaccess.VerifyRuntime(ctx, db)"
+				if backend == "gorm" {
+					call = "stegodatabaseaccess.VerifyRuntime(ctx, sqlDB)"
+				}
+				if strings.Contains(text, call) != used {
+					t.Fatal("runtime check did not follow database consumption")
+				}
+				if used && (strings.Index(text, call) > strings.Index(text, "storage.NewStore(db)") || !strings.Contains(text, `stegoStage = "database.access"`)) {
+					t.Fatal("database access was checked after construction")
+				}
+				if strings.Contains(text, "GrantRuntime(") {
+					t.Fatal("runtime can install its own access")
+				}
+			}
+		}
+	}
+	for _, mode := range []string{"missing-objects", "missing-database"} {
+		w := databaseOpenerFixture()
+		w.VerifyDatabaseAccess = true
+		if mode == "missing-database" {
+			w.NeedsDB = false
+			w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
+		}
+		if files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}}); err == nil || len(files) != 0 {
+			t.Fatal("incomplete verification declaration produced files")
+		}
+	}
+}

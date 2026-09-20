@@ -302,6 +302,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}
 	if migrations == "external" {
 		wiring.PostDBCalls = nil
+		wiring.VerifyDatabaseAccess = true
 	}
 	for _, entity := range ctx.Entities {
 		if len(entity.GenerationFields) > 0 || len(entity.CleanupOwners) > 0 || len(entity.Conditions) > 0 {

@@ -38,6 +38,12 @@ grants, and grant options are rejected. Unrelated objects and grants are outside
 this contract. The connection must use the common verified database opener.
 Errors use fixed text and retain context cancellation without exposing SQL errors.
 
+Generated services with external storage migrations and generated browser
+backends call this read-only check before they create handlers or start tasks.
+The service process does not call the installer. The existing startup-migration
+profile keeps its current behavior; it does not qualify the separate-role
+production profile. An unused component does not cause a startup database check.
+
 PostgreSQL combines direct, inherited, and PUBLIC privileges. Ownership also
 permits object changes. The checks account for these paths within the declared
 objects. See the [PostgreSQL grant contract](https://www.postgresql.org/docs/18/sql-grant.html)
@@ -51,6 +57,7 @@ short lock deadline. A database-local test event trigger rejects a grant after
 it changes a schema ACL. The test requires rollback of that grant and the
 preceding CONNECT grant. See the [event trigger contract](https://www.postgresql.org/docs/18/event-trigger-definition.html).
 
-This change is a candidate. Hosted checks, compiler release, generated service
-startup integration, browser installation adoption, and the complete Hypershell
+This change is a candidate. The first installer passed its bounded PostgreSQL
+checks at source `27473c2`. Startup process checks, complete hosted checks,
+compiler release, browser installation adoption, and the complete Hypershell
 workflow remain required. No production or application result is claimed here.

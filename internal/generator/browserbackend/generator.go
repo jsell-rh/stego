@@ -434,6 +434,7 @@ func (g *Generator) generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	wiring.DatabaseAccess = []gen.DatabaseObject{
 		{Schema: "public", Name: "stego_browser_sessions", Kind: "table", Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"}},
 	}
+	wiring.VerifyDatabaseAccess = true
 	return files, wiring, nil
 }
 

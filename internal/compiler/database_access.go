@@ -32,6 +32,9 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 		if component.Wiring == nil {
 			continue
 		}
+		if component.Wiring.VerifyDatabaseAccess && (!component.Wiring.NeedsDB || len(component.Wiring.DatabaseAccess) == 0) {
+			return nil, fmt.Errorf("component %q requires database objects and a database resource for runtime access checks", component.Name)
+		}
 		for _, input := range component.Wiring.DatabaseAccess {
 			object := input
 			object.Privileges = append([]string(nil), input.Privileges...)
@@ -100,6 +103,15 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 		{Path: gen.DatabaseAccessNamespace + "/access.go", Content: source},
 		{Path: gen.DatabaseAccessNamespace + "/access.json", Content: append(manifest, '\n')},
 	}, nil
+}
+
+func needsDatabaseAccessCheck(input AssemblerInput, consumed map[int]bool) bool {
+	for i, component := range input.Wirings {
+		if consumed[i] && component.Wiring != nil && component.Wiring.VerifyDatabaseAccess {
+			return true
+		}
+	}
+	return false
 }
 
 func containsDatabasePrivilege(values []string, wanted string) bool {

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +32,7 @@ type accessFixture struct {
 	admin, pool, runtime               *sql.DB
 	owner                              *sql.Conn
 	database, ownerRole, role, auditor string
+	runtimeDSN                         string
 }
 
 func identifier(value string) string { return pgx.Identifier{value}.Sanitize() }
@@ -109,6 +113,17 @@ func fixture(t *testing.T) *accessFixture {
 		t.Fatal(err)
 	}
 	cfg.User, cfg.Password = f.role, "access-test-only-password"
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		address, err := url.Parse(dsn)
+		if err != nil {
+			t.Fatal("invalid fixture URL")
+		}
+		address.User = url.UserPassword(f.role, "access-test-only-password")
+		address.Path = "/" + f.database
+		f.runtimeDSN = address.String()
+	} else {
+		f.runtimeDSN = dsn + " dbname=" + f.database + " user=" + f.role + " password=access-test-only-password"
+	}
 	f.runtime = stdlib.OpenDB(*cfg)
 	f.runtime.SetMaxOpenConns(2)
 	t.Cleanup(func() { f.runtime.Close() })
@@ -330,4 +345,52 @@ func TestDatabaseAccessBoundedLockWait(t *testing.T) {
 		t.Fatal("installer exceeded its caller deadline", err)
 	}
 	assertNoGrants(t, f)
+}
+
+func TestDatabaseAccessGeneratedStartup(t *testing.T) {
+	f := fixture(t)
+	grant(t, f)
+	executable := filepath.Join(t.TempDir(), "service")
+	buildContext, cancelBuild := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancelBuild()
+	build := exec.CommandContext(buildContext, "go", "build", "-mod=readonly", "-o", executable, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build generated service: %v\n%s", err, output)
+	}
+	for _, mode := range []string{"complete", "missing-marker-read", "excess-table-write"} {
+		t.Run(mode, func(t *testing.T) {
+			if mode == "missing-marker-read" {
+				execute(t, f.pool, "REVOKE SELECT ON stego_schema.generation FROM "+identifier(f.role))
+			}
+			if mode == "excess-table-write" {
+				grant(t, f)
+				execute(t, f.pool, "GRANT TRUNCATE ON public.records TO "+identifier(f.role))
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, executable)
+			for _, entry := range os.Environ() {
+				key, _, _ := strings.Cut(entry, "=")
+				if key != "DATABASE_URL" && key != "DATABASE_URL_FILE" && !strings.HasPrefix(key, "STEGO_HTTP_") {
+					cmd.Env = append(cmd.Env, entry)
+				}
+			}
+			// Complete database access reaches HTTP configuration. Missing TLS
+			// files then stop the process before it can bind any listener.
+			cmd.Env = append(cmd.Env, "DATABASE_URL="+f.runtimeDSN, "STEGO_HTTP_REQUIRE_TLS=1")
+			output, err := cmd.CombinedOutput()
+			expected := "database.access"
+			if mode == "complete" {
+				expected = "http.configure"
+			}
+			if err == nil || ctx.Err() != nil || !strings.Contains(string(output), expected) {
+				t.Fatalf("unexpected generated startup stage for %s: %v\n%s", mode, err, output)
+			}
+			for _, private := range []string{f.role, f.database, "access-test-only-password", f.runtimeDSN} {
+				if strings.Contains(string(output), private) {
+					t.Fatal("startup exposed private database data")
+				}
+			}
+		})
+	}
 }

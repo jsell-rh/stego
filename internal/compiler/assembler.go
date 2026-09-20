@@ -252,6 +252,14 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 			writeDBSetup(&buf, opener, parent)
 		}
 
+		if needsDatabaseAccessCheck(input, consumedWirings) {
+			handle := "db"
+			if isGORM {
+				handle = "sqlDB"
+			}
+			fmt.Fprintf(&buf, "\tstegoStage = \"database.access\"\n\tif err := %s.VerifyRuntime(%s, %s); err != nil { return err }\n", imports.DatabaseAccessAlias, parent, handle)
+		}
+
 		// Emit post-DB-setup calls (e.g. migrations) from consumed wirings.
 		writePostDBCalls(&buf, input, consumedWirings, imports)
 	}
@@ -309,6 +317,8 @@ func generateMainGo(input AssemblerInput) (gen.File, error) {
 // set is used to seed constructor variable disambiguation maps so that
 // constructor variables cannot shadow component, fill, or slots import aliases.
 type importResult struct {
+	// DatabaseAccessAlias identifies the common runtime permission check.
+	DatabaseAccessAlias string
 	// Renames maps wiring index → (original base name → disambiguated alias)
 	// for cases where a component's import alias was disambiguated.
 	Renames map[int]map[string]string
@@ -442,6 +452,15 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 	// the same import path, the rename mapping from the representative entry
 	// is propagated to all duplicate entries (finding 22).
 	pathRenames := make(map[string]map[string]string) // fullPath → (base → alias) rename, nil if no rename needed
+	databaseAccessAlias := ""
+	if hasDB && needsDatabaseAccessCheck(input, consumedWirings) {
+		fullPath := generatedImportPath(input.ModuleName, input.OutDirName, gen.DatabaseAccessNamespace)
+		databaseAccessAlias = disambiguateAlias("stegodatabaseaccess", aliases, aliasUsed)
+		seen[fullPath] = true
+		nonStdlibAliases[databaseAccessAlias] = true
+		pathRenames[fullPath] = map[string]string{"databaseaccess": databaseAccessAlias}
+		compImports = append(compImports, fmt.Sprintf("\t%s %q", databaseAccessAlias, fullPath))
+	}
 
 	// Slots package import — registered first so its hardcoded alias "slots"
 	// is reserved before any dynamic disambiguation runs.
@@ -534,10 +553,11 @@ func writeMainImports(buf *bytes.Buffer, input AssemblerInput, hasRoutes, hasDB,
 		packageAliases[name] = true
 	}
 	return importResult{
-		PackageAliases:   packageAliases,
-		FillAliases:      fillAliases,
-		Renames:          importRenames,
-		NonStdlibAliases: nonStdlibAliases,
+		DatabaseAccessAlias: databaseAccessAlias,
+		PackageAliases:      packageAliases,
+		FillAliases:         fillAliases,
+		Renames:             importRenames,
+		NonStdlibAliases:    nonStdlibAliases,
 	}
 }
 
