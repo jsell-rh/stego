@@ -8,6 +8,80 @@ import (
 	"testing"
 )
 
+func TestConfigurationDigestChecksGeneratedPod(t *testing.T) {
+	const original = `{"apiVersion":"v1","kind":"List","items":[{"apiVersion":"apps/v1","kind":"Deployment","spec":{"template":{"metadata":{"labels":{"app":"widget"},"annotations":{"example.test/keep":"yes"}},"spec":{"serviceAccountName":"widget"}}}}]}`
+	digest := strings.Repeat("a", 64)
+	for _, mode := range []string{"valid", "version", "kind", "missing-items", "item-type", "missing-deployment", "multiple-deployments", "deployment-version", "missing-metadata", "annotation-type", "annotation-value", "annotation-conflict", "trailing"} {
+		t.Run(mode, func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal([]byte(original), &document); err != nil {
+				t.Fatal(err)
+			}
+			items := document["items"].([]any)
+			item := items[0].(map[string]any)
+			template := item["spec"].(map[string]any)["template"].(map[string]any)
+			meta := template["metadata"].(map[string]any)
+			switch mode {
+			case "version":
+				document["apiVersion"] = "other/v1"
+			case "kind":
+				document["kind"] = "Other"
+			case "missing-items":
+				delete(document, "items")
+			case "item-type":
+				document["items"] = []any{"private-configuration-canary"}
+			case "missing-deployment":
+				item["kind"] = "Service"
+			case "multiple-deployments":
+				document["items"] = append(items, items[0])
+			case "deployment-version":
+				item["apiVersion"] = "custom/v1"
+			case "missing-metadata":
+				delete(template, "metadata")
+			case "annotation-type":
+				meta["annotations"] = []any{}
+			case "annotation-value":
+				meta["annotations"].(map[string]any)["example.test/keep"] = 3
+			case "annotation-conflict":
+				meta["annotations"].(map[string]any)[ConfigurationAnnotation] = digest
+			}
+			input, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "trailing" {
+				input = append(input, []byte(` {}`)...)
+			}
+			saved := append([]byte(nil), input...)
+			output, err := withConfigurationDigest(input, digest)
+			if !bytes.Equal(input, saved) {
+				t.Fatal("construction changed its input")
+			}
+			if mode != "valid" {
+				if err == nil || output != nil || strings.Contains(err.Error(), "private-configuration-canary") {
+					t.Fatal("invalid generated Pod produced output or private data", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result map[string]any
+			if err := json.Unmarshal(output, &result); err != nil {
+				t.Fatal(err)
+			}
+			annotations := result["items"].([]any)[0].(map[string]any)["spec"].(map[string]any)["template"].(map[string]any)["metadata"].(map[string]any)["annotations"].(map[string]any)
+			if annotations[ConfigurationAnnotation] != digest {
+				t.Fatal("configuration digest is missing")
+			}
+			delete(annotations, ConfigurationAnnotation)
+			if !reflect.DeepEqual(document, result) {
+				t.Fatal("configuration changed another generated field")
+			}
+		})
+	}
+}
+
 func TestExistingServiceAccountRejectsInvalidGeneratedIdentity(t *testing.T) {
 	fixture := func() []map[string]any {
 		return []map[string]any{
