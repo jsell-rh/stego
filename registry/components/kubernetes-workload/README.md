@@ -54,6 +54,18 @@ Secret contents do not enter the returned resources or error text. A digest is
 not encryption: low-entropy values can be guessed from a public digest. Supply
 only authorized configuration, and keep credentials in Secret references.
 
+`DependencyFromData` converts a verified ConfigMap or Secret `data` field into
+one typed dependency. The caller supplies the kind, name, and data separately;
+API metadata cannot enter the digest. The adapter checks 1 through 256 string
+entries, at most 2 MiB of encoded values, and the existing 1 MiB decoded bound.
+ConfigMap values must be valid UTF-8. Secret values must use canonical padded
+base64 without line separators. Binary Secret contents and empty values are
+supported. The result owns its byte slices. Invalid data returns an empty
+dependency and a fixed error; partial decoded bytes are cleared. This conversion
+does not read the cluster, select dependencies, or verify ownership, identity,
+certificates, or application settings. Those checks must occur before the call.
+This adapter remains a candidate until compiler and consumer checks pass.
+
 The library bounds inputs before it builds objects. It rejects duplicate names,
 ambiguous environment sources, overlapping mounts, missing probe or Service
 ports, and unsafe paths. Errors have fixed text. Failure returns no resources.

@@ -3,6 +3,7 @@ package [[.Package]]
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -74,6 +75,68 @@ type Dependency struct {
 	Name string
 	Data map[string][]byte
 }
+
+// DependencyFromData converts the data field of a verified ConfigMap or Secret.
+// It accepts 1..256 string entries and at most 2 MiB of encoded values. Secret
+// values must use canonical padded base64; ConfigMap values must be valid UTF-8.
+// The decoded dependency must fit the same 1 MiB bound as ConfigurationDigest.
+// This function does not read objects or verify ownership, identity, or content.
+// The caller must select and verify the dependency before this conversion.
+// Invalid input returns an empty dependency and a fixed error. The result owns
+// its byte slices; no API metadata or raw encoded Secret enters the digest.
+func DependencyFromData(kind, name string, data map[string]any) (Dependency, error) {
+	if (kind != "Secret" && kind != "ConfigMap") || !dnsName(name) || len(data) == 0 || len(data) > 256 {
+		return Dependency{}, ErrDeclaration
+	}
+	result := Dependency{Kind: kind, Name: name, Data: make(map[string][]byte, len(data))}
+	fail := func() (Dependency, error) {
+		for _, value := range result.Data {
+			clear(value)
+		}
+		return Dependency{}, ErrDeclaration
+	}
+	encoded, decoded := 0, len(kind)+len(name)
+	for key, value := range data {
+		text, ok := value.(string)
+		if !ok || len(key) < 1 || len(key) > 253 || !fileKey.MatchString(key) || len(text) > (2<<20)-encoded {
+			return fail()
+		}
+		encoded += len(text)
+		decoded += len(key)
+		if decoded > 1<<20 {
+			return fail()
+		}
+		var raw []byte
+		if kind == "Secret" {
+			// Strict decoding checks padding bits. Reject ignored line separators too.
+			if strings.ContainsAny(text, "\r\n") || base64.StdEncoding.DecodedLen(len(text)) > (1<<20)-decoded+2 {
+				return fail()
+			}
+			var err error
+			raw, err = base64.StdEncoding.Strict().DecodeString(text)
+			if err != nil {
+				clear(raw)
+				return fail()
+			}
+		} else {
+			if !utf8.ValidString(text) || len(text) > (1<<20)-decoded {
+				return fail()
+			}
+			raw = []byte(text)
+		}
+		if len(raw) > (1<<20)-decoded {
+			clear(raw)
+			return fail()
+		}
+		decoded += len(raw)
+		result.Data[key] = raw
+	}
+	if _, err := checkedDependencies([]Dependency{result}); err != nil {
+		return fail()
+	}
+	return result, nil
+}
+
 type Resource struct {
 	Collection string
 	Object     Object
@@ -84,6 +147,7 @@ var labelPart = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9_.-]{0,61}[A-Za-z0-9]
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var fileKey = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var portName = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,13}[a-z0-9])?$`)
+
 // An optional tag does not replace the required SHA-256 digest.
 var imageName = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[a-f0-9]{64}$`)
 
@@ -154,6 +218,7 @@ func validPath(s string) bool {
 func amount(r Resources) bool {
 	return r.CPUMilli > 0 && r.CPUMilli <= 1<<40 && r.MemoryMi > 0 && r.MemoryMi <= 1<<40 && r.EphemeralMi > 0 && r.EphemeralMi <= 1<<40
 }
+
 // Inputs are positive bounded integers. Use the API's canonical units so a
 // stored response does not differ only in its quantity spelling.
 func cpuQuantity(value int64) string {
@@ -179,30 +244,38 @@ func probe(p HTTPProbe, ports map[string]int) (Object, error) {
 	return Object{"httpGet": Object{"path": p.Path, "port": p.Port, "scheme": "HTTP"}, "periodSeconds": p.PeriodSeconds, "timeoutSeconds": p.TimeoutSeconds, "failureThreshold": p.FailureThreshold, "successThreshold": 1}, nil
 }
 
-// ConfigurationDigest is stable across map and dependency order. Length fields
-// separate names and values. The format version prevents ambiguous reuse.
-func ConfigurationDigest(input []Dependency) (string, error) {
+func checkedDependencies(input []Dependency) ([]Dependency, error) {
 	if len(input) > 64 {
-		return "", ErrDeclaration
+		return nil, ErrDeclaration
 	}
 	selected := append([]Dependency(nil), input...)
 	sort.Slice(selected, func(i, j int) bool { return dependencyID(selected[i]) < dependencyID(selected[j]) })
 	total, keys := 0, 0
 	for i, d := range selected {
 		if (d.Kind != "Secret" && d.Kind != "ConfigMap") || !dnsName(d.Name) || (i > 0 && dependencyID(selected[i-1]) == dependencyID(d)) || len(d.Data) > 256 {
-			return "", ErrDeclaration
+			return nil, ErrDeclaration
 		}
 		total += len(d.Kind) + len(d.Name)
 		for k, v := range d.Data {
 			if len(k) < 1 || len(k) > 253 || !fileKey.MatchString(k) || len(v) > 1<<20 {
-				return "", ErrDeclaration
+				return nil, ErrDeclaration
 			}
 			total += len(k) + len(v)
 			keys++
 			if total > 1<<20 || keys > 1024 {
-				return "", ErrDeclaration
+				return nil, ErrDeclaration
 			}
 		}
+	}
+	return selected, nil
+}
+
+// ConfigurationDigest is stable across map and dependency order. Length fields
+// separate names and values. The format version prevents ambiguous reuse.
+func ConfigurationDigest(input []Dependency) (string, error) {
+	selected, err := checkedDependencies(input)
+	if err != nil {
+		return "", err
 	}
 	h := sha256.New()
 	h.Write([]byte("stego.workload.configuration.v1\x00"))
