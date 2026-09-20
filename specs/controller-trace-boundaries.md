@@ -103,3 +103,37 @@ passed independent review. Its full consumer checks and live trace workflow are
 separate acceptance gates. No live trace, capacity, or cleanup-time result is
 claimed for this candidate. Keep the pending-result cleanup measurement on its
 separate frozen source and compiler.
+
+## Consumer verification
+
+Source `e026fb0` passed the [full hosted check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35490842878)
+with 1,019 core cases. Its live test found an incorrect expected instance count:
+the deliberate cleanup restart creates a third allocator instance. The corrected
+focused tests require all three allocator instances and retain the exact identity
+and workload counts. They do not accept extra instances.
+
+The corrected source `fdb06e2` failed its [next live test](https://github.com/jsell-rh/hypershell-stego/actions/runs/35493398031)
+at the fixture Pod guard before the database restart. The guard had one combined
+failure message, so the cause remains unknown. Independent cleanup found both
+test fixtures absent, a free shared lease, and all 32 installation resources
+unchanged. The new guard reports fixed categories and HTTP status. It retains
+the same read deadline, single request, UID, labels, and database status checks.
+See the [failed live result](https://github.com/jsell-rh/hypershell-stego/blob/c06bd3c3e435e46e0b3ee6ba5662a19364e38a5e/acceptance/database-restart-failure-evidence.json).
+
+The [full check for fdb06e2](https://github.com/jsell-rh/hypershell-stego/actions/runs/35493201216)
+also failed the late Keycloak creation recovery test. A separate
+[deterministic regression](https://github.com/jsell-rh/hypershell-stego/actions/runs/35494601331)
+failed all ten candidate-removal cases on the original code. Denied requests,
+invalid responses, failed lists, and current ownership checks passed. This proves
+the inventory defect; it does not qualify the failed workflow.
+
+Hypershell fix `a5bf5717448086b093f5cac4cab0b516b706353a` skips only the common
+typed not-found error from a current candidate read. A failed list or another
+read error still stops the scan. Page bounds and cleanup journals remain required.
+The original recovery test is unchanged. See the
+[fix and failure evidence](https://github.com/jsell-rh/hypershell-stego/blob/a5bf5717448086b093f5cac4cab0b516b706353a/acceptance/keycloak-inventory-removal.md).
+
+Fresh hosted checks are pending on that exact source. A new bounded live test
+requires all of them to pass and requires a fresh cluster cleanup audit. Complete
+live trace proof, the separate API gate, the cleanup-time target, and production
+capacity remain unproved for this candidate. The signed compiler is unchanged.
