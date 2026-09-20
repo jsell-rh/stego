@@ -569,9 +569,9 @@ the application must never perform automatic teardown.
    for namespace removal, durable cleanup flags, and final proof checks. A
    later pending read clears an earlier completion and records a regression.
    Existing conditions, polling, population, and deadlines remain unchanged.
-   Hosted run `35480246600` must verify the observation cases and compile the
-   live test before another cluster attempt. No phase timing result is yet
-   available. Main regeneration and adapter checks were independently verified
+   Hosted run `35480246600` passed all three observation cases and compiled the
+   live test. The existing adapter and collection checks passed. No live phase
+   timing result is yet available. Main regeneration and adapter checks were independently verified
    at `0aa8f0d`; all 420 archived generation files match committed source.
    Automatic capacity run `35479995472` at the same main source passed account
    cleanup in 16.8819 seconds; the scope sealed at 16.4927 seconds. All selected
@@ -581,6 +581,13 @@ the application must never perform automatic teardown.
    six fixture files match the tenth run. Two account-only passes do not prove
    the complete Gateway target or identify the cause of its 53.55-second upper
    bound. The complete phase result remains required.
+   Main journal, provider, console, and dashboard checks at `0aa8f0d` also passed
+   independent review. All 41 journal tests, both restart cases, six provider
+   tests, 15 snapshot cases, and 13 dashboard router tests passed. Console
+   generation and repeated asset archives match source. The saved compiler
+   public records match the verified release. See the
+   [hosted result review](https://github.com/jsell-rh/hypershell-stego/blob/2c55966/acceptance/main-hosted-review.md).
+   Main browser, API, and full test results remain separate and incomplete.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
@@ -667,7 +674,8 @@ the application must never perform automatic teardown.
    passed. See the [complete evidence](jwt-key-telemetry-evidence.json).
    The regenerated Hypershell candidate includes this common implementation
    through compiler `ee348b8`; its full checks passed at `51b2bb2`. Promotion
-   to application main remains open. Hypershell uses its static public-key verifier. These rotating-key results
+   to application main is complete at `0aa8f0d`. Hypershell uses its static
+   public-key verifier. These rotating-key results
    do not prove a change to that authentication path or close C6.
 6. Audit C1 through C7 and H1 through H3 against current source and complete
    workflows. Backup and restore, supported deployment recovery, complete
