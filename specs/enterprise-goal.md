@@ -119,10 +119,22 @@ restart counts were zero. Cleanup removed the test namespace and owned resources
 released the shared Lease, and left all 32 standing resources unchanged.
 
 The [browser workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540651284)
-started after that review and cleanup. Its result is pending. The existing bounded
-live count test can then check the changed count worker with ordinary Pods,
-namespace permissions, events, REST/gRPC, and restart. This test does not establish
-Kata isolation or actual OpenShell Sandbox execution. Keep one live test at a time.
+passed all 11 required tests. Its main scenario took 551.47 seconds. Review checked
+1,653 source files, 429 generation hashes, seven signed images, correlated
+telemetry, restart behavior, allocation finalization, and four screenshots.
+Cleanup removed the test resources, released the shared Lease, and left all 32
+standing resources unchanged. Normal deletion of a Gateway with 100 accounts
+was observed complete after 34.19 seconds. Allocation and Gateway finalization
+were still pending at 32.70 seconds. The 30-second target remains unmet.
+
+The bounded live count test then stopped before its application test: generation
+tried to create state under the read-only container home. Cleanup passed. A
+separate committed runner correction selects writable generation storage,
+verifies the complete compiler transfer before execution, and retains generation
+records. One corrected run is active against unchanged application source
+`e0f3d7b`. It checks ordinary Pods, namespace permissions, events, REST/gRPC, and
+restart. This test does not establish Kata isolation or actual OpenShell Sandbox
+execution. Keep one live test at a time.
 
 Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
 in the Gateway identity worker, Gateway workload worker, and account provisioner.
@@ -136,8 +148,12 @@ The corrected source is committed and pushed. Its
 [focused recovery check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540007357)
 passed 172 cases across 44 top-level tests and seven packages. Artifact events
 matched the job log. Seven application images passed source, content, registry,
-and signature review. The full application check and live qualification remain
-open. The earlier failed runs cannot qualify this source.
+and signature review. The
+[full application check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540006064)
+passed 1,176 core cases across 366 top-level tests. All 1,165 prior cases, test
+definitions, and five exclusions remain. Browser, UI, and service-image jobs
+passed; the Sandbox job remains deferred. Live count and corrected-source browser
+qualification remain open. The earlier failed runs cannot qualify this source.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented
