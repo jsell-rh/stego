@@ -31,7 +31,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	t, err := template.New("workload").Parse(source)
+	t, err := template.New("workload").Delims("[[", "]]").Parse(source)
 	if err != nil {
 		return nil, nil, err
 	}
