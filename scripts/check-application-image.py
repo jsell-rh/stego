@@ -22,6 +22,7 @@ def main():
     for name in ['compiler', 'application', 'trust-store', 'output']:
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--entrypoint', default='service')
+    parser.add_argument('--compiler-revision', default=os.environ.get('GITHUB_SHA'))
     args = parser.parse_args()
     args.output.mkdir(mode=0o700)
     build = args.application / 'build.json'
@@ -57,7 +58,7 @@ def main():
     assert record['build_record_sha256'] == sha(build)
     assert record['packer_compiler_artifact']['sha256'] == sha(args.compiler)
     assert record['packer_compiler']['source_state'] == 'clean'
-    assert record['packer_compiler']['revision'] == os.environ['GITHUB_SHA']
+    assert args.compiler_revision and record['packer_compiler']['revision'] == args.compiler_revision
     for key in ['manifest', 'config', 'layer']:
         identity = record[key]
         for root in [first, second]:
@@ -145,7 +146,7 @@ def main():
     finally:
         if created:
             command(['docker', 'rm', container])
-    report = {'compiler_source': os.environ['GITHUB_SHA'], 'application_source': build_record['source_revision'],
+    report = {'compiler_source': args.compiler_revision, 'application_source': build_record['source_revision'],
               'entrypoint': args.entrypoint, 'image_record_sha256': sha(first / 'image.json'), 'manifest': record['manifest'], 'configuration': record['config'],
               'application': record['application'], 'trust_store': record['trust_store'], 'cases': cases,
               'independent_images': 2, 'export': export_records[0], 'engine_id': image_id, 'engine_files_match': True, 'application_executed': False,

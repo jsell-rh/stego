@@ -37,12 +37,20 @@ def check(inputs, bundle, policy_path, output, gh):
             raise records.CheckError("An invalid record passed verification: " + name)
         original = json.loads(policy_path.read_bytes())
         changed_policy = root / "policy.json"
-        for name, key, value in [
+        selections = [
             ("different-workflow-source", "revision", ("0" if original["revision"][0] != "0" else "1") + original["revision"][1:]),
-            ("different-workflow", "workflow", ".github/workflows/untrusted.yml"),
+            ("different-workflow", "workflow" if original['format'] == 1 else "signer_workflow", ".github/workflows/untrusted.yml"),
             ("different-application", "application_revision", ("0" if original["application_revision"][0] != "0" else "1") + original["application_revision"][1:]),
             ("different-trust-store", "trust_store_sha256", "0" * 64),
-        ]:
+        ]
+        if original['format'] == 2:
+            selections.extend([
+                ("different-signer-source", "signer_revision", ("0" if original['signer_revision'][0] != "0" else "1") + original['signer_revision'][1:]),
+                ("different-signer-repository", "signer_repository", "untrusted/other"),
+                ("different-caller-repository", "repository", "untrusted/other"),
+                ("different-caller-reference", "reference", "refs/heads/untrusted"),
+            ])
+        for name, key, value in selections:
             changed_policy.write_text(json.dumps(dict(original, **{key: value})))
             deny(name, policy=changed_policy, reason=("signed application selection" if key == "application_revision" else "signed CA selection" if key == "trust_store_sha256" else "A build command failed"))
         for name in ["build.json", "image.json"]:

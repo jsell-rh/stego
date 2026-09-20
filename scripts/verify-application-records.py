@@ -19,6 +19,7 @@ spec.loader.exec_module(verification)
 CheckError = verification.CheckError
 FIELDS = {"format", "repository", "workflow", "reference", "revision", "compiler_revision",
           "compiler_sha256", "application_revision", "module", "target", "entrypoint", "trust_store_sha256"}
+REUSABLE_FIELDS = (FIELDS - {"workflow"}) | {"signer_repository", "signer_workflow", "signer_revision"}
 
 
 def decode(data):
@@ -31,7 +32,9 @@ def decode(data):
 def policy_bytes(path):
     data = verification.regular_bytes(path, 16 << 10)
     policy = decode(data)
-    if set(policy) != FIELDS or type(policy["format"]) is not int or policy["format"] != 1:
+    if type(policy.get("format")) is not int or policy["format"] not in {1, 2}:
+        raise CheckError("The consumer policy fields or format differ")
+    if set(policy) != (FIELDS if policy["format"] == 1 else REUSABLE_FIELDS):
         raise CheckError("The consumer policy fields or format differ")
     patterns = {
         "repository": r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+",
@@ -43,6 +46,10 @@ def policy_bytes(path):
         "module": r"\.|[A-Za-z0-9_-][A-Za-z0-9_./-]*",
         "target": r"[A-Za-z0-9_-][A-Za-z0-9_./-]*",
     }
+    if policy["format"] == 2:
+        patterns["signer_repository"] = patterns["repository"]
+        patterns["signer_workflow"] = patterns.pop("workflow")
+        patterns["signer_revision"] = patterns["revision"]
     for name, pattern in patterns.items():
         value = policy[name]
         if not isinstance(value, str) or len(value) > 256 or not re.fullmatch(pattern, value):
@@ -103,8 +110,13 @@ def verify(inputs, bundle, policy_path, output, gh):
         saved_bundle.write_bytes(verification.regular_bytes(bundle, 4 << 20))
         environment = verification.verifier_environment()
         for name in ["build.json", "image.json"]:
-            verification.authenticate_subject(gh, stage / name, saved_bundle, policy["revision"],
-                                              environment, policy["repository"], policy["workflow"], policy["reference"])
+            if policy["format"] == 1:
+                verification.authenticate_subject(gh, stage / name, saved_bundle, policy["revision"],
+                                                  environment, policy["repository"], policy["workflow"], policy["reference"])
+            else:
+                verification.authenticate_reusable_subject(gh, stage / name, saved_bundle, environment,
+                                                           policy["repository"], policy["reference"], policy["revision"],
+                                                           policy["signer_repository"], policy["signer_workflow"], policy["signer_revision"])
         build_data = (stage / "build.json").read_bytes()
         image_data = (stage / "image.json").read_bytes()
         check_binding(decode(build_data), decode(image_data), build_data, policy)

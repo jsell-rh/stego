@@ -201,3 +201,24 @@ list.
 The seven-target check is pending. Its image records are not signed. Its images
 use the test CA fixture and are not approved for deployment. Full signed target
 delivery and the existing live Gateway acceptance gate remain required.
+
+## Reusable signer policy
+
+Application record policy format 2 separates the caller source from the reusable
+signer. `repository`, `reference`, and `revision` select the caller repository,
+branch, and exact commit. `signer_repository`, `signer_workflow`, and
+`signer_revision` select the reusable workflow and exact commit. Format 2 replaces
+the format 1 `workflow` field with these three signer fields. All application,
+compiler, entry-point, and CA selections remain required.
+
+The verifier checks the caller and signer certificate claims separately. It uses
+`--signer-workflow` with the pinned signer digest. It does not combine that option
+with `--cert-identity`; the GitHub CLI rejects that combination. Format 1 keeps
+its existing exact certificate identity check. See the
+[GitHub CLI verification reference](https://cli.github.com/manual/gh_attestation_verify).
+
+The reusable signing job must use pinned STEGO verification code. It must not
+execute verification code selected by the application caller. Each signing job
+must retrieve its own build artifact by immutable artifact ID and check the
+record digests from that build job. A shared matrix output cannot identify all
+target artifacts. Real reusable-workflow signing checks remain required.

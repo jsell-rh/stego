@@ -62,11 +62,24 @@ def authenticate(gh, path, bundle, revision, environment):
 
 
 def authenticate_subject(gh, path, bundle, revision, environment, repository, workflow, reference):
+    authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
+                                  revision, ["--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference])
+
+
+def authenticate_reusable_subject(gh, path, bundle, environment, repository, reference, revision,
+                                  signer_repository, signer_workflow, signer_revision):
+    # The caller source and reusable signer have separate certificate claims.
+    # GitHub CLI rejects --cert-identity together with --signer-workflow.
+    authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
+                                  signer_revision, ["--signer-workflow", signer_repository + "/" + signer_workflow])
+
+
+def authenticate_selected_subject(gh, path, bundle, environment, repository, reference, revision,
+                                  signer_revision, identity_flags):
     control.command([
         str(gh), "attestation", "verify", str(path), "--bundle", str(bundle),
         "--hostname", "github.com", "--repo", repository,
-        "--signer-digest", revision,
-        "--cert-identity", "https://github.com/" + repository + "/" + workflow + "@" + reference,
+        "--signer-digest", signer_revision, *identity_flags,
         "--cert-oidc-issuer", "https://token.actions.githubusercontent.com",
         "--source-ref", reference, "--source-digest", revision,
         "--predicate-type", PREDICATE, "--digest-alg", "sha256",

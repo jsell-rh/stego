@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['compiler', 'fixture', 'image', 'output']:
         parser.add_argument('--' + name, required=True, type=Path)
+    parser.add_argument('--compiler-revision', default=os.environ.get('GITHUB_SHA'))
     args = parser.parse_args()
     if os.environ.get('CI') != 'true':
         raise SystemExit('The registry gate requires CI')
@@ -41,6 +42,7 @@ def main():
             repository = json.loads((fixture / 'endpoint.json').read_text())['repository']
             record = args.image / 'image.json'
             image = json.loads(record.read_text())
+            assert args.compiler_revision and image['packer_compiler']['revision'] == args.compiler_revision
             base = ['--record=' + str(record), '--record-sha256=' + sha(record),
                     '--build-record=' + str(args.image / 'build.json'), '--repository=' + repository,
                     '--registry-ca=' + str(fixture / 'ca.pem'), '--registry-ca-sha256=' + sha(fixture / 'ca.pem'),
@@ -78,7 +80,7 @@ def main():
             wrong.chmod(0o600)
             check('wrong-credentials', 'publish', {'--credentials': str(wrong)}, 'registry publication failed')
             wrong.unlink()
-            report = {'compiler_source': os.environ['GITHUB_SHA'], 'image_record_sha256': sha(record),
+            report = {'compiler_source': args.compiler_revision, 'image_record_sha256': sha(record),
                       'manifest_sha256': image['manifest']['sha256'], 'application': image['application'],
                       'cases': cases, 'TLS_registry_round_trip_checked': True,
                       'registry_profile': 'private CI fixture', 'production_registry_checked': False,

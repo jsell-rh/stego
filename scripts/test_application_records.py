@@ -89,6 +89,66 @@ class RecordChecks(unittest.TestCase):
                 self.assertFalse(self.output.exists())
                 self.assertEqual(list(self.root.glob(".stego-records-*")), [])
 
+    def reusable_policy(self):
+        self.policy.pop("workflow")
+        self.policy.update(format=2, signer_repository="example/compiler",
+                           signer_workflow=".github/workflows/application-target.yml", signer_revision="9" * 40)
+        self.write()
+
+    def test_reusable_signer_and_caller_are_independent(self):
+        self.reusable_policy()
+        calls = []
+        def command(args, cwd, env, **limits):
+            self.assertFalse(self.output.exists())
+            for key, value in [("--repo", "example/consumer"), ("--source-digest", "a" * 40),
+                               ("--source-ref", "refs/heads/main"), ("--signer-digest", "9" * 40),
+                               ("--signer-workflow", "example/compiler/.github/workflows/application-target.yml"),
+                               ("--cert-oidc-issuer", "https://token.actions.githubusercontent.com"),
+                               ("--predicate-type", "https://slsa.dev/provenance/v1")]:
+                self.assertEqual(args[args.index(key) + 1], value)
+            for selector in ["--cert-identity", "--cert-identity-regex", "--signer-repo"]:
+                self.assertNotIn(selector, args)
+            self.assertIn("--deny-self-hosted-runners", args)
+            self.assertEqual(limits, {"timeout": 90, "limit": 4 << 20})
+            calls.append(Path(args[3]).name)
+        with patch.object(records.verification.control, "command", side_effect=command):
+            self.verify()
+        self.assertEqual(calls, ["build.json", "image.json"])
+
+    def test_reusable_policy_requires_all_signer_fields(self):
+        self.reusable_policy()
+        original = copy.deepcopy(self.policy)
+        for key in ["signer_repository", "signer_workflow", "signer_revision"]:
+            for value in [None, "", "$(id)"]:
+                self.policy = dict(original, **{key: value})
+                self.write()
+                with self.subTest(key=key, value=value), patch.object(records.verification, "authenticate_reusable_subject") as auth:
+                    with self.assertRaises(records.CheckError):
+                        self.verify()
+                    auth.assert_not_called()
+            del self.policy[key]
+            self.write()
+            with self.assertRaises(records.CheckError):
+                self.verify()
+        self.policy = dict(original, workflow=".github/workflows/ambiguous.yml")
+        self.write()
+        with self.assertRaises(records.CheckError):
+            self.verify()
+
+    def test_reusable_signature_failure_leaves_no_output(self):
+        self.reusable_policy()
+        for failure in [1, 2]:
+            count = 0
+            def authenticate(*args):
+                nonlocal count
+                count += 1
+                if count == failure:
+                    raise records.CheckError("Signature rejected")
+            with self.subTest(failure=failure), patch.object(records.verification, "authenticate_reusable_subject", side_effect=authenticate):
+                with self.assertRaisesRegex(records.CheckError, "Signature rejected"):
+                    self.verify()
+                self.assertFalse(self.output.exists())
+
     def test_private_snapshot_prevents_input_replacement(self):
         original = (self.inputs / "image.json").read_bytes()
         def authenticate(*args):
