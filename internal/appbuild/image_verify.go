@@ -137,7 +137,10 @@ func verifyImageContents(ctx context.Context, root string, record *ImageRecord, 
 	if err != nil || string(marker) != "{\n    \"imageLayoutVersion\": \"1.0.0\"\n}" {
 		return errors.New("image layout version differs")
 	}
-	index := v1.IndexManifest{SchemaVersion: 2, MediaType: types.OCIImageIndex, Manifests: []v1.Descriptor{imageDescriptor(record.Manifest, types.OCIManifestSchema1)}}
+	descriptor := imageDescriptor(record.Manifest, types.OCIManifestSchema1)
+	// The pinned library records the config media type for an image descriptor.
+	descriptor.ArtifactType = string(types.OCIConfigJSON)
+	index := v1.IndexManifest{SchemaVersion: 2, MediaType: types.OCIImageIndex, Manifests: []v1.Descriptor{descriptor}}
 	expectedIndex, _ := json.MarshalIndent(index, "", "   ")
 	actualIndex, err := readImageBytes(filepath.Join(root, "index.json"), imageMetadataLimit)
 	if err != nil || !bytes.Equal(actualIndex, expectedIndex) {

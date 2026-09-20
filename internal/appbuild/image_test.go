@@ -73,7 +73,8 @@ func TestImageBuildHasStableContentsAndConfiguration(t *testing.T) {
 	}
 	extracted := filepath.Join(t.TempDir(), "executable")
 	if err := verifyImageContents(context.Background(), filepath.Join(first, "oci"), record, extracted); err != nil {
-		t.Fatal(err)
+		index, _ := os.ReadFile(filepath.Join(first, "oci/index.json"))
+		t.Fatalf("%v; index=%s", err, index)
 	}
 	hash, size, err := fileDigest(extracted)
 	if err != nil || (Artifact{hash, size}) != record.Application {
@@ -164,8 +165,9 @@ func TestImageRejectsChangedLayoutAndRecord(t *testing.T) {
 				}
 				put(t, image, "index.json", strings.Replace(string(data), "{", "{\"schemaVersion\": 2,", 1))
 			}
-			if err := verifyImageContents(context.Background(), image, record, ""); err == nil {
-				t.Fatal("changed image accepted")
+			reasons := map[string]string{"extra file": "unexpected image layout file", "link": "link or special file", "config bytes": "image blob size differs", "missing blob": "image layout is incomplete", "wrong application": "image executable content differs", "wrong CA": "image trust store content differs", "wrong diff": "image configuration differs", "dirty packer": "invalid image record policy", "duplicate index": "image index differs"}
+			if err := verifyImageContents(context.Background(), image, record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
+				t.Fatal("wrong image rejection", change, err)
 			}
 		})
 	}
@@ -280,9 +282,10 @@ func TestImageRejectsRehashedUnsafeContent(t *testing.T) {
 			if err := store.AppendImage(image); err != nil {
 				t.Fatal(err)
 			}
-			if err := verifyImageContents(context.Background(), string(store), record, ""); err == nil {
+			reasons := map[string]string{"root user": "image configuration differs", "ambient environment": "image configuration differs", "writable executable": "image executable metadata differs", "symbolic link": "image entry metadata differs", "extra executable": "repeated or extra entries", "private key": "trust store must contain only PEM certificates"}
+			if err := verifyImageContents(context.Background(), string(store), record, ""); err == nil || !strings.Contains(err.Error(), reasons[change]) {
 				data, _ := json.Marshal(config)
-				t.Fatal("rehashed unsafe image accepted", string(data))
+				t.Fatal("wrong unsafe image rejection", change, err, string(data))
 			}
 		})
 	}
