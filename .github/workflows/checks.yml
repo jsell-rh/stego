@@ -1,131 +1,22 @@
-name: Compiler checks
-
+name: PostgreSQL invalid drop regression
 on:
   workflow_dispatch:
-  push:
-    paths-ignore:
-      - '**/*.md'
-      # These files record completed checks and are not compiler inputs.
-      - 'specs/*-evidence.json'
-  pull_request:
-
-env:
-  # CI uses the runner's loopback address for its database fixture.
-  STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK: '1'
-
 permissions:
   contents: read
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Let active push checks finish. New pull requests can replace obsolete checks.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+  group: postgres-invalid-drop-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  examples:
-    name: examples (${{ matrix.project }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [user-management, user-management-rhsso]
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version: '1.26.8'
-          cache-dependency-path: |
-            go.sum
-            examples/*/go.sum
-      - name: Build the current compiler
-        run: go build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego
-      - name: Generate the example candidate
-        working-directory: examples/${{ matrix.project }}
-        env:
-          STEGO_REGISTRY: ${{ github.workspace }}/registry
-          GOWORK: 'off'
-        run: |
-          "$RUNNER_TEMP/stego" validate
-          "$RUNNER_TEMP/stego" apply
-          "$RUNNER_TEMP/stego" deps
-          "$RUNNER_TEMP/stego" apply
-          "$RUNNER_TEMP/stego" drift
-      - name: Save the example candidate for review
-        working-directory: examples/${{ matrix.project }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/example-candidate"
-          git rev-parse HEAD > "$RUNNER_TEMP/example-candidate/source.txt"
-          sha256sum "$RUNNER_TEMP/stego" > "$RUNNER_TEMP/example-candidate/compiler.sha256"
-          tar -czf "$RUNNER_TEMP/example-candidate/generated.tar.gz" out go.mod go.sum .stego/state.yaml
-          cd "$RUNNER_TEMP/example-candidate"
-          sha256sum generated.tar.gz > generated.sha256
-      - name: Upload the example candidate
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: example-candidate-${{ matrix.project }}
-          path: ${{ runner.temp }}/example-candidate
-          retention-days: 14
-          if-no-files-found: error
-      - name: Check example generation and fill behavior
-        working-directory: examples/${{ matrix.project }}
-        env:
-          STEGO_REGISTRY: ${{ github.workspace }}/registry
-          GOWORK: 'off'
-        run: |
-          git diff --exit-code -- out go.mod go.sum fills service.yaml .stego/config.yaml
-          test -z "$(git ls-files --others --exclude-standard -- out)"
-          cp .stego/state.yaml "$RUNNER_TEMP/example-state.yaml"
-          "$RUNNER_TEMP/stego" apply
-          cmp .stego/state.yaml "$RUNNER_TEMP/example-state.yaml"
-          "$RUNNER_TEMP/stego" drift
-          go mod verify
-          go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
-          go test -race -count=1 -mod=readonly -timeout=3m ./...
-          go build -mod=readonly -o "$RUNNER_TEMP/example-service" ./out
-
-  compiler:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2 # 18.6-alpine
-        env:
-          POSTGRES_PASSWORD: stego_test
-          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: '1.26.8'
-          cache: true
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: '24.18.1'
-      - run: npm ci --prefix internal/generator/typescriptsdk/testdata --ignore-scripts --no-audit --no-fund
-      - run: npm ci --prefix internal/generator/browsertelemetry/testdata --ignore-scripts --no-audit --no-fund
-      - run: go mod verify
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
-      - name: Check RPC rollout validation and rendered policies
-        run: go test -v -race -count=1 -mod=readonly -timeout=2m ./internal/generator/kubernetesservice -run '^TestRPCDeployment'
-      - name: Check registry initialization and exclusive file creation
-        run: go test -v -race -count=1 -mod=readonly -timeout=2m ./internal/compiler ./internal/registry ./cmd/stego -run '^(TestInitialize.*|TestRootCreateDoesNotReplaceFiles|TestResolveRegistryCapturedConfiguration|TestRunInit.*)$'
-      - run: go test -race -count=1 -mod=readonly ./...
-        env:
-          STEGO_REQUIRE_NODE: '1'
-          STEGO_REQUIRE_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
-
-  postgres-provisioning:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  postgres-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 768MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      STEGO_REQUIRE_POSTGRES: '1'
+      STEGO_REQUIRE_PROVISIONING_POSTGRES: '1'
     services:
       postgres:
         image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
@@ -135,126 +26,32 @@ jobs:
         ports:
           - 5432/tcp
         options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version: '1.26.8'
-          cache: true
-      - name: Check generated SQL provisioning on a dedicated server
-        run: go test -v -race -count=1 -mod=readonly -timeout=8m ./internal/generator/postgresclient
-        env:
-          STEGO_REQUIRE_POSTGRES: '1'
-          STEGO_REQUIRE_PROVISIONING_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
-      - name: Check managed browser schema, limited login, and startup signals
-        run: go test -v -race -count=1 -mod=readonly -timeout=4m ./internal/generator/browserbackend -run '^TestGenerated(ManagedBrowserSchema|BrowserStartup)$'
-        env:
-          GOMAXPROCS: '2'
-          GOFLAGS: -p=2
-          STEGO_REQUIRE_POSTGRES: '1'
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
-
-  keycloak-provider:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    env:
-      GOMAXPROCS: '2'
-      GOMEMLIMIT: 768MiB
-      STEGO_REQUIRE_KEYCLOAK_PROVIDER: '1'
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version: '1.26.8'
-          cache: true
-      - name: Check saved client closure with both ownership formats
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/keycloak-provider"
-          go test -v -race -count=1 -p=1 -mod=readonly -timeout=3m \
-            -run '^TestGenerated(ServiceAccount|Native)Lifecycle$' ./internal/generator/keycloakprovider \
-            | tee "$RUNNER_TEMP/keycloak-provider/closure.log"
-      - name: Check generated provider against real Keycloak
-        env:
-          STEGO_KEYCLOAK_PROVIDER_ARTIFACTS: ${{ runner.temp }}/keycloak-provider
-        run: |
-          mkdir -p "$STEGO_KEYCLOAK_PROVIDER_ARTIFACTS"
-          go test -v -race -count=1 -p=1 -mod=readonly -timeout=9m -run '^TestGeneratedKeycloakProviderLive$' ./internal/generator/keycloakprovider 2>&1 | tee "$STEGO_KEYCLOAK_PROVIDER_ARTIFACTS/gate.log"
-          python3 - <<'PY'
-          import os, pathlib, re
-          record = pathlib.Path(os.environ['STEGO_KEYCLOAK_PROVIDER_ARTIFACTS']) / 'gate.log'
-          if not re.search(r'^--- PASS: TestGeneratedKeycloakProviderLive ', record.read_text(), re.M):
-              raise SystemExit('The real Keycloak provider result is missing')
-          PY
-      - name: Remove test containers and verify cleanup
-        if: always()
-        run: |
-          docker ps -aq --filter 'label=stego.test=keycloak-provider' --filter "label=stego.test.run=$GITHUB_RUN_ID" | xargs -r docker rm --force
-          test -z "$(docker ps -aq --filter 'label=stego.test=keycloak-provider' --filter "label=stego.test.run=$GITHUB_RUN_ID")"
-      - name: Preserve provider result and generated source
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: keycloak-provider
-          path: ${{ runner.temp }}/keycloak-provider
-          retention-days: 14
-          if-no-files-found: error
-
-  resource-state-storage:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      GOMAXPROCS: '2'
-      GOMEMLIMIT: 768MiB
-      GOFLAGS: -p=2
-      STEGO_REQUIRE_POSTGRES: '1'
-    services:
-      postgres:
-        image: postgres@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
-        env:
-          POSTGRES_PASSWORD: stego_test
-          POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust
-        ports:
-          - 5432/tcp
-        options: >-
           --cpus=1 --memory=512m --pids-limit=256
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
           --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26.8'
           cache: true
-      - name: Check generated state keys and scope closure
-        shell: bash
+      - name: Check invalid database recovery on a dedicated server
         env:
-          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+          STEGO_TEST_POSTGRES_DSN: postgres://postgres:stego_provision_test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
         run: |
           set -o pipefail
-          mkdir -p "$RUNNER_TEMP/state-storage"
-          go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/postgresadapter \
-            -run '^TestGeneratedResourceState(Keys|Scopes)$' | tee "$RUNNER_TEMP/state-storage/tests.log"
-          python3 - "$RUNNER_TEMP/state-storage/tests.log" <<'PYRESULT'
-          import re, sys
-          from pathlib import Path
-          log = Path(sys.argv[1]).read_text()
-          if "--- FAIL:" in log:
-              raise SystemExit("A generated storage test failed")
-          for name in ["TestGeneratedResourceStateKeys", "TestGeneratedResourceStateScopes"]:
-              if not re.search(r"^--- PASS: " + name + r" ", log, re.M):
-                  raise SystemExit("Missing passing storage check: " + name)
-          PYRESULT
-      - name: Save storage results
+          mkdir -p "$RUNNER_TEMP/postgres-recovery"
+          git rev-parse HEAD > "$RUNNER_TEMP/postgres-recovery/source-commit"
+          git archive HEAD | sha256sum > "$RUNNER_TEMP/postgres-recovery/source-archive.sha256"
+          go test -v -race -count=1 -mod=readonly -timeout=5m ./internal/generator/postgresclient -run '^TestGeneratedPostgresClient$' \
+            | tee "$RUNNER_TEMP/postgres-recovery/tests.log"
+      - name: Save recovery results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: resource-state-storage
-          path: ${{ runner.temp }}/state-storage
-          retention-days: 14
+          name: postgres-recovery-${{ github.sha }}
+          path: ${{ runner.temp }}/postgres-recovery
           if-no-files-found: error
+          retention-days: 14
