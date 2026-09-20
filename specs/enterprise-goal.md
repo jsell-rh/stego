@@ -63,8 +63,14 @@ barrier through REST and gRPC. The normal deletion sample used 100 accounts
 created through REST with verified tokens. Complete cleanup was observed at
 31.373211219 seconds. This does not prove the 30-second target or production
 capacity. Both fixtures were absent and 32 standing resources were unchanged.
-The separate API check is in progress. See the
-[consumer evidence](https://github.com/jsell-rh/hypershell-stego/blob/39e8cc8604c495183ee6860fa52f6baacbddc9c0/acceptance/postgres-recovery-live.md).
+The separate API check passed all 52 required tests without skips. Source,
+compiler, repeated generation, runtime limits, and joint cleanup passed
+independent verification. Both test fixtures were absent, the lease was free,
+and all 32 standing resources were unchanged. Hypershell main is now
+`0589cfc`, with the same qualified runtime source and evidence-only additions.
+See the [consumer evidence](https://github.com/jsell-rh/hypershell-stego/blob/0589cfc08d40591e3fc0b36ac1538e6f2ae0d917/acceptance/postgres-recovery-live.md).
+The final evidence commit avoids duplicate CI runs for unchanged runtime code;
+all eight required source-specific workflows passed before promotion.
 The record discloses a stale verifier digest correction. The same artifacts
 passed after correction; the live test was not repeated.
 
