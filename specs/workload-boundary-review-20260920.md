@@ -73,8 +73,10 @@ browser acceptance is still open. See the
 The common renderer candidate `c22cb19` adds a typed configuration digest option.
 It validates the digest and sets the Pod template annotation. Focused checks
 passed 69 generated cases, including independent API, worker, and RPC examples.
-Full compiler checks and consumer adoption remain separate requirements. The
-candidate does not move Gateway policy into STEGO.
+The full compiler check passed 37 packages and both generated examples. The
+change is merged into STEGO. Signed main-artifact checks and consumer adoption
+remain required. See the [compiler evidence](deployment-configuration-evidence.json).
+The change does not move Gateway policy into STEGO.
 
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining

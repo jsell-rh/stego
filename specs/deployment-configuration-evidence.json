@@ -1,0 +1,26 @@
+{
+  "source": "c22cb19c4576cff0082333b49b2675b29fe72d20",
+  "implementation_source": "b31a2c98994467f9b92ac1b727a2d65b172cb971",
+  "scope": "Typed common configuration rollout annotation. Consumer adoption is not complete.",
+  "runs": {
+    "focused": 35543743241,
+    "full": 35543743306,
+    "artifact": 35543743366
+  },
+  "focused_generated_roots": 14,
+  "focused_generated_cases": 69,
+  "compiler_packages": 37,
+  "example_content_files": {
+    "user-management": 76,
+    "user-management-rhsso": 72
+  },
+  "candidate_checks_qualified": true,
+  "consumer_adopted": false,
+  "signed_main_artifact_required": true,
+  "proof_sha256": {
+    "checks/35543743241/qualification.json": "5c6def754b8289c69f82e81002c73c2e6b1fdaae862a8d2af0359d5d3f000266",
+    "checks/35543743366/qualification.json": "64909e0eec0d60e0dc437d43766ffd462f4fcde7eae852ce710c4cdebdc35282",
+    "checks/35543743306/qualification.json": "b630b2279c238b7164bbca4d3824e0b61dc42716dfe6ddcec5255c3f39328840"
+  },
+  "checked_at": "2026-09-20T23:19:26.278632+00:00"
+}

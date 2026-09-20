@@ -27,4 +27,5 @@ errors do not include the supplied value. Each render owns its returned maps.
 The generated tests use an independent widget service with API, worker, and RPC
 Deployments. They compare the command and typed interfaces, changed digests,
 repeated output, existing account selection, and rejected values and templates.
-This candidate still requires compiler checks and consumer workflow evidence.
+The compiler checks pass. Each consumer must still verify the generated output
+and its complete workflow before adoption.
