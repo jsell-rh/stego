@@ -116,7 +116,7 @@ func (c *ControllerTelemetry) Attach(queue func() ControllerQueue) (func(), erro
 	return func() { c.mu.Lock(); delete(c.queues, registration); c.mu.Unlock() }, nil
 }
 
-// Begin accepts reconcile, scan, or watch. Other operation names record nothing.
+// Begin accepts reconcile, scan, watch, or cleanup. Other operation names record nothing.
 // Finish records one fixed outcome. It never records error text.
 func (c *ControllerTelemetry) Begin(ctx context.Context, operation string) (context.Context, func(error, bool)) {
 	ctx, finish := c.BeginResult(ctx, operation)
@@ -131,10 +131,12 @@ type ControllerWorkResult struct {
 	Retry, Pending bool
 }
 
-// BeginResult adds the pending reconcile outcome. Error text is never recorded.
+// BeginResult gives each operation its own trace. Context values, deadlines,
+// and cancellation remain intact. Provider calls remain children of this work.
+// Pending applies to reconcile only. Error text is never recorded.
 func (c *ControllerTelemetry) BeginResult(ctx context.Context, operation string) (context.Context, func(ControllerWorkResult)) {
 	switch operation {
-	case "reconcile", "scan", "watch":
+	case "reconcile", "scan", "watch", "cleanup":
 	default:
 		return ctx, func(ControllerWorkResult) {}
 	}
@@ -145,7 +147,7 @@ func (c *ControllerTelemetry) BeginResult(ctx context.Context, operation string)
 	start := time.Now()
 	var span trace.Span
 	if c.tracer != nil {
-		ctx, span = c.tracer.Start(ctx, "controller."+operation, trace.WithTimestamp(start), trace.WithAttributes(attribute.String("operation", operation)))
+		ctx, span = c.tracer.Start(ctx, "controller."+operation, trace.WithNewRoot(), trace.WithTimestamp(start), trace.WithAttributes(attribute.String("operation", operation)))
 	}
 	var once sync.Once
 	return ctx, func(result ControllerWorkResult) {
