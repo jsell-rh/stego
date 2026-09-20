@@ -55,6 +55,20 @@ func TestInventoryTracksFilesAndRejectsLinks(t *testing.T) {
 	}
 }
 
+func TestInventoryRetainsOfficialSDKASCIIEncoding(t *testing.T) {
+	data, err := inventoryJSON([][]any{{"Þfoo.go", "<&>", false}, {"😀.go", "hash", true}})
+	want := `[["\u00defoo.go","<&>",false],["\ud83d\ude00.go","hash",true]]`
+	if err != nil || string(data) != want {
+		t.Fatalf("inventory encoding differs: %s; %v", data, err)
+	}
+	root := t.TempDir()
+	put(t, root, "Þfoo.go", "hello")
+	result, _, err := inventory(root, 1, 5)
+	if err != nil || result.SHA256 != "c54115d622b96c6dd2b897ffc44eb9a74c77c79ee11cc293381efd9f329d873f" {
+		t.Fatal("inventory differs from the existing compiler format", result, err)
+	}
+}
+
 func TestArchiveRejectsUnsafeEntries(t *testing.T) {
 	for _, header := range []*tar.Header{
 		{Name: "../escape", Typeflag: tar.TypeReg},

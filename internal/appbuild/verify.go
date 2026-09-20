@@ -108,7 +108,7 @@ func validateRecord(record *Record) error {
 	if !foundState {
 		return failure
 	}
-	data, err := json.Marshal(tuples)
+	data, err := inventoryJSON(tuples)
 	if err != nil || digest(data) != record.Source.SHA256 {
 		return failure
 	}

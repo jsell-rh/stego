@@ -3,10 +3,12 @@ package appbuild
 
 import (
 	"archive/tar"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 )
 
@@ -121,12 +124,36 @@ func inventory(root string, fileLimit int, byteLimit int64) (Inventory, []File, 
 	for _, f := range files {
 		tuples = append(tuples, []any{f.Path, f.SHA256, f.Executable})
 	}
-	data, err := json.Marshal(tuples)
+	data, err := inventoryJSON(tuples)
 	if err != nil {
 		return Inventory{}, nil, err
 	}
 	result.Files, result.SHA256 = len(files), digest(data)
 	return result, files, nil
+}
+
+// The established SDK inventory uses ASCII JSON escapes. Keep that byte
+// format for non-ASCII filenames, including UTF-16 surrogate pairs.
+func inventoryJSON(value [][]any) ([]byte, error) {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	data := bytes.TrimSuffix(encoded.Bytes(), []byte{'\n'})
+	var result bytes.Buffer
+	for _, r := range string(data) {
+		if r < 128 {
+			result.WriteByte(byte(r))
+		} else if r <= 0xffff {
+			fmt.Fprintf(&result, `\u%04x`, r)
+		} else {
+			high, low := utf16.EncodeRune(r)
+			fmt.Fprintf(&result, `\u%04x\u%04x`, high, low)
+		}
+	}
+	return result.Bytes(), nil
 }
 
 // unpack accepts only directories and regular files in a new private snapshot.
