@@ -71,6 +71,9 @@ var cycleRetryTests []byte
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
+//go:embed testdata/run_telemetry_test.go
+var runTelemetryTests []byte
+
 //go:embed testdata/process_test.go
 var processTests []byte
 
@@ -100,6 +103,14 @@ func TestGeneratedCycleActionBudget(t *testing.T) {
 
 func TestGeneratedCycleWindow(t *testing.T) {
 	testGeneratedController(t, false, "^TestCycleWindow")
+}
+
+func TestGeneratedRunTelemetry(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedController(t, telemetry, "^(TestRunOwnsLogsMetricsAndIndependentTraces|TestRunTelemetryFailureStopsBeforeSource|TestWatchBeforeScanAndSerialActions|TestTransientFailureIsRecoveredByScan|TestSlowScanCompletesWithoutOverlap|TestOverflowCancelsActionJoinsWorkersAndRescans|TestPermissionFailureIsNotHiddenByCancellation|TestActionDeadlineAndCancellationJoin|TestDisconnectRecoversBeforeRetry|TestInvalidOptionsDoNotOpenSource|TestActionTimeoutSchedulesAnotherPass|TestWatchSetupHasDeadline|TestEmptyReceiverStops)$")
+		})
+	}
 }
 
 func TestGeneratedControllerTraceBoundaries(t *testing.T) {
@@ -180,7 +191,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 			t.Fatal(err)
 		}
 		files = append(files, generated...)
-		files = append(files, gen.File{Path: "controller/telemetry_test.go", Content: telemetryTests})
+		files = append(files, gen.File{Path: "controller/telemetry_test.go", Content: telemetryTests}, gen.File{Path: "controller/run_telemetry_test.go", Content: runTelemetryTests})
 		var names []string
 		for name := range wiring.GoModRequires {
 			names = append(names, name)
@@ -219,13 +230,25 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 	}
 	retryCheck := len(patterns) == 1 && patterns[0] == "^TestCycleRetry"
 	traceCheck := len(patterns) == 1 && patterns[0] == "^TestControllerCleanupWorkTelemetry$"
-	if retryCheck || traceCheck {
+	runCheck := len(patterns) == 1 && strings.Contains(patterns[0], "TestRunOwnsLogsMetricsAndIndependentTraces")
+	if retryCheck || traceCheck || runCheck {
 		cmd.Args = append(cmd.Args, "-v")
 	}
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated controller: %v\n%s", err, output)
+	} else if runCheck {
+		required := []string{"TestWatchBeforeScanAndSerialActions", "TestTransientFailureIsRecoveredByScan", "TestSlowScanCompletesWithoutOverlap", "TestOverflowCancelsActionJoinsWorkersAndRescans", "TestPermissionFailureIsNotHiddenByCancellation", "TestActionDeadlineAndCancellationJoin", "TestDisconnectRecoversBeforeRetry", "TestInvalidOptionsDoNotOpenSource", "TestActionTimeoutSchedulesAnotherPass", "TestWatchSetupHasDeadline", "TestEmptyReceiverStops"}
+		if telemetry {
+			required = append(required, "TestRunOwnsLogsMetricsAndIndependentTraces", "TestRunOwnsLogsMetricsAndIndependentTraces/1", "TestRunOwnsLogsMetricsAndIndependentTraces/0", "TestRunTelemetryFailureStopsBeforeSource", "TestRunTelemetryFailureStopsBeforeSource/invalid_exporter", "TestRunTelemetryFailureStopsBeforeSource/queue_limit")
+		}
+		for _, name := range required {
+			if !strings.Contains(string(output), "--- PASS: "+name+" ") {
+				t.Fatalf("required Run result is absent: %s\n%s", name, output)
+			}
+		}
+		t.Logf("generated Run results:\n%s", output)
 	} else if traceCheck {
 		for _, name := range []string{"TestControllerCleanupWorkTelemetry", "TestControllerCleanupWorkTelemetry/false", "TestControllerCleanupWorkTelemetry/true"} {
 			if !strings.Contains(string(output), "--- PASS: "+name+" ") {
