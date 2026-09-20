@@ -55,8 +55,26 @@ configuration. See the [complete main record](https://github.com/jsell-rh/hypers
 One Gateway with 100 REST-created accounts completed cleanup with an observed
 upper bound of 53.9497 seconds. The prior candidate observed 53.5477 seconds.
 These functional results do not prove the 30-second target or production
-capacity. Separate phase observations are needed to locate the delay. See the
+capacity. See the
 [main browser review](https://github.com/jsell-rh/hypershell-stego/blob/3df3f64/acceptance/main-browser-review.md).
+
+The later phase test at `80b0e00`, run `35481347942`, found a correctness defect.
+The API finalized a Gateway at 29.73 seconds, but its retained state namespace
+was still present at 51.69 seconds. Complete cleanup proof took 54.34 seconds.
+The application did not include namespace allocation in its durable cleanup
+owners. The earlier passing checks did not cover this ordering requirement.
+See the [phase review](https://github.com/jsell-rh/hypershell-stego/blob/9b658d5/acceptance/cleanup-phase-review.md).
+
+Candidate `ecb3160` adds an allocation cleanup owner through the existing STEGO
+targeted cleanup and observation contracts. Namespace removal order remains
+Hypershell policy. Its adapter and focused deletion checks passed. Exact
+regeneration in run `35482869898` matched all 420 archived generated files and
+the verified compiler records. Full CI qualification remains in progress. The
+candidate must also pass the complete live workflow with the allocator stopped
+and restarted before it can replace the main runtime. The test must show that
+REST and gRPC retain the deleting Gateway until allocation cleanup completes.
+This correction does not prove the 30-second target, schema upgrades,
+distributed fencing, or the other open completion requirements.
 
 STEGO now combines a pinned common Git registry with distinct local application
 archetypes. Hypershell no longer copies common component declarations. Both
