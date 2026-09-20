@@ -140,7 +140,21 @@ the rendered browser test, 33 inventory cases, seven real-provider tests,
 [hosted evidence](https://github.com/jsell-rh/hypershell-stego/blob/0916fa782498d0d55206417c5f2a01a921c7de8f/acceptance/keycloak-inventory-hosted-evidence.json).
 
 The [bounded live workflow](https://github.com/jsell-rh/hypershell-stego/actions/runs/35495952596)
-started after a fresh preflight found both test fixtures absent, the shared lease
-free, and all 32 standing installation resources unchanged. Complete live trace
-proof, the separate API gate, the cleanup-time target, and production capacity
-remain unproved for this candidate. The signed compiler is unchanged.
+passed all 11 required tests on that source. Independent review verified the
+signed compiler in the admitted Pod, all 1,589 source files, 421 generated
+hashes, and four viewed screenshots. Controller log and trace pairs cover all
+nine expected worker instances, including the deliberate allocator restart.
+The test proved database restart, namespace replacement, access denial, and
+visible deletion in REST and gRPC while the allocator was stopped.
+
+All 100 REST-created accounts on the measured Gateway had verified token
+issuance before deletion. Cleanup closed their records and journals, removed
+the provider clients and users, and retained the other Gateway. The observed
+whole-cleanup upper bound was 40.586 seconds; allocation was still pending at
+38.727 seconds. The 30-second target remains unmet in this test. Both test
+fixtures and allocations were absent, the shared lease was free, and all 32
+standing resources were unchanged. See the [live evidence](https://github.com/jsell-rh/hypershell-stego/blob/eb8050b/acceptance/keycloak-inventory-live-evidence.json).
+
+The [separate API gate](https://github.com/jsell-rh/hypershell-stego/actions/runs/35497011319)
+is in progress on the same source. Production capacity and complete runtime
+telemetry coverage remain unproved. The signed compiler is unchanged.

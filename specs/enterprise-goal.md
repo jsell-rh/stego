@@ -45,8 +45,9 @@ The common controller trace change is qualified and released in compiler
 samples, and watch sessions have separate traces. Provider calls remain children
 of their operation. All six compiler jobs, focused trace and cleanup cases,
 authentication checks, and signed release verification passed. Hypershell has a
-regenerated candidate; its complete consumer checks and live trace proof remain
-required. See the [trace contract and evidence](controller-trace-boundaries.md).
+regenerated candidate. Its hosted checks and live workflow now pass, including
+controller trace proof. The separate API check remains in progress. See the
+[trace contract and evidence](controller-trace-boundaries.md).
 This result does not close C6, H3, or the full goal.
 
 The consumer trace check found an incorrect expected allocator instance count
@@ -62,9 +63,17 @@ removed a client between the list and its current-state read. Hypershell fix
 common error contract; current ownership checks and retained cleanup proof stay
 in place. Fresh full, provider, journal, allocation, and adapter checks passed
 at that source. The full check passed 1,093 core cases across 347 top-level
-tests. The bounded live workflow has started after a fresh cluster preflight;
-its result and the separate API gate remain required. No failed or pending
-consumer replaces main. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
+tests. Live run `35495952596` passed all 11 required tests, including database
+restart and durable allocation cleanup. Independent review verified all nine
+expected worker instances, four viewed screenshots, 1,589 source files, and
+421 generated hashes. Both fixtures were removed, the shared lease was free,
+and all 32 standing installation resources were unchanged.
+
+One Gateway with 100 REST-created accounts had a whole-cleanup upper bound of
+40.586 seconds. Allocation was still observed pending at 38.727 seconds. The
+30-second target remains unmet in this test; production capacity is unproved.
+Separate API run `35497011319` is in progress on the same source. No failed or
+pending consumer replaces main. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level
