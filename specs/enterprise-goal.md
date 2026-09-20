@@ -46,8 +46,10 @@ passed all 11 required tests. Independent checks matched 1,548 source files,
 421 generation hashes, the signed compiler, six browser startup instances,
 and four inspected views. Browser test resources were removed. All 32 standing
 installation objects matched the adopted configuration. The API test is active
-in its separate namespace, and the full main suite is still active. Joint
-cleanup remains required before another live test.
+in its separate namespace. Full main run `35479995448` passed 950 core cases
+across 334 top-level tests, retaining all 816 baseline cases. Browser, web
+console, and service image jobs passed; Kata remains deferred. Joint cleanup
+remains required before another live test.
 
 One Gateway with 100 REST-created accounts completed cleanup with an observed
 upper bound of 53.9497 seconds. The prior candidate observed 53.5477 seconds.
@@ -594,8 +596,14 @@ the application must never perform automatic teardown.
    Main browser run `35479995475` then passed all 11 required tests. Source,
    generation, compiler, telemetry, four views, and browser cleanup passed
    independent checks. Its normal 100-account Gateway cleanup upper bound was
-   53.9497 seconds. The API and full main checks remain active. Their results
-   and the joint cleanup audit are required before the phase live test.
+   53.9497 seconds. Full main run `35479995448` then passed 950 core cases
+   across 334 top-level tests, with all 816 baseline cases retained. Both
+   restart cases, 22 retry cases, and 11 cleanup owner cases passed. Browser,
+   web console, and service image jobs passed. The five core exclusions are
+   unchanged, and Kata remains deferred. See the
+   [full main result](https://github.com/jsell-rh/hypershell-stego/blob/9ba52eb/acceptance/main-full-evidence.json).
+   The API gate and joint cleanup audit are still required before the phase
+   live test.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
