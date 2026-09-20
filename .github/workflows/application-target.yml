@@ -1,0 +1,272 @@
+name: Build and sign one application image
+
+on:
+  workflow_call:
+    inputs:
+      application-repository:
+        type: string
+        required: true
+      application-revision:
+        type: string
+        required: true
+      image-name:
+        type: string
+        required: true
+      signer-revision:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  # This pin is part of the trusted workflow. Callers cannot replace this code.
+  COMPILER_REVISION: ff0f902e258e6e85ed253daefc6767bf33c2f54d
+  CONSUMER_REVISION: ${{ inputs.application-revision }}
+  IMAGE_NAME: ${{ inputs.image-name }}
+  SELECTED_SIGNER_REVISION: ${{ inputs.signer-revision }}
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    outputs:
+      record-artifact: ${{ steps.record-artifact.outputs.artifact-id }}
+      build-sha256: ${{ steps.record-digests.outputs.build-sha256 }}
+      image-sha256: ${{ steps.record-digests.outputs.image-sha256 }}
+      compiler-sha256: ${{ steps.record-digests.outputs.compiler-sha256 }}
+      module: ${{ steps.selection.outputs.module }}
+      target: ${{ steps.selection.outputs.target }}
+      entrypoint: ${{ steps.selection.outputs.entrypoint }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - name: Require a build job without signing credentials
+        run: |
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+        working-directory: .
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/stego
+          ref: ${{ env.COMPILER_REVISION }}
+          persist-credentials: false
+          path: compiler
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ inputs.application-repository }}
+          ref: ${{ inputs.application-revision }}
+          persist-credentials: false
+          path: consumer
+      - name: Select one declared image from the exact application source
+        id: selection
+        run: |
+          test "$(git rev-parse HEAD)" = "$COMPILER_REVISION"
+          test "$(git -C ../consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          python3 -B - <<'PY'
+          import importlib.util, os, re
+          from pathlib import Path
+          for key in ['CONSUMER_REVISION', 'SELECTED_SIGNER_REVISION']:
+              if not re.fullmatch('[0-9a-f]{40}', os.environ[key]):
+                  raise SystemExit('Select an exact source commit')
+          spec = importlib.util.spec_from_file_location('matrix', 'scripts/application-build-matrix.py')
+          matrix = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(matrix)
+          images = matrix.matrix(Path('../consumer/.ci/application-images.json'))['include']
+          selected = [item for item in images if item['name'] == os.environ['IMAGE_NAME']]
+          if len(selected) != 1:
+              raise SystemExit('Select one image from the application declaration')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output, open(os.environ['GITHUB_ENV'], 'a') as environment:
+              for key in ['module', 'target', 'entrypoint']:
+                  value = selected[0][key]
+                  output.write(key + '=' + value + '\n')
+                  environment.write('APPLICATION_' + key.upper() + '=' + value + '\n')
+          PY
+      - name: Prepare the pinned official SDK
+        timeout-minutes: 5
+        run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/application-sdk"
+      - name: Build the exact candidate compiler
+        run: '"$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego'
+      - name: Build twice and verify the selected application target
+        timeout-minutes: 30
+        run: |
+          test "$(git -C ../consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          mkdir -p "$RUNNER_TEMP/application-evidence"
+          cp ../consumer/.ci/application-images.json "$RUNNER_TEMP/application-evidence/selected-images.json"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module="$APPLICATION_MODULE" --target="$APPLICATION_TARGET" --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --compiler-revision="$COMPILER_REVISION" --module="$APPLICATION_MODULE" --target="$APPLICATION_TARGET"
+      - name: Build the image and check its stopped container
+        timeout-minutes: 8
+        run: |
+          python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
+            --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
+            --compiler-revision="$COMPILER_REVISION" --entrypoint="$APPLICATION_ENTRYPOINT" --output="$RUNNER_TEMP/image-evidence"
+      - name: Publish and retrieve through the private TLS registry
+        timeout-minutes: 6
+        run: |
+          "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
+          python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
+            --compiler-revision="$COMPILER_REVISION" --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --output="$RUNNER_TEMP/registry-evidence"
+      - name: Capture the exact records for the separate signing job
+        id: record-digests
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          target = root / 'application-records'
+          target.mkdir(mode=0o700)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key, name in [('build', 'build.json'), ('image', 'image.json')]:
+                  data = (root / 'image-evidence' / 'first' / name).read_bytes()
+                  (target / name).write_bytes(data)
+                  output.write(key + '-sha256=' + hashlib.sha256(data).hexdigest() + '\n')
+              with (root / 'stego').open('rb') as compiler:
+                  output.write('compiler-sha256=' + hashlib.file_digest(compiler, 'sha256').hexdigest() + '\n')
+          PY
+      - name: Save the records for the separate signing job
+        id: record-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: target-records-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/application-records/
+      - name: Retain each target result and failure record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: consumer-image-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/application-evidence/*
+            ${{ runner.temp }}/application-result/*
+            ${{ runner.temp }}/application-work/*/source.tar
+            ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/registry-evidence/verification.json
+            ${{ runner.temp }}/registry-evidence/fixture.log
+            ${{ runner.temp }}/registry-evidence/published/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/oci/
+            ${{ runner.temp }}/image-evidence/verification.json
+            ${{ runner.temp }}/image-evidence/engine-*.log
+            ${{ runner.temp }}/image-evidence/engine-*.json
+            ${{ runner.temp }}/image-evidence/first/image.json
+            ${{ runner.temp }}/image-evidence/first/build.json
+            ${{ runner.temp }}/image-evidence/first/trust.pem
+            ${{ runner.temp }}/image-evidence/first/oci/
+            ${{ runner.temp }}/image-evidence/second/image.json
+            ${{ runner.temp }}/image-evidence/export-*/export.json
+
+  sign:
+    # A consumer must select this workflow, branch, and exact commit. A signature
+    # from a candidate branch does not authorize a production release.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/stego
+          ref: ${{ env.COMPILER_REVISION }}
+          persist-credentials: false
+      - name: Retrieve only the records from the selected build job
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          artifact-ids: ${{ needs.build.outputs.record-artifact }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/application-records
+      - name: Check the build job digests and set the independent consumer policy
+        env:
+          BUILD_SHA256: ${{ needs.build.outputs.build-sha256 }}
+          IMAGE_SHA256: ${{ needs.build.outputs.image-sha256 }}
+          COMPILER_SHA256: ${{ needs.build.outputs.compiler-sha256 }}
+          SELECTED_MODULE: ${{ needs.build.outputs.module }}
+          SELECTED_TARGET: ${{ needs.build.outputs.target }}
+          SELECTED_ENTRYPOINT: ${{ needs.build.outputs.entrypoint }}
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, importlib.util, json, os, re
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('records', 'scripts/verify-application-records.py')
+          records = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(records)
+          root = Path(os.environ['RUNNER_TEMP'])
+          for variable, name, limit in [('BUILD_SHA256', 'build.json', 16 << 20), ('IMAGE_SHA256', 'image.json', 64 << 10)]:
+              expected = os.environ[variable]
+              data = records.verification.regular_bytes(root / 'application-records' / name, limit)
+              if not re.fullmatch('[0-9a-f]{64}', expected) or hashlib.sha256(data).hexdigest() != expected:
+                  raise SystemExit('The retrieved record differs from the checked build')
+          policy = {
+              'format': 2, 'repository': os.environ['GITHUB_REPOSITORY'],
+              'reference': os.environ['GITHUB_REF'],
+              'signer_repository': 'jsell-rh/stego', 'signer_workflow': '.github/workflows/application-target.yml',
+              'signer_revision': os.environ['SELECTED_SIGNER_REVISION'],
+              'revision': os.environ['GITHUB_SHA'], 'compiler_revision': os.environ['COMPILER_REVISION'],
+              'compiler_sha256': os.environ['COMPILER_SHA256'],
+              'application_revision': os.environ['CONSUMER_REVISION'],
+              'module': os.environ['SELECTED_MODULE'], 'target': os.environ['SELECTED_TARGET'],
+              'entrypoint': os.environ['SELECTED_ENTRYPOINT'],
+              'trust_store_sha256': '305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b',
+          }
+          (root / 'application-policy.json').write_text(json.dumps(policy, indent=2) + '\n')
+          records.policy_bytes(root / 'application-policy.json')
+          build = (root / 'application-records' / 'build.json').read_bytes()
+          image = (root / 'application-records' / 'image.json').read_bytes()
+          records.check_binding(records.decode(build), records.decode(image), build, policy)
+          PY
+      - name: Sign the checked native build and image records
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            ${{ runner.temp }}/application-records/build.json
+            ${{ runner.temp }}/application-records/image.json
+      - name: Save the signature bundle before verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: application-signature-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ steps.attest.outputs.bundle-path }}
+            ${{ runner.temp }}/application-policy.json
+      - name: Verify both signatures and reject changed records or policy
+        timeout-minutes: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          timeout --signal=TERM --kill-after=5s 8m python3 -B scripts/check-application-provenance.py \
+            --inputs "$RUNNER_TEMP/application-records" --bundle "$ATTESTATION_BUNDLE" \
+            --policy "$RUNNER_TEMP/application-policy.json" --output "$RUNNER_TEMP/authenticated-records" \
+            --gh "$(command -v gh)"
+      - name: Save the authenticated records and rejection results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: authenticated-records-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ runner.temp }}/authenticated-records/

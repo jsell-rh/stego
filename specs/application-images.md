@@ -198,9 +198,10 @@ twice, checks a stopped container, and publishes and retrieves through the
 private TLS registry. STEGO owns these common checks. Hypershell owns the target
 list.
 
-The seven-target check is pending. Its image records are not signed. Its images
-use the test CA fixture and are not approved for deployment. Full signed target
-delivery and the existing live Gateway acceptance gate remain required.
+The first seven-target run is pending and does not sign its image records.
+The next candidate adds separate signing jobs. Both candidates use the test CA
+fixture and are not approved for deployment. Full signed target delivery and the
+existing live Gateway acceptance gate remain required.
 
 ## Reusable signer policy
 
@@ -222,3 +223,23 @@ execute verification code selected by the application caller. Each signing job
 must retrieve its own build artifact by immutable artifact ID and check the
 record digests from that build job. A shared matrix output cannot identify all
 target artifacts. Real reusable-workflow signing checks remain required.
+
+
+The common `.github/workflows/application-images.yml` workflow reads the selected
+application declaration and calls `.github/workflows/application-target.yml`
+once for each image. The latter workflow has separate build and signing jobs.
+The build job has only read permission and checks that no OIDC request credentials
+are present. The signing job downloads only the immutable record artifact from
+that invocation. It compares both record digests before it signs them. It then
+checks both signatures and eleven invalid record or policy selections.
+
+The workflow pins compiler and verification code to
+`ff0f902e258e6e85ed253daefc6767bf33c2f54d`. This pin is part of the reviewed workflow;
+it is not a caller input. The consumer selects the application repository, exact
+application commit, and exact signer workflow commit. Its independent policy
+must still pin the expected compiler bytes, target, and CA digest. Signature
+verification does not approve those choices for production.
+
+The STEGO `Consumer image targets` workflow is a test caller for all seven
+Hypershell images. Real signing by the reusable workflow, including use from a
+consumer repository, remains pending. This candidate still uses the test CA.

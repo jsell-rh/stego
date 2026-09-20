@@ -1,0 +1,82 @@
+name: Build and sign declared application images
+
+on:
+  workflow_call:
+    inputs:
+      application-repository:
+        type: string
+        required: true
+      application-revision:
+        type: string
+        required: true
+      signer-revision:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CONSUMER_REVISION: ${{ inputs.application-revision }}
+  CONSUMER_REPOSITORY: ${{ inputs.application-repository }}
+
+jobs:
+  declaration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      consumer-revision: ${{ steps.matrix.outputs.revision }}
+      consumer-repository: ${{ steps.matrix.outputs.repository }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/stego
+          ref: ff0f902e258e6e85ed253daefc6767bf33c2f54d
+          persist-credentials: false
+          path: compiler
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: ${{ inputs.application-repository }}
+          ref: ${{ env.CONSUMER_REVISION }}
+          persist-credentials: false
+          path: consumer
+      - name: Check the common declaration policy
+        run: python3 -B compiler/scripts/test_application_matrix.py
+      - name: Read the selected application declaration
+        id: matrix
+        run: |
+          test "$(git -C consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          python3 -B compiler/scripts/application-build-matrix.py \
+            --declaration=consumer/.ci/application-images.json > "$RUNNER_TEMP/matrix.json"
+          python3 -B - <<'PY'
+          import os, re
+          from pathlib import Path
+          if not re.fullmatch('[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+', os.environ['CONSUMER_REPOSITORY']):
+              raise SystemExit('Select a GitHub repository')
+          if not re.fullmatch('[0-9a-f]{40}', os.environ['CONSUMER_REVISION']):
+              raise SystemExit('Select an exact application commit')
+          value = (Path(os.environ['RUNNER_TEMP']) / 'matrix.json').read_text().strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + value + '\n')
+              output.write('revision=' + os.environ['CONSUMER_REVISION'] + '\n')
+              output.write('repository=' + os.environ['CONSUMER_REPOSITORY'] + '\n')
+          PY
+
+  image:
+    needs: declaration
+    name: Image (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.declaration.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/application-target.yml
+    with:
+      application-repository: ${{ needs.declaration.outputs.consumer-repository }}
+      application-revision: ${{ needs.declaration.outputs.consumer-revision }}
+      image-name: ${{ matrix.name }}
+      signer-revision: ${{ inputs.signer-revision }}
