@@ -1,0 +1,152 @@
+name: Consumer image targets
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/consumer-images.yml
+      - scripts/application-build-matrix.py
+      - scripts/test_application_matrix.py
+      - scripts/check-application-build.py
+      - scripts/check-application-image.py
+      - scripts/check-application-registry.py
+      - scripts/registry-fixture.go
+      - internal/appbuild/**
+      - cmd/stego/build.go
+      - cmd/stego/image.go
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consumer-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONSUMER_REVISION: 179293ccd172a9ef191613da47268add65eb22b8
+
+jobs:
+  declaration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          path: compiler
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/hypershell-stego
+          ref: ${{ env.CONSUMER_REVISION }}
+          persist-credentials: false
+          path: consumer
+      - name: Check the common declaration policy
+        run: python3 -B compiler/scripts/test_application_matrix.py
+      - name: Read the selected application declaration
+        id: matrix
+        run: |
+          test "$(git -C consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          python3 -B compiler/scripts/application-build-matrix.py \
+            --declaration=consumer/.ci/application-images.json > "$RUNNER_TEMP/matrix.json"
+          python3 -B - <<'PY'
+          import os
+          from pathlib import Path
+          value = (Path(os.environ['RUNNER_TEMP']) / 'matrix.json').read_text().strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + value + '\n')
+          PY
+
+  image:
+    needs: declaration
+    name: Image (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.declaration.outputs.matrix) }}
+    env:
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: 1536MiB
+      GOFLAGS: -p=2
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+      IMAGE_NAME: ${{ matrix.name }}
+      APPLICATION_MODULE: ${{ matrix.module }}
+      APPLICATION_TARGET: ${{ matrix.target }}
+      APPLICATION_ENTRYPOINT: ${{ matrix.entrypoint }}
+    defaults:
+      run:
+        working-directory: compiler
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+          path: compiler
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: jsell-rh/hypershell-stego
+          ref: ${{ env.CONSUMER_REVISION }}
+          persist-credentials: false
+          path: consumer
+      - name: Prepare the pinned official SDK
+        timeout-minutes: 5
+        run: python3 -B scripts/prepare-compiler-toolchain.py --download --output "$RUNNER_TEMP/application-sdk"
+      - name: Build the exact candidate compiler
+        run: '"$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -buildvcs=true -o "$RUNNER_TEMP/stego" ./cmd/stego'
+      - name: Build twice and verify the selected application target
+        timeout-minutes: 30
+        run: |
+          test "$(git -C ../consumer rev-parse HEAD)" = "$CONSUMER_REVISION"
+          mkdir -p "$RUNNER_TEMP/application-evidence"
+          cp ../consumer/.ci/application-images.json "$RUNNER_TEMP/application-evidence/selected-images.json"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module="$APPLICATION_MODULE" --target="$APPLICATION_TARGET" --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/application-work" --output="$RUNNER_TEMP/application-result"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
+            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --compiler-revision="$GITHUB_SHA" --module="$APPLICATION_MODULE" --target="$APPLICATION_TARGET"
+      - name: Build the image and check its stopped container
+        timeout-minutes: 8
+        run: |
+          python3 -B scripts/check-application-image.py --compiler="$RUNNER_TEMP/stego" \
+            --application="$RUNNER_TEMP/application-result" --trust-store=internal/appbuild/testdata/image-ca.pem \
+            --entrypoint="$APPLICATION_ENTRYPOINT" --output="$RUNNER_TEMP/image-evidence"
+      - name: Publish and retrieve through the private TLS registry
+        timeout-minutes: 6
+        run: |
+          "$RUNNER_TEMP/application-sdk/go/bin/go" build -mod=readonly -trimpath -o "$RUNNER_TEMP/registry-fixture" scripts/registry-fixture.go
+          python3 -B scripts/check-application-registry.py --compiler="$RUNNER_TEMP/stego" \
+            --fixture="$RUNNER_TEMP/registry-fixture" --image="$RUNNER_TEMP/image-evidence/first" \
+            --output="$RUNNER_TEMP/registry-evidence"
+      - name: Retain each target result and failure record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: consumer-image-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/application-evidence/*
+            ${{ runner.temp }}/application-result/*
+            ${{ runner.temp }}/application-work/*/source.tar
+            ${{ runner.temp }}/application-work/*/source-change.json
+            ${{ runner.temp }}/registry-evidence/verification.json
+            ${{ runner.temp }}/registry-evidence/fixture.log
+            ${{ runner.temp }}/registry-evidence/published/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/registry.json
+            ${{ runner.temp }}/registry-evidence/retrieved/oci/
+            ${{ runner.temp }}/image-evidence/verification.json
+            ${{ runner.temp }}/image-evidence/engine-*.log
+            ${{ runner.temp }}/image-evidence/engine-*.json
+            ${{ runner.temp }}/image-evidence/first/image.json
+            ${{ runner.temp }}/image-evidence/first/build.json
+            ${{ runner.temp }}/image-evidence/first/trust.pem
+            ${{ runner.temp }}/image-evidence/first/oci/
+            ${{ runner.temp }}/image-evidence/second/image.json
+            ${{ runner.temp }}/image-evidence/export-*/export.json

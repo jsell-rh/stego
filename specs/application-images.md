@@ -175,3 +175,29 @@ The bundle contains the Baltimore CyberTrust Root, which expired on 2025-05-12.
 This is evidence about the current publisher input, not approval of that bundle
 as the new production trust profile. Selection and update of the production root
 set, its source notices, and live adoption remain open.
+
+## Application target declaration
+
+An application can select its build targets in `.ci/application-images.json`.
+The format is an object with `format: 1` and an `images` array. Each image has
+four fields: `name`, `module`, `target`, and `entrypoint`. The module path is
+relative to the application source root. The target path is relative to that
+module. The entry point is the executable name at the image root.
+
+`scripts/application-build-matrix.py` checks this declaration before CI uses it.
+It rejects unknown or repeated fields, repeated image names, unsafe paths, and
+shell syntax. It reads only a regular file of at most 16 KiB. One matrix can
+contain between 1 and 64 images. This CI bound does not limit Gateway capacity.
+
+The `Consumer image targets` workflow selects the declaration from Hypershell
+source `179293ccd172a9ef191613da47268add65eb22b8`. It checks seven targets: the
+API, console, Gateway console backend, provisioner RPC process, namespace
+allocator, identity worker, and workload worker. At most two target jobs run at
+the same time. Each job builds twice, checks the native record, builds the image
+twice, checks a stopped container, and publishes and retrieves through the
+private TLS registry. STEGO owns these common checks. Hypershell owns the target
+list.
+
+The seven-target check is pending. Its image records are not signed. Its images
+use the test CA fixture and are not approved for deployment. Full signed target
+delivery and the existing live Gateway acceptance gate remain required.

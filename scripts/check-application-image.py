@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ['compiler', 'application', 'trust-store', 'output']:
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--entrypoint', default='service')
     args = parser.parse_args()
     args.output.mkdir(mode=0o700)
     build = args.application / 'build.json'
@@ -42,7 +43,7 @@ def main():
         return command([args.compiler, 'image', 'build', '--build-record=' + str(build),
                         '--build-record-sha256=' + sha(build), '--application=' + str(binary),
                         '--trust-store=' + str(trust), '--trust-store-sha256=' + (trust_digest or sha(trust)),
-                        '--entrypoint=service', '--output=' + str(output)], expected=expected)
+                        '--entrypoint=' + args.entrypoint, '--output=' + str(output)], expected=expected)
 
     for label in ['first', 'second']:
         pack(args.output / label)
@@ -50,6 +51,7 @@ def main():
     second = args.output / 'second'
     assert (first / 'image.json').read_bytes() == (second / 'image.json').read_bytes()
     record = json.loads((first / 'image.json').read_text())
+    assert record['entrypoint'] == args.entrypoint
     assert record['application'] == build_record['artifact']
     assert record['trust_store'] == {'sha256': sha(args.trust_store), 'size': args.trust_store.stat().st_size}
     assert record['build_record_sha256'] == sha(build)
@@ -64,7 +66,7 @@ def main():
     config = json.loads((first / 'oci/blobs/sha256' / record['config']['sha256']).read_text())
     assert config['architecture'] == 'amd64' and config['os'] == 'linux'
     assert config['config']['User'] == '65532:65532'
-    assert config['config']['Entrypoint'] == ['/service']
+    assert config['config']['Entrypoint'] == ['/' + args.entrypoint]
     layer = first / 'oci/blobs/sha256' / record['layer']['sha256']
     with gzip.open(layer, 'rb') as stream:
         data = stream.read((130 << 20) + 1)
@@ -72,8 +74,8 @@ def main():
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:
         entries = archive.getmembers()
         assert len(entries) == 5
-        assert {e.name.rstrip('/') for e in entries} == {'etc', 'etc/ssl', 'etc/ssl/certs', 'etc/ssl/certs/ca-certificates.crt', 'service'}
-        for path, identity, mode in [('service', record['application'], 0o555), ('etc/ssl/certs/ca-certificates.crt', record['trust_store'], 0o444)]:
+        assert {e.name.rstrip('/') for e in entries} == {'etc', 'etc/ssl', 'etc/ssl/certs', 'etc/ssl/certs/ca-certificates.crt', args.entrypoint}
+        for path, identity, mode in [(args.entrypoint, record['application'], 0o555), ('etc/ssl/certs/ca-certificates.crt', record['trust_store'], 0o444)]:
             entry = archive.getmember(path)
             assert entry.isfile() and entry.mode == mode and entry.uid == 0 and entry.gid == 0 and entry.size == identity['size']
             with archive.extractfile(entry) as stream:
@@ -127,14 +129,14 @@ def main():
     inspected = json.loads(command(['docker', 'image', 'inspect', image_id]).stdout)
     (args.output / 'engine-image.json').write_text(json.dumps(inspected, indent=2) + '\n')
     assert len(inspected) == 1 and inspected[0]['Id'] == image_id
-    assert inspected[0]['Config']['User'] == '65532:65532' and inspected[0]['Config']['Entrypoint'] == ['/service']
+    assert inspected[0]['Config']['User'] == '65532:65532' and inspected[0]['Config']['Entrypoint'] == ['/' + args.entrypoint]
     container = 'stego-image-' + os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_JOB']
     created = False
     try:
         command(['docker', 'create', '--name', container, '--network=none', '--read-only', '--cap-drop=ALL',
                  '--security-opt=no-new-privileges', '--pids-limit=32', '--memory=128m', '--cpus=0.5', image_id])
         created = True
-        for source, target, expected in [('/service', 'engine-application', record['application']['sha256']),
+        for source, target, expected in [('/' + args.entrypoint, 'engine-application', record['application']['sha256']),
                                           ('/etc/ssl/certs/ca-certificates.crt', 'engine-ca.pem', record['trust_store']['sha256'])]:
             command(['docker', 'cp', container + ':' + source, args.output / target])
             assert sha(args.output / target) == expected
@@ -144,7 +146,7 @@ def main():
         if created:
             command(['docker', 'rm', container])
     report = {'compiler_source': os.environ['GITHUB_SHA'], 'application_source': build_record['source_revision'],
-              'image_record_sha256': sha(first / 'image.json'), 'manifest': record['manifest'], 'configuration': record['config'],
+              'entrypoint': args.entrypoint, 'image_record_sha256': sha(first / 'image.json'), 'manifest': record['manifest'], 'configuration': record['config'],
               'application': record['application'], 'trust_store': record['trust_store'], 'cases': cases,
               'independent_images': 2, 'export': export_records[0], 'engine_id': image_id, 'engine_files_match': True, 'application_executed': False,
               'registry_publication_checked': False, 'records_authenticated': False}
