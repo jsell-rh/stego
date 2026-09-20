@@ -1,0 +1,127 @@
+{
+  "native_build": {
+    "qualified_at": "2026-09-20T11:27:26.127827+00:00",
+    "source": "39c7c631b07c80869b2936b50e1be50e3cb797b5",
+    "run": 35507655343,
+    "applications": [
+      {
+        "application": "example",
+        "source": "39c7c631b07c80869b2936b50e1be50e3cb797b5",
+        "module": "examples/user-management",
+        "artifact": {
+          "sha256": "22c10580ee339dd70581783e1b45910a2be92875d9a830fee0b4fda0c6631392",
+          "size": 48404321
+        },
+        "record_sha256": "9c0a1c02c3aa57344ed73846129884cfd5d9bd02ed99adb99aa923bacca261da",
+        "source_inventory": {
+          "files": 1338,
+          "bytes": 10593140,
+          "sha256": "6cc5d496ab4f4f5e969dea6fe90c8ff71d9d9f3e27ded6bef86b3bbf85f6224a"
+        },
+        "source_archives_checked": 2,
+        "verification_cases": 10,
+        "modules": 53
+      },
+      {
+        "application": "hypershell-api",
+        "source": "0589cfc08d40591e3fc0b36ac1538e6f2ae0d917",
+        "module": ".",
+        "artifact": {
+          "sha256": "be88bf4d2c606991b9e6b5fe869b4d2a5c3b0c94b0d4ef67f6cd3eca6660cafb",
+          "size": 48738774
+        },
+        "record_sha256": "caa185ea202c665dff58bd77e1bb88914455004b2c6904362f4fa1a847284ace",
+        "source_inventory": {
+          "files": 1615,
+          "bytes": 27136670,
+          "sha256": "90456a56f07ede9bca526d938a52f8da4b57e446807d4f53d0fdc43e7e069249"
+        },
+        "source_archives_checked": 2,
+        "verification_cases": 10,
+        "modules": 49
+      }
+    ],
+    "unit_roots": 25,
+    "unit_cases": 83,
+    "source_archive_sha256": "f0779cea1fc728ec682396619144ec1919c534117854d0ef9663bac6b4253d0a",
+    "application_artifacts_authenticated": false,
+    "image_publication_checked": false,
+    "applications_executed_locally": false,
+    "scope": "Native executable build evidence only. Image contents, record authentication, and the production image publisher remain open."
+  },
+  "image_check": {
+    "qualified_at": "2026-09-20T11:27:26.448385+00:00",
+    "source": "39c7c631b07c80869b2936b50e1be50e3cb797b5",
+    "image_run": 35507655491,
+    "application_run": 35507655343,
+    "unit_roots": 25,
+    "unit_cases": 83,
+    "applications": [
+      {
+        "application": "example",
+        "application_source": "39c7c631b07c80869b2936b50e1be50e3cb797b5",
+        "image_record_sha256": "35769dc9ed309b419315cbf6e7fb0d6903ab5ec871bf23a9e9dfaf67c643b4a6",
+        "manifest": {
+          "sha256": "05cd8ee7ee146cebf6421a07ef66a8e34d0e8904f49944da80693569ae0674e1",
+          "size": 406
+        },
+        "configuration": {
+          "sha256": "bf07e5aa791ce5a8074e53eb2bd45fd6d3450a685fcc8b210e4beb8e9bc8251b",
+          "size": 428
+        },
+        "layer": {
+          "sha256": "cfa9f812212ff3f4e20877447b577f189eb4422cab31339c155b99a9f329b5e0",
+          "size": 23678221
+        },
+        "application_artifact": {
+          "sha256": "22c10580ee339dd70581783e1b45910a2be92875d9a830fee0b4fda0c6631392",
+          "size": 48404321
+        },
+        "trust_store": {
+          "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+          "size": 627
+        },
+        "engine_image_id": "sha256:bf07e5aa791ce5a8074e53eb2bd45fd6d3450a685fcc8b210e4beb8e9bc8251b",
+        "verification_cases": 7
+      },
+      {
+        "application": "hypershell-api",
+        "application_source": "0589cfc08d40591e3fc0b36ac1538e6f2ae0d917",
+        "image_record_sha256": "2c40b512532f8dfe82d9658cb521060186e29069e179ec999961d8bf1034b8e2",
+        "manifest": {
+          "sha256": "685e6e24932878998ee2d4620f60dd08d1d593c6d9ee123446ba296319d378f8",
+          "size": 406
+        },
+        "configuration": {
+          "sha256": "d78bc6daf200d30619f2052ec694d88519f79dce80d125371a45387261bf957f",
+          "size": 428
+        },
+        "layer": {
+          "sha256": "0752c038012ce843f1aa1e6fccd07d00a8a802d3516e75bfa0fa49d718137102",
+          "size": 23256243
+        },
+        "application_artifact": {
+          "sha256": "be88bf4d2c606991b9e6b5fe869b4d2a5c3b0c94b0d4ef67f6cd3eca6660cafb",
+          "size": 48738774
+        },
+        "trust_store": {
+          "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+          "size": 627
+        },
+        "engine_image_id": "sha256:d78bc6daf200d30619f2052ec694d88519f79dce80d125371a45387261bf957f",
+        "verification_cases": 7
+      }
+    ],
+    "records_authenticated": false,
+    "registry_publication_checked": false,
+    "production_CA_bundle_qualified": false,
+    "application_execution_checked": false
+  },
+  "qualifiers": {
+    "qualify-applications.py": "c80a2a898f669a2a5176fa3a545f8cabd55a80590ed048cabcc723b8f189fe6c",
+    "qualify-images.py": "9ddd6d1b4a7c1753415ce809663fdc86ca95e3e61c0e5001445652f23e2cd0a0"
+  },
+  "full_ci_pending": true,
+  "main_promoted": false,
+  "compiler_released": false
+}
