@@ -145,6 +145,11 @@ in the consumer. Complete live validation remains required. Optional provider
 connections, other settings, and repeated REST/gRPC conversion remain separate
 work. Neither candidate completes the enterprise requirements.
 
+The [transport mapping audit](transport-mapping-audit-20260920.md) identifies
+the remaining conversion code and the application rules that it must preserve.
+It also records an unchecked catalog timestamp conversion for a focused failure
+test. This source review does not establish transport parity or runtime failure.
+
 ## Remaining requirements
 
 The completion table above remains authoritative. The following work is open;
