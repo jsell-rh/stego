@@ -119,13 +119,27 @@ func (c *ControllerTelemetry) Attach(queue func() ControllerQueue) (func(), erro
 // Begin accepts reconcile, scan, or watch. Other operation names record nothing.
 // Finish records one fixed outcome. It never records error text.
 func (c *ControllerTelemetry) Begin(ctx context.Context, operation string) (context.Context, func(error, bool)) {
+	ctx, finish := c.BeginResult(ctx, operation)
+	return ctx, func(err error, retry bool) { finish(ControllerWorkResult{Error: err, Retry: retry}) }
+}
+
+// ControllerWorkResult supplies fixed completion fields. Error takes precedence
+// over Pending. Retry counts failed attempts only. Pending applies to reconcile
+// operations only and does not imply readiness or a successful observation.
+type ControllerWorkResult struct {
+	Error          error
+	Retry, Pending bool
+}
+
+// BeginResult adds the pending reconcile outcome. Error text is never recorded.
+func (c *ControllerTelemetry) BeginResult(ctx context.Context, operation string) (context.Context, func(ControllerWorkResult)) {
 	switch operation {
 	case "reconcile", "scan", "watch":
 	default:
-		return ctx, func(error, bool) {}
+		return ctx, func(ControllerWorkResult) {}
 	}
 	if c.runtime.closed.Load() {
-		return ctx, func(error, bool) {}
+		return ctx, func(ControllerWorkResult) {}
 	}
 	ctx = c.runtime.Context(ctx)
 	start := time.Now()
@@ -134,10 +148,14 @@ func (c *ControllerTelemetry) Begin(ctx context.Context, operation string) (cont
 		ctx, span = c.tracer.Start(ctx, "controller."+operation, trace.WithTimestamp(start), trace.WithAttributes(attribute.String("operation", operation)))
 	}
 	var once sync.Once
-	return ctx, func(err error, retry bool) {
+	return ctx, func(result ControllerWorkResult) {
 		once.Do(func() {
+			err, retry := result.Error, result.Retry
 			end := time.Now()
 			outcome := "success"
+			if result.Pending && operation == "reconcile" {
+				outcome = "pending"
+			}
 			if err != nil {
 				outcome = "failure"
 				if errors.Is(err, context.DeadlineExceeded) {

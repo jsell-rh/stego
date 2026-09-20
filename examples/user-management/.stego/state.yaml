@@ -29,13 +29,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260919221659-ea3896275f2f
+        module_version: v0.0.0-20260920035338-8a57a6817923
         vcs: git
-        revision: ea3896275f2fac7d337cc83f198077e520e8a7be
+        revision: 8a57a6817923863efe016f2463575614438142d4
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 74f2c05efa010efd594c3f1113b83bdbcc5f294ddafdef18ae86beea240f41eb
+    registry_content_sha256: 2cc7124048d777be444fc067ffac0e7400a3666a72904cdafbcea9af0ab71d91
     components:
         health-check:
             version: 1.1.0
@@ -175,7 +175,7 @@ last_applied:
         tracing/client.go: 37ee470ae71faa5e5daecd59d73b7874a0c38ea08e5eaed9d1ed2617ac241c67
         tracing/command.go: e34d452e8ffa1e6aade0f1d8ad1b4cdf2cb3ae51e2ae69137ef9c0c5b779f812
         tracing/config.go: 077cdf1d36379896617afa6d12612cb136380dc7f92a9f523f4a9f50a6477666
-        tracing/controller.go: 330e49b31935577ae95a5c009b5796144ec64141c998d0dc2c0bb17953f9c222
+        tracing/controller.go: bc5da51637c46826b57f5a055654e5822e1f03dad6c83a3a502c27e6c1a9679d
         tracing/database.go: b87fabc2ff867b68d312089aad53a7164f7c4a039702c29e5937e10be70ac9c9
         tracing/http_client.go: ca9ed1cf57d3a8b33bca141a03733431859a7ed0d58ae92c301460f9438bf683
         tracing/http_observation.go: 56493be11d5e29efb771b5862d45ad2ef9e010e0b01b27766e61b0971862ea86
