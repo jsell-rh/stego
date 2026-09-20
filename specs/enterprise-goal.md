@@ -138,11 +138,22 @@ and failed because the test process did not receive the rendered network
 endpoints. Independent cleanup passed after each run. None of these runs proves
 live count behavior. The application source remained `e0f3d7b`.
 
-The next fixture supplies the generated allocator settings and selects the
-count role binding by role and subject identity. Its checks precede another
-live run. The live test must cover ordinary Pods, namespace permissions, events,
-REST/gRPC, and restart. It does not establish Kata isolation or actual OpenShell
-Sandbox execution. Keep one live test at a time.
+The corrected fixture supplies the generated allocator settings and selects the
+count role binding by role and subject identity. Its hosted check passed all
+three repeated worker renders and 15 identity cases. The live test then passed
+in 93.08 seconds. It covered ordinary Pods, namespace permissions, denied reads,
+permission recovery, namespace UID replacement, events, REST/gRPC, and API and
+worker restarts. Review matched all 1,659 source files and 299 generated hashes
+in the count test scope. Cleanup removed owned resources, released the shared
+Lease, and left all 32 standing resources unchanged.
+
+The test source is `d98b673`; only five test and CI files differ from runtime
+source `e0f3d7b`. See the [count evidence](runtime-control-count-evidence.json).
+The first reviewer stopped on a missing newline between the compiler's final
+message and the Go test start marker. A corrected reviewer recognized that exact
+boundary and preserved the raw log. This result does not establish Kata isolation,
+actual OpenShell Sandbox execution, or production capacity. The exact-source
+browser workflow remains required. Keep one live test at a time.
 
 Separate follow-up candidate `e0f3d7b` uses the same generated connection settings
 in the Gateway identity worker, Gateway workload worker, and account provisioner.
@@ -160,8 +171,8 @@ and signature review. The
 [full application check](https://github.com/jsell-rh/hypershell-stego/actions/runs/35540006064)
 passed 1,176 core cases across 366 top-level tests. All 1,165 prior cases, test
 definitions, and five exclusions remain. Browser, UI, and service-image jobs
-passed; the Sandbox job remains deferred. Live count and corrected-source browser
-qualification remain open. The earlier failed runs cannot qualify this source.
+passed; the Sandbox job remains deferred. Live count qualification passed with the recorded test-only changes. Corrected-source
+browser qualification remains open. The earlier failed runs cannot qualify this source.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented

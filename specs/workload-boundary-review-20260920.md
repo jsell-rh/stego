@@ -60,8 +60,10 @@ because the fixture omitted required network endpoints. No count behavior
 passed in that run. Independent cleanup found the test resources absent, the
 shared Lease free, and all 32 standing resources unchanged. The fixture also
 used a positional role-binding name that no longer selected the count role.
-These setup assumptions need tests before another live run. Do not weaken the
-generated allocator's endpoint or identity checks.
+The corrected setup passed its hosted checks and then the live count workflow
+in 93.08 seconds. Review checked the unchanged runtime files, generated hashes,
+and complete cleanup. See the [count evidence](runtime-control-count-evidence.json).
+The generated allocator retains its endpoint and identity checks.
 
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining

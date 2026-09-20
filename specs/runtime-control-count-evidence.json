@@ -1,0 +1,44 @@
+{
+  "source": "d98b673a86a6aca1b56ee917770a7ab2f89677bd",
+  "runner_source": "d98b673a86a6aca1b56ee917770a7ab2f89677bd",
+  "runner_sha256": "2528924152f85f51f9a5bf382e9259c4108c143ebdf0ab88a1fdef563163aad9",
+  "render_setup_run": 35542808955,
+  "runtime_source": "e0f3d7bb9ae93666e9a1381137a57df57a0416f8",
+  "test_only_changes_from_runtime": [
+    ".github/workflows/count-renderer.yml",
+    "acceptance/count_binding_fixture_test.go",
+    "acceptance/count_namespace_live_test.go",
+    "scripts/check-count-namespaces.py",
+    "scripts/check-count-renderer.py"
+  ],
+  "qualified": true,
+  "required_test": "TestNamespaceCountWithLiveKubernetes",
+  "seconds": 93.08,
+  "source_files_checked": 1659,
+  "generated_hashes_checked": 299,
+  "compiler_sha256": "dc650131dc0bab7aab7caf4e33a0ba00dbb436c502ce6882cf2634d9b9b69a62",
+  "pod_uid": "58d51194-b222-4525-85e4-e8742ef3036c",
+  "job_uid": "e27fdbd6-1697-4f21-8022-a9ac7569ddba",
+  "cleanup": {
+    "source": "d98b673a86a6aca1b56ee917770a7ab2f89677bd",
+    "checked_at": "2026-09-20T22:58:47.190504+00:00",
+    "phase": "cleanup",
+    "existing_test_jobs_and_pods_absent": true,
+    "lease_free": true,
+    "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+    "standing_resources_unchanged": 32,
+    "namespace": "stego-count-live-58107eaf",
+    "owned_resources_absent": true
+  },
+  "checked_at": "2026-09-20T22:59:24.624335+00:00",
+  "record_sha256": {
+    "test.log": "727e1c02a2beb8c61935658cf97f995a5d572abd3c5ac96f26c2eb3bd8204105",
+    "job-final.json": "fc842d1be57f62c664c3f36a78ac535d6a9f12ee273ca72a34ce7a7de13899cb",
+    "cleanup.json": "ff5e2f806e08881aa9f71906244356b428e56979e3da1f9bd9823d5fdde32739",
+    "source-sha256.json": "3a88668dad5954ad91ab879342be42063787bd21ed457f38482ae0cb5c2afb51",
+    "first.sha256": "2865d72885adab2b7e945321ca0a321571bb16a8d418f618b7519cd349be3cd7",
+    "second.sha256": "2865d72885adab2b7e945321ca0a321571bb16a8d418f618b7519cd349be3cd7",
+    "after.sha256": "2865d72885adab2b7e945321ca0a321571bb16a8d418f618b7519cd349be3cd7"
+  },
+  "scope": "Live namespace count behavior with bounded ordinary Pods, scoped permissions, restart, REST, gRPC, events, and regeneration. This does not prove Kata isolation, OpenShell Sandbox execution, or production capacity."
+}
