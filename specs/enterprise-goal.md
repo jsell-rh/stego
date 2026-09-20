@@ -531,7 +531,13 @@ the application must never perform automatic teardown.
    users, authenticated closed journals, closed rows, and one success audit per
    account. Hosted adapter run `35476824851` passed all 63 required tests,
    six allocation cleanup tests, and 28 collection cases. The live test compiled.
-   The complete live run `35477799297` is active at that fixed source. This
+   Live run `35477799297` stopped when the scheduler preempted the test Pod
+   for the OpenShift image registry. There is no complete workflow result.
+   Independent checks confirmed that test resources were removed, all 32
+   standing resources were restored, and the shared lease is free. Candidate
+   `4c6744b` retains terminal Pod status when the completion record is absent.
+   Five local status cases and eight completion cases pass. Hosted run
+   `35478679579` checks this change before another live attempt. This
    two-Gateway workflow does not prove the whole production capacity target.
    Live attempt `35476176959` stopped before workload
    creation because the saved test installation lacks three named reads in
