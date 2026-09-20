@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-09-20T12:51:42.011770+00:00",
+  "recorded_at": "2026-09-20T13:25:33.511223+00:00",
   "compiler_release": {
     "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
     "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
@@ -184,13 +184,64 @@
       "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
     }
   },
-  "scope": "Published compiler and common source, image, signature, and private TLS registry checks. The new live Hypershell image path remains unproved.",
+  "scope": "Published compiler, common source, image, signature, registry checks, and complete live Hypershell browser adoption. Results are limited to the recorded sources and environment.",
   "not_proved": [
-    "Complete live Hypershell adoption of this image path",
     "Production application CA profile",
     "Complete offline builds",
     "Other installation platforms",
     "Automatic release qualification",
-    "Full C3 or enterprise readiness"
-  ]
+    "Full C3 or enterprise readiness",
+    "The 30-second cleanup target and full production capacity",
+    "Live Kata isolation and OpenShell Sandbox execution",
+    "Removal of the API-only legacy image publisher"
+  ],
+  "live_hypershell": {
+    "qualified": true,
+    "evidence_url": "https://github.com/jsell-rh/hypershell-stego/blob/1c64ca664654f6d5c2f1797c8ebb108557224b47/acceptance/common-image-publication-live-evidence.json",
+    "evidence_sha256": "1da4f75820ef8a80cccede13cc8defe08c4dc3c5e44e202650dc8049f6ea04c9",
+    "workflow": {
+      "source": "04dccb73f17e02886bc55587f2204ee4506d7d4f",
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35512430605",
+      "run": 35512430605,
+      "attempt": 1,
+      "fixture_source": "bb1a4945d1255650de43bb458fede9e6cd691070",
+      "fixture_base": "110b920368072391e672ddf73e6a4fbbb6058bcc",
+      "fixture_is_test_only": true,
+      "required_tests_passed": 11,
+      "source_files_matched": 1622,
+      "generated_file_hashes_matched": 421,
+      "browser_workflow_seconds": 539.49
+    },
+    "compilers": {
+      "generation": "3be6bce4167c54258bb4c154ad2cfb5e7e0d00d0",
+      "publication": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+      "publication_binary_sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21"
+    },
+    "image_run": 35511212112,
+    "source_checks": 7,
+    "registry_receipts": 7,
+    "image_set_sha256": "9a793339075cf8db37ad32e4649534626c7942b741f7fbdbc8614f87d724610b",
+    "controller_instances": {
+      "hypershell-gateway-identity": 2,
+      "hypershell-gateway-workload": 4,
+      "hypershell-namespace-allocation": 3
+    },
+    "reviewed_browser_images": 4,
+    "cleanup": {
+      "test_resources_absent": true,
+      "shared_lease_free": true,
+      "standing_installation_resources_unchanged": 32,
+      "normal_accounts": 100,
+      "accounts_created_through_rest": 100,
+      "verified_token_issuance": 100,
+      "observed_upper_bound_seconds": 32.484876805,
+      "target_seconds": 30,
+      "within_target_observed": false,
+      "completion_stages_checked": 15,
+      "allocator_pause_prevented_finalization": true,
+      "scope": "One normal Gateway cleanup. Sequential read observations include verification time. This is not a production capacity result."
+    },
+    "original_verifier_failures_preserved": true,
+    "application_test_restarted": false
+  }
 }

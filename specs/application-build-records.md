@@ -2,8 +2,9 @@
 
 The native build and source checks are included in published compiler
 `c92f591`. The generated example and Hypershell API passed native, source, image,
-real signature, and private TLS registry checks. Adoption by the complete live
-Hypershell workflow remains required. C3 remains open. See the
+real signature, and private TLS registry checks. The complete live Hypershell
+browser workflow also passed with seven signed images in run `35512430605`.
+Production trust selection and complete offline inputs remain open, as does C3. See the
 [current delivery evidence](application-delivery-evidence.json).
 
 `stego build` selects one Git commit, module, and entry point. It checks the

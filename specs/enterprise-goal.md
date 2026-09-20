@@ -971,8 +971,23 @@ record capture, complete source checks, image verification, bounded publication,
 and exact receipt checks for declared image sets. These checks cover an explicit
 operator policy for external registry storage destinations.
 
-Hypershell has committed the browser adoption and a workflow that selects its
-frozen fixture and signed images. Its complete live result is still pending.
+Hypershell passed the complete live browser workflow in run `35512430605` at
+workflow source `04dccb7`, with fixture `bb1a494` based on application source
+`110b920`. Independent checks matched all seven signed images and registry
+receipts, 1,622 source files, and 421 generated file hashes. All 11 required
+tests passed. The four reviewed browser images match the final archive.
+All nine expected controller instances supplied bounded trace evidence.
+Test resources are absent, the shared Lease is free, and all 32 standing
+installation resources are unchanged.
+
+The workflow covers creation, grants, access rules, events, REST and gRPC,
+restart, namespace recovery, browser sessions, and durable deletion. It also
+proves that Gateway finalization waits for a stopped allocator to resume and
+remove the remaining state namespaces. One Gateway with 100 normal accounts
+had an observed cleanup upper bound of 32.48 seconds. The 30-second target
+remains open. This is not evidence for 100 Gateways or production capacity.
+
 Keep production CA selection, offline inputs, automatic release qualification,
-other platforms, and the remaining C3 through C7 and H1 through H3 requirements
-open. See the [current delivery evidence](application-delivery-evidence.json).
+other platforms, the API-only legacy publisher, and the remaining C3 through
+C7 and H1 through H3 requirements open. Live Kata remains deferred. See the
+[current delivery evidence](application-delivery-evidence.json).

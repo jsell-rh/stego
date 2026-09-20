@@ -196,22 +196,25 @@ publication. It retrieves the three known manifest, configuration, and layer
 objects directly with bounded reads. It does not accept a remote image index,
 an alternate platform, or a different manifest in place of the selected image.
 
-The candidate CI gate will publish the actual example and Hypershell API images
-to a private TLS registry, repeat publication, and retrieve them. It also checks
-rejection of changed records, registry CA selections, and credentials. These
-checks are pending. They do not establish a production registry deployment.
+The qualified CI gate published the actual example and Hypershell API images
+to a private TLS registry, repeated publication, and retrieved them. It also
+checked rejection of changed records, registry CA selections, and credentials.
+The complete live Hypershell browser gate used the shared publisher for all
+seven images in run `35512430605`. These checks do not approve a production
+registry deployment or application CA profile.
 
-A separate bounded CI job will capture the public CA file from the same pinned
-SDK image used by the existing publisher. It creates a restricted container to
-copy the file and never starts that container. It records the source image,
+A separate bounded CI job captured the public CA file from the same pinned
+SDK image used by the existing publisher. It created a restricted container to
+copy the file and never started that container. It recorded the source image,
 image configuration, bundle digest, certificate digests, and cleanup result.
-Capture and adoption of that CA bundle are still pending.
+Production adoption of that CA bundle remains open.
 
 [Registry candidate run 35508605666](https://github.com/jsell-rh/stego/actions/runs/35508605666)
 passed all 32 build, image, and registry test groups, with 101 cases including
 subtests. It then failed the required dependency-lock check. The added indirect
 dependencies were reviewed and committed. No existing dependency version changed.
-The corrected source must pass CI before use.
+The corrected source passed. Published compiler `c92f591` passed the full
+compiler and application image checks. The original failed result is retained.
 
 The same run captured the existing publisher CA bundle: 224,449 bytes, 150 CA
 certificates, digest `714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5`.
@@ -243,10 +246,11 @@ twice, checks a stopped container, and publishes and retrieves through the
 private TLS registry. STEGO owns these common checks. Hypershell owns the target
 list.
 
-The first seven-target run is pending and does not sign its image records.
-The next candidate adds separate signing jobs. Both candidates use the test CA
-fixture and are not approved for deployment. Full signed target delivery and the
-existing live Gateway acceptance gate remain required.
+The qualified consumer run `35511212112` built and signed all seven images from
+fixture `bb1a494`. Each target passed independent source, native image, registry,
+and signature checks. Live run `35512430605` then used these exact images for
+the complete Gateway browser workflow. The images use the test CA fixture;
+this result does not approve them for production deployment.
 
 ## Reusable signer policy
 
@@ -286,5 +290,8 @@ must still pin the expected compiler bytes, target, and CA digest. Signature
 verification does not approve those choices for production.
 
 The STEGO `Consumer image targets` workflow is a test caller for all seven
-Hypershell images. Real signing by the reusable workflow, including use from a
-consumer repository, remains pending. This candidate still uses the test CA.
+Hypershell images. Hypershell consumer run `35511212112` also passed real signing
+through reusable signer `d863fcb`. All seven targets passed the eleven invalid
+record or policy cases. The live workflow used the authenticated records and
+checked the actual source and image contents before publication. These checks
+still use the test CA. See the [current evidence](application-delivery-evidence.json).
