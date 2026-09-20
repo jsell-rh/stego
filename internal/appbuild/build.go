@@ -385,10 +385,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, entry := range bytes.Split(tree, []byte{0}) {
-			if bytes.HasPrefix(entry, []byte("160000 ")) {
-				return nil, errors.New("application source contains a submodule; use recorded regular source files")
-			}
+		entries, err := sourceTree(tree)
+		if err != nil {
+			return nil, err
 		}
 		archive, err := os.OpenFile(filepath.Join(root, "source.tar"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 		if err != nil {
@@ -410,6 +409,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		}
 		inputs, files, err := inventory(snapshot, maxFiles, maxBytes)
 		if err != nil {
+			return nil, err
+		}
+		if err := verifySourceTree(snapshot, entries, files); err != nil {
 			return nil, err
 		}
 		module := filepath.Join(snapshot, filepath.FromSlash(o.Module))

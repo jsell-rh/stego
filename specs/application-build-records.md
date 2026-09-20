@@ -6,6 +6,8 @@ and Hypershell adoption are required before C3 can be closed.
 `stego build` selects one Git commit, module, and entry point. It checks the
 complete pinned Go SDK before execution. It creates two private source trees,
 module caches, and build caches. Each tree comes from the selected Git archive.
+Each extracted file must match the raw Git tree, including its path, content,
+and executable bit. Export attributes that change or omit inputs cause failure.
 Links, special files, submodules, path escapes, and excessive input sizes fail.
 The work and result directories must be new and outside the input repository.
 
