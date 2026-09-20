@@ -62,17 +62,26 @@ short lock deadline. A database-local test event trigger rejects a grant after
 it changes a schema ACL. The test requires rollback of that grant and the
 preceding CONNECT grant. See the [event trigger contract](https://www.postgresql.org/docs/18/event-trigger-definition.html).
 
-This change is a candidate. Source `468ea86a` passed all 44 bounded PostgreSQL
-checks in [hosted run 35521273847](https://github.com/jsell-rh/stego/actions/runs/35521273847).
-The saved source archive and result artifact hashes match. The generated REST
-process reached HTTP configuration with complete access. Missing marker access
-and excess table access stopped startup at `database.access`, before handlers
-or tasks started. The output contained none of the selected private database
-values. Normal outbox inserts passed with direct sequence access denied.
+Source `3603e391` passed all six complete compiler jobs and all 35 tested
+compiler packages. Both examples regenerated without drift. The exact source
+also passed 44 bounded PostgreSQL access cases and four browser logout cases.
+The generated REST process reached HTTP configuration with complete access.
+Missing marker access and excess table access stopped startup at
+`database.access`, before handlers or tasks started. The output contained none
+of the selected private database values. Normal outbox inserts passed with
+direct sequence access denied.
+
+The compiler was built twice in separate source trees and caches. Its main
+workflow signed the compiler and build record. The verified immutable release
+contains the same bytes as the reviewed package. Changed files, an incorrect
+source commit, and an invalid signature bundle were rejected. See the
+[complete evidence](database-access-evidence.json) and
+[compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-3603e391e6942b0b36ceaeea9ae10c723651dbe0).
 
 The first complete compiler check found an old registry version assertion and
-stale generated examples. The assertion and examples are now updated. Complete
-hosted checks, compiler release, browser installation adoption, and the complete
-Hypershell workflow remain required. No production or application result is
-claimed here. PostgreSQL 18 has test evidence; versions 16 and 17 still need
-separate checks before a support claim.
+stale generated examples. Both were corrected before qualification. The first
+template error and later failed checks remain in the retained operator records.
+Hypershell installation adoption and its complete application workflow remain
+required. No production or application result is claimed here. PostgreSQL 18
+has test evidence; versions 16 and 17 still need separate checks before a
+support claim.

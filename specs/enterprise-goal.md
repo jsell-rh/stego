@@ -1001,8 +1001,13 @@ The earlier startup and telemetry failures remain recorded. The service
 fixture now shares schema-marker grants with the process and browser fixtures.
 Its signal reader consumes batches during the workflow and bounds correlation
 state. The seven runtime executables did not change from the prior candidate.
-The [database role review](service-database-role-review.md) identifies the next
-common installation contract; it does not move application policy into STEGO.
+The [database role review](service-database-role-review.md) identified a common
+installation gap. STEGO source `3603e391` now generates explicit object grants
+and runtime checks. Its complete compiler suite, 44 database access cases,
+browser checks, and signed release passed. See the
+[database access evidence](database-access-evidence.json). Hypershell adoption
+and its application gates remain under qualification. Domain access policy
+stays in Hypershell.
 
 Keep production CA selection, offline inputs, automatic release qualification,
 other platforms, capacity, and the remaining C3 through C7 and H1 through H3

@@ -73,4 +73,12 @@ components must describe and check access to their own objects. A proposed
 installation interface must cover storage, outbox, and browser-session needs
 without depending on Hypershell names. Verify it with an independent service,
 denied writes, incomplete setup, repeated setup, and the complete Hypershell
-workflow. No interface has been selected or implemented by this review.
+workflow. At the time of this review, no interface had been selected.
+
+STEGO source `3603e391` now provides the common object declaration, installer,
+and runtime check. It passed the complete compiler gate, independent generated
+service checks, and signed release checks. See the
+[installation contract](database-access-contract.md) and
+[release evidence](database-access-evidence.json). Hypershell adoption and its
+complete application workflow are still under qualification. These common
+checks do not establish the application result.
