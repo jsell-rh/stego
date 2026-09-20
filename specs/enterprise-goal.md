@@ -46,10 +46,31 @@ samples, and watch sessions have separate traces. Provider calls remain children
 of their operation. All six compiler jobs, focused trace and cleanup cases,
 authentication checks, and signed release verification passed. Hypershell has a
 regenerated candidate; its complete consumer checks and live trace proof remain
-required. The separate pending-result workflow retains its frozen source and
-compiler for the cleanup comparison. See the
-[trace contract and evidence](controller-trace-boundaries.md). This result does
-not close C6, H3, or the full goal.
+required. See the [trace contract and evidence](controller-trace-boundaries.md).
+This result does not close C6, H3, or the full goal.
+
+The pending-result consumer at `7bc21b7` passed its complete workflow with the
+signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level
+tests, retaining all 966 prior cases. The focused allocation and adapter checks
+passed. Live browser run `35490262586` passed all 11 required tests. It retained
+the deleting Gateway in REST and gRPC while the allocator was stopped, then
+completed namespace removal before finalization after recovery. Four browser
+views passed visual review. See the [browser evidence](https://github.com/jsell-rh/hypershell-stego/blob/06f9de2f36a5553e627efe1a1ab017d773633bf7/acceptance/allocation-pending-live-evidence.json).
+
+The separate API run `35491294055` passed all 52 required tests at that source.
+Independent checks matched all 1,574 source files, 421 generated hashes, repeated
+generation, and the signed compiler bytes in the actual bounded test Pods.
+The joint cleanup audit found both fixtures absent, no allocated namespaces or
+grants, a free shared lease, and all 32 standing installation resources unchanged.
+See the [API and cleanup evidence](https://github.com/jsell-rh/hypershell-stego/blob/06f9de2f36a5553e627efe1a1ab017d773633bf7/acceptance/allocation-pending-api-evidence.json).
+
+One Gateway with 100 REST-created accounts completed full cleanup with an
+observed upper bound of 40.7967 seconds. The prior rescan workflow observed
+57.0464 seconds. Both exceed the 30-second target. All 15 cleanup stages passed
+with no observed return to pending. Sequential observations and bounded logs
+do not establish the cause of the delay or production capacity. The later trace
+compiler requires its own full application proof before another cleanup change.
+Live Kata isolation remains deferred.
 
 The prior Hypershell main test source `0aa8f0d` contains the qualified compiler retry,
 cleanup ownership, and Sandbox integration changes. Main live run `35479995475`
