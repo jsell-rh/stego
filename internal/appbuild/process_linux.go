@@ -56,6 +56,9 @@ func command(ctx context.Context, directory string, environment []string, output
 	// Diagnostics can contain local paths or private dependency information.
 	cmd.Stderr = &boundedWriter{io.Discard, 1 << 20, cancel}
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return errors.New("application build command failed; private diagnostics are withheld")
 	}
 	return ctx.Err()

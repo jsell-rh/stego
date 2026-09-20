@@ -13,14 +13,18 @@ The command checks generated files and generation inputs against saved state.
 It downloads modules through the fixed public proxy, then disables module
 downloads for compilation. Go settings and caches do not come from the caller.
 Local module replacements must remain inside the recorded source snapshot.
-The command records remote module checksums and local replacement paths. It
+The command records each compiled module, its content checksums, and any local
+replacement path. The record must match the module list in the executable.
+Unused module graph entries cannot stand in for compiled source. Module download
+must preserve the recorded source, including `go.mod` and `go.sum`. The command
 disables CGO, workspace selection, automatic toolchain selection, automatic PGO,
 Go telemetry, and source stamping. It never runs the application executable.
 
 Both builds must have identical executable bytes, source inventories, modules,
 and Go build settings. The SDK and Git executable are checked again afterward.
 The result directory contains `application`, `build.json`, and `SHA256SUMS`.
-Failures retain the work directory for inspection. A partial result is not a
+Failures retain the work directory for inspection. A changed source inventory
+also produces a bounded list of changed paths and their before and after hashes. A partial result is not a
 successful build. Do not reuse an interrupted work or result directory.
 
 For example, in a limited Linux amd64 CI job:
@@ -33,7 +37,7 @@ stego build --source=/checkout --revision=FULL_COMMIT_ID \
 
 `stego build verify` requires the expected build record digest from a trusted
 source. It checks canonical record bytes, build policy, executable bytes, and
-the executable's Go build settings. It does not execute the application.
+the executable's Go build settings and module identities. It does not execute the application.
 
 ```sh
 stego build verify --record=/results/application/build.json \

@@ -80,3 +80,4 @@ jobs:
             ${{ runner.temp }}/application-evidence/*
             ${{ runner.temp }}/application-result/*
             ${{ runner.temp }}/application-work/*/source.tar
+            ${{ runner.temp }}/application-work/*/source-change.json

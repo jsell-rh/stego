@@ -269,8 +269,13 @@ func moduleInventory(data []byte, source string) ([]Module, error) {
 				return Module{}, errors.New("module directory escapes the source snapshot")
 			}
 			r.LocalPath = filepath.ToSlash(rel)
-		} else if !validModuleSum(value.Sum) || !validModuleSum(value.GoModSum) {
-			return Module{}, errors.New("module content checksums are missing")
+		} else {
+			if !validModuleSum(value.GoModSum) {
+				return Module{}, errors.New("module metadata checksum is missing")
+			}
+			if !validModuleSum(value.Sum) {
+				return Module{}, errors.New("module content checksum is missing")
+			}
 		}
 		return r, nil
 	}
@@ -330,6 +335,9 @@ func binarySettings(name string) (map[string]string, error) {
 func Build(ctx context.Context, options Options) (*Record, error) {
 	if ctx == nil {
 		return nil, errors.New("application build requires a context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -419,20 +427,14 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		if err != nil || strings.TrimSpace(string(mode)) != "off" {
 			return nil, errors.New("Go telemetry is not disabled")
 		}
-		if _, err = capture(ctx, module, env, o.Go, "mod", "download", "all"); err != nil {
+		// An explicit "all" request can add sums for pruned modules. Default
+		// download fills the cache without changing the recorded go.sum.
+		if _, err = capture(ctx, module, env, o.Go, "mod", "download"); err != nil {
 			return nil, fmt.Errorf("module download: %w", err)
 		}
 		env = environment(root, sdk, true)
 		if _, err = capture(ctx, module, env, o.Go, "mod", "verify"); err != nil {
 			return nil, fmt.Errorf("module content verification: %w", err)
-		}
-		moduleJSON, err := capture(ctx, module, env, o.Go, "list", "-mod=readonly", "-m", "-json", "all")
-		if err != nil {
-			return nil, err
-		}
-		modules, err := moduleInventory(moduleJSON, snapshot)
-		if err != nil {
-			return nil, err
 		}
 		binary := filepath.Join(root, "application")
 		flags := []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", binary, "./" + o.Target}
@@ -442,6 +444,19 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		if _, err = capture(ctx, module, env, o.Go, "mod", "verify"); err != nil {
 			return nil, fmt.Errorf("module content verification: %w", err)
 		}
+		selected, err := compiledModulePaths(binary)
+		if err != nil {
+			return nil, err
+		}
+		query := append([]string{o.Go, "list", "-mod=readonly", "-m", "-json", "--"}, selected...)
+		moduleJSON, err := capture(ctx, module, env, query...)
+		if err != nil {
+			return nil, fmt.Errorf("compiled module inventory: %w", err)
+		}
+		modules, err := moduleInventory(moduleJSON, snapshot)
+		if err != nil {
+			return nil, err
+		}
 		settings, err := binarySettings(binary)
 		if err != nil {
 			return nil, err
@@ -450,12 +465,18 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		if err != nil {
 			return nil, err
 		}
-		after, _, err := inventory(snapshot, maxFiles, maxBytes)
+		after, afterFiles, err := inventory(snapshot, maxFiles, maxBytes)
 		if err != nil || after != inputs {
+			if err == nil {
+				_ = saveSourceChange(root, files, afterFiles)
+			}
 			return nil, errors.New("application source changed during the build")
 		}
 		flags[7] = "<artifact>"
 		record := &Record{Format: 1, SourceRevision: o.Revision, Source: inputs, Inputs: files, Module: o.Module, Target: o.Target, GenerationStateSHA256: stateHash, GenerationCompiler: generator, BuildCompiler: buildidentity.Current(), BuildCompilerArtifact: Artifact{compilerHash, compilerSize}, Toolchain: toolchain, GoVersion: GoVersion, GitSHA256: gitHash, Environment: buildEnvironmentRecord(), DependencyProxy: "https://proxy.golang.org", GoTelemetry: "off", BuildFlags: flags, Modules: modules, BinarySettings: settings, Artifact: Artifact{hash, size}, IndependentBuilds: 2}
+		if err := checkCompiledModules(binary, record); err != nil {
+			return nil, err
+		}
 		if index == 0 {
 			result = record
 			firstBinary = binary
@@ -470,6 +491,9 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 	afterGit, _, err := fileDigest(git)
 	if err != nil || afterGit != gitHash {
 		return nil, errors.New("Git executable changed during the build")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if err := os.Mkdir(o.Output, 0700); err != nil {
 		return nil, err
@@ -506,14 +530,51 @@ func Build(ctx context.Context, options Options) (*Record, error) {
 		return nil, err
 	}
 	data = append(data, '\n')
+	if len(data) > 16<<20 {
+		return nil, errors.New("application build record exceeds its size limit")
+	}
 	if err := os.WriteFile(filepath.Join(o.Output, "build.json"), data, 0600); err != nil {
 		return nil, err
 	}
 	checksums := fmt.Sprintf("%s  application\n%s  build.json\n", hash, digest(data))
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := os.WriteFile(filepath.Join(o.Output, "SHA256SUMS"), []byte(checksums), 0600); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func saveSourceChange(root string, before, after []File) error {
+	left := map[string]File{}
+	right := map[string]File{}
+	for _, file := range before {
+		left[file.Path] = file
+	}
+	for _, file := range after {
+		right[file.Path] = file
+	}
+	changed := map[string]map[string]*File{}
+	for name, file := range left {
+		if other, present := right[name]; !present || other != file {
+			entry := map[string]*File{"before": &file}
+			if present {
+				entry["after"] = &other
+			}
+			changed[name] = entry
+		}
+	}
+	for name, file := range right {
+		if _, present := left[name]; !present {
+			changed[name] = map[string]*File{"after": &file}
+		}
+	}
+	data, err := json.MarshalIndent(changed, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, "source-change.json"), append(data, '\n'), 0600)
 }
 
 func validModuleSum(value string) bool {

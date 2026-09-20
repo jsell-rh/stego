@@ -60,6 +60,9 @@ func Verify(recordPath, artifactPath, expectedSHA256 string) (*Record, error) {
 	if err != nil || !reflect.DeepEqual(settings, record.BinarySettings) {
 		return nil, errors.New("application executable settings differ from the build record")
 	}
+	if err := checkCompiledModules(artifactPath, &record); err != nil {
+		return nil, err
+	}
 	return &record, nil
 }
 
