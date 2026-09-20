@@ -11,6 +11,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -70,6 +71,7 @@ type ServicePort struct {
 // Dependency contains verified configuration contents, without API metadata.
 // Secret bytes enter only the hash; they never enter the returned resources.
 type Dependency struct {
+	Kind string
 	Name string
 	Data map[string][]byte
 }
@@ -84,6 +86,25 @@ var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var fileKey = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 var portName = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,13}[a-z0-9])?$`)
 var imageName = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(:[0-9]{1,5})?(/[a-z0-9]+([._-][a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
+
+func pinnedImage(s string) bool {
+	if len(s) > 512 || !imageName.MatchString(s) {
+		return false
+	}
+	registry, _, _ := strings.Cut(s, "/")
+	host, port, hasPort := strings.Cut(registry, ":")
+	if !dnsName(host) {
+		return false
+	}
+	if hasPort {
+		n, e := strconv.Atoi(port)
+		if e != nil || n < 1 || n > 65535 {
+			return false
+		}
+	}
+	return true
+}
+func dependencyID(d Dependency) string { return d.Kind + "/" + d.Name }
 
 func dnsName(s string) bool {
 	if len(s) < 1 || len(s) > 253 {
@@ -151,13 +172,13 @@ func ConfigurationDigest(input []Dependency) (string, error) {
 		return "", ErrDeclaration
 	}
 	selected := append([]Dependency(nil), input...)
-	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
+	sort.Slice(selected, func(i, j int) bool { return dependencyID(selected[i]) < dependencyID(selected[j]) })
 	total, keys := 0, 0
 	for i, d := range selected {
-		if !labelName.MatchString(d.Name) || (i > 0 && selected[i-1].Name == d.Name) || len(d.Data) > 256 {
+		if (d.Kind != "Secret" && d.Kind != "ConfigMap") || !dnsName(d.Name) || (i > 0 && dependencyID(selected[i-1]) == dependencyID(d)) || len(d.Data) > 256 {
 			return "", ErrDeclaration
 		}
-		total += len(d.Name)
+		total += len(d.Kind) + len(d.Name)
 		for k, v := range d.Data {
 			if len(k) < 1 || len(k) > 253 || !fileKey.MatchString(k) || len(v) > 1<<20 {
 				return "", ErrDeclaration
@@ -178,6 +199,7 @@ func ConfigurationDigest(input []Dependency) (string, error) {
 		h.Write(value)
 	}
 	for _, d := range selected {
+		write([]byte(d.Kind))
 		write([]byte(d.Name))
 		names := make([]string, 0, len(d.Data))
 		for k := range d.Data {
@@ -223,6 +245,19 @@ func Build(d Deployment) ([]Resource, error) {
 	if e != nil {
 		return nil, e
 	}
+	dependencies := map[string]map[string][]byte{}
+	usedDependencies := map[string]bool{}
+	for _, dep := range d.Dependencies {
+		dependencies[dependencyID(dep)] = dep.Data
+	}
+	requireDependency := func(kind, name string) bool {
+		id := kind + "/" + name
+		_, ok := dependencies[id]
+		if ok {
+			usedDependencies[id] = true
+		}
+		return ok
+	}
 	volumes := []Object{}
 	volumeKinds := map[string]bool{}
 	emptyTotal := int64(0)
@@ -249,12 +284,12 @@ func Build(d Deployment) ([]Resource, error) {
 		value := Object{"name": v.Name}
 		switch {
 		case v.Secret != "":
-			if !dnsName(v.Secret) {
+			if !dnsName(v.Secret) || !requireDependency("Secret", v.Secret) {
 				return nil, ErrDeclaration
 			}
 			value["secret"] = Object{"secretName": v.Secret, "defaultMode": int32(0440)}
 		case v.ConfigMap != "":
-			if !dnsName(v.ConfigMap) {
+			if !dnsName(v.ConfigMap) || !requireDependency("ConfigMap", v.ConfigMap) {
 				return nil, ErrDeclaration
 			}
 			value["configMap"] = Object{"name": v.ConfigMap, "defaultMode": int32(0444)}
@@ -275,7 +310,7 @@ func Build(d Deployment) ([]Resource, error) {
 	usedVolumes := map[string]bool{}
 	ephemeral := int64(0)
 	for _, c := range d.Containers {
-		if !labelName.MatchString(c.Name) || names[c.Name] || len(c.Image) > 512 || !imageName.MatchString(c.Image) || len(c.Args) > 128 || len(c.Env) > 128 || len(c.Ports) > 32 || len(c.Mounts) > 64 || !amount(c.Requests) || !amount(c.Limits) || c.Requests.CPUMilli > c.Limits.CPUMilli || c.Requests.MemoryMi > c.Limits.MemoryMi || c.Requests.EphemeralMi > c.Limits.EphemeralMi {
+		if !labelName.MatchString(c.Name) || names[c.Name] || !pinnedImage(c.Image) || len(c.Args) > 128 || len(c.Env) > 128 || len(c.Ports) > 32 || len(c.Mounts) > 64 || !amount(c.Requests) || !amount(c.Limits) || c.Requests.CPUMilli > c.Limits.CPUMilli || c.Requests.MemoryMi > c.Limits.MemoryMi || c.Requests.EphemeralMi > c.Limits.EphemeralMi {
 			return nil, ErrDeclaration
 		}
 		names[c.Name] = true
@@ -299,6 +334,12 @@ func Build(d Deployment) ([]Resource, error) {
 			item := Object{"name": v.Name}
 			if v.Secret != "" || v.Key != "" {
 				if v.Value != "" || !dnsName(v.Secret) || len(v.Key) < 1 || len(v.Key) > 253 || !fileKey.MatchString(v.Key) {
+					return nil, ErrDeclaration
+				}
+				if !requireDependency("Secret", v.Secret) {
+					return nil, ErrDeclaration
+				}
+				if _, ok := dependencies["Secret/"+v.Secret][v.Key]; !ok {
 					return nil, ErrDeclaration
 				}
 				item["valueFrom"] = Object{"secretKeyRef": Object{"name": v.Secret, "key": v.Key}}
@@ -354,7 +395,7 @@ func Build(d Deployment) ([]Resource, error) {
 		}
 		containers = append(containers, Object{"name": c.Name, "image": c.Image, "imagePullPolicy": "IfNotPresent", "args": args, "env": environment, "ports": exposed, "volumeMounts": mounted, "resources": Object{"requests": quantities(c.Requests), "limits": quantities(c.Limits)}, "securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []string{"ALL"}}}, "startupProbe": startup, "readinessProbe": readiness, "livenessProbe": liveness})
 	}
-	if emptyTotal > ephemeral || len(usedVolumes) != len(volumeKinds) {
+	if emptyTotal > ephemeral || len(usedVolumes) != len(volumeKinds) || len(usedDependencies) != len(dependencies) {
 		return nil, ErrDeclaration
 	}
 	pullSecrets := []Object{}

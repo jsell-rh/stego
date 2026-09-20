@@ -55,8 +55,8 @@ jobs:
                   if line.startswith('{"Time":'):
                       nested.append(json.loads(line))
           required = {'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
-                      'TestWidgetMultipleContainersAndProfiles',
-                      'TestConfigurationDigestChangesOnlyWithContents',
+                      'TestWidgetMultipleContainersAndProfiles', 'TestWidgetDependencyRollout',
+                      'TestConfigurationDigestChangesOnlyWithContents', 'TestConfigurationDigestSeparatesObjectKinds',
                       'TestConfigurationDigestRejectsInvalidInput',
                       'TestWorkloadRejectsUnsafeOrAmbiguousInput'}
           assert required <= {e.get('Test') for e in nested if e.get('Action') == 'pass'}

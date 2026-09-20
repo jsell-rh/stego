@@ -12,7 +12,7 @@ import (
 func widget() Deployment {
 	return Deployment{Name: "widget", Namespace: "tenant-one", ServiceAccount: "widget-runtime", OwnerLabels: map[string]string{"example.org/owner": "one"}, PodLabels: map[string]string{"example.org/workload": "widget"}, Selector: map[string]string{"example.org/workload": "widget"}, Replicas: 3, Strategy: "RollingUpdate", FSGroup: 2000, TerminationGraceSeconds: 30,
 		Containers: []Container{{Name: "server", Image: "registry.example.org/team/widget@sha256:" + strings.Repeat("a", 64), Args: []string{"serve"}, Env: []Env{{Name: "MODE", Value: "production"}, {Name: "DATABASE_URL", Secret: "widget-database", Key: "uri"}}, Ports: []Port{{Name: "http", Number: 8080}}, Mounts: []Mount{{Name: "config", Path: "/etc/widget"}, {Name: "tls", Path: "/etc/widget-tls"}, {Name: "tmp", Path: "/tmp"}}, Requests: Resources{CPUMilli: 100, MemoryMi: 256, EphemeralMi: 32}, Limits: Resources{CPUMilli: 500, MemoryMi: 512, EphemeralMi: 256}, Startup: HTTPProbe{Path: "/live", Port: "http", PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 60}, Readiness: HTTPProbe{Path: "/ready", Port: "http", PeriodSeconds: 2, TimeoutSeconds: 1, FailureThreshold: 3}, Liveness: HTTPProbe{Path: "/live", Port: "http", PeriodSeconds: 10, TimeoutSeconds: 1, FailureThreshold: 3}}},
-		Volumes:    []Volume{{Name: "config", ConfigMap: "widget-config"}, {Name: "tls", Secret: "widget-tls"}, {Name: "tmp", EmptyMi: 64}}, Dependencies: []Dependency{{Name: "database", Data: map[string][]byte{"uri": []byte("private-database-value")}}, {Name: "config", Data: map[string][]byte{"mode": []byte("production")}}}, ServicePorts: []ServicePort{{Name: "https", Target: "http", Port: 443}}}
+		Volumes:    []Volume{{Name: "config", ConfigMap: "widget-config"}, {Name: "tls", Secret: "widget-tls"}, {Name: "tmp", EmptyMi: 64}}, Dependencies: []Dependency{{Kind: "Secret", Name: "widget-database", Data: map[string][]byte{"uri": []byte("private-database-value")}}, {Kind: "ConfigMap", Name: "widget-config", Data: map[string][]byte{"mode": []byte("production")}}, {Kind: "Secret", Name: "widget-tls", Data: map[string][]byte{"tls.crt": []byte("verified-certificate")}}}, ServicePorts: []ServicePort{{Name: "https", Target: "http", Port: 443}}}
 }
 func render(t *testing.T, d Deployment) []Resource {
 	t.Helper()
@@ -125,7 +125,7 @@ func TestWidgetMultipleContainersAndProfiles(t *testing.T) {
 	render(t, d)
 }
 func TestConfigurationDigestChangesOnlyWithContents(t *testing.T) {
-	a := []Dependency{{Name: "first", Data: map[string][]byte{"one": []byte("ab"), "two": []byte("c")}}, {Name: "second", Data: map[string][]byte{"three": []byte("value")}}}
+	a := []Dependency{{Kind: "Secret", Name: "first", Data: map[string][]byte{"one": []byte("ab"), "two": []byte("c")}}, {Kind: "Secret", Name: "second", Data: map[string][]byte{"three": []byte("value")}}}
 	digest, e := ConfigurationDigest(a)
 	if e != nil {
 		t.Fatal(e)
@@ -146,14 +146,14 @@ func TestConfigurationDigestChangesOnlyWithContents(t *testing.T) {
 	if e != nil || digest == changed {
 		t.Fatal("dependency identity lost")
 	}
-	empty, _ := ConfigurationDigest([]Dependency{{Name: "one", Data: map[string][]byte{"empty": {}}}})
-	nilValue, _ := ConfigurationDigest([]Dependency{{Name: "one", Data: map[string][]byte{"empty": nil}}})
-	if empty != nilValue {
+	empty, emptyErr := ConfigurationDigest([]Dependency{{Kind: "Secret", Name: "one", Data: map[string][]byte{"empty": {}}}})
+	nilValue, nilErr := ConfigurationDigest([]Dependency{{Kind: "Secret", Name: "one", Data: map[string][]byte{"empty": nil}}})
+	if emptyErr != nil || nilErr != nil || empty != nilValue {
 		t.Fatal("equivalent empty contents differ")
 	}
 }
 func TestConfigurationDigestRejectsInvalidInput(t *testing.T) {
-	for name, input := range map[string][]Dependency{"duplicate": {{Name: "one"}, {Name: "one"}}, "name": {{Name: "../escape"}}, "key": {{Name: "one", Data: map[string][]byte{"bad/key": {}}}}, "large": {{Name: "one", Data: map[string][]byte{"value": make([]byte, (1<<20)+1)}}}, "count": make([]Dependency, 65)} {
+	for name, input := range map[string][]Dependency{"duplicate": {{Kind: "Secret", Name: "one"}, {Kind: "Secret", Name: "one"}}, "name": {{Kind: "Secret", Name: "../escape"}}, "key": {{Kind: "Secret", Name: "one", Data: map[string][]byte{"bad/key": {}}}}, "large": {{Kind: "Secret", Name: "one", Data: map[string][]byte{"value": make([]byte, (1<<20)+1)}}}, "count": make([]Dependency, 65)} {
 		t.Run(name, func(t *testing.T) {
 			digest, e := ConfigurationDigest(input)
 			if !errors.Is(e, ErrDeclaration) || digest != "" {
@@ -164,19 +164,29 @@ func TestConfigurationDigestRejectsInvalidInput(t *testing.T) {
 }
 func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
 	cases := map[string]func(*Deployment){
-		"namespace":         func(d *Deployment) { d.Namespace = "../foreign" },
-		"name":              func(d *Deployment) { d.Name = "bad/name" },
-		"default account":   func(d *Deployment) { d.ServiceAccount = "default" },
-		"empty account":     func(d *Deployment) { d.ServiceAccount = "" },
-		"root group":        func(d *Deployment) { d.FSGroup = 0 },
-		"user overflow":     func(d *Deployment) { d.RunAsUser = 1 << 31 },
-		"replica overflow":  func(d *Deployment) { d.Replicas = 1 << 31 },
-		"strategy":          func(d *Deployment) { d.Strategy = "unknown" },
-		"no labels":         func(d *Deployment) { d.OwnerLabels = nil },
-		"invalid label":     func(d *Deployment) { d.OwnerLabels["bad/key/key"] = "one" },
-		"no selector":       func(d *Deployment) { d.Selector = nil },
-		"selector mismatch": func(d *Deployment) { d.Selector["example.org/workload"] = "other" },
-		"image tag":         func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget:latest" },
+		"missing dependency": func(d *Deployment) { d.Dependencies = d.Dependencies[1:] },
+		"extra dependency": func(d *Deployment) {
+			d.Dependencies = append(d.Dependencies, Dependency{Kind: "Secret", Name: "unused"})
+		},
+		"wrong dependency kind":   func(d *Deployment) { d.Dependencies[0].Kind = "ConfigMap" },
+		"missing environment key": func(d *Deployment) { delete(d.Dependencies[0].Data, "uri") },
+		"invalid registry port": func(d *Deployment) {
+			d.Containers[0].Image = "registry.example.org:65536/widget@sha256:" + strings.Repeat("a", 64)
+		},
+		"invalid registry host": func(d *Deployment) { d.Containers[0].Image = "bad..example/widget@sha256:" + strings.Repeat("a", 64) },
+		"namespace":             func(d *Deployment) { d.Namespace = "../foreign" },
+		"name":                  func(d *Deployment) { d.Name = "bad/name" },
+		"default account":       func(d *Deployment) { d.ServiceAccount = "default" },
+		"empty account":         func(d *Deployment) { d.ServiceAccount = "" },
+		"root group":            func(d *Deployment) { d.FSGroup = 0 },
+		"user overflow":         func(d *Deployment) { d.RunAsUser = 1 << 31 },
+		"replica overflow":      func(d *Deployment) { d.Replicas = 1 << 31 },
+		"strategy":              func(d *Deployment) { d.Strategy = "unknown" },
+		"no labels":             func(d *Deployment) { d.OwnerLabels = nil },
+		"invalid label":         func(d *Deployment) { d.OwnerLabels["bad/key/key"] = "one" },
+		"no selector":           func(d *Deployment) { d.Selector = nil },
+		"selector mismatch":     func(d *Deployment) { d.Selector["example.org/workload"] = "other" },
+		"image tag":             func(d *Deployment) { d.Containers[0].Image = "registry.example.org/widget:latest" },
 		"image path": func(d *Deployment) {
 			d.Containers[0].Image = "https://registry.example.org/widget@sha256:" + strings.Repeat("a", 64)
 		},
@@ -234,5 +244,47 @@ func TestWorkloadRejectsUnsafeOrAmbiguousInput(t *testing.T) {
 				t.Fatal("invalid declaration returned resources or private error data")
 			}
 		})
+	}
+}
+
+func TestWidgetDependencyRollout(t *testing.T) {
+	d := widget()
+	before := render(t, d)
+	d.Dependencies[0].Data["uri"] = []byte("rotated-private-database-value")
+	after := render(t, d)
+	template := func(out []Resource) Object { return out[0].Object["spec"].(Object)["template"].(Object) }
+	a := template(before)
+	b := template(after)
+	secondDigest := b["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation]
+	if a["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == b["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] {
+		t.Fatal("Secret rotation did not change rollout")
+	}
+	delete(a["metadata"].(Object), "annotations")
+	delete(b["metadata"].(Object), "annotations")
+	if !reflect.DeepEqual(a, b) {
+		t.Fatal("Secret rotation changed the workload contract")
+	}
+	data, _ := json.Marshal(after)
+	if bytes.Contains(data, []byte("rotated-private-database-value")) {
+		t.Fatal("rotated Secret leaked")
+	}
+	d.Dependencies[1].Data["mode"] = []byte("changed")
+	latest := render(t, d)
+	if template(latest)["metadata"].(Object)["annotations"].(Object)[ConfigurationAnnotation] == secondDigest {
+		t.Fatal("ConfigMap change did not change rollout")
+	}
+}
+
+func TestConfigurationDigestSeparatesObjectKinds(t *testing.T) {
+	a, e := ConfigurationDigest([]Dependency{{Kind: "Secret", Name: "one", Data: map[string][]byte{"key": []byte("value")}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	b, e := ConfigurationDigest([]Dependency{{Kind: "ConfigMap", Name: "one", Data: map[string][]byte{"key": []byte("value")}}})
+	if e != nil || a == b {
+		t.Fatal("object kind lost")
+	}
+	if _, e = ConfigurationDigest([]Dependency{{Kind: "Other", Name: "one"}}); !errors.Is(e, ErrDeclaration) {
+		t.Fatal("unknown dependency kind accepted")
 	}
 }

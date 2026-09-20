@@ -41,7 +41,11 @@ explicit choices. RollingUpdate uses one extra replica and zero unavailable
 replicas; capacity for that extra replica is required. See the
 [Deployment strategy contract](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/).
 
-`ConfigurationDigest` takes named dependency contents. It sorts dependency and
+`ConfigurationDigest` takes dependency kinds, names, and contents. `Build` requires
+exactly the ConfigMaps and Secrets used by mounts and Secret environment
+references. An environment key must exist in its declared Secret contents.
+Image pull Secrets are selected separately because their contents do not enter
+the containers. The digest sorts dependency and
 key names and hashes a versioned, length-delimited encoding. Map order has no
 effect. Changed contents or names change the digest. API metadata is excluded
 because the caller supplies only contents. Nil and empty bytes are equivalent.
