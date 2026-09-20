@@ -80,15 +80,23 @@ def install(revision, output, gh, package=None):
         return verification.verify(package, package / "provenance.jsonl", revision, output, gh)
     with tempfile.TemporaryDirectory(prefix=".stego-download-", dir=output.parent) as temporary:
         stage = Path(temporary)
-        raw = api(gh, API + "tags/compiler-" + revision, stage, limit=1 << 20)
+        try:
+            raw = api(gh, API + "tags/compiler-" + revision, stage, limit=1 << 20)
+        except CheckError:
+            raise CheckError("Compiler release metadata retrieval failed; private command output is withheld") from None
         record = json.loads(raw, object_pairs_hook=verification.unique_object)
         assets = release_assets(record, revision)
         # Use fixed repository API paths and integer IDs. Never use an input URL
         # or an input file name as a download destination.
         for name in ASSETS:
             asset = assets[name]
-            data = api(gh, API + "assets/" + str(asset["id"]), stage,
-                       limit=asset["size"], binary=True)
+            try:
+                data = api(gh, API + "assets/" + str(asset["id"]), stage,
+                           limit=asset["size"], binary=True)
+            except CheckError:
+                # Names come from the fixed asset set, not a response or path.
+                raise CheckError("Compiler asset download failed for " + name +
+                                 "; private command output is withheld") from None
             if (len(data) != asset["size"]
                     or "sha256:" + hashlib.sha256(data).hexdigest() != asset["digest"]):
                 raise CheckError("The downloaded input does not match the selected asset")

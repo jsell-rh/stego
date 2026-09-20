@@ -140,6 +140,61 @@ class InstallationChecks(unittest.TestCase):
         self.assertEqual(environment["GH_HOST"], "github.com")
         self.assertEqual(command.call_args.kwargs, {"timeout": 90, "limit": 100})
 
+    def test_metadata_failure_identifies_stage_without_private_output_or_result(self):
+        with patch.object(installer, "api", side_effect=installer.CheckError("private-token\n/private/path")), \
+                patch.object(installer.verification, "authenticate") as authenticate:
+            with self.assertRaises(installer.CheckError) as caught:
+                self.install()
+        self.assertEqual(str(caught.exception),
+                         "Compiler release metadata retrieval failed; private command output is withheld")
+        authenticate.assert_not_called()
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.root.glob(".stego-*-*")), [])
+
+    def test_asset_failures_name_only_the_fixed_asset_and_leave_no_result(self):
+        for name in installer.ASSETS:
+            endpoint = next(installer.API + "assets/" + str(asset["id"])
+                            for asset in self.release["assets"] if asset["name"] == name)
+            def fetch(gh, selected, directory, **options):
+                if selected == endpoint:
+                    raise installer.CheckError("private-token\n/private/path")
+                return self.fetch(gh, selected, directory, **options)
+            with self.subTest(asset=name), patch.object(installer, "api", side_effect=fetch), \
+                    patch.object(installer.verification, "authenticate") as authenticate:
+                with self.assertRaises(installer.CheckError) as caught:
+                    self.install()
+                self.assertEqual(str(caught.exception), "Compiler asset download failed for " + name +
+                                 "; private command output is withheld")
+                authenticate.assert_not_called()
+                self.assertFalse(self.output.exists())
+                self.assertEqual(list(self.root.glob(".stego-*-*")), [])
+
+    def test_signature_failures_identify_fixed_subject_without_publishing_a_result(self):
+        package = self.root / "package"
+        package.mkdir()
+        for name, data in self.files.items():
+            (package / name).write_bytes(data)
+        for use_package in [False, True]:
+            for subject in [installer.verification.BINARY, "build.json"]:
+                signed = []
+                def authenticate(gh, path, bundle, revision, environment):
+                    signed.append(path.name)
+                    if path.name == subject:
+                        raise installer.CheckError("private-token\n/private/path")
+                with self.subTest(package=use_package, subject=subject), \
+                        patch.object(installer, "api", side_effect=self.fetch) as api, \
+                        patch.object(installer.verification, "authenticate", side_effect=authenticate):
+                    with self.assertRaises(installer.CheckError) as caught:
+                        installer.install(self.revision, self.output, self.gh, package if use_package else None)
+                    self.assertEqual(str(caught.exception), "Compiler signature verification failed for " + subject +
+                                     "; private command output is withheld")
+                    self.assertEqual(signed, [installer.verification.BINARY] if subject == installer.verification.BINARY
+                                     else [installer.verification.BINARY, "build.json"])
+                    if use_package:
+                        api.assert_not_called()
+                    self.assertFalse(self.output.exists())
+                    self.assertEqual(list(self.root.glob(".stego-*-*")), [])
+
 
 if __name__ == "__main__":
     unittest.main()

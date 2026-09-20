@@ -107,7 +107,11 @@ def verify(inputs, bundle, revision, output, gh):
         saved_bundle = stage / "provenance.jsonl"
         saved_bundle.write_bytes(regular_bytes(bundle, 4 << 20))
         for name in [BINARY, "build.json"]:
-            authenticate(gh, stage / name, saved_bundle, revision, environment)
+            try:
+                authenticate(gh, stage / name, saved_bundle, revision, environment)
+            except CheckError:
+                raise CheckError("Compiler signature verification failed for " + name +
+                                 "; private command output is withheld") from None
         record = json.loads((stage / "build.json").read_bytes(), object_pairs_hook=unique_object)
         if not isinstance(record, dict) or type(record.get("format")) is not int or record["format"] != 1:
             raise CheckError("The signed build record format is not supported")
