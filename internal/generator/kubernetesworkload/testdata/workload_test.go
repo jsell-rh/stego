@@ -56,7 +56,7 @@ func TestWidgetSecurityAndService(t *testing.T) {
 		t.Fatal("Secret access differs")
 	}
 	mounts := c["volumeMounts"].([]Object)
-	if mounts[0]["readOnly"] != true || mounts[1]["readOnly"] != true || mounts[2]["readOnly"] != false {
+	if mounts[0]["readOnly"] != true || mounts[1]["readOnly"] != true || mounts[2]["readOnly"] != nil {
 		t.Fatal("mount access differs")
 	}
 	spec := out[1].Object["spec"].(Object)
@@ -286,5 +286,71 @@ func TestConfigurationDigestSeparatesObjectKinds(t *testing.T) {
 	}
 	if _, e = ConfigurationDigest([]Dependency{{Kind: "Other", Name: "one"}}); !errors.Is(e, ErrDeclaration) {
 		t.Fatal("unknown dependency kind accepted")
+	}
+}
+
+// Kubernetes omits empty lists, empty environment values, and false mount flags.
+// Desired fields must survive this response format to avoid repeated patches.
+// See kubernetes/api v0.35.0 core/v1/types.go: PodSpec, Container, EnvVar, VolumeMount.
+func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
+	d := widget()
+	d.Containers[0].Args = nil
+	d.Containers[0].Env = nil
+	d.Containers[0].Mounts = nil
+	d.Volumes = nil
+	d.Dependencies = nil
+	p := pod(t, render(t, d))
+	c := p["containers"].([]Object)[0]
+	for _, name := range []string{"volumes", "imagePullSecrets"} {
+		if _, exists := p[name]; exists {
+			t.Fatal("empty optional Pod field", name)
+		}
+	}
+	for _, name := range []string{"args", "env", "volumeMounts"} {
+		if _, exists := c[name]; exists {
+			t.Fatal("empty optional container field", name)
+		}
+	}
+	d.Containers[0].Env = []Env{{Name: "EMPTY", Value: ""}}
+	c = pod(t, render(t, d))["containers"].([]Object)[0]
+	raw, err := json.Marshal(c["env"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	// These public API JSON fields deliberately use the upstream omit rules.
+	var env []struct {
+		Name  string `json:"name"`
+		Value string `json:"value,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip, err := json.Marshal(env)
+	if err != nil || !bytes.Equal(raw, roundTrip) {
+		t.Fatal("empty environment value changes after serialization")
+	}
+	p = pod(t, render(t, widget()))
+	c = p["containers"].([]Object)[0]
+	for _, mount := range c["volumeMounts"].([]Object) {
+		raw, err := json.Marshal(mount)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var typed struct {
+			Name     string `json:"name"`
+			Path     string `json:"mountPath"`
+			ReadOnly bool   `json:"readOnly,omitempty"`
+		}
+		if err := json.Unmarshal(raw, &typed); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var before, after Object
+		if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !reflect.DeepEqual(before, after) {
+			t.Fatal("mount changes after serialization")
+		}
 	}
 }

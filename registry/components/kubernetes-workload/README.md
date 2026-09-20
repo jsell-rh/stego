@@ -57,7 +57,10 @@ only authorized configuration, and keep credentials in Secret references.
 The library bounds inputs before it builds objects. It rejects duplicate names,
 ambiguous environment sources, overlapping mounts, missing probe or Service
 ports, and unsafe paths. Errors have fixed text. Failure returns no resources.
-Results do not share mutable maps or slices with the declaration.
+Results do not share mutable maps or slices with the declaration. Empty optional
+lists, empty literal environment values, and false writable-mount flags are
+omitted. This matches the Kubernetes API response format and prevents repeated
+patches caused by fields that disappear during serialization.
 
 The first profile supports Linux containers, digest-pinned registry images,
 TCP ports above 1023, HTTP health probes, and ephemeral files. Persistent claims,

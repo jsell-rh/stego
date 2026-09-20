@@ -348,7 +348,7 @@ func Build(d Deployment) ([]Resource, error) {
 				if !text(v.Value, 8192) || envBytes > 32768 {
 					return nil, ErrDeclaration
 				}
-				item["value"] = v.Value
+				if v.Value != "" { item["value"] = v.Value }
 			}
 			environment = append(environment, item)
 		}
@@ -379,7 +379,9 @@ func Build(d Deployment) ([]Resource, error) {
 			paths = append(paths, m.Path)
 			mountSeen[m.Name] = true
 			usedVolumes[m.Name] = true
-			mounted = append(mounted, Object{"name": m.Name, "mountPath": m.Path, "readOnly": readOnly})
+			mount := Object{"name": m.Name, "mountPath": m.Path}
+ if readOnly { mount["readOnly"] = true }
+ mounted = append(mounted, mount)
 		}
 		startup, e := probe(c.Startup, localPorts)
 		if e != nil {
@@ -393,7 +395,11 @@ func Build(d Deployment) ([]Resource, error) {
 		if e != nil {
 			return nil, e
 		}
-		containers = append(containers, Object{"name": c.Name, "image": c.Image, "imagePullPolicy": "IfNotPresent", "args": args, "env": environment, "ports": exposed, "volumeMounts": mounted, "resources": Object{"requests": quantities(c.Requests), "limits": quantities(c.Limits)}, "securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []string{"ALL"}}}, "startupProbe": startup, "readinessProbe": readiness, "livenessProbe": liveness})
+		container := Object{"name": c.Name, "image": c.Image, "imagePullPolicy": "IfNotPresent", "ports": exposed, "resources": Object{"requests": quantities(c.Requests), "limits": quantities(c.Limits)}, "securityContext": Object{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": Object{"drop": []string{"ALL"}}}, "startupProbe": startup, "readinessProbe": readiness, "livenessProbe": liveness}
+ if len(args) != 0 { container["args"] = args }
+ if len(environment) != 0 { container["env"] = environment }
+ if len(mounted) != 0 { container["volumeMounts"] = mounted }
+ containers = append(containers, container)
 	}
 	if emptyTotal > ephemeral || len(usedVolumes) != len(volumeKinds) || len(usedDependencies) != len(dependencies) {
 		return nil, ErrDeclaration
@@ -414,7 +420,9 @@ func Build(d Deployment) ([]Resource, error) {
 	if d.RunAsGroup != 0 {
 		security["runAsGroup"] = d.RunAsGroup
 	}
-	pod := Object{"serviceAccountName": d.ServiceAccount, "automountServiceAccountToken": d.KubernetesAPI, "terminationGracePeriodSeconds": d.TerminationGraceSeconds, "securityContext": security, "containers": containers, "volumes": volumes, "imagePullSecrets": pullSecrets}
+	pod := Object{"serviceAccountName": d.ServiceAccount, "automountServiceAccountToken": d.KubernetesAPI, "terminationGracePeriodSeconds": d.TerminationGraceSeconds, "securityContext": security, "containers": containers}
+ if len(volumes) != 0 { pod["volumes"] = volumes }
+ if len(pullSecrets) != 0 { pod["imagePullSecrets"] = pullSecrets }
 	strategy := Object{"type": d.Strategy}
 	if d.Strategy == "RollingUpdate" {
 		strategy["rollingUpdate"] = Object{"maxSurge": 1, "maxUnavailable": 0}
