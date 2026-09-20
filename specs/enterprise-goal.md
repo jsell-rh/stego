@@ -174,6 +174,19 @@ definitions, and five exclusions remain. Browser, UI, and service-image jobs
 passed; the Sandbox job remains deferred. Live count qualification passed with the recorded test-only changes. Corrected-source
 browser qualification remains open. The earlier failed runs cannot qualify this source.
 
+The exact-source [browser run](https://github.com/jsell-rh/hypershell-stego/actions/runs/35543304070)
+failed after 377.37 seconds in its main workflow. The other ten required tests
+passed. After API restart, Kubernetes API discovery timed out during the TLS
+handshake for the generated management console deployment apply. The cause is
+not established. Cleanup removed all test resources, released the Lease, and
+left all 32 standing resources unchanged. Later checks found all five nodes
+ready without pressure and the API and network operators healthy. These later
+checks do not explain the failed request. See the
+[failure evidence](runtime-control-browser-failure-evidence.json).
+Hypershell main remains at `82f71a26`. One controlled repeat uses the same source,
+images, security controls, and limits. The failed result remains part of the
+acceptance record; it cannot qualify the candidate.
+
 An explicitly empty numeric setting will fail in this candidate. Omission or
 the declared zero value selects the existing default. This behavior is documented
 in the consumer. Complete live validation remains required. Optional provider

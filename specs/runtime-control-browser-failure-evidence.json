@@ -1,0 +1,43 @@
+{
+  "source": "e0f3d7bb9ae93666e9a1381137a57df57a0416f8",
+  "fixture_source": "70a3227e8e97ced903579ce1e70153722dbb67a8",
+  "run": 35543304070,
+  "conclusion": "failure",
+  "qualified": false,
+  "passed_required_tests": [
+    "TestGatewayConsoleObservationCommitsWithWorkload",
+    "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+    "TestControllerLocalSchemaHasNoDatabaseCatalog",
+    "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+    "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+    "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+    "TestGatewayDeletionBeforeWorkloadStartup",
+    "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+    "TestKubernetesWriteFailurePrivacy",
+    "TestGeneratedWorkloadWorkerStartupPrivacy"
+  ],
+  "failed_test": "TestGeneratedKubernetesBrowserGatewayWorkflow",
+  "failed_test_seconds": 377.37,
+  "failure_phase": "Apply the generated management console namespace manifest after API restart.",
+  "observed_error": "Kubernetes API discovery failed with a TLS handshake timeout.",
+  "error_endpoint": "https://172.30.0.1:443/api?timeout=32s",
+  "root_cause": "Not established. Later healthy status does not explain the failed request.",
+  "cleanup": {
+    "owned_resources_absent": true,
+    "lease_free": true,
+    "standing_resources_unchanged": 32
+  },
+  "later_health": {
+    "ready_nodes_without_pressure": 5,
+    "api_and_network_operators_available_without_degradation": true
+  },
+  "proof_sha256": {
+    "ci.json": "2d8519edf8bc195e83ddc796e719c4393f583ac4437679290f2c1e05013e9a21",
+    "result/_temp/gateway-browser/deployment.log": "d7b61b4245cf387d233be016f4a594ad7f7fa58ad3456b718a2c6fae34961a08",
+    "result/_temp/gateway-browser/evidence.tar": "f234289d863ad62078055a84fdda4405e295432010438d5e9f067e1e985280aa",
+    "independent-cleanup.json": "f92355cfac40e0d8a6f0b2399efb03ea46ae856d7e1bcca6dd9b8ba3190c9eee",
+    "post-failure-health.json": "326145b6a4d67453826e720094ec4a7099f593f84f58957aa00ebd777f0f8376"
+  },
+  "checked_at": "2026-09-20T23:17:50.200324+00:00",
+  "consumer_main_promoted": false
+}

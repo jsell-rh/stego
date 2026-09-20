@@ -65,6 +65,17 @@ in 93.08 seconds. Review checked the unchanged runtime files, generated hashes,
 and complete cleanup. See the [count evidence](runtime-control-count-evidence.json).
 The generated allocator retains its endpoint and identity checks.
 
+The later browser run failed during a Kubernetes API TLS handshake after API
+restart. Independent cleanup passed. Its cause remains unknown; current-source
+browser acceptance is still open. See the
+[failure evidence](runtime-control-browser-failure-evidence.json).
+
+The common renderer candidate `c22cb19` adds a typed configuration digest option.
+It validates the digest and sets the Pod template annotation. Focused checks
+passed 69 generated cases, including independent API, worker, and RPC examples.
+Full compiler checks and consumer adoption remain separate requirements. The
+candidate does not move Gateway policy into STEGO.
+
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining
 requirements and their acceptance conditions.
