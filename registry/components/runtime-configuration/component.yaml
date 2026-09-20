@@ -19,14 +19,19 @@ config:
             type: string
           default:
             type: string
+            optional: true
           min:
             type: string
+            optional: true
           max:
             type: string
+            optional: true
           min_length:
             type: int
+            optional: true
           max_length:
             type: int
+            optional: true
 requires: []
 provides:
   - typed-runtime-configuration
