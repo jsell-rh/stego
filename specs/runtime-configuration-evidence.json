@@ -1,0 +1,212 @@
+{
+  "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+  "scope": "Typed environment configuration compiler and generated runtime. Consumer generation and application acceptance remain required.",
+  "qualified": true,
+  "branch_focused": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "run": 35537375937,
+    "checked_at": "2026-09-20T21:03:42.258149+00:00",
+    "qualified": true,
+    "outer_cases": 38,
+    "generated_cases": 48,
+    "generated_packages": 2,
+    "race_checks": true,
+    "source_archive_sha256": "b9bdde9a014568004cff965cdf10164e9c4d24a82703fa87eefc99e82c73a66f",
+    "record_sha256": {
+      "ci.json": "b5c5b394807588e18fb667a6ab4a82a0cf0de6e21d762a1d6cab8539bfe8d353",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/source-commit": "b7aaa97077b2ed717ed1ace0f425b87ea5c68150f6a9d8a39c4d653e66f58329",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/source-archive.sha256": "5d722bb760c95366866203c95f068ac45c0ac8f527298b315e07ca97925f6c2a",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/generator.jsonl": "d617d5d772a79675ebfc2306498a5c2c42baa61ddfbf469f0050501b283e7c77",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/compiler.jsonl": "8120e0539fc2cc214f2253a1e171eb7170e225fa073ca38f4df9b7d7ef0e7905"
+    },
+    "full_suite_qualified": false,
+    "consumer_adopted": false,
+    "scope": "The common configuration runtime and compiler integration passed. Release and application qualification remain required."
+  },
+  "branch_full": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "run": 35537375898,
+    "qualified": true,
+    "packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/appbuild",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesworkload",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/runtimeconfig",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "package_count": 37,
+    "examples": {
+      "user-management": {
+        "tracked_content_matches": 76,
+        "state_passes_compared_by_ci": true,
+        "archive_sha256": "d9f2adab4291b976126b223295eb02720371e4c1cae5e4a94a5753e1342ccec7"
+      },
+      "user-management-rhsso": {
+        "tracked_content_matches": 72,
+        "state_passes_compared_by_ci": true,
+        "archive_sha256": "34ecab9927ffb91e832b5b02f62658f588697153cb637a0ceedc4271392f70d1"
+      }
+    },
+    "log_sha256": "7a1f6385908b2323391e55934495abf6b51a3687532f5f83995b73b8086814f0",
+    "checked_at": "2026-09-20T21:12:37.265517+00:00",
+    "scope": "Full compiler suite. Signed release and consumer application checks remain required."
+  },
+  "main_focused": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "run": 35537985203,
+    "checked_at": "2026-09-20T21:23:01.112259+00:00",
+    "qualified": true,
+    "outer_cases": 38,
+    "generated_cases": 48,
+    "generated_packages": 2,
+    "race_checks": true,
+    "source_archive_sha256": "b9bdde9a014568004cff965cdf10164e9c4d24a82703fa87eefc99e82c73a66f",
+    "record_sha256": {
+      "ci.json": "daac75324142ff45f0fcbbbc2a9e607e6cb0fbc8ffebf72abee5b0fc64147a23",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/source-commit": "b7aaa97077b2ed717ed1ace0f425b87ea5c68150f6a9d8a39c4d653e66f58329",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/source-archive.sha256": "5d722bb760c95366866203c95f068ac45c0ac8f527298b315e07ca97925f6c2a",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/generator.jsonl": "46e7d23e883b4a6c8a0db55e76b70051ca378a01988cd8f85300a08c5d50f02b",
+      "artifacts/runtime-configuration-8eeb11695416799cbc53fa42bba992a1ceeab810/compiler.jsonl": "6b6c4ec984fb2dd2c2a6dc288b5af400d758bc5f1db70654e5d0bbd34a1ef35c"
+    },
+    "full_suite_qualified": false,
+    "consumer_adopted": false,
+    "scope": "The common configuration runtime and compiler integration passed. Release and application qualification remain required."
+  },
+  "main_full": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "run": 35537985325,
+    "qualified": true,
+    "packages": [
+      "github.com/jsell-rh/stego/cmd/stego",
+      "github.com/jsell-rh/stego/internal/appbuild",
+      "github.com/jsell-rh/stego/internal/browserapplication",
+      "github.com/jsell-rh/stego/internal/browserassets",
+      "github.com/jsell-rh/stego/internal/buildidentity",
+      "github.com/jsell-rh/stego/internal/compiler",
+      "github.com/jsell-rh/stego/internal/gen",
+      "github.com/jsell-rh/stego/internal/generator/browserbackend",
+      "github.com/jsell-rh/stego/internal/generator/browseridentity",
+      "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+      "github.com/jsell-rh/stego/internal/generator/cliapplication",
+      "github.com/jsell-rh/stego/internal/generator/controller",
+      "github.com/jsell-rh/stego/internal/generator/gosdk",
+      "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+      "github.com/jsell-rh/stego/internal/generator/healthcheck",
+      "github.com/jsell-rh/stego/internal/generator/httpapplication",
+      "github.com/jsell-rh/stego/internal/generator/httpclient",
+      "github.com/jsell-rh/stego/internal/generator/jwtauth",
+      "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+      "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+      "github.com/jsell-rh/stego/internal/generator/kubernetesworkload",
+      "github.com/jsell-rh/stego/internal/generator/oteltracing",
+      "github.com/jsell-rh/stego/internal/generator/outbox",
+      "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+      "github.com/jsell-rh/stego/internal/generator/postgresclient",
+      "github.com/jsell-rh/stego/internal/generator/restapi",
+      "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+      "github.com/jsell-rh/stego/internal/generator/runtimeconfig",
+      "github.com/jsell-rh/stego/internal/generator/tslsearch",
+      "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+      "github.com/jsell-rh/stego/internal/parser",
+      "github.com/jsell-rh/stego/internal/ports",
+      "github.com/jsell-rh/stego/internal/registry",
+      "github.com/jsell-rh/stego/internal/slot",
+      "github.com/jsell-rh/stego/internal/types"
+    ],
+    "package_count": 37,
+    "examples": {
+      "user-management": {
+        "tracked_content_matches": 76,
+        "state_passes_compared_by_ci": true,
+        "archive_sha256": "93102fdbbb3724e00aaec0af0d1b714754ae206f189076270606e60988cee282"
+      },
+      "user-management-rhsso": {
+        "tracked_content_matches": 72,
+        "state_passes_compared_by_ci": true,
+        "archive_sha256": "b199dfdd1afa707825cb43472436de7f9f292e5e74163b822208fb85d44e5ae7"
+      }
+    },
+    "log_sha256": "a28a0d73fd5e29db9974145906eae76398c46af3807f9326344dee5d5658d535",
+    "checked_at": "2026-09-20T21:23:01.184907+00:00",
+    "scope": "Full compiler suite. Signed release and consumer application checks remain required."
+  },
+  "main_artifact": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "run": 35537985201,
+    "qualified": true,
+    "candidate_bytes_match": true,
+    "independent_signature_verification": true,
+    "ci_rejection_checks_passed": true,
+    "compiler_executed_locally": false,
+    "artifact": {
+      "name": "stego-linux-amd64",
+      "sha256": "dc650131dc0bab7aab7caf4e33a0ba00dbb436c502ce6882cf2634d9b9b69a62",
+      "size": 41716893
+    },
+    "checked_at": "2026-09-20T21:23:07.329347+00:00"
+  },
+  "release": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "release_id": 392578973,
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "immutable": true,
+    "tag_commit_verified": true,
+    "assets_verified": 4,
+    "full_exact_source_run": 35537375898,
+    "full_exact_source_qualified": true,
+    "checked_at": "2026-09-20T21:23:28.525424+00:00"
+  },
+  "release_installation": {
+    "source": "8eeb11695416799cbc53fa42bba992a1ceeab810",
+    "same_verified_files": 5,
+    "files_sha256": {
+      "stego-linux-amd64": "dc650131dc0bab7aab7caf4e33a0ba00dbb436c502ce6882cf2634d9b9b69a62",
+      "build.json": "4f40c3e0bfe3df981c1b4798361d389af75e223a6fd680f6b620879cb0c5a9d1",
+      "SHA256SUMS": "56aeff294918575bbf36d591009105fe0aa3181b586244aef7fc0cca283e9d63",
+      "provenance.jsonl": "c47a2fac9da9128e875ababc18681d80eaf2c9feb4d85a3346d49bac96d67ca3",
+      "verified.json": "3768a8f1b0bee5779a9f523edb9c910ee7443e7247c05e8ae928b3da027e4674"
+    },
+    "compiler_executed": false,
+    "immutable_release_verified": true
+  },
+  "consumer_qualified": false,
+  "not_proved": [
+    "Complete worker connection assembly.",
+    "Complete application adoption.",
+    "Remaining enterprise requirements."
+  ]
+}

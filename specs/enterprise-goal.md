@@ -91,20 +91,25 @@ passed all six jobs, 37 race-tested packages, and both complete generated
 examples. The focused check passed 38 outer cases and 48 generated cases across
 two package layouts. The source is on STEGO main. Its
 [main compiler check](https://github.com/jsell-rh/stego/actions/runs/35537985325)
-is still under qualification in this record. Main focused and artifact jobs
-passed; release and consumer acceptance are not claimed here.
+passed all six jobs and the same 37 packages. Independent review checked the
+focused results, complete example output, source identity, signed artifact, and
+negative artifact-verification cases. The authenticated immutable
+[compiler release](https://github.com/jsell-rh/stego/releases/tag/compiler-8eeb11695416799cbc53fa42bba992a1ceeab810)
+is published. A fresh installation matched all five verified package files
+without running the compiler locally. See the
+[compiler evidence](runtime-configuration-evidence.json). Consumer acceptance
+remains open.
 
 Hypershell candidate `72cc1786` declares four configuration groups and uses them
 in the namespace allocator and Sandbox count worker. It is committed and pushed,
 but has no generated configuration package yet. Do not treat the compiler pin
 or the worker source as a complete application change. Next actions are:
 
-1. Finish the exact main checks and authenticate the immutable compiler release.
-2. Regenerate the frozen consumer source in CI. Review the output, compiler
+1. Regenerate the frozen consumer source in CI. Review the output, compiler
    identity, input records, and unchanged module files before committing it.
-3. Run the existing application checks, including startup privacy, provider
+2. Run the existing application checks, including startup privacy, provider
    setup ordering, REST/gRPC, restart, and repeated generation.
-4. Verify the complete bounded service and browser workflows and their cleanup
+3. Verify the complete bounded service and browser workflows and their cleanup
    before promoting the consumer. Keep one live cluster test at a time.
 
 An explicitly empty numeric setting will fail in this candidate. Omission or
