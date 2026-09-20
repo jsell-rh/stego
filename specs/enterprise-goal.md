@@ -40,6 +40,17 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current work and evidence
 
+Hypershell main `0aa8f0d` now contains the qualified compiler retry, cleanup
+ownership, and Sandbox integration changes. Live run `35478851396` at runtime
+source `4c6744b` passed all 11 required tests. Independent checks matched 1,544
+source files, 421 generation hashes, the signed compiler, six browser startup
+instances, and four inspected views. All test resources were removed. The exact
+tested CI inspection rules are now installed; all 32 standing objects passed
+verification. Automatic main checks are active. One Gateway with 100 REST-created
+accounts completed cleanup with an observed upper bound of 53.5477 seconds.
+This functional result does not prove the 30-second target or production
+capacity. See the [live evidence](https://github.com/jsell-rh/hypershell-stego/blob/0aa8f0d/acceptance/normal-cleanup-live-evidence.json).
+
 STEGO now combines a pinned common Git registry with distinct local application
 archetypes. Hypershell no longer copies common component declarations. Both
 consoles use the common browser archetype and telemetry runtime. The compiler
@@ -538,8 +549,13 @@ the application must never perform automatic teardown.
    `4c6744b` retains terminal Pod status when the completion record is absent.
    Hosted run `35478679579` passed five status cases, eight completion cases,
    all 63 required adapter tests, six allocation cleanup tests, and 28 collection
-   cases. The live test compiled. Run `35478851396` now checks the complete
-   workflow at that fixed source under the shared test lease. This
+   cases. The live test compiled. Run `35478851396` passed all 11 live tests
+   at that fixed source. The browser workflow took 737.07 seconds. The normal
+   cleanup sample had 100 REST-created accounts with verified token issuance.
+   All rows, journals, provider clients, provider users, and success audits
+   passed the complete cleanup checks. The observed upper bound was 53.5477
+   seconds. The 30-second target remains unproved. Sequential checks do not
+   identify each resource's removal time or the cause of the delay. This
    two-Gateway workflow does not prove the whole production capacity target.
    Live attempt `35476176959` stopped before workload
    creation because the saved test installation lacks three named reads in
@@ -547,7 +563,8 @@ the application must never perform automatic teardown.
    standing resources unchanged. The corrected hosted plan at `4ea3e1e`
    passed source and compiler checks and adds only those test reads. Production
    roles, admission rules, network policy, and RuntimeClasses are unchanged.
-   A live timing result remains required.
+   The live timing result is now recorded. The next timing review must use
+   the complete workflow evidence and preserve the verified cleanup behavior.
 
    Setup first exposed fixed application quotas. Main `034b46b` now has operator
    quota settings with the original defaults. Its journal gate passed all 32
