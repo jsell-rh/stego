@@ -156,5 +156,11 @@ fixtures and allocations were absent, the shared lease was free, and all 32
 standing resources were unchanged. See the [live evidence](https://github.com/jsell-rh/hypershell-stego/blob/eb8050b/acceptance/keycloak-inventory-live-evidence.json).
 
 The [separate API gate](https://github.com/jsell-rh/hypershell-stego/actions/runs/35497011319)
-is in progress on the same source. Production capacity and complete runtime
-telemetry coverage remain unproved. The signed compiler is unchanged.
+passed all 52 required tests on the same source. Independent checks matched
+all 1,589 source files, 421 generated hashes, repeated generation, and the
+signed compiler bytes. The joint cleanup audit found both fixtures absent, a
+free lease, and all 32 standing resources unchanged. See the [API evidence](https://github.com/jsell-rh/hypershell-stego/blob/bd6e106/acceptance/keycloak-inventory-api-evidence.json).
+
+This completes the consumer trace qualification within the stated test scope.
+Production capacity, the cleanup-time target, and complete runtime telemetry
+coverage remain open. The signed compiler is unchanged.

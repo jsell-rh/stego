@@ -46,7 +46,7 @@ samples, and watch sessions have separate traces. Provider calls remain children
 of their operation. All six compiler jobs, focused trace and cleanup cases,
 authentication checks, and signed release verification passed. Hypershell has a
 regenerated candidate. Its hosted checks and live workflow now pass, including
-controller trace proof. The separate API check remains in progress. See the
+controller trace proof. The separate API check also passed. See the
 [trace contract and evidence](controller-trace-boundaries.md).
 This result does not close C6, H3, or the full goal.
 
@@ -72,8 +72,17 @@ and all 32 standing installation resources were unchanged.
 One Gateway with 100 REST-created accounts had a whole-cleanup upper bound of
 40.586 seconds. Allocation was still observed pending at 38.727 seconds. The
 30-second target remains unmet in this test; production capacity is unproved.
-Separate API run `35497011319` is in progress on the same source. No failed or
-pending consumer replaces main. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
+Separate API run `35497011319` passed all 52 required tests on the same source.
+Independent review matched the complete source, repeated generation, and signed
+compiler bytes. The joint cleanup audit found both fixtures absent, the lease
+free, and all 32 standing resources unchanged. See the [consumer verification record](controller-trace-boundaries.md#consumer-verification).
+
+The next application candidate `8a5e38d` requests both state namespace deletions
+after their common SQL and workload prerequisites. It still requires both to
+finish before finalization. STEGO retains all provider ownership, conditional
+delete, scheduling, and telemetry mechanisms. Focused allocation and adapter
+CI jobs passed. Full hosted qualification and a new live timing result remain
+required. The source is frozen on its remote branch.
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level
