@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	apps "k8s.io/api/apps/v1"
+	core "k8s.io/api/core/v1"
+	apiResource "k8s.io/apimachinery/pkg/api/resource"
 	"reflect"
 	"strings"
 	"testing"
@@ -351,6 +354,99 @@ func TestWidgetOptionalFieldsSurviveAPISerialization(t *testing.T) {
 		var before, after Object
 		if json.Unmarshal(raw, &before) != nil || json.Unmarshal(encoded, &after) != nil || !reflect.DeepEqual(before, after) {
 			t.Fatal("mount changes after serialization")
+		}
+	}
+}
+
+func TestWidgetKubernetesAPIRoundTrip(t *testing.T) {
+	for _, profile := range []string{"standard", "minimal", "empty environment", "whole quantities", "zero replicas"} {
+		t.Run(profile, func(t *testing.T) {
+			d := widget()
+			switch profile {
+			case "minimal":
+				d.Volumes = nil
+				d.Dependencies = nil
+				d.Containers[0].Mounts = nil
+				d.Containers[0].Args = nil
+				d.Containers[0].Env = nil
+			case "empty environment":
+				d.Containers[0].Env = append(d.Containers[0].Env, Env{Name: "EMPTY"})
+			case "whole quantities":
+				d.Containers[0].Requests = Resources{1000, 1024, 1024}
+				d.Containers[0].Limits = Resources{2000, 2048, 2048}
+				d.Volumes[2].EmptyMi = 1024
+			case "zero replicas":
+				d.Replicas = 0
+			}
+			for _, built := range render(t, d) {
+				before, err := json.Marshal(built.Object)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var target any
+				switch built.Object["kind"] {
+				case "Deployment":
+					target = new(apps.Deployment)
+				case "Service":
+					target = new(core.Service)
+				default:
+					t.Fatal("unexpected kind")
+				}
+				decoder := json.NewDecoder(bytes.NewReader(before))
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(target); err != nil {
+					t.Fatal("Kubernetes API rejected generated fields", err)
+				}
+				after, err := json.Marshal(target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var want, got any
+				if json.Unmarshal(before, &want) != nil || json.Unmarshal(after, &got) != nil {
+					t.Fatal("invalid serialized object")
+				}
+				if !containsFields(got, want) {
+					t.Fatal("desired fields changed in the Kubernetes API response", built.Object["kind"])
+				}
+			}
+		})
+	}
+}
+func containsFields(actual, wanted any) bool {
+	switch w := wanted.(type) {
+	case map[string]any:
+		a, ok := actual.(map[string]any)
+		if !ok {
+			return false
+		}
+		for key, value := range w {
+			v, exists := a[key]
+			if !exists || !containsFields(v, value) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		a, ok := actual.([]any)
+		if !ok || len(a) != len(w) {
+			return false
+		}
+		for i, value := range w {
+			if !containsFields(a[i], value) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(actual, wanted)
+	}
+}
+func TestWidgetQuantitiesMatchKubernetes(t *testing.T) {
+	for _, value := range []int64{1, 32, 100, 500, 999, 1000, 1001, 1023, 1024, 1025, 1536, 2048, 1000000, 1000001, 1 << 20, 1 << 30, 1 << 40} {
+		cpu := apiResource.NewMilliQuantity(value, apiResource.DecimalSI).String()
+		memory := apiResource.NewQuantity(value<<20, apiResource.BinarySI).String()
+		if cpuQuantity(value) != cpu || memoryQuantity(value) != memory {
+			t.Fatalf("quantity differs for %d", value)
 		}
 	}
 }

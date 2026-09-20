@@ -39,12 +39,18 @@ func TestGeneratedWorkloadConstruction(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(project, "workload"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.8\n"), files[0].Path: files[0].Bytes(), "workload/workload_test.go": runtimeTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte("module example.com/widget\ngo 1.26.8\nrequire k8s.io/api v0.35.0\nrequire k8s.io/apimachinery v0.35.0\n"), files[0].Path: files[0].Bytes(), "workload/workload_test.go": runtimeTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("go", "test", "-json", "-race", "-count=1", "-timeout=60s", "./...")
+	deps := exec.Command("go", "mod", "tidy")
+	deps.Dir = project
+	deps.Env = append(os.Environ(), "GOWORK=off", "GOMAXPROCS=2")
+	if output, err := deps.CombinedOutput(); err != nil {
+		t.Fatalf("API test dependencies: %v\n%s", err, output)
+	}
+	cmd := exec.Command("go", "test", "-json", "-race", "-count=1", "-mod=readonly", "-timeout=60s", "./...")
 	cmd.Dir = project
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOMAXPROCS=2")
 	output, err := cmd.CombinedOutput()

@@ -18,7 +18,7 @@ concurrency:
 jobs:
   construction:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     env:
       GOMAXPROCS: '2'
       GOMEMLIMIT: 768MiB
@@ -39,7 +39,7 @@ jobs:
           git rev-parse HEAD > "$RUNNER_TEMP/workload-construction/source-commit"
           git archive HEAD | sha256sum > "$RUNNER_TEMP/workload-construction/source-archive.sha256"
           go mod verify
-          go test -json -race -count=1 -mod=readonly -timeout=3m ./internal/generator/kubernetesworkload \
+          go test -json -race -count=1 -mod=readonly -timeout=5m ./internal/generator/kubernetesworkload \
             | tee "$RUNNER_TEMP/workload-construction/tests.jsonl"
           python3 - "$RUNNER_TEMP/workload-construction/tests.jsonl" <<'PYCHECK'
           import json, sys
@@ -57,6 +57,7 @@ jobs:
           required = {'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
                       'TestWidgetMultipleContainersAndProfiles', 'TestWidgetDependencyRollout',
                       'TestWidgetOptionalFieldsSurviveAPISerialization',
+                      'TestWidgetKubernetesAPIRoundTrip', 'TestWidgetQuantitiesMatchKubernetes',
                       'TestConfigurationDigestChangesOnlyWithContents', 'TestConfigurationDigestSeparatesObjectKinds',
                       'TestConfigurationDigestRejectsInvalidInput',
                       'TestWorkloadRejectsUnsafeOrAmbiguousInput'}

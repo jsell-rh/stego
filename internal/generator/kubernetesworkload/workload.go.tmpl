@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/url"
 	"path"
 	"regexp"
@@ -154,8 +153,22 @@ func validPath(s string) bool {
 func amount(r Resources) bool {
 	return r.CPUMilli > 0 && r.CPUMilli <= 1<<40 && r.MemoryMi > 0 && r.MemoryMi <= 1<<40 && r.EphemeralMi > 0 && r.EphemeralMi <= 1<<40
 }
+// Inputs are positive bounded integers. Use the API's canonical units so a
+// stored response does not differ only in its quantity spelling.
+func cpuQuantity(value int64) string {
+ suffixes := []string{"m", "", "k", "M", "G"}
+ i := 0
+ for value % 1000 == 0 && i < len(suffixes)-1 { value /= 1000; i++ }
+ return strconv.FormatInt(value, 10) + suffixes[i]
+}
+func memoryQuantity(value int64) string {
+ suffixes := []string{"Mi", "Gi", "Ti", "Pi", "Ei"}
+ i := 0
+ for value % 1024 == 0 && i < len(suffixes)-1 { value /= 1024; i++ }
+ return strconv.FormatInt(value, 10) + suffixes[i]
+}
 func quantities(r Resources) Object {
-	return Object{"cpu": fmt.Sprintf("%dm", r.CPUMilli), "memory": fmt.Sprintf("%dMi", r.MemoryMi), "ephemeral-storage": fmt.Sprintf("%dMi", r.EphemeralMi)}
+ return Object{"cpu": cpuQuantity(r.CPUMilli), "memory": memoryQuantity(r.MemoryMi), "ephemeral-storage": memoryQuantity(r.EphemeralMi)}
 }
 func probe(p HTTPProbe, ports map[string]int) (Object, error) {
 	u, e := url.Parse(p.Path)
@@ -297,7 +310,7 @@ func Build(d Deployment) ([]Resource, error) {
 			if v.EmptyMi < 1 || v.EmptyMi > 1<<40 {
 				return nil, ErrDeclaration
 			}
-			value["emptyDir"] = Object{"sizeLimit": fmt.Sprintf("%dMi", v.EmptyMi)}
+			value["emptyDir"] = Object{"sizeLimit": memoryQuantity(v.EmptyMi)}
 			emptyTotal += v.EmptyMi
 		}
 		volumeKinds[v.Name] = v.EmptyMi == 0
