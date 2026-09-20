@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "source": "8a5e38d1f7c55b9bb45750f3dfff62dd31a0d4be",
+  "checked_at": "2026-09-20T08:35:58.326009+00:00",
+  "file_sha256": {
+    "internal/namespaceallocation/controller.go": "1fa1ca56a6105be76caa290d26e35618f12b5f6d2004053a6c3440389e795d55",
+    "internal/gatewayworkload/controller.go": "cffd5938a54db2028a77d422c52870b7cb101b910795e4976a0451a084675d12",
+    "internal/gatewayworkload/kubernetes.go": "b23e8bad08bcd28123f5edfcf548cd744e6f0139d17d5e71ade5c3b624cc70c8",
+    "out/deploy/allocation/allocation.go": "6ca53490cdaada71f58d9cc697be82bc1146b7ca435871cf77e1da246c3e5cca",
+    "out/kubernetes/client.go": "aa6335586a72f1501bd956b9b55ccfb384afebd5ba6cf58b07b3dd21852e7dfd",
+    "out/controller/observation.go": "f6496e96e7b20dc48f1060bff1e026fa10a2045b2accc02b65ad3bf2fb9f30d2"
+  },
+  "live_run": 35498460152,
+  "whole_cleanup_upper_bound_seconds": 34.826647259,
+  "findings": [
+    "Gateway namespace absence is required before Sandbox deletion. This prevents the Gateway from creating more Sandbox work during cleanup.",
+    "Both state namespaces require completed SQL and workload observations before deletion.",
+    "The generated allocator removes owned cluster bindings before it requests namespace deletion. A false completion result does not prove that namespace deletion has been requested.",
+    "DeleteOwned verifies ownership and object identity. It uses UID and resource-version preconditions with foreground deletion and waits for absence. It does not remove finalizers.",
+    "The allocation controller already requests a one-second pending recheck. The workload controller still uses the error-returning runner at this source.",
+    "Namespace observations record conditions and read-return times. They do not identify the cause of every delay."
+  ],
+  "upstream_reference": {
+    "version": "Kubernetes v1.35.0",
+    "controller": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.35.0/pkg/controller/namespace/namespace_controller.go",
+    "deleter": "https://raw.githubusercontent.com/kubernetes/kubernetes/v1.35.0/pkg/controller/namespace/deletion/namespaced_resources_deleter.go",
+    "namespace_event_delay_seconds": 5,
+    "installed_exact_implementation_verified": false
+  },
+  "cluster_version_observed": {
+    "openshift": "4.22.13",
+    "kubernetes": "v1.35.6",
+    "git_commit": "68c342b9f2bd49663e239cc047b71df715bede1a"
+  },
+  "decision": "Keep all namespace dependency barriers, finalizers, and grace periods. Test the workload adapter with the existing common pending-result API. Do not claim a latency cause or a target pass."
+}

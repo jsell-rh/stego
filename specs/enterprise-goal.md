@@ -107,6 +107,12 @@ remains open. The separate API run `35499601572` is active at the same source.
 See the [consumer live evidence](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap-live-evidence.json)
 and [cleanup observations](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/state-cleanup-overlap.md).
 
+The [namespace cleanup review](namespace-cleanup-review.md) keeps the current
+namespace dependency barriers. Consumer candidate `2f3b4fe` uses the existing
+STEGO pending-result API for expected workload progress. Its hosted checks are
+pending. A separate candidate at `326c857` selects signed compiler c515f22;
+CI regeneration is in progress. Neither candidate has new live evidence.
+
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
 shows 7,500 millicores across all five nodes. The current server requests for
 100 Gateways alone total 10,000 millicores, before consoles and other services.
