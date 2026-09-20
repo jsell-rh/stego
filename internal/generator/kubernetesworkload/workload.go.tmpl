@@ -429,7 +429,7 @@ func Build(d Deployment) ([]Resource, error) {
 		pullSeen[name] = true
 		pullSecrets = append(pullSecrets, Object{"name": name})
 	}
-	security := Object{"runAsNonRoot": true, "fsGroup": d.FSGroup, "seccompProfile": Object{"type": "RuntimeDefault"}}
+	security := Object{"runAsNonRoot": true, "fsGroup": d.FSGroup, "seccompProfile": Object{"type": "RuntimeDefault", "localhostProfile": nil}}
 	if d.RunAsUser != 0 {
 		security["runAsUser"] = d.RunAsUser
 	}

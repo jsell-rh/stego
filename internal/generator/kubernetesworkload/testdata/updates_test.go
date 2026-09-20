@@ -108,6 +108,8 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 		{name: "unsafe_drift", change: func(*Deployment) {}, drift: func(d *apps.Deployment) {
 			yes, no, root := true, false, int64(0)
 			p := &d.Spec.Template.Spec
+			profile := "old-local-profile"
+			p.SecurityContext.SeccompProfile = &core.SeccompProfile{Type: core.SeccompProfileTypeLocalhost, LocalhostProfile: &profile}
 			p.HostNetwork = true
 			p.HostPID = true
 			p.HostIPC = true
@@ -125,7 +127,7 @@ func TestWidgetDeclarationUpdatesRemoveOldValues(t *testing.T) {
 			p := d.Spec.Template.Spec
 			c := p.Containers[0]
 			sc := c.SecurityContext
-			return !p.HostNetwork && !p.HostPID && !p.HostIPC && p.ShareProcessNamespace == nil && len(p.InitContainers) == 0 && len(c.Command) == 0 && len(c.EnvFrom) == 0 && sc.Privileged == nil && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot && sc.RunAsUser == nil && sc.SeccompProfile == nil && len(sc.Capabilities.Add) == 0
+			return p.SecurityContext.SeccompProfile.Type == core.SeccompProfileTypeRuntimeDefault && p.SecurityContext.SeccompProfile.LocalhostProfile == nil && !p.HostNetwork && !p.HostPID && !p.HostIPC && p.ShareProcessNamespace == nil && len(p.InitContainers) == 0 && len(c.Command) == 0 && len(c.EnvFrom) == 0 && sc.Privileged == nil && sc.RunAsNonRoot != nil && *sc.RunAsNonRoot && sc.RunAsUser == nil && sc.SeccompProfile == nil && len(sc.Capabilities.Add) == 0
 		}},
 	}
 	for _, tc := range cases {

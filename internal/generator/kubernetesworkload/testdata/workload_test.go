@@ -40,7 +40,7 @@ func TestWidgetSecurityAndService(t *testing.T) {
 	if p["automountServiceAccountToken"] != false || p["serviceAccountName"] != "widget-runtime" {
 		t.Fatal("unexpected API credentials")
 	}
-	want := Object{"runAsNonRoot": true, "fsGroup": uint32(2000), "seccompProfile": Object{"type": "RuntimeDefault"}}
+	want := Object{"runAsNonRoot": true, "fsGroup": uint32(2000), "seccompProfile": Object{"type": "RuntimeDefault", "localhostProfile": nil}}
 	if !reflect.DeepEqual(p["securityContext"], want) {
 		t.Fatal("Pod security differs")
 	}
