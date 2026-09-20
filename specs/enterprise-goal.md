@@ -175,9 +175,13 @@ Neither `69b9e29` nor `5f70035` has new live evidence.
 The [jshell capacity budget](https://github.com/jsell-rh/hypershell-stego/blob/codex/state-cleanup-overlap-evidence-20260920/acceptance/jshell-capacity-budget.md)
 shows 7,500 millicores across all five nodes. The current server requests for
 100 Gateways alone total 10,000 millicores, before consoles and other services.
-The full target cannot fit that CPU request profile on this cluster. A larger
-suitable test cluster or a separately measured resource profile is required.
-No request was reduced and no capacity test was started for this budget check.
+The full target cannot fit that CPU request profile on this cluster. On
+2026-09-20, the user confirmed that no additional capacity is available. Continue
+bounded tests on jshell. Keep the 100-Gateway target open; a smaller test does
+not prove that target. Measure any proposed resource change before its use in
+a capacity test. Do not reduce requests only to make the target fit. Keep one
+live test at a time and preserve capacity for existing workloads. No request
+was reduced and no capacity test was started for this budget check.
 
 The pending-result consumer at `7bc21b7` passed its complete workflow with the
 signed compiler `7a674e6`. Full checks passed 982 core cases across 341 top-level
