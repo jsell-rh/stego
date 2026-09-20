@@ -51,7 +51,7 @@ jobs:
           log = Path(sys.argv[1]).read_text()
           if '--- FAIL:' in log or '--- SKIP:' in log:
               raise SystemExit('An account selection check failed or was skipped')
-          for name in ['TestExistingServiceAccountPreservesWorkload', 'TestExistingServiceAccountRejectsAmbiguousAuthority', 'TestExistingServiceAccountRejectsInvalidGeneratedIdentity']:
+          for name in ['TestExistingServiceAccountPreservesWorkload', 'TestExistingServiceAccountRejectsAmbiguousAuthority', 'TestExistingServiceAccountRejectsInvalidGeneratedIdentity', 'TestConfigurationDigestChangesOnlyPodAnnotation', 'TestConfigurationDigestRejectsInvalidValues', 'TestConfigurationDigestChecksGeneratedPod']:
               if len(re.findall(r'^--- PASS: ' + name + r' \(', log, re.M)) != 1:
                   raise SystemExit('A required account selection result is missing: ' + name)
           PY

@@ -16,6 +16,9 @@ var deploymentLibraryTests []byte
 //go:embed testdata/render_scope_test.go
 var deploymentScopeTests []byte
 
+//go:embed testdata/render_configuration_test.go
+var deploymentConfigurationTests []byte
+
 func TestGeneratedDeploymentScopes(t *testing.T) {
 	ctx := allocationContext()
 	rpc := rpcContext()
@@ -61,6 +64,9 @@ func TestGeneratedDeploymentScopes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "out/deploy/library_test.go"), deploymentLibraryTests, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "out/deploy/configuration_test.go"), deploymentConfigurationTests, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/widget\ngo 1.26.8\n"), 0600); err != nil {
