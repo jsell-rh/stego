@@ -27,6 +27,23 @@ helper for these three paths. It checks that the runtime can read the marker
 and cannot write it or create schema objects. That helper corrects test setup.
 A common installation interface and a production role policy remain open.
 
+Candidate `c275c4f` passed the full hosted gate and all seven signed image
+checks. Its live service test reached the final telemetry check. Both API Pods
+and both identity-worker Pods became ready with the expected images and no
+container restarts. This proves that the corrected grants passed service
+startup in that run. The complete test still failed: correlated API spans and
+logs covered only one of the two instances. Cleanup passed.
+
+The service test retained only 64 batches per signal and read them after all
+writers stopped. A full queue can block later exports. Candidate `c85c608`
+adds a continuous reader with bounded correlation state. It preserves privacy
+checks and requires complete evidence from the same four instances. New checks
+cover full queues, replacement instances, missing signals, invalid identities,
+and privacy failures. The old result did not record queue saturation, so a new
+live test must establish whether this corrects the failure. See the
+[telemetry failure record](https://github.com/jsell-rh/hypershell-stego/blob/c85c608f079325c07911cf8a44fea5513511c5de/acceptance/service-image-telemetry-failure-evidence.json).
+
+
 STEGO already has a related installation boundary for browser sessions. Its
 [generated schema package](../internal/generator/browserbackend/schema_package.go.tmpl)
 separates bootstrap with owner authorization from runtime verification and supplies the

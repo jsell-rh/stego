@@ -993,8 +993,12 @@ C7 and H1 through H3 requirements open. The separate API test does not publish
 images. Service Deployment source `2af3ec4` removes the old publisher and uses
 the common STEGO delivery path. Its live test failed at API readiness. Review
 found missing schema-marker read grants in the service fixture. Candidate
-`c275c4f` shares the fixture grants across process, browser, and service tests;
-its hosted and live verification remain pending. The
+`c275c4f` shares the fixture grants across process, browser, and service tests.
+Its full hosted gate and all seven image checks passed. The live test passed
+API startup and Pod replacement, but failed the final correlated telemetry
+check. Cleanup passed. The test collector can block exports after 64 batches;
+candidate `c85c608` reads those batches during the workflow and keeps bounded
+correlation state. Its hosted and live checks remain pending. The
 [database role review](service-database-role-review.md) records the failure,
 the existing common checks, and the remaining installation contract.
 Live Kata remains deferred. See the
