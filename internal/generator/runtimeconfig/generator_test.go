@@ -30,22 +30,32 @@ func fixture() map[string]any {
 
 func TestConfigurationDeclaration(t *testing.T) {
 	for name, change := range map[string]func(map[string]any, map[string]any){
-		"unknown root":     func(c, f map[string]any) { c["passthrough"] = true },
-		"unknown field":    func(c, f map[string]any) { f["unknown"] = "private-sentinel" },
-		"invalid name":     func(c, f map[string]any) { f["name"] = "private-sentinel" },
-		"method collision": func(c, f map[string]any) { f["name"] = "Format" },
-		"invalid env":      func(c, f map[string]any) { f["env"] = "private-sentinel" },
-		"invalid type":     func(c, f map[string]any) { f["type"] = "private-sentinel" },
-		"invalid default":  func(c, f map[string]any) { f["default"] = "private-sentinel\n" },
-		"null default":     func(c, f map[string]any) { f["default"] = nil },
-		"number default":   func(c, f map[string]any) { f["default"] = 3 },
-		"missing bounds":   func(c, f map[string]any) { delete(f, "max_length") },
-		"reversed bounds":  func(c, f map[string]any) { f["min_length"] = 300 },
-		"excessive bound":  func(c, f map[string]any) { f["max_length"] = 4097 },
-		"wrong bound":      func(c, f map[string]any) { f["min"] = "1" },
-		"duplicate field":  func(c, f map[string]any) { f["name"] = "Enabled" },
-		"duplicate env":    func(c, f map[string]any) { f["env"] = "WIDGET_ENABLED" },
-		"empty groups":     func(c, f map[string]any) { c["groups"] = []any{} },
+		"unknown root":        func(c, f map[string]any) { c["passthrough"] = true },
+		"alternate root case": func(c, f map[string]any) { c["Groups"] = c["groups"]; delete(c, "groups") },
+		"alternate group case": func(c, f map[string]any) {
+			g := c["groups"].([]any)[0].(map[string]any)
+			g["Name"] = g["name"]
+			delete(g, "name")
+		},
+		"alternate field case": func(c, f map[string]any) { f["Name"] = f["name"]; delete(f, "name") },
+		"duplicate key case":   func(c, f map[string]any) { f["Name"] = "Different" },
+		"invalid UTF8 default": func(c, f map[string]any) { f["default"] = string([]byte{0xff}) },
+		"nested default":       func(c, f map[string]any) { f["default"] = map[string]any{"private-sentinel": "value"} },
+		"unknown field":        func(c, f map[string]any) { f["unknown"] = "private-sentinel" },
+		"invalid name":         func(c, f map[string]any) { f["name"] = "private-sentinel" },
+		"method collision":     func(c, f map[string]any) { f["name"] = "Format" },
+		"invalid env":          func(c, f map[string]any) { f["env"] = "private-sentinel" },
+		"invalid type":         func(c, f map[string]any) { f["type"] = "private-sentinel" },
+		"invalid default":      func(c, f map[string]any) { f["default"] = "private-sentinel\n" },
+		"null default":         func(c, f map[string]any) { f["default"] = nil },
+		"number default":       func(c, f map[string]any) { f["default"] = 3 },
+		"missing bounds":       func(c, f map[string]any) { delete(f, "max_length") },
+		"reversed bounds":      func(c, f map[string]any) { f["min_length"] = 300 },
+		"excessive bound":      func(c, f map[string]any) { f["max_length"] = 4097 },
+		"wrong bound":          func(c, f map[string]any) { f["min"] = "1" },
+		"duplicate field":      func(c, f map[string]any) { f["name"] = "Enabled" },
+		"duplicate env":        func(c, f map[string]any) { f["env"] = "WIDGET_ENABLED" },
+		"empty groups":         func(c, f map[string]any) { c["groups"] = []any{} },
 		"duplicate group": func(c, f map[string]any) {
 			groups := c["groups"].([]any)
 			groups[1].(map[string]any)["name"] = "Worker"

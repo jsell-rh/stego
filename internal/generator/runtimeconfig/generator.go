@@ -55,12 +55,11 @@ func prepare(ctx gen.Context) (declaration, error) {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return result, err
 	}
-	raw, err := json.Marshal(ctx.ComponentConfig)
-	if err != nil || len(raw) > 128*1024 {
+	if !exactKeys(ctx.ComponentConfig) {
 		return result, errDeclaration
 	}
-	var normalized any
-	if json.Unmarshal(raw, &normalized) != nil || containsNull(normalized) {
+	raw, err := json.Marshal(ctx.ComponentConfig)
+	if err != nil || len(raw) > 128*1024 {
 		return result, errDeclaration
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -94,24 +93,61 @@ func prepare(ctx gen.Context) (declaration, error) {
 	return result, nil
 }
 
-func containsNull(value any) bool {
-	switch value := value.(type) {
-	case nil:
-		return true
-	case map[string]any:
-		for _, child := range value {
-			if containsNull(child) {
-				return true
-			}
+// JSON decoding permits alternate key case and Marshal replaces invalid UTF-8.
+// Check the closed source shape and original strings before either operation.
+func exactKeys(config map[string]any) bool {
+	if len(config) != 1 {
+		return false
+	}
+	groups, ok := config["groups"].([]any)
+	if !ok || len(groups) < 1 || len(groups) > 32 {
+		return false
+	}
+	allowed := map[string]bool{"name": true, "env": true, "type": true, "default": true,
+		"min": true, "max": true, "min_length": true, "max_length": true}
+	total := 0
+	for _, value := range groups {
+		group, ok := value.(map[string]any)
+		if !ok || len(group) != 2 {
+			return false
 		}
-	case []any:
-		for _, child := range value {
-			if containsNull(child) {
-				return true
+		name, ok := group["name"].(string)
+		if !ok || len(name) > 64 || !utf8.ValidString(name) {
+			return false
+		}
+		fields, ok := group["fields"].([]any)
+		if !ok || len(fields) < 1 || len(fields) > 64 {
+			return false
+		}
+		total += len(fields)
+		if total > 256 {
+			return false
+		}
+		for _, value := range fields {
+			field, ok := value.(map[string]any)
+			if !ok || len(field) < 3 || len(field) > len(allowed) {
+				return false
+			}
+			for name, value := range field {
+				if !allowed[name] {
+					return false
+				}
+				if name == "min_length" || name == "max_length" {
+					switch value.(type) {
+					case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+					default:
+						return false
+					}
+				} else {
+					text, ok := value.(string)
+					if !ok || len(text) > 4096 || !utf8.ValidString(text) {
+						return false
+					}
+				}
 			}
 		}
 	}
-	return false
+	return true
 }
 
 func validText(value string) bool {
