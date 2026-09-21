@@ -1,0 +1,105 @@
+{
+  "source": "f1366d1e5e27940887fccc7827724c5a4e2f0796",
+  "compiler": "f972410b9709b7b39a09bc8f9a03dbcc0747c89d",
+  "checked_at": "2026-09-21T08:23:30.915348+00:00",
+  "scope": "Accepted Gateway and grant REST mapping workflow. gRPC grant mapping adoption and the remaining enterprise requirements are separate work.",
+  "hosted_runs": {
+    "Event recovery after restart": 35572731949,
+    "Gateway and contract checks": 35572729033,
+    "Common application images": 35572712377,
+    "Database access workflow checks": 35572711636,
+    "Checked transport responses": 35572711559,
+    "Real provider discovery and cleanup": 35572711558,
+    "Upstream dashboard source checks": 35572711638,
+    "Allocation finalization checks": 35572711597,
+    "Regenerate with the pinned compiler": 35572711697,
+    "Generated Gateway console": 35572711458,
+    "Journal recovery checks": 35572711563,
+    "Count fixture rendering": 35572711555,
+    "Build console asset candidate": 35572711598,
+    "Sandbox adapter checks": 35572711473
+  },
+  "hosted_proof_sha256": {
+    "provider-qualification.json": "bf5257489a3564374cc453e77a79300c7787194dca85d55155d2d48edaec76ce",
+    "signature-qualification.json": "b2d08b2e594573a77249a116844058d9011d44e1805606953aa29417483a10f5",
+    "image-qualification.json": "ad06c81b88bd121926d1a6bdd18f1c53d3f1f91d82d346fba44d0ef93b8915e2",
+    "application-qualification.json": "e1890e9e95b8bdeecfff8b0a1a5be98141c3853a71f247fa8b4c13877100a27a",
+    "registry-qualification.json": "b17e019e934103f4452eb5c364861d417a88222d6b49429ca69d0a399d9a5b14",
+    "checks/35572711559/qualification.json": "0b4aca492e9db8ac426713339cec4f331cee41aed486303dbbb25f81f48176fc",
+    "checks/35572711697/verification-independent.json": "0b986c26597b4986cfe898fafc8f426392df782357e05fd83ccb81b2c448fc5e",
+    "checks/35572731949/qualification.json": "8cfa979149a2b7ee6cd610aa39636e5ed4dc06baec5f7f8402fd6b0ad8a8ddef",
+    "checks/35572729033/verification-independent.json": "f75633c363e4ce295c7a5433b63b84277145f94353930c3a3538b26b02f8e3e4",
+    "checks/35572731949/ci.json": "9335dcc60a6c22ac39014a6d9abab5131f531e0b1379c5c2881fb0b0ed1dc162",
+    "checks/35572729033/ci.json": "bb004e82765677065fa9e4c3ae6e3961ca037520ee2788da2c2b3f3f08357ec3",
+    "checks/35572712377/ci.json": "a48972d9a52e921ff76336f6ae906ba0e57dfb9028d198f0b190c4019d5c3b10",
+    "checks/35572711636/ci.json": "fd6fb1ea6614d2c7991b489642c4ba503048bda13a1b10cf1024dc8ac3c25863",
+    "checks/35572711559/ci.json": "53100c86ba19af3b9eff8365597a1bee40650e027045fdedfeb27f970ed69b23",
+    "checks/35572711558/ci.json": "4abbf76abbf95fd80e1c8800873c07dcb2b8e5f7fe69cba0f1e730fd7d2b082c",
+    "checks/35572711638/ci.json": "671dc463be15341eca12898eaab1b7f92507b214cfbc7c9d4b4d46c936b14d47",
+    "checks/35572711597/ci.json": "4cfd0a156f1e209c79c7195851fb49bf573bcce3d38b54091b39a237484ab22f",
+    "checks/35572711697/ci.json": "2084a77bf1c25a2a002e86bffeb0235c828d3d211964b181a06649ea1125ff33",
+    "checks/35572711458/ci.json": "20043d4d1c7f80caf14a7effd0bdb534d88fec9cbd7f809bf72409320c7cd5b7",
+    "checks/35572711563/ci.json": "b5b612c3c40fdda23c8f00810eac9a6872f20a871414e12ec3b8868230266256",
+    "checks/35572711555/ci.json": "1955da8f29b36bddb5b642c29aa5a6adaed44bf1d90cf6d2619f17bad6d9020e",
+    "checks/35572711598/ci.json": "cc0f53854f3f70c48f693dc3c4ef47f0b0bf595f87b54ce45ad00dca93b87d2b",
+    "checks/35572711473/ci.json": "04a8feba3d92559e41ff9168bcef1dffccf26766506305ec35293ad921f085e1"
+  },
+  "full": {
+    "cases": 1404,
+    "roots": 393,
+    "prior_cases_retained": 1370
+  },
+  "focused": {
+    "cases": 199,
+    "roots": 24
+  },
+  "api": {
+    "run": 35574985157,
+    "required_roots_passed": 55,
+    "source_files_match": 1728,
+    "generated_hashes_match": 435,
+    "independent_cleanup": true,
+    "proof_sha256": "d70e8c81859bace33cf48a303254196d2591360a23044cbb92002506fe2a5851"
+  },
+  "browser": {
+    "run": 35575801502,
+    "fixture_source": "2372684de72f56bdb2df04142deac663c338ce44",
+    "required_roots_passed": 11,
+    "seconds": 550.42,
+    "source_files_match": 1728,
+    "generation_hashes_match": 435,
+    "screenshots_viewed": 4,
+    "layout_defects_seen": false,
+    "accounts_per_measured_gateway": 100,
+    "cleanup_upper_bounds_seconds": [
+      32.203213996
+    ],
+    "cleanup_target_seconds": 30,
+    "cleanup_target_met": false,
+    "capacity_target_proved": false,
+    "standing_resources_unchanged": 32
+  },
+  "browser_proof_sha256": {
+    "console-rollout-observation.json": "c5049478cd8cf4f23d81914d144a841aa2670a550736e2b7ac4710db54658bdc",
+    "generation-inventory-review.json": "7bfdd342eb7f8e35471e50e869d870a4870350f5eb4f1f9b92415c6192ff7620",
+    "image-delivery-verification.json": "d60caf42053efb0ece797f5d854870b646a9a2b32c87479e83ea10ac6113ef0a",
+    "verification.json": "d7aa33af9cf1a27f85fb81ba61b165c62c182c8bd15b00295538608e85893f8d",
+    "controller-trace-verification.json": "435bf16ec4ee43b89f98f53fa89c1a1e08d07d51b7c77c5aa578a6545ab9ec1c",
+    "account-verification.json": "7b2481a3522c8d3609be5cb34310a37dda1849d674b5ebd7c65adad5de03156b",
+    "phase-verification.json": "287d749f5d0130e25111e1744e936ccb0c6822789b21213a82be40b59b027f96",
+    "independent-cleanup.json": "e6ad99313376d2bdc937d47dbce0ac028b7cb0f587207efd7e2d4eef000c977c",
+    "admitted-pod-verification.json": "61c5030d183a69f6ffb930313d108cb02003d6b5f1ecbf86a00ada36e3836908",
+    "visual-review.json": "6b4e9bab3a158a752a85aa201e8a210566d3607d5c51b6a57ed94ed62e74f746",
+    "allocator-log-observation/cleanup-window-review.json": "3ae05c6485cb381dcf49cfbcd7474608cf7069629439de50648cb52ce8ef1037",
+    "namespace-deletion-observation/cleanup-window-review.json": "92283624f3959f0807c4e3816f4a5839c722a94714191d3a4a1c45f059fe11bc"
+  },
+  "not_proved": [
+    "100-Gateway concurrent capacity",
+    "Cleanup within the 30-second target",
+    "Live Kata and upstream OpenShell Sandbox execution",
+    "RDS failover",
+    "Remaining enterprise completion requirements"
+  ],
+  "application_evidence_commit": "ba8f5efcf219d277c10e77f21f169aea3b417b9a",
+  "application_evidence_sha256": "65502bf4a7b8e200f5ed2fdff91779ab4763facc1e9c1b32bb8ae12786e3c245"
+}

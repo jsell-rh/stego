@@ -555,8 +555,37 @@ checks. The candidate and main compiler bytes match. Release signatures, four
 immutable assets, and a separate five-file installation were verified. See the
 [release evidence](protobuf-prepared-input-release-evidence.json).
 
-The Hypershell Gateway and grant REST workflow at `f1366d1` still uses compiler
-`f972410b`. Its live API checks passed; complete browser acceptance remains
-required. It has not adopted the new protobuf input mapper. Domain grant
-selection, access checks, replay, and response-size policy must remain in
-Hypershell. This compiler release does not close C3 through C7 or H1 through H3.
+The Hypershell Gateway and grant REST workflow at `f1366d1` uses compiler
+`f972410b`. Its complete workflow is accepted below. The next gRPC grant mapper
+candidate `62adcf0` uses compiler `3666fed3`. Its complete application and live
+workflow checks remain required. Domain grant selection, access checks, replay,
+and response-size policy stay in Hypershell. This compiler release does not
+close C3 through C7 or H1 through H3.
+
+## Accepted Gateway and grant REST workflow
+
+The service declares all 24 Gateway and nine grant response fields. STEGO owns
+checked conversion, output copies, optional presence, enum checks, and bounded
+stored JSON conversion. Hypershell retains observation selection, creator
+resolution, access rules, list behavior, and public error policy.
+
+All 14 hosted application check groups passed for `f1366d1`. The complete suite
+passed 1,404 cases across 393 top-level tests and retained all 1,370 prior cases.
+The response suite passed 199 cases. Regeneration matched all 434 generated and
+module files, 425 output hashes, and 41 inputs. The API workflow passed all 55
+required roots, including grant behavior across REST, gRPC, events, and restart.
+
+[Browser run 35575801502](https://github.com/jsell-rh/hypershell-stego/actions/runs/35575801502)
+passed all 11 required roots. Its main scenario took 550.42 seconds. Independent
+review checked 1,728 source files, 435 live generation hashes, seven signed
+images, all four screenshots, and correlated logs, metrics, and traces. It
+covered account lifecycle, provider outage, restart, and durable deletion with
+namespace finalization. Cleanup removed the test fixtures and owned allocations,
+released the shared test lock, and preserved all 32 standing resources.
+
+The measured Gateway had 100 service accounts. Complete cleanup had an observed
+upper bound of 32.203 seconds. The 30-second target and 100-Gateway capacity
+remain unproved. This check does not cover RDS failover, live Kata, or upstream
+OpenShell Sandbox execution. See the
+[workflow evidence](rest-gateway-grant-workflow-evidence.json). C3 through C7 and
+H1 through H3 remain open.
