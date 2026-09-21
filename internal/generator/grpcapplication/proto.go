@@ -150,6 +150,14 @@ func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	mappings, err := responseMappings(ctx, plugin)
+	if err != nil {
+		return nil, nil, err
+	}
+	mappingFile, err := renderResponseMappings(ctx, plugin, mappings)
+	if err != nil {
+		return nil, nil, err
+	}
 	var methods []string
 	for _, file := range plugin.Files {
 		if file.Generate {
@@ -169,6 +177,9 @@ func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 	result := make([]gen.File, 0, len(response.File))
 	for _, file := range response.File {
 		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "pb", file.GetName()), Content: []byte(file.GetContent())})
+	}
+	if mappingFile != nil {
+		result = append(result, *mappingFile)
 	}
 	sort.Strings(methods)
 	return result, methods, nil

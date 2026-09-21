@@ -1,8 +1,39 @@
 kind: component
 name: grpc-processes
-version: 1.2.0
+version: 1.3.0
 output_namespace: grpcapi
 config:
+  response_mappings:
+    type: list
+    items:
+      name:
+        type: string
+      provider:
+        type: string
+      model:
+        type: string
+      message:
+        type: string
+      fields:
+        type: list
+        items:
+          target:
+            type: string
+          source:
+            type: string
+            optional: true
+          constant:
+            type: string
+            optional: true
+          prefix:
+            type: string
+            optional: true
+          conversion:
+            type: string
+            optional: true
+          omit:
+            type: bool
+            optional: true
   processes:
     type: list
     items:

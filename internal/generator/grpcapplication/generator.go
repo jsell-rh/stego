@@ -34,7 +34,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := validateContext(ctx); err != nil {
 		return err
 	}
-	_, err := prepareProto(ctx)
+	plugin, err := prepareProto(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = responseMappings(ctx, plugin)
 	return err
 }
 func validateContext(ctx gen.Context) error {

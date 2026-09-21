@@ -19,7 +19,11 @@ func (*ProcessGenerator) ValidateContext(ctx gen.Context) error {
 	if err := validateStandalone(ctx); err != nil {
 		return err
 	}
-	_, err := prepareProto(ctx)
+	plugin, err := prepareProto(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = responseMappings(ctx, plugin)
 	return err
 }
 func validateStandalone(ctx gen.Context) error {
