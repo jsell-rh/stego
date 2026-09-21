@@ -1,10 +1,12 @@
 package outbox
 
 import (
+	"bytes"
 	_ "embed"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -18,6 +20,9 @@ var workerTests []byte
 
 //go:embed testdata/worker_failure_test.go
 var workerFailureTests []byte
+
+//go:embed testdata/claim_failure_test.go
+var claimFailureTests []byte
 
 //go:embed testdata/source_test.go
 var sourceTests []byte
@@ -46,7 +51,7 @@ func TestGeneratedOutbox(t *testing.T) {
 		}
 	}
 	module := "module example.com/outbox-test\n\ngo " + new(Generator).MinimumGoVersion() + "\n\nrequire (\n github.com/google/uuid v1.6.0\n github.com/jackc/pgx/v5 v5.11.0\n)\n"
-	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests, "queue/source_test.go": sourceTests} {
+	for name, data := range map[string][]byte{"go.mod": []byte(module), "queue/queue_test.go": queueTests, "queue/worker_test.go": workerTests, "queue/worker_failure_test.go": workerFailureTests, "queue/source_test.go": sourceTests, "queue/claim_failure_test.go": claimFailureTests} {
 		if err := os.WriteFile(filepath.Join(project, name), data, 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -65,4 +70,38 @@ func TestGeneratedOutbox(t *testing.T) {
 		}
 		t.Log(string(output))
 	}
+	if postgresDSN != "" {
+		checkPartialClaimMutation(t, project)
+	}
+}
+
+// Check the regression case against the former partial-result behavior.
+func checkPartialClaimMutation(t *testing.T, project string) {
+	t.Helper()
+	file := filepath.Join(project, "queue/queue.go")
+	original, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := []byte("\tif err := rows.Err(); err != nil {\n\t\treturn nil, err\n\t}\n\treturn deliveries, nil")
+	if bytes.Count(original, checked) != 1 {
+		t.Fatal("claim mutation target differs")
+	}
+	changed := bytes.Replace(original, checked, []byte("\treturn deliveries, rows.Err()"), 1)
+	if err := os.WriteFile(file, changed, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.WriteFile(file, original, 0644); err != nil {
+			t.Error(err)
+		}
+	})
+	cmd := exec.Command("go", "test", "-mod=readonly", "-count=1", "-timeout=15s", "-run=^TestClaimDiscardsPartialResults$", "-v", "./queue")
+	cmd.Dir = project
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "claim returned a partial batch after a row error") || !strings.Contains(string(output), "--- FAIL: TestClaimDiscardsPartialResults") {
+		t.Fatalf("partial-result regression was not detected: %v\n%s", err, output)
+	}
+	t.Log("The partial-result mutation failed the required regression check")
 }

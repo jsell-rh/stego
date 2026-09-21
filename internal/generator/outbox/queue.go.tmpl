@@ -111,6 +111,8 @@ func Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) error {
     return nil
 }
 
+// Claim returns no deliveries if any part of the result fails. A database write
+// can still have committed; its leases remain until expiry or a valid receipt.
 // Claim leases one visible message per resource key. An earlier message blocks
 // that key during delivery and retry. Other keys can progress independently.
 func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
@@ -145,7 +147,8 @@ func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]De
         delivery.Receipt = Receipt{ID: delivery.ID, Token: token}
         deliveries = append(deliveries, delivery)
     }
-    return deliveries, rows.Err()
+    if err := rows.Err(); err != nil { return nil, err }
+    return deliveries, nil
 }
 
 // Acknowledge removes a delivered message only while this lease is valid.
