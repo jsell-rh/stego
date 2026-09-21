@@ -40,6 +40,28 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
+Hypershell main `c583681d` accepts runtime source `047f550f` and compiler
+`82439300`. STEGO now generates every Gateway protobuf response field, including
+bounded conversion of stored JSON string lists. Hypershell selects the current
+domain view first. Access, observation, placement, release, and public error
+rules remain in the application.
+
+The candidate passed 1,335 core cases across 380 roots, including all 1,314 prior
+cases, 141 focused cases, five restart cases, 11 provider roots, regeneration,
+and seven image reviews. The complete live workflow passed all 11 required tests
+in 562.45 seconds. Review checked 1,713 source files, 432 generation hashes,
+exact compiler bytes, REST and gRPC access, events, restart, correlated telemetry,
+four browser images, and cleanup. All seven evidence readers completed without
+error. Both test fixtures were absent, the Lease was free, and all 32 standing
+resources were unchanged. See the [consumer evidence](gateway-mapping-consumer-evidence.json).
+
+Normal cleanup with 100 accounts took an observed 33.04 seconds. The 30-second
+target remains unmet. Exact main checks are active. REST conversion, grant
+mapping, worker configuration, capacity, C3 through C7, and H1 through H3 remain
+open. This result does not explain the historical event timeout.
+
+## Accepted catalog mapping baseline
+
 Hypershell main `ccf350b1` accepts runtime source `b145ee5b` and compiler
 `6d68417d`. STEGO now generates the catalog protobuf response mappings.
 Hypershell declares the public fields and retains access checks, domain
@@ -59,7 +81,8 @@ Exact main checks at `ccf350b1` also passed independent review. They retained al
 120 focused cases, repeated generation, and seven image reviews. API cleanup
 removed the test resources, released the Lease, and preserved all 32 standing
 resources. See the [main evidence](catalog-mapping-main-consumer-evidence.json).
-These checks do not accept the pending Gateway mapping candidate.
+These checks identify the catalog baseline. The Gateway result above has its
+own source and live workflow proof.
 
 Normal cleanup with 100 accounts took an observed 32.70 seconds; the 30-second
 target remains unmet. Gateway and grant

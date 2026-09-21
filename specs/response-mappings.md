@@ -171,3 +171,16 @@ pin its new storage dependency. It was not released. The corrected fixture
 selects protobuf `v1.36.11`, GORM `v1.25.12`, and datatypes `v1.2.5`. The release
 record preserves the hold and the exact corrected checks. No compiler binary
 ran on the workstation during this release verification.
+
+Hypershell runtime `047f550f`, accepted on main at `c583681d`, now uses this
+compiler for all Gateway protobuf response fields. It selects current
+observations before mapping and retains DNS policy and public error selection.
+The candidate passed 1,335 core cases, 141 focused cases, regeneration, provider
+and restart checks, seven image reviews, and the complete live Gateway workflow.
+The live review checked all 11 required tests, exact compiler bytes, telemetry,
+four browser images, and cleanup. See the
+[consumer evidence](gateway-mapping-consumer-evidence.json).
+
+This acceptance does not add REST or grant mapping. Normal cleanup with 100
+accounts took an observed 33.04 seconds; the 30-second target remains unmet.
+Exact main checks and the remaining enterprise requirements are still open.
