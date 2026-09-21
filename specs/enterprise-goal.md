@@ -40,6 +40,35 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
+Hypershell runtime source `64e13ce` uses compiler `9788915c`. STEGO now generates
+all service-account REST response fields. Hypershell keeps account access,
+status selection, connection commands, and the one-time secret response.
+Invalid stored values fail before response data is sent. Explicit nullable
+field rules preserve the HTTP contract across restart.
+
+All 14 hosted candidate groups passed. The full suite passed 1,469 cases in
+402 roots and retained all 1,422 prior cases. The focused suite passed 256
+cases in 31 roots. API run `35585643288` passed all 57 required roots. Browser
+run `35586560292` passed all 11 required roots; its full scenario took 538.32
+seconds. Review checked source and compiler identity, repeated generation,
+seven signed images, four rendered images, and correlated logs, metrics, and
+traces. Both test fixtures and allocations were absent after cleanup. The test
+lock was free and all 32 standing resources were unchanged. See the
+[workflow evidence](service-account-workflow-evidence.json).
+
+The first hosted support reader lacked its event policy file. Corrected readers
+accepted the same retained results. No test was repeated for this reader error.
+The failed reader record is retained.
+
+The measured Gateway had 100 service accounts with verified token issuance.
+The observed cleanup upper bound was 34.10 seconds. The 30-second cleanup target
+and 100-Gateway capacity remain unproved. RDS failover, live Kata, and upstream
+OpenShell Sandbox execution remain outside this proof. C3 through C7 and H1
+through H3 remain open. This is accepted candidate evidence; separate checks of
+the final main commit remain required.
+
+## Accepted gRPC grant baseline
+
 Hypershell main `c42b2ed` contains accepted runtime source `62adcf0` and compiler
 `3666fed3`. STEGO now generates the Gateway and grant REST and protobuf response
 mappings. Hypershell keeps domain selection, access rules, grant policy, watch
@@ -71,11 +100,6 @@ seven signed images. API cleanup preserved all 32 standing resources. Only
 four acceptance documents differ from the accepted browser and event source;
 no separate main browser or event run is claimed. See the
 [main evidence](grpc-grant-main-evidence.json).
-
-Service-account candidate `64e13ce` uses compiler `9788915c`. Its focused suite
-passed 256 cases in 31 roots, including all 214 prior cases. Its full application
-and live workflow checks remain required. This candidate is not the accepted
-application baseline.
 
 ## Accepted Gateway protobuf baseline
 
@@ -647,5 +671,5 @@ assets, and a separate five-file installation were verified. See the
 
 This mechanism maps two source states to an explicit subset of JSON states.
 Full three-state inputs and nullable enum, object, and array mappings remain
-unsupported. Hypershell service-account adoption and complete application
-acceptance are separate work. This release does not close the enterprise goal.
+unsupported. Hypershell service-account adoption passed the complete Gateway
+workflow described above. This release does not close the enterprise goal.
