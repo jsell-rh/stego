@@ -82,11 +82,20 @@ focused and full checks. Its signed compiler and build record passed independent
 verification. The immutable release is published; a fresh installation matched
 all five verified files. Hypershell regeneration and nested-module selection
 passed full inventory review. Consumer `a1ad728` passed 43 focused cases across
-11 tests. Its full application and image checks are active; complete workflow
-acceptance remains required. See the
+11 tests. Its full application check passed 1,192 core cases, and all seven
+images passed independent verification. The live console digest observation
+passed; complete workflow acceptance remains required. See the
 [candidate evidence](deployment-configuration-evidence.json) and
 [main release evidence](deployment-configuration-main-evidence.json).
 The change does not move Gateway policy into STEGO.
+
+The common dependency adapter is released at compiler `d8c37d20`.
+`DependencyFromData` checks bounded ConfigMap and Secret data and returns owned
+byte slices. `NestedMap` accepts both generated and API-decoded maps. The digest
+format is unchanged. Checks passed all 145 generated cases, 37 compiler packages,
+and both complete examples. Main signatures and a fresh immutable release
+installation passed verification. Consumer regeneration and adoption remain
+required. See the [release evidence](workload-dependency-main-evidence.json).
 
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining

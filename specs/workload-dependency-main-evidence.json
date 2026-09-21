@@ -1,0 +1,44 @@
+{
+  "source": "d8c37d20dafbf6906203b10805cf30cba5b02692",
+  "runs": {
+    "focused": 35546966938,
+    "full": 35546966935,
+    "artifact": 35546966947
+  },
+  "qualified": true,
+  "generated_cases": 145,
+  "prior_passed_test_set_retained": true,
+  "compiler_packages": 37,
+  "examples": {
+    "user-management": {
+      "tracked_content_matches": 76,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "be7678eb436e80d76e2dd52585c6720597bc2af233ed9b592eb6c86aae03965a"
+    },
+    "user-management-rhsso": {
+      "tracked_content_matches": 72,
+      "state_passes_compared_by_ci": true,
+      "archive_sha256": "df906f962ede16358bfba0f318e36c07a01a2a76ad795b9fe604b5ba60267574"
+    }
+  },
+  "artifact": {
+    "name": "stego-linux-amd64",
+    "sha256": "728c43f00bdb98201e9a1029569599c80c059a4e64c678ea006363e4c85b4382",
+    "size": 41721093
+  },
+  "signature_verified": true,
+  "release": "https://github.com/jsell-rh/stego/releases/tag/compiler-d8c37d20dafbf6906203b10805cf30cba5b02692",
+  "immutable_release": true,
+  "fresh_installation_matches_verified_files": 5,
+  "compiler_executed_locally": false,
+  "consumer_adopted": false,
+  "scope": "Bounded dependency data conversion and typed map access. Consumer regeneration, adoption, and complete workflow remain required.",
+  "proof_sha256": {
+    "checks/35546966938/verification-independent.json": "0ab7256412d7978dbccfe67a24c283a3323f4e0af9e35aa5df38b0d9b21df595",
+    "checks/35546966935/qualification.json": "ffbd6704b3187813d4118261c2749c28b8c5a1c9f8f78e09a34262c05f8e59ae",
+    "signature-qualification.json": "b0ff77b282e0333dcde48d72ddd232960b77a3121f7600441f0cf5d1690941c5",
+    "release-publication-review.json": "15248c2df1f1bcb077216f2e0bda522158f90371d97e0394bd7fb043e128d696",
+    "release-installation-review.json": "9191daba372904bd0298688ba7ea3e170ce575acb768325242184e9ee8f28ad9"
+  },
+  "checked_at": "2026-09-21T00:22:01.845599+00:00"
+}

@@ -234,9 +234,16 @@ The next extraction is consumer source `a1ad728`, which uses the released
 common renderer at compiler `5c4afa11`. It removes application annotation
 assembly and duplicate digest-format validation. Complete generation and module
 review passed, and the focused consumer check passed 43 cases across 11 tests.
-Its full application and image checks are active. It is not on Hypershell main;
+Its full application and image checks passed. It is not on Hypershell main;
 a complete workflow remains required. See the
 [compiler release evidence](deployment-configuration-main-evidence.json).
+
+Compiler `d8c37d20` also provides bounded dependency data conversion and common
+map access. All 145 generated cases, 37 compiler packages, and both examples
+passed. Its signed immutable release and fresh installation passed verification.
+Hypershell still uses its local conversion helper until regeneration, adoption,
+and complete workflow checks pass. See the
+[dependency release evidence](workload-dependency-main-evidence.json).
 
 ## Remaining requirements
 
