@@ -1,6 +1,6 @@
 kind: component
 name: http-application
-version: 1.12.0
+version: 1.13.0
 output_namespace: application
 config:
   factory_package:
@@ -67,6 +67,9 @@ config:
             optional: true
           omit_empty:
             type: bool
+            optional: true
+          on_absent:
+            type: string
             optional: true
 requires:
   - storage-adapter

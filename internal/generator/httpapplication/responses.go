@@ -36,6 +36,7 @@ type responseField struct {
 	omitEmpty  bool
 	jsonLimits *responseJSONLimits
 	input      bool
+	absent     string
 }
 
 type responseJSONLimits struct{ bytes, items, itemBytes int }
@@ -203,14 +204,21 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelField, rule map[string]any) (responseField, error) {
 	field := responseField{target: target}
 	for option := range rule {
-		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" && option != "max_bytes" && option != "max_items" && option != "max_item_bytes" {
+		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" && option != "max_bytes" && option != "max_items" && option != "max_item_bytes" && option != "on_absent" {
 			return field, fmt.Errorf("unknown HTTP response field option")
 		}
 	}
-	if target.Nullable {
-		return field, fmt.Errorf("nullable response requires a source with three presence states")
-	}
 	base := strings.TrimPrefix(target.GoType, "*")
+	if target.Nullable {
+		if target.HasEnum {
+			return field, fmt.Errorf("nullable response enums are not supported")
+		}
+		inner, ok := strings.CutPrefix(base, "nullable.Nullable[")
+		if !ok || !strings.HasSuffix(inner, "]") {
+			return field, fmt.Errorf("nullable response has an unsupported Go type")
+		}
+		base = strings.TrimSuffix(inner, "]")
+	}
 	if len(target.StringEnum) != 0 {
 		base = "string"
 	}
@@ -246,6 +254,15 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 	if field.source.Name == "" || !token.IsExported(field.source.Selection) {
 		return field, fmt.Errorf("unknown or private HTTP response source")
 	}
+	if raw, exists := rule["on_absent"]; exists {
+		policy, ok := raw.(string)
+		if !ok || !target.Nullable || !field.source.Pointer || (policy != "emit_null" && policy != "omit") || (policy == "omit" && (target.Required || !target.OmitEmpty)) {
+			return field, fmt.Errorf("on_absent requires a nullable target, a pointer source, and a valid presence policy")
+		}
+		field.absent = policy
+	} else if target.Nullable && field.source.Pointer {
+		return field, fmt.Errorf("nullable response pointer requires an explicit on_absent policy")
+	}
 	if rule["conversion"] == "json_strings" {
 		return bindJSONResponse(field, rule)
 	}
@@ -254,7 +271,7 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 			return field, fmt.Errorf("JSON limits require json_strings conversion")
 		}
 	}
-	if field.source.Pointer && (!strings.HasPrefix(target.GoType, "*") || target.Required) {
+	if field.source.Pointer && !target.Nullable && (!strings.HasPrefix(target.GoType, "*") || target.Required) {
 		return field, fmt.Errorf("optional source cannot supply a required response value")
 	}
 	sourceType := map[types.FieldType]string{
@@ -378,7 +395,10 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 				fmt.Fprintf(&body, "enumValue := %s(v)\n", cast)
 				variable = "enumValue"
 			}
-			if strings.HasPrefix(field.target.GoType, "*") {
+			if field.target.Nullable {
+				imports["nullable"] = "github.com/oapi-codegen/nullable"
+				variable = "nullable.NewNullableWithValue(" + variable + ")"
+			} else if strings.HasPrefix(field.target.GoType, "*") {
 				variable = "&" + variable
 			}
 			fmt.Fprintf(&body, "result.%s = %s\n", field.target.GoName, variable)
@@ -386,6 +406,9 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 				body.WriteString("}\n")
 			}
 			if field.source.Pointer {
+				if field.absent == "emit_null" {
+					fmt.Fprintf(&body, "} else {\nresult.%s.SetNull()\n", field.target.GoName)
+				}
 				body.WriteString("}\n")
 			}
 			body.WriteString("}\n")

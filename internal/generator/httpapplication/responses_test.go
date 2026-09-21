@@ -201,7 +201,7 @@ func checkGeneratedResponses(t *testing.T, ctx gen.Context, runtimeTest string, 
 	}
 	write("out/store/model.go", []byte(`package store
 import "time"
-type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64; Note *string; Enabled bool; Active *bool; Score float64; Tags []byte}
+type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64; Note *string; Enabled bool; Active *bool; Score float64; Tags []byte; Recorded *time.Time; Limit,Large *int64; Small *int32; Ratio *float64; Decimal *float32}
 `))
 	write("out/application/responses/response_test.go", []byte(runtimeTest))
 	var mod strings.Builder

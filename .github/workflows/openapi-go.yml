@@ -49,11 +49,11 @@ jobs:
             ./internal/openapicontract ./internal/generator/gosdk ./internal/responsemapping \
             | tee "$RUNNER_TEMP/openapi-go/tests.jsonl"
           go test -json -race -count=1 -mod=readonly -timeout=3m \
-            -run='^Test(HTTPResponseMappingValidation|HTTPResponseInputsAndDeterminism|GeneratedHTTPResponseMappings|HTTPResponseJSONMappingValidation|HTTPResponseJSONMappingDeterminism|HTTPResponseJSONMappingBounds|GeneratedHTTPResponseJSONMappings|HTTPResponsePreparedInputValidation|HTTPResponsePreparedInputDeterminism|GeneratedHTTPResponsePreparedInputs|HTTPResponseEnumValidation|GeneratedHTTPResponseEnums)$' \
+            -run='^Test(HTTPResponseMappingValidation|HTTPResponseInputsAndDeterminism|GeneratedHTTPResponseMappings|HTTPResponseJSONMappingValidation|HTTPResponseJSONMappingDeterminism|HTTPResponseJSONMappingBounds|GeneratedHTTPResponseJSONMappings|HTTPResponsePreparedInputValidation|HTTPResponsePreparedInputDeterminism|GeneratedHTTPResponsePreparedInputs|HTTPResponseEnumValidation|GeneratedHTTPResponseEnums|HTTPResponseNullableValidation|HTTPResponseNullableDeterminism|GeneratedHTTPResponseNullable)$' \
             ./internal/generator/httpapplication \
             | tee -a "$RUNNER_TEMP/openapi-go/tests.jsonl"
           go test -json -race -count=1 -mod=readonly -timeout=1m \
-            -run='^TestHTTPResponse((JSON|Enum)?Mappings|PreparedInputs)GateOutput$' ./internal/compiler \
+            -run='^TestHTTPResponse((JSON|Enum|Nullable)?Mappings|PreparedInputs)GateOutput$' ./internal/compiler \
             | tee -a "$RUNNER_TEMP/openapi-go/tests.jsonl"
           python3 - "$RUNNER_TEMP/openapi-go/tests.jsonl" <<'PYCHECK'
           import json, sys
@@ -84,8 +84,9 @@ jobs:
                   'TestHTTPResponsePreparedInputValidation', 'TestHTTPResponsePreparedInputDeterminism',
                   'TestGeneratedHTTPResponsePreparedInputs',
                   'TestHTTPResponseEnumValidation', 'TestGeneratedHTTPResponseEnums',
+                  'TestHTTPResponseNullableValidation', 'TestHTTPResponseNullableDeterminism', 'TestGeneratedHTTPResponseNullable',
               },
-              'internal/compiler': {'TestHTTPResponseMappingsGateOutput', 'TestHTTPResponseJSONMappingsGateOutput', 'TestHTTPResponsePreparedInputsGateOutput', 'TestHTTPResponseEnumMappingsGateOutput'},
+              'internal/compiler': {'TestHTTPResponseMappingsGateOutput', 'TestHTTPResponseJSONMappingsGateOutput', 'TestHTTPResponsePreparedInputsGateOutput', 'TestHTTPResponseEnumMappingsGateOutput', 'TestHTTPResponseNullableMappingsGateOutput'},
               'internal/responsemapping': {'TestJSONStringsSource'},
           }
           for suffix, required in groups.items():

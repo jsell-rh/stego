@@ -58,8 +58,9 @@ property when the source string is empty. A constant or prefix is a bounded
 string, not a Go expression. An optional property can use `omit: true` only when
 the generated JSON field supports omission.
 
-Nullable fields need three source states. The current model provider contract
-cannot supply these states, so this release rejects such conversions. Explicit
+The original release requires three source states for nullable fields. Its model
+provider contract cannot supply these states, so that release rejects such
+conversions. The candidate below adds an explicit policy for a pointer source. Explicit
 omission is permitted for optional nullable fields. Array conversion, prepared
 application input fields, and Gateway and grant adoption remain open. They are
 required follow-up work, not evidence of completed REST extraction.
@@ -182,3 +183,36 @@ do not set a limit on application records.
 
 This candidate adds model binding, compiler rejection, and generated runtime
 checks. CI results and application adoption are still required.
+
+
+## Candidate: explicit nullable scalar responses
+
+Component version 1.13 adds an explicit presence policy for nullable scalar
+responses. A pointer source must declare `on_absent: emit_null` or
+`on_absent: omit`. The first policy writes JSON null when the pointer is nil.
+The second omits the property, and is permitted only for an optional field that
+supports JSON omission. A required nullable field cannot use `omit`.
+
+```yaml
+fields:
+  - {target: description, source: description, on_absent: emit_null}
+  - {target: optional_note, input: Note, on_absent: omit}
+```
+
+A present pointer retains its value, including an empty string, false, or zero.
+A scalar source without a pointer always supplies a value and cannot declare
+`on_absent`. String constants also supply values. The existing checks for
+encoding, integer bounds, finite numbers, and timestamps remain in effect.
+Each response field owns its nullable storage and copied scalar value. Failed
+conversion returns no response and a private error without supplied values.
+
+This policy maps two source states to an explicit subset of the three JSON
+states. It does not supply three independent states in the source. Nullable
+objects, arrays, and enums remain unsupported. The compiler rejects these
+conversions. Explicit omission of an optional unsupported field remains valid.
+The application retains access rules, credentials, and connection policy.
+
+The candidate includes compiler checks before output and generated runtime
+checks for presence, ownership, scalar bounds, and invalid values. CI, release
+verification, and consumer adoption are still required. The running Hypershell
+workflow uses its existing compiler and source.

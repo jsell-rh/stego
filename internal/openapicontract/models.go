@@ -29,6 +29,7 @@ type GoProperty struct {
 	GoType     string
 	Required   bool
 	Nullable   bool
+	HasEnum    bool
 	OmitEmpty  bool
 	StringList bool
 	StringEnum []string
@@ -99,6 +100,7 @@ func GenerateGoModels(doc *openapi3.T, packageName string, schemas []string) (st
 			object.Fields = append(object.Fields, GoProperty{
 				JSONName: parts[0], GoName: field.Names[0].Name, GoType: expression.String(),
 				Required: property.required, Nullable: property.schema.Nullable, OmitEmpty: len(parts) == 2,
+				HasEnum:    len(property.schema.Enum) != 0,
 				StringList: stringListProperty(property.schema),
 				StringEnum: enum, EnumGoType: enumType,
 			})

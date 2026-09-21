@@ -12,20 +12,24 @@ import (
 )
 
 func TestHTTPResponseMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false, false)
+	testHTTPResponseMappingsGateOutput(t, false, false, false, false)
 }
 func TestHTTPResponseJSONMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, false, false)
+	testHTTPResponseMappingsGateOutput(t, true, false, false, false)
 }
 func TestHTTPResponsePreparedInputsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, true, false)
+	testHTTPResponseMappingsGateOutput(t, true, true, false, false)
 }
 
 func TestHTTPResponseEnumMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false, true)
+	testHTTPResponseMappingsGateOutput(t, false, false, true, false)
 }
 
-func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums bool) {
+func TestHTTPResponseNullableMappingsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, false, false, false, true)
+}
+
+func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums, nullable bool) {
 	t.Helper()
 	input := applicationPreflightInput(t, new(httpapplication.Generator), "domain")
 	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
@@ -102,9 +106,35 @@ components:
 	if enums {
 		schema = strings.Replace(schema, "id: {type: string}", "id: {type: string, enum: [ready, sent]}", 1)
 	}
+	if nullable {
+		probe.models[0].Fields[0].Pointer = true
+		schema = strings.Replace(schema, "id: {type: string}", "id: {type: string, nullable: true}", 1)
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, servicePath, strings.Replace(string(current), "target: id, source: id", "target: id, source: id, on_absent: emit_null", 1))
+	}
 	writeFile(t, filepath.Join(input.ProjectDir, "responses.yaml"), schema)
 	if result, err := Validate(input); err != nil || result.HasErrors() {
 		t.Fatal("valid HTTP mapping rejected", result, err)
+	}
+	if nullable {
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, servicePath, strings.Replace(string(current), "on_absent: emit_null", "on_absent: omit", 1))
+		if result, err := Validate(input); err != nil || !result.HasErrors() {
+			t.Fatal("required nullable omission passed validation", result, err)
+		}
+		if plan, err := Reconcile(input); err == nil || plan != nil {
+			t.Fatal("required nullable omission produced output", plan, err)
+		}
+		if probe.renders != 0 {
+			t.Fatal("nullable validation ran after provider generation")
+		}
+		writeFile(t, servicePath, string(current))
 	}
 	if enums {
 		current, err := os.ReadFile(servicePath)
