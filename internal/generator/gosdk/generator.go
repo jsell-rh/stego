@@ -13,12 +13,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/httpclient"
-	"github.com/oapi-codegen/oapi-codegen/v2/pkg/codegen"
+	"github.com/jsell-rh/stego/internal/openapicontract"
 )
 
 type Generator struct{}
@@ -37,9 +36,6 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	return err
 }
 
-// The upstream backend has package-level generation state.
-var backendMu sync.Mutex
-
 //go:embed client.go.tmpl
 var clientSource string
 
@@ -51,22 +47,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	version := "stego/openapi-backend-v2.8.0"
-	backendMu.Lock()
-	source, err := func() (source string, err error) {
-		defer func() {
-			if recover() != nil {
-				err = fmt.Errorf("OpenAPI backend failed")
-			}
-		}()
-		return codegen.Generate(doc, codegen.Configuration{PackageName: "wire", Generate: codegen.GenerateOptions{Models: true, Client: true}, OutputOptions: codegen.OutputOptions{SkipPrune: true, NullableType: true}, NoVCSVersionOverride: &version})
-	}()
-	backendMu.Unlock()
+	source, err := openapicontract.GenerateGo(doc, "wire", openapicontract.GoClient)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot generate SDK: %w", err)
-	}
-	if len(source) > 8<<20 {
-		return nil, nil, fmt.Errorf("SDK output exceeds limit")
 	}
 	expected := 0
 	for _, item := range doc.Paths.Map() {
