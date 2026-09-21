@@ -1,0 +1,229 @@
+{
+  "schema": 1,
+  "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+  "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+  "qualified": true,
+  "checked_at": "2026-09-21T05:05:09.056838+00:00",
+  "runs": {
+    "Gateway and contract checks": {
+      "id": 35561627163,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627163"
+    },
+    "Gateway API on jshell": {
+      "id": 35561627177,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627177"
+    },
+    "Build console asset candidate": {
+      "id": 35561627222,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627222"
+    },
+    "Real provider discovery and cleanup": {
+      "id": 35561627228,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627228"
+    },
+    "Regenerate with the pinned compiler": {
+      "id": 35561627325,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627325"
+    },
+    "Common application images": {
+      "id": 35561627774,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627774"
+    },
+    "Journal recovery checks": {
+      "id": 35561627156,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627156"
+    },
+    "Upstream dashboard source checks": {
+      "id": 35561627183,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627183"
+    },
+    "Checked transport responses": {
+      "id": 35561627224,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627224"
+    },
+    "Generated Gateway console": {
+      "id": 35561627168,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35561627168"
+    }
+  },
+  "proofs": {
+    "full": {
+      "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+      "run": 35561627163,
+      "qualified": true,
+      "checked_at": "2026-09-21T05:04:18.072759+00:00",
+      "jobs": {
+        "acceptance (browser)": "success",
+        "web-console": "success",
+        "acceptance (core)": "success",
+        "service-image": "success",
+        "sandbox-workload": "skipped"
+      },
+      "baseline_source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+      "core_cases_retained": 1314,
+      "core_cases_passed": 1314,
+      "core_top_level_tests": 376,
+      "prior_test_definitions_retained": true,
+      "added_core_cases": [],
+      "core_skips": [
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGeneratedKubernetesBrowserGatewayWorkflow",
+        "TestGeneratedKubernetesServiceGatewayWorkflow",
+        "TestNamespaceCountWithLiveKubernetes",
+        "TestRealProviderAccountCapacity"
+      ],
+      "rendered_browser_test_passed": true,
+      "log_sha256": "7bc9af554ddd0362dafb981d5d4d77c57e76a813f6076d757c94609bb809e862",
+      "sandbox_deferral_preserved": true,
+      "scope": "Hosted application checks. Live workflow and capacity remain separate requirements."
+    },
+    "api": {
+      "run": 35561627177,
+      "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+      "required_tests": [
+        "TestGatewayDurableDeletionThroughGeneratedTransports",
+        "TestGatewayAccountCleanupRecoveryReachesTailAfterRestart",
+        "TestGatewayAccountCleanupRecoveryKeepsPageCheckpoint",
+        "TestGatewayJournalCleanupRecoveryKeepsPageCheckpoint",
+        "TestGatewayJournalRegistrationDuringScanPreventsCompletion",
+        "TestGatewayJournalAddedAfterLastPagePreventsCompletion",
+        "TestGatewayJournalClosureRollsBackWithFinalEvent",
+        "TestGatewayCleanupRecoversJournalOmittedByProvider",
+        "TestGatewayInventoryRecoveryAcrossReadFailureAndPageShift",
+        "TestGatewayInventoryLimitRequiresAnotherFullCycle",
+        "TestGatewayCleanupObservationDoesNotRepeatEvents",
+        "TestGatewayDeletingPhaseMatchesSearch",
+        "TestGatewayAccountCleanupProgressSurvivesInterruptedRequests",
+        "TestGatewayAccountCleanupSerializesCreation",
+        "TestServiceAccountCreationSerializesGatewayDeletion",
+        "TestGatewayDeletionRemovesServiceAccounts",
+        "TestServiceAccountProviderStateAcrossLockAndRestart",
+        "TestGatewayProviderStateAcrossGRPCAndRestart",
+        "TestGatewayDatabasePoolWaitCancellationAndRestart",
+        "TestConcurrentGlobalRoleProjection",
+        "TestCleanupSummaryScopeAndTimestampChecks",
+        "TestGatewayDatabaseSecretFileAndCredentialRotation",
+        "TestGatewayDeletionBeforeWorkloadStartup",
+        "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+        "TestGeneratedWorkloadWorkerStartupPrivacy",
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGatewayCreationCommitsOwnerAndEvent",
+        "TestGatewayRequestsRejectRetiredDatabaseField",
+        "TestGeneratedGoSDKGatewayWorkflow",
+        "TestGeneratedCLIWorkflow",
+        "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+        "TestGatewayControllerWriteGrantsAcrossPlacementAndRestart",
+        "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+        "TestEventFailureRollsBackGatewayAndOwner",
+        "TestAccessFiltersRunBeforeCountAndPagination",
+        "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+        "TestGatewayWorkflowThroughGeneratedRESTProcess",
+        "TestGatewayWorkflowAcrossRESTAndGRPC",
+        "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+        "TestGeneratedRuntimeRecoversUnfinishedClaim",
+        "TestGatewayWatchThroughGeneratedRuntime",
+        "TestNamespaceCountWorkflowThroughGeneratedWorker",
+        "TestPlacementWorkflowThroughGeneratedRuntime",
+        "TestControllerLocalSchemaHasNoDatabaseCatalog",
+        "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+        "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+        "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+        "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+        "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+        "TestGeneratedCLICatalogWorkflow",
+        "TestGeneratedCLIApplyWorkflow"
+      ],
+      "passed_top_level": 52,
+      "test_log_sha256": "472a1e5c92091939a066c4b205cfffdbd295082d8c29b161557d8c8108525ba9",
+      "source_files_match": 1709,
+      "generated_hashes_match": 431,
+      "committed_and_repeated_generation_match": true,
+      "compiler_public_records_and_live_bytes_match": true,
+      "bounded_live_job_verified": true,
+      "job_uid": "392985d2-ce44-4ec1-be45-aab539190e29",
+      "pod_uid": "dc57ceeb-f03f-42ec-847b-06daa13480e2",
+      "independent_fixture_cleanup_verified": true,
+      "qualified": true,
+      "scope": "The exact API and SQL test fixture. Main browser and full results remain separate."
+    },
+    "focused": {
+      "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+      "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35561627224,
+      "qualified": true,
+      "roots": [
+        "TestCatalogMappingsPreserveEveryField",
+        "TestCatalogMappingsRejectInvalidTextPrivately",
+        "TestCleanupSummaryTimestampPresence",
+        "TestGatewayNetworkTimestampResponses",
+        "TestGatewayReleaseTimestampResponses",
+        "TestManagedClusterTimestampResponses",
+        "TestTimestampPresentersPreserveContract",
+        "TestTimestampPresentersRejectInvalidRecords"
+      ],
+      "root_count": 8,
+      "case_count": 120,
+      "selected_module": "v0.0.0-20260920233219-cd240e7a3f11",
+      "source_archive_sha256": "1002a84c7def25be89b7ceacf8357cf62c64068c38940bd86930890474345800",
+      "test_log_sha256": "6bbaad35325200fe089bfaef124d9f39286f9e4412f7b257e60b55408f945215",
+      "checked_at": "2026-09-21T04:38:27.241778+00:00",
+      "scope": "Consumer timestamp conversion through catalog handlers, lists, watches, and presenters. Full application, signed images, and the complete live workflow remain required."
+    },
+    "regeneration": {
+      "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+      "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35561627325,
+      "qualified": true,
+      "checked_at": "2026-09-21T04:38:27.085178+00:00",
+      "complete_generated_inventory_matches": true,
+      "generated_and_module_files": 430,
+      "generated_hashes_checked": 421,
+      "input_hashes_checked": 41,
+      "generation_patch_empty": true,
+      "source_archive_sha256": "1002a84c7def25be89b7ceacf8357cf62c64068c38940bd86930890474345800",
+      "generated_archive_sha256": "396cc8cb7904d893c7d9ef79e6df0d84d0c6d7a923706b69afb402000bc94147",
+      "compiler_executed_locally": false,
+      "scope": "All three generated roots match the exact acceptance source. The accepted browser workflow and remaining main checks have separate records."
+    },
+    "cleanup": {
+      "run": 35561627177,
+      "source": "ccf350b1f3a46724dba7ad72e4d782df97eac447",
+      "checked_at": "2026-09-21T04:44:37.791078+00:00",
+      "browser_empty": true,
+      "api_run": 35561627177,
+      "api_status": "success",
+      "runtime": [],
+      "fixtures": [],
+      "allocations": [],
+      "ci_jobs": [],
+      "api_fixtures": [],
+      "lease_holder": "",
+      "installed_resources_unchanged": 32,
+      "installation_uid": "32e31091-b7b7-4bbc-a541-ed04ee42265d",
+      "scope": "Both test fixtures are absent, the shared lease is free, and all standing installation resources are unchanged."
+    }
+  },
+  "independently_authenticated_images": 7,
+  "record_sha256": {
+    "checks/35561627163/verification-independent.json": "6f04434a25551066910fbbb31ad908b65afcd5226002fd977b7700a1768a69eb",
+    "checks/35561627177/verification-independent.json": "7b25bd1b518f15f89421eb48d81c021470b49e45d6786b16f2b66168326439ba",
+    "checks/35561627224/qualification.json": "42507293039d81688f3e83f02fc55829be85ed880e42fe989787f059b2ce92b6",
+    "checks/35561627325/verification-independent.json": "f65bc04840a27353fc5bce966cb768a5ea78063cca5c5bf061e23d8ca155505f",
+    "independent-cleanup.json": "0de82ae02f13f06af60580900cf839e4a99b857f8c9e9916da6445aa90f050fb",
+    "image-review-state.json": "07dee3fea9ebff4607a13eb7fd684d82b9511293c829a7aed3f76815f5a070b2",
+    "application-qualification.json": "396f56b07c2f51d0f476785471a615ab6646c98906faf42d7893c87c61d56744",
+    "image-qualification.json": "da70f5cea7eec2a041e097bd26997bc647011415037232fa897ee8333f2768fd",
+    "registry-qualification.json": "f33687e8c02ac56a9f1f4191288b3e090d941f9f6ccea2b51e70ca1d399f1fff",
+    "signature-qualification.json": "01b726d91593eccb8979e6bd27cf4f0df1b4ef4d0963fb3ded760a386701857b"
+  },
+  "not_proved": [
+    "Production capacity",
+    "Thirty-second cleanup target",
+    "Live Kata and OpenShell Sandbox execution",
+    "Historical event timeout cause",
+    "Complete REST and grant mapping",
+    "Complete enterprise requirements"
+  ],
+  "scope": "Exact catalog acceptance main checks. The accepted catalog browser workflow has a separate record. This does not qualify the pending Gateway mapping candidate."
+}

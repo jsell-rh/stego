@@ -54,8 +54,15 @@ and cleanup. All seven evidence readers completed without error. The test
 fixtures were absent, the Lease was free, and all 32 standing resources were
 unchanged. See the [consumer evidence](catalog-mapping-consumer-evidence.json).
 
-Exact main checks remain pending. Normal cleanup with 100 accounts took an
-observed 32.70 seconds; the 30-second target remains unmet. Gateway and grant
+Exact main checks at `ccf350b1` also passed independent review. They retained all
+1,314 core cases across 376 test roots and passed all 52 required live API roots,
+120 focused cases, repeated generation, and seven image reviews. API cleanup
+removed the test resources, released the Lease, and preserved all 32 standing
+resources. See the [main evidence](catalog-mapping-main-consumer-evidence.json).
+These checks do not accept the pending Gateway mapping candidate.
+
+Normal cleanup with 100 accounts took an observed 32.70 seconds; the 30-second
+target remains unmet. Gateway and grant
 mapping, REST conversion, remaining worker configuration, and C3 through C7 and
 H1 through H3 remain open. The historical event timeout is not explained by
 this result.
