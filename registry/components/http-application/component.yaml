@@ -1,10 +1,50 @@
 kind: component
 name: http-application
-version: 1.8.0
+version: 1.9.0
 output_namespace: application
 config:
   factory_package:
     type: string
+  document:
+    type: string
+  references:
+    type: list
+    items:
+      type: string
+  response_mappings:
+    type: list
+    items:
+      name:
+        type: string
+      provider:
+        type: string
+      model:
+        type: string
+      schema:
+        type: string
+      fields:
+        type: list
+        items:
+          target:
+            type: string
+          source:
+            type: string
+            optional: true
+          constant:
+            type: string
+            optional: true
+          prefix:
+            type: string
+            optional: true
+          conversion:
+            type: string
+            optional: true
+          omit:
+            type: bool
+            optional: true
+          omit_empty:
+            type: bool
+            optional: true
 requires:
   - storage-adapter
   - auth-provider

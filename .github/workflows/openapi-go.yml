@@ -8,6 +8,8 @@ on:
       - 'internal/openapicontract/**'
       - 'internal/generator/gosdk/**'
       - 'internal/generator/httpapplication/**'
+      - 'internal/compiler/http_responses_test.go'
+      - 'registry/components/http-application/**'
       - 'go.mod'
       - 'go.sum'
 
@@ -45,6 +47,13 @@ jobs:
           go test -json -race -count=1 -mod=readonly -timeout=6m \
             ./internal/openapicontract ./internal/generator/gosdk \
             | tee "$RUNNER_TEMP/openapi-go/tests.jsonl"
+          go test -json -race -count=1 -mod=readonly -timeout=3m \
+            -run='^Test(HTTPResponseMappingValidation|HTTPResponseInputsAndDeterminism|GeneratedHTTPResponseMappings)$' \
+            ./internal/generator/httpapplication \
+            | tee -a "$RUNNER_TEMP/openapi-go/tests.jsonl"
+          go test -json -race -count=1 -mod=readonly -timeout=1m \
+            -run='^TestHTTPResponseMappingsGateOutput$' ./internal/compiler \
+            | tee -a "$RUNNER_TEMP/openapi-go/tests.jsonl"
           python3 - "$RUNNER_TEMP/openapi-go/tests.jsonl" <<'PYCHECK'
           import json, sys
           from pathlib import Path
@@ -65,6 +74,11 @@ jobs:
                   'TestInputBoundary', 'TestGeneratedSDK', 'TestCapturedReferenceNames',
                   'TestGeneratedNameConflicts', 'TestGeneratedSDK/false', 'TestGeneratedSDK/true',
               },
+              'internal/generator/httpapplication': {
+                  'TestHTTPResponseMappingValidation', 'TestHTTPResponseInputsAndDeterminism',
+                  'TestGeneratedHTTPResponseMappings',
+              },
+              'internal/compiler': {'TestHTTPResponseMappingsGateOutput'},
           }
           for suffix, required in groups.items():
               package = 'github.com/jsell-rh/stego/' + suffix

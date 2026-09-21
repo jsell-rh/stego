@@ -29,6 +29,14 @@ func (*Generator) HTTPRoutes(gen.Context) ([]gen.HTTPRoute, error) {
 }
 
 func (*Generator) ValidateContext(ctx gen.Context) error {
+	if err := validateApplicationContext(ctx); err != nil {
+		return err
+	}
+	_, err := prepareResponses(ctx)
+	return err
+}
+
+func validateApplicationContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
@@ -53,7 +61,11 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 }
 
 func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
-	if err := g.ValidateContext(ctx); err != nil {
+	if err := validateApplicationContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	responses, err := prepareResponses(ctx)
+	if err != nil {
 		return nil, nil, err
 	}
 	factory := ctx.ComponentConfig["factory_package"].(string)
@@ -120,8 +132,16 @@ func NewHandler(repository Repository, verifier *auth.Verifier, database *sql.DB
 		return nil, nil, err
 	}
 	files = append(files, client)
+	responseFiles, err := renderResponses(ctx, responses)
+	if err != nil {
+		return nil, nil, err
+	}
+	files = append(files, responseFiles...)
 	ns := path.Base(ctx.OutputNamespace)
 	wiring := &gen.Wiring{Contracts: []gen.Contract{gen.StorageV1}, Imports: []string{ctx.OutputNamespace}, Constructors: []string{ns + ".NewHandler(store, verifierFromEnvironment)"}, ConstructorDeps: map[int][]string{0: {"store", "verifierFromEnvironment"}}, ConstructorResources: map[int][]gen.Resource{0: {gen.SQLDatabase}}, ConstructorReturnsError: map[int]bool{0: true}, ConstructorDeferCalls: map[int]string{0: "Close()"}, BackgroundTasks: []int{0}, Routes: []string{fmt.Sprintf("mux.Handle(%q, handler)", mountPattern)}}
+	if responses != nil {
+		wiring.GoModRequires = map[string]string{"github.com/oapi-codegen/runtime": "v1.7.0", "github.com/oapi-codegen/nullable": "v1.1.0", "github.com/google/uuid": "v1.6.0"}
+	}
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
