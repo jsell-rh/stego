@@ -181,6 +181,9 @@ func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 	if mappingFile != nil {
 		result = append(result, *mappingFile)
 	}
+	if hasJSONMappings(mappings) {
+		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "mapping/json_strings.go"), Content: []byte(mappingJSONStringsSource)})
+	}
 	sort.Strings(methods)
 	return result, methods, nil
 }

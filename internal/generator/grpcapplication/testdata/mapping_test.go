@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,5 +116,85 @@ func TestMappingAcceptsNumericAndTimeBounds(t *testing.T) {
 		if err != nil || int64(result.Count) != count || int64(*result.Limit) != count || !result.Metadata.CreatedAt.AsTime().IsZero() || !result.Metadata.UpdatedAt.AsTime().Equal(input.UpdatedTime) {
 			t.Fatal("valid bound rejected", err)
 		}
+	}
+}
+
+func TestMappingJSONListsPreserveValues(t *testing.T) {
+	cases := []struct {
+		name, raw string
+		want      []string
+	}{
+		{"absent", "", nil},
+		{"null", " \n null\t", nil},
+		{"empty", "[]", []string{}},
+		{"empty string", `[""]`, []string{""}},
+		{"order and duplicates", `["b","a","b"]`, []string{"b", "a", "b"}},
+		{"decoded byte bound", `["1234567890123456"]`, []string{"1234567890123456"}},
+		{"input byte bound", strings.Repeat(" ", 62) + "[]", []string{}},
+		{"unicode", `["雪","\uD83D\uDE00","\ufffd"]`, []string{"雪", "😀", "�"}},
+		{"escaped surrogate text", `["\\uD800"]`, []string{`\uD800`}},
+		{"escaped controls", `["\u0000\n\t\r","\"\\\/"]`, []string{"\x00\n\t\r", "\"\\/"}},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			input := sample()
+			input.Tags = []byte(item.raw)
+			result, err := mapping.Shipment(input)
+			if err != nil || result == nil || !reflect.DeepEqual(result.Tags, item.want) {
+				t.Fatal("JSON list differs", result, err)
+			}
+			wire, err := proto.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded := result.ProtoReflect().New().Interface()
+			if err := proto.Unmarshal(wire, decoded); err != nil || !proto.Equal(result, decoded) {
+				t.Fatal("JSON list wire response differs", err)
+			}
+		})
+	}
+}
+
+func TestMappingJSONListsRejectInvalidInput(t *testing.T) {
+	cases := map[string]string{
+		"whitespace": " ", "malformed": "[", "object": "{}", "scalar": "\"private\"", "number": "17", "boolean": "true",
+		"null member": "[null]", "mixed member": "[\"private\",3]", "nested list": "[[]]", "nested object": "[{}]",
+		"trailing value": "[] null", "trailing null": "null []", "trailing garbage": "[]x", "trailing comma": "[\"private\",]",
+		"invalid UTF8":   string([]byte{'[', '"', 0xff, '"', ']'}),
+		"high surrogate": `["\uD800"]`, "low surrogate": `["\uDC00"]`, "wrong pair": `["\uD800\uD800"]`,
+		"missing pair": `["\uD800text"]`, "short escape": `["\uD8"]`, "bad hex": `["\uXYZW"]`,
+		"invalid escape": `["\x41"]`, "escaped slash before surrogate": `["\\\uD800"]`,
+		"input bound": strings.Repeat(" ", 63) + "[]", "member bound": `["12345678901234567"]`,
+		"unicode member bound": `["😀😀😀😀x"]`, "item bound": `["a","b","c","d"]`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			input := sample()
+			input.Tags = []byte(raw)
+			result, err := mapping.Shipment(input)
+			if result != nil || !errors.Is(err, mapping.ErrConversion) || err.Error() != "response conversion failed" {
+				t.Fatal("invalid JSON returned output or supplied data", result, err)
+			}
+		})
+	}
+}
+
+func TestMappingJSONListsOwnOutput(t *testing.T) {
+	input := sample()
+	input.Tags = []byte(`["parcel"]`)
+	first, err := mapping.Shipment(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := mapping.Shipment(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range input.Tags {
+		input.Tags[i] = 'x'
+	}
+	first.Tags[0] = "changed"
+	if second.Tags[0] != "parcel" {
+		t.Fatal("JSON list retains shared memory")
 	}
 }

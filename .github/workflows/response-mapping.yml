@@ -58,7 +58,8 @@ jobs:
                       'TestGoModelsRejectBeforeGeneration', 'TestGoModelsRejectChangedDeclaration',
                       'TestGoModelContextCopies', 'TestGoModelDeclarationMatchesGeneratedStorage',
                       'TestResponseMappingRejectsInvalidContracts', 'TestResponseMappingOrderIsStable',
-                      'TestGeneratedResponseMappings'}
+                      'TestGeneratedResponseMappings', 'TestResponseMappingJSONLimits',
+                      'TestResponseMappingJSONHelperIsConditional', 'TestResponseMappingJSONBounds'}
           passed = {e.get('Test') for e in events if e.get('Action') == 'pass'}
           assert required <= passed
           nested = []
@@ -69,7 +70,9 @@ jobs:
                       nested.append(json.loads(line))
           assert not any(e.get('Action') in ('fail', 'skip') for e in nested)
           required = {'TestMappingPreservesContract', 'TestMappingOwnsOutputAndPreservesAbsence',
-                      'TestMappingRejectsInvalidValuesWithoutPartialOutput', 'TestMappingAcceptsNumericAndTimeBounds'}
+                      'TestMappingRejectsInvalidValuesWithoutPartialOutput', 'TestMappingAcceptsNumericAndTimeBounds',
+                      'TestMappingJSONListsPreserveValues', 'TestMappingJSONListsRejectInvalidInput',
+                      'TestMappingJSONListsOwnOutput'}
           for namespace in ['grpcapi', 'rpc/provider']:
               package = 'example.com/mapping-test/out/' + namespace + '/mapping'
               passed = {e.get('Test') for e in nested if e.get('Action') == 'pass' and e.get('Package') == package}

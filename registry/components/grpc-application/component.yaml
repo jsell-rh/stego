@@ -1,6 +1,6 @@
 kind: component
 name: grpc-application
-version: 1.14.0
+version: 1.15.0
 output_namespace: grpcapi
 config:
   response_mappings:
@@ -30,6 +30,15 @@ config:
             optional: true
           conversion:
             type: string
+            optional: true
+          max_bytes:
+            type: int
+            optional: true
+          max_items:
+            type: int
+            optional: true
+          max_item_bytes:
+            type: int
             optional: true
           omit:
             type: bool

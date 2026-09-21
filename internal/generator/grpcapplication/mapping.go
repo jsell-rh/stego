@@ -28,6 +28,11 @@ type mappedField struct {
 	constant   *string
 	prefix     string
 	conversion string
+	jsonLimits *jsonStringLimits
+}
+
+type jsonStringLimits struct {
+	bytes, items, itemBytes int
 }
 
 // responseMappings checks the complete public shape before any file is rendered.
@@ -96,7 +101,7 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 				return nil, fmt.Errorf("response mapping %q has an invalid or duplicate target", name)
 			}
 			for k := range rule {
-				if k != "target" && k != "source" && k != "constant" && k != "prefix" && k != "omit" && k != "conversion" {
+				if k != "target" && k != "source" && k != "constant" && k != "prefix" && k != "omit" && k != "conversion" && k != "max_bytes" && k != "max_items" && k != "max_item_bytes" {
 					return nil, fmt.Errorf("response mapping %q has an unknown field option", name)
 				}
 			}
@@ -105,6 +110,9 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 		remaining := 512
 		mapped, err := mapMessage(target, "", model.Fields, rules, 0, &remaining)
 		if err != nil {
+			return nil, fmt.Errorf("response mapping %q: %w", name, err)
+		}
+		if err := checkJSONMappingBudget(mapped); err != nil {
 			return nil, fmt.Errorf("response mapping %q: %w", name, err)
 		}
 		if len(rules) != 0 {
@@ -137,6 +145,14 @@ func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelF
 				continue
 			}
 		}
+		if target.Desc.IsList() && target.Desc.Kind() == protoreflect.StringKind && present {
+			mapped, err := mapJSONStrings(target, rule, sources)
+			if err != nil {
+				return nil, fmt.Errorf("field %q: %w", key, err)
+			}
+			result = append(result, mapped)
+			continue
+		}
 		if target.Desc.IsList() || target.Desc.IsMap() || target.Oneof != nil && !target.Oneof.Desc.IsSynthetic() {
 			return nil, fmt.Errorf("field %q requires an explicit omission; this shape is not supported", key)
 		}
@@ -165,6 +181,11 @@ func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelF
 
 func mapScalar(target *protogen.Field, rule map[string]any, sources []gen.GoModelField) (mappedField, error) {
 	result := mappedField{target: target}
+	for _, option := range []string{"max_bytes", "max_items", "max_item_bytes"} {
+		if _, exists := rule[option]; exists {
+			return result, fmt.Errorf("JSON limits require json_strings conversion")
+		}
+	}
 	if value, exists := rule["constant"]; exists {
 		text, ok := value.(string)
 		if !ok || len(rule) != 2 || len(text) > 4096 || !utf8.ValidString(text) || target.Desc.Kind() != protoreflect.StringKind {
@@ -219,6 +240,74 @@ func mapScalar(target *protogen.Field, rule map[string]any, sources []gen.GoMode
 	return result, nil
 }
 
+// mapJSONStrings requires explicit allocation bounds and an exact source type.
+func mapJSONStrings(target *protogen.Field, rule map[string]any, sources []gen.GoModelField) (mappedField, error) {
+	result := mappedField{target: target}
+	if len(rule) != 6 || rule["conversion"] != "json_strings" {
+		return result, fmt.Errorf("string list requires json_strings and three limits")
+	}
+	name, ok := rule["source"].(string)
+	if !ok {
+		return result, fmt.Errorf("JSON source field is required")
+	}
+	for _, source := range sources {
+		if source.Name == name {
+			result.source = source
+		}
+	}
+	if result.source.Type != types.FieldTypeJsonb || result.source.Pointer || !token.IsExported(result.source.Selection) {
+		return result, fmt.Errorf("json_strings requires a JSON source")
+	}
+	bytes, b := rule["max_bytes"].(int)
+	items, i := rule["max_items"].(int)
+	itemBytes, c := rule["max_item_bytes"].(int)
+	if !b || !i || !c || bytes < 1 || bytes > 16<<20 || items < 1 || items > 65536 || itemBytes < 1 || itemBytes > bytes {
+		return result, fmt.Errorf("json_strings limits are invalid")
+	}
+	result.jsonLimits = &jsonStringLimits{bytes, items, itemBytes}
+	return result, nil
+}
+
+// Bound the complete JSON work even when several output fields use one source.
+func checkJSONMappingBudget(fields []mappedField) error {
+	remainingBytes, remainingItems := 16<<20, 65536
+	var check func([]mappedField) error
+	check = func(list []mappedField) error {
+		for _, field := range list {
+			if limits := field.jsonLimits; limits != nil {
+				if limits.bytes > remainingBytes || limits.items > remainingItems {
+					return fmt.Errorf("combined JSON limits exceed the mapping budget")
+				}
+				remainingBytes -= limits.bytes
+				remainingItems -= limits.items
+			}
+			if err := check(field.children); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return check(fields)
+}
+
+func hasJSONMappings(mappings []responseMapping) bool {
+	var check func([]mappedField) bool
+	check = func(fields []mappedField) bool {
+		for _, f := range fields {
+			if f.jsonLimits != nil || check(f.children) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, m := range mappings {
+		if check(m.fields) {
+			return true
+		}
+	}
+	return false
+}
+
 func renderResponseMappings(ctx gen.Context, plugin *protogen.Plugin, mappings []responseMapping) (*gen.File, error) {
 	if len(mappings) == 0 {
 		return nil, nil
@@ -253,6 +342,10 @@ func renderMappedFields(g *protogen.GeneratedFile, ctx gen.Context, fields []map
 		if field.target.Message != nil && field.target.Message.Desc.FullName() != "google.protobuf.Timestamp" {
 			g.P(destination, " = &", field.target.Message.GoIdent, "{}")
 			renderMappedFields(g, ctx, field.children, destination)
+		} else if field.jsonLimits != nil {
+			g.P("converted, err := jsonStrings(value.", field.source.Selection, ", ", field.jsonLimits.bytes, ", ", field.jsonLimits.items, ", ", field.jsonLimits.itemBytes, ")")
+			g.P("if err != nil { return nil, ErrConversion }")
+			g.P(destination, " = converted")
 		} else if field.constant != nil {
 			g.P("converted := ", strconv.Quote(*field.constant))
 			renderAssignment(g, destination, field.target.Desc.HasPresence(), "converted")

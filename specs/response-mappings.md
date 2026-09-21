@@ -73,9 +73,10 @@ These are compiler input bounds, not Gateway or service account limits.
 
 ## Current limits
 
-Repeated values, maps, real oneof fields, and protobuf enums require an explicit
-omission. Stored JSON conversion and application-derived parameters are not yet
-supported. A mapper does not provide REST conversion or public error mapping.
+Repeated string values can use the explicit JSON conversion below. Other
+repeated values, maps, real oneof fields, and protobuf enums require an explicit
+omission. Other stored JSON conversions and application-derived parameters are
+not yet supported. A mapper does not provide REST conversion or public error mapping.
 Do not use an omission to hide a required application response field.
 
 Model providers must describe the Go types they emit. They may expose scalar
@@ -112,3 +113,34 @@ module files, 421 output hashes, and 41 input hashes. The patch was empty.
 See the [candidate evidence](catalog-mapping-candidate-evidence.json). Full
 application checks, signed image review, and the complete live workflow are
 still required. The candidate has not been promoted to Hypershell main.
+
+## Bounded JSON string lists
+
+The next compiler candidate adds `json_strings` for a JSON model field and a
+repeated protobuf string field. It is not yet released or accepted by Hypershell.
+
+```yaml
+- target: tags
+  source: tags
+  conversion: json_strings
+  max_bytes: 4096
+  max_items: 32
+  max_item_bytes: 128
+```
+
+All three limits are required positive integers. `max_bytes` limits the encoded
+JSON before decoding. `max_items` limits the list length. `max_item_bytes` limits
+each decoded UTF-8 string and cannot exceed `max_bytes`. The compiler permits at
+most 16 MiB of combined JSON input and 65,536 combined items per mapping. These
+are conversion bounds; they do not limit the number of application resources.
+
+An absent or zero-length source and JSON `null` produce a nil list. JSON `[]`
+produces an empty list. Order, duplicate strings, empty strings, valid Unicode,
+and valid escapes are preserved. Each output owns its list and string data.
+
+The converter rejects other JSON shapes, null list members, malformed input,
+trailing values, invalid UTF-8, and unpaired UTF-16 surrogate escapes. It returns
+a nil response and the same fixed conversion error used by scalar mappings.
+The converter does not validate DNS names, select observations, or grant access.
+Applications retain those rules. CI must verify the generated implementation
+before this candidate can be released.

@@ -21,7 +21,7 @@ message Metadata {string id=1; string kind=2; string href=3; google.protobuf.Tim
 message Shipment {
  Metadata metadata=1; optional string name=2; int32 count=3; bool enabled=4;
  bytes content=5; google.protobuf.Timestamp recorded_at=6; optional string reset=7;
- repeated string internal_tags=8; float score=9; double total=10; optional int32 limit=11;
+ repeated string internal_tags=8; float score=9; double total=10; optional int32 limit=11; repeated string tags=12;
 }
 `
 
@@ -36,6 +36,7 @@ func shipmentContext(t *testing.T) gen.Context {
 			{Name: "recorded_at", Type: types.FieldTypeTimestamp, Optional: true}, {Name: "reset", Type: types.FieldTypeString},
 			{Name: "score", Type: types.FieldTypeFloat}, {Name: "total", Type: types.FieldTypeDouble},
 			{Name: "limit", Type: types.FieldTypeInt64, Optional: true},
+			{Name: "tags", Type: types.FieldTypeJsonb, Optional: true},
 		}}}, Inputs: map[string][]byte{"api.proto": []byte(shipmentProto)}}
 	models, err := new(postgresadapter.Generator).GoModels(ctx)
 	if err != nil {
@@ -60,6 +61,7 @@ func shipmentContext(t *testing.T) gen.Context {
 			map[string]any{"target": "score", "source": "score"},
 			map[string]any{"target": "total", "source": "total"},
 			map[string]any{"target": "limit", "source": "limit", "conversion": "int32"},
+			map[string]any{"target": "tags", "source": "tags", "conversion": "json_strings", "max_bytes": 64, "max_items": 3, "max_item_bytes": 16},
 		}}}}
 	return ctx
 }
@@ -195,7 +197,7 @@ func TestGeneratedResponseMappings(t *testing.T) {
 				}
 			}
 			for _, file := range files {
-				if strings.HasPrefix(file.Path, namespace+"/pb/") || file.Path == namespace+"/mapping/mappings.go" || file.Path == namespace+"/transport/conversion.go" || file.Path == "store/models.go" {
+				if strings.HasPrefix(file.Path, namespace+"/pb/") || strings.HasPrefix(file.Path, namespace+"/mapping/") || file.Path == namespace+"/transport/conversion.go" || file.Path == "store/models.go" {
 					write("out/"+file.Path, file.Bytes())
 				}
 			}
@@ -218,5 +220,113 @@ func TestGeneratedResponseMappings(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestResponseMappingJSONLimits(t *testing.T) {
+	for name, change := range map[string]func(gen.Context){
+		"combined byte budget": func(c gen.Context) {
+			mappingRule(c, "tags")["max_bytes"] = 16 << 20
+			replace := mappingRule(c, "internal_tags")
+			for k := range replace {
+				delete(replace, k)
+			}
+			for k, v := range mappingRule(c, "tags") {
+				replace[k] = v
+			}
+			replace["target"] = "internal_tags"
+		},
+		"combined item budget": func(c gen.Context) {
+			mappingRule(c, "tags")["max_items"] = 65536
+			replace := mappingRule(c, "internal_tags")
+			for k := range replace {
+				delete(replace, k)
+			}
+			for k, v := range mappingRule(c, "tags") {
+				replace[k] = v
+			}
+			replace["target"] = "internal_tags"
+		},
+		"missing bytes":      func(c gen.Context) { delete(mappingRule(c, "tags"), "max_bytes") },
+		"missing items":      func(c gen.Context) { delete(mappingRule(c, "tags"), "max_items") },
+		"missing item bytes": func(c gen.Context) { delete(mappingRule(c, "tags"), "max_item_bytes") },
+		"zero bytes":         func(c gen.Context) { mappingRule(c, "tags")["max_bytes"] = 0 },
+		"negative items":     func(c gen.Context) { mappingRule(c, "tags")["max_items"] = -1 },
+		"zero item bytes":    func(c gen.Context) { mappingRule(c, "tags")["max_item_bytes"] = 0 },
+		"byte ceiling":       func(c gen.Context) { mappingRule(c, "tags")["max_bytes"] = (16 << 20) + 1 },
+		"item ceiling":       func(c gen.Context) { mappingRule(c, "tags")["max_items"] = 65537 },
+		"item exceeds input": func(c gen.Context) { mappingRule(c, "tags")["max_item_bytes"] = 65 },
+		"float limit":        func(c gen.Context) { mappingRule(c, "tags")["max_bytes"] = 64.0 },
+		"string limit":       func(c gen.Context) { mappingRule(c, "tags")["max_bytes"] = "64" },
+		"missing conversion": func(c gen.Context) { delete(mappingRule(c, "tags"), "conversion") },
+		"wrong conversion":   func(c gen.Context) { mappingRule(c, "tags")["conversion"] = "int32" },
+		"wrong source":       func(c gen.Context) { mappingRule(c, "tags")["source"] = "content" },
+		"unknown source":     func(c gen.Context) { mappingRule(c, "tags")["source"] = "missing" },
+		"prefix":             func(c gen.Context) { mappingRule(c, "tags")["prefix"] = "tag:" },
+		"scalar limit":       func(c gen.Context) { mappingRule(c, "name")["max_bytes"] = 64 },
+		"wrong list type": func(c gen.Context) {
+			c.Inputs["api.proto"] = []byte(strings.Replace(shipmentProto, "repeated string tags", "repeated bytes tags", 1))
+		},
+		"scalar target": func(c gen.Context) {
+			c.Inputs["api.proto"] = []byte(strings.Replace(shipmentProto, "repeated string tags", "string tags", 1))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := shipmentContext(t)
+			change(ctx)
+			g := new(grpcapplication.Generator)
+			if g.ValidateContext(ctx) == nil {
+				t.Fatal("invalid JSON declaration passed preflight")
+			}
+			files, wiring, err := g.Generate(ctx)
+			if err == nil || len(files) != 0 || wiring != nil {
+				t.Fatal("invalid JSON declaration produced output", err)
+			}
+		})
+	}
+}
+
+func TestResponseMappingJSONHelperIsConditional(t *testing.T) {
+	ctx := shipmentContext(t)
+	rule := mappingRule(ctx, "tags")
+	for key := range rule {
+		if key != "target" {
+			delete(rule, key)
+		}
+	}
+	rule["omit"] = true
+	files, _, err := new(grpcapplication.Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file.Path, "/mapping/json_strings.go") {
+			t.Fatal("unused JSON helper was generated")
+		}
+	}
+}
+
+func TestResponseMappingJSONBounds(t *testing.T) {
+	ctx := shipmentContext(t)
+	rule := mappingRule(ctx, "tags")
+	rule["max_bytes"] = 16 << 20
+	rule["max_items"] = 65536
+	rule["max_item_bytes"] = 16 << 20
+	g := new(grpcapplication.Generator)
+	if err := g.ValidateContext(ctx); err != nil {
+		t.Fatal("exact JSON declaration bound rejected", err)
+	}
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range files {
+		if strings.HasSuffix(f.Path, "/mapping/json_strings.go") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("JSON converter is missing")
 	}
 }
