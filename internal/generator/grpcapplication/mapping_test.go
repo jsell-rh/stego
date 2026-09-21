@@ -2,10 +2,13 @@ package grpcapplication_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -176,7 +179,7 @@ func TestGeneratedResponseMappings(t *testing.T) {
 			}
 			ctx.OutputNamespace = "store"
 			ctx.ComponentConfig = nil
-			storage, _, err := new(postgresadapter.Generator).Generate(ctx)
+			storage, storageWiring, err := new(postgresadapter.Generator).Generate(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,7 +209,30 @@ func TestGeneratedResponseMappings(t *testing.T) {
 				t.Fatal(err)
 			}
 			write("out/"+namespace+"/mapping/mappings_test.go", []byte(strings.ReplaceAll(string(data), "MAPPING_NAMESPACE", namespace)))
-			write("go.mod", []byte(fmt.Sprintf("module example.com/mapping-test\ngo %s\nrequire (\ngoogle.golang.org/protobuf v1.36.11\ngorm.io/gorm v1.25.12\n)\n", new(grpcapplication.Generator).MinimumGoVersion())))
+			if storageWiring == nil {
+				t.Fatal("storage dependency declaration is missing")
+			}
+			modules := map[string]string{"google.golang.org/protobuf": "v1.36.11"}
+			for name, version := range storageWiring.GoModRequires {
+				modules[name] = version
+			}
+			for _, name := range []string{"gorm.io/gorm", "gorm.io/datatypes"} {
+				if modules[name] == "" {
+					t.Fatal("storage dependency version is missing", name)
+				}
+			}
+			names := make([]string, 0, len(modules))
+			for name := range modules {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			var moduleFile strings.Builder
+			fmt.Fprintf(&moduleFile, "module example.com/mapping-test\ngo %s\nrequire (\n", new(grpcapplication.Generator).MinimumGoVersion())
+			for _, name := range names {
+				fmt.Fprintf(&moduleFile, "%s %s\n", name, modules[name])
+			}
+			moduleFile.WriteString(")\n")
+			write("go.mod", []byte(moduleFile.String()))
 			for _, args := range [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-json", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/" + namespace + "/mapping"}} {
 				command := exec.Command("go", args...)
 				command.Dir = project
@@ -214,6 +240,9 @@ func TestGeneratedResponseMappings(t *testing.T) {
 				output, err := command.CombinedOutput()
 				if err != nil {
 					t.Fatalf("generated mapping: %v\n%s", err, output)
+				}
+				if args[0] == "mod" {
+					checkMappingFixtureModules(t, project, modules)
 				}
 				if args[0] == "test" {
 					t.Logf("%s", output)
@@ -328,5 +357,41 @@ func TestResponseMappingJSONBounds(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("JSON converter is missing")
+	}
+}
+
+// Verify the selected modules after tidy. A newer transitive requirement must
+// not change the runtime versions that this generated fixture claims to test.
+func checkMappingFixtureModules(t *testing.T, project string, versions map[string]string) {
+	t.Helper()
+	required := map[string]bool{"google.golang.org/protobuf": true, "gorm.io/gorm": true, "gorm.io/datatypes": true}
+	command := exec.Command("go", "list", "-mod=readonly", "-m", "-json", "google.golang.org/protobuf", "gorm.io/gorm", "gorm.io/datatypes")
+	command.Dir = project
+	command.Env = append(os.Environ(), "GOWORK=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture module selection: %v\n%s", err, output)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for {
+		var module struct {
+			Path, Version string
+			Replace       json.RawMessage
+		}
+		err := decoder.Decode(&module)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !required[module.Path] || module.Version != versions[module.Path] || len(module.Replace) != 0 {
+			t.Fatal("fixture selected an undeclared runtime version", module.Path, module.Version)
+		}
+		delete(required, module.Path)
+		t.Logf("fixture module %s %s", module.Path, module.Version)
+	}
+	if len(required) != 0 {
+		t.Fatal("fixture module selection is incomplete")
 	}
 }
