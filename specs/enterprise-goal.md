@@ -58,8 +58,18 @@ See the [consumer evidence](checked-timestamp-consumer-evidence.json).
 Normal cleanup with 100 accounts took an observed 30.84 seconds. The 30-second
 target remains open. The test-only restart change uses the existing queue lease
 recovery bound before the unchanged event read. It does not change production
-timeouts or explain the historical event failure. Main push checks are pending;
-these candidate and workflow results do not claim an exact main check pass.
+timeouts or explain the historical event failure. Exact main checks at
+`52001546` also passed: 1,294 core cases, 100 focused timestamp cases, five
+restart cases, 11 provider test roots, seven image checks, regeneration, and all
+52 live API tests. API cleanup released the Lease and preserved all 32 standing
+resources. Hypershell main `8968fa09` adds the result records. See the
+[main evidence](checked-timestamp-main-consumer-evidence.json).
+
+The queue claim candidate uses compiler `65b18de8`. Its released common queue
+returns no partial batch if row iteration fails. Existing leases still expire
+under the same recovery rules. The candidate remains separate from the accepted
+application until its full and live workflow checks pass. It does not explain
+the earlier event timeout.
 
 ## Accepted workload dependency baseline
 

@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "consumer_source": "52001546a0d29dccdbe6e6ba04808a5c6b68f488",
+  "consumer_evidence_commit": "8968fa0911b3ffa1b67ba43cd7d423217164599f",
+  "compiler": "f18286e8cbe6d1b1e489015a8965e403cd09046f",
+  "core_cases_passed": 1294,
+  "focused_cases_passed": 100,
+  "restart_cases_passed": 5,
+  "provider_roots_passed": 11,
+  "authenticated_images": 7,
+  "live_api_required_tests_passed": 52,
+  "regeneration_files_checked": 429,
+  "records": {
+    "hosted": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/8968fa0911b3ffa1b67ba43cd7d423217164599f/acceptance/checked-timestamp-main-hosted-evidence.json",
+      "sha256": "b25ab1458568c408c64de3ed830cdc301def55df5674101ed34a45bc92bc3a26"
+    },
+    "api": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/8968fa0911b3ffa1b67ba43cd7d423217164599f/acceptance/checked-timestamp-main-api-evidence.json",
+      "sha256": "c7563660af101e316f0f2c854664bd59528971a53cfb816f5109ed01a883b9fd"
+    },
+    "regeneration": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/8968fa0911b3ffa1b67ba43cd7d423217164599f/acceptance/checked-timestamp-main-regeneration-evidence.json",
+      "sha256": "4288e5cb89e51e0ce7eae144c562f4ff7b85b967182c5406260e300a07af4f02"
+    },
+    "focused": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/8968fa0911b3ffa1b67ba43cd7d423217164599f/acceptance/checked-timestamp-main-focused-evidence.json",
+      "sha256": "c1f280a7aa5071d4e9326a731b0d29c07573f8daafff03617efff273d39dfd4c"
+    }
+  },
+  "scope": "Exact main results after checked timestamp adoption. Later consumer commits contain only result records. The separate queue claim candidate still requires full application and live workflow qualification. Capacity, the cleanup target, and live Kata behavior remain open."
+}
