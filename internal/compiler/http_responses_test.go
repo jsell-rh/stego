@@ -13,6 +13,12 @@ import (
 
 func TestHTTPResponseMappingsGateOutput(t *testing.T) {
 	input := applicationPreflightInput(t, new(httpapplication.Generator), "domain")
+	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
+	archetype, err := os.ReadFile(archetypePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, archetypePath, strings.Replace(string(archetype), "  storage-adapter: stub-store", "  storage-adapter: stub-store\n  auth-provider: jwt-auth", 1))
 	metadata, err := os.ReadFile("../../registry/components/http-application/component.yaml")
 	if err != nil {
 		t.Fatal(err)
