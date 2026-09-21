@@ -1,6 +1,6 @@
 kind: component
 name: http-application
-version: 1.10.0
+version: 1.11.0
 output_namespace: application
 config:
   factory_package:
@@ -22,12 +22,26 @@ config:
         type: string
       schema:
         type: string
+      inputs:
+        type: list
+        optional: true
+        items:
+          name:
+            type: string
+          type:
+            type: string
+          optional:
+            type: bool
+            optional: true
       fields:
         type: list
         items:
           target:
             type: string
           source:
+            type: string
+            optional: true
+          input:
             type: string
             optional: true
           constant:

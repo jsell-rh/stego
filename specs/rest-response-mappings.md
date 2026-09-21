@@ -123,3 +123,40 @@ REST runtime checks, and shared-decoder output checks. CI must prove these
 checks before release. Gateway adoption still needs typed application inputs
 for domain values such as the creator name. The scalar catalog workflow uses
 its frozen compiler and source while this candidate is checked.
+
+## Candidate: typed application inputs
+
+A mapping can declare `inputs` for values that the application must resolve.
+STEGO generates a `<MappingName>Input` structure and a second function argument.
+Mappings without `inputs` keep their existing function signature and output.
+The application still checks access, selects current observations, and resolves
+names before it calls the mapper. Generated code does not perform lookups.
+
+Each input has an exported Go field name and a fixed type: `string`, `bool`,
+`int32`, `int64`, `float`, `double`, `timestamp`, or `jsonb`. Scalar fields can
+set `optional: true` to use a pointer. JSON fields use a byte slice and cannot
+request a pointer. Declarations cannot select an import, callback, or Go
+expression. Each declaration must have a mapping. The compiler rejects input
+names that conflict, unused inputs, unknown types, and ambiguous source rules.
+
+Example additions to a response mapping:
+
+```yaml
+inputs:
+  - {name: Creator, type: string}
+fields:
+  # Other response fields must also have mapping rules.
+  - {target: created_by, input: Creator, omit_empty: true}
+```
+
+An `input` rule selects the declared input instead of a provider field. It uses
+the same type, presence, numeric, timestamp, and encoding checks as a `source`
+rule. It can use the bounded JSON string-list conversion. A rule cannot combine
+`input` with `source`, `constant`, or `omit`. Each result owns its pointer and
+list storage. A conversion error returns no response and no supplied value.
+
+This compiler candidate has no application acceptance yet. Required checks
+include compiler rejection before output, unchanged mappings without inputs,
+deterministic input order, prepared values distinct from stored values, and
+ownership after source mutation. Gateway adoption and the full live workflow
+remain required.

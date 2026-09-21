@@ -24,6 +24,7 @@ type responsePlan struct {
 type responseMapping struct {
 	name, importPath, model, target string
 	fields                          []responseField
+	inputs                          []gen.GoModelField
 }
 
 type responseField struct {
@@ -34,6 +35,7 @@ type responseField struct {
 	conversion string
 	omitEmpty  bool
 	jsonLimits *responseJSONLimits
+	input      bool
 }
 
 type responseJSONLimits struct{ bytes, items, itemBytes int }
@@ -77,8 +79,13 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 	seen := map[string]bool{}
 	for _, value := range items {
 		item, ok := value.(map[string]any)
-		if !ok || len(item) != 5 {
+		if !ok || (len(item) != 5 && len(item) != 6) {
 			return nil, fmt.Errorf("HTTP response mapping requires name, provider, model, schema, and fields")
+		}
+		for key := range item {
+			if key != "name" && key != "provider" && key != "model" && key != "schema" && key != "fields" && key != "inputs" {
+				return nil, fmt.Errorf("unknown HTTP response mapping option")
+			}
 		}
 		schema, ok := item["schema"].(string)
 		if !ok || schema == "" {
@@ -126,6 +133,18 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 		}
 		object := objects[item["schema"].(string)]
 		mapping := responseMapping{name: name, importPath: source.ImportPath, model: model.GoType, target: object.GoType}
+		if raw, exists := item["inputs"]; exists {
+			mapping.inputs, err = responseInputs(raw)
+			if err != nil {
+				return nil, err
+			}
+			if names[name+"Input"] {
+				return nil, fmt.Errorf("HTTP response input type conflicts with a mapping name")
+			}
+			names[name+"Input"] = true
+		}
+		usedInputs := map[string]bool{}
+
 		rules := map[string]map[string]any{}
 		for _, value := range fields {
 			rule, ok := value.(map[string]any)
@@ -150,11 +169,17 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 				}
 				continue
 			}
-			field, err := bindResponseField(target, model.Fields, rule)
+			field, err := bindPreparedResponseField(target, model.Fields, mapping.inputs, rule)
 			if err != nil {
 				return nil, fmt.Errorf("HTTP response property %q: %w", target.JSONName, err)
 			}
+			if field.input {
+				usedInputs[field.source.Name] = true
+			}
 			mapping.fields = append(mapping.fields, field)
+		}
+		if len(usedInputs) != len(mapping.inputs) {
+			return nil, fmt.Errorf("HTTP response input has no mapping")
 		}
 		remainingBytes, remainingItems := 16<<20, 65536
 		for _, field := range mapping.fields {
@@ -261,18 +286,38 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 			alias = fmt.Sprintf("model%d", len(providers))
 			providers[mapping.importPath], imports[alias] = alias, mapping.importPath
 		}
-		fmt.Fprintf(&body, "// %s converts a prepared value after the caller checks access.\nfunc %s(value %s.%s) (*contract.%s,error) {\nresult := &contract.%s{}\n", mapping.name, mapping.name, alias, mapping.model, mapping.target, mapping.target)
+		inputArgument := ""
+		if len(mapping.inputs) != 0 {
+			fmt.Fprintf(&body, "// %sInput contains values prepared by the application.\ntype %sInput struct {\n", mapping.name, mapping.name)
+			for _, field := range mapping.inputs {
+				fieldType := responseInputTypes[field.Type]
+				if field.Type == types.FieldTypeTimestamp {
+					imports["time"] = "time"
+				}
+				if field.Pointer {
+					fieldType = "*" + fieldType
+				}
+				fmt.Fprintf(&body, "%s %s\n", field.Selection, fieldType)
+			}
+			body.WriteString("}\n")
+			inputArgument = ",input " + mapping.name + "Input"
+		}
+		fmt.Fprintf(&body, "// %s converts a prepared value after the caller checks access.\nfunc %s(value %s.%s%s) (*contract.%s,error) {\nresult := &contract.%s{}\n", mapping.name, mapping.name, alias, mapping.model, inputArgument, mapping.target, mapping.target)
 		for _, field := range mapping.fields {
 			body.WriteString("{\n")
+			receiver := "value"
+			if field.input {
+				receiver = "input"
+			}
 			if field.jsonLimits != nil {
 				limits := field.jsonLimits
-				fmt.Fprintf(&body, "v,err := jsonStrings(value.%s,%d,%d,%d)\nif err != nil {return nil,ErrConversion}\nif v == nil {v = make([]string,0)}\n", field.source.Selection, limits.bytes, limits.items, limits.itemBytes)
+				fmt.Fprintf(&body, "v,err := jsonStrings(%s.%s,%d,%d,%d)\nif err != nil {return nil,ErrConversion}\nif v == nil {v = make([]string,0)}\n", receiver, field.source.Selection, limits.bytes, limits.items, limits.itemBytes)
 			} else if field.constant != nil {
 				fmt.Fprintf(&body, "v := %s\n", strconv.Quote(*field.constant))
 			} else if field.source.Pointer {
-				fmt.Fprintf(&body, "if value.%s != nil {\nv := *value.%s\n", field.source.Selection, field.source.Selection)
+				fmt.Fprintf(&body, "if %s.%s != nil {\nv := *%s.%s\n", receiver, field.source.Selection, receiver, field.source.Selection)
 			} else {
-				fmt.Fprintf(&body, "v := value.%s\n", field.source.Selection)
+				fmt.Fprintf(&body, "v := %s.%s\n", receiver, field.source.Selection)
 			}
 			if field.omitEmpty {
 				if field.jsonLimits != nil {

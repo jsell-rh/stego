@@ -11,11 +11,17 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
-func TestHTTPResponseMappingsGateOutput(t *testing.T) { testHTTPResponseMappingsGateOutput(t, false) }
-func TestHTTPResponseJSONMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true)
+func TestHTTPResponseMappingsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, false, false)
 }
-func testHTTPResponseMappingsGateOutput(t *testing.T, lists bool) {
+func TestHTTPResponseJSONMappingsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, true, false)
+}
+func TestHTTPResponsePreparedInputsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, true, true)
+}
+
+func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared bool) {
 	t.Helper()
 	input := applicationPreflightInput(t, new(httpapplication.Generator), "domain")
 	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
@@ -80,9 +86,35 @@ components:
 		}
 		writeFile(t, servicePath, string(current)+"          - {target: tags, source: tags, conversion: json_strings, max_bytes: 64, max_items: 3, max_item_bytes: 16}\n")
 	}
+	if prepared {
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed := strings.Replace(string(current), "        fields:", "        inputs:\n          - {name: Tags, type: jsonb}\n        fields:", 1)
+		changed = strings.Replace(changed, "target: tags, source: tags", "target: tags, input: Tags", 1)
+		writeFile(t, servicePath, changed)
+	}
 	writeFile(t, filepath.Join(input.ProjectDir, "responses.yaml"), schema)
 	if result, err := Validate(input); err != nil || result.HasErrors() {
 		t.Fatal("valid HTTP mapping rejected", result, err)
+	}
+	if prepared {
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, servicePath, strings.Replace(string(current), "input: Tags", "input: Missing", 1))
+		if result, err := Validate(input); err != nil || !result.HasErrors() {
+			t.Fatal("undeclared prepared input passed validation", result, err)
+		}
+		if plan, err := Reconcile(input); err == nil || plan != nil {
+			t.Fatal("undeclared prepared input produced output", plan, err)
+		}
+		if probe.renders != 0 {
+			t.Fatal("prepared input validation ran after provider generation")
+		}
+		writeFile(t, servicePath, string(current))
 	}
 	if lists {
 		current, err := os.ReadFile(servicePath)
