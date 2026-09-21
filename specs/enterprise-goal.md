@@ -268,6 +268,9 @@ a narrower passing check cannot close a broader requirement.
 The initial capacity targets are 100 Gateways per instance, 100 service accounts
 per Gateway, and complete Gateway cleanup within 30 seconds after HTTP 202 with
 healthy dependencies. These are targets, not admission or compiler limits.
+The [cleanup timing review](cleanup-latency-review-20260921.md) records two
+complete 100-account samples and the additional observations needed before a
+latency change.
 Larger installations can have thousands of Gateways. Account-only fixtures do
 not establish whole-Gateway behavior or production capacity.
 

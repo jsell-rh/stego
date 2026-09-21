@@ -1,0 +1,290 @@
+{
+  "samples": [
+    {
+      "source": "e0f3d7bb9ae93666e9a1381137a57df57a0416f8",
+      "run": 35544262375,
+      "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35544262375",
+      "whole_cleanup_observed_upper_bound_seconds": 32.963020274,
+      "live_accounts": 100,
+      "completion_observations": {
+        "account_cleanup_recorded": {
+          "last_pending_observed_seconds": 5.233333586,
+          "first_complete_after_last_pending_seconds": 6.28764,
+          "observed_regressions": 0
+        },
+        "account_proof_complete": {
+          "first_complete_after_last_pending_seconds": 32.96301408,
+          "observed_regressions": 0
+        },
+        "all_cleanup_recorded": {
+          "last_pending_observed_seconds": 30.805664471,
+          "first_complete_after_last_pending_seconds": 31.832014814,
+          "observed_regressions": 0
+        },
+        "allocation_bindings_absent": {
+          "first_complete_after_last_pending_seconds": 31.8512929,
+          "observed_regressions": 0
+        },
+        "allocation_cleanup_recorded": {
+          "last_pending_observed_seconds": 30.805663461,
+          "first_complete_after_last_pending_seconds": 31.832013804,
+          "observed_regressions": 0
+        },
+        "console_state_namespace_absent": {
+          "last_pending_observed_seconds": 29.737745525,
+          "first_complete_after_last_pending_seconds": 30.787048888,
+          "observed_regressions": 0
+        },
+        "gateway_finalized": {
+          "last_pending_observed_seconds": 30.805664036,
+          "first_complete_after_last_pending_seconds": 31.832014317,
+          "observed_regressions": 0
+        },
+        "gateway_namespace_absent": {
+          "last_pending_observed_seconds": 12.563493742,
+          "first_complete_after_last_pending_seconds": 13.622304143000001,
+          "observed_regressions": 0
+        },
+        "gateway_state_namespace_absent": {
+          "last_pending_observed_seconds": 28.609145651,
+          "first_complete_after_last_pending_seconds": 29.722453564,
+          "observed_regressions": 0
+        },
+        "identity_cleanup_recorded": {
+          "last_pending_observed_seconds": 0.048475366,
+          "first_complete_after_last_pending_seconds": 1.083286131,
+          "observed_regressions": 0
+        },
+        "owner_http_404": {
+          "first_complete_after_last_pending_seconds": 31.927353865,
+          "observed_regressions": 0
+        },
+        "sandbox_namespace_absent": {
+          "last_pending_observed_seconds": 18.939407127,
+          "first_complete_after_last_pending_seconds": 20.022674458,
+          "observed_regressions": 0
+        },
+        "sql_cleanup_recorded": {
+          "last_pending_observed_seconds": 20.023068366,
+          "first_complete_after_last_pending_seconds": 21.167411532,
+          "observed_regressions": 0
+        },
+        "sql_objects_absent": {
+          "first_complete_after_last_pending_seconds": 31.892220658,
+          "observed_regressions": 0
+        },
+        "workload_cleanup_recorded": {
+          "last_pending_observed_seconds": 20.023067958,
+          "first_complete_after_last_pending_seconds": 21.167411065,
+          "observed_regressions": 0
+        }
+      },
+      "namespace_delete_observations": [
+        {
+          "name": "openshell-c13702fe9a329d88",
+          "uid": "ace88244-5e13-4861-9c5a-272af8fc8d91",
+          "deletion_requested_at": [
+            "2026-09-20T23:35:22Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-20T23:35:36.823244+00:00",
+            "read_finished_at": "2026-09-20T23:35:37.111088+00:00",
+            "request": 323
+          }
+        },
+        {
+          "name": "openshell-console-173e1e2ec13702fe9a329d8801a44b8b81ab009f",
+          "uid": "51883217-08a2-4e82-b881-573ec5dc658a",
+          "deletion_requested_at": [
+            "2026-09-20T23:35:43Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-20T23:35:53.254054+00:00",
+            "read_finished_at": "2026-09-20T23:35:53.719944+00:00",
+            "request": 330
+          }
+        },
+        {
+          "name": "openshell-sandbox-c13702fe9a329d88",
+          "uid": "f0185342-facb-48cd-9bb5-f137fa2361f1",
+          "deletion_requested_at": [
+            "2026-09-20T23:35:34Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-20T23:35:41.445935+00:00",
+            "read_finished_at": "2026-09-20T23:35:41.768513+00:00",
+            "request": 325
+          }
+        },
+        {
+          "name": "openshell-state-173e1e2ec13702fe9a329d8801a44b8b81ab009f",
+          "uid": "8f389054-ef1e-44ed-ad10-35663a9585ce",
+          "deletion_requested_at": [
+            "2026-09-20T23:35:43Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-20T23:35:50.878651+00:00",
+            "read_finished_at": "2026-09-20T23:35:51.253488+00:00",
+            "request": 329
+          }
+        }
+      ],
+      "proof_sha256": {
+        "qualification-current-gate-state.json": "878ba3737cc6bf283fd77ed1d432ce48ecda8f1ff8d375fc50979225162f0b9f",
+        "gateway-cleanup-timing.json": "5d80cdffa90d3ad05e0761aa49c29ec228ae51d92b716ccbc9394cdef0447051",
+        "namespace-deletion-observation-current-gate/cleanup-window-review.json": "fbb80f0c367ef562653db0458e77a65cf395fe8ecc640367c82b1349a56e36a0"
+      }
+    },
+    {
+      "source": "a1ad728d1712fe9503fee4287a40bf7be8c49240",
+      "run": 35546479170,
+      "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35546479170",
+      "whole_cleanup_observed_upper_bound_seconds": 32.690681239,
+      "live_accounts": 100,
+      "completion_observations": {
+        "account_cleanup_recorded": {
+          "last_pending_observed_seconds": 4.219881118,
+          "first_complete_after_last_pending_seconds": 5.238208813,
+          "observed_regressions": 0
+        },
+        "account_proof_complete": {
+          "first_complete_after_last_pending_seconds": 32.69067622,
+          "observed_regressions": 0
+        },
+        "all_cleanup_recorded": {
+          "last_pending_observed_seconds": 30.786642479,
+          "first_complete_after_last_pending_seconds": 31.879267232,
+          "observed_regressions": 0
+        },
+        "allocation_bindings_absent": {
+          "first_complete_after_last_pending_seconds": 31.924301477,
+          "observed_regressions": 0
+        },
+        "allocation_cleanup_recorded": {
+          "last_pending_observed_seconds": 30.786641572,
+          "first_complete_after_last_pending_seconds": 31.879266233,
+          "observed_regressions": 0
+        },
+        "console_state_namespace_absent": {
+          "last_pending_observed_seconds": 29.760302098,
+          "first_complete_after_last_pending_seconds": 30.780144525,
+          "observed_regressions": 0
+        },
+        "gateway_finalized": {
+          "last_pending_observed_seconds": 30.786642083,
+          "first_complete_after_last_pending_seconds": 31.879266793,
+          "observed_regressions": 0
+        },
+        "gateway_namespace_absent": {
+          "last_pending_observed_seconds": 12.489798323,
+          "first_complete_after_last_pending_seconds": 13.557930757,
+          "observed_regressions": 0
+        },
+        "gateway_state_namespace_absent": {
+          "last_pending_observed_seconds": 29.755383199,
+          "first_complete_after_last_pending_seconds": 30.77650489,
+          "observed_regressions": 0
+        },
+        "identity_cleanup_recorded": {
+          "last_pending_observed_seconds": 0.120088101,
+          "first_complete_after_last_pending_seconds": 1.153656789,
+          "observed_regressions": 0
+        },
+        "owner_http_404": {
+          "first_complete_after_last_pending_seconds": 32.198779274,
+          "observed_regressions": 0
+        },
+        "sandbox_namespace_absent": {
+          "last_pending_observed_seconds": 20.240114126,
+          "first_complete_after_last_pending_seconds": 21.324152161,
+          "observed_regressions": 0
+        },
+        "sql_cleanup_recorded": {
+          "last_pending_observed_seconds": 21.324609231,
+          "first_complete_after_last_pending_seconds": 22.351823132,
+          "observed_regressions": 0
+        },
+        "sql_objects_absent": {
+          "first_complete_after_last_pending_seconds": 32.099761193,
+          "observed_regressions": 0
+        },
+        "workload_cleanup_recorded": {
+          "last_pending_observed_seconds": 21.324608965,
+          "first_complete_after_last_pending_seconds": 22.351822869,
+          "observed_regressions": 0
+        }
+      },
+      "namespace_delete_observations": [
+        {
+          "name": "openshell-8ea3cb25004b88ac",
+          "uid": "ac9d36a4-2ab1-4bb6-8724-673ac7336057",
+          "deletion_requested_at": [
+            "2026-09-21T00:20:57Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-21T00:21:10.695965+00:00",
+            "read_finished_at": "2026-09-21T00:21:10.970998+00:00",
+            "request": 324
+          }
+        },
+        {
+          "name": "openshell-console-173e28dd8ea3cb25004b88ac60515f94585e8495",
+          "uid": "ac6c4ad3-67ed-4ddf-a349-7ac59b5db18e",
+          "deletion_requested_at": [
+            "2026-09-21T00:21:19Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-21T00:21:26.855618+00:00",
+            "read_finished_at": "2026-09-21T00:21:27.234039+00:00",
+            "request": 331
+          }
+        },
+        {
+          "name": "openshell-sandbox-8ea3cb25004b88ac",
+          "uid": "89f8f9f7-ec1d-4a7c-bf19-1c5eb3c8ad2f",
+          "deletion_requested_at": [
+            "2026-09-21T00:21:11Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-21T00:21:17.543210+00:00",
+            "read_finished_at": "2026-09-21T00:21:17.937913+00:00",
+            "request": 327
+          }
+        },
+        {
+          "name": "openshell-state-173e28dd8ea3cb25004b88ac60515f94585e8495",
+          "uid": "7c755bd0-8ff0-4f48-b747-268b4c01671e",
+          "deletion_requested_at": [
+            "2026-09-21T00:21:19Z"
+          ],
+          "first_absent_from_selection": {
+            "request_started_at": "2026-09-21T00:21:26.855618+00:00",
+            "read_finished_at": "2026-09-21T00:21:27.234039+00:00",
+            "request": 331
+          }
+        }
+      ],
+      "proof_sha256": {
+        "qualification-current-gate-state.json": "318ff0ede45c92d261bf826e4d8b1c218cfde194e751c9c86b5bdf2cfa3afe79",
+        "gateway-cleanup-timing.json": "698b7167303b574a0b514fdb8d5191922df126c291380e8ff8ef5b4321431aaa",
+        "namespace-deletion-observation-current-gate/cleanup-window-review.json": "6e53d7f0a1ddb74328749486b9dc56bad3000e76d8bf0abc282e575df4a7dd12"
+      }
+    }
+  ],
+  "same_cleanup_source_sha256": {
+    "internal/namespaceallocation/controller.go": "1fa1ca56a6105be76caa290d26e35618f12b5f6d2004053a6c3440389e795d55",
+    "out/deploy/allocation/allocation.go": "6ca53490cdaada71f58d9cc697be82bc1146b7ca435871cf77e1da246c3e5cca"
+  },
+  "target_seconds": 30,
+  "target_met_in_either_sample": false,
+  "production_capacity_proved": false,
+  "cause_inside_kubernetes_proved": false,
+  "source_comparison_sha256": "7ad1f710f4080359ebee90bdfc10aedf815a609a9a7818ce3b8d77c30211a438",
+  "limitations": [
+    "Two bounded workflow samples do not establish a production latency distribution.",
+    "Completion checks provide observation bounds.",
+    "Namespace reads have separate request windows.",
+    "Retained allocator logs can omit records and can include other work."
+  ],
+  "scope": "Cleanup timing review. No runtime behavior changed."
+}
