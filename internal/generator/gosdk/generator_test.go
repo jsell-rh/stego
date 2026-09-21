@@ -2,7 +2,9 @@ package gosdk
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -172,12 +174,39 @@ func testGeneratedSDK(t *testing.T, traced bool) {
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(mod.String()), 0644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-race", "-count=1", "-timeout=60s", "./..."}, {"vet", "./..."}} {
+	for _, args := range [][]string{{"mod", "tidy"}, {"test", "-json", "-race", "-count=1", "-timeout=60s", "./..."}, {"vet", "./..."}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOWORK=off")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("SDK compile and runtime: %v %s", err, output)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		output, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("SDK compile and runtime: %v %s %s", err, output, stderr.String())
+		}
+		if args[0] == "test" {
+			passed := map[string]bool{}
+			decoder := json.NewDecoder(bytes.NewReader(output))
+			for {
+				var event struct{ Action, Package, Test string }
+				if err := decoder.Decode(&event); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatal("invalid generated SDK test record:", err)
+				}
+				if event.Action == "fail" || event.Action == "skip" {
+					t.Fatal("generated SDK test did not pass:", event.Package, event.Test)
+				}
+				if event.Action == "pass" && event.Package == "example.com/sdkprobe/sdk" {
+					passed[event.Test] = true
+				}
+			}
+			for _, name := range []string{"", "TestHTTPSAndStatus", "TestNullableExchange"} {
+				if !passed[name] {
+					t.Fatal("missing generated SDK test result:", name)
+				}
+			}
+			t.Log("generated SDK passed HTTPS, status, and nullable exchange checks")
 		}
 	}
 }

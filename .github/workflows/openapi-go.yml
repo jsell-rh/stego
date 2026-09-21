@@ -59,7 +59,7 @@ jobs:
               },
               'internal/generator/gosdk': {
                   'TestInputBoundary', 'TestGeneratedSDK', 'TestCapturedReferenceNames',
-                  'TestGeneratedNameConflicts', 'TestNullableExchange',
+                  'TestGeneratedNameConflicts', 'TestGeneratedSDK/false', 'TestGeneratedSDK/true',
               },
           }
           for suffix, required in groups.items():
