@@ -3,7 +3,9 @@ package workload
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	kube "example.com/widget/kubernetes"
 	"reflect"
 	"strconv"
 	"strings"
@@ -138,5 +140,48 @@ func TestDependencyDataBoundsAndEmptyValues(t *testing.T) {
 	got, err := DependencyFromData("Secret", "widget", map[string]any{"binary": base64.StdEncoding.EncodeToString(raw)})
 	if err != nil || !bytes.Equal(got.Data["binary"], raw) {
 		t.Fatal("binary Secret data changed")
+	}
+}
+
+func TestWidgetDependencyDataUsesObservedMaps(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("private-database-value"))
+	var observed kube.Object
+	if err := json.Unmarshal([]byte(`{"metadata":{"resourceVersion":"1"},"data":{"uri":"`+encoded+`"}}`), &observed); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		object kube.Object
+		valid  bool
+	}{
+		{"desired", kube.Object{"data": kube.Object{"uri": encoded}}, true},
+		{"observed", observed, true},
+		{"missing", kube.Object{}, false},
+		{"wrong-type", kube.Object{"data": "private"}, false},
+		{"nil-map", kube.Object{"data": map[string]any(nil)}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := widget()
+			result, err := DependencyFromData("Secret", "widget-database", kube.NestedMap(tc.object, "data"))
+			if !tc.valid {
+				if err != ErrDeclaration || !reflect.DeepEqual(result, Dependency{}) {
+					t.Fatal("invalid observed data returned a dependency")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.Dependencies[0] = result
+			if !reflect.DeepEqual(render(t, widget()), render(t, d)) {
+				t.Fatal("observed map conversion changed construction")
+			}
+			tc.object["metadata"] = kube.Object{"resourceVersion": "2"}
+			repeated, err := DependencyFromData("Secret", "widget-database", kube.NestedMap(tc.object, "data"))
+			if err != nil || !reflect.DeepEqual(repeated, result) {
+				t.Fatal("API metadata changed the dependency")
+			}
+		})
 	}
 }

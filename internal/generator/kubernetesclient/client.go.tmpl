@@ -93,6 +93,14 @@ func Nested(o Object, keys ...string) any {
 	}
 	return value
 }
+// NestedMap reads either a decoded map or a generated Object at the path.
+// Missing values and other types return nil. The returned map is a view, as
+// with Nested; callers must not change it during observation or validation.
+func NestedMap(o Object, keys ...string) map[string]any {
+ value, _ := observationMap(Nested(o, keys...))
+ return value
+}
+
 func String(o Object, keys ...string) string { v, _ := Nested(o, keys...).(string); return v }
 
 // Owner supplies immutable identity labels selected by the application. The

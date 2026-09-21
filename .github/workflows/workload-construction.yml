@@ -56,7 +56,7 @@ jobs:
                   line = line.strip()
                   if line.startswith('{"Time":'):
                       nested.append(json.loads(line))
-          required = {'TestWidgetDependencyDataPreservesConstruction', 'TestDependencyDataRejectsInvalidInput', 'TestDependencyDataBoundsAndEmptyValues', 'TestWidgetDigestPinnedImageReferences', 'TestWidgetDeclarationUpdatesRemoveOldValues', 'TestMergePatchFixtureRules', 'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
+          required = {'TestWidgetDependencyDataUsesObservedMaps', 'TestWidgetDependencyDataPreservesConstruction', 'TestDependencyDataRejectsInvalidInput', 'TestDependencyDataBoundsAndEmptyValues', 'TestWidgetDigestPinnedImageReferences', 'TestWidgetDeclarationUpdatesRemoveOldValues', 'TestMergePatchFixtureRules', 'TestWidgetSecurityAndService', 'TestWidgetInputsAreNotAliased',
                       'TestWidgetMultipleContainersAndProfiles', 'TestWidgetDependencyRollout',
                       'TestWidgetOptionalFieldsSurviveAPISerialization',
                       'TestWidgetKubernetesAPIRoundTrip', 'TestWidgetQuantitiesMatchKubernetes',

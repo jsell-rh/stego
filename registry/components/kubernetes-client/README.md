@@ -18,6 +18,12 @@ prevent loss of integer precision. The application must check conversion errors
 when it reads integer fields. `Contains` ignores extra map fields, but preserves
 array order and length. Number comparisons use their exact JSON text.
 
+`NestedMap` reads a map at an explicit object path. It accepts both maps from
+JSON decoding and the generated `Object` type. Missing values and wrong types
+return nil. Like `Nested`, it returns a view of the object. It does not copy data
+or verify identity or ownership. Do not change the input during validation.
+The workload adapter can consume this view and then own the decoded byte slices.
+
 `DeleteOwned` reports completion only after the resource is absent. An accepted
 deletion does not mean that Kubernetes has removed the resource.
 
