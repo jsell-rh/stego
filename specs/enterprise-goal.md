@@ -463,3 +463,20 @@ compiler, generated runtime, example, database, signature, and installation
 checks. The catalog consumer and its complete candidate workflow are now
 accepted above. This release does not close H1 or H2. Gateway response mapping,
 REST mapping, stored JSON adoption, and domain view inputs remain open.
+
+
+## Bounded stored JSON conversion release
+
+Compiler `82439300` adds bounded JSON string-list conversion to the common
+protobuf mapper. Declarations require limits for encoded bytes, item count,
+and decoded item bytes. The compiler checks the combined mapping budget.
+The runtime rejects malformed input, invalid Unicode, and limit violations
+without a partial response or supplied error data. It contains no DNS policy.
+
+The independent Shipment fixture passed 104 runtime cases in two namespaces
+with the provider-declared dependencies. All 12 compiler test groups, 37 compiler
+packages, both generated examples, 34 timestamp cases, and database access
+checks passed. Signatures and a separate immutable release installation were
+verified. See the [release evidence](json-string-mapping-release-evidence.json).
+Hypershell Gateway generation and its full application checks remain required.
+This release does not close C3 through C7 or H1 through H3.

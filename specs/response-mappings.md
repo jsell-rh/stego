@@ -126,8 +126,8 @@ Gateway or grant mapping, REST conversion, or production capacity verification.
 
 ## Bounded JSON string lists
 
-The next compiler candidate adds `json_strings` for a JSON model field and a
-repeated protobuf string field. It is not yet released or accepted by Hypershell.
+Released compiler `82439300` adds `json_strings` for a JSON model field and a
+repeated protobuf string field. Hypershell Gateway adoption remains pending.
 
 ```yaml
 - target: tags
@@ -152,5 +152,18 @@ The converter rejects other JSON shapes, null list members, malformed input,
 trailing values, invalid UTF-8, and unpaired UTF-16 surrogate escapes. It returns
 a nil response and the same fixed conversion error used by scalar mappings.
 The converter does not validate DNS names, select observations, or grant access.
-Applications retain those rules. CI must verify the generated implementation
-before this candidate can be released.
+Applications retain those rules.
+
+The released compiler passed all 12 focused compiler groups and 104 generated
+Shipment cases in two namespaces. The runtime fixture uses the storage
+provider's declared dependencies and checks their selected versions after module
+resolution. All 37 compiler packages, both generated examples, 34 timestamp
+cases, and database access checks passed. Independent signature review and a
+separate installation matched all five release files. See the
+[release evidence](json-string-mapping-release-evidence.json).
+
+The earlier `bccfa43f` candidate was held because the JSON test fixture did not
+pin its new storage dependency. It was not released. The corrected fixture
+selects protobuf `v1.36.11`, GORM `v1.25.12`, and datatypes `v1.2.5`. The release
+record preserves the hold and the exact corrected checks. No compiler binary
+ran on the workstation during this release verification.
