@@ -14,7 +14,7 @@ does not establish complete application parity or production capacity.
 | --- | --- | --- |
 | Gateway Deployment and Service construction | STEGO `kubernetes-workload` component | Retain validation and tests for field removal, security repair, API serialization, and convergence. |
 | Security settings, probes, mounts, limits, and content digest | STEGO `workload.Build` | Keep the fixed security profile. Hypershell declares health paths, resource amounts, image, files, and verified dependencies. |
-| ConfigMap and Secret content conversion | Hypershell `gatewayworkload.workloadDependency` | The common adapter is released at `d8c37d20`. Candidate consumer `c3e88f1` removes the local helper; full application, image, and workflow qualification remain required. |
+| ConfigMap and Secret content conversion | STEGO `workload.DependencyFromData` and `workload.NestedMap` | Compiler `d8c37d20` and consumer `c3e88f1` passed full application, image, and workflow review. Hypershell retains dependency selection and ownership checks. |
 | Gateway console Deployment and Service construction | Separately generated STEGO browser module | The typed configuration digest option removes application annotation assembly. It is accepted on Hypershell main `7e6d3f1` after the complete workflow. |
 | Console credential content digest | STEGO `kubernetes.OpaqueSecretSetDigest` | Preserve its namespace and owner checks. Do not add another application hash implementation. |
 | Console Service separation, placement, and dependency checks | Hypershell | Retain the checks that prevent console Pods from matching the Gateway Service and prevent use of another Gateway's credentials. |
@@ -99,10 +99,15 @@ byte slices. `NestedMap` accepts both generated and API-decoded maps. The digest
 format is unchanged. Checks passed all 145 generated cases, 37 compiler packages,
 and both complete examples. Main signatures and a fresh immutable release
 installation passed verification. Consumer regeneration checked 428 files,
-419 generated hashes, and 41 input hashes. Candidate `c3e88f1` removes the local
-helper and adds two invalid-data cases. Its application, image, and complete
-workflow checks remain required. See the
-[release evidence](workload-dependency-main-evidence.json).
+419 generated hashes, and 41 input hashes. Consumer `c3e88f1` removes the local
+helper and adds two invalid-data cases. All 1,194 core cases and seven image
+checks passed. The live workflow passed all 11 required tests, complete
+generation, telemetry, four browser views, and cleanup. Exact main checks at
+`a1cdd3e6` also passed the full suite and all 52 live API tests. Later main
+commits add only result records. See the
+[release evidence](workload-dependency-main-evidence.json),
+[workflow evidence](workload-dependency-browser-evidence.json), and
+[main result](https://github.com/jsell-rh/hypershell-stego/blob/ab9d6cb1cca1f622b5fc54c4e1df6449707fb71e/acceptance/workload-dependency-main-full-evidence.json).
 
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining

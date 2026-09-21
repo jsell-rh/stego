@@ -40,7 +40,7 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-The accepted application is Hypershell main `a1cdd3e6`, with runtime source
+The accepted application is Hypershell main `ab9d6cb1`, with runtime source
 `c3e88f16` and compiler `d8c37d20`. STEGO constructs Gateway and browser
 Deployments, security settings, probes, mounts, resource limits, and configuration
 digests. It also validates and converts workload dependency data. Hypershell
@@ -61,8 +61,12 @@ A separate regeneration check matched all 428 generated and module files,
 419 output hashes, and 41 input hashes. The patch was empty. Live cleanup
 removed all test resources, released the Lease, and preserved all 32 standing
 resources. Normal cleanup with 100 accounts took an observed 32.34 seconds.
-The 30-second target remains open. Automatic checks on this exact main commit
-are in progress; they are not yet accepted as passing evidence.
+The 30-second target remains open. Exact main checks at `a1cdd3e6` also passed:
+the full suite retained all 1,194 core cases, and the live API check passed all
+52 required tests. Its cleanup preserved the 32 standing resources and released
+the Lease. The later commits add only result records. See the
+[main full result](https://github.com/jsell-rh/hypershell-stego/blob/ab9d6cb1cca1f622b5fc54c4e1df6449707fb71e/acceptance/workload-dependency-main-full-evidence.json)
+and [main API result](https://github.com/jsell-rh/hypershell-stego/blob/6c5fc1a760a78c86c12aab6e2290eb2e418f2546/acceptance/workload-dependency-main-api-evidence.json).
 
 An earlier main check at `7e6d3f1` failed to receive one event within ten seconds
 after API restart. Two queued rows still had leases when the test failed.
@@ -258,10 +262,10 @@ The [main checks](compiler-install-diagnostics-main-evidence.json) also passed
 for `93104fb5`. Independent review matched both complete examples, all 37
 compiler packages, and the authenticated artifact source and bytes.
 
-The [workload boundary review](workload-boundary-review-20260920.md) separates
-the accepted common builder from remaining dependency conversion and console
-annotation assembly. Keep the upstream Sandbox setup and application policy
-outside the restricted workload profile.
+The [workload boundary review](workload-boundary-review-20260920.md) records
+the common builder, dependency conversion, and console annotation assembly.
+These mechanisms are accepted in the generated runtime. Keep the upstream
+Sandbox setup and application policy outside the restricted workload profile.
 
 The common console rollout is accepted on Hypershell main `7e6d3f1`, from tested
 source `a1ad728` and compiler `5c4afa11`. It removes application annotation
@@ -276,11 +280,11 @@ the 30-second target remains open. See the
 Compiler `d8c37d20` also provides bounded dependency data conversion and common
 map access. All 145 generated cases, 37 compiler packages, and both examples
 passed. Its signed immutable release and fresh installation passed verification.
-Accepted Hypershell main still uses its local conversion helper. Candidate
-`c3e88f1` removes it after complete regeneration review and adds two invalid-data
-cases. Its application and image checks are active. A complete workflow remains
-required before acceptance. See the
-[dependency release evidence](workload-dependency-main-evidence.json).
+Hypershell source `c3e88f1` removes its local conversion helper and adds two
+invalid-data cases. It is accepted after complete regeneration, application,
+image, and live workflow review. See the
+[dependency release evidence](workload-dependency-main-evidence.json) and
+[consumer workflow evidence](workload-dependency-browser-evidence.json).
 
 ## Remaining requirements
 
@@ -295,7 +299,7 @@ a narrower passing check cannot close a broader requirement.
 | C6: runtime | Complete health, readiness, timeout, shutdown, resource-limit, and all-signal telemetry coverage. Direct finite controller helpers need explicit operation and parent contracts without duplicate telemetry owners. The earlier recovered browser initialization failure still lacks a proved cause. |
 | C7: compiler contracts | Audit typed wiring, capability validation, extension points, and compatibility against the original assessment. Generated Go compilation does not by itself prove a complete component contract. |
 | H1: application contracts | Complete parity evidence for REST, gRPC, RBAC, watches, SDK, CLI, UI, deployment, and the upstream dashboard terminal contract. |
-| H2: common mechanisms | Complete the dependency conversion adoption and the remaining common transport mapping from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain clean generation without rh-trex-ai. |
+| H2: common mechanisms | Complete the remaining common transport mapping from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain the accepted workload and dependency mechanisms and clean generation without rh-trex-ai. |
 | H3: system behavior | Qualify supported deployment recovery, restore, concurrent and degraded-provider behavior, retained-history costs, and measured capacity. Preserve exact-source records and cleanup proof. |
 
 The initial capacity targets are 100 Gateways per instance, 100 service accounts
