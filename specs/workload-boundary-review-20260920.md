@@ -19,7 +19,7 @@ does not establish complete application parity or production capacity.
 | Console credential content digest | STEGO `kubernetes.OpaqueSecretSetDigest` | Preserve its namespace and owner checks. Do not add another application hash implementation. |
 | Console Service separation, placement, and dependency checks | Hypershell | Retain the checks that prevent console Pods from matching the Gateway Service and prevent use of another Gateway's credentials. |
 | OpenShell Sandbox Pod setup | Hypershell upstream integration | Preserve the user's selected upstream behavior. The restricted Deployment profile does not support its init containers, user settings, or capabilities. |
-| Environment parsing and connection setup | Generated configuration and provider components, with remaining application setup | Complete the current live checks. Optional console connection settings still use manual environment reads. |
+| Environment parsing and connection setup | Generated configuration and provider components, with remaining application setup | The common configuration path passed its live checks. Optional console connection settings still use manual environment reads. |
 | REST and gRPC mapping | Generated transport helpers plus application adapters | Follow the separate transport audit. Authorization and protocol-specific behavior remain explicit application rules. |
 
 The source scan found direct security-context construction in
@@ -32,9 +32,9 @@ restricted builder would weaken its guarantees.
 ## Next extraction boundary
 
 The current worker configuration adoption passed its complete workflow.
-The common console rollout is accepted. Complete the dependency conversion
-adoption through the released typed interfaces. The caller supplies authorized dependencies;
-the common implementation checks their representation and constructs the output.
+The common console rollout and dependency conversion are accepted. The caller
+supplies authorized dependencies. The common implementation checks their
+representation and constructs the output.
 It must not infer Gateway ownership, grant rules, placement, release selection,
 OpenShell configuration, or management UI behavior.
 
@@ -43,8 +43,12 @@ and no Secret contents in a Deployment or Service. Keep certificate and owner
 verification before construction. Test changed contents, metadata-only changes,
 missing and extra dependencies, invalid encoding, and repeated reconciliation.
 Use a second application without Gateway types to test the common interface.
-The full Hypershell workflow must still pass through REST, gRPC, event delivery,
-restart, and regeneration before the consumer change is accepted.
+Each further consumer change must pass the full Hypershell workflow through
+REST, gRPC, event delivery, restart, and regeneration before acceptance.
+
+Checked response conversion is the next active extraction. Optional console
+connection setup is a later candidate. Keep both changes separate from the
+accepted workload construction, and require evidence for each change.
 
 ## Evidence limits
 
