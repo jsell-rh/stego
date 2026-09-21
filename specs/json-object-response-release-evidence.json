@@ -1,0 +1,376 @@
+{
+  "source": "52306a6b16f2e68e55d7884104a4614f82f1938b",
+  "checked_at": "2026-09-21T11:19:36.817176+00:00",
+  "qualified_scope": "Bounded JSON object conversion in generated REST response mappings.",
+  "checks": {
+    "candidate": {
+      "Compiler checks": {
+        "run": 35589798550,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35589798550",
+        "jobs": {
+          "resource-state-storage": "success",
+          "postgres-provisioning": "success",
+          "examples (user-management-rhsso)": "success",
+          "compiler": "success",
+          "keycloak-provider": "success",
+          "examples (user-management)": "success"
+        },
+        "proof_sha256": "35906e2ec99efac5162adf7ec973f3476ebcab6bd86a804211cc08f3e5ac9a88",
+        "ci_sha256": "638fc6e231700b2f8af89e8fb89b39511b4b92edc839732d54b40be75642fec8",
+        "package_count": 39,
+        "examples": {
+          "user-management": {
+            "tracked_content_matches": 76,
+            "state_passes_compared_by_ci": true,
+            "archive_sha256": "14afb6ab3fae903a5cbe7b71c649b2792b91e50b917c03f322339bf4221ae772"
+          },
+          "user-management-rhsso": {
+            "tracked_content_matches": 72,
+            "state_passes_compared_by_ci": true,
+            "archive_sha256": "7e0ba96feb81dbe130b4db076e2612c13da385fa545347b8d13c0bf94b578380"
+          }
+        }
+      },
+      "Database access contract": {
+        "run": 35589798598,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35589798598",
+        "jobs": {
+          "database-access": "success"
+        },
+        "proof_sha256": "7a26c4b80aa1fdbc5ed8cc712747983f29e75ce6aeb90b092145a2e2dc313bc8",
+        "ci_sha256": "9f336ceb884f1034404ecff61aac337cef8ffc89c54a418e49afdafa8ea21009"
+      },
+      "Go OpenAPI checks": {
+        "run": 35589798586,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35589798586",
+        "jobs": {
+          "contract": "success"
+        },
+        "proof_sha256": "4dcc25dbd33c37ba52b7d9cf7082eab32b9de295366c29f6402aba9ef0394461",
+        "ci_sha256": "e8baffa145fda0ed3fcc64c17aa6e4b2d9661228260fa5473df065a379c93fda",
+        "required_groups": {
+          "openapicontract": [
+            "TestGoBackendConcurrentProfiles",
+            "TestGoBackendRejectsInvalidSelection",
+            "TestGoClientPreservesPreviousBackendOutput",
+            "TestGoModelsPreservePresenceWithoutClient",
+            "TestGoResponseBindingsCapturedReferences",
+            "TestGoResponseBindingsConcurrentBackend",
+            "TestGoResponseBindingsRejectAmbiguity",
+            "TestGoResponseEnumBindings",
+            "TestGoResponseEnumLimits",
+            "TestGoResponseObjectBindings"
+          ],
+          "generator/gosdk": [
+            "TestCapturedReferenceNames",
+            "TestGeneratedNameConflicts",
+            "TestGeneratedSDK",
+            "TestGeneratedSDK/false",
+            "TestGeneratedSDK/true",
+            "TestInputBoundary"
+          ],
+          "generator/httpapplication": [
+            "TestGeneratedHTTPResponseEnums",
+            "TestGeneratedHTTPResponseJSONMappings",
+            "TestGeneratedHTTPResponseMappings",
+            "TestGeneratedHTTPResponseMixedJSON",
+            "TestGeneratedHTTPResponseNullable",
+            "TestGeneratedHTTPResponseObjectInputs",
+            "TestGeneratedHTTPResponseObjects",
+            "TestGeneratedHTTPResponsePreparedInputs",
+            "TestGeneratedHTTPResponseRequiredObjects",
+            "TestHTTPResponseEnumValidation",
+            "TestHTTPResponseInputsAndDeterminism",
+            "TestHTTPResponseJSONMappingBounds",
+            "TestHTTPResponseJSONMappingDeterminism",
+            "TestHTTPResponseJSONMappingValidation",
+            "TestHTTPResponseMappingValidation",
+            "TestHTTPResponseNullableDeterminism",
+            "TestHTTPResponseNullableValidation",
+            "TestHTTPResponseObjectGeneration",
+            "TestHTTPResponseObjectValidation",
+            "TestHTTPResponsePreparedInputDeterminism",
+            "TestHTTPResponsePreparedInputValidation"
+          ],
+          "compiler": [
+            "TestHTTPResponseEnumMappingsGateOutput",
+            "TestHTTPResponseJSONMappingsGateOutput",
+            "TestHTTPResponseMappingsGateOutput",
+            "TestHTTPResponseNullableMappingsGateOutput",
+            "TestHTTPResponseObjectMappingsGateOutput",
+            "TestHTTPResponsePreparedInputsGateOutput"
+          ],
+          "responsemapping": [
+            "TestJSONObjectsSource",
+            "TestJSONStringsSource"
+          ]
+        },
+        "sdk_modes": 2,
+        "race_checks_passed": true
+      },
+      "Response mapping checks": {
+        "run": 35589798591,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35589798591",
+        "jobs": {
+          "mapping": "success"
+        },
+        "proof_sha256": "ab61724f610292877d4b7c40074a25c186ac51ee5b1b8c8de524d7b96f061d3c",
+        "ci_sha256": "512f1b44413c8845338dea32639ea918e1c3f986f66bfefd3d9c85f13d5a66ac",
+        "required_roots": [
+          "TestGeneratedResponseMappings",
+          "TestGoModelContextCopies",
+          "TestGoModelCopiesOwnAllFields",
+          "TestGoModelDeclarationMatchesGeneratedStorage",
+          "TestGoModelDeclarations",
+          "TestGoModelsRejectBeforeGeneration",
+          "TestGoModelsRejectChangedDeclaration",
+          "TestResponseMappingJSONBounds",
+          "TestResponseMappingJSONHelperIsConditional",
+          "TestResponseMappingJSONLimits",
+          "TestResponseMappingOrderIsStable",
+          "TestResponseMappingPreparedInputValidation",
+          "TestResponseMappingPreparedInputsGateOutput",
+          "TestResponseMappingPreparedOrder",
+          "TestResponseMappingPreparedRuntime",
+          "TestResponseMappingRejectsInvalidContracts"
+        ],
+        "namespaces": 2,
+        "generated_roots_per_namespace": [
+          "TestMappingAcceptsNumericAndTimeBounds",
+          "TestMappingJSONListsOwnOutput",
+          "TestMappingJSONListsPreserveValues",
+          "TestMappingJSONListsRejectInvalidInput",
+          "TestMappingOwnsOutputAndPreservesAbsence",
+          "TestMappingPreservesContract",
+          "TestMappingRejectsInvalidValuesWithoutPartialOutput",
+          "TestPreparedMappingOwnsResults",
+          "TestPreparedMappingRejectsInvalidValues",
+          "TestPreparedMappingUsesApplicationValues"
+        ]
+      },
+      "Compiler artifact check": {
+        "run": 35589798579,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35589798579",
+        "jobs": {
+          "linux-amd64": "success",
+          "provenance": "skipped"
+        },
+        "proof_sha256": "ac6e38292355c14e5deedeedf8d7f68e19ef8325823010af2526c38652806cb8",
+        "ci_sha256": "b05a04c7b3097701ec0fc0c29bd5540de89c0ded2d6d670ec05e50aed3fbfd12",
+        "artifact": {
+          "name": "stego-linux-amd64",
+          "sha256": "934cadd9f5640363561ff506fcc9253081b168da9526c8fbacbce71ebc58cc22",
+          "size": 41945368
+        },
+        "source_inventory": {
+          "files": 1478,
+          "bytes": 11710189,
+          "sha256": "40dc28f4c20e611e0b7cc8e8e50063da011951d6c00190aef6b7fe51aa1ecd9a"
+        }
+      }
+    },
+    "main": {
+      "Compiler checks": {
+        "run": 35590856955,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35590856955",
+        "jobs": {
+          "postgres-provisioning": "success",
+          "resource-state-storage": "success",
+          "compiler": "success",
+          "examples (user-management-rhsso)": "success",
+          "keycloak-provider": "success",
+          "examples (user-management)": "success"
+        },
+        "proof_sha256": "e5fc7e8b6f98b0c3714b584d7cec2d4915d021bc964ff5b74a999eaff6a75d7b",
+        "ci_sha256": "ebb9acfdce92245368c57a0b0985457b328ee2d6a4dad5fa83df3b8f214a5b54",
+        "package_count": 39,
+        "examples": {
+          "user-management": {
+            "tracked_content_matches": 76,
+            "state_passes_compared_by_ci": true,
+            "archive_sha256": "ede6a686ba415ac7f149aa6268cb94b26541a873aaa7947926db045a69b0b252"
+          },
+          "user-management-rhsso": {
+            "tracked_content_matches": 72,
+            "state_passes_compared_by_ci": true,
+            "archive_sha256": "86404a97c442640f865442af70383200b63609350c66247bf0139d13da1d3ffc"
+          }
+        }
+      },
+      "Database access contract": {
+        "run": 35590857016,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35590857016",
+        "jobs": {
+          "database-access": "success"
+        },
+        "proof_sha256": "2b1caeeb648859bceea0b1b010e1a40702c8163d146a6a22441c1650ef10fa53",
+        "ci_sha256": "c98a7e4b85bae3a593d7e898c38c464b38883083d6ca2130be289e85633093dc"
+      },
+      "Response mapping checks": {
+        "run": 35590857025,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35590857025",
+        "jobs": {
+          "mapping": "success"
+        },
+        "proof_sha256": "327f555ce0443544baeea3a97fd267d6e7cfcadca476ca2a85d940b2383f5b3e",
+        "ci_sha256": "7cf20fae2f97c38c87e0f132bc8e5d0dbefffde05acb1e53672bdc06344de317",
+        "required_roots": [
+          "TestGeneratedResponseMappings",
+          "TestGoModelContextCopies",
+          "TestGoModelCopiesOwnAllFields",
+          "TestGoModelDeclarationMatchesGeneratedStorage",
+          "TestGoModelDeclarations",
+          "TestGoModelsRejectBeforeGeneration",
+          "TestGoModelsRejectChangedDeclaration",
+          "TestResponseMappingJSONBounds",
+          "TestResponseMappingJSONHelperIsConditional",
+          "TestResponseMappingJSONLimits",
+          "TestResponseMappingOrderIsStable",
+          "TestResponseMappingPreparedInputValidation",
+          "TestResponseMappingPreparedInputsGateOutput",
+          "TestResponseMappingPreparedOrder",
+          "TestResponseMappingPreparedRuntime",
+          "TestResponseMappingRejectsInvalidContracts"
+        ],
+        "namespaces": 2,
+        "generated_roots_per_namespace": [
+          "TestMappingAcceptsNumericAndTimeBounds",
+          "TestMappingJSONListsOwnOutput",
+          "TestMappingJSONListsPreserveValues",
+          "TestMappingJSONListsRejectInvalidInput",
+          "TestMappingOwnsOutputAndPreservesAbsence",
+          "TestMappingPreservesContract",
+          "TestMappingRejectsInvalidValuesWithoutPartialOutput",
+          "TestPreparedMappingOwnsResults",
+          "TestPreparedMappingRejectsInvalidValues",
+          "TestPreparedMappingUsesApplicationValues"
+        ]
+      },
+      "Compiler artifact check": {
+        "run": 35590857144,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35590857144",
+        "jobs": {
+          "linux-amd64": "success",
+          "provenance": "success"
+        },
+        "proof_sha256": "0564290a4098bb7d969e8c00827d162fab6a83374e1375c19823c0df03ecfb87",
+        "ci_sha256": "e7676f7d115c66061b0e122abcd71b21ef74c71962627f2be1421f176bc052d5",
+        "artifact": {
+          "name": "stego-linux-amd64",
+          "sha256": "934cadd9f5640363561ff506fcc9253081b168da9526c8fbacbce71ebc58cc22",
+          "size": 41945368
+        },
+        "source_inventory": {
+          "files": 1478,
+          "bytes": 11710189,
+          "sha256": "40dc28f4c20e611e0b7cc8e8e50063da011951d6c00190aef6b7fe51aa1ecd9a"
+        }
+      },
+      "Go OpenAPI checks": {
+        "run": 35590857005,
+        "url": "https://github.com/jsell-rh/stego/actions/runs/35590857005",
+        "jobs": {
+          "contract": "success"
+        },
+        "proof_sha256": "4345b5837eb1de847398a01a50c18e472118781dd1b57656a10b858586588df0",
+        "ci_sha256": "7d59ac761f837849b1197613046c06024f1e89b61411352a32e44640f7a2eda1",
+        "required_groups": {
+          "openapicontract": [
+            "TestGoBackendConcurrentProfiles",
+            "TestGoBackendRejectsInvalidSelection",
+            "TestGoClientPreservesPreviousBackendOutput",
+            "TestGoModelsPreservePresenceWithoutClient",
+            "TestGoResponseBindingsCapturedReferences",
+            "TestGoResponseBindingsConcurrentBackend",
+            "TestGoResponseBindingsRejectAmbiguity",
+            "TestGoResponseEnumBindings",
+            "TestGoResponseEnumLimits",
+            "TestGoResponseObjectBindings"
+          ],
+          "generator/gosdk": [
+            "TestCapturedReferenceNames",
+            "TestGeneratedNameConflicts",
+            "TestGeneratedSDK",
+            "TestGeneratedSDK/false",
+            "TestGeneratedSDK/true",
+            "TestInputBoundary"
+          ],
+          "generator/httpapplication": [
+            "TestGeneratedHTTPResponseEnums",
+            "TestGeneratedHTTPResponseJSONMappings",
+            "TestGeneratedHTTPResponseMappings",
+            "TestGeneratedHTTPResponseMixedJSON",
+            "TestGeneratedHTTPResponseNullable",
+            "TestGeneratedHTTPResponseObjectInputs",
+            "TestGeneratedHTTPResponseObjects",
+            "TestGeneratedHTTPResponsePreparedInputs",
+            "TestGeneratedHTTPResponseRequiredObjects",
+            "TestHTTPResponseEnumValidation",
+            "TestHTTPResponseInputsAndDeterminism",
+            "TestHTTPResponseJSONMappingBounds",
+            "TestHTTPResponseJSONMappingDeterminism",
+            "TestHTTPResponseJSONMappingValidation",
+            "TestHTTPResponseMappingValidation",
+            "TestHTTPResponseNullableDeterminism",
+            "TestHTTPResponseNullableValidation",
+            "TestHTTPResponseObjectGeneration",
+            "TestHTTPResponseObjectValidation",
+            "TestHTTPResponsePreparedInputDeterminism",
+            "TestHTTPResponsePreparedInputValidation"
+          ],
+          "compiler": [
+            "TestHTTPResponseEnumMappingsGateOutput",
+            "TestHTTPResponseJSONMappingsGateOutput",
+            "TestHTTPResponseMappingsGateOutput",
+            "TestHTTPResponseNullableMappingsGateOutput",
+            "TestHTTPResponseObjectMappingsGateOutput",
+            "TestHTTPResponsePreparedInputsGateOutput"
+          ],
+          "responsemapping": [
+            "TestJSONObjectsSource",
+            "TestJSONStringsSource"
+          ]
+        },
+        "sdk_modes": 2,
+        "race_checks_passed": true
+      }
+    }
+  },
+  "release": {
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-52306a6b16f2e68e55d7884104a4614f82f1938b",
+    "tag": "compiler-52306a6b16f2e68e55d7884104a4614f82f1938b",
+    "immutable": true,
+    "verified_assets": 4,
+    "signature_verified": true,
+    "rejection_checks": [
+      "different-source-commit",
+      "changed-compiler-with-matching-checksums",
+      "changed-build-record",
+      "invalid-signature-bundle"
+    ],
+    "installation_files_sha256": {
+      "stego-linux-amd64": "934cadd9f5640363561ff506fcc9253081b168da9526c8fbacbce71ebc58cc22",
+      "build.json": "c6f500c569a7a2f8dabc40b1e560c3bf2ec0d8e0d4ea05bd6f31f43ec7e17c9f",
+      "SHA256SUMS": "4a6acc405da4548a59a6464beec4a55eca97a8f6c310125d6e526f62e583b0e7",
+      "provenance.jsonl": "b0d1586a340d269a525171dfd69a4f795c0ec49359ee23a6c13e784baa98bca9",
+      "verified.json": "a4176daa34be4acc3a88b4387275125cefb2639b393f1e65f2b9f8341ac44cc8"
+    },
+    "candidate_and_main_artifacts_match": true,
+    "proof_sha256": {
+      "signature-qualification.json": "799d0a8be065e652ed7542c0e787bc7c12f7575d234357cf6a30334ebca56e97",
+      "release-publication-review.json": "2f376a4df8ac6a8ae1c33827c5694018b00c91391f9c3d4e090ca3cc19146af1",
+      "release-installation-review.json": "54d668d9d97dcf8250d51ef7eb8cd6f4dd771a71def0be1a0731d689d9e0bb81"
+    }
+  },
+  "consumer": {
+    "candidate": "b5ee359162964d6ee383d9b54dc1b75253463fc7",
+    "role_mapping_qualified": false,
+    "complete_workflow_qualified": false
+  },
+  "limits": [
+    "Full nullable object states and schema-constrained object mappings are not supported.",
+    "Compiler release checks do not prove Hypershell application behavior.",
+    "C3 through C7 and H1 through H3 remain open."
+  ],
+  "compiler_executed_locally": false
+}

@@ -673,3 +673,26 @@ This mechanism maps two source states to an explicit subset of JSON states.
 Full three-state inputs and nullable enum, object, and array mappings remain
 unsupported. Hypershell service-account adoption passed the complete Gateway
 workflow described above. This release does not close the enterprise goal.
+
+## Released bounded JSON object response conversion
+
+Compiler `52306a6b` adds declared conversion from stored JSON to a free-form
+REST response object. The declaration requires byte, node, depth, and scalar
+bounds and an explicit absent-value policy. The generated converter preserves
+number text and present empty objects. It rejects invalid encoding, duplicate
+decoded names, unsupported root values, and exceeded bounds. A failure returns
+no partial response and no supplied data in the error. Domain selection and
+access checks remain in the application.
+
+All five candidate and main check groups passed. The checks cover 39 compiler
+packages, both generated examples, OpenAPI mapping and preflight checks, both
+Go SDK modes, retained protobuf mappings, and database access. Candidate and
+main compiler bytes match. Main signatures, four immutable release assets,
+and a separate five-file installation passed verification. See the
+[release evidence](json-object-response-release-evidence.json).
+
+Hypershell candidate `b5ee359` uses this compiler for Role responses. Its complete
+application and live workflow checks are still pending. Compiler acceptance
+does not establish application acceptance. Nullable and schema-constrained
+object conversions remain unsupported. C3 through C7 and H1 through H3 remain
+open.

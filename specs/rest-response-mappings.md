@@ -219,7 +219,7 @@ workflow uses its existing compiler and source.
 
 ## Bounded JSON object response conversion
 
-The compiler candidate adds `conversion: json_object` for a JSON model field
+Released compiler `52306a6b` adds `conversion: json_object` for a JSON model field
 or prepared input and a free-form, non-null OpenAPI object property. This is a
 common conversion. The application still selects domain values and checks access.
 
@@ -260,8 +260,10 @@ The error contains no supplied data.
 The conversion requires a free-form object. Typed additional properties,
 declared properties, object enums, composition, nullable objects, and property
 count constraints are rejected. Their checks must not disappear because a Go
-backend uses a map. Full nullable object states remain outside this candidate.
+backend uses a map. Full nullable object states remain unsupported.
 
-Generated runtime, compiler preflight, existing list compatibility, and hosted
-compiler checks remain required before release. Hypershell role response
-adoption and the complete application workflow remain separate requirements.
+Generated runtime, compiler preflight, existing list compatibility, and all
+five candidate and main check groups passed. Release signatures and a separate
+installation of the immutable release passed verification. See the
+[release evidence](json-object-response-release-evidence.json). Hypershell Role
+response adoption and its complete application workflow remain under test.
