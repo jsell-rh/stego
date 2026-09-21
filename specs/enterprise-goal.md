@@ -519,3 +519,21 @@ checks passed. Signatures and a separate immutable release installation were
 verified. See the [release evidence](json-string-mapping-release-evidence.json).
 Hypershell Gateway generation and its full application checks remain required.
 This release does not close C3 through C7 or H1 through H3.
+
+## Released scalar REST response mapping
+
+Compiler `ca25ab06` provides generated public OpenAPI types and checked scalar
+REST conversions. It uses actual backend field declarations, requires complete
+property coverage, and rejects invalid mappings before output writes. Generated
+conversions preserve declared presence, own their pointers, and return a fixed
+error without a partial response on failure.
+
+All 38 tested compiler packages, both examples, focused backend and generated
+runtime checks, and database access checks passed. The main artifact signature
+and separate installation of the immutable release were verified. See the
+[release evidence](rest-response-mapping-release-evidence.json).
+
+Hypershell catalog source preparation at `6b35ea25` still requires generation
+and full application acceptance. Array conversion, three-state nullable inputs,
+prepared domain views, and Gateway and grant REST mapping remain open. This
+release does not close C3 through C7 or H1 through H3.

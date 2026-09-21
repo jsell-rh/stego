@@ -1,0 +1,209 @@
+{
+  "schema": 1,
+  "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+  "checked_at": "2026-09-21T06:16:30.349838+00:00",
+  "runs": {
+    "Go OpenAPI checks": 35567074348,
+    "Database access contract": 35567074312,
+    "Compiler checks": 35567074339,
+    "Compiler artifact check": 35567074340
+  },
+  "proofs": {
+    "full": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "run": 35567074339,
+      "qualified": true,
+      "packages": [
+        "github.com/jsell-rh/stego/cmd/stego",
+        "github.com/jsell-rh/stego/internal/appbuild",
+        "github.com/jsell-rh/stego/internal/browserapplication",
+        "github.com/jsell-rh/stego/internal/browserassets",
+        "github.com/jsell-rh/stego/internal/buildidentity",
+        "github.com/jsell-rh/stego/internal/compiler",
+        "github.com/jsell-rh/stego/internal/gen",
+        "github.com/jsell-rh/stego/internal/generator/browserbackend",
+        "github.com/jsell-rh/stego/internal/generator/browseridentity",
+        "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+        "github.com/jsell-rh/stego/internal/generator/cliapplication",
+        "github.com/jsell-rh/stego/internal/generator/controller",
+        "github.com/jsell-rh/stego/internal/generator/gosdk",
+        "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+        "github.com/jsell-rh/stego/internal/generator/healthcheck",
+        "github.com/jsell-rh/stego/internal/generator/httpapplication",
+        "github.com/jsell-rh/stego/internal/generator/httpclient",
+        "github.com/jsell-rh/stego/internal/generator/jwtauth",
+        "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+        "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesworkload",
+        "github.com/jsell-rh/stego/internal/generator/oteltracing",
+        "github.com/jsell-rh/stego/internal/generator/outbox",
+        "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+        "github.com/jsell-rh/stego/internal/generator/postgresclient",
+        "github.com/jsell-rh/stego/internal/generator/restapi",
+        "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+        "github.com/jsell-rh/stego/internal/generator/runtimeconfig",
+        "github.com/jsell-rh/stego/internal/generator/tslsearch",
+        "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+        "github.com/jsell-rh/stego/internal/openapicontract",
+        "github.com/jsell-rh/stego/internal/parser",
+        "github.com/jsell-rh/stego/internal/ports",
+        "github.com/jsell-rh/stego/internal/registry",
+        "github.com/jsell-rh/stego/internal/slot",
+        "github.com/jsell-rh/stego/internal/types"
+      ],
+      "package_count": 38,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "d76139a8aa0f84488a966e9d6a44277c1d5692b6905f97568db01b263c2871b2"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "9b5f0731697c27fa728abaf54f277500b531cb0e85542c8b9eca3db93fd2b636"
+        }
+      },
+      "log_sha256": "3d3392f7bca6bc90fb0cdbee4320aa7516a63ce98fe883a269004ece6f6fa824",
+      "checked_at": "2026-09-21T06:15:08.052352+00:00",
+      "scope": "Full compiler suite for the shared Go OpenAPI backend. REST response mapping and application adoption remain open."
+    },
+    "focused": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "run": 35567074348,
+      "qualified": true,
+      "source_archive_verified": true,
+      "race_checks_passed": true,
+      "sdk_modes": 2,
+      "generated_sdk_https_status_nullable_results_required": true,
+      "required_groups": {
+        "openapicontract": [
+          "TestGoBackendConcurrentProfiles",
+          "TestGoBackendRejectsInvalidSelection",
+          "TestGoClientPreservesPreviousBackendOutput",
+          "TestGoModelsPreservePresenceWithoutClient",
+          "TestGoResponseBindingsCapturedReferences",
+          "TestGoResponseBindingsConcurrentBackend",
+          "TestGoResponseBindingsRejectAmbiguity",
+          "TestGoResponseObjectBindings"
+        ],
+        "generator/gosdk": [
+          "TestCapturedReferenceNames",
+          "TestGeneratedNameConflicts",
+          "TestGeneratedSDK",
+          "TestGeneratedSDK/false",
+          "TestGeneratedSDK/true",
+          "TestInputBoundary"
+        ],
+        "generator/httpapplication": [
+          "TestGeneratedHTTPResponseMappings",
+          "TestHTTPResponseInputsAndDeterminism",
+          "TestHTTPResponseMappingValidation"
+        ],
+        "compiler": [
+          "TestHTTPResponseMappingsGateOutput"
+        ]
+      },
+      "tests_sha256": "35d8eb8b3652897f8963823e6f3ebb0d2b0397cc08dbf3498680bd87d6613692",
+      "scope": "Common Go backend, scalar REST mapping, generated runtime, preflight rejection, and SDK checks. Application adoption and the complete REST workflow remain open."
+    },
+    "database": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "run": 35567074312,
+      "qualified": true,
+      "test_log_sha256": "5a593eeb8584bf0c464cb20cc1c55c3ff7851a672216dface3c439bd4d838368",
+      "checked_at": "2026-09-21T06:09:36.616596+00:00",
+      "scope": "Retained generated database access result, exact source, and terminal job success."
+    },
+    "artifact": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "run": 35567074340,
+      "candidate_artifact_checked": true,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "1605c9b21d843a7ab6b636147cc124c4e5877e4addc2e6dff31e969d6383f176",
+        "size": 41880084
+      },
+      "source_inventory": {
+        "files": 1453,
+        "bytes": 11506407,
+        "sha256": "3a69da24348d915c7022268baaf7c775166208076c268971923480f2ee2ca65d"
+      },
+      "build_record_sha256": "d67687f6c4466887887cd9ca74db9d2e203d46e8d6750222b0fa997465b85a69",
+      "signature_verified": false,
+      "compiler_executed_locally": false,
+      "modules_unchanged_from_qualified_release": true,
+      "checked_at": "2026-09-21T06:10:18.058761+00:00",
+      "scope": "Exact main content matches the qualified candidate. Signature verification and release installation remain required."
+    },
+    "signature": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "run": 35567074340,
+      "signature_verified": true,
+      "compiler_executed_locally": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "1605c9b21d843a7ab6b636147cc124c4e5877e4addc2e6dff31e969d6383f176",
+        "size": 41880084
+      },
+      "same_verified_files": 5,
+      "rejection_checks": {
+        "source_revision": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+        "authenticated": {
+          "name": "stego-linux-amd64",
+          "sha256": "1605c9b21d843a7ab6b636147cc124c4e5877e4addc2e6dff31e969d6383f176",
+          "size": 41880084
+        },
+        "rejected": [
+          "different-source-commit",
+          "changed-compiler-with-matching-checksums",
+          "changed-build-record",
+          "invalid-signature-bundle"
+        ],
+        "valid_after_rejections": true,
+        "downloaded_compiler_executed": false
+      },
+      "checked_at": "2026-09-21T06:10:27.933798+00:00"
+    },
+    "release": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "release_id": 392730193,
+      "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "immutable": true,
+      "tag_commit_verified": true,
+      "assets_verified": 4,
+      "exact_source_checks": {
+        "Go OpenAPI checks": 35567074348,
+        "Database access contract": 35567074312,
+        "Compiler checks": 35567074339,
+        "Compiler artifact check": 35567074340
+      },
+      "checked_at": "2026-09-21T06:15:37.084203+00:00"
+    },
+    "installation": {
+      "source": "ca25ab06aff3dddf0e7d2bc1c472a40821ccd0a6",
+      "same_verified_files": 5,
+      "files_sha256": {
+        "stego-linux-amd64": "1605c9b21d843a7ab6b636147cc124c4e5877e4addc2e6dff31e969d6383f176",
+        "build.json": "d67687f6c4466887887cd9ca74db9d2e203d46e8d6750222b0fa997465b85a69",
+        "SHA256SUMS": "82dc7638b82da73f598bd566e2c6c2a6332cf0ea6826ed47bc78ba454cf983fc",
+        "provenance.jsonl": "44c4da2eee120481ed4857f2371c90cb145e753740d59b1aebef35c1d1febd73",
+        "verified.json": "3373d55f68950826aeffdfd41724b428b87f4e02af5bd23a3977942b2792c0f2"
+      },
+      "compiler_executed": false,
+      "immutable_release_verified": true
+    }
+  },
+  "proof_sha256": {
+    "full": "81d4970cf62381a732a2edf3ed980d3e8c18c9e4e92a591828897ba3fa7f0f81",
+    "focused": "81160dd3619b37d89cbca6abc260e5012f6394a586065cb7fb37e1f4bee0afaf",
+    "database": "71d27b45b4c138dfde2baab7a33213cb4cebce2b87cbf5181f1810a448fb0223",
+    "artifact": "faa494b6b326dde7ec8a26bbad883f20d6f57b312da176957b7a70b078549ba9",
+    "signature": "bfb9af3ef46aa14b99fb204b3004dd746a9ad245722cdb4f3c606e63b3f8a2fb",
+    "release": "3427c5a315b0a3cf267805da0c2e444890b04c67a7f7328fe01cb09069a800f2",
+    "installation": "24ea78b415d0c82631294b9dbb9ee236c816c778214bfb2cf088aed37de9c2e6"
+  },
+  "scope": "Released scalar REST response mappings and shared Go OpenAPI backend. Hypershell application adoption, arrays, prepared application inputs, and complete REST extraction remain open."
+}
