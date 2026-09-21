@@ -1,0 +1,130 @@
+{
+  "source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+  "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+  "repository": "jsell-rh/hypershell-stego",
+  "branch": "codex/catalog-mapping-candidate-20260921",
+  "status": "candidate_checks_incomplete",
+  "records": {
+    "focused": {
+      "run": 35558560213,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35558560213",
+      "record_sha256": "4010fceee0f3091a9aafdae8aff2833cbc5424c5f304c0068c7b0fa19dd9d25f",
+      "record": {
+        "source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+        "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+        "run": 35558560213,
+        "qualified": true,
+        "roots": [
+          "TestCatalogMappingsPreserveEveryField",
+          "TestCatalogMappingsRejectInvalidTextPrivately",
+          "TestCleanupSummaryTimestampPresence",
+          "TestGatewayNetworkTimestampResponses",
+          "TestGatewayReleaseTimestampResponses",
+          "TestManagedClusterTimestampResponses",
+          "TestTimestampPresentersPreserveContract",
+          "TestTimestampPresentersRejectInvalidRecords"
+        ],
+        "root_count": 8,
+        "case_count": 120,
+        "selected_module": "v0.0.0-20260920233219-cd240e7a3f11",
+        "source_archive_sha256": "72771de8169a3323982a0b102f85830a7a8712f8e3c498b8d628c5f51a01a53c",
+        "test_log_sha256": "22966d362c38b2a95b1e27096e5c0a4cdb55e223b5a7595251bf35f3170489fc",
+        "checked_at": "2026-09-21T03:47:49.921207+00:00",
+        "scope": "Consumer timestamp conversion through catalog handlers, lists, watches, and presenters. Full application, signed images, and the complete live workflow remain required."
+      }
+    },
+    "regeneration": {
+      "run": 35558560377,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35558560377",
+      "record_sha256": "2fb33f756e43a6c64a9858863eb443f3457b7732e5e75f6b562af149e15127fa",
+      "record": {
+        "source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+        "compiler": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+        "run": 35558560377,
+        "qualified": true,
+        "checked_at": "2026-09-21T03:47:50.091526+00:00",
+        "complete_generated_inventory_matches": true,
+        "generated_and_module_files": 430,
+        "generated_hashes_checked": 421,
+        "input_hashes_checked": 41,
+        "generation_patch_empty": true,
+        "source_archive_sha256": "72771de8169a3323982a0b102f85830a7a8712f8e3c498b8d628c5f51a01a53c",
+        "generated_archive_sha256": "4ff52ddd0bdf68f77496c03e2c6c73c48f2c64f925fc6dd2c4631efdd3f2f2b7",
+        "compiler_executed_locally": false,
+        "scope": "All three generated roots match the exact acceptance source. The accepted browser workflow and remaining main checks have separate records."
+      }
+    },
+    "restart": {
+      "run": 35558679724,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35558679724",
+      "record_sha256": "dfaf6dad893f88f7131c857adafb2fcc67158f5bb513be40b94d2c19afb621d6",
+      "record": {
+        "source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+        "base_source": "caa0dfb375902d7234af9b389e44da8d91dcb7f4",
+        "run": 35558679724,
+        "qualified": true,
+        "roots": [
+          "TestGatewayCleanupDeadlineReopensConfirmation",
+          "TestGatewayProviderDeadlineCommitsFailureAndRecovers",
+          "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+          "TestGeneratedRuntimeRecoversUnfinishedClaim",
+          "TestIdentityCleanupDeadlineReopensConfirmation"
+        ],
+        "case_count": 5,
+        "changed_go_files": [
+          "internal/grpcapi/catalog.go",
+          "internal/grpcapi/catalog_mapping_test.go",
+          "internal/grpcapi/networks.go",
+          "out/cli/command/version.go",
+          "out/grpcapi/mapping/mappings.go"
+        ],
+        "recovery_test_and_worker_files_unchanged": true,
+        "generated_lease_and_event_check_unchanged": true,
+        "source_archive_sha256": "72771de8169a3323982a0b102f85830a7a8712f8e3c498b8d628c5f51a01a53c",
+        "test_log_sha256": "709b70e65ad57b1f56ad4ad0289c21dbf84ff3057f191f2d2cfb0460f8cafb34",
+        "checked_at": "2026-09-21T03:50:27.777880+00:00",
+        "scope": "Real PostgreSQL restart and event recovery with the unchanged lease bound and test contract. The historical lease origin remains unknown; no ten-second recovery claim."
+      }
+    },
+    "provider": {
+      "run": 35558560195,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35558560195",
+      "record_sha256": "7ec1615c18f167fcc0e170321494f63622448f6ef7e3b33b9538370b61b6c54c",
+      "record": {
+        "source": "b145ee5bfc0f080cbbd265a0e5a6a74a537c71be",
+        "run": 35558560195,
+        "qualified": true,
+        "required_roots": [
+          "TestClientReadsRequireExactIdentity",
+          "TestDatabaseFixtureCleanupDiagnostics",
+          "TestGatewayCleanupDeadlineReopensConfirmation",
+          "TestLateKeycloakCreationIsRemovedAfterCleanupAndRestart",
+          "TestManagedInventoryHandlesConcurrentRemoval",
+          "TestManagedInventoryUsesGatewaySearchAndChecksOwnership",
+          "TestPostgresSignalEvidenceAcceptsCredentialPreparation",
+          "TestPostgresSignalEvidenceAcceptsManagedSchema",
+          "TestPostgresSignalEvidenceRequiresControllerAndLog",
+          "TestUnknownGatewayClientsCloseAcrossProcessRestart",
+          "TestUnrelatedClientSnapshotComparison"
+        ],
+        "required_roots_passed": 11,
+        "cleanup_checked": true,
+        "source_archive_verified": true,
+        "record_sha256": {
+          "tests.log": "c259318ea50272e178ac1901001950e445caa027db15084dc6f4da31ba60d60b",
+          "inventory.log": "6ca9ccc43dbf7950e68d058e42a27230c6bc77e2d3b563a4605c567c51dae7ad",
+          "source-commit": "a47769d20136916b5bf5f1f3b650fae130198216c89762fe0d0dff76f886403d",
+          "source-archive.sha256": "4fae2dbfc83fba21a9c6fea78569584deee0caec727a175930f1faeb16bc4f2e",
+          "cleanup.json": "61e23bb6437febd3384ead2cafc8770f568002ee8cfd4b6191ac1af34e5e6459"
+        },
+        "checked_at": "2026-09-21T03:49:07.599156+00:00",
+        "scope": "Hosted real provider discovery and cleanup. The live browser workflow remains required."
+      }
+    }
+  },
+  "full_application_qualified": false,
+  "signed_images_qualified": false,
+  "live_workflow_qualified": false,
+  "main_promoted": false,
+  "scope": "Catalog response mappings only. These records do not establish full application or enterprise acceptance."
+}

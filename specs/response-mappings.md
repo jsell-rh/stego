@@ -98,3 +98,17 @@ examples, 34 timestamp cases, and database access checks also passed. An
 independent installation matched all five authenticated release files. See the
 [release evidence](response-mapping-release-evidence.json). Hypershell adoption
 and the complete application workflow remain open.
+
+## Hypershell candidate
+
+Candidate `b145ee5b` uses generated mappings for ManagedCluster, GatewayRelease,
+and GatewayNetwork. Hypershell retains access checks, domain operations, and
+public error selection. The candidate preserves optional field presence and
+rejects invalid stored text without a partial response or supplied error data.
+
+Independent review checked all 120 focused response cases, all five restart
+cases, and the 11 provider test roots. Regeneration matched 430 generated and
+module files, 421 output hashes, and 41 input hashes. The patch was empty.
+See the [candidate evidence](catalog-mapping-candidate-evidence.json). Full
+application checks, signed image review, and the complete live workflow are
+still required. The candidate has not been promoted to Hypershell main.

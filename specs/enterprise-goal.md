@@ -56,8 +56,11 @@ all 32 standing resources. See the [consumer evidence](queue-claim-consumer-evid
 
 Normal cleanup with 100 accounts took an observed 32.26 seconds. The 30-second
 target remains open. This change does not explain the historical event timeout.
-Exact main push checks are active; the candidate and live results do not claim
-those checks have passed. The accepted workload construction, dependency
+The exact main checks at `dc6cd0e6` also passed. Independent review checked
+1,294 core cases, all 52 required live API tests, regeneration, and seven signed
+images. Cleanup preserved the 32 standing resources and released the Lease.
+Hypershell evidence commit `caa0dfb3` records those results; it has no runtime
+change. The accepted workload construction, dependency
 conversion, and checked timestamps remain in the generated runtime. Complete
 response mapping, remaining worker configuration, and the enterprise requirements
 are still open.
