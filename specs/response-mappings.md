@@ -79,6 +79,10 @@ omission. Other stored JSON conversions and application-derived parameters are
 not yet supported. A mapper does not provide REST conversion or public error mapping.
 Do not use an omission to hide a required application response field.
 
+The [REST mapping plan](rest-response-mapping-plan.md) records the proposed
+common mechanism, field-presence rules, and acceptance requirements. It is not
+an implemented or accepted REST capability.
+
 Model providers must describe the Go types they emit. They may expose scalar
 fields and promoted fields through a single Go selector. Pointer traversal and
 Go expressions are not accepted. Private storage state and relationships need
