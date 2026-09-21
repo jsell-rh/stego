@@ -55,7 +55,7 @@ func (*ProcessGenerator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, err
 		Tracing string
 		Methods []string
 	}{path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["otel-tracing"]), methods}
-	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
+	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"transport/runtime.go", runtimeSource}, {"transport/conversion.go", conversionSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
 	if err != nil {
 		return nil, nil, err
 	}

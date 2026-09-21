@@ -16,6 +16,9 @@ import (
 //go:embed runtime.go.tmpl
 var runtimeSource string
 
+//go:embed conversion.go.tmpl
+var conversionSource string
+
 //go:embed client.go.tmpl
 var clientSource string
 
@@ -106,7 +109,7 @@ func NewGRPCRuntime(repository Repository, verifier *auth.Verifier{{if .Watch}},
  return transport.New(verifier.Authenticate,func(registrar grpc.ServiceRegistrar)error{return application.Register(registrar,repository{{if .Watch}},source{{end}})},transport.Options{ {{if .Tracing}}TraceRPC:tracingRuntime.TraceRPC,{{end}}IdentityInfo:func(ctx context.Context)(string,time.Time){identity:=auth.IdentityFromContext(ctx);return identity.UserID,identity.ExpiresAt}})
 }
 `
-	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
+	runtimeFiles, err := renderFiles(ctx, data, []templateSource{{"bridge.go", bridge}, {"transport/runtime.go", runtimeSource}, {"transport/conversion.go", conversionSource}, {"client/client.go", clientSource}, {"client/stream_headers.go", streamHeadersSource}})
 	if err != nil {
 		return nil, nil, err
 	}

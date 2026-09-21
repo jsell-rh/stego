@@ -30,3 +30,8 @@ completed streams. Both paths use the same once-only telemetry function.
 This prevents a caller from closing the telemetry runtime before a returned
 stream deadline has been recorded. Successful headers and response frames do
 not end the stream span; EOF records successful completion.
+
+The generated transport provides checked required and optional timestamp
+conversion. Invalid values return no timestamp and a fixed error. A nil
+optional input stays absent; a present zero Go time stays present. See
+[the conversion contract](../../../specs/checked-timestamp-conversion.md).

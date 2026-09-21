@@ -1,0 +1,31 @@
+package transport
+
+import (
+	"errors"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// ErrTimestamp contains no supplied value. The application selects its public status.
+var ErrTimestamp = errors.New("invalid protobuf timestamp")
+
+// Timestamp converts a required instant. Invalid input returns no timestamp.
+// The zero Go time is valid: it represents the first supported calendar instant.
+// Location and monotonic clock data do not enter the protobuf value.
+func Timestamp(value time.Time) (*timestamppb.Timestamp, error) {
+	converted := timestamppb.New(value)
+	if converted.CheckValid() != nil {
+		return nil, ErrTimestamp
+	}
+	return converted, nil
+}
+
+// OptionalTimestamp preserves absence. A non-nil zero time remains present.
+// The result owns its data and does not retain the input pointer.
+func OptionalTimestamp(value *time.Time) (*timestamppb.Timestamp, error) {
+	if value == nil {
+		return nil, nil
+	}
+	return Timestamp(*value)
+}
