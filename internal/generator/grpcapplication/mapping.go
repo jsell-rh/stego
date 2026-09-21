@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/responsemapping"
 	"github.com/jsell-rh/stego/internal/types"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -19,9 +20,11 @@ type responseMapping struct {
 	source protogen.GoIdent
 	target *protogen.Message
 	fields []mappedField
+	inputs []gen.GoModelField
 }
 
 type mappedField struct {
+	input      bool
 	target     *protogen.Field
 	source     gen.GoModelField
 	children   []mappedField
@@ -64,8 +67,13 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 	names := map[string]bool{"ErrConversion": true}
 	for _, value := range items {
 		item, ok := value.(map[string]any)
-		if !ok || len(item) != 5 {
+		if !ok || (len(item) != 5 && len(item) != 6) {
 			return nil, fmt.Errorf("response mapping requires name, provider, model, message, and fields")
+		}
+		for key := range item {
+			if key != "name" && key != "provider" && key != "model" && key != "message" && key != "fields" && key != "inputs" {
+				return nil, fmt.Errorf("unknown response mapping option")
+			}
 		}
 		name, n := item["name"].(string)
 		provider, p := item["provider"].(string)
@@ -76,6 +84,20 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 			return nil, fmt.Errorf("invalid or duplicate response mapping")
 		}
 		names[name] = true
+		var inputs []gen.GoModelField
+		if raw, present := item["inputs"]; present {
+			var err error
+			inputs, err = responsemapping.PreparedInputs(raw, "protobuf response")
+			if err != nil {
+				return nil, err
+			}
+			if names[name+"Input"] {
+				return nil, fmt.Errorf("response input type name conflicts")
+			}
+			names[name+"Input"] = true
+		}
+		usedInputs := map[string]bool{}
+
 		source, exists := ctx.GoModelSources[provider]
 		if !exists || gen.ValidateGoImportNamespace(source.ImportPath) != nil || gen.ValidateGoModels(source.Models) != nil {
 			return nil, fmt.Errorf("response mapping %q has no valid model provider", name)
@@ -101,16 +123,19 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 				return nil, fmt.Errorf("response mapping %q has an invalid or duplicate target", name)
 			}
 			for k := range rule {
-				if k != "target" && k != "source" && k != "constant" && k != "prefix" && k != "omit" && k != "conversion" && k != "max_bytes" && k != "max_items" && k != "max_item_bytes" {
+				if k != "target" && k != "input" && k != "source" && k != "constant" && k != "prefix" && k != "omit" && k != "conversion" && k != "max_bytes" && k != "max_items" && k != "max_item_bytes" {
 					return nil, fmt.Errorf("response mapping %q has an unknown field option", name)
 				}
 			}
 			rules[key] = rule
 		}
 		remaining := 512
-		mapped, err := mapMessage(target, "", model.Fields, rules, 0, &remaining)
+		mapped, err := mapMessage(target, "", model.Fields, inputs, usedInputs, rules, 0, &remaining)
 		if err != nil {
 			return nil, fmt.Errorf("response mapping %q: %w", name, err)
+		}
+		if len(usedInputs) != len(inputs) {
+			return nil, fmt.Errorf("response mapping has unused inputs")
 		}
 		if err := checkJSONMappingBudget(mapped); err != nil {
 			return nil, fmt.Errorf("response mapping %q: %w", name, err)
@@ -118,13 +143,13 @@ func responseMappings(ctx gen.Context, plugin *protogen.Plugin) ([]responseMappi
 		if len(rules) != 0 {
 			return nil, fmt.Errorf("response mapping %q has unknown or overlapping targets", name)
 		}
-		result = append(result, responseMapping{name, protogen.GoIdent{GoName: model.GoType, GoImportPath: protogen.GoImportPath(source.ImportPath)}, target, mapped})
+		result = append(result, responseMapping{name, protogen.GoIdent{GoName: model.GoType, GoImportPath: protogen.GoImportPath(source.ImportPath)}, target, mapped, inputs})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].name < result[j].name })
 	return result, nil
 }
 
-func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelField, rules map[string]map[string]any, depth int, remaining *int) ([]mappedField, error) {
+func mapMessage(message *protogen.Message, prefix string, sources, inputs []gen.GoModelField, usedInputs map[string]bool, rules map[string]map[string]any, depth int, remaining *int) ([]mappedField, error) {
 	if depth > 8 {
 		return nil, fmt.Errorf("nested response mapping exceeds eight levels")
 	}
@@ -145,11 +170,34 @@ func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelF
 				continue
 			}
 		}
+		selected, prepared := sources, false
+		if raw, exists := rule["input"]; exists {
+			name, ok := raw.(string)
+			if !ok {
+				return nil, fmt.Errorf("input must name a declared field")
+			}
+			if _, exists := rule["source"]; exists {
+				return nil, fmt.Errorf("input and source cannot be combined")
+			}
+			if _, exists := rule["constant"]; exists {
+				return nil, fmt.Errorf("input and constant cannot be combined")
+			}
+			clone := make(map[string]any, len(rule))
+			for key, value := range rule {
+				if key != "input" {
+					clone[key] = value
+				}
+			}
+			clone["source"] = name
+			rule, selected, prepared = clone, inputs, true
+			usedInputs[name] = true
+		}
 		if target.Desc.IsList() && target.Desc.Kind() == protoreflect.StringKind && present {
-			mapped, err := mapJSONStrings(target, rule, sources)
+			mapped, err := mapJSONStrings(target, rule, selected)
 			if err != nil {
 				return nil, fmt.Errorf("field %q: %w", key, err)
 			}
+			mapped.input = prepared
 			result = append(result, mapped)
 			continue
 		}
@@ -160,7 +208,7 @@ func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelF
 			if present {
 				return nil, fmt.Errorf("field %q requires nested field mappings", key)
 			}
-			children, err := mapMessage(target.Message, key+".", sources, rules, depth+1, remaining)
+			children, err := mapMessage(target.Message, key+".", sources, inputs, usedInputs, rules, depth+1, remaining)
 			if err != nil {
 				return nil, err
 			}
@@ -170,10 +218,11 @@ func mapMessage(message *protogen.Message, prefix string, sources []gen.GoModelF
 		if !present {
 			return nil, fmt.Errorf("field %q has no mapping or explicit omission", key)
 		}
-		mapped, err := mapScalar(target, rule, sources)
+		mapped, err := mapScalar(target, rule, selected)
 		if err != nil {
 			return nil, fmt.Errorf("field %q: %w", key, err)
 		}
+		mapped.input = prepared
 		result = append(result, mapped)
 	}
 	return result, nil
@@ -321,8 +370,26 @@ func renderResponseMappings(ctx gen.Context, plugin *protogen.Plugin, mappings [
 	g.P("// ErrConversion contains no supplied value. The caller selects the public status.")
 	g.P("var ErrConversion = ", protogen.GoIdent{GoName: "New", GoImportPath: "errors"}, "(\"response conversion failed\")")
 	for _, mapping := range mappings {
+		argument := ""
+		if len(mapping.inputs) != 0 {
+			g.P("// ", mapping.name, "Input contains values prepared by the application.")
+			g.P("type ", mapping.name, "Input struct {")
+			for _, field := range mapping.inputs {
+				var kind any = responsemapping.InputGoType(field.Type)
+				if field.Type == types.FieldTypeTimestamp {
+					kind = protogen.GoIdent{GoName: "Time", GoImportPath: "time"}
+				}
+				pointer := ""
+				if field.Pointer {
+					pointer = "*"
+				}
+				g.P(field.Selection, " ", pointer, kind)
+			}
+			g.P("}")
+			argument = ", input " + mapping.name + "Input"
+		}
 		g.P("// ", mapping.name, " converts a prepared value. The caller must first check access.")
-		g.P("func ", mapping.name, "(value ", mapping.source, ") (*", mapping.target.GoIdent, ", error) {")
+		g.P("func ", mapping.name, "(value ", mapping.source, argument, ") (*", mapping.target.GoIdent, ", error) {")
 		g.P("result := &", mapping.target.GoIdent, "{}")
 		renderMappedFields(g, ctx, mapping.fields, "result")
 		g.P("return result, nil")
@@ -338,12 +405,16 @@ func renderResponseMappings(ctx gen.Context, plugin *protogen.Plugin, mappings [
 func renderMappedFields(g *protogen.GeneratedFile, ctx gen.Context, fields []mappedField, target string) {
 	for _, field := range fields {
 		destination := target + "." + field.target.GoName
+		receiver := "value"
+		if field.input {
+			receiver = "input"
+		}
 		g.P("{")
 		if field.target.Message != nil && field.target.Message.Desc.FullName() != "google.protobuf.Timestamp" {
 			g.P(destination, " = &", field.target.Message.GoIdent, "{}")
 			renderMappedFields(g, ctx, field.children, destination)
 		} else if field.jsonLimits != nil {
-			g.P("converted, err := jsonStrings(value.", field.source.Selection, ", ", field.jsonLimits.bytes, ", ", field.jsonLimits.items, ", ", field.jsonLimits.itemBytes, ")")
+			g.P("converted, err := jsonStrings(", receiver, ".", field.source.Selection, ", ", field.jsonLimits.bytes, ", ", field.jsonLimits.items, ", ", field.jsonLimits.itemBytes, ")")
 			g.P("if err != nil { return nil, ErrConversion }")
 			g.P(destination, " = converted")
 		} else if field.constant != nil {
@@ -354,11 +425,11 @@ func renderMappedFields(g *protogen.GeneratedFile, ctx gen.Context, fields []map
 			if field.source.Pointer {
 				function = "OptionalTimestamp"
 			}
-			g.P("converted, err := ", protogen.GoIdent{GoName: function, GoImportPath: protogen.GoImportPath(path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"))}, "(value.", field.source.Selection, ")")
+			g.P("converted, err := ", protogen.GoIdent{GoName: function, GoImportPath: protogen.GoImportPath(path.Join(ctx.ModuleName, ctx.OutDirName, ctx.OutputNamespace, "transport"))}, "(", receiver, ".", field.source.Selection, ")")
 			g.P("if err != nil { return nil, ErrConversion }")
 			g.P(destination, " = converted")
 		} else {
-			expression := "value." + field.source.Selection
+			expression := receiver + "." + field.source.Selection
 			if field.source.Pointer {
 				g.P("if ", expression, " != nil {")
 				expression = "*" + expression

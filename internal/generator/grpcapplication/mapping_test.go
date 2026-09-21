@@ -166,9 +166,14 @@ func TestResponseMappingOrderIsStable(t *testing.T) {
 }
 
 func TestGeneratedResponseMappings(t *testing.T) {
+	checkGeneratedResponseMappings(t, shipmentContext, "testdata/mapping_test.go")
+}
+
+func checkGeneratedResponseMappings(t *testing.T, context func(*testing.T) gen.Context, testFile string) {
+	t.Helper()
 	for _, namespace := range []string{"grpcapi", "rpc/provider"} {
 		t.Run(namespace, func(t *testing.T) {
-			ctx := shipmentContext(t)
+			ctx := context(t)
 			ctx.OutputNamespace = namespace
 			if err := new(grpcapplication.Generator).ValidateContext(ctx); err != nil {
 				t.Fatal(err)
@@ -204,7 +209,7 @@ func TestGeneratedResponseMappings(t *testing.T) {
 					write("out/"+file.Path, file.Bytes())
 				}
 			}
-			data, err := os.ReadFile("testdata/mapping_test.go")
+			data, err := os.ReadFile(testFile)
 			if err != nil {
 				t.Fatal(err)
 			}

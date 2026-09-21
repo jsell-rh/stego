@@ -305,7 +305,7 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 		if len(mapping.inputs) != 0 {
 			fmt.Fprintf(&body, "// %sInput contains values prepared by the application.\ntype %sInput struct {\n", mapping.name, mapping.name)
 			for _, field := range mapping.inputs {
-				fieldType := responseInputTypes[field.Type]
+				fieldType := responsemapping.InputGoType(field.Type)
 				if field.Type == types.FieldTypeTimestamp {
 					imports["time"] = "time"
 				}

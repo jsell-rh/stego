@@ -8,6 +8,7 @@ on:
       - 'internal/gen/go_models*'
       - 'internal/responsemapping/**'
       - 'internal/compiler/go_models*'
+      - 'internal/compiler/protobuf_inputs_test.go'
       - 'internal/compiler/preflight.go'
       - 'internal/compiler/reconciler.go'
       - 'internal/generator/postgresadapter/go_models*'
@@ -60,7 +61,9 @@ jobs:
                       'TestGoModelContextCopies', 'TestGoModelDeclarationMatchesGeneratedStorage',
                       'TestResponseMappingRejectsInvalidContracts', 'TestResponseMappingOrderIsStable',
                       'TestGeneratedResponseMappings', 'TestResponseMappingJSONLimits',
-                      'TestResponseMappingJSONHelperIsConditional', 'TestResponseMappingJSONBounds'}
+                      'TestResponseMappingJSONHelperIsConditional', 'TestResponseMappingJSONBounds',
+                      'TestResponseMappingPreparedInputValidation', 'TestResponseMappingPreparedOrder',
+                      'TestResponseMappingPreparedRuntime', 'TestResponseMappingPreparedInputsGateOutput'}
           passed = {e.get('Test') for e in events if e.get('Action') == 'pass'}
           assert required <= passed
           nested = []
@@ -73,7 +76,8 @@ jobs:
           required = {'TestMappingPreservesContract', 'TestMappingOwnsOutputAndPreservesAbsence',
                       'TestMappingRejectsInvalidValuesWithoutPartialOutput', 'TestMappingAcceptsNumericAndTimeBounds',
                       'TestMappingJSONListsPreserveValues', 'TestMappingJSONListsRejectInvalidInput',
-                      'TestMappingJSONListsOwnOutput'}
+                      'TestMappingJSONListsOwnOutput', 'TestPreparedMappingUsesApplicationValues',
+                      'TestPreparedMappingOwnsResults', 'TestPreparedMappingRejectsInvalidValues'}
           for namespace in ['grpcapi', 'rpc/provider']:
               package = 'example.com/mapping-test/out/' + namespace + '/mapping'
               passed = {e.get('Test') for e in nested if e.get('Action') == 'pass' and e.get('Package') == package}

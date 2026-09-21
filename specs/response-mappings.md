@@ -189,3 +189,33 @@ module files. Seven candidate image signatures and registry fixture results
 passed independent review; production publication and CA adoption are separate
 requirements. See the [main evidence](gateway-mapping-main-consumer-evidence.json).
 The remaining enterprise requirements stay open.
+
+
+## Candidate: application-prepared inputs
+
+A response mapping can declare an `inputs` list. Each item has an exported Go
+identifier in `name`, a fixed scalar `type`, and an optional Boolean `optional`.
+A field selects the input with `input: Name`. It cannot also select a stored
+source, constant, or omission. Every declared input must be used.
+
+The common parser is shared with REST mappings. It accepts string, bool, int32,
+int64, float, double, timestamp, and jsonb. Types have fixed Go representations.
+A declaration cannot supply Go expressions, imports, callbacks, or field paths.
+There are at most 128 inputs per mapping, with names of at most 128 bytes.
+JSON input cannot be a pointer. JSON list conversion retains its complete byte
+and item budget. The existing protobuf type and presence checks apply to inputs.
+
+STEGO emits a typed `NameInput` structure and adds it to the mapper arguments.
+The application checks access and resolves domain values before it calls the
+mapper. STEGO checks and copies the supplied values with the same conversions
+as stored fields. Invalid UTF-8, timestamps, integer narrowing, or JSON lists
+return a fixed private error and no partial result. Optional values preserve
+presence. Result pointers and lists do not share mutable input storage.
+
+The Shipment fixture supplies a resolved carrier label, reference, numeric
+values, timestamps, and JSON tags. It checks every supported input type,
+optional presence, output ownership, deterministic input order, protobuf
+serialization, and private failures in two output namespaces. Compiler checks
+must reject invalid input mappings before a provider renders or output changes.
+Existing REST and protobuf checks remain required. This candidate has not yet
+passed CI or been adopted by Hypershell.
