@@ -31,6 +31,8 @@ type GoProperty struct {
 	Nullable   bool
 	OmitEmpty  bool
 	StringList bool
+	StringEnum []string
+	EnumGoType string
 }
 
 // GenerateGoModels renders model types and binds selected response objects.
@@ -90,10 +92,15 @@ func GenerateGoModels(doc *openapi3.T, packageName string, schemas []string) (st
 			if err := format.Node(&expression, token.NewFileSet(), field.Type); err != nil {
 				return "", nil, fmt.Errorf("invalid Go response field type")
 			}
+			enum, enumType, err := stringEnumProperty(property.schema, field.Type, declarations)
+			if err != nil {
+				return "", nil, err
+			}
 			object.Fields = append(object.Fields, GoProperty{
 				JSONName: parts[0], GoName: field.Names[0].Name, GoType: expression.String(),
 				Required: property.required, Nullable: property.schema.Nullable, OmitEmpty: len(parts) == 2,
 				StringList: stringListProperty(property.schema),
+				StringEnum: enum, EnumGoType: enumType,
 			})
 		}
 		if len(seen) != len(selected[name]) {

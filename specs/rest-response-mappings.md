@@ -160,3 +160,25 @@ include compiler rejection before output, unchanged mappings without inputs,
 deterministic input order, prepared values distinct from stored values, and
 ownership after source mutation. Gateway adoption and the full live workflow
 remain required.
+
+
+## Candidate: string enums
+
+A response field can use a string enum from the captured OpenAPI contract.
+STEGO checks the declared values and the actual Go type from the backend.
+A stored value or typed application input must match a declared value. The
+check runs after an optional prefix. A constant must match at compile time.
+An unknown value returns `ErrConversion` with no response object or supplied
+value in the error. The application retains its access and grant policy.
+
+Optional fields retain pointer presence and owned storage. An empty string is
+valid only if the contract declares it, or if `omit_empty` explicitly omits the
+optional field. Nullable enums remain unsupported for response conversion.
+
+Each enum has at most 256 distinct values. Each value has at most 4096 UTF-8
+bytes. All values together have at most 65536 bytes. Unsupported backend types,
+duplicate values, and invalid encodings stop generation. These compiler bounds
+do not set a limit on application records.
+
+This candidate adds model binding, compiler rejection, and generated runtime
+checks. CI results and application adoption are still required.

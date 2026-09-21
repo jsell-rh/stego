@@ -211,10 +211,25 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 		return field, fmt.Errorf("nullable response requires a source with three presence states")
 	}
 	base := strings.TrimPrefix(target.GoType, "*")
+	if len(target.StringEnum) != 0 {
+		base = "string"
+	}
 	if value, exists := rule["constant"]; exists {
 		constant, ok := value.(string)
 		if !ok || len(rule) != 2 || base != "string" || len(constant) > 4096 || !utf8.ValidString(constant) {
 			return field, fmt.Errorf("constant requires a bounded string and no other action")
+		}
+		if len(target.StringEnum) != 0 {
+			allowed := false
+			for _, value := range target.StringEnum {
+				if constant == value {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				return field, fmt.Errorf("constant is outside the response enum")
+			}
 		}
 		field.constant = &constant
 		return field, nil
@@ -264,7 +279,7 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 		field.prefix = prefix
 	}
 	if value, exists := rule["omit_empty"]; exists {
-		if value != true || field.source.Pointer || sourceType != "string" || target.GoType != "*string" || target.Required || !target.OmitEmpty {
+		if value != true || field.source.Pointer || sourceType != "string" || (!strings.HasPrefix(target.GoType, "*") || base != "string") || target.Required || !target.OmitEmpty {
 			return field, fmt.Errorf("omit_empty requires a non-pointer string and optional response pointer")
 		}
 		field.omitEmpty = true
@@ -346,6 +361,22 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 			if field.conversion == "int32" {
 				body.WriteString("if v < -2147483648 || v > 2147483647 {return nil,ErrConversion}\nconverted := int32(v)\n")
 				variable = "converted"
+			}
+			if len(field.target.StringEnum) != 0 {
+				body.WriteString("switch v {case ")
+				for i, value := range field.target.StringEnum {
+					if i > 0 {
+						body.WriteString(",")
+					}
+					body.WriteString(strconv.Quote(value))
+				}
+				body.WriteString(":\ndefault:return nil,ErrConversion\n}\n")
+				cast := field.target.EnumGoType
+				if cast != "string" {
+					cast = "contract." + cast
+				}
+				fmt.Fprintf(&body, "enumValue := %s(v)\n", cast)
+				variable = "enumValue"
 			}
 			if strings.HasPrefix(field.target.GoType, "*") {
 				variable = "&" + variable

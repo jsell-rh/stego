@@ -12,16 +12,20 @@ import (
 )
 
 func TestHTTPResponseMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false)
+	testHTTPResponseMappingsGateOutput(t, false, false, false)
 }
 func TestHTTPResponseJSONMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, false)
+	testHTTPResponseMappingsGateOutput(t, true, false, false)
 }
 func TestHTTPResponsePreparedInputsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, true)
+	testHTTPResponseMappingsGateOutput(t, true, true, false)
 }
 
-func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared bool) {
+func TestHTTPResponseEnumMappingsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, false, false, true)
+}
+
+func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums bool) {
 	t.Helper()
 	input := applicationPreflightInput(t, new(httpapplication.Generator), "domain")
 	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
@@ -95,9 +99,29 @@ components:
 		changed = strings.Replace(changed, "target: tags, source: tags", "target: tags, input: Tags", 1)
 		writeFile(t, servicePath, changed)
 	}
+	if enums {
+		schema = strings.Replace(schema, "id: {type: string}", "id: {type: string, enum: [ready, sent]}", 1)
+	}
 	writeFile(t, filepath.Join(input.ProjectDir, "responses.yaml"), schema)
 	if result, err := Validate(input); err != nil || result.HasErrors() {
 		t.Fatal("valid HTTP mapping rejected", result, err)
+	}
+	if enums {
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, servicePath, strings.Replace(string(current), "target: id, source: id", "target: id, constant: unknown", 1))
+		if result, err := Validate(input); err != nil || !result.HasErrors() {
+			t.Fatal("invalid enum passed validation", result, err)
+		}
+		if plan, err := Reconcile(input); err == nil || plan != nil {
+			t.Fatal("invalid enum produced output", plan, err)
+		}
+		if probe.renders != 0 {
+			t.Fatal("enum validation ran after provider generation")
+		}
+		writeFile(t, servicePath, string(current))
 	}
 	if prepared {
 		current, err := os.ReadFile(servicePath)
