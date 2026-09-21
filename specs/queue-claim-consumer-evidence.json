@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "consumer_main": "dc6cd0e6e0aaa77106647b206059ea932469b04e",
+  "runtime_source": "06cc36b2d8343d3bdac780baa7e8723722afcd98",
+  "compiler": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+  "compiler_sha256": "49ee95f89a65cfe2349bfe36ab6a2be9d6b00cd4931ed4503f1601a8802b91f6",
+  "fixture_source": "e8b7dbd2596f51c8549456a28232edf636e9c859",
+  "run": 35555130032,
+  "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35555130032",
+  "workflow_seconds": 533.05,
+  "required_tests_passed": 11,
+  "full_core_cases_passed": 1294,
+  "restart_cases_passed": 5,
+  "provider_test_roots_passed": 11,
+  "source_files_checked": 1694,
+  "generated_hashes_checked": 430,
+  "authenticated_images": 7,
+  "screenshots_reviewed": 4,
+  "reader_process_exits": {
+    "collect.py": 0,
+    "observe-runtime.py": 0,
+    "await-admitted-pod.py": 0,
+    "observe-image-delivery.py": 0,
+    "observe-allocator-logs.py": 0,
+    "observe-namespace-deletion.py": 0,
+    "observe-console-rollout.py": 0
+  },
+  "largest_cleanup_observed_upper_bound_seconds": 32.257671459,
+  "cleanup_target_seconds": 30,
+  "cleanup_target_met": false,
+  "cleanup": {
+    "run": 35555130032,
+    "source": "06cc36b2d8343d3bdac780baa7e8723722afcd98",
+    "checked_at": "2026-09-21T03:02:07.048757+00:00",
+    "browser_empty": true,
+    "api_run": null,
+    "api_status": "not dispatched",
+    "runtime": [],
+    "fixtures": [],
+    "allocations": [],
+    "ci_jobs": [],
+    "lease_holder": "",
+    "installed_resources_unchanged": 32,
+    "installation_uid": "32e31091-b7b7-4bbc-a541-ed04ee42265d",
+    "scope": "Both test fixtures are absent, the shared lease is free, and all standing installation resources are unchanged."
+  },
+  "proof_sha256": {
+    "console-rollout-observation.json": "c907936a72a846ee90705ea0b4f137248dc9afcc6e57d5e0de7b38e24c4c91eb",
+    "generation-inventory-review.json": "1af36977e45e0d5d83223585ab37b17ed44d7bce5f5dab6a42d5e676389ec933",
+    "image-delivery-verification.json": "2ba0fe42eda68623a3e077a35c51496dddd020178492831c48e771975b74b0e8",
+    "verification.json": "00461a05d0a7640f11ad7e564eff857da2ee043dee33c5a5c6154a48e4826f9d",
+    "controller-trace-verification.json": "c6f688700019ec6b9757e549008ade2b7fac669a65e90cb965938d93174156e2",
+    "account-verification.json": "39537ea34f36eb5ff6cd6902db2769c8b987818b6154a6fb57148499aaa5809c",
+    "phase-verification.json": "d613077193f3f027ddfb169b5813a7d2a03d29c3f08759f762bfe8e97eb443c4",
+    "independent-cleanup.json": "504305eebc54647392b8ded7dd92dd4070a4109d92039365d2714212c1405c8e",
+    "admitted-pod-verification.json": "8428a496af1f68cb85513afe76c2ca3694cc586c00b98acda1f574eaf255f34f",
+    "visual-review.json": "1560b54b5d547ebbdf419244a6c4a7e6931f8d89128972abf38254f4ca7718f3",
+    "allocator-log-observation/cleanup-window-review.json": "fea7ea6bf1e45cde15f61955653b7203cbb523438611fd7bb0259b4da0a47857",
+    "namespace-deletion-observation/cleanup-window-review.json": "32323c5ce1070ee8dc6fe7b1886eb49edca3ba443372680712958346c007ef76"
+  },
+  "consumer_records": {
+    "browser": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/dc6cd0e6e0aaa77106647b206059ea932469b04e/acceptance/queue-claim-browser-evidence.json",
+      "sha256": "cb9e3509efb4c58794b7203d194e8111f5f23a95afc1662ee52a08dc24283583"
+    },
+    "application": {
+      "url": "https://github.com/jsell-rh/hypershell-stego/blob/dc6cd0e6e0aaa77106647b206059ea932469b04e/acceptance/queue-claim-application-evidence.json",
+      "sha256": "718e04f0bad2a8c5779f6774fc9504c6e2bc480adae1c8111524ed6d1202116a"
+    }
+  },
+  "main_push_checks_pending": true,
+  "not_proved": [
+    "RDS failover",
+    "Live Kata isolation",
+    "Production capacity and remaining enterprise requirements",
+    "Native Sandbox packet isolation",
+    "Live OpenShell Sandbox execution",
+    "Complete declarative response mapping",
+    "Historical event timeout cause"
+  ],
+  "scope": "Complete queue consumer workflow. The accepted common workload and dependency mechanisms remain. The queue change returns no partial batch after a result error; it preserves leases and normal recovery. It does not explain the historical event timeout."
+}

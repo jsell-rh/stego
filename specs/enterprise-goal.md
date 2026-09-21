@@ -40,6 +40,30 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
+Hypershell main `dc6cd0e6` accepts runtime source `06cc36b2` and compiler
+`65b18de8`. The common queue now returns no partial delivery batch after a row
+iteration error. A database write can still have committed, so existing leases
+remain subject to normal expiry and receipt checks. Worker behavior, lease and
+attempt limits, and Hypershell policy are unchanged.
+
+The candidate passed 1,294 core cases, five restart cases, 11 provider test roots,
+and seven image reviews. The complete live workflow passed all 11 required tests
+in 533.05 seconds. Independent review checked 1,694 source files, 430 generated
+hashes, live compiler bytes, REST and gRPC access, event delivery, restart,
+telemetry, four browser views, and cleanup. All seven evidence readers completed
+without error. Cleanup removed test resources, released the Lease, and preserved
+all 32 standing resources. See the [consumer evidence](queue-claim-consumer-evidence.json).
+
+Normal cleanup with 100 accounts took an observed 32.26 seconds. The 30-second
+target remains open. This change does not explain the historical event timeout.
+Exact main push checks are active; the candidate and live results do not claim
+those checks have passed. The accepted workload construction, dependency
+conversion, and checked timestamps remain in the generated runtime. Complete
+response mapping, remaining worker configuration, and the enterprise requirements
+are still open.
+
+## Accepted checked timestamp baseline
+
 Hypershell main `52001546` accepts runtime source `967bc1d8` and compiler
 `f18286e8`. It retains the accepted common workload construction and dependency
 conversion. Gateway, grant, catalog, and cleanup summary responses now use the
@@ -64,12 +88,6 @@ restart cases, 11 provider test roots, seven image checks, regeneration, and all
 52 live API tests. API cleanup released the Lease and preserved all 32 standing
 resources. Hypershell main `8968fa09` adds the result records. See the
 [main evidence](checked-timestamp-main-consumer-evidence.json).
-
-The queue claim candidate uses compiler `65b18de8`. Its released common queue
-returns no partial batch if row iteration fails. Existing leases still expire
-under the same recovery rules. The candidate remains separate from the accepted
-application until its full and live workflow checks pass. It does not explain
-the earlier event timeout.
 
 ## Accepted workload dependency baseline
 
