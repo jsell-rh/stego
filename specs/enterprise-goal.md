@@ -40,7 +40,31 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-The accepted application is Hypershell main `1f93f1f8`, with runtime source
+The accepted application is Hypershell main `6aa1a658`, with runtime source
+`a1ad728` and compiler `5c4afa11`. STEGO constructs the Gateway workload and the
+separate browser deployment. Hypershell supplies OpenShell settings, verified
+dependencies, placement, and domain rules. The console configuration digest is
+also supplied by STEGO.
+
+The full application check passed 1,192 core cases across 368 top-level tests.
+The five recorded exclusions and the deferred Sandbox test remain explicit.
+The complete browser workflow passed all 11 required tests. Review checked
+generation, signed images, telemetry, four browser views, and cleanup. See the
+[browser evidence](console-configuration-browser-evidence.json).
+The exact main API run then passed all 52 required tests. Independent review
+checked 1,673 source files, 429 generated hashes, and all five compiler files.
+Cleanup removed the test resources, released the Lease, and preserved all 32
+standing resources. See the
+[main API evidence](https://github.com/jsell-rh/hypershell-stego/blob/6aa1a658b5ea8155600694f9ebe58aecbc194518/acceptance/console-rollout-main-api-evidence.json).
+
+Normal cleanup with 100 accounts took an observed 32.69 seconds. The 30-second
+target remains open. The common dependency converter is released in STEGO, but
+its Hypershell adoption still requires its own complete workflow. These results
+do not close the remaining enterprise requirements.
+
+## Earlier accepted worker and workload changes
+
+The earlier accepted application was Hypershell main `1f93f1f8`, with runtime source
 `e0f3d7b` and compiler `8eeb1169`. It uses common typed connection settings in
 five worker entry points. Its hosted check passed 1,176 core cases. The corrected
 count workflow passed in 93.08 seconds. The complete browser workflow passed

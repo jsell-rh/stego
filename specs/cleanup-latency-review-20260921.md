@@ -21,8 +21,8 @@ time. The complete result also checks that unrelated installation data remains.
 The two workflows use identical namespace cleanup source. Hypershell first
 waits for the Gateway namespace to disappear so that the Gateway stops creating
 Sandbox work. It then waits for the Sandbox namespace. Retained state requires
-both workload and SQL cleanup to be recorded. The two state namespaces are
-already deleted together. The common allocator removes owned cluster bindings
+both workload and SQL cleanup to be recorded. Deletion is requested for both
+state namespaces before waiting for either. The common allocator removes owned cluster bindings
 before namespace deletion and reports completion only after resources are absent.
 
 This order is application policy. STEGO supplies the bounded client, owned
