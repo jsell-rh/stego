@@ -205,7 +205,7 @@ func TestGeneratedResponseMappings(t *testing.T) {
 			}
 			write("out/"+namespace+"/mapping/mappings_test.go", []byte(strings.ReplaceAll(string(data), "MAPPING_NAMESPACE", namespace)))
 			write("go.mod", []byte(fmt.Sprintf("module example.com/mapping-test\ngo %s\nrequire (\ngoogle.golang.org/protobuf v1.36.11\ngorm.io/gorm v1.25.12\n)\n", new(grpcapplication.Generator).MinimumGoVersion())))
-			for _, args := range [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-json", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./..."}} {
+			for _, args := range [][]string{{"mod", "tidy"}, {"vet", "-mod=readonly", "./..."}, {"test", "-json", "-race", "-count=1", "-mod=readonly", "-timeout=30s", "./out/" + namespace + "/mapping"}} {
 				command := exec.Command("go", args...)
 				command.Dir = project
 				command.Env = append(os.Environ(), "GOWORK=off")
