@@ -40,6 +40,28 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
+Hypershell main `ccf350b1` accepts runtime source `b145ee5b` and compiler
+`6d68417d`. STEGO now generates the catalog protobuf response mappings.
+Hypershell declares the public fields and retains access checks, domain
+operations, observation selection, and public error policy.
+
+The candidate passed 1,314 core cases, all 120 focused response cases, five
+restart cases, 11 provider test roots, repeated generation, and seven image
+reviews. Its complete live workflow passed all 11 required tests in 561.52
+seconds. Review checked 1,707 source files, 431 generation hashes, exact compiler
+bytes, REST and gRPC access, events, restart, telemetry, four browser images,
+and cleanup. All seven evidence readers completed without error. The test
+fixtures were absent, the Lease was free, and all 32 standing resources were
+unchanged. See the [consumer evidence](catalog-mapping-consumer-evidence.json).
+
+Exact main checks remain pending. Normal cleanup with 100 accounts took an
+observed 32.70 seconds; the 30-second target remains unmet. Gateway and grant
+mapping, REST conversion, remaining worker configuration, and C3 through C7 and
+H1 through H3 remain open. The historical event timeout is not explained by
+this result.
+
+## Accepted queue claim baseline
+
 Hypershell main `dc6cd0e6` accepts runtime source `06cc36b2` and compiler
 `65b18de8`. The common queue now returns no partial delivery batch after a row
 iteration error. A database write can still have committed, so existing leases
@@ -438,7 +460,6 @@ contracts and protobuf descriptors. It contains no Gateway type or policy.
 
 The [release evidence](response-mapping-release-evidence.json) records the
 compiler, generated runtime, example, database, signature, and installation
-checks. Hypershell catalog declarations and adapter changes are prepared. Their
-generated output and application workflow still require review. This release
-does not close H1 or H2. REST mapping, stored JSON conversion, and domain view
-inputs remain open.
+checks. The catalog consumer and its complete candidate workflow are now
+accepted above. This release does not close H1 or H2. Gateway response mapping,
+REST mapping, stored JSON adoption, and domain view inputs remain open.

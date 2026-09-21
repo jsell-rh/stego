@@ -98,21 +98,31 @@ mapping cases in two namespaces. All 37 compiler packages, both generated
 examples, 34 timestamp cases, and database access checks also passed. An
 independent installation matched all five authenticated release files. See the
 [release evidence](response-mapping-release-evidence.json). Hypershell adoption
-and the complete application workflow remain open.
+is recorded below; the remaining application scope stays open.
 
-## Hypershell candidate
+## Hypershell catalog acceptance
 
-Candidate `b145ee5b` uses generated mappings for ManagedCluster, GatewayRelease,
-and GatewayNetwork. Hypershell retains access checks, domain operations, and
-public error selection. The candidate preserves optional field presence and
-rejects invalid stored text without a partial response or supplied error data.
+Hypershell main `ccf350b1` accepts runtime source `b145ee5b`. It uses generated
+mappings for ManagedCluster, GatewayRelease, and GatewayNetwork. Hypershell
+retains access checks, domain operations, and public error selection. Optional
+field presence is preserved. Invalid stored text produces no partial response
+or supplied error data.
 
-Independent review checked all 120 focused response cases, all five restart
-cases, and the 11 provider test roots. Regeneration matched 430 generated and
-module files, 421 output hashes, and 41 input hashes. The patch was empty.
-See the [candidate evidence](catalog-mapping-candidate-evidence.json). Full
-application checks, signed image review, and the complete live workflow are
-still required. The candidate has not been promoted to Hypershell main.
+Independent review checked 1,314 core cases, 120 focused response cases, five
+restart cases, and 11 provider test roots. Regeneration matched 430 generated
+and module files, 421 output hashes, and 41 input hashes. The patch was empty.
+All seven application images passed content and signature review.
+
+The complete live Gateway workflow passed all 11 required tests. Review checked
+1,707 source files, 431 generation hashes, exact compiler bytes, REST and gRPC
+access, events, restart, telemetry, four browser images, and cleanup. All seven
+evidence readers completed without error. Both test fixtures were absent, the
+shared Lease was free, and all 32 standing resources were unchanged.
+
+See the [consumer evidence](catalog-mapping-consumer-evidence.json). Exact main
+checks remain pending. Normal cleanup with 100 accounts took an observed
+32.70 seconds; the 30-second target remains unmet. This result does not complete
+Gateway or grant mapping, REST conversion, or production capacity verification.
 
 ## Bounded JSON string lists
 
