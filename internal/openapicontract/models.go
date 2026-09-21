@@ -32,6 +32,7 @@ type GoProperty struct {
 	HasEnum    bool
 	OmitEmpty  bool
 	StringList bool
+	FreeObject bool
 	StringEnum []string
 	EnumGoType string
 }
@@ -102,6 +103,7 @@ func GenerateGoModels(doc *openapi3.T, packageName string, schemas []string) (st
 				Required: property.required, Nullable: property.schema.Nullable, OmitEmpty: len(parts) == 2,
 				HasEnum:    len(property.schema.Enum) != 0,
 				StringList: stringListProperty(property.schema),
+				FreeObject: freeObjectProperty(property.schema),
 				StringEnum: enum, EnumGoType: enumType,
 			})
 		}
@@ -257,4 +259,13 @@ func stringListProperty(schema *openapi3.Schema) bool {
 	}
 	item := schema.Items.Value
 	return item.Type != nil && item.Type.Is("string") && !item.Nullable && len(item.AllOf)+len(item.AnyOf)+len(item.OneOf) == 0 && item.Not == nil
+}
+
+// Free object conversion cannot silently remove a declared property constraint.
+func freeObjectProperty(schema *openapi3.Schema) bool {
+	return schema != nil && schema.Type != nil && schema.Type.Is("object") && !schema.Nullable &&
+		len(schema.Properties)+len(schema.Required)+len(schema.Enum)+len(schema.AllOf)+len(schema.AnyOf)+len(schema.OneOf) == 0 &&
+		schema.Not == nil && schema.AdditionalProperties.Schema == nil &&
+		(schema.AdditionalProperties.Has == nil || *schema.AdditionalProperties.Has) &&
+		schema.MinProps == 0 && schema.MaxProps == nil
 }

@@ -216,3 +216,52 @@ The candidate includes compiler checks before output and generated runtime
 checks for presence, ownership, scalar bounds, and invalid values. CI, release
 verification, and consumer adoption are still required. The running Hypershell
 workflow uses its existing compiler and source.
+
+## Bounded JSON object response conversion
+
+The compiler candidate adds `conversion: json_object` for a JSON model field
+or prepared input and a free-form, non-null OpenAPI object property. This is a
+common conversion. The application still selects domain values and checks access.
+
+```yaml
+- target: metadata
+  source: metadata
+  conversion: json_object
+  max_bytes: 65536
+  max_nodes: 4096
+  max_depth: 16
+  max_scalar_bytes: 8192
+  on_empty: omit
+```
+
+All four limits and `on_empty` are required. `max_bytes` limits raw JSON before
+decoding. `max_nodes` counts containers, scalar values, and object names.
+`max_depth` counts container levels, with the root object at level one.
+`max_scalar_bytes` limits decoded names and strings, and JSON number text.
+The compiler permits at most 16 MiB, 65,536 nodes, and 32 levels. A response
+mapping shares its 16 MiB and 65,536-item allocation budgets across all JSON
+list and object fields. These are declared conversion bounds, not Gateway or
+account capacity limits.
+
+Empty source bytes are absent. `on_empty: omit` requires an optional response
+pointer with `omitempty`. `on_empty: reject` returns the private conversion
+error for absent bytes and is required for a required object field. A present
+empty object remains `{}`. An empty array remains `[]` inside an object. Nested
+JSON null, false, empty strings, and zero values remain present. A root JSON
+null, array, or scalar is rejected. Whitespace alone is not an absent value.
+
+Numbers use `json.Number`; decoding does not round them through a floating-point
+value. Returned maps, lists, names, and scalar values own their storage.
+Different response fields do not share mutable maps or lists. Invalid syntax,
+invalid UTF-8, lone UTF-16 surrogates, duplicate decoded object names, trailing
+values, and limit violations return `ErrConversion` with no partial response.
+The error contains no supplied data.
+
+The conversion requires a free-form object. Typed additional properties,
+declared properties, object enums, composition, nullable objects, and property
+count constraints are rejected. Their checks must not disappear because a Go
+backend uses a map. Full nullable object states remain outside this candidate.
+
+Generated runtime, compiler preflight, existing list compatibility, and hosted
+compiler checks remain required before release. Hypershell role response
+adoption and the complete application workflow remain separate requirements.

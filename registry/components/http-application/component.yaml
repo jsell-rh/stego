@@ -1,6 +1,6 @@
 kind: component
 name: http-application
-version: 1.13.0
+version: 1.14.0
 output_namespace: application
 config:
   factory_package:
@@ -61,6 +61,18 @@ config:
             optional: true
           max_item_bytes:
             type: int
+            optional: true
+          max_nodes:
+            type: int
+            optional: true
+          max_depth:
+            type: int
+            optional: true
+          max_scalar_bytes:
+            type: int
+            optional: true
+          on_empty:
+            type: string
             optional: true
           omit:
             type: bool

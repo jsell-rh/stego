@@ -28,18 +28,24 @@ type responseMapping struct {
 }
 
 type responseField struct {
-	target     openapicontract.GoProperty
-	source     gen.GoModelField
-	constant   *string
-	prefix     string
-	conversion string
-	omitEmpty  bool
-	jsonLimits *responseJSONLimits
-	input      bool
-	absent     string
+	target       openapicontract.GoProperty
+	source       gen.GoModelField
+	constant     *string
+	prefix       string
+	conversion   string
+	omitEmpty    bool
+	jsonLimits   *responseJSONLimits
+	objectLimits *responseObjectLimits
+	input        bool
+	absent       string
 }
 
 type responseJSONLimits struct{ bytes, items, itemBytes int }
+
+type responseObjectLimits struct {
+	bytes, nodes, depth, scalarBytes int
+	empty                            string
+}
 
 func responseContractConfig(config map[string]any) (map[string]any, error) {
 	value, present := config["document"]
@@ -191,6 +197,13 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 				remainingBytes -= limits.bytes
 				remainingItems -= limits.items
 			}
+			if limits := field.objectLimits; limits != nil {
+				if limits.bytes > remainingBytes || limits.nodes > remainingItems {
+					return nil, fmt.Errorf("combined JSON limits exceed the response mapping budget")
+				}
+				remainingBytes -= limits.bytes
+				remainingItems -= limits.nodes
+			}
 		}
 		if len(rules) != 0 {
 			return nil, fmt.Errorf("HTTP response mapping has unknown targets")
@@ -204,7 +217,7 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelField, rule map[string]any) (responseField, error) {
 	field := responseField{target: target}
 	for option := range rule {
-		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" && option != "max_bytes" && option != "max_items" && option != "max_item_bytes" && option != "on_absent" {
+		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" && option != "max_bytes" && option != "max_items" && option != "max_item_bytes" && option != "on_absent" && option != "max_nodes" && option != "max_depth" && option != "max_scalar_bytes" && option != "on_empty" {
 			return field, fmt.Errorf("unknown HTTP response field option")
 		}
 	}
@@ -266,9 +279,12 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 	if rule["conversion"] == "json_strings" {
 		return bindJSONResponse(field, rule)
 	}
-	for _, option := range []string{"max_bytes", "max_items", "max_item_bytes"} {
+	if rule["conversion"] == "json_object" {
+		return bindJSONObjectResponse(field, rule)
+	}
+	for _, option := range []string{"max_bytes", "max_items", "max_item_bytes", "max_nodes", "max_depth", "max_scalar_bytes", "on_empty"} {
 		if _, exists := rule[option]; exists {
-			return field, fmt.Errorf("JSON limits require json_strings conversion")
+			return field, fmt.Errorf("JSON limits and empty input policy require a JSON conversion")
 		}
 	}
 	if field.source.Pointer && !target.Nullable && (!strings.HasPrefix(target.GoType, "*") || target.Required) {
@@ -341,7 +357,14 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 			if field.input {
 				receiver = "input"
 			}
-			if field.jsonLimits != nil {
+			if limits := field.objectLimits; limits != nil {
+				fmt.Fprintf(&body, "v,err := jsonObject(%s.%s,%d,%d,%d,%d)\nif err != nil {return nil,ErrConversion}\n", receiver, field.source.Selection, limits.bytes, limits.nodes, limits.depth, limits.scalarBytes)
+				if limits.empty == "reject" {
+					body.WriteString("if v == nil {return nil,ErrConversion}\n")
+				} else {
+					body.WriteString("if v != nil {\n")
+				}
+			} else if field.jsonLimits != nil {
 				limits := field.jsonLimits
 				fmt.Fprintf(&body, "v,err := jsonStrings(%s.%s,%d,%d,%d)\nif err != nil {return nil,ErrConversion}\nif v == nil {v = make([]string,0)}\n", receiver, field.source.Selection, limits.bytes, limits.items, limits.itemBytes)
 			} else if field.constant != nil {
@@ -405,6 +428,9 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 			if field.omitEmpty {
 				body.WriteString("}\n")
 			}
+			if field.objectLimits != nil && field.objectLimits.empty == "omit" {
+				body.WriteString("}\n")
+			}
 			if field.source.Pointer {
 				if field.absent == "emit_null" {
 					fmt.Fprintf(&body, "} else {\nresult.%s.SetNull()\n", field.target.GoName)
@@ -434,19 +460,51 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 		{Path: path.Join(ctx.OutputNamespace, "contract/models.go"), Content: []byte(plan.models)},
 		{Path: path.Join(ctx.OutputNamespace, "responses/mappings.go"), Content: code},
 	}
+	needJSON, needObject := false, false
 	for _, mapping := range plan.mappings {
 		for _, field := range mapping.fields {
-			if field.jsonLimits != nil {
-				source, err := responsemapping.JSONStringsSource("responses")
-				if err != nil {
-					return nil, err
-				}
-				files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "responses/json_strings.go"), Content: source})
-				return files, nil
-			}
+			needJSON = needJSON || field.jsonLimits != nil || field.objectLimits != nil
+			needObject = needObject || field.objectLimits != nil
 		}
 	}
+	if needJSON {
+		source, err := responsemapping.JSONStringsSource("responses")
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "responses/json_strings.go"), Content: source})
+	}
+	if needObject {
+		source, err := responsemapping.JSONObjectsSource("responses")
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "responses/json_objects.go"), Content: source})
+	}
 	return files, nil
+}
+
+func bindJSONObjectResponse(field responseField, rule map[string]any) (responseField, error) {
+	target := field.target
+	if !target.FreeObject || (target.GoType != "map[string]interface{}" && target.GoType != "*map[string]interface{}") || field.source.Type != types.FieldTypeJsonb || field.source.Pointer {
+		return field, fmt.Errorf("json_object requires a JSON source and a free non-null object")
+	}
+	if len(rule) != 8 {
+		return field, fmt.Errorf("json_object requires four limits and an empty input policy with no other action")
+	}
+	bytes, b := rule["max_bytes"].(int)
+	nodes, n := rule["max_nodes"].(int)
+	depth, d := rule["max_depth"].(int)
+	scalar, s := rule["max_scalar_bytes"].(int)
+	empty, e := rule["on_empty"].(string)
+	if !b || !n || !d || !s || !e || bytes < 1 || bytes > 16<<20 || nodes < 1 || nodes > 65536 || depth < 1 || depth > 32 || scalar < 1 || scalar > bytes {
+		return field, fmt.Errorf("json_object limits or empty input policy are invalid")
+	}
+	if (empty != "reject" && empty != "omit") || (empty == "omit" && (target.Required || !target.OmitEmpty || !strings.HasPrefix(target.GoType, "*"))) {
+		return field, fmt.Errorf("json_object omission requires an optional omitted pointer field")
+	}
+	field.objectLimits = &responseObjectLimits{bytes: bytes, nodes: nodes, depth: depth, scalarBytes: scalar, empty: empty}
+	return field, nil
 }
 
 func bindJSONResponse(field responseField, rule map[string]any) (responseField, error) {

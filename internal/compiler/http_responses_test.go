@@ -12,24 +12,28 @@ import (
 )
 
 func TestHTTPResponseMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false, false, false)
+	testHTTPResponseMappingsGateOutput(t, false, false, false, false, false)
 }
 func TestHTTPResponseJSONMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, false, false, false)
+	testHTTPResponseMappingsGateOutput(t, true, false, false, false, false)
 }
 func TestHTTPResponsePreparedInputsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, true, true, false, false)
+	testHTTPResponseMappingsGateOutput(t, true, true, false, false, false)
 }
 
 func TestHTTPResponseEnumMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false, true, false)
+	testHTTPResponseMappingsGateOutput(t, false, false, true, false, false)
 }
 
 func TestHTTPResponseNullableMappingsGateOutput(t *testing.T) {
-	testHTTPResponseMappingsGateOutput(t, false, false, false, true)
+	testHTTPResponseMappingsGateOutput(t, false, false, false, true, false)
 }
 
-func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums, nullable bool) {
+func TestHTTPResponseObjectMappingsGateOutput(t *testing.T) {
+	testHTTPResponseMappingsGateOutput(t, false, false, false, false, true)
+}
+
+func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums, nullable, objects bool) {
 	t.Helper()
 	input := applicationPreflightInput(t, new(httpapplication.Generator), "domain")
 	archetypePath := filepath.Join(input.RegistryDir, "archetypes/test-arch/archetype.yaml")
@@ -44,7 +48,7 @@ func testHTTPResponseMappingsGateOutput(t *testing.T, lists, prepared, enums, nu
 	}
 	writeFile(t, filepath.Join(input.RegistryDir, "components/stub-api/component.yaml"), strings.Replace(string(metadata), "name: http-application", "name: stub-api", 1))
 	probe := &modelProbe{models: []gen.GoModel{{Name: "Parcel", GoType: "Parcel", Fields: []gen.GoModelField{{Name: "id", Selection: "ID", Type: types.FieldTypeString}}}}}
-	if lists {
+	if lists || objects {
 		probe.models[0].Fields = append(probe.models[0].Fields, gen.GoModelField{Name: "tags", Selection: "Tags", Type: types.FieldTypeJsonb})
 	}
 	input.Generators["stub-store"] = probe
@@ -93,6 +97,14 @@ components:
 			t.Fatal(err)
 		}
 		writeFile(t, servicePath, string(current)+"          - {target: tags, source: tags, conversion: json_strings, max_bytes: 64, max_items: 3, max_item_bytes: 16}\n")
+	}
+	if objects {
+		schema += "        tags: {type: object}\n"
+		current, err := os.ReadFile(servicePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, servicePath, string(current)+"          - {target: tags, source: tags, conversion: json_object, max_bytes: 64, max_nodes: 16, max_depth: 4, max_scalar_bytes: 16, on_empty: omit}\n")
 	}
 	if prepared {
 		current, err := os.ReadFile(servicePath)
@@ -170,16 +182,20 @@ components:
 		}
 		writeFile(t, servicePath, string(current))
 	}
-	if lists {
+	if lists || objects {
+		diagnostic := "json_strings limits are invalid"
+		if objects {
+			diagnostic = "json_object limits or empty input policy are invalid"
+		}
 		current, err := os.ReadFile(servicePath)
 		if err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, servicePath, strings.Replace(string(current), "max_bytes: 64", "max_bytes: 0", 1))
-		if result, err := Validate(input); err != nil || !result.HasErrors() || !strings.Contains(FormatValidation(result), "json_strings limits are invalid") {
+		if result, err := Validate(input); err != nil || !result.HasErrors() || !strings.Contains(FormatValidation(result), diagnostic) {
 			t.Fatal("invalid JSON limit passed validation", result, err)
 		}
-		if plan, err := Reconcile(input); err == nil || plan != nil || !strings.Contains(err.Error(), "json_strings limits are invalid") {
+		if plan, err := Reconcile(input); err == nil || plan != nil || !strings.Contains(err.Error(), diagnostic) {
 			t.Fatal("invalid JSON limit produced output", plan, err)
 		}
 		if probe.renders != 0 {
