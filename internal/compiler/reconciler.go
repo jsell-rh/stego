@@ -164,6 +164,9 @@ func Reconcile(input ReconcilerInput) (*Plan, error) {
 		if err != nil {
 			return nil, fmt.Errorf("generator %q: %w", compName, err)
 		}
+		if err := requireUnchangedGoModels(compName, generator, ctx, resolved); err != nil {
+			return nil, err
+		}
 		if declared, ok := resolved.HTTPRoutes[compName]; ok {
 			actual, err := gen.WiringHTTPRoutes(wiring)
 			if err != nil {

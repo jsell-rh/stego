@@ -118,6 +118,10 @@ type Context struct {
 	// EventsContract is the compiler-owned live-event contract import path.
 	EventsContract string
 
+	// GoModelSources contains checked provider declarations for field mapping.
+	// Each component receives its own copy. Do not change these declarations.
+	GoModelSources map[string]GoModelSource
+
 	// PeerNamespaces maps component names to their output namespace paths.
 	// Generators use this to construct import paths when they need to
 	// reference types defined by other components (e.g. the storage adapter

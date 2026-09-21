@@ -14,6 +14,7 @@ type resolvedCompilation struct {
 	Names                            []string
 	Contexts                         map[string]gen.Context
 	HTTPRoutes                       map[string][]gen.HTTPRoute
+	GoModelSources                   map[string]gen.GoModelSource
 	InputSnapshots                   map[string]fileSnapshot
 	OutDir, OutDirName, SlotsPackage string
 }
@@ -134,6 +135,9 @@ func prepareComponents(input ReconcilerInput, source *compilationSource, baselin
 		}
 
 		resolved.Contexts[compName] = ctx
+	}
+	if err := resolveGoModelSources(input, resolved); err != nil {
+		return nil, err
 	}
 	for _, name := range componentNames {
 		if validator, ok := input.Generators[name].(gen.ContextValidator); ok {
