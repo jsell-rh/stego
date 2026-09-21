@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -174,8 +176,19 @@ func TestUnknownClaimResultRecoversAfterLeaseExpiry(t *testing.T) {
 			expected := map[uuid.UUID]Message{first.ID: first, second.ID: second}
 			for _, row := range rows {
 				original, ok := expected[row.ID]
-				if !ok || row.Attempts != 2 || row.Receipt.Token == token || row.ResourceKey != original.ResourceKey || row.Kind != original.Kind || string(row.Payload) != string(original.Payload) {
+				if !ok || row.Attempts != 2 || row.Receipt.Token == token || row.ResourceKey != original.ResourceKey || row.Kind != original.Kind {
 					t.Fatal("lease recovery changed the message or claim identity")
+				}
+				// JSONB can change spacing. Compare the fixture's JSON values.
+				var expectedPayload, actualPayload any
+				if err := json.Unmarshal(original.Payload, &expectedPayload); err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(row.Payload, &actualPayload); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(expectedPayload, actualPayload) {
+					t.Fatal("lease recovery changed the message payload")
 				}
 				delete(expected, row.ID)
 				if changed, err := recovered.Acknowledge(ctx, Receipt{ID: row.ID, Token: token}); err != nil || changed {
