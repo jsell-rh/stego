@@ -1,0 +1,232 @@
+{
+  "source": "9788915c4ecc839c2844bfe81619e12cb1b0292d",
+  "checked_at": "2026-09-21T09:27:54.312314+00:00",
+  "qualified_scope": "Explicit absent-value policy for nullable scalar HTTP response mappings.",
+  "checks": {
+    "candidate": {
+      "runs": {
+        "Compiler artifact check": 35580270325,
+        "Go OpenAPI checks": 35580270343,
+        "Database access contract": 35580270310,
+        "Compiler checks": 35580270407
+      },
+      "proof_sha256": {
+        "full": "bab7f46c7892fd462e4d707d4a8d8d636f42a883bbd056617841dbba5df222bd",
+        "openapi": "70da30e29fcfb23f26068c46de9342ca347d6870dfce8e3f4e472bb79c0a21bf",
+        "database": "1cf079fa2b5ceb1dd21b5d60ca43ea607ff1ba02997630ef508284fc6ca5215b",
+        "artifact": "0c6744637c55204472aef2882df15648ee1cbc8fe65c348ef559a8ad32591225"
+      },
+      "compiler_packages": 39,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "cae18acae926aba33abaff7efa9fb030b219dcbef8bce89a065e76edfed9e8c4"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "6e7b6bfb492167dad26c00c0e4534b19e3872ed398bce5f4a952613deda5d384"
+        }
+      },
+      "openapi_required_groups": {
+        "openapicontract": [
+          "TestGoBackendConcurrentProfiles",
+          "TestGoBackendRejectsInvalidSelection",
+          "TestGoClientPreservesPreviousBackendOutput",
+          "TestGoModelsPreservePresenceWithoutClient",
+          "TestGoResponseBindingsCapturedReferences",
+          "TestGoResponseBindingsConcurrentBackend",
+          "TestGoResponseBindingsRejectAmbiguity",
+          "TestGoResponseEnumBindings",
+          "TestGoResponseEnumLimits",
+          "TestGoResponseObjectBindings"
+        ],
+        "generator/gosdk": [
+          "TestCapturedReferenceNames",
+          "TestGeneratedNameConflicts",
+          "TestGeneratedSDK",
+          "TestGeneratedSDK/false",
+          "TestGeneratedSDK/true",
+          "TestInputBoundary"
+        ],
+        "generator/httpapplication": [
+          "TestGeneratedHTTPResponseEnums",
+          "TestGeneratedHTTPResponseJSONMappings",
+          "TestGeneratedHTTPResponseMappings",
+          "TestGeneratedHTTPResponseNullable",
+          "TestGeneratedHTTPResponsePreparedInputs",
+          "TestHTTPResponseEnumValidation",
+          "TestHTTPResponseInputsAndDeterminism",
+          "TestHTTPResponseJSONMappingBounds",
+          "TestHTTPResponseJSONMappingDeterminism",
+          "TestHTTPResponseJSONMappingValidation",
+          "TestHTTPResponseMappingValidation",
+          "TestHTTPResponseNullableDeterminism",
+          "TestHTTPResponseNullableValidation",
+          "TestHTTPResponsePreparedInputDeterminism",
+          "TestHTTPResponsePreparedInputValidation"
+        ],
+        "compiler": [
+          "TestHTTPResponseEnumMappingsGateOutput",
+          "TestHTTPResponseJSONMappingsGateOutput",
+          "TestHTTPResponseMappingsGateOutput",
+          "TestHTTPResponseNullableMappingsGateOutput",
+          "TestHTTPResponsePreparedInputsGateOutput"
+        ],
+        "responsemapping": [
+          "TestJSONStringsSource"
+        ]
+      },
+      "sdk_modes": 2
+    },
+    "main": {
+      "runs": {
+        "Go OpenAPI checks": 35581339915,
+        "Database access contract": 35581339906,
+        "Compiler artifact check": 35581339984,
+        "Compiler checks": 35581339966
+      },
+      "proof_sha256": {
+        "full": "51de8722884f57ce0dd2b37906469562b197f102c2083e81e31b9a711a9c7de1",
+        "openapi": "6af38d018a2ad4df155bb33ee8453c838beebc51603a290b54d7c7e4203b8c09",
+        "database": "3b2886690967fb30e8ee7605c404f5f70d0d01e212bccb20a22330945cde8e99",
+        "artifact": "9e27dd4f74fd9c46fead66edf3c3f4c52531acc13fab07f988f69fe9385dd4d8"
+      },
+      "compiler_packages": 39,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "ac17f5b96b7a7b625b175228ee44466c065e5f3ac9820a1d5ed6e22c43e013ce"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "525649020b2b43b3334ef6e0fd62b47c42f7b3de818fa3ca91fb3dc7c17fb0e1"
+        }
+      },
+      "openapi_required_groups": {
+        "openapicontract": [
+          "TestGoBackendConcurrentProfiles",
+          "TestGoBackendRejectsInvalidSelection",
+          "TestGoClientPreservesPreviousBackendOutput",
+          "TestGoModelsPreservePresenceWithoutClient",
+          "TestGoResponseBindingsCapturedReferences",
+          "TestGoResponseBindingsConcurrentBackend",
+          "TestGoResponseBindingsRejectAmbiguity",
+          "TestGoResponseEnumBindings",
+          "TestGoResponseEnumLimits",
+          "TestGoResponseObjectBindings"
+        ],
+        "generator/gosdk": [
+          "TestCapturedReferenceNames",
+          "TestGeneratedNameConflicts",
+          "TestGeneratedSDK",
+          "TestGeneratedSDK/false",
+          "TestGeneratedSDK/true",
+          "TestInputBoundary"
+        ],
+        "generator/httpapplication": [
+          "TestGeneratedHTTPResponseEnums",
+          "TestGeneratedHTTPResponseJSONMappings",
+          "TestGeneratedHTTPResponseMappings",
+          "TestGeneratedHTTPResponseNullable",
+          "TestGeneratedHTTPResponsePreparedInputs",
+          "TestHTTPResponseEnumValidation",
+          "TestHTTPResponseInputsAndDeterminism",
+          "TestHTTPResponseJSONMappingBounds",
+          "TestHTTPResponseJSONMappingDeterminism",
+          "TestHTTPResponseJSONMappingValidation",
+          "TestHTTPResponseMappingValidation",
+          "TestHTTPResponseNullableDeterminism",
+          "TestHTTPResponseNullableValidation",
+          "TestHTTPResponsePreparedInputDeterminism",
+          "TestHTTPResponsePreparedInputValidation"
+        ],
+        "compiler": [
+          "TestHTTPResponseEnumMappingsGateOutput",
+          "TestHTTPResponseJSONMappingsGateOutput",
+          "TestHTTPResponseMappingsGateOutput",
+          "TestHTTPResponseNullableMappingsGateOutput",
+          "TestHTTPResponsePreparedInputsGateOutput"
+        ],
+        "responsemapping": [
+          "TestJSONStringsSource"
+        ]
+      },
+      "sdk_modes": 2
+    }
+  },
+  "signature": {
+    "source": "9788915c4ecc839c2844bfe81619e12cb1b0292d",
+    "run": 35581339984,
+    "signature_verified": true,
+    "compiler_executed_locally": false,
+    "artifact": {
+      "name": "stego-linux-amd64",
+      "sha256": "6b35e4b789e9f4737382db386cdf169c0c7b94936053c8989d379e15bf2518d3",
+      "size": 41931425
+    },
+    "same_verified_files": 5,
+    "rejection_checks": {
+      "source_revision": "9788915c4ecc839c2844bfe81619e12cb1b0292d",
+      "authenticated": {
+        "name": "stego-linux-amd64",
+        "sha256": "6b35e4b789e9f4737382db386cdf169c0c7b94936053c8989d379e15bf2518d3",
+        "size": 41931425
+      },
+      "rejected": [
+        "different-source-commit",
+        "changed-compiler-with-matching-checksums",
+        "changed-build-record",
+        "invalid-signature-bundle"
+      ],
+      "valid_after_rejections": true,
+      "downloaded_compiler_executed": false
+    },
+    "checked_at": "2026-09-21T09:08:46.303448+00:00"
+  },
+  "publication": {
+    "source": "9788915c4ecc839c2844bfe81619e12cb1b0292d",
+    "release_id": 392824002,
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-9788915c4ecc839c2844bfe81619e12cb1b0292d",
+    "immutable": true,
+    "tag_commit_verified": true,
+    "assets_verified": 4,
+    "exact_source_checks": {
+      "Go OpenAPI checks": 35581339915,
+      "Database access contract": 35581339906,
+      "Compiler artifact check": 35581339984,
+      "Compiler checks": 35581339966
+    },
+    "checked_at": "2026-09-21T09:17:52.285960+00:00"
+  },
+  "installation": {
+    "source": "9788915c4ecc839c2844bfe81619e12cb1b0292d",
+    "same_verified_files": 5,
+    "files_sha256": {
+      "stego-linux-amd64": "6b35e4b789e9f4737382db386cdf169c0c7b94936053c8989d379e15bf2518d3",
+      "build.json": "39572b7dfd9e2a8ac6864a75dcc7403f8660edca995558fa43e3c6be53644cd3",
+      "SHA256SUMS": "e0fd8bd83f2a216be664e723067f3f1688bb26750e5e4fa9fbe0b32150db6d4c",
+      "provenance.jsonl": "623962d3b6715e3f4130dbc30d0f103e40f3ab2afdbae9bbef258fdc1dc9dfaa",
+      "verified.json": "ccbd915a785709629e1cc2f896743222ca3e6b480892e55a5512915d88ca2265"
+    },
+    "compiler_executed": false,
+    "immutable_release_verified": true
+  },
+  "nullable_runtime_roots": [
+    "TestNullablePresence",
+    "TestNullableOwnsValues",
+    "TestNullableRejectsInvalidValues",
+    "TestNullableNumericBounds"
+  ],
+  "consumer_candidate": "64e13ce5479b6399ae7eb724b1912350511fc3d0",
+  "consumer_acceptance_complete": false,
+  "not_supported": [
+    "Full three-state source values",
+    "Nullable enums",
+    "Nullable object and array mappings"
+  ],
+  "remaining_enterprise_requirements_open": true
+}

@@ -40,6 +40,40 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
+Hypershell main `c42b2ed` contains accepted runtime source `62adcf0` and compiler
+`3666fed3`. STEGO now generates the Gateway and grant REST and protobuf response
+mappings. Hypershell keeps domain selection, access rules, grant policy, watch
+replay, and public error policy.
+
+All 14 hosted candidate groups passed. The complete suite passed 1,422 cases in
+397 roots and retained all 1,404 prior cases. The focused suite passed 214 cases
+in 27 roots. API run `35579620505` passed all 56 required roots, including the
+stored grant fault across restart. Browser run `35580560335` passed all 11
+required roots; its full scenario took 561.88 seconds. Review verified 1,731
+source files, 435 generation hashes, seven signed images, all four rendered
+images, correlated logs, metrics, and traces, and complete cleanup. Both test
+fixtures and allocations were absent. The test lock was free and all 32
+standing resources were unchanged. See the
+[workflow evidence](grpc-grant-workflow-evidence.json).
+
+A trace evidence reader initially used the previous full CI run path. A
+separate corrected reader verified the current source and all unchanged trace
+requirements against the same collected result. No cluster test was repeated
+for this reader error. The initial failed reader record is retained.
+
+The measured Gateway had 100 service accounts. The observed cleanup upper
+bound was approximately 31.65 seconds. The 30-second target and 100-Gateway
+capacity remain unproved. This result does not cover RDS failover, live Kata,
+or upstream OpenShell Sandbox execution. C3 through C7 and H1 through H3 remain
+open. The separate main push checks at `c42b2ed` still require final review.
+
+Service-account candidate `64e13ce` uses compiler `9788915c`. Its focused suite
+passed 256 cases in 31 roots, including all 214 prior cases. Its full application
+and live workflow checks remain required. This candidate is not the accepted
+application baseline.
+
+## Accepted Gateway protobuf baseline
+
 Hypershell main `c583681d` accepts runtime source `047f550f` and compiler
 `82439300`. STEGO now generates every Gateway protobuf response field, including
 bounded conversion of stored JSON string lists. Hypershell selects the current
@@ -556,9 +590,8 @@ immutable assets, and a separate five-file installation were verified. See the
 [release evidence](protobuf-prepared-input-release-evidence.json).
 
 The Hypershell Gateway and grant REST workflow at `f1366d1` uses compiler
-`f972410b`. Its complete workflow is accepted below. The next gRPC grant mapper
-candidate `62adcf0` uses compiler `3666fed3`. Its complete application and live
-workflow checks remain required. Domain grant selection, access checks, replay,
+`f972410b`. Its complete workflow is accepted below. The gRPC grant mapper at `62adcf0` uses compiler `3666fed3`. Its complete
+application and live workflow are accepted in the current baseline above. Domain grant selection, access checks, replay,
 and response-size policy stay in Hypershell. This compiler release does not
 close C3 through C7 or H1 through H3.
 
@@ -589,3 +622,25 @@ remain unproved. This check does not cover RDS failover, live Kata, or upstream
 OpenShell Sandbox execution. See the
 [workflow evidence](rest-gateway-grant-workflow-evidence.json). C3 through C7 and
 H1 through H3 remain open.
+
+## Released nullable scalar response policy
+
+Compiler `9788915c` requires an explicit `on_absent` policy when a pointer source
+supplies a nullable scalar response field. `emit_null` preserves JSON null;
+`omit` is permitted only for an optional field that can be omitted. Present
+empty strings, false values, numeric zero, and zero time remain present.
+Generated values own their storage. Invalid strings, enums, numbers, and
+timestamps return a private error with no partial response.
+
+All four candidate and main check groups passed independent review. These
+checks cover 39 compiler packages, both generated examples, HTTP generation and
+preflight checks, two SDK modes, and database access. The generated nullable
+runtime checks cover presence, owned values, invalid values, and numeric bounds.
+Candidate and main compiler bytes match. Signatures, four immutable release
+assets, and a separate five-file installation were verified. See the
+[release evidence](nullable-response-release-evidence.json).
+
+This mechanism maps two source states to an explicit subset of JSON states.
+Full three-state inputs and nullable enum, object, and array mappings remain
+unsupported. Hypershell service-account adoption and complete application
+acceptance are separate work. This release does not close the enterprise goal.

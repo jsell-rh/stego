@@ -1,0 +1,108 @@
+{
+  "source": "62adcf0d99567736f6e8889258705d02fa5bf708",
+  "compiler": "3666fed3ef8d31e5957cdd775ca8345e31384930",
+  "checked_at": "2026-09-21T09:17:33.011382+00:00",
+  "scope": "Accepted gRPC grant mapping and complete Gateway workflow. Nullable service-account mapping and remaining enterprise requirements are separate work.",
+  "hosted_runs": {
+    "Checked transport responses": 35576812511,
+    "Common application images": 35576813498,
+    "Generated Gateway console": 35576812499,
+    "Allocation finalization checks": 35576866193,
+    "Build console asset candidate": 35576868248,
+    "Count fixture rendering": 35576870271,
+    "Database access workflow checks": 35576872373,
+    "Event recovery after restart": 35576874689,
+    "Gateway and contract checks": 35576876944,
+    "Journal recovery checks": 35576879258,
+    "Real provider discovery and cleanup": 35576881394,
+    "Regenerate with the pinned compiler": 35576883783,
+    "Sandbox adapter checks": 35576886006,
+    "Upstream dashboard source checks": 35576888073
+  },
+  "hosted_proof_sha256": {
+    "provider-qualification.json": "94803963b53ef35d15c2b05072a260c34ce024946fb89f6ac520cfbcba599d59",
+    "signature-qualification.json": "86f464843aa8a44b613eda45027e560132122ebd607da9623699bfb38539ea66",
+    "image-qualification.json": "069e0574822141d339e4fbeb3db6caef782a43454589ddc5b80666ea2153d853",
+    "application-qualification.json": "a06de0157e3f1cddbf72aa691850cb6f73e5a26db362d8d126a1f167d50ec444",
+    "registry-qualification.json": "867498e245146f4db2a28591ec42ed2637a4b1847072b7536a665864147faf85",
+    "checks/35576812511/qualification.json": "3445bed3700b57b5b36e85ce9182ca9e7e12f75c357a9a696745e31ff289c5fb",
+    "checks/35576883783/verification-independent.json": "75521c7686995b037d1eb629f316fef581d8b54ed234bd049eceb975a2374fd0",
+    "checks/35576874689/qualification.json": "0a45c6dfde8c14b9e25f57125cfa3848b39c002738138e1f38ba11915dc4cbd6",
+    "checks/35576876944/verification-independent.json": "9a3fd59df5ff7338459acfa813e537548dfd68010831499c1056abf228b776ef",
+    "checks/35576812511/ci.json": "156f8ee5bd74b71f09842856f3373222b78eedae599bcb385556f75c29f1b13a",
+    "checks/35576813498/ci.json": "37847c17f099f3678615a5089a7fa3a2eae2ee88d731bf3a531a6e0dba5e963e",
+    "checks/35576812499/ci.json": "6de1cd9a21e07a07d70abec5600eb7f651aa53a3ee21b1da9ec5a27b75535e04",
+    "checks/35576866193/ci.json": "7f2f1a047f085d96e3023e846fce9d1b6ccf0fce64c616b57c2193a9a335afbc",
+    "checks/35576868248/ci.json": "668089774f429e979177f538e838ae2e2fad327b85e30e055d81053f885e6fe1",
+    "checks/35576870271/ci.json": "e3dec9f98d4bda3351c49d85ccba53612bcc8c370a10c3212f1beeae3968b114",
+    "checks/35576872373/ci.json": "dda37dc21a26c0cb8d0219c6e8020496779163e952cbe465f9947356b5efaf9b",
+    "checks/35576874689/ci.json": "83b630d929339f9e1324ddc3ec4f65c1ee423a7d9c79f5715c133470763ff27e",
+    "checks/35576876944/ci.json": "160ae06403e26a11298893c8ba2d7e59599ddc86c831f3d8376eda4fa0f6f724",
+    "checks/35576879258/ci.json": "1b42714e01d53d3f219177633f7aa358106c90e9b3e1c6c285507e062a3eb40c",
+    "checks/35576881394/ci.json": "a161aae757d90fc5a07e062a6ab826d104f275e32f12871fa0fd4c8046a8cbeb",
+    "checks/35576883783/ci.json": "1278e7bfaf2fe956e640652d7945c2417cd47766b911ea0068ea487b50393563",
+    "checks/35576886006/ci.json": "89b887728514137d7b818737ee36d7605d08d16a35f0067d7248361652b5652c",
+    "checks/35576888073/ci.json": "3f76c5e21671d82ac30b35430104bf38989db3034d620d8acb1e16cf9bfd94d9"
+  },
+  "full": {
+    "cases": 1422,
+    "roots": 397,
+    "prior_cases_retained": 1404
+  },
+  "focused": {
+    "cases": 214,
+    "roots": 27
+  },
+  "api": {
+    "run": 35579620505,
+    "required_roots_passed": 56,
+    "source_files_match": 1731,
+    "generated_hashes_match": 435,
+    "independent_cleanup": true,
+    "proof_sha256": "efa7c01e15388305598b0743f1c468fc9f605c786e02258911be1099fb040d3e",
+    "earlier_setup_failure_run": 35579458930,
+    "earlier_failure_before_test_start": true,
+    "setup_failure_review_sha256": "6e373498231a8dcaa197d06af08b8f8365daa86ce16dd46b3d342918017cc8a8"
+  },
+  "browser": {
+    "run": 35580560335,
+    "fixture_source": "c46d51631f94a1118e198620620c861461262927",
+    "required_roots_passed": 11,
+    "seconds": 561.88,
+    "source_files_match": 1731,
+    "generation_hashes_match": 435,
+    "screenshots_viewed": 4,
+    "layout_defects_seen": false,
+    "accounts_per_measured_gateway": 100,
+    "cleanup_upper_bounds_seconds": [
+      31.651441428
+    ],
+    "cleanup_target_seconds": 30,
+    "cleanup_target_met": false,
+    "capacity_target_proved": false,
+    "standing_resources_unchanged": 32
+  },
+  "browser_proof_sha256": {
+    "console-rollout-observation.json": "00639875bdd3670624e9901a148b535312868035d37d152b417a07fb6961223f",
+    "generation-inventory-review.json": "53baf06cdd4d30f10d081e19f7ff8648e8562eec30894fcbb8f304d58bcaf727",
+    "image-delivery-verification.json": "1063d49423ec8761d6ec586e0630dafa350e4b27e0c622d961172c886410e43c",
+    "verification.json": "a7613eeda5767222a760b023f49fde928cd74b7ed8feea0b72c62a2d1438118f",
+    "controller-trace-verification.json": "388034fee41d8ed76bf03c715671fbf247ab17d6ed1c6c8b9bc75205e5f13f14",
+    "account-verification.json": "b22379402dd385fca71cccb87b6ca77f584efd4f952c2651b32e404779ca8891",
+    "phase-verification.json": "531b0731710e1d1358b87aa39a0434dbd74ab49100ba5bba6fae85cfdeed5d17",
+    "independent-cleanup.json": "3bc33f4decdb1428e0da25259439821928201bc48f570c17e5af0cf43e76851a",
+    "admitted-pod-verification.json": "5494a8a2aa4265aee5611f440505e79bd3d3d7c77d33f5e81fa6e7e203cb18bf",
+    "visual-review.json": "f1f731a543b474710d0121f7f71e29be6573c3e038d6818d3a0a423c660bab77",
+    "allocator-log-observation/cleanup-window-review.json": "a2033d3e029f017b42fc4e074e4a3590ef20d74565c92adc6f879144f024b249",
+    "namespace-deletion-observation/cleanup-window-review.json": "f3b0638589f9ca0effc6ad877a5e2922ca7c0f2012e753dc4231a299cfa11a93",
+    "reader-recovery.json": "02c8bf494b821359e7c371131cd23f1ab8d4b4bfd0451c490e2c906febdae745"
+  },
+  "reader_recovery": "The original trace reader used an old full CI path. A separate corrected reader checked the current source, proof hash, all 99 collector cases, and unchanged live trace requirements. The failed reader record is retained. No cluster test was repeated.",
+  "not_proved": [
+    "100-Gateway concurrent capacity",
+    "Cleanup within the 30-second target",
+    "Live Kata and upstream OpenShell Sandbox execution",
+    "RDS failover",
+    "Remaining enterprise completion requirements"
+  ]
+}
