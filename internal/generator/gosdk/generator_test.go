@@ -194,7 +194,9 @@ func testGeneratedSDK(t *testing.T, traced bool) {
 				} else if err != nil {
 					t.Fatal("invalid generated SDK test record:", err)
 				}
-				if event.Action == "fail" || event.Action == "skip" {
+				// Go reports a package with no tests as a package-level skip.
+				// The SDK package and every named test must still pass.
+				if event.Action == "fail" || (event.Action == "skip" && (event.Test != "" || event.Package == "example.com/sdkprobe/sdk")) {
 					t.Fatal("generated SDK test did not pass:", event.Package, event.Test)
 				}
 				if event.Action == "pass" && event.Package == "example.com/sdkprobe/sdk" {
