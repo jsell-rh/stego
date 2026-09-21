@@ -1,0 +1,256 @@
+{
+  "source": "3666fed3ef8d31e5957cdd775ca8345e31384930",
+  "checked_at": "2026-09-21T08:04:11.283216+00:00",
+  "qualified_scope": "Typed application inputs for protobuf response mappings and shared REST input declaration validation.",
+  "checks": {
+    "candidate": {
+      "runs": {
+        "Go OpenAPI checks": 35574099623,
+        "Response mapping checks": 35574079932,
+        "Database access contract": 35574079924,
+        "Compiler artifact check": 35574079942,
+        "Compiler checks": 35574079927,
+        "Timestamp conversion checks": 35574079950
+      },
+      "proof_sha256": {
+        "full": "cb0b647b2ac248c9edafd5e3e857115d5a4e32524e0e5c256c7262169d19d6ac",
+        "mapping": "ccb7a6528229775bdee7f48125b321545f5946a8cc477e31d9ec3bc7e4b14c21",
+        "timestamps": "9408e91551d68b8424f948bd5c1bf4a4d516e2b80473145555fc0a556f48675d",
+        "rest": "0c02702c19c44a33d01e089fcb412d7e9cce26f48dabf189444afa3cfe3c6d54",
+        "database": "e6018d51b0751b27d1a2fed9931ec0974ac1f9857e046dead8c78b388763c67e",
+        "artifact": "59f71b5929b2f2125182b16dd5422facf0f2e0ab46870fe85f0d4a6019ce58ab"
+      },
+      "compiler_packages": 39,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "b33c3be08ec807e62a50adc28986adfb780961ca75d76bd7a0a490304f1c1cfc"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "17ce1712f9753fb0eec1b09741e358db88e7c30bcd4276af7388c7a07b4dfd9e"
+        }
+      },
+      "protobuf_roots": [
+        "TestGeneratedResponseMappings",
+        "TestGoModelContextCopies",
+        "TestGoModelCopiesOwnAllFields",
+        "TestGoModelDeclarationMatchesGeneratedStorage",
+        "TestGoModelDeclarations",
+        "TestGoModelsRejectBeforeGeneration",
+        "TestGoModelsRejectChangedDeclaration",
+        "TestResponseMappingJSONBounds",
+        "TestResponseMappingJSONHelperIsConditional",
+        "TestResponseMappingJSONLimits",
+        "TestResponseMappingOrderIsStable",
+        "TestResponseMappingPreparedInputValidation",
+        "TestResponseMappingPreparedInputsGateOutput",
+        "TestResponseMappingPreparedOrder",
+        "TestResponseMappingPreparedRuntime",
+        "TestResponseMappingRejectsInvalidContracts"
+      ],
+      "protobuf_cases_per_namespace": {
+        "grpcapi": 63,
+        "rpc/provider": 63
+      },
+      "timestamp_cases_per_namespace": 17,
+      "rest_groups": {
+        "openapicontract": [
+          "TestGoBackendConcurrentProfiles",
+          "TestGoBackendRejectsInvalidSelection",
+          "TestGoClientPreservesPreviousBackendOutput",
+          "TestGoModelsPreservePresenceWithoutClient",
+          "TestGoResponseBindingsCapturedReferences",
+          "TestGoResponseBindingsConcurrentBackend",
+          "TestGoResponseBindingsRejectAmbiguity",
+          "TestGoResponseEnumBindings",
+          "TestGoResponseEnumLimits",
+          "TestGoResponseObjectBindings"
+        ],
+        "generator/gosdk": [
+          "TestCapturedReferenceNames",
+          "TestGeneratedNameConflicts",
+          "TestGeneratedSDK",
+          "TestGeneratedSDK/false",
+          "TestGeneratedSDK/true",
+          "TestInputBoundary"
+        ],
+        "generator/httpapplication": [
+          "TestGeneratedHTTPResponseEnums",
+          "TestGeneratedHTTPResponseJSONMappings",
+          "TestGeneratedHTTPResponseMappings",
+          "TestGeneratedHTTPResponsePreparedInputs",
+          "TestHTTPResponseEnumValidation",
+          "TestHTTPResponseInputsAndDeterminism",
+          "TestHTTPResponseJSONMappingBounds",
+          "TestHTTPResponseJSONMappingDeterminism",
+          "TestHTTPResponseJSONMappingValidation",
+          "TestHTTPResponseMappingValidation",
+          "TestHTTPResponsePreparedInputDeterminism",
+          "TestHTTPResponsePreparedInputValidation"
+        ],
+        "compiler": [
+          "TestHTTPResponseEnumMappingsGateOutput",
+          "TestHTTPResponseJSONMappingsGateOutput",
+          "TestHTTPResponseMappingsGateOutput",
+          "TestHTTPResponsePreparedInputsGateOutput"
+        ],
+        "responsemapping": [
+          "TestJSONStringsSource"
+        ]
+      },
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "9ffc69f707a04b20db2b680745149716300543bbcefcab87ace2a818f02ec0f1",
+        "size": 41926289
+      }
+    },
+    "main": {
+      "runs": {
+        "Go OpenAPI checks": 35575043623,
+        "Compiler checks": 35575043590,
+        "Database access contract": 35575043580,
+        "Timestamp conversion checks": 35575043608,
+        "Compiler artifact check": 35575043579,
+        "Response mapping checks": 35575043576
+      },
+      "proof_sha256": {
+        "full": "9b548bc3016efa8b3fad28e60117ad2c0ebf2717a697b9a83bc2353f5f231b0e",
+        "mapping": "b82ffaeccfc7b27d0499d488c652829897e21994f6c2734226f26d5eb997f461",
+        "timestamps": "19dea73ad9c815957f2f69dc589641485f814107dac9e3d92081bced0202c944",
+        "rest": "b5bf20b345e66fda97754ab15b15f20eacb20e6c3605303c4a15cba97b6c1cb7",
+        "database": "fda166cac15b7fb43dbf1ca08175c8436ebfbb6135903c7ac61be686cc182076",
+        "artifact": "0f73df7de5dcd976118d39ebee7004660ddb605b96291530192937189572f675"
+      },
+      "compiler_packages": 39,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "b044676025618002a69e8f9633cf1160e870a51817c04e071c85707101a4f38c"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "58dc2f6cb7f32687582cbe95fe03db15f889f9707953b0234190bbd3210c5a41"
+        }
+      },
+      "protobuf_roots": [
+        "TestGeneratedResponseMappings",
+        "TestGoModelContextCopies",
+        "TestGoModelCopiesOwnAllFields",
+        "TestGoModelDeclarationMatchesGeneratedStorage",
+        "TestGoModelDeclarations",
+        "TestGoModelsRejectBeforeGeneration",
+        "TestGoModelsRejectChangedDeclaration",
+        "TestResponseMappingJSONBounds",
+        "TestResponseMappingJSONHelperIsConditional",
+        "TestResponseMappingJSONLimits",
+        "TestResponseMappingOrderIsStable",
+        "TestResponseMappingPreparedInputValidation",
+        "TestResponseMappingPreparedInputsGateOutput",
+        "TestResponseMappingPreparedOrder",
+        "TestResponseMappingPreparedRuntime",
+        "TestResponseMappingRejectsInvalidContracts"
+      ],
+      "protobuf_cases_per_namespace": {
+        "grpcapi": 63,
+        "rpc/provider": 63
+      },
+      "timestamp_cases_per_namespace": 17,
+      "rest_groups": {
+        "openapicontract": [
+          "TestGoBackendConcurrentProfiles",
+          "TestGoBackendRejectsInvalidSelection",
+          "TestGoClientPreservesPreviousBackendOutput",
+          "TestGoModelsPreservePresenceWithoutClient",
+          "TestGoResponseBindingsCapturedReferences",
+          "TestGoResponseBindingsConcurrentBackend",
+          "TestGoResponseBindingsRejectAmbiguity",
+          "TestGoResponseEnumBindings",
+          "TestGoResponseEnumLimits",
+          "TestGoResponseObjectBindings"
+        ],
+        "generator/gosdk": [
+          "TestCapturedReferenceNames",
+          "TestGeneratedNameConflicts",
+          "TestGeneratedSDK",
+          "TestGeneratedSDK/false",
+          "TestGeneratedSDK/true",
+          "TestInputBoundary"
+        ],
+        "generator/httpapplication": [
+          "TestGeneratedHTTPResponseEnums",
+          "TestGeneratedHTTPResponseJSONMappings",
+          "TestGeneratedHTTPResponseMappings",
+          "TestGeneratedHTTPResponsePreparedInputs",
+          "TestHTTPResponseEnumValidation",
+          "TestHTTPResponseInputsAndDeterminism",
+          "TestHTTPResponseJSONMappingBounds",
+          "TestHTTPResponseJSONMappingDeterminism",
+          "TestHTTPResponseJSONMappingValidation",
+          "TestHTTPResponseMappingValidation",
+          "TestHTTPResponsePreparedInputDeterminism",
+          "TestHTTPResponsePreparedInputValidation"
+        ],
+        "compiler": [
+          "TestHTTPResponseEnumMappingsGateOutput",
+          "TestHTTPResponseJSONMappingsGateOutput",
+          "TestHTTPResponseMappingsGateOutput",
+          "TestHTTPResponsePreparedInputsGateOutput"
+        ],
+        "responsemapping": [
+          "TestJSONStringsSource"
+        ]
+      },
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "9ffc69f707a04b20db2b680745149716300543bbcefcab87ace2a818f02ec0f1",
+        "size": 41926289
+      }
+    }
+  },
+  "release": {
+    "source": "3666fed3ef8d31e5957cdd775ca8345e31384930",
+    "release_id": 392780523,
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-3666fed3ef8d31e5957cdd775ca8345e31384930",
+    "immutable": true,
+    "tag_commit_verified": true,
+    "assets_verified": 4,
+    "exact_source_checks": {
+      "Go OpenAPI checks": 35575043623,
+      "Compiler checks": 35575043590,
+      "Database access contract": 35575043580,
+      "Timestamp conversion checks": 35575043608,
+      "Compiler artifact check": 35575043579,
+      "Response mapping checks": 35575043576
+    },
+    "checked_at": "2026-09-21T08:02:43.745714+00:00"
+  },
+  "installation": {
+    "source": "3666fed3ef8d31e5957cdd775ca8345e31384930",
+    "same_verified_files": 5,
+    "files_sha256": {
+      "stego-linux-amd64": "9ffc69f707a04b20db2b680745149716300543bbcefcab87ace2a818f02ec0f1",
+      "build.json": "f165729017f14ed9932709a3d9169e682d1da7122de23f69b521c9eaf5ed996a",
+      "SHA256SUMS": "68e7895a573b337ab607457b6f44ca47525b9cc228565d70cf8cf986e5712bb3",
+      "provenance.jsonl": "7be71070e57471e2da6c9faa68474fb04568cfdcc71b0417300bcb5832443b22",
+      "verified.json": "35d5c1eea7d8b04b679f34cb1e058b2cd42b6e7d30f57451a3b5f62baf7e290f"
+    },
+    "compiler_executed": false,
+    "immutable_release_verified": true
+  },
+  "signature_proof_sha256": "015c7d24fbc62f39bc64071a67bad516833e97831a3156653c6798a0cad81f2f",
+  "rejected_candidate": {
+    "source": "2069cc44c23255cf255f58986674b31bded2c4cd",
+    "failed_mapping_run": 35573868307,
+    "cancelled_full_run": 35573868323,
+    "correction": "Target the declared Carrier input in the invalid-type test. Check protobuf reset field presence and value through reflection. Production compiler code was unchanged."
+  },
+  "consumer_adopted": false,
+  "three_state_nullable_inputs_qualified": false,
+  "capacity_qualified": false,
+  "enterprise_goal_complete": false
+}

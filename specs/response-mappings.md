@@ -191,7 +191,7 @@ requirements. See the [main evidence](gateway-mapping-main-consumer-evidence.jso
 The remaining enterprise requirements stay open.
 
 
-## Candidate: application-prepared inputs
+## Application-prepared inputs
 
 A response mapping can declare an `inputs` list. Each item has an exported Go
 identifier in `name`, a fixed scalar `type`, and an optional Boolean `optional`.
@@ -217,5 +217,12 @@ values, timestamps, and JSON tags. It checks every supported input type,
 optional presence, output ownership, deterministic input order, protobuf
 serialization, and private failures in two output namespaces. Compiler checks
 must reject invalid input mappings before a provider renders or output changes.
-Existing REST and protobuf checks remain required. This candidate has not yet
-passed CI or been adopted by Hypershell.
+Compiler `3666fed3` passed the candidate and main checks. All 39 tested compiler
+packages, both generated examples, REST regression, SDK, database, and timestamp
+checks passed. Protobuf checks passed 52 prior and 11 new runtime cases in each
+of two package layouts, plus declaration and compiler preflight checks. The
+immutable release signatures and a separate installation were verified. See the
+[release evidence](protobuf-prepared-input-release-evidence.json).
+
+Hypershell adoption remains required. This result does not qualify three-state
+nullable inputs, production capacity, or the complete enterprise goal.

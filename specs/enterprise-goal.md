@@ -537,3 +537,26 @@ Hypershell catalog source preparation at `6b35ea25` still requires generation
 and full application acceptance. Array conversion, three-state nullable inputs,
 prepared domain views, and Gateway and grant REST mapping remain open. This
 release does not close C3 through C7 or H1 through H3.
+
+
+## Released protobuf application inputs
+
+Compiler `3666fed3` adds declared, typed application inputs to protobuf response
+mappings. REST and protobuf use the same bounded input declaration parser.
+Applications retain domain queries and access checks. The generated mapper
+checks and copies declared values, preserves optional presence, and returns no
+partial response on conversion failure. Input declarations cannot supply Go
+expressions, imports, callbacks, or field paths.
+
+All six candidate and main check groups passed. The result covers 39 compiler
+packages, both generated examples, 63 protobuf runtime cases in each of two
+package layouts, 34 timestamp cases, and existing REST, SDK, and database
+checks. The candidate and main compiler bytes match. Release signatures, four
+immutable assets, and a separate five-file installation were verified. See the
+[release evidence](protobuf-prepared-input-release-evidence.json).
+
+The Hypershell Gateway and grant REST workflow at `f1366d1` still uses compiler
+`f972410b`. Its live API checks passed; complete browser acceptance remains
+required. It has not adopted the new protobuf input mapper. Domain grant
+selection, access checks, replay, and response-size policy must remain in
+Hypershell. This compiler release does not close C3 through C7 or H1 through H3.
