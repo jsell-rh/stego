@@ -26,14 +26,23 @@ This helper does not generate complete response mappings. Domain observation
 selection, field ownership, HTTP and gRPC error contracts, and delivery-time
 access checks remain application responsibilities. The
 [transport mapping audit](transport-mapping-audit-20260920.md) defines the next
-mapping requirements. Hypershell adoption must also correct the unchecked
-catalog timestamp path and prove failure without a partial response.
+mapping requirements. Hypershell now uses the checked catalog timestamp path
+and rejects invalid values without a partial response.
 
-Compiler checks and a complete Hypershell workflow remain required. A passing
-conversion test alone cannot qualify transport parity or an application change.
+Compiler checks and a complete Hypershell workflow are required for adoption.
+A conversion test alone cannot qualify transport parity or an application change.
 
 The immutable compiler release passed all 34 generated cases, all 37 compiler
 packages, and both generated examples. Signature verification and a fresh
 installation matched all five verified files. See the
 [release evidence](checked-timestamp-release-evidence.json).
-Hypershell adoption still requires generation and application checks.
+Hypershell main `52001546` accepts this helper after 100 focused cases,
+1,294 core cases, seven image checks, and the complete live workflow. All 11
+required live tests passed in 547.86 seconds. Review checked 1,684 source files,
+430 generation hashes, telemetry, four browser views, and complete cleanup.
+Main push checks are recorded separately and are still pending. See the
+[consumer evidence](checked-timestamp-consumer-evidence.json).
+
+The largest observed cleanup with 100 accounts was 30.84 seconds. The 30-second
+target remains open. Complete response mapping and the enterprise requirements
+also remain open.

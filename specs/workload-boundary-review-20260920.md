@@ -46,9 +46,11 @@ Use a second application without Gateway types to test the common interface.
 Each further consumer change must pass the full Hypershell workflow through
 REST, gRPC, event delivery, restart, and regeneration before acceptance.
 
-Checked response conversion is the next active extraction. Optional console
-connection setup is a later candidate. Keep both changes separate from the
-accepted workload construction, and require evidence for each change.
+Checked timestamp conversion is now accepted through the complete workflow.
+Full declared response mapping and optional console connection setup remain
+candidates. Keep these changes separate from accepted workload construction,
+and require evidence for each change. See the
+[conversion evidence](checked-timestamp-consumer-evidence.json).
 
 ## Evidence limits
 

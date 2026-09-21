@@ -40,7 +40,30 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-The accepted application is Hypershell main `ab9d6cb1`, with runtime source
+Hypershell main `52001546` accepts runtime source `967bc1d8` and compiler
+`f18286e8`. It retains the accepted common workload construction and dependency
+conversion. Gateway, grant, catalog, and cleanup summary responses now use the
+same generated checked timestamp conversion. Hypershell retains field selection,
+observation policy, access checks, and public error contracts.
+
+The full application check passed 1,294 core cases, including all 1,194 prior
+cases. All 100 focused timestamp cases and seven independent image checks passed.
+The complete live workflow passed all 11 required tests in 547.86 seconds.
+Review checked source identity, 430 generation hashes, telemetry, four browser
+views, and cleanup. Test resources were absent, the shared Lease was free, and
+all 32 standing resources were unchanged. Three evidence reader failures remain
+recorded with their replacement or saved-record checks. No live test was repeated.
+See the [consumer evidence](checked-timestamp-consumer-evidence.json).
+
+Normal cleanup with 100 accounts took an observed 30.84 seconds. The 30-second
+target remains open. The test-only restart change uses the existing queue lease
+recovery bound before the unchanged event read. It does not change production
+timeouts or explain the historical event failure. Main push checks are pending;
+these candidate and workflow results do not claim an exact main check pass.
+
+## Accepted workload dependency baseline
+
+The workload dependency baseline is Hypershell main `ab9d6cb1`, with runtime source
 `c3e88f16` and compiler `d8c37d20`. STEGO constructs Gateway and browser
 Deployments, security settings, probes, mounts, resource limits, and configuration
 digests. It also validates and converts workload dependency data. Hypershell

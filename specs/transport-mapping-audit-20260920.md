@@ -57,3 +57,17 @@ Error mapping can follow once the ordered contract rules have explicit tests.
 The common mechanism may select a declared result for a known error. Hypershell
 must still declare which errors mean forbidden access, conflict, quota failure,
 or temporary provider failure. These meanings are application policy.
+
+## Checked timestamp adoption
+
+The audit above records the earlier source. Hypershell main `52001546` now
+uses STEGO checked timestamps for Gateway, grant, catalog, and cleanup summary
+responses. Catalog unary and list handlers return no partial response on failure.
+Watches stop before an invalid message and close the subscription. Prior valid
+messages remain delivered. The complete live workflow passed. See the
+[consumer evidence](checked-timestamp-consumer-evidence.json).
+
+This accepts one common conversion. It does not implement the full declared
+mapping contract above. Field coverage, optional values, numeric bounds, stored
+JSON, public error selection, and typed application transforms still need their
+own compiler rules and evidence.
