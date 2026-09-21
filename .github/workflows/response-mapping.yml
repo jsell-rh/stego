@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/response-mapping.yml'
       - 'internal/gen/go_models*'
+      - 'internal/responsemapping/**'
       - 'internal/compiler/go_models*'
       - 'internal/compiler/preflight.go'
       - 'internal/compiler/reconciler.go'

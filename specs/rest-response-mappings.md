@@ -86,3 +86,40 @@ workstation. See the [release evidence](rest-response-mapping-release-evidence.j
 Hypershell catalog sources are prepared at `6b35ea25`. Regeneration and complete
 application acceptance remain required. This release does not close the
 remaining enterprise requirements.
+
+## Candidate: bounded JSON string lists
+
+The next compiler candidate adds `conversion: json_strings` for a non-pointer
+JSON model field and a non-null OpenAPI array of non-null strings. This candidate
+is not released or accepted for Hypershell. It uses the same checked decoder as
+the gRPC mapping generator. The gRPC decoder output remains byte-identical.
+
+Each rule must set `max_bytes`, `max_items`, and `max_item_bytes`. The compiler
+permits at most 16 MiB of source bytes and 65,536 items per mapping function,
+including repeated conversions of one source. Each item limit must fit within
+its source byte limit. A rule cannot add a prefix or a constant.
+
+The decoder rejects invalid UTF-8, unpaired Unicode surrogates, wrong item types,
+trailing input, and exceeded limits. It returns no partial list. Each mapped
+list owns its storage. Empty source bytes, JSON null, and an empty JSON array
+produce an empty response array. An optional target can use `omit_empty: true`
+to omit all three empty forms. Required targets cannot use this omission rule.
+Explicit nullable response arrays and nullable items remain unsupported.
+
+Example field rule:
+
+```yaml
+- target: tags
+  source: tags
+  conversion: json_strings
+  max_bytes: 65536
+  max_items: 128
+  max_item_bytes: 256
+  omit_empty: true
+```
+
+The candidate adds compiler rejection checks, aggregate-bound checks, generated
+REST runtime checks, and shared-decoder output checks. CI must prove these
+checks before release. Gateway adoption still needs typed application inputs
+for domain values such as the creator name. The scalar catalog workflow uses
+its frozen compiler and source while this candidate is checked.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/openapicontract"
+	"github.com/jsell-rh/stego/internal/responsemapping"
 	"github.com/jsell-rh/stego/internal/types"
 )
 
@@ -32,7 +33,10 @@ type responseField struct {
 	prefix     string
 	conversion string
 	omitEmpty  bool
+	jsonLimits *responseJSONLimits
 }
+
+type responseJSONLimits struct{ bytes, items, itemBytes int }
 
 func responseContractConfig(config map[string]any) (map[string]any, error) {
 	value, present := config["document"]
@@ -152,6 +156,16 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 			}
 			mapping.fields = append(mapping.fields, field)
 		}
+		remainingBytes, remainingItems := 16<<20, 65536
+		for _, field := range mapping.fields {
+			if limits := field.jsonLimits; limits != nil {
+				if limits.bytes > remainingBytes || limits.items > remainingItems {
+					return nil, fmt.Errorf("combined JSON limits exceed the response mapping budget")
+				}
+				remainingBytes -= limits.bytes
+				remainingItems -= limits.items
+			}
+		}
 		if len(rules) != 0 {
 			return nil, fmt.Errorf("HTTP response mapping has unknown targets")
 		}
@@ -164,7 +178,7 @@ func prepareResponses(ctx gen.Context) (*responsePlan, error) {
 func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelField, rule map[string]any) (responseField, error) {
 	field := responseField{target: target}
 	for option := range rule {
-		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" {
+		if option != "target" && option != "source" && option != "constant" && option != "prefix" && option != "conversion" && option != "omit_empty" && option != "max_bytes" && option != "max_items" && option != "max_item_bytes" {
 			return field, fmt.Errorf("unknown HTTP response field option")
 		}
 	}
@@ -191,6 +205,14 @@ func bindResponseField(target openapicontract.GoProperty, sources []gen.GoModelF
 	}
 	if field.source.Name == "" || !token.IsExported(field.source.Selection) {
 		return field, fmt.Errorf("unknown or private HTTP response source")
+	}
+	if rule["conversion"] == "json_strings" {
+		return bindJSONResponse(field, rule)
+	}
+	for _, option := range []string{"max_bytes", "max_items", "max_item_bytes"} {
+		if _, exists := rule[option]; exists {
+			return field, fmt.Errorf("JSON limits require json_strings conversion")
+		}
 	}
 	if field.source.Pointer && (!strings.HasPrefix(target.GoType, "*") || target.Required) {
 		return field, fmt.Errorf("optional source cannot supply a required response value")
@@ -242,7 +264,10 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 		fmt.Fprintf(&body, "// %s converts a prepared value after the caller checks access.\nfunc %s(value %s.%s) (*contract.%s,error) {\nresult := &contract.%s{}\n", mapping.name, mapping.name, alias, mapping.model, mapping.target, mapping.target)
 		for _, field := range mapping.fields {
 			body.WriteString("{\n")
-			if field.constant != nil {
+			if field.jsonLimits != nil {
+				limits := field.jsonLimits
+				fmt.Fprintf(&body, "v,err := jsonStrings(value.%s,%d,%d,%d)\nif err != nil {return nil,ErrConversion}\nif v == nil {v = make([]string,0)}\n", field.source.Selection, limits.bytes, limits.items, limits.itemBytes)
+			} else if field.constant != nil {
 				fmt.Fprintf(&body, "v := %s\n", strconv.Quote(*field.constant))
 			} else if field.source.Pointer {
 				fmt.Fprintf(&body, "if value.%s != nil {\nv := *value.%s\n", field.source.Selection, field.source.Selection)
@@ -250,7 +275,11 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 				fmt.Fprintf(&body, "v := value.%s\n", field.source.Selection)
 			}
 			if field.omitEmpty {
-				body.WriteString("if v != \"\" {\n")
+				if field.jsonLimits != nil {
+					body.WriteString("if len(v) != 0 {\n")
+				} else {
+					body.WriteString("if v != \"\" {\n")
+				}
 			}
 			if field.constant == nil {
 				switch field.source.Type {
@@ -302,8 +331,47 @@ func renderResponses(ctx gen.Context, plan *responsePlan) ([]gen.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot format HTTP response mappings: %w", err)
 	}
-	return []gen.File{
+	files := []gen.File{
 		{Path: path.Join(ctx.OutputNamespace, "contract/models.go"), Content: []byte(plan.models)},
 		{Path: path.Join(ctx.OutputNamespace, "responses/mappings.go"), Content: code},
-	}, nil
+	}
+	for _, mapping := range plan.mappings {
+		for _, field := range mapping.fields {
+			if field.jsonLimits != nil {
+				source, err := responsemapping.JSONStringsSource("responses")
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, gen.File{Path: path.Join(ctx.OutputNamespace, "responses/json_strings.go"), Content: source})
+				return files, nil
+			}
+		}
+	}
+	return files, nil
+}
+
+func bindJSONResponse(field responseField, rule map[string]any) (responseField, error) {
+	target := field.target
+	if !target.StringList || (target.GoType != "[]string" && target.GoType != "*[]string") || field.source.Type != types.FieldTypeJsonb || field.source.Pointer {
+		return field, fmt.Errorf("json_strings requires a JSON source and a non-null string list")
+	}
+	expected := 6
+	if value, exists := rule["omit_empty"]; exists {
+		if value != true || target.Required || !target.OmitEmpty {
+			return field, fmt.Errorf("list omission requires an optional omitted response field")
+		}
+		field.omitEmpty = true
+		expected++
+	}
+	if len(rule) != expected {
+		return field, fmt.Errorf("json_strings requires three limits and no other action")
+	}
+	bytes, b := rule["max_bytes"].(int)
+	items, i := rule["max_items"].(int)
+	itemBytes, c := rule["max_item_bytes"].(int)
+	if !b || !i || !c || bytes < 1 || bytes > 16<<20 || items < 1 || items > 65536 || itemBytes < 1 || itemBytes > bytes {
+		return field, fmt.Errorf("json_strings limits are invalid")
+	}
+	field.jsonLimits = &responseJSONLimits{bytes, items, itemBytes}
+	return field, nil
 }

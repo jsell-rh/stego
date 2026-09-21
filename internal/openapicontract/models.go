@@ -24,12 +24,13 @@ type GoObject struct {
 // GoProperty records the backend field and the declared JSON presence rules.
 // GoType is a parsed backend expression, never an application expression.
 type GoProperty struct {
-	JSONName  string
-	GoName    string
-	GoType    string
-	Required  bool
-	Nullable  bool
-	OmitEmpty bool
+	JSONName   string
+	GoName     string
+	GoType     string
+	Required   bool
+	Nullable   bool
+	OmitEmpty  bool
+	StringList bool
 }
 
 // GenerateGoModels renders model types and binds selected response objects.
@@ -92,6 +93,7 @@ func GenerateGoModels(doc *openapi3.T, packageName string, schemas []string) (st
 			object.Fields = append(object.Fields, GoProperty{
 				JSONName: parts[0], GoName: field.Names[0].Name, GoType: expression.String(),
 				Required: property.required, Nullable: property.schema.Nullable, OmitEmpty: len(parts) == 2,
+				StringList: stringListProperty(property.schema),
 			})
 		}
 		if len(seen) != len(selected[name]) {
@@ -237,4 +239,13 @@ func modelDeclarations(source string) (map[string]ast.Expr, error) {
 		return nil, fieldError
 	}
 	return declarations, nil
+}
+
+// Reject nullable items and composition that would lose a declared list shape.
+func stringListProperty(schema *openapi3.Schema) bool {
+	if schema == nil || schema.Type == nil || !schema.Type.Is("array") || schema.Items == nil || schema.Items.Value == nil || len(schema.AllOf)+len(schema.AnyOf)+len(schema.OneOf) != 0 || schema.Not != nil {
+		return false
+	}
+	item := schema.Items.Value
+	return item.Type != nil && item.Type.Is("string") && !item.Nullable && len(item.AllOf)+len(item.AnyOf)+len(item.OneOf) == 0 && item.Not == nil
 }

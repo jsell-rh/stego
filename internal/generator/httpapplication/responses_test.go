@@ -174,7 +174,11 @@ func TestHTTPResponseInputsAndDeterminism(t *testing.T) {
 }
 
 func TestGeneratedHTTPResponseMappings(t *testing.T) {
-	ctx := responseContext()
+	checkGeneratedResponses(t, responseContext(), responseRuntimeTest, []string{"", "TestResponsePresenceAndOwnership", "TestResponseInvalidValues", "TestResponseIntegerBounds"})
+}
+
+func checkGeneratedResponses(t *testing.T, ctx gen.Context, runtimeTest string, required []string) {
+	t.Helper()
 	files, wiring, err := new(Generator).Generate(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -197,9 +201,9 @@ func TestGeneratedHTTPResponseMappings(t *testing.T) {
 	}
 	write("out/store/model.go", []byte(`package store
 import "time"
-type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64; Note *string; Enabled bool; Active *bool; Score float64}
+type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64; Note *string; Enabled bool; Active *bool; Score float64; Tags []byte}
 `))
-	write("out/application/responses/response_test.go", []byte(responseRuntimeTest))
+	write("out/application/responses/response_test.go", []byte(runtimeTest))
 	var mod strings.Builder
 	mod.WriteString("module example.com/dispatch\ngo 1.26.0\nrequire(\n")
 	var modules []string
@@ -241,12 +245,12 @@ type Record struct {ID,Title,Creator string; CreatedTime time.Time; Count int64;
 				passed[event.Test] = true
 			}
 		}
-		for _, name := range []string{"", "TestResponsePresenceAndOwnership", "TestResponseInvalidValues", "TestResponseIntegerBounds"} {
+		for _, name := range required {
 			if !passed[name] {
 				t.Fatal("missing generated response result", name)
 			}
 		}
-		t.Log("generated response presence, ownership, invalid values, and integer bounds passed")
+		t.Log("generated response checks passed:", required)
 	}
 }
 

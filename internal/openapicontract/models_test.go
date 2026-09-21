@@ -22,7 +22,7 @@ func TestGoResponseObjectBindings(t *testing.T) {
 		{JSONName: "description", GoName: "Description", GoType: "*string", OmitEmpty: true},
 		{JSONName: "enabled", GoName: "Enabled", GoType: "nullable.Nullable[bool]", Nullable: true, OmitEmpty: true},
 		{JSONName: "serial", GoName: "Serial", GoType: "string", Required: true},
-		{JSONName: "tags", GoName: "Tags", GoType: "[]string", Required: true},
+		{JSONName: "tags", GoName: "Tags", GoType: "[]string", Required: true, StringList: true},
 		{JSONName: "updated_at", GoName: "UpdatedAt", GoType: "*time.Time", OmitEmpty: true},
 	}}
 	if !reflect.DeepEqual(objects["Shipment"], want) || len(objects) != 2 {

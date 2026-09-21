@@ -11,6 +11,7 @@ import (
 	"github.com/bufbuild/protocompile"
 	"github.com/jsell-rh/stego/internal/gen"
 	"github.com/jsell-rh/stego/internal/generator/grpcapplication/grpcgen"
+	"github.com/jsell-rh/stego/internal/responsemapping"
 	gengo "google.golang.org/protobuf/cmd/protoc-gen-go/internal_gengo"
 	"google.golang.org/protobuf/compiler/protogen"
 	"google.golang.org/protobuf/proto"
@@ -182,7 +183,11 @@ func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 		result = append(result, *mappingFile)
 	}
 	if hasJSONMappings(mappings) {
-		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "mapping/json_strings.go"), Content: []byte(mappingJSONStringsSource)})
+		code, err := responsemapping.JSONStringsSource("mapping")
+		if err != nil {
+			return nil, nil, err
+		}
+		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "mapping/json_strings.go"), Content: code})
 	}
 	sort.Strings(methods)
 	return result, methods, nil

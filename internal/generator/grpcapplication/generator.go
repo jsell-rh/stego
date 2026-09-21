@@ -16,9 +16,6 @@ import (
 //go:embed runtime.go.tmpl
 var runtimeSource string
 
-//go:embed mapping_json_strings.go.tmpl
-var mappingJSONStringsSource string
-
 //go:embed conversion.go.tmpl
 var conversionSource string
 
