@@ -1,0 +1,669 @@
+{
+  "schema": 1,
+  "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+  "compiler": "8243930019fbba1e1b87c0c5d6f0bb4297178b1b",
+  "qualified": true,
+  "checked_at": "2026-09-21T06:05:37.330108+00:00",
+  "runs": {
+    "Regenerate with the pinned compiler": {
+      "id": 35564924295,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924295"
+    },
+    "Common application images": {
+      "id": 35564924919,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924919"
+    },
+    "Gateway API on jshell": {
+      "id": 35564923993,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564923993"
+    },
+    "Checked transport responses": {
+      "id": 35564924007,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924007"
+    },
+    "Real provider discovery and cleanup": {
+      "id": 35564923998,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564923998"
+    },
+    "Upstream dashboard source checks": {
+      "id": 35564924012,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924012"
+    },
+    "Journal recovery checks": {
+      "id": 35564924065,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924065"
+    },
+    "Build console asset candidate": {
+      "id": 35564923955,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564923955"
+    },
+    "Generated Gateway console": {
+      "id": 35564924193,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924193"
+    },
+    "Gateway and contract checks": {
+      "id": 35564924072,
+      "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35564924072"
+    }
+  },
+  "proofs": {
+    "full": {
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "run": 35564924072,
+      "qualified": true,
+      "checked_at": "2026-09-21T06:00:56.389512+00:00",
+      "jobs": {
+        "acceptance (browser)": "success",
+        "web-console": "success",
+        "acceptance (core)": "success",
+        "service-image": "success",
+        "sandbox-workload": "skipped"
+      },
+      "baseline_source": "047f550fca807fba214843ce04d50aa85544f5df",
+      "core_cases_retained": 1335,
+      "core_cases_passed": 1335,
+      "core_top_level_tests": 380,
+      "prior_test_definitions_retained": true,
+      "added_core_cases": [],
+      "core_skips": [
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGeneratedKubernetesBrowserGatewayWorkflow",
+        "TestGeneratedKubernetesServiceGatewayWorkflow",
+        "TestNamespaceCountWithLiveKubernetes",
+        "TestRealProviderAccountCapacity"
+      ],
+      "rendered_browser_test_passed": true,
+      "log_sha256": "034589c47a2fe42e4db246378f74882e1752b492c903d9e7908d4a700033e66e",
+      "sandbox_deferral_preserved": true,
+      "scope": "Hosted application checks. Live workflow and capacity remain separate requirements."
+    },
+    "api": {
+      "run": 35564923993,
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "required_tests": [
+        "TestGatewayDurableDeletionThroughGeneratedTransports",
+        "TestGatewayAccountCleanupRecoveryReachesTailAfterRestart",
+        "TestGatewayAccountCleanupRecoveryKeepsPageCheckpoint",
+        "TestGatewayJournalCleanupRecoveryKeepsPageCheckpoint",
+        "TestGatewayJournalRegistrationDuringScanPreventsCompletion",
+        "TestGatewayJournalAddedAfterLastPagePreventsCompletion",
+        "TestGatewayJournalClosureRollsBackWithFinalEvent",
+        "TestGatewayCleanupRecoversJournalOmittedByProvider",
+        "TestGatewayInventoryRecoveryAcrossReadFailureAndPageShift",
+        "TestGatewayInventoryLimitRequiresAnotherFullCycle",
+        "TestGatewayCleanupObservationDoesNotRepeatEvents",
+        "TestGatewayDeletingPhaseMatchesSearch",
+        "TestGatewayAccountCleanupProgressSurvivesInterruptedRequests",
+        "TestGatewayAccountCleanupSerializesCreation",
+        "TestServiceAccountCreationSerializesGatewayDeletion",
+        "TestGatewayDeletionRemovesServiceAccounts",
+        "TestServiceAccountProviderStateAcrossLockAndRestart",
+        "TestGatewayProviderStateAcrossGRPCAndRestart",
+        "TestGatewayDatabasePoolWaitCancellationAndRestart",
+        "TestConcurrentGlobalRoleProjection",
+        "TestCleanupSummaryScopeAndTimestampChecks",
+        "TestGatewayDatabaseSecretFileAndCredentialRotation",
+        "TestGatewayDeletionBeforeWorkloadStartup",
+        "TestControllerLocalBootstrapRejectsUnregisteredSQLGeneration",
+        "TestGeneratedWorkloadWorkerStartupPrivacy",
+        "TestGatewaySQLUsesDurableStateAndRetainsSuppliedServer",
+        "TestGatewayCreationCommitsOwnerAndEvent",
+        "TestGatewayRequestsRejectRetiredDatabaseField",
+        "TestGeneratedGoSDKGatewayWorkflow",
+        "TestGeneratedCLIWorkflow",
+        "TestGatewayMutationWorkflowAcrossTransportsAndRestart",
+        "TestGatewayControllerWriteGrantsAcrossPlacementAndRestart",
+        "TestOwnerGrantFailureRollsBackGatewayAndEvent",
+        "TestEventFailureRollsBackGatewayAndOwner",
+        "TestAccessFiltersRunBeforeCountAndPagination",
+        "TestGeneratedGatewayDescriptorsMatchReleaseContract",
+        "TestGatewayWorkflowThroughGeneratedRESTProcess",
+        "TestGatewayWorkflowAcrossRESTAndGRPC",
+        "TestGeneratedRuntimeDeliversGatewayEventsAcrossRestart",
+        "TestGeneratedRuntimeRecoversUnfinishedClaim",
+        "TestGatewayWatchThroughGeneratedRuntime",
+        "TestNamespaceCountWorkflowThroughGeneratedWorker",
+        "TestPlacementWorkflowThroughGeneratedRuntime",
+        "TestControllerLocalSchemaHasNoDatabaseCatalog",
+        "TestControllerLocalSQLCleanupRequiresExactGrantAndVersion",
+        "TestControllerLocalBootstrapRejectsLegacySchemaWithoutWrites",
+        "TestGatewaySQLCleanupObservationIsAtomicAndSurvivesRestart",
+        "TestClusterDeletionWaitsForGatewaySQLAndWorkloadCleanupAcrossRestart",
+        "TestGatewaySQLCleanupMakesIndependentProgressAfterRestart",
+        "TestGatewaySQLCleanupDeadlineKeepsStateUntilRecovery",
+        "TestGeneratedCLICatalogWorkflow",
+        "TestGeneratedCLIApplyWorkflow"
+      ],
+      "passed_top_level": 52,
+      "test_log_sha256": "3df052efffa355078ad306afccaa15be3bbd6f0ae9310c9c8a4f6c4a6aaa1c07",
+      "source_files_match": 1716,
+      "generated_hashes_match": 432,
+      "committed_and_repeated_generation_match": true,
+      "compiler_public_records_and_live_bytes_match": true,
+      "bounded_live_job_verified": true,
+      "job_uid": "8a3bdb6f-b3cb-4e48-8d5a-acaf01e696d8",
+      "pod_uid": "84013bad-bcd0-49b4-8639-1a16699fe1f4",
+      "independent_fixture_cleanup_verified": true,
+      "qualified": true,
+      "scope": "The exact API and SQL test fixture. Main browser and full results remain separate."
+    },
+    "focused": {
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "compiler": "8243930019fbba1e1b87c0c5d6f0bb4297178b1b",
+      "run": 35564924007,
+      "qualified": true,
+      "roots": [
+        "TestCatalogMappingsPreserveEveryField",
+        "TestCatalogMappingsRejectInvalidTextPrivately",
+        "TestCleanupSummaryTimestampPresence",
+        "TestGatewayMappingAcceptsDNSListBounds",
+        "TestGatewayMappingPreservesEveryField",
+        "TestGatewayMappingRejectsInvalidDNSListsPrivately",
+        "TestGatewayMappingSelectsObservationsBeforeConversion",
+        "TestGatewayNetworkTimestampResponses",
+        "TestGatewayReleaseTimestampResponses",
+        "TestManagedClusterTimestampResponses",
+        "TestTimestampPresentersPreserveContract",
+        "TestTimestampPresentersRejectInvalidRecords"
+      ],
+      "root_count": 12,
+      "case_count": 141,
+      "selected_module": "v0.0.0-20260920233219-cd240e7a3f11",
+      "source_archive_sha256": "32985b033c2841563a51db6e20f8b299de726838b960d99654e25fd87dfe5390",
+      "test_log_sha256": "de4f2b4627d5fb5990d6d41f917d1c382759a4274524d43906de72f165879d4d",
+      "checked_at": "2026-09-21T05:33:36.157022+00:00",
+      "scope": "Consumer catalog and Gateway mapping, observation selection, JSON bounds, private errors, timestamps, lists, and watches. Full application, signed images, and the complete live workflow remain required."
+    },
+    "regeneration": {
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "compiler": "8243930019fbba1e1b87c0c5d6f0bb4297178b1b",
+      "run": 35564924295,
+      "qualified": true,
+      "checked_at": "2026-09-21T05:33:36.326616+00:00",
+      "complete_generated_inventory_matches": true,
+      "generated_and_module_files": 431,
+      "generated_hashes_checked": 422,
+      "input_hashes_checked": 41,
+      "generation_patch_empty": true,
+      "source_archive_sha256": "32985b033c2841563a51db6e20f8b299de726838b960d99654e25fd87dfe5390",
+      "generated_archive_sha256": "4f1ea2bf28c690c549a4d32f3ed869bee1c3bbedcb4a82af520ebf660432e051",
+      "compiler_executed_locally": false,
+      "scope": "All three generated roots match the exact acceptance source. The accepted browser workflow and remaining main checks have separate records."
+    },
+    "images": {
+      "qualified_at": "2026-09-21T05:49:18.585630+00:00",
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "image_run": null,
+      "application_run": 35564924919,
+      "applications": [
+        {
+          "application": "hypershell",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "32703aaa11dd7dbf21e5d64455268fcce18df4ffaa23cc4f316ffd05a566dd0c",
+          "manifest": {
+            "sha256": "4070e4d2dcd944f193ae4533277bce63a18d61926790d5c0334a165cf914a97c",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "2ca0020ee1b9421e8490daee1ff750c185d91e5a4aedb84d40ad5a03e552aff3",
+            "size": 428
+          },
+          "layer": {
+            "sha256": "f12da3c8b83c4c23a07cedbb1de07af7fec82713a622cbd7e500f3091e13e06e",
+            "size": 23263028
+          },
+          "application_artifact": {
+            "sha256": "71be61aa1005eb2621b5228fafa4da65cc37517840b46f6809156653806a9695",
+            "size": 48762064
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:2ca0020ee1b9421e8490daee1ff750c185d91e5a4aedb84d40ad5a03e552aff3",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-console",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "4f23053584645cf70d36bbeb3fbfc27bbfe703f808040c5220de25ab49cc9723",
+          "manifest": {
+            "sha256": "bc794cbbc9bb4e970d506dc72873a55cb7ee718c999e4b517b3339145fa8f792",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "6d5212a5c2be51004a13db7aac0de3623f78f45e733838ce2dc3b06cbcd275e3",
+            "size": 428
+          },
+          "layer": {
+            "sha256": "f79185238adae09e1ee5af8c5bb94f43124d0dd8c9bc1af1e1a0806c358e31c8",
+            "size": 17268522
+          },
+          "application_artifact": {
+            "sha256": "b0bc01c7baa8c696ecb32da9cfe53fbd1c379d4d399b7e085feccb67729ca529",
+            "size": 35729785
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:6d5212a5c2be51004a13db7aac0de3623f78f45e733838ce2dc3b06cbcd275e3",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-provisioner",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "0c1881e8c5ff09e8f1620f71597fc50b3167da1d95a89e05f2c1c7ffaf0284f7",
+          "manifest": {
+            "sha256": "7e28f9a00d87564b2e7d32daa8cc8e9cc235211670dda2b3e8168e9425f4e7bd",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "32c9fbbfc21f7929147fd47a05ddc07461876805753f738cb872b271fbee11ee",
+            "size": 424
+          },
+          "layer": {
+            "sha256": "a88a7800d0b7dd7b546fcf230dea7f66cb44561399f284f84ad00b6b8fade64c",
+            "size": 17875835
+          },
+          "application_artifact": {
+            "sha256": "1d576ae87c541378aaaeb2f4127d3dd9d8ef9866894f550d1accfaa502d41aaf",
+            "size": 36275675
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:32c9fbbfc21f7929147fd47a05ddc07461876805753f738cb872b271fbee11ee",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-gateway-console",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "f9a93bdeef687251458b78eb63bfb2adaa366588204135abde7f6b42b0f46f01",
+          "manifest": {
+            "sha256": "6c0e629151dab93977ee7671d0fe01140a1ca06e4b0d2b64dd1acc2ea79a9d5e",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "6bff872e00a13e5288f3d3110a21cc7301be2abe78686f397d9ddeee81f4a392",
+            "size": 428
+          },
+          "layer": {
+            "sha256": "06c8247a8d2d75cf167fb627d60b990ad4ee6d44f3351cb543f2c2afab821bb4",
+            "size": 19057763
+          },
+          "application_artifact": {
+            "sha256": "7328d5ad6db8da23d3c74a8264f8380c42c646c5323f650cc58860071ea379e8",
+            "size": 41536548
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:6bff872e00a13e5288f3d3110a21cc7301be2abe78686f397d9ddeee81f4a392",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-namespace-allocation",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "29402b467869bf5c4291c99d6f5e9d77c040228952d3b8fe4e6956b0e143886a",
+          "manifest": {
+            "sha256": "d28420e230258d79747b874d20ca675ed6863c395117f37b31c9edc33be7c0a4",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "d7c86e93fe8a414f91f5a71a66cd33f4d3552b5fafa3668f2ec399a5d6e638a2",
+            "size": 427
+          },
+          "layer": {
+            "sha256": "2ce0480bd4a193942b87b5fe875176628f6c682aa3ce4cace8efc6a7e2840540",
+            "size": 16621134
+          },
+          "application_artifact": {
+            "sha256": "e0d00c0ed7036bee7a7007e4df32537017000045a97991d25cdd269f211c9439",
+            "size": 34490155
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:d7c86e93fe8a414f91f5a71a66cd33f4d3552b5fafa3668f2ec399a5d6e638a2",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-gateway-identity",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "7326238ce8d8ef6e6019a72a58acc7bc321ff1dc199d9122ecaa1021d21bc1d2",
+          "manifest": {
+            "sha256": "991f786132566d406f5cc4047db35236c77f4213b8bbb30c070c636682a38c89",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "0a0fdca9e3d9adeae53a6232120731d86070b7e69ec63c654df898fcd2513a13",
+            "size": 427
+          },
+          "layer": {
+            "sha256": "a29c4d08ef11eb1881acf8a25ae98f82ca303427060d91670f641b7e49845e6a",
+            "size": 17847391
+          },
+          "application_artifact": {
+            "sha256": "d35ff984a0d968adc43f31f39177ab07f145657f6cd3cd553c02677b76936008",
+            "size": 36151019
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:0a0fdca9e3d9adeae53a6232120731d86070b7e69ec63c654df898fcd2513a13",
+          "verification_cases": 7
+        },
+        {
+          "application": "hypershell-gateway-workload",
+          "application_source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+          "image_record_sha256": "e70ec061c9d076d39febe0b9c1404b720055bf260e3af66bb79e53cb0392f8b7",
+          "manifest": {
+            "sha256": "b556f79803bef35e866d73aed1abef429b6bcac43fa048228ca01908aa84163f",
+            "size": 406
+          },
+          "configuration": {
+            "sha256": "53c968da7c1a62c761abc48221fb58ffa939ed27f6a47fd9f349feaeb2601bdc",
+            "size": 427
+          },
+          "layer": {
+            "sha256": "fb9625b0c55091e6bf862b48a0d2ba755b45e5d7c308b5e8c06ea24e32959589",
+            "size": 17232550
+          },
+          "application_artifact": {
+            "sha256": "ae292ee31781f1d5bb55d67b6f0d17889865279023dc441d5f708d9369176cb8",
+            "size": 35661079
+          },
+          "trust_store": {
+            "sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b",
+            "size": 627
+          },
+          "engine_image_id": "sha256:53c968da7c1a62c761abc48221fb58ffa939ed27f6a47fd9f349feaeb2601bdc",
+          "verification_cases": 7
+        }
+      ],
+      "records_authenticated": false,
+      "registry_publication_checked": false,
+      "production_CA_bundle_qualified": false,
+      "application_execution_checked": false
+    },
+    "signatures": {
+      "qualified_at": "2026-09-21T05:50:14.764520+00:00",
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "run": 35564924919,
+      "applications": [
+        {
+          "application": "hypershell",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": ".",
+            "target": "out",
+            "entrypoint": "service",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "672249e012d184cc3ab2cb34aad2e196dd15d8e3f45557fa4b3d926ed7f8d17f",
+          "image_record_sha256": "32703aaa11dd7dbf21e5d64455268fcce18df4ffaa23cc4f316ffd05a566dd0c",
+          "bundle_sha256": "a4b8dad50bd941745677239f6d863a33ae52d45dabe5885067fce9dbd3ea8990",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-console",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": "console",
+            "target": "out",
+            "entrypoint": "service",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "e2c8137dad9982a0def2863b8328807a894a15f74309e0603c016d46b959a29b",
+          "image_record_sha256": "4f23053584645cf70d36bbeb3fbfc27bbfe703f808040c5220de25ab49cc9723",
+          "bundle_sha256": "a47b0826306b749846cea26ee30ec6eedc7756c045d7d583ff543905755cc53a",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-provisioner",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": ".",
+            "target": "out/grpcapi/processes/provisioner",
+            "entrypoint": "rpc",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "1faf6201e726f124639b71019e60a4e0dcfc500340e11027c9b72b84d9002e8c",
+          "image_record_sha256": "0c1881e8c5ff09e8f1620f71597fc50b3167da1d95a89e05f2c1c7ffaf0284f7",
+          "bundle_sha256": "722220da668f2b4179992844725c3ccd10d19777e4799eff715b944a69a821f4",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-gateway-console",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": "gateway-console",
+            "target": "out",
+            "entrypoint": "service",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "ce905a1c7b7fcb49bd861478d9b4fb75458229fa0f4c2202efa799c0a90c8229",
+          "image_record_sha256": "f9a93bdeef687251458b78eb63bfb2adaa366588204135abde7f6b42b0f46f01",
+          "bundle_sha256": "65518353bcb928db2e175b494ff2d7610404fd5bb7c9087cb8a9de573d5190b3",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-namespace-allocation",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": ".",
+            "target": "out/deploy/workers/namespace-allocation",
+            "entrypoint": "worker",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "5d2de1dbe28e88e4250d2a9e55bfd0a085a0d89fb0d7a86bad48ecaa232bbcb6",
+          "image_record_sha256": "29402b467869bf5c4291c99d6f5e9d77c040228952d3b8fe4e6956b0e143886a",
+          "bundle_sha256": "5a06121096c8fc62553127b2e414cacb85b361cb91e06e332c3ac4397f4c4cbb",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-gateway-identity",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": ".",
+            "target": "out/deploy/workers/gateway-identity",
+            "entrypoint": "worker",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "547dd8f6a22301e1e7ea8c627bdb6376954b0dcd8895301ba90468cd362bd800",
+          "image_record_sha256": "7326238ce8d8ef6e6019a72a58acc7bc321ff1dc199d9122ecaa1021d21bc1d2",
+          "bundle_sha256": "a57c502ea8301d29cd31528de13382019a10b55ee4d0eed0f6681bc11dc03093",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        },
+        {
+          "application": "hypershell-gateway-workload",
+          "policy": {
+            "format": 2,
+            "repository": "jsell-rh/hypershell-stego",
+            "signer_repository": "jsell-rh/stego",
+            "signer_workflow": ".github/workflows/application-target.yml",
+            "signer_revision": "d863fcb5e28887d39cd255e36a2bf56b0bc3825d",
+            "reference": "refs/heads/main",
+            "revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "compiler_revision": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+            "compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+            "application_revision": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+            "module": ".",
+            "target": "out/deploy/workers/gateway-workload",
+            "entrypoint": "worker",
+            "trust_store_sha256": "305d7bb5c087deae0dbfaec9cf305ae5a11c1751a9f109609a5484378595c95b"
+          },
+          "build_record_sha256": "73a52aa4d0267674b1f3c1983dbd99e5c01ea163c9ba27b9d718fd8e3aba448f",
+          "image_record_sha256": "e70ec061c9d076d39febe0b9c1404b720055bf260e3af66bb79e53cb0392f8b7",
+          "bundle_sha256": "dd2ca398d331508b81fa30cb6d94ab3190fb0c67cf05fc07510d9827c94ab136",
+          "real_rejection_cases": 11,
+          "independently_authenticated": true
+        }
+      ],
+      "registry_publication_checked": false,
+      "production_CA_bundle_qualified": false,
+      "application_execution_checked": false,
+      "candidate_signatures_authorize_production": false
+    },
+    "registry": {
+      "qualified_at": "2026-09-21T05:49:18.751959+00:00",
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "application_run": 35564924919,
+      "applications": [
+        {
+          "application": "hypershell",
+          "image_record_sha256": "32703aaa11dd7dbf21e5d64455268fcce18df4ffaa23cc4f316ffd05a566dd0c",
+          "manifest_sha256": "4070e4d2dcd944f193ae4533277bce63a18d61926790d5c0334a165cf914a97c",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-console",
+          "image_record_sha256": "4f23053584645cf70d36bbeb3fbfc27bbfe703f808040c5220de25ab49cc9723",
+          "manifest_sha256": "bc794cbbc9bb4e970d506dc72873a55cb7ee718c999e4b517b3339145fa8f792",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-provisioner",
+          "image_record_sha256": "0c1881e8c5ff09e8f1620f71597fc50b3167da1d95a89e05f2c1c7ffaf0284f7",
+          "manifest_sha256": "7e28f9a00d87564b2e7d32daa8cc8e9cc235211670dda2b3e8168e9425f4e7bd",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-gateway-console",
+          "image_record_sha256": "f9a93bdeef687251458b78eb63bfb2adaa366588204135abde7f6b42b0f46f01",
+          "manifest_sha256": "6c0e629151dab93977ee7671d0fe01140a1ca06e4b0d2b64dd1acc2ea79a9d5e",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-namespace-allocation",
+          "image_record_sha256": "29402b467869bf5c4291c99d6f5e9d77c040228952d3b8fe4e6956b0e143886a",
+          "manifest_sha256": "d28420e230258d79747b874d20ca675ed6863c395117f37b31c9edc33be7c0a4",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-gateway-identity",
+          "image_record_sha256": "7326238ce8d8ef6e6019a72a58acc7bc321ff1dc199d9122ecaa1021d21bc1d2",
+          "manifest_sha256": "991f786132566d406f5cc4047db35236c77f4213b8bbb30c070c636682a38c89",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        },
+        {
+          "application": "hypershell-gateway-workload",
+          "image_record_sha256": "e70ec061c9d076d39febe0b9c1404b720055bf260e3af66bb79e53cb0392f8b7",
+          "manifest_sha256": "b556f79803bef35e866d73aed1abef429b6bcac43fa048228ca01908aa84163f",
+          "cases": 6,
+          "actual_registry_bytes_match": true,
+          "fixture_stopped": true
+        }
+      ],
+      "production_CA_adoption_checked": false,
+      "production_registry_checked": false,
+      "Hypershell_publisher_replaced": false
+    },
+    "cleanup": {
+      "run": 35564923993,
+      "source": "c583681defefe44a659e1d3b43cb5a0c882203b8",
+      "checked_at": "2026-09-21T05:41:36.086022+00:00",
+      "browser_empty": true,
+      "api_run": 35564923993,
+      "api_status": "success",
+      "runtime": [],
+      "fixtures": [],
+      "allocations": [],
+      "ci_jobs": [],
+      "api_fixtures": [],
+      "lease_holder": "",
+      "installed_resources_unchanged": 32,
+      "installation_uid": "32e31091-b7b7-4bbc-a541-ed04ee42265d",
+      "scope": "Both test fixtures are absent, the shared lease is free, and all standing installation resources are unchanged."
+    }
+  },
+  "proof_sha256": {
+    "full": "3c41927cd761eb4ca6bde19df2c1cb43f536cbd72b545ffeb7b6184e4c9dc898",
+    "api": "afe95f97c7e01a04b951bf53a4f420497c5141202c9cb5c04c6d560e0c54fc7d",
+    "focused": "2ddba8741f0cfe92fa206687040ae370fe57ef80037fbe95a56637f7954292ea",
+    "regeneration": "0cf5564c066b77f060efa5004fd427121cff593a9b12ea8b0dc7fed55ed21861",
+    "images": "a8017cc1239920dea94cad859a45d2dcd054d56ce78863a66b94c2122d08bc4d",
+    "signatures": "f363dc8f330f2c9ca86057c79140c2bc3f825bb3e5e4b972a91ee6407218d2a4",
+    "registry": "9b061eb0d32f36989122085e23890ad2af6c31ad5750f70b078e24422a5cc056",
+    "cleanup": "c70d0cf5bcd6618a6ed612192c3ca6f37a40ef9a0b649b5775c5a9a217dda04f"
+  },
+  "source_archive_sha256": "32985b033c2841563a51db6e20f8b299de726838b960d99654e25fd87dfe5390",
+  "scope": "Exact main checks for the accepted Gateway protobuf mapping. The later REST candidate is not covered. Image evidence covers signed candidates and a registry fixture, not production publication or the production CA. Live browser acceptance has a separate record. The cleanup time target, capacity, and deferred Sandbox checks remain open."
+}

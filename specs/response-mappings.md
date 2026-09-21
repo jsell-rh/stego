@@ -131,7 +131,7 @@ Gateway or grant mapping, REST conversion, or production capacity verification.
 ## Bounded JSON string lists
 
 Released compiler `82439300` adds `json_strings` for a JSON model field and a
-repeated protobuf string field. Hypershell Gateway adoption remains pending.
+repeated protobuf string field. The accepted Hypershell use is recorded below.
 
 ```yaml
 - target: tags
@@ -183,4 +183,9 @@ four browser images, and cleanup. See the
 
 This acceptance does not add REST or grant mapping. Normal cleanup with 100
 accounts took an observed 33.04 seconds; the 30-second target remains unmet.
-Exact main checks and the remaining enterprise requirements are still open.
+Exact main checks at `c583681d` also passed. They retained all 1,335 core cases,
+52 live API roots, and 141 focused cases. Regeneration matched all generated and
+module files. Seven candidate image signatures and registry fixture results
+passed independent review; production publication and CA adoption are separate
+requirements. See the [main evidence](gateway-mapping-main-consumer-evidence.json).
+The remaining enterprise requirements stay open.

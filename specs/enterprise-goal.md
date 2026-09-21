@@ -55,10 +55,19 @@ four browser images, and cleanup. All seven evidence readers completed without
 error. Both test fixtures were absent, the Lease was free, and all 32 standing
 resources were unchanged. See the [consumer evidence](gateway-mapping-consumer-evidence.json).
 
+Exact main checks at `c583681d` also passed independent review. All ten CI runs
+passed. They retained all 1,335 core cases across 380 roots, 52 required live API
+roots, and 141 focused cases. Repeated generation matched all 431 generated and
+module files. Image review authenticated seven candidate images and checked
+registry fixture bytes. This image evidence does not establish production
+publication or production CA adoption. API cleanup released the Lease and
+preserved all 32 standing resources. See the
+[main evidence](gateway-mapping-main-consumer-evidence.json).
+
 Normal cleanup with 100 accounts took an observed 33.04 seconds. The 30-second
-target remains unmet. Exact main checks are active. REST conversion, grant
-mapping, worker configuration, capacity, C3 through C7, and H1 through H3 remain
-open. This result does not explain the historical event timeout.
+target remains unmet. REST conversion, grant mapping, worker configuration,
+capacity, C3 through C7, and H1 through H3 remain open. This result does not
+explain the historical event timeout.
 
 ## Accepted catalog mapping baseline
 
