@@ -31,3 +31,9 @@ catalog timestamp path and prove failure without a partial response.
 
 Compiler checks and a complete Hypershell workflow remain required. A passing
 conversion test alone cannot qualify transport parity or an application change.
+
+The immutable compiler release passed all 34 generated cases, all 37 compiler
+packages, and both generated examples. Signature verification and a fresh
+installation matched all five verified files. See the
+[release evidence](checked-timestamp-release-evidence.json).
+Hypershell adoption still requires generation and application checks.

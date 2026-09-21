@@ -1,0 +1,30 @@
+{
+  "source": "f18286e8cbe6d1b1e489015a8965e403cd09046f",
+  "same_verified_files": 5,
+  "files_sha256": {
+    "stego-linux-amd64": "577740cdb08b07f1dced90ec27444e075298a872150e8ab92d608ba83c174991",
+    "build.json": "063931979155489d7f1fbb5e93ebb846f07c5ecb2bc2aaf7e719d8c55029b026",
+    "SHA256SUMS": "901244d658dc0bf55b258f9fa28408e01d4460235cd01613bf60d59749993513",
+    "provenance.jsonl": "b1761ee93240abe3928f2cbe6f23955c6b7ce4b619bfbc6cb913648c5cd7ea23",
+    "verified.json": "f50d555a5921e0b494cbc07d78ac91b0d135cf596141a7eabd4211e2e3e7a18c"
+  },
+  "compiler_executed": false,
+  "immutable_release_verified": true,
+  "runs": {
+    "focused": 35549883816,
+    "full": 35549883843,
+    "artifact": 35549883759
+  },
+  "release_url": "https://github.com/jsell-rh/stego/releases/tag/compiler-f18286e8cbe6d1b1e489015a8965e403cd09046f",
+  "required_generated_timestamp_cases": 34,
+  "compiler_packages": 37,
+  "complete_generated_examples": 2,
+  "consumer_adoption_verified": false,
+  "proof_sha256": {
+    "release-installation-review.json": "9e65af4aca534016147aac61ac386a1b95d95086487098dec2f8da512b63ccec",
+    "checks/35549883816/qualification.json": "9563ee2bc15671973e073bf74b6f10a1dd138f3a8608c9e22a2d82d8a3a07eb0",
+    "checks/35549883843/qualification.json": "c12ec0dbe5c89ae30b5c01ff5bca2a76b72707880edc06b2ad82aed3b7815837"
+  },
+  "checked_at": "2026-09-21T01:19:45.933859+00:00",
+  "scope": "Common checked protobuf timestamps. Application mapping and consumer adoption require separate evidence."
+}
