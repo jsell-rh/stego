@@ -54,7 +54,7 @@ overrides:
 	}
 	for name, bad := range map[string]string{
 		"missing":    strings.Replace(declaration, "input: Carrier", "input: Missing", 1),
-		"wrong type": strings.Replace(declaration, "type: string", "type: bool", 1),
+		"wrong type": strings.Replace(declaration, "name: Carrier, type: string", "name: Carrier, type: bool", 1),
 		"ambiguous":  strings.Replace(declaration, "target: carrier, input: Carrier", "target: carrier, source: id, input: Carrier", 1),
 	} {
 		t.Run(name, func(t *testing.T) {

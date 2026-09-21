@@ -24,8 +24,12 @@ func TestPreparedMappingUsesApplicationValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Metadata.Id != "stored-id" || got.Metadata.Href != "/shipments/resolved-reference" || got.Metadata.Kind != "Shipment" || !got.Metadata.CreatedAt.AsTime().Equal(input.Created) || got.GetName() != *input.Display || got.Count != 17 || !got.Enabled || got.RecordedAt == nil || !got.RecordedAt.AsTime().Equal(*input.Recorded) || got.Reset == nil || *got.Reset != "" || got.Score != 1.25 || got.Total != 2.5 || got.GetLimit() != 7 || got.PreparedCount != 23 || !reflect.DeepEqual(got.Tags, []string{"second", "first", "second"}) {
+	if got.Metadata.Id != "stored-id" || got.Metadata.Href != "/shipments/resolved-reference" || got.Metadata.Kind != "Shipment" || !got.Metadata.CreatedAt.AsTime().Equal(input.Created) || got.GetName() != *input.Display || got.Count != 17 || !got.Enabled || got.RecordedAt == nil || !got.RecordedAt.AsTime().Equal(*input.Recorded) || got.Score != 1.25 || got.Total != 2.5 || got.GetLimit() != 7 || got.PreparedCount != 23 || !reflect.DeepEqual(got.Tags, []string{"second", "first", "second"}) {
 		t.Fatal("prepared response fields differ", got)
+	}
+	reset := got.ProtoReflect().Descriptor().Fields().ByName("reset")
+	if !got.ProtoReflect().Has(reset) || got.ProtoReflect().Get(reset).String() != "" {
+		t.Fatal("prepared empty value lost field presence")
 	}
 	if _, err = proto.Marshal(got); err != nil {
 		t.Fatal(err)
