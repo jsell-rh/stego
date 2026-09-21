@@ -230,19 +230,23 @@ the accepted common builder from remaining dependency conversion and console
 annotation assembly. Keep the upstream Sandbox setup and application policy
 outside the restricted workload profile.
 
-The next extraction is consumer source `a1ad728`, which uses the released
-common renderer at compiler `5c4afa11`. It removes application annotation
-assembly and duplicate digest-format validation. Complete generation and module
-review passed, and the focused consumer check passed 43 cases across 11 tests.
-Its full application and image checks passed. It is not on Hypershell main;
-a complete workflow remains required. See the
+The common console rollout is accepted on Hypershell main `7e6d3f1`, from tested
+source `a1ad728` and compiler `5c4afa11`. It removes application annotation
+assembly and duplicate digest-format validation. All 11 live tests passed in
+553.70 seconds. Complete generation, images, telemetry, four browser views, and
+cleanup passed review. The Deployment, ReplicaSet, and ready Pod shared the
+common digest. Normal cleanup with 100 accounts took an observed 32.69 seconds;
+the 30-second target remains open. See the
+[live evidence](console-configuration-browser-evidence.json) and
 [compiler release evidence](deployment-configuration-main-evidence.json).
 
 Compiler `d8c37d20` also provides bounded dependency data conversion and common
 map access. All 145 generated cases, 37 compiler packages, and both examples
 passed. Its signed immutable release and fresh installation passed verification.
-Hypershell still uses its local conversion helper until regeneration, adoption,
-and complete workflow checks pass. See the
+Accepted Hypershell main still uses its local conversion helper. Candidate
+`c3e88f1` removes it after complete regeneration review and adds two invalid-data
+cases. Its application and image checks are active. A complete workflow remains
+required before acceptance. See the
 [dependency release evidence](workload-dependency-main-evidence.json).
 
 ## Remaining requirements
@@ -258,7 +262,7 @@ a narrower passing check cannot close a broader requirement.
 | C6: runtime | Complete health, readiness, timeout, shutdown, resource-limit, and all-signal telemetry coverage. Direct finite controller helpers need explicit operation and parent contracts without duplicate telemetry owners. The earlier recovered browser initialization failure still lacks a proved cause. |
 | C7: compiler contracts | Audit typed wiring, capability validation, extension points, and compatibility against the original assessment. Generated Go compilation does not by itself prove a complete component contract. |
 | H1: application contracts | Complete parity evidence for REST, gRPC, RBAC, watches, SDK, CLI, UI, deployment, and the upstream dashboard terminal contract. |
-| H2: common mechanisms | Complete the common console rollout adoption and remove the remaining dependency conversion from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain clean generation without rh-trex-ai. |
+| H2: common mechanisms | Complete the dependency conversion adoption and the remaining common transport mapping from proved workflows. Keep ownership, grants, placement, release selection, OpenShell configuration, and UI policy in Hypershell. Retain clean generation without rh-trex-ai. |
 | H3: system behavior | Qualify supported deployment recovery, restore, concurrent and degraded-provider behavior, retained-history costs, and measured capacity. Preserve exact-source records and cleanup proof. |
 
 The initial capacity targets are 100 Gateways per instance, 100 service accounts

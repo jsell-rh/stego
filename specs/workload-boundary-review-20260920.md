@@ -14,8 +14,8 @@ does not establish complete application parity or production capacity.
 | --- | --- | --- |
 | Gateway Deployment and Service construction | STEGO `kubernetes-workload` component | Retain validation and tests for field removal, security repair, API serialization, and convergence. |
 | Security settings, probes, mounts, limits, and content digest | STEGO `workload.Build` | Keep the fixed security profile. Hypershell declares health paths, resource amounts, image, files, and verified dependencies. |
-| ConfigMap and Secret content conversion | Hypershell `gatewayworkload.workloadDependency` | The bounded map conversion and strict base64 decoding can become a common typed adapter. Dependency selection and verification must remain explicit. |
-| Gateway console Deployment and Service construction | Separately generated STEGO browser module | Hypershell still edits a Pod annotation to supply the configuration digest. A typed generation option can remove this map traversal. |
+| ConfigMap and Secret content conversion | Hypershell `gatewayworkload.workloadDependency` | The common adapter is released at `d8c37d20`. Candidate consumer `c3e88f1` removes the local helper; full application, image, and workflow qualification remain required. |
+| Gateway console Deployment and Service construction | Separately generated STEGO browser module | The typed configuration digest option removes application annotation assembly. It is accepted on Hypershell main `7e6d3f1` after the complete workflow. |
 | Console credential content digest | STEGO `kubernetes.OpaqueSecretSetDigest` | Preserve its namespace and owner checks. Do not add another application hash implementation. |
 | Console Service separation, placement, and dependency checks | Hypershell | Retain the checks that prevent console Pods from matching the Gateway Service and prevent use of another Gateway's credentials. |
 | OpenShell Sandbox Pod setup | Hypershell upstream integration | Preserve the user's selected upstream behavior. The restricted Deployment profile does not support its init containers, user settings, or capabilities. |
@@ -32,8 +32,8 @@ restricted builder would weaken its guarantees.
 ## Next extraction boundary
 
 The current worker configuration adoption passed its complete workflow.
-Remove the remaining dependency conversion and console annotation assembly
-through typed common interfaces. The caller supplies authorized dependencies;
+The common console rollout is accepted. Complete the dependency conversion
+adoption through the released typed interfaces. The caller supplies authorized dependencies;
 the common implementation checks their representation and constructs the output.
 It must not infer Gateway ownership, grant rules, placement, release selection,
 OpenShell configuration, or management UI behavior.
@@ -83,8 +83,12 @@ verification. The immutable release is published; a fresh installation matched
 all five verified files. Hypershell regeneration and nested-module selection
 passed full inventory review. Consumer `a1ad728` passed 43 focused cases across
 11 tests. Its full application check passed 1,192 core cases, and all seven
-images passed independent verification. The live console digest observation
-passed; complete workflow acceptance remains required. See the
+images passed independent verification. The complete live workflow passed all 11 required tests in 553.70 seconds.
+The generated console digest matched its Deployment, ReplicaSet, and ready Pod.
+Generation, telemetry, four browser images, and cleanup passed review. Hypershell
+main `7e6d3f1` accepts this path. Normal 100-account cleanup took an observed
+32.69 seconds, so the 30-second target remains open. See the
+[live evidence](console-configuration-browser-evidence.json). See the
 [candidate evidence](deployment-configuration-evidence.json) and
 [main release evidence](deployment-configuration-main-evidence.json).
 The change does not move Gateway policy into STEGO.
@@ -94,8 +98,11 @@ The common dependency adapter is released at compiler `d8c37d20`.
 byte slices. `NestedMap` accepts both generated and API-decoded maps. The digest
 format is unchanged. Checks passed all 145 generated cases, 37 compiler packages,
 and both complete examples. Main signatures and a fresh immutable release
-installation passed verification. Consumer regeneration and adoption remain
-required. See the [release evidence](workload-dependency-main-evidence.json).
+installation passed verification. Consumer regeneration checked 428 files,
+419 generated hashes, and 41 input hashes. Candidate `c3e88f1` removes the local
+helper and adds two invalid-data cases. Its application, image, and complete
+workflow checks remain required. See the
+[release evidence](workload-dependency-main-evidence.json).
 
 See the [enterprise goal](enterprise-goal.md) and the
 [transport mapping audit](transport-mapping-audit-20260920.md) for the remaining
