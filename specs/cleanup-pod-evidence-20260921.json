@@ -1,0 +1,281 @@
+{
+  "source": "c3e88f1623d189e2a4d84df00a9d1dbf7118508d",
+  "run": 35549065540,
+  "checked_at": "2026-09-21T01:12:11.495932+00:00",
+  "record_sha256": "432489d911f9179d359171015eb92c9efa7bb1e8586533c9767b202c12af3243",
+  "timing_sha256": "f541f2c9a56785d2ec4cd5d1172b25812244aeb604a1f449032a49164972dc23",
+  "requests": 853,
+  "changed_snapshots": 33,
+  "namespace_identities": 9,
+  "pod_identities": 12,
+  "ambiguous_namespace_snapshots": 1,
+  "api_field_reference": "https://kubernetes.io/docs/reference/kubernetes-api/definitions/object-meta-v1-meta/",
+  "limits": [
+    "The raw deletion_requested_at key contains metadata.deletionTimestamp. This review names it api_deletion_timestamp. It is not an exact request time and can include a grace period.",
+    "The configured Pod grace period is not the deletion grace period selected by a delete request.",
+    "A changed or absent namespace after a Pod read prevents a verified namespace identity claim for that snapshot.",
+    "Only changed snapshots are retained. Transitions can occur between reads.",
+    "Namespace and Pod API absence is not a proof of process termination. The workflow supplies separate cleanup checks.",
+    "Observer, API, and container clocks are not independently aligned.",
+    "These extra read requests are diagnostic load. This is not a production capacity result or proof of the delay cause."
+  ],
+  "complete_history_claimed": false,
+  "cluster_changes": false,
+  "review_sha256": "7967d8aab3e0feedb6a649bb7c334650bbfd8e65ffc0d2cd29789c637355ff25",
+  "gateway_id": "3JcFdbZzr4flLrncZibofXe15rv",
+  "accepted_response_observed_at": "2026-09-21T01:08:39.269681+00:00",
+  "cleanup_seconds": 32.336963665,
+  "observations": [
+    {
+      "request_started_at": "2026-09-21T01:07:52.674841+00:00",
+      "read_finished_at": "2026-09-21T01:07:56.195433+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-a0e53b3ab2652fd4",
+          "uid": "eb3cd96f-c5dd-49e4-bae8-687ec1ead09b",
+          "profile": "gateway",
+          "read_finished_at": "2026-09-21T01:07:54.004315+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [
+            "fe6aa2ed-7d07-4499-a41b-02e5ee0ad696",
+            "67c0cacf-3d3b-48bb-aa8e-626fac9422c6"
+          ],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:07:54.717576+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-sandbox-a0e53b3ab2652fd4",
+          "uid": "186cb2d6-186a-488b-96b6-b77ca53f9d3f",
+          "profile": "sandbox",
+          "read_finished_at": "2026-09-21T01:07:55.619759+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:07:56.195387+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:08:40.494143+00:00",
+      "read_finished_at": "2026-09-21T01:08:44.517970+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-a0e53b3ab2652fd4",
+          "uid": "eb3cd96f-c5dd-49e4-bae8-687ec1ead09b",
+          "profile": "gateway",
+          "read_finished_at": "2026-09-21T01:08:42.217557+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [
+            "fe6aa2ed-7d07-4499-a41b-02e5ee0ad696",
+            "67c0cacf-3d3b-48bb-aa8e-626fac9422c6"
+          ],
+          "api_deletion_timestamp": "2026-09-21T01:08:40Z"
+        },
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:08:43.212007+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-sandbox-a0e53b3ab2652fd4",
+          "uid": "186cb2d6-186a-488b-96b6-b77ca53f9d3f",
+          "profile": "sandbox",
+          "read_finished_at": "2026-09-21T01:08:43.912528+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:08:44.517920+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:08:47.518992+00:00",
+      "read_finished_at": "2026-09-21T01:08:50.513585+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-a0e53b3ab2652fd4",
+          "uid": "eb3cd96f-c5dd-49e4-bae8-687ec1ead09b",
+          "profile": "gateway",
+          "read_finished_at": "2026-09-21T01:08:48.516770+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:08:40Z"
+        },
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:08:49.104517+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-sandbox-a0e53b3ab2652fd4",
+          "uid": "186cb2d6-186a-488b-96b6-b77ca53f9d3f",
+          "profile": "sandbox",
+          "read_finished_at": "2026-09-21T01:08:49.730910+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:08:50.513544+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:08:53.514613+00:00",
+      "read_finished_at": "2026-09-21T01:08:55.454533+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:08:54.367951+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-sandbox-a0e53b3ab2652fd4",
+          "uid": "186cb2d6-186a-488b-96b6-b77ca53f9d3f",
+          "profile": "sandbox",
+          "read_finished_at": "2026-09-21T01:08:54.892333+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:08:55.454499+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:08:58.455488+00:00",
+      "read_finished_at": "2026-09-21T01:09:00.414022+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:08:59.364226+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        },
+        {
+          "name": "openshell-sandbox-a0e53b3ab2652fd4",
+          "uid": "186cb2d6-186a-488b-96b6-b77ca53f9d3f",
+          "profile": "sandbox",
+          "read_finished_at": "2026-09-21T01:08:59.874982+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:08:53Z"
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:09:00.413970+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": ""
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:09:03.414958+00:00",
+      "read_finished_at": "2026-09-21T01:09:04.859037+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:09:04.285409+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:09:02Z"
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:09:04.859013+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:09:02Z"
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:09:07.859816+00:00",
+      "read_finished_at": "2026-09-21T01:09:09.453049+00:00",
+      "namespaces": [
+        {
+          "name": "openshell-console-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8d95b223-f869-4855-a3cf-63075003fa6c",
+          "profile": "gateway-console-state",
+          "read_finished_at": "2026-09-21T01:09:08.857105+00:00",
+          "namespace_uid_rechecked": true,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:09:02Z"
+        },
+        {
+          "name": "openshell-state-173e3419a0e53b3ab2652fd4dd9d73fce2e0c7bb",
+          "uid": "8ef997ba-3dea-465d-9827-8d1106a4b579",
+          "profile": "gateway-state",
+          "read_finished_at": "2026-09-21T01:09:09.453006+00:00",
+          "namespace_uid_rechecked": false,
+          "pod_uids": [],
+          "api_deletion_timestamp": "2026-09-21T01:09:02Z"
+        }
+      ]
+    },
+    {
+      "request_started_at": "2026-09-21T01:09:12.453901+00:00",
+      "read_finished_at": "2026-09-21T01:09:12.757688+00:00",
+      "namespaces": []
+    }
+  ]
+}

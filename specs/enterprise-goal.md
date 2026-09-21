@@ -40,27 +40,36 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-The accepted application is Hypershell main `6aa1a658`, with runtime source
-`a1ad728` and compiler `5c4afa11`. STEGO constructs the Gateway workload and the
-separate browser deployment. Hypershell supplies OpenShell settings, verified
-dependencies, placement, and domain rules. The console configuration digest is
-also supplied by STEGO.
+The accepted application is Hypershell main `a1cdd3e6`, with runtime source
+`c3e88f16` and compiler `d8c37d20`. STEGO constructs Gateway and browser
+Deployments, security settings, probes, mounts, resource limits, and configuration
+digests. It also validates and converts workload dependency data. Hypershell
+supplies dependency selection, ownership, placement, OpenShell settings, and
+domain rules. The application no longer has a separate dependency converter.
 
-The full application check passed 1,192 core cases across 368 top-level tests.
+The full candidate check passed 1,194 core cases across 368 top-level tests.
 The five recorded exclusions and the deferred Sandbox test remain explicit.
-The complete browser workflow passed all 11 required tests. Review checked
-generation, signed images, telemetry, four browser views, and cleanup. See the
-[browser evidence](console-configuration-browser-evidence.json).
-The exact main API run then passed all 52 required tests. Independent review
-checked 1,673 source files, 429 generated hashes, and all five compiler files.
-Cleanup removed the test resources, released the Lease, and preserved all 32
-standing resources. See the
-[main API evidence](https://github.com/jsell-rh/hypershell-stego/blob/6aa1a658b5ea8155600694f9ebe58aecbc194518/acceptance/console-rollout-main-api-evidence.json).
+All seven images passed independent source, content, and signature checks.
+The complete browser workflow passed all 11 required tests in 539.60 seconds.
+Review checked 1,674 source files, 429 generation hashes, telemetry, four browser
+views, and cleanup. The ready console had the common digest on its Deployment,
+ReplicaSet, and Pod. See the
+[browser evidence](workload-dependency-browser-evidence.json) and the
+[application boundary](https://github.com/jsell-rh/hypershell-stego/blob/a1cdd3e621e97cc40df03206a7b687fd45eb97fe/acceptance/workload-dependency-conversion.md).
 
-Normal cleanup with 100 accounts took an observed 32.69 seconds. The 30-second
-target remains open. The common dependency converter is released in STEGO, but
-its Hypershell adoption still requires its own complete workflow. These results
-do not close the remaining enterprise requirements.
+A separate regeneration check matched all 428 generated and module files,
+419 output hashes, and 41 input hashes. The patch was empty. Live cleanup
+removed all test resources, released the Lease, and preserved all 32 standing
+resources. Normal cleanup with 100 accounts took an observed 32.34 seconds.
+The 30-second target remains open. Automatic checks on this exact main commit
+are in progress; they are not yet accepted as passing evidence.
+
+An earlier main check at `7e6d3f1` failed to receive one event within ten seconds
+after API restart. Two queued rows still had leases when the test failed.
+The later candidate check passed, but it does not explain that failure. Keep
+this recovery issue open. See the
+[failure evidence](event-restart-failure-evidence-20260921.json).
+These results do not close the remaining enterprise requirements.
 
 ## Earlier accepted worker and workload changes
 

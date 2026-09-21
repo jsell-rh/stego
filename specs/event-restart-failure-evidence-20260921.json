@@ -1,0 +1,34 @@
+{
+  "run": 35547597853,
+  "source": "7e6d3f1a321729317bc7c2212956fed2e99c85a3",
+  "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35547597853",
+  "conclusion": "failure",
+  "test": "TestGatewayCleanupDeadlineReopensConfirmation",
+  "event_observation": 5,
+  "event_timeout_seconds": 10,
+  "test_seconds": 34.82,
+  "queue_before_api_shutdown": {
+    "rows": 2,
+    "attempts": 1,
+    "available_in_seconds": 0,
+    "lease_left_seconds": 18.626,
+    "failure_code": ""
+  },
+  "consumer": {
+    "polls": 1,
+    "fetch_errors": 1,
+    "records": 0,
+    "context_done": true
+  },
+  "log_sha256": "22bcabc146c0079baaa23fbf007c0e8ab260b890f9c48d6abdbffc140b9dc76e",
+  "unchanged_test_and_queue_file_sha256": {
+    "acceptance/gateway_observation_deadline_test.go": "c8c873c8903d222f39b12fa4453bf2db23319c7f4a053152d5841f732727bc6e",
+    "acceptance/runtime_test.go": "5a5c4f5b202a6780b227a7b8734861fcfdcb06c565c9279d7a70795eb14fdf40",
+    "out/outbox/worker.go": "aca348a67c30021026fc646b3ad97ff0b461e949b7b65f435d5f29fb982df122",
+    "out/outbox/queue.go": "a13abce2450efb919f8177e7cc6f7b870f58c6293ed10f37218b73fa4f126b5f"
+  },
+  "later_candidate_full_run": 35547679136,
+  "later_candidate_full_pass_does_not_explain_failure": true,
+  "cause_proved": false,
+  "scope": "The failed event observation follows API restart. A valid queue lease can delay recovery after an unknown claim result. The saved record does not prove which operation left this lease."
+}
