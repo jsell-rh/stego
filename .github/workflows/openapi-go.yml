@@ -56,6 +56,10 @@ jobs:
                   'TestGoModelsPreservePresenceWithoutClient',
                   'TestGoBackendRejectsInvalidSelection',
                   'TestGoBackendConcurrentProfiles',
+                  'TestGoResponseObjectBindings',
+                  'TestGoResponseBindingsRejectAmbiguity',
+                  'TestGoResponseBindingsCapturedReferences',
+                  'TestGoResponseBindingsConcurrentBackend',
               },
               'internal/generator/gosdk': {
                   'TestInputBoundary', 'TestGeneratedSDK', 'TestCapturedReferenceNames',
