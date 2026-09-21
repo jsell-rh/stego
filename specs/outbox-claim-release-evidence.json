@@ -1,0 +1,168 @@
+{
+  "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+  "qualified": true,
+  "checked_at": "2026-09-21T02:06:10.051533+00:00",
+  "release": "https://github.com/jsell-rh/stego/releases/tag/compiler-65b18de83ccea83c242fdea3291a5a40bf6397e7",
+  "results": {
+    "focused": {
+      "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+      "run": 35552479604,
+      "qualified": true,
+      "generated_roots": [
+        "TestCanceledQueueOperationReturnsError",
+        "TestClaimDiscardsPartialResults",
+        "TestConcurrentEnqueueSerializesBeforeSequenceAllocation",
+        "TestConcurrentWorkersHaveDistinctLeases",
+        "TestDuplicateEventAbortsApplicationWrite",
+        "TestEventNoticeValidation",
+        "TestEventSourceBoundsAndSlowConsumer",
+        "TestEventSourceCommitAndMultipleProcesses",
+        "TestEventSourceFailureRequiresNewSubscription",
+        "TestExpiredLeaseCannotAcknowledgeOrRetry",
+        "TestInvalidPayloadsFailBeforeDatabaseAccess",
+        "TestOutboxCrashHelper",
+        "TestProcessCrashPreservesTransactionAndLeaseRules",
+        "TestRetryPreservesOrderAndOtherKeysProgress",
+        "TestUnknownClaimResultRecoversAfterLeaseExpiry",
+        "TestWorkerCannotAcknowledgeChangedLease",
+        "TestWorkerDoesNotAcknowledgeSuccessAfterAttemptDeadline",
+        "TestWorkerDoesNotStoreSinkErrorText",
+        "TestWorkerHonorsAttemptDeadlineAndRetainsFailures",
+        "TestWorkerLimitsConcurrencyAndCopiesHandlers",
+        "TestWorkerRejectsInvalidLimitsAndBoundsRetryDelay",
+        "TestWorkerReportsDatabaseFailuresWithoutDroppingMessages",
+        "TestWorkerRetainsUnknownDestinations",
+        "TestWorkerRetriesWithStableIdentityAndNoPayloadErrorText",
+        "TestWorkerShutdownAcknowledgesCompletedDelivery",
+        "TestWriteAndEventCommitTogether"
+      ],
+      "generated_root_count": 26,
+      "generated_case_count": 30,
+      "existing_fixtures_unchanged": 4,
+      "mutation_rejected": true,
+      "source_archive_sha256": "1c8de04d551a3fe2c6133328e8a22d8a86666803639da32b4cce5ff97d6c4879",
+      "test_log_sha256": "ed0a476a214dde2a8e111ddc7326571629e522550ab4a981c7b4842b732a04b3",
+      "checked_at": "2026-09-21T01:57:32.296212+00:00",
+      "scope": "Real PostgreSQL claims with a driver that removes the client result. This is not a wire fault test and does not explain the earlier Hypershell event timeout."
+    },
+    "full": {
+      "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+      "run": 35552479582,
+      "qualified": true,
+      "packages": [
+        "github.com/jsell-rh/stego/cmd/stego",
+        "github.com/jsell-rh/stego/internal/appbuild",
+        "github.com/jsell-rh/stego/internal/browserapplication",
+        "github.com/jsell-rh/stego/internal/browserassets",
+        "github.com/jsell-rh/stego/internal/buildidentity",
+        "github.com/jsell-rh/stego/internal/compiler",
+        "github.com/jsell-rh/stego/internal/gen",
+        "github.com/jsell-rh/stego/internal/generator/browserbackend",
+        "github.com/jsell-rh/stego/internal/generator/browseridentity",
+        "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+        "github.com/jsell-rh/stego/internal/generator/cliapplication",
+        "github.com/jsell-rh/stego/internal/generator/controller",
+        "github.com/jsell-rh/stego/internal/generator/gosdk",
+        "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+        "github.com/jsell-rh/stego/internal/generator/healthcheck",
+        "github.com/jsell-rh/stego/internal/generator/httpapplication",
+        "github.com/jsell-rh/stego/internal/generator/httpclient",
+        "github.com/jsell-rh/stego/internal/generator/jwtauth",
+        "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+        "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesworkload",
+        "github.com/jsell-rh/stego/internal/generator/oteltracing",
+        "github.com/jsell-rh/stego/internal/generator/outbox",
+        "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+        "github.com/jsell-rh/stego/internal/generator/postgresclient",
+        "github.com/jsell-rh/stego/internal/generator/restapi",
+        "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+        "github.com/jsell-rh/stego/internal/generator/runtimeconfig",
+        "github.com/jsell-rh/stego/internal/generator/tslsearch",
+        "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+        "github.com/jsell-rh/stego/internal/parser",
+        "github.com/jsell-rh/stego/internal/ports",
+        "github.com/jsell-rh/stego/internal/registry",
+        "github.com/jsell-rh/stego/internal/slot",
+        "github.com/jsell-rh/stego/internal/types"
+      ],
+      "package_count": 37,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "4a6a212f65355e5e3f8cbd2f6bb58b304552acc667bfb282cdc50ab4081c3ce0"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "b50dc0cef33eb9253106f3fbb501fb3ce8887effed3eab1055ebfdbf2ff31182"
+        }
+      },
+      "log_sha256": "ead4df60d545c9588fdc9a0e6388e50ccfbe4de69ae79db28ac09b7df88a8945",
+      "checked_at": "2026-09-21T02:05:02.948852+00:00",
+      "scope": "Full compiler suite for failed claim results. Consumer adoption still requires a signed release and complete workflow."
+    },
+    "database_access": {
+      "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+      "run": 35552479585,
+      "qualified": true,
+      "test_log_sha256": "a7acc733ff066a346ecf752bf2dafaf7c6f4b3a5b40cb4e3f8d092de1f7b9b06",
+      "checked_at": "2026-09-21T01:57:32.358802+00:00",
+      "scope": "Retained generated database access result, exact source, and terminal job success."
+    },
+    "signature": {
+      "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+      "run": 35552479669,
+      "signature_verified": true,
+      "compiler_executed_locally": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "49ee95f89a65cfe2349bfe36ab6a2be9d6b00cd4931ed4503f1601a8802b91f6",
+        "size": 41725251
+      },
+      "same_verified_files": 5,
+      "rejection_checks": {
+        "source_revision": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+        "authenticated": {
+          "name": "stego-linux-amd64",
+          "sha256": "49ee95f89a65cfe2349bfe36ab6a2be9d6b00cd4931ed4503f1601a8802b91f6",
+          "size": 41725251
+        },
+        "rejected": [
+          "different-source-commit",
+          "changed-compiler-with-matching-checksums",
+          "changed-build-record",
+          "invalid-signature-bundle"
+        ],
+        "valid_after_rejections": true,
+        "downloaded_compiler_executed": false
+      },
+      "checked_at": "2026-09-21T01:59:02.849627+00:00"
+    },
+    "installation": {
+      "source": "65b18de83ccea83c242fdea3291a5a40bf6397e7",
+      "same_verified_files": 5,
+      "files_sha256": {
+        "stego-linux-amd64": "49ee95f89a65cfe2349bfe36ab6a2be9d6b00cd4931ed4503f1601a8802b91f6",
+        "build.json": "3dec1129c4d12c520bd5d49b85a4aad11ab007a8291e181d5ffa6b022be03334",
+        "SHA256SUMS": "dd242ce9333e5068993d352dc9243f3995073eff215624312fe1d09bac0e945f",
+        "provenance.jsonl": "a6786c94ac3bc3a00967f898def27da67edd07dfebc9d4f9d18a51650262ad0d",
+        "verified.json": "0fd7f4f4d0519a274b7a913762a339e4a37dc6b0ffd78c32750ea4f2efed2415"
+      },
+      "compiler_executed": false,
+      "immutable_release_verified": true
+    }
+  },
+  "proof_sha256": {
+    "focused": "1f897abdc7942e519f4b642df3bdaff00f77fafe0fe1d4a9dd98aaf888a14b66",
+    "full": "8794d2e63f7a31ef7f915bb46236997ba94f9a43c8b8f76a0e45db5627103e34",
+    "database_access": "d35fccf6b6b4ba4d979d6d546bcd29f985eb23eb3b520b26a2dafc5570283974",
+    "signature": "bc6e6943c785aa9e64da5c6afd494d6e5f1634e0b27e1cb0b21f4218ff24afe4",
+    "installation": "d467afea0a3c699cd1548b61036212f286ab33eab6389c8cb63e1366cb09fa59"
+  },
+  "consumer_adopted": false,
+  "scope": "The common queue returns no partial claim result after a query or row failure. Recovery uses normal lease expiry with real PostgreSQL. This does not prove a wire fault or explain the earlier Hypershell event timeout."
+}

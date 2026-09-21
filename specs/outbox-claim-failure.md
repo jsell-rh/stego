@@ -24,3 +24,10 @@ The Hypershell event timeout recorded in
 unexplained. The worker already ignores a claim result when an error is present.
 This change does not claim to remove that timeout or change the recovery limit.
 Application adoption and complete workflow checks remain separate requirements.
+
+The immutable compiler release at `65b18de8` passed all 30 generated cases,
+37 compiler packages, both complete generated examples, and the database access
+check. The mutation check rejected the former partial-result behavior. Independent
+signature checks and a fresh installation matched all five verified files.
+See the [release evidence](outbox-claim-release-evidence.json).
+Hypershell adoption of this queue change is still pending.
