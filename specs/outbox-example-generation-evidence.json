@@ -1,0 +1,40 @@
+{
+  "source": "7e56376da096eb3b253ae5f6af56b49edafdd03b",
+  "run": 35551317963,
+  "qualified_example_jobs_only": true,
+  "full_compiler_pass_claimed": false,
+  "examples": {
+    "user-management": {
+      "archive_sha256": "1cef83990442f69c0147e36002107c34ebcbfddd5ca08afcdd3dae75f7b493f9",
+      "files_compared": 76,
+      "generated_hashes_checked": 74,
+      "input_hashes_checked": 4,
+      "changed_state_fields": [
+        "compiler_build",
+        "registry_content_sha256",
+        "components",
+        "files"
+      ],
+      "state_sha256": "6c74e844bf10e24fd02f2f75f4ff7e62dee03071965fecd75b7975cb04bb5b8b"
+    },
+    "user-management-rhsso": {
+      "archive_sha256": "472982962bd430193fe6637dd554dd99e5f543aa000d23bd7ec2ba106084d4c1",
+      "files_compared": 72,
+      "generated_hashes_checked": 70,
+      "input_hashes_checked": 4,
+      "changed_state_fields": [
+        "compiler_build",
+        "registry_content_sha256",
+        "components",
+        "files"
+      ],
+      "state_sha256": "bfcb8250abe4add3418537d40c39167cfb7a2f5da147b783f337d0dff8c6cc35"
+    }
+  },
+  "checked_at": "2026-09-21T01:43:49.628529+00:00",
+  "workflow_url": "https://github.com/jsell-rh/stego/actions/runs/35551317963",
+  "jobs": {
+    "examples (user-management)": 106186477274,
+    "examples (user-management-rhsso)": 106186477316
+  }
+}

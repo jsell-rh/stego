@@ -29,13 +29,13 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260920155919-468ea86a81cf
+        module_version: v0.0.0-20260921013410-7e56376da096
         vcs: git
-        revision: 468ea86a81cf3fe12d0b92b045f2e32f1d4dc2ce
+        revision: 7e56376da096eb3b253ae5f6af56b49edafdd03b
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
-    registry_content_sha256: 913b370bae8fd2b330cfc90e3721aeceb95a30bcdfcdcface053199be1380cfb
+    registry_content_sha256: 6bcb4ebf7aa75e6740a8b8d2c69a48d50815585e220106838def57721fced09d
     components:
         health-check:
             version: 1.1.0
@@ -50,7 +50,7 @@ last_applied:
             version: 1.19.0
             sha: env-override
         outbox:
-            version: 1.2.0
+            version: 1.2.1
             sha: env-override
         postgres-adapter:
             version: 4.10.0
@@ -139,7 +139,7 @@ last_applied:
         internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
         internal/events/runtime.go: 8f36c84a8ededf06068d90a52744a75b6cf4952d3f4d62d5209a4ad6ae85adcd
         internal/outbox/migrations/000001_outbox.sql: dd2a63ebf5b005cdb0a6e56433c4cc3fd4f0f0bde4c52e04c8433c08125b5437
-        internal/outbox/queue.go: b5ad4e086989c86dcce669b9a03731ec1c80690954d073418dc2f1c604664f93
+        internal/outbox/queue.go: c4374aab1d62109c10b8d9642b4bba72af533b7b68db841548fb6433b7dd2008
         internal/outbox/schema.go: b8fc87fd5109f5f7ba99383d51785a90f2468755b8f49b56951d138f5f9f5c45
         internal/outbox/source.go: 6b299a5af41962dbb3c81e55a90a7fd9f7d4fb177c0efc10eef09fe9438ac1c7
         internal/outbox/worker.go: aca348a67c30021026fc646b3ad97ff0b461e949b7b65f435d5f29fb982df122
