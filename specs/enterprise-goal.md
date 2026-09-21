@@ -424,3 +424,18 @@ do not supersede later exact-source evidence or the current next action.
 The database model uses a fresh-schema gate. Old or unknown schemas fail before
 writes. Existing installations require explicit operator teardown and recreation;
 the application must never perform automatic teardown.
+
+
+## Declared response mapping release
+
+Compiler `6d68417d` now provides typed protobuf response mappings with complete
+field coverage checks, owned output data, optional value checks, and checked
+numeric, UTF-8, and timestamp conversions. The mechanism uses provider model
+contracts and protobuf descriptors. It contains no Gateway type or policy.
+
+The [release evidence](response-mapping-release-evidence.json) records the
+compiler, generated runtime, example, database, signature, and installation
+checks. Hypershell catalog declarations and adapter changes are prepared. Their
+generated output and application workflow still require review. This release
+does not close H1 or H2. REST mapping, stored JSON conversion, and domain view
+inputs remain open.

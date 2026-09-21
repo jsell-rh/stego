@@ -1,6 +1,6 @@
 # Response mappings
 
-This candidate adds declared protobuf response mappings to `grpc-application`
+Compiler `6d68417d` adds declared protobuf response mappings to `grpc-application`
 and `grpc-processes`. It does not change an API contract or select public error
 statuses. Application adoption and live workflow checks are still required.
 
@@ -86,7 +86,15 @@ rejects declarations that change during generation. Tests compare the built-in
 storage declaration with its emitted Go syntax. This contract does not replace
 Go type checking of an arbitrary third-party generator.
 
-The candidate tests use a Shipment service with no Gateway types. They check
+The release tests use a Shipment service with no Gateway types. They check
 field coverage, optional values, numeric and timestamp bounds, invalid UTF-8,
 error privacy, owned output data, and protobuf serialization in two namespaces.
 The tests run in CI. A missing or incomplete CI result is not acceptance.
+
+
+The signed release passed all nine compiler test groups and 24 generated
+mapping cases in two namespaces. All 37 compiler packages, both generated
+examples, 34 timestamp cases, and database access checks also passed. An
+independent installation matched all five authenticated release files. See the
+[release evidence](response-mapping-release-evidence.json). Hypershell adoption
+and the complete application workflow remain open.

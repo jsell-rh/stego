@@ -1,0 +1,250 @@
+{
+  "schema": 1,
+  "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+  "qualified": true,
+  "checked_at": "2026-09-21T03:40:40.149999+00:00",
+  "runs": {
+    "full": {
+      "id": 35557607167,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35557607167"
+    },
+    "database_access": {
+      "id": 35557607018,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35557607018"
+    },
+    "timestamp": {
+      "id": 35557607157,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35557607157"
+    },
+    "mapping": {
+      "id": 35557606965,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35557606965"
+    },
+    "artifact": {
+      "id": 35557607053,
+      "url": "https://github.com/jsell-rh/stego/actions/runs/35557607053"
+    }
+  },
+  "independent_records": {
+    "mapping": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557606965,
+      "qualified": true,
+      "top_level_tests": [
+        "TestGeneratedResponseMappings",
+        "TestGoModelContextCopies",
+        "TestGoModelCopiesOwnAllFields",
+        "TestGoModelDeclarationMatchesGeneratedStorage",
+        "TestGoModelDeclarations",
+        "TestGoModelsRejectBeforeGeneration",
+        "TestGoModelsRejectChangedDeclaration",
+        "TestResponseMappingOrderIsStable",
+        "TestResponseMappingRejectsInvalidContracts"
+      ],
+      "runtime_cases": {
+        "grpcapi": 12,
+        "rpc/provider": 12
+      },
+      "test_log_sha256": "454d239b9316b3f3b2cd1d08b4ac59302f10b58ef33ca77a1d30717986e4fc67",
+      "source_archive_sha256": "eac05748b5a93e79c046fd12c7b092d21188e17e8906c7de45e4f6960e49b677",
+      "checked_at": "2026-09-21T03:29:27.968692+00:00",
+      "scope": "Compiler declarations and generated Shipment mapping runtime. Hypershell adoption is not included."
+    },
+    "full": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557607167,
+      "qualified": true,
+      "packages": [
+        "github.com/jsell-rh/stego/cmd/stego",
+        "github.com/jsell-rh/stego/internal/appbuild",
+        "github.com/jsell-rh/stego/internal/browserapplication",
+        "github.com/jsell-rh/stego/internal/browserassets",
+        "github.com/jsell-rh/stego/internal/buildidentity",
+        "github.com/jsell-rh/stego/internal/compiler",
+        "github.com/jsell-rh/stego/internal/gen",
+        "github.com/jsell-rh/stego/internal/generator/browserbackend",
+        "github.com/jsell-rh/stego/internal/generator/browseridentity",
+        "github.com/jsell-rh/stego/internal/generator/browsertelemetry",
+        "github.com/jsell-rh/stego/internal/generator/cliapplication",
+        "github.com/jsell-rh/stego/internal/generator/controller",
+        "github.com/jsell-rh/stego/internal/generator/gosdk",
+        "github.com/jsell-rh/stego/internal/generator/grpcapplication",
+        "github.com/jsell-rh/stego/internal/generator/healthcheck",
+        "github.com/jsell-rh/stego/internal/generator/httpapplication",
+        "github.com/jsell-rh/stego/internal/generator/httpclient",
+        "github.com/jsell-rh/stego/internal/generator/jwtauth",
+        "github.com/jsell-rh/stego/internal/generator/kafkaproducer",
+        "github.com/jsell-rh/stego/internal/generator/keycloakprovider",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesclient",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesservice",
+        "github.com/jsell-rh/stego/internal/generator/kubernetesworkload",
+        "github.com/jsell-rh/stego/internal/generator/oteltracing",
+        "github.com/jsell-rh/stego/internal/generator/outbox",
+        "github.com/jsell-rh/stego/internal/generator/postgresadapter",
+        "github.com/jsell-rh/stego/internal/generator/postgresclient",
+        "github.com/jsell-rh/stego/internal/generator/restapi",
+        "github.com/jsell-rh/stego/internal/generator/rhssoauth",
+        "github.com/jsell-rh/stego/internal/generator/runtimeconfig",
+        "github.com/jsell-rh/stego/internal/generator/tslsearch",
+        "github.com/jsell-rh/stego/internal/generator/typescriptsdk",
+        "github.com/jsell-rh/stego/internal/parser",
+        "github.com/jsell-rh/stego/internal/ports",
+        "github.com/jsell-rh/stego/internal/registry",
+        "github.com/jsell-rh/stego/internal/slot",
+        "github.com/jsell-rh/stego/internal/types"
+      ],
+      "package_count": 37,
+      "examples": {
+        "user-management": {
+          "tracked_content_matches": 76,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "a365919cd8b3060be8a9c8d6c88ee33c737d57e67911bc520d88bddbe7333937"
+        },
+        "user-management-rhsso": {
+          "tracked_content_matches": 72,
+          "state_passes_compared_by_ci": true,
+          "archive_sha256": "2dc8d024e950a8289b0b81ada09b269dcc35bb1d161a46a581a22291c5a827f2"
+        }
+      },
+      "log_sha256": "03072891ca23ca09428cb3a688a950bafc3af1a3aa88db4a8fb56833f0c18f40",
+      "checked_at": "2026-09-21T03:38:39.019425+00:00",
+      "scope": "Full compiler suite for declared response mappings. Consumer adoption still requires a signed release and complete workflow."
+    },
+    "timestamp": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557607157,
+      "qualified": true,
+      "generated_cases": 34,
+      "generated_roots": 8,
+      "outer_cases": 3,
+      "packages": [
+        "example.com/timestamp-test/out/grpcapi/transport",
+        "example.com/timestamp-test/out/rpc/provider/transport"
+      ],
+      "required_cases_per_package": [
+        "TestOptionalTimestampPreservesPresenceAndOwnsOutput",
+        "TestTimestampDiscardsMonotonicState",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/after-last",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/before-first",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/large-year",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/local-first-outside-UTC",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/local-last-outside-UTC",
+        "TestTimestampRejectsInvalidInstantsWithoutOutput/negative-year",
+        "TestTimestampSupportedInstants",
+        "TestTimestampSupportedInstants/before-epoch",
+        "TestTimestampSupportedInstants/epoch",
+        "TestTimestampSupportedInstants/first",
+        "TestTimestampSupportedInstants/first-local-zone",
+        "TestTimestampSupportedInstants/last",
+        "TestTimestampSupportedInstants/last-local-zone",
+        "TestTimestampSupportedInstants/zero-is-present"
+      ],
+      "source_archive_sha256": "eac05748b5a93e79c046fd12c7b092d21188e17e8906c7de45e4f6960e49b677",
+      "events_sha256": "4fcde9bc4c9ec66b4c2d398b76f316ce12a1b8e2e6ec2247e03ef58e2ee848e3",
+      "log_sha256": "030d7cdcf5a69371b087a4a99e04cdb0f86f86d4cca8403774e23693a1e14875",
+      "artifact_events_match_job_log": true,
+      "checked_at": "2026-09-21T03:28:47.924582+00:00",
+      "scope": "Generated required and optional timestamp conversion in two namespaces. Both application and standalone generators emit the same checked source. No Hypershell conversion is accepted by this result."
+    },
+    "database_access": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557607018,
+      "qualified": true,
+      "test_log_sha256": "7dcdad59602644de5dcdae443a333a8f4c4f48eab44643428085dbe5e79853a6",
+      "checked_at": "2026-09-21T03:29:48.009498+00:00",
+      "scope": "Retained generated database access result, exact source, and terminal job success."
+    },
+    "artifact": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557607053,
+      "candidate_artifact_checked": true,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "b9513201981b6824592f4afc7757b8aef7908766d2fcd610f436be3b64df84b1",
+        "size": 41789910
+      },
+      "source_inventory": {
+        "files": 1436,
+        "bytes": 11264601,
+        "sha256": "2ce35dd2e6881f20a37506430fdf2b411532162a15da0a43fd23fe254a9043e8"
+      },
+      "build_record_sha256": "40f83692d97e2a1b3f3459f702f0604f0297662b4254e0e40889d1ffc5478c44",
+      "signature_verified": false,
+      "compiler_executed_locally": false,
+      "modules_unchanged_from_qualified_release": true,
+      "checked_at": "2026-09-21T03:31:09.278250+00:00",
+      "scope": "Exact main artifact content only. Full compiler checks, main provenance, and signed release installation remain required."
+    },
+    "signatures": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "run": 35557607053,
+      "signature_verified": true,
+      "compiler_executed_locally": false,
+      "artifact": {
+        "name": "stego-linux-amd64",
+        "sha256": "b9513201981b6824592f4afc7757b8aef7908766d2fcd610f436be3b64df84b1",
+        "size": 41789910
+      },
+      "same_verified_files": 5,
+      "rejection_checks": {
+        "source_revision": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+        "authenticated": {
+          "name": "stego-linux-amd64",
+          "sha256": "b9513201981b6824592f4afc7757b8aef7908766d2fcd610f436be3b64df84b1",
+          "size": 41789910
+        },
+        "rejected": [
+          "different-source-commit",
+          "changed-compiler-with-matching-checksums",
+          "changed-build-record",
+          "invalid-signature-bundle"
+        ],
+        "valid_after_rejections": true,
+        "downloaded_compiler_executed": false
+      },
+      "checked_at": "2026-09-21T03:31:18.922662+00:00"
+    },
+    "release": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "release_id": 392680528,
+      "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "immutable": true,
+      "tag_commit_verified": true,
+      "assets_verified": 4,
+      "exact_source_checks": {
+        "full": 35557607167,
+        "database_access": 35557607018,
+        "timestamp": 35557607157,
+        "mapping": 35557606965,
+        "artifact": 35557607053
+      },
+      "checked_at": "2026-09-21T03:38:56.665358+00:00"
+    },
+    "installation": {
+      "source": "6d68417d4310d30744f9fc5cbf714580d45e5c81",
+      "same_verified_files": 5,
+      "files_sha256": {
+        "stego-linux-amd64": "b9513201981b6824592f4afc7757b8aef7908766d2fcd610f436be3b64df84b1",
+        "build.json": "40f83692d97e2a1b3f3459f702f0604f0297662b4254e0e40889d1ffc5478c44",
+        "SHA256SUMS": "7ccc2a678e238017df76cd0a34f98b88b622292179dcd34da27d5ab5f2b5149a",
+        "provenance.jsonl": "496913a972d469a08c7c5be1909b271efa3126d0f49f6f287f57daa909256bad",
+        "verified.json": "31d02f33580f876eec3d931dc55751ccf4db67c34d6862988911a7b3684f22fb"
+      },
+      "compiler_executed": false,
+      "immutable_release_verified": true
+    }
+  },
+  "independent_record_sha256": {
+    "mapping": "78405ff9c626f2f52fab986b2a4e98942d33b6df913b0364ae3d9a025cd4346f",
+    "full": "13d33a9e6d4dedb7126b2d4ce6fdf84da76d19ccf5ff9e2d7e2ae9a52c3b07f1",
+    "timestamp": "af2a48cb483f8424260e569e6234f79a2b6961472ac1336773ded528ce973c3c",
+    "database_access": "d4f888c859bb563cb16d263d272c79c2b85fc4fec58d09066b51249201efc7bd",
+    "artifact": "1d8f3fd5a2ced8a7ff4cff727f349058e28b384e150598132590098d26e35f39",
+    "signatures": "6a14e0259a3abbc31857d8ab62a363c785fda9efb826427371966d80c6772fb5",
+    "release": "f81c3eb802ca641381bb77ebcacb8a19e88c4e305cb51495b13acb6ac75514ae",
+    "installation": "70c4cc8e788e96c5a4d7c9faf60ae0237da76c011c986de8a47354f22e19168d"
+  },
+  "consumer_adopted": false,
+  "scope": "Declared protobuf mapping compiler and generated Shipment runtime, complete compiler checks, unchanged examples, checked timestamps, database access, and signed immutable Linux amd64 release. Hypershell integration and its complete workflow remain required."
+}
