@@ -65,7 +65,12 @@ The measured Gateway had 100 service accounts. The observed cleanup upper
 bound was approximately 31.65 seconds. The 30-second target and 100-Gateway
 capacity remain unproved. This result does not cover RDS failover, live Kata,
 or upstream OpenShell Sandbox execution. C3 through C7 and H1 through H3 remain
-open. The separate main push checks at `c42b2ed` still require final review.
+open. The exact main checks at `c42b2ed` also passed: 13 automatic hosted groups,
+1,422 core cases, 214 focused cases, 56 API roots, repeated generation, and
+seven signed images. API cleanup preserved all 32 standing resources. Only
+four acceptance documents differ from the accepted browser and event source;
+no separate main browser or event run is claimed. See the
+[main evidence](grpc-grant-main-evidence.json).
 
 Service-account candidate `64e13ce` uses compiler `9788915c`. Its focused suite
 passed 256 cases in 31 roots, including all 214 prior cases. Its full application
