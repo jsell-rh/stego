@@ -1,24 +1,32 @@
 # Gateway cleanup timing review
 
-Two accepted workflows measured complete cleanup with 100 live accounts.
-The observed upper bounds were 32.96 and 32.69 seconds. The 30-second target
-remains open. These are two bounded workflow samples, not a production capacity
-or latency distribution. See the [evidence](cleanup-latency-evidence-20260921.json).
+Three accepted workflows measured complete cleanup with 100 live accounts.
+The observed upper bounds were 32.96, 32.69, and 35.09 seconds. The 30-second
+target remains open. These are three bounded workflow samples, not a production
+capacity or latency distribution. See the
+[evidence](cleanup-latency-evidence-20260921.json).
 
-| Completion observation | First workflow | Second workflow |
-| --- | ---: | ---: |
-| Gateway namespace absent | 13.62 s | 13.56 s |
-| Sandbox namespace absent | 20.02 s | 21.32 s |
-| SQL cleanup recorded | 21.17 s | 22.35 s |
-| Console state namespace absent | 30.79 s | 30.78 s |
-| All cleanup recorded | 31.83 s | 31.88 s |
-| Complete proof, including account cleanup | 32.96 s | 32.69 s |
+| Completion observation | First workflow | Second workflow | Third workflow |
+| --- | ---: | ---: | ---: |
+| Gateway namespace absent | 13.62 s | 13.56 s | 15.87 s |
+| Sandbox namespace absent | 20.02 s | 21.32 s | 25.58 s |
+| SQL cleanup recorded | 21.17 s | 22.35 s | 25.59 s |
+| Console state namespace absent | 30.79 s | 30.78 s | 33.98 s |
+| All cleanup recorded | 31.83 s | 31.88 s | 34.01 s |
+| Complete proof, including account cleanup | 32.96 s | 32.69 s | 35.09 s |
+
+The third workflow uses the same cleanup source as the first two. The role
+response adoption changed no cleanup code. Its operator Pod observation ran
+63 bounded samples with `scripts/collect-gateway-cleanup.py`. The samples in
+the deletion window failed their namespace read while namespaces were
+terminating; the record keeps them as gaps. No Pod termination detail was
+captured, so the delay inside Kubernetes remains unexplained by Pod records.
 
 Times start at the observed HTTP 202 response. Each value is the first complete
 observation after the last pending observation. It is not an exact transition
 time. The complete result also checks that unrelated installation data remains.
 
-The two workflows use identical namespace cleanup source. Hypershell first
+The three workflows use identical namespace cleanup source. Hypershell first
 waits for the Gateway namespace to disappear so that the Gateway stops creating
 Sandbox work. It then waits for the Sandbox namespace. Retained state requires
 both workload and SQL cleanup to be recorded. Deletion is requested for both

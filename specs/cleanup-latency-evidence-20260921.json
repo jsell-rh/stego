@@ -269,6 +269,93 @@
         "gateway-cleanup-timing.json": "698b7167303b574a0b514fdb8d5191922df126c291380e8ff8ef5b4321431aaa",
         "namespace-deletion-observation-current-gate/cleanup-window-review.json": "6e53d7f0a1ddb74328749486b9dc56bad3000e76d8bf0abc282e575df4a7dd12"
       }
+    },
+    {
+      "source": "b5ee359162964d6ee383d9b54dc1b75253463fc7",
+      "run": 35921996477,
+      "workflow_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/35921996477",
+      "whole_cleanup_observed_upper_bound_seconds": 35.085674817,
+      "live_accounts": 100,
+      "completion_observations": {
+        "account_cleanup_recorded": {
+          "last_pending_observed_seconds": 7.326446788,
+          "first_complete_after_last_pending_seconds": 8.357954607,
+          "observed_regressions": 0
+        },
+        "account_proof_complete": {
+          "first_complete_after_last_pending_seconds": 35.085668039,
+          "observed_regressions": 0
+        },
+        "all_cleanup_recorded": {
+          "last_pending_observed_seconds": 32.935480334,
+          "first_complete_after_last_pending_seconds": 34.012058178,
+          "observed_regressions": 0
+        },
+        "allocation_bindings_absent": {
+          "first_complete_after_last_pending_seconds": 34.148197617,
+          "observed_regressions": 0
+        },
+        "allocation_cleanup_recorded": {
+          "last_pending_observed_seconds": 32.935479324,
+          "first_complete_after_last_pending_seconds": 34.012057054,
+          "observed_regressions": 0
+        },
+        "console_state_namespace_absent": {
+          "last_pending_observed_seconds": 32.920490009,
+          "first_complete_after_last_pending_seconds": 33.976298574,
+          "observed_regressions": 0
+        },
+        "gateway_finalized": {
+          "last_pending_observed_seconds": 32.935479897,
+          "first_complete_after_last_pending_seconds": 34.01205772,
+          "observed_regressions": 0
+        },
+        "gateway_namespace_absent": {
+          "last_pending_observed_seconds": 14.797941306,
+          "first_complete_after_last_pending_seconds": 15.873372524,
+          "observed_regressions": 0
+        },
+        "gateway_state_namespace_absent": {
+          "last_pending_observed_seconds": 32.906296501,
+          "first_complete_after_last_pending_seconds": 33.954366728,
+          "observed_regressions": 0
+        },
+        "identity_cleanup_recorded": {
+          "last_pending_observed_seconds": 0.041149449,
+          "first_complete_after_last_pending_seconds": 1.059622788,
+          "observed_regressions": 0
+        },
+        "owner_http_404": {
+          "first_complete_after_last_pending_seconds": 34.505838975,
+          "observed_regressions": 0
+        },
+        "sandbox_namespace_absent": {
+          "last_pending_observed_seconds": 24.52414739,
+          "first_complete_after_last_pending_seconds": 25.584560729,
+          "observed_regressions": 0
+        },
+        "sql_cleanup_recorded": {
+          "last_pending_observed_seconds": 24.524602984,
+          "first_complete_after_last_pending_seconds": 25.591068491,
+          "observed_regressions": 0
+        },
+        "sql_objects_absent": {
+          "first_complete_after_last_pending_seconds": 34.422980931,
+          "observed_regressions": 0
+        },
+        "workload_cleanup_recorded": {
+          "last_pending_observed_seconds": 24.524602517,
+          "first_complete_after_last_pending_seconds": 25.591068066,
+          "observed_regressions": 0
+        }
+      },
+      "operator_observation": {
+        "collector": "scripts/collect-gateway-cleanup.py at source b5ee359",
+        "samples_taken": 63,
+        "snapshot_complete_in_deletion_window": false,
+        "gap_reason": "The namespace list read failed with ValueError while namespaces were terminating; incomplete samples are retained as gaps per the review record. No Pod termination detail was captured.",
+        "samples_dir": "stego-cleanup-observation-20260923 (operator-local, retained)"
+      }
     }
   ],
   "same_cleanup_source_sha256": {
