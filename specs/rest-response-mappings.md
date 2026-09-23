@@ -265,5 +265,13 @@ backend uses a map. Full nullable object states remain unsupported.
 Generated runtime, compiler preflight, existing list compatibility, and all
 five candidate and main check groups passed. Release signatures and a separate
 installation of the immutable release passed verification. See the
-[release evidence](json-object-response-release-evidence.json). Hypershell Role
-response adoption and its complete application workflow remain under test.
+[release evidence](json-object-response-release-evidence.json).
+
+Hypershell main `7f0bd9f` accepted the Role response adoption. Runtime source
+`b5ee359` maps the Role fields through this conversion with the declared
+bounds. API run `35884290611` passed all 59 required roots. Browser run
+`35894616139` passed the complete Gateway workflow in 571.58 seconds with
+fixture `eb7be18e`. The `users/me` response, the service-account credential
+envelope, and the remaining nullable object states remain outside the generated
+conversion. See the
+[workflow evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/role-workflow-evidence.json).
