@@ -40,32 +40,36 @@ next infrastructure change. Reference contracts alone are insufficient.
 
 ## Current accepted application
 
-Hypershell runtime source `64e13ce` uses compiler `9788915c`. STEGO now generates
-all service-account REST response fields. Hypershell keeps account access,
-status selection, connection commands, and the one-time secret response.
-Invalid stored values fail before response data is sent. Explicit nullable
-field rules preserve the HTTP contract across restart.
+Hypershell main `7f0bd9f` contains accepted runtime source `b5ee359` and
+compiler `52306a6b`. STEGO now generates the Role response model and the
+bounded JSON object conversion for the permissions field. Hypershell keeps
+authentication, Role lookup, filtering, paging, projection, and grant policy.
+The conversion preserves JSON numbers without floating-point conversion and
+returns private errors for malformed objects, invalid Unicode, duplicate
+decoded keys, and bound violations.
 
-All 14 hosted candidate groups passed. The full suite passed 1,469 cases in
-402 roots and retained all 1,422 prior cases. The focused suite passed 256
-cases in 31 roots. API run `35585643288` passed all 57 required roots. Browser
-run `35586560292` passed all 11 required roots; its full scenario took 538.32
-seconds. Review checked source and compiler identity, repeated generation,
-seven signed images, four rendered images, and correlated logs, metrics, and
-traces. Both test fixtures and allocations were absent after cleanup. The test
-lock was free and all 32 standing resources were unchanged. See the
-[workflow evidence](service-account-workflow-evidence.json).
+All 14 hosted candidate groups passed. API run `35884290611` passed all 59
+required roots with 93 cases and no failures. Browser run `35894616139`
+passed its complete scenario in 571.58 seconds using fixture `eb7be18e` and
+image run `35592854743`. Repeated generation matched all 436 hashes and the
+suite left them unchanged. All seven signed images passed the common checks
+and the public Gateway connection was verified. Both test fixtures and
+allocations were absent after cleanup, no live Job remained, and all 17
+standing access checks passed. See the
+[workflow evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/role-workflow-evidence.json).
 
-The first hosted support reader lacked its event policy file. Corrected readers
-accepted the same retained results. No test was repeated for this reader error.
-The failed reader record is retained.
+Four dispatch attempts failed before the accepted browser run: two expired
+one-hour CI credentials, one registry policy that omitted the operator blob
+origin, and one credential that expired while queued behind the shared
+live-test group. The operator refreshed the credential and supplied the
+operator registry policy. The failed records are retained in the workflow
+evidence.
 
-The measured Gateway had 100 service accounts with verified token issuance.
-The observed cleanup upper bound was 34.10 seconds. The 30-second cleanup target
-and 100-Gateway capacity remain unproved. RDS failover, live Kata, and upstream
-OpenShell Sandbox execution remain outside this proof. C3 through C7 and H1
-through H3 remain open. This is accepted candidate evidence; separate checks of
-the final main commit remain required.
+The measured Gateway had 100 accounts with verified token issuance. The
+observed cleanup upper bound was 36.01 seconds against the 30-second target.
+The target and 100-Gateway capacity remain unproved. RDS failover, live Kata,
+and upstream OpenShell Sandbox execution remain outside this proof. C3
+through C7 and H1 through H3 remain open.
 
 ## Accepted gRPC grant baseline
 
