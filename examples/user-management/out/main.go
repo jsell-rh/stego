@@ -139,18 +139,18 @@ func run() (stegoErr error) {
 	if err != nil {
 		return err
 	}
-	stegoStage = "component[7].constructor[0]"
-	runtime, err := events.NewRuntime(ctx, sqlDB)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain, beforeDeleteOrganizationsGate)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut, afterCreateOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
 	orgSettingsHandler := api.NewOrgSettingsHandler(store)
 	userAuditEventsHandler := api.NewUserAuditEventsHandler(store)
 	orgAuditEventsHandler := api.NewOrgAuditEventsHandler(store)
+	stegoStage = "component[7].constructor[0]"
+	runtime, err := events.NewRuntime(tracingRuntime, ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/user-mgmt/v1/organizations", organizationsHandler.Create)

@@ -55,6 +55,9 @@ type Runtime struct {
 	controllerOnce             sync.Once
 	controller                 *ControllerTelemetry
 	controllerError            error
+	outboxOnce                 sync.Once
+	outbox                     *OutboxTelemetry
+	outboxError                error
 	service                    serviceLogs
 	signals                    requestSignals
 	grpcTracer                 trace.Tracer

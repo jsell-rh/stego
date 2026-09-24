@@ -1,0 +1,64 @@
+package {{.Package}}
+
+import (
+ "context"
+ "errors"
+ "sync"
+
+ "go.opentelemetry.io/otel/metric"
+)
+
+// OutboxStats has counter totals only. No payload, destination, or provider
+// data can enter a sample.
+type OutboxStats struct {
+ Delivered,Retried,DeliveryFailures,DatabaseFailures,LostLeases,UnknownDestinations uint64
+}
+// OutboxTelemetry aggregates at most 64 outbox workers in one process.
+type OutboxTelemetry struct {
+ mu sync.Mutex
+ outboxes map[*outboxRegistration]func()OutboxStats
+}
+var outboxOutcomes=[...]string{"delivered","retried","delivery_failures","database_failures","lost_leases","unknown_destinations"}
+func(r *Runtime)OutboxTelemetry()(*OutboxTelemetry,error){
+ if r.closed.Load(){return nil,errors.New("telemetry runtime is closed")}
+ r.outboxOnce.Do(func(){r.outbox,r.outboxError=r.newOutboxTelemetry()})
+ return r.outbox,r.outboxError
+}
+func(r *Runtime)newOutboxTelemetry()(*OutboxTelemetry,error){
+ o:=&OutboxTelemetry{outboxes:make(map[*outboxRegistration]func()OutboxStats)}
+ if r.signals.meter==nil{return o,nil}
+ meter:=r.signals.meter.Meter("stego/outbox")
+ gauges:=make([]metric.Int64ObservableGauge,len(outboxOutcomes));instruments:=make([]metric.Observable,len(outboxOutcomes))
+ for i,outcome:=range outboxOutcomes{
+  gauge,err:=meter.Int64ObservableGauge("stego.outbox."+outcome,metric.WithUnit("{message}"));if err!=nil{return nil,errors.New("cannot create outbox metric")};gauges[i]=gauge;instruments[i]=gauge
+ }
+ _,err:=meter.RegisterCallback(func(ctx context.Context,observer metric.Observer)error{
+  o.mu.Lock();defer o.mu.Unlock()
+  var values [len(outboxOutcomes)]uint64
+  for _,read:=range o.outboxes{s:=read();for i:=range outboxOutcomes{values[i]+=s.count(outboxOutcomes[i])}}
+  for i,value:=range values{observer.ObserveInt64(gauges[i],int64(value))}
+  return nil
+ },instruments...)
+ if err!=nil{return nil,errors.New("cannot register outbox metrics")}
+ return o,nil
+}
+type outboxRegistration struct{active bool}
+// ObserveOutbox registers one worker stats snapshot. Detach stops that worker
+// from the aggregate. Registration happens once per process worker.
+func(o *OutboxTelemetry)ObserveOutbox(stats func()OutboxStats)(func(),error){
+ o.mu.Lock();defer o.mu.Unlock()
+ if stats==nil||len(o.outboxes)>=64{return nil,errors.New("outbox telemetry worker limit reached")}
+ registration:=&outboxRegistration{active:true};o.outboxes[registration]=stats
+ return func(){o.mu.Lock();delete(o.outboxes,registration);o.mu.Unlock()},nil
+}
+func(s OutboxStats)count(outcome string)uint64{
+ switch outcome{
+ case "delivered":return s.Delivered
+ case "retried":return s.Retried
+ case "delivery_failures":return s.DeliveryFailures
+ case "database_failures":return s.DatabaseFailures
+ case "lost_leases":return s.LostLeases
+ case "unknown_destinations":return s.UnknownDestinations
+ }
+ return 0
+}
