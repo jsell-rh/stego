@@ -85,7 +85,19 @@ func validateRecord(record *Record) error {
 	if !safePath(record.Target) {
 		return failure
 	}
-	if !reflect.DeepEqual(record.Environment, buildEnvironmentRecord()) || record.DependencyProxy != "https://proxy.golang.org" || record.GoTelemetry != "off" || !reflect.DeepEqual(record.BuildFlags, []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", "<artifact>", "./" + record.Target}) {
+	if !reflect.DeepEqual(record.Environment, buildEnvironmentRecord()) || record.GoTelemetry != "off" || !reflect.DeepEqual(record.BuildFlags, []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", "<artifact>", "./" + record.Target}) {
+		return failure
+	}
+	switch record.DependencyProxy {
+	case "https://proxy.golang.org":
+		if record.ModuleCache != nil {
+			return failure
+		}
+	case "off":
+		if record.ModuleCache == nil || !hashPattern.MatchString(record.ModuleCache.SHA256) || record.ModuleCache.Files < 1 || record.ModuleCache.Bytes < 1 || record.ModuleCache.Bytes > maxBytes {
+			return failure
+		}
+	default:
 		return failure
 	}
 	for _, artifact := range []Artifact{record.Artifact, record.BuildCompilerArtifact} {

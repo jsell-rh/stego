@@ -26,6 +26,26 @@ func runBuild(args []string) error {
 		_, err := appbuild.VerifySource(*record, *expected, *source)
 		return err
 	}
+	if len(args) > 0 && args[0] == "download" {
+		flags := flag.NewFlagSet("build download", flag.ContinueOnError)
+		var options appbuild.DownloadOptions
+		flags.StringVar(&options.Source, "source", "", "Git source repository")
+		flags.StringVar(&options.Revision, "revision", "", "full source commit ID")
+		flags.StringVar(&options.Module, "module", ".", "module path within the source repository")
+		flags.StringVar(&options.Target, "target", "", "entry point path within the module")
+		flags.StringVar(&options.Go, "go", "", "bin/go in the selected official SDK")
+		flags.StringVar(&options.Output, "output", "", "new module cache directory")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 || options.Source == "" || options.Revision == "" || options.Target == "" || options.Go == "" || options.Output == "" {
+			return fmt.Errorf("build download requires --source, --revision, --target, --go, and --output")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		_, err := appbuild.Download(ctx, options)
+		return err
+	}
 	if len(args) > 0 && args[0] == "verify" {
 		flags := flag.NewFlagSet("build verify", flag.ContinueOnError)
 		record := flags.String("record", "", "build record file")
@@ -49,6 +69,7 @@ func runBuild(args []string) error {
 	flags.StringVar(&options.Go, "go", "", "bin/go in the selected official SDK")
 	flags.StringVar(&options.Work, "work", "", "new private build directory")
 	flags.StringVar(&options.Output, "output", "", "new result directory")
+	flags.StringVar(&options.ModuleCache, "module-cache", "", "module download cache directory for an offline build")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

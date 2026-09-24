@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--compiler-revision")
     parser.add_argument("--module", default="examples/user-management")
     parser.add_argument("--target", default="out")
+    parser.add_argument("--module-cache", type=Path)
     args = parser.parse_args()
     record_path = args.result / "build.json"
     binary = args.result / "application"
@@ -34,6 +35,13 @@ def main():
     assert record["module"] == args.module and record["target"] == args.target
     assert record["independent_builds"] == 2
     assert record["environment"]["GOPROXY"] == "off"
+    if args.module_cache:
+        assert record["dependency_proxy"] == "off"
+        cache_record = json.loads((args.module_cache / "module-cache.json").read_text())
+        assert record["module_cache"] == cache_record["download_cache"]
+    else:
+        assert record["dependency_proxy"] == "https://proxy.golang.org"
+        assert record.get("module_cache") is None
     assert record["artifact"]["sha256"] == sha(binary)
     assert record["build_compiler_artifact"]["sha256"] == sha(args.compiler)
     assert record["build_compiler"]["revision"] == (args.compiler_revision or args.revision)
