@@ -200,10 +200,68 @@ func fixtureRecord() Record {
 	return Record{Format: 1, SourceRevision: strings.Repeat("a", 40), Source: Inventory{digest(data), 2, 100}, Inputs: inputs, Module: ".", Target: "out", GenerationStateSHA256: strings.Repeat("b", 64), GenerationCompiler: compiler, BuildCompiler: compiler, BuildCompilerArtifact: Artifact{strings.Repeat("d", 64), 100}, Toolchain: sdkIdentity, GoVersion: GoVersion, GitSHA256: strings.Repeat("e", 64), Environment: buildEnvironmentRecord(), DependencyProxy: "https://proxy.golang.org", GoTelemetry: "off", BuildFlags: []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-pgo=off", "-p=2", "-o", "<artifact>", "./out"}, Modules: []Module{{Path: "example.test/app", LocalPath: "."}}, Artifact: Artifact{strings.Repeat("f", 64), 100}, IndependentBuilds: 2}
 }
 
+func fixtureOfflineRecord() Record {
+	record := fixtureRecord()
+	record.DependencyProxy = "off"
+	cache := Inventory{strings.Repeat("9", 64), 12, 3456}
+	record.ModuleCache = &cache
+	return record
+}
+
 func TestRecordRejectsChangedBuildPolicyAndInputs(t *testing.T) {
 	valid := fixtureRecord()
 	if err := validateRecord(&valid); err != nil {
 		t.Fatal(err)
+	}
+	offline := fixtureOfflineRecord()
+	if err := validateRecord(&offline); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*Record){
+		"one build":       func(r *Record) { r.IndependentBuilds = 1 },
+		"toolchain":       func(r *Record) { r.Toolchain.SHA256 = strings.Repeat("0", 64) },
+		"ambient flags":   func(r *Record) { r.Environment["GOFLAGS"] = "-race" },
+		"target escape":   func(r *Record) { r.Target = "../outside" },
+		"file change":     func(r *Record) { r.Inputs[0].SHA256 = strings.Repeat("0", 64) },
+		"file order":      func(r *Record) { r.Inputs[0], r.Inputs[1] = r.Inputs[1], r.Inputs[0] },
+		"missing modules": func(r *Record) { r.Modules = nil },
+		"bad replacement": func(r *Record) { r.Modules[0].LocalPath = "../outside" },
+		"build flags":     func(r *Record) { r.BuildFlags = append(r.BuildFlags, "-race") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			record := fixtureRecord()
+			change(&record)
+			if err := validateRecord(&record); err == nil {
+				t.Fatal("changed record accepted")
+			}
+		})
+	}
+	offlineCases := map[string]func(*Record){
+		"proxy changed":           func(r *Record) { r.DependencyProxy = "https://example.test" },
+		"cache with online proxy": func(r *Record) { r.DependencyProxy = "https://proxy.golang.org" },
+		"missing cache inventory": func(r *Record) { r.ModuleCache = nil },
+		"cache file count":        func(r *Record) { r.ModuleCache.Files = 0 },
+	}
+	for name, change := range offlineCases {
+		t.Run(name, func(t *testing.T) {
+			record := fixtureOfflineRecord()
+			change(&record)
+			if err := validateRecord(&record); err == nil {
+				t.Fatal("changed record accepted")
+			}
+		})
+	}
+	onlineCases := map[string]func(*Record){
+		"online record with cache": func(r *Record) { r.ModuleCache = &Inventory{strings.Repeat("9", 64), 12, 3456} },
+	}
+	for name, change := range onlineCases {
+		t.Run(name, func(t *testing.T) {
+			record := fixtureRecord()
+			change(&record)
+			if err := validateRecord(&record); err == nil {
+				t.Fatal("changed record accepted")
+			}
+		})
 	}
 	for name, change := range map[string]func(*Record){
 		"one build":       func(r *Record) { r.IndependentBuilds = 1 },
