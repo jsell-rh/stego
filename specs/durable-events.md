@@ -61,8 +61,22 @@ acknowledged as success.
 
 Worker counters report delivery, retry, database failure, unknown destination,
 and lease-loss totals. They do not contain payloads or raw error messages. The
-queue stores short failure codes. These counters are not yet connected to the
-service telemetry or readiness endpoints.
+queue stores short failure codes.
+
+With an `otel-tracing` component, the generated Kafka runtime reports these
+counters as process gauges through the common telemetry runtime. The gauges
+are `stego.outbox.delivered`, `stego.outbox.retried`,
+`stego.outbox.delivery_failures`, `stego.outbox.database_failures`,
+`stego.outbox.lost_leases`, and `stego.outbox.unknown_destinations`. Each
+gauge holds one process total, in units of `{message}`. The gauges aggregate
+all worker registrations in one process. No payload, destination, topic, or
+error text enters a sample. Without the component, the counters remain
+available only through `Runtime.Stats()`.
+
+Readiness stays with the process health model. The generated main stops the
+whole process when the Kafka runtime task fails, so a dead worker ends the
+process and fails readiness through process exit. The counters serve
+operational alerting, not a readiness decision.
 
 Claims preserve order for each resource key. External sinks can observe repeat
 deliveries after lease loss or an uncertain acknowledgement. Use the stable ID

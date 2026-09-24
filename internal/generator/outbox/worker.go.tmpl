@@ -43,6 +43,7 @@ type WorkerStats struct {
 type Worker struct {
     queue *Queue
     handlers map[string]Handler
+    onClose func()
     config WorkerConfig
     running atomic.Bool
     delivered atomic.Uint64
@@ -77,6 +78,10 @@ func (w *Worker) Stats() WorkerStats {
     }
 }
 
+// OnClose registers one cleanup call. Run performs it when the worker stops.
+// A second call replaces the first. The worker keeps no goroutine.
+func (w *Worker) OnClose(cleanup func()) { w.onClose = cleanup }
+
 // Run stops new claims on cancellation and waits for active handlers. Database
 // acknowledgements and retries can use up to five more seconds during shutdown.
 // A handler that ignores cancellation can prevent shutdown; no goroutine is
@@ -91,6 +96,7 @@ func (w *Worker) Run(ctx context.Context) error {
         go func() { defer workers.Done(); w.runOne(ctx) }()
     }
     workers.Wait()
+    if w.onClose != nil { w.onClose() }
     return nil
 }
 

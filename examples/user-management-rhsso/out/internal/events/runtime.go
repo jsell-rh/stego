@@ -11,10 +11,13 @@ import (
 	"sync"
 
 	stegooutbox "github.com/example/service/out/internal/outbox"
+	stegoevents "github.com/example/service/out/tracing"
 )
 
 // Runtime owns the Kafka publisher and the outbox delivery worker.
 // Run can be called once. Close cancels Run and waits for worker cleanup.
+// With a telemetry runtime the worker counters are reported as stego.outbox
+// gauges. Counter values only; no payload or destination data is reported.
 type Runtime struct {
 	publisher *Publisher
 	worker    *stegooutbox.Worker
@@ -26,12 +29,12 @@ type Runtime struct {
 }
 
 // NewRuntime reads deployment settings. Secret values come from files.
-func NewRuntime(ctx context.Context, db *sql.DB) (*Runtime, error) {
+func NewRuntime(tracingRuntime *stegoevents.Runtime, ctx context.Context, db *sql.DB) (*Runtime, error) {
 	config, err := ConfigFromEnvironment()
 	if err != nil {
 		return nil, err
 	}
-	return NewRuntimeWithConfig(ctx, db, config)
+	return NewRuntimeWithConfig(ctx, db, config, tracingRuntime)
 }
 
 func ConfigFromEnvironment() (Config, error) {
@@ -57,7 +60,7 @@ func ConfigFromEnvironment() (Config, error) {
 	}, nil
 }
 
-func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config, tracingRuntime *stegoevents.Runtime) (*Runtime, error) {
 	if ctx == nil {
 		return nil, errors.New("Kafka runtime requires a context")
 	}
@@ -80,6 +83,22 @@ func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runt
 	if err != nil {
 		publisher.Close()
 		return nil, err
+	}
+	if tracingRuntime != nil {
+		telemetry, err := tracingRuntime.OutboxTelemetry()
+		if err != nil {
+			publisher.Close()
+			return nil, err
+		}
+		detach, err := telemetry.ObserveOutbox(func() stegoevents.OutboxStats {
+			s := worker.Stats()
+			return stegoevents.OutboxStats{Delivered: s.Delivered, Retried: s.Retried, DeliveryFailures: s.DeliveryFailures, DatabaseFailures: s.DatabaseFailures, LostLeases: s.LostLeases, UnknownDestinations: s.UnknownDestinations}
+		})
+		if err != nil {
+			publisher.Close()
+			return nil, err
+		}
+		worker.OnClose(detach)
 	}
 	return &Runtime{publisher: publisher, worker: worker}, nil
 }

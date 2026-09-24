@@ -55,6 +55,62 @@ func TestKafkaRuntimeFenceWiring(t *testing.T) {
 	if !slicesEqual(fencedWiring.ConstructorDeps[0], []string{"store"}) {
 		t.Fatal("fenced runtime constructor dependencies are wrong", fencedWiring.ConstructorDeps)
 	}
+	// With an otel-tracing peer the runtime reports worker counters as
+	// stego.outbox gauges through the common telemetry runtime.
+	traced, tracedWiring, err := new(Generator).Generate(gen.Context{
+		OutputNamespace: "publisher", ModuleName: "example.com/kafka-test",
+		PeerNamespaces: map[string]string{"outbox": "queue", "otel-tracing": "tracing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracedSource := findGeneratedSource(t, traced, "publisher/runtime.go")
+	for _, required := range []string{
+		`tracingRuntime *stegoevents.Runtime`,
+		`"example.com/kafka-test/tracing"`,
+		`tracingRuntime.OutboxTelemetry()`,
+		`telemetry.ObserveOutbox`,
+		`worker.OnClose(detach)`,
+	} {
+		if !strings.Contains(tracedSource, required) {
+			t.Fatalf("traced runtime missing %q", required)
+		}
+	}
+	if strings.Contains(tracedSource, "stegostorage") {
+		t.Fatal("traced runtime references a fence it does not have")
+	}
+	if len(tracedWiring.Constructors) != 1 || tracedWiring.Constructors[0] != "publisher.NewRuntime(tracingRuntime)" {
+		t.Fatal("traced runtime constructor is wrong", tracedWiring.Constructors)
+	}
+	if !slicesEqual(tracedWiring.ConstructorDeps[0], []string{"tracingRuntime"}) {
+		t.Fatal("traced runtime constructor dependencies are wrong", tracedWiring.ConstructorDeps)
+	}
+	// Fence and telemetry combine: the store keeps the writer-lease check and
+	// the tracing runtime keeps the counter gauges.
+	fencedTraced, fencedTracedWiring, err := new(Generator).Generate(gen.Context{
+		OutputNamespace: "publisher", ModuleName: "example.com/kafka-test",
+		PeerNamespaces: map[string]string{"outbox": "queue", "otel-tracing": "tracing", "postgres-adapter": "storage"},
+		PeerConfigs:    map[string]map[string]any{"postgres-adapter": {"schema_generation": "fresh-v1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fencedTracedWiring.Constructors) != 1 || fencedTracedWiring.Constructors[0] != "publisher.NewRuntime(store, tracingRuntime)" {
+		t.Fatal("fenced traced runtime constructor is wrong", fencedTracedWiring.Constructors)
+	}
+	if !slicesEqual(fencedTracedWiring.ConstructorDeps[0], []string{"store", "tracingRuntime"}) {
+		t.Fatal("fenced traced runtime constructor dependencies are wrong", fencedTracedWiring.ConstructorDeps)
+	}
+	fencedTracedSource := findGeneratedSource(t, fencedTraced, "publisher/runtime.go")
+	for _, required := range []string{
+		`stegostorage "example.com/kafka-test/storage"`,
+		`tracingRuntime.OutboxTelemetry()`,
+		`worker.OnClose(detach)`,
+	} {
+		if !strings.Contains(fencedTracedSource, required) {
+			t.Fatalf("fenced traced runtime missing %q", required)
+		}
+	}
 	_ = base
 }
 

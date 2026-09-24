@@ -57,12 +57,19 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	}}
 	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
 		fence := ctx.PeerNamespaces["postgres-adapter"] != "" && ctx.PeerConfigs["postgres-adapter"]["schema_generation"] != nil
+		tracing := ctx.PeerNamespaces["otel-tracing"]
+		if tracing != "" && ctx.ModuleName == "" {
+			return nil, nil, fmt.Errorf("Kafka telemetry runtime requires a module name")
+		}
 		data := struct {
-			Package, OutboxImport, StorageImport string
-			Fence                                bool
-		}{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox), "", fence}
+			Package, OutboxImport, StorageImport, TracingImport string
+			Fence, Tracing                                      bool
+		}{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox), "", "", fence, tracing != ""}
 		if fence {
 			data.StorageImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["postgres-adapter"])
+		}
+		if tracing != "" {
+			data.TracingImport = path.Join(ctx.ModuleName, ctx.OutDirName, tracing)
 		}
 		tmpl, err := template.New("runtime").Parse(runtimeSource)
 		if err != nil {
@@ -83,6 +90,15 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			wiring.ConstructorDeps = map[int][]string{0: {"store"}}
 		} else {
 			wiring.Constructors = []string{path.Base(ns) + ".NewRuntime()"}
+			wiring.ConstructorDeps = map[int][]string{}
+		}
+		if tracing != "" {
+			separator := "tracingRuntime)"
+			if fence {
+				separator = ", tracingRuntime)"
+			}
+			wiring.Constructors[0] = strings.TrimSuffix(wiring.Constructors[0], ")") + separator
+			wiring.ConstructorDeps[0] = append(wiring.ConstructorDeps[0], "tracingRuntime")
 		}
 		wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}
 		wiring.ConstructorReturnsError = map[int]bool{0: true}

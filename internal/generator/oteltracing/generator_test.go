@@ -59,6 +59,9 @@ var browserTests []byte
 //go:embed testdata/startup_test.go
 var startupTests []byte
 
+//go:embed testdata/outbox_test.go
+var outboxTests []byte
+
 func TestGeneratedAuthKeyTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestAuthKeyRefresh") }
 
 func TestGeneratedStartupTelemetry(t *testing.T) { testGeneratedTracing(t, "^TestStartup") }
@@ -83,6 +86,10 @@ func TestGeneratedDatabasePoolTelemetry(t *testing.T) {
 	testGeneratedTracing(t, "^TestDatabasePoolMetrics")
 }
 
+func TestGeneratedOutboxTelemetry(t *testing.T) {
+	testGeneratedTracing(t, "^TestOutboxMetrics")
+}
+
 func testGeneratedTracing(t *testing.T, pattern string) {
 	files, wiring, err := new(oteltracing.Generator).Generate(gen.Context{OutputNamespace: "tracing", ServiceName: "records"})
 	if err != nil {
@@ -93,7 +100,7 @@ func testGeneratedTracing(t *testing.T, pattern string) {
 		t.Fatal(err)
 	}
 	files = append(files, gen.File{Path: "tracing/startup_test.go", Content: startupTests}, gen.File{Path: "tracing/config_test.go", Content: configTests}, gen.File{Path: "tracing/browser_test.go", Content: browserTests}, gen.File{Path: "tracing/database_test.go", Content: databaseTests}, gen.File{Path: "tracing/command_test.go", Content: commandTests}, client, gen.File{Path: "tracing/http_client_test.go", Content: httpClientTests}, gen.File{Path: "tracing/http_client_transport_test.go", Content: httpClientTransportTests})
-	files = append(files, gen.File{Path: "tracing/controller_trace_test.go", Content: controllerTraceTests}, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests})
+	files = append(files, gen.File{Path: "tracing/controller_trace_test.go", Content: controllerTraceTests}, gen.File{Path: "tracing/client_test.go", Content: clientTests}, gen.File{Path: "tracing/http_diagnostics_test.go", Content: httpDiagnosticTests}, gen.File{Path: "tracing/runtime_test.go", Content: runtimeTests}, gen.File{Path: "tracing/signals_test.go", Content: signalTests}, gen.File{Path: "tracing/service_test.go", Content: serviceTests}, gen.File{Path: "tracing/controller_test.go", Content: controllerTests}, gen.File{Path: "tracing/identity_test.go", Content: identityTests}, gen.File{Path: "tracing/outbox_test.go", Content: outboxTests})
 	var module strings.Builder
 	module.WriteString("module example.com/records\ngo 1.26.0\nrequire (\n")
 	var names []string

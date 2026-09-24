@@ -122,16 +122,16 @@ func run() (stegoErr error) {
 	if err != nil {
 		return err
 	}
-	stegoStage = "component[6].constructor[0]"
-	runtime, err := events.NewRuntime(ctx, sqlDB)
-	if err != nil {
-		return err
-	}
-	defer runtime.Close()
 	organizationsHandler := api.NewOrganizationsHandler(store, beforeCreateOrganizationsChain)
 	orgUsersHandler := api.NewOrgUsersHandler(store, beforeCreateOrgUsersGate, onEntityChangedOrgUsersFanOut)
 	allUsersHandler := api.NewAllUsersHandler(store)
 	orgSettingsHandler := api.NewOrgSettingsHandler(store)
+	stegoStage = "component[6].constructor[0]"
+	runtime, err := events.NewRuntime(tracingRuntime, ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
 	stegoStage = "component[7].constructor[0]"
 	jWTHandlerWithTelemetry, err := auth.NewJWTHandlerWithTelemetry(tracingRuntime, ctx)
 	if err != nil {

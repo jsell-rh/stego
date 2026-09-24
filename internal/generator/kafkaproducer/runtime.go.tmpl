@@ -10,11 +10,14 @@ import (
 
  stegooutbox {{printf "%q" .OutboxImport}}
  {{if .Fence}}stegostorage {{printf "%q" .StorageImport}}
+{{end}}{{if .Tracing}} stegoevents {{printf "%q" .TracingImport}}
 {{end}})
 
 // Runtime owns the Kafka publisher and the outbox delivery worker.
 // Run can be called once. Close cancels Run and waits for worker cleanup.
-type Runtime struct {
+{{if .Tracing}}// With a telemetry runtime the worker counters are reported as stego.outbox
+// gauges. Counter values only; no payload or destination data is reported.
+{{end}}type Runtime struct {
  publisher *Publisher
  worker *stegooutbox.Worker
  mu sync.Mutex
@@ -27,14 +30,14 @@ type Runtime struct {
 // NewRuntime reads deployment settings. Secret values come from files.
 {{if .Fence}}// The storage store supplies the writer-lease check: this runtime stops
 // claiming outbox work when its process loses the database writer lease.
-func NewRuntime(store *stegostorage.Store, ctx context.Context, db *sql.DB) (*Runtime, error) {
+func NewRuntime(store *stegostorage.Store{{if .Tracing}}, tracingRuntime *stegoevents.Runtime{{end}}, ctx context.Context, db *sql.DB) (*Runtime, error) {
  config, err := ConfigFromEnvironment()
  if err != nil { return nil, err }
- return NewRuntimeWithConfig(store, ctx, db, config)
-}{{else}}func NewRuntime(ctx context.Context, db *sql.DB) (*Runtime, error) {
+ return NewRuntimeWithConfig(store, ctx, db, config{{if .Tracing}}, tracingRuntime{{end}})
+}{{else}}func NewRuntime({{if .Tracing}}tracingRuntime *stegoevents.Runtime, {{end}}ctx context.Context, db *sql.DB) (*Runtime, error) {
  config, err := ConfigFromEnvironment()
  if err != nil { return nil, err }
- return NewRuntimeWithConfig(ctx, db, config)
+ return NewRuntimeWithConfig(ctx, db, config{{if .Tracing}}, tracingRuntime{{end}})
 }{{end}}
 
 func ConfigFromEnvironment() (Config, error) {
@@ -56,11 +59,11 @@ func ConfigFromEnvironment() (Config, error) {
  }, nil
 }
 
-{{if .Fence}}func NewRuntimeWithConfig(store *stegostorage.Store, ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+{{if .Fence}}func NewRuntimeWithConfig(store *stegostorage.Store, ctx context.Context, db *sql.DB, config Config{{if .Tracing}}, tracingRuntime *stegoevents.Runtime{{end}}) (*Runtime, error) {
  if ctx == nil { return nil, errors.New("Kafka runtime requires a context") }
  if store == nil { return nil, errors.New("Kafka runtime requires a storage store") }
  queue, err := stegooutbox.NewWithFence(db, store.WriterLeaseCheck)
- if err != nil { return nil, err }{{else}}func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+ if err != nil { return nil, err }{{else}}func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config{{if .Tracing}}, tracingRuntime *stegoevents.Runtime{{end}}) (*Runtime, error) {
  if ctx == nil { return nil, errors.New("Kafka runtime requires a context") }
  queue, err := stegooutbox.New(db)
  if err != nil { return nil, err }{{end}}
@@ -73,7 +76,17 @@ func ConfigFromEnvironment() (Config, error) {
   },
  }, stegooutbox.DefaultWorkerConfig())
  if err != nil { publisher.Close(); return nil, err }
- return &Runtime{publisher: publisher, worker: worker}, nil
+{{if .Tracing}} if tracingRuntime != nil {
+  telemetry, err := tracingRuntime.OutboxTelemetry()
+  if err != nil { publisher.Close(); return nil, err }
+  detach, err := telemetry.ObserveOutbox(func() stegoevents.OutboxStats {
+   s := worker.Stats()
+   return stegoevents.OutboxStats{Delivered: s.Delivered, Retried: s.Retried, DeliveryFailures: s.DeliveryFailures, DatabaseFailures: s.DatabaseFailures, LostLeases: s.LostLeases, UnknownDestinations: s.UnknownDestinations}
+  })
+  if err != nil { publisher.Close(); return nil, err }
+  worker.OnClose(detach)
+ }
+{{end}} return &Runtime{publisher: publisher, worker: worker}, nil
 }
 
 func (r *Runtime) Run(ctx context.Context) error {

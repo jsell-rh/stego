@@ -29,10 +29,10 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260924181245-85d1d32ffce7
-        vcs: git
-        revision: 85d1d32ffce7919f89b3accb9fba5239a08ca1c0
-        source_state: clean
+        module_version: (devel)
+        vcs: unknown
+        revision: unknown
+        source_state: unknown
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
     registry_content_sha256: 131e3a5eb2d4fa1a692f236e00ea44af55cce4a97a24c2c3187b68b1944fe900
@@ -125,12 +125,12 @@ last_applied:
         internal/auth/sso.go: f3635376e151f1d4a882aa4144a4a3ec0cea82b3343756037041a771c17d6803
         internal/auth/telemetry.go: 281eec9da5b1c153489354cbd6d1a016291078b265085dde89d56ea49f76ea17
         internal/events/publisher.go: 509b0edb8033b8492830ccc9b88ad6748fd6e55cc95a7823a1de5e0fb3cd60eb
-        internal/events/runtime.go: 8f36c84a8ededf06068d90a52744a75b6cf4952d3f4d62d5209a4ad6ae85adcd
+        internal/events/runtime.go: 0e31422293fd35b975f2b989c8c638ed21da478db61a360dcfdde829f6e171dd
         internal/outbox/migrations/000001_outbox.sql: dd2a63ebf5b005cdb0a6e56433c4cc3fd4f0f0bde4c52e04c8433c08125b5437
         internal/outbox/queue.go: 467868b699dc881f389af1b785a2036ac1e892ddc1227da67186cf73384458e1
         internal/outbox/schema.go: b8fc87fd5109f5f7ba99383d51785a90f2468755b8f49b56951d138f5f9f5c45
         internal/outbox/source.go: 6b299a5af41962dbb3c81e55a90a7fd9f7d4fb177c0efc10eef09fe9438ac1c7
-        internal/outbox/worker.go: aca348a67c30021026fc646b3ad97ff0b461e949b7b65f435d5f29fb982df122
+        internal/outbox/worker.go: 4bd6462127262c98ebae0a602347959c0cb56f307798e1467012744962aa69df
         internal/search/field_map.go: 38b2f59a5224e13d9a172bafca64c65b1594646b897491cb179a893d178d9608
         internal/search/search.go: 659978afd6ae1f55ea9b3460f6bb35fb52282e3ad56145bdd9f80f74bba0478b
         internal/storage/checkpoints.go: e9533b3cf06b47a3daaabeb6b0577938845b7eb707b97cefafe250611c20b537
@@ -151,7 +151,7 @@ last_applied:
         internal/storage/session_factory.go: e929bc9b643da0d29536723ed063986af2afbb89bab793daf2b00606909f05cc
         internal/storage/store.go: 50d3dc9b523f082eb1e08439ee4ca246836ff50bc41938f8ce0bc85679ac59fa
         internal/storage/transaction.go: 243f5b08893c7522ee098d2701f63c11265f999c06ea4cd33fa0c13f7f729e37
-        main.go: 05ab76a59d6b2ed771348cfa1aba58a54bb7aebc863def26f5d76ee3efd3dd61
+        main.go: 5d214b61c93935196cfbf2f700800bbae7a13e1b039da3b8e82faa07ea94b10b
         slots/before_create.go: 2aebcd47bff22be0526ed5d6a76a8df617b49a2504dce4be0f73dc74cd45a12f
         slots/before_create_operators.go: e15d5fd7d4a97ec052417842126a4b336ddccf0c9b82bc501a50e9e34186e5ab
         slots/on_entity_changed.go: a7851d889ab1a8313adbf909282ef47fbeff058b31c847097964948b14c30e64
@@ -166,7 +166,8 @@ last_applied:
         tracing/http_client.go: ca9ed1cf57d3a8b33bca141a03733431859a7ed0d58ae92c301460f9438bf683
         tracing/http_observation.go: 56493be11d5e29efb771b5862d45ad2ef9e010e0b01b27766e61b0971862ea86
         tracing/identity.go: 2c7be8be622a167b67941ea98459f7540b8ba16b64a7631dad109db70c2c0bb6
-        tracing/runtime.go: d3b9551b5e44cff41e5acc302e32361f0bb38125a8fe3ba8320508c063a4e19b
+        tracing/outbox.go: eccaf1f079bab838e07fa5b16314df735667e21cffa2101f92cb3d9b3bcc4b4d
+        tracing/runtime.go: 5b4ec5c6f6f6e4a4fd3ba366be3f0cb150efc596eda0853e29b941bdc21ddfec
         tracing/service.go: c385c803aa9c54e37436cfb4a004a1ad468317b6d435498407a706dae9bcdac5
         tracing/signals.go: 3adee95980b02c32284916b7e46083f2cc0d0dc8394ca402c49177290ec163cb
         tracing/startup.go: ba2cc8272fddb2c9c18cf10199b7ffe3df430ea88f3d02a6902e00908d154160
