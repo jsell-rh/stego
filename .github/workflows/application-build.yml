@@ -91,6 +91,23 @@ jobs:
           python3 scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
             --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
             --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA"
+      - name: Prove an offline build from a downloaded module cache
+        timeout-minutes: 30
+        run: |
+          "$RUNNER_TEMP/stego" build download --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
+            --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --output="$RUNNER_TEMP/module-cache"
+          mkdir -p "$RUNNER_TEMP/offline-evidence"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" \
+            --module=examples/user-management --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/offline-application-work" --output="$RUNNER_TEMP/offline-application-result" \
+            --module-cache="$RUNNER_TEMP/module-cache"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/offline-application-result" --evidence="$RUNNER_TEMP/offline-evidence" \
+            --source="$GITHUB_WORKSPACE" --revision="$GITHUB_SHA" --module-cache="$RUNNER_TEMP/module-cache"
+          mkdir -p "$RUNNER_TEMP/application-evidence/offline"
+          cp "$RUNNER_TEMP/module-cache/module-cache.json" "$RUNNER_TEMP/offline-application-result/build.json" \
+            "$RUNNER_TEMP/application-evidence/offline/"
       - name: Build images and check them with the container engine
         timeout-minutes: 8
         run: |
@@ -206,6 +223,24 @@ jobs:
             --result="$RUNNER_TEMP/application-result" --evidence="$RUNNER_TEMP/application-evidence" \
             --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
             --compiler-revision="$GITHUB_SHA" --module=. --target=out
+      - name: Prove an offline build of the Hypershell API from a downloaded module cache
+        timeout-minutes: 30
+        run: |
+          "$RUNNER_TEMP/stego" build download --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --output="$RUNNER_TEMP/module-cache"
+          mkdir -p "$RUNNER_TEMP/offline-evidence"
+          "$RUNNER_TEMP/stego" build --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --module=. --target=out --go="$RUNNER_TEMP/application-sdk/go/bin/go" \
+            --work="$RUNNER_TEMP/offline-application-work" --output="$RUNNER_TEMP/offline-application-result" \
+            --module-cache="$RUNNER_TEMP/module-cache"
+          python3 -B scripts/check-application-build.py --compiler="$RUNNER_TEMP/stego" \
+            --result="$RUNNER_TEMP/offline-application-result" --evidence="$RUNNER_TEMP/offline-evidence" \
+            --source="$GITHUB_WORKSPACE/consumer" --revision="$CONSUMER_REVISION" \
+            --compiler-revision="$GITHUB_SHA" --module=. --target=out --module-cache="$RUNNER_TEMP/module-cache"
+          mkdir -p "$RUNNER_TEMP/application-evidence/offline"
+          cp "$RUNNER_TEMP/module-cache/module-cache.json" "$RUNNER_TEMP/offline-application-result/build.json" \
+            "$RUNNER_TEMP/application-evidence/offline/"
       - name: Build the Hypershell image and check it with the container engine
         timeout-minutes: 8
         run: |

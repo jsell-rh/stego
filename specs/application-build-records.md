@@ -4,7 +4,15 @@ The native build and source checks are included in published compiler
 `c92f591`. The generated example and Hypershell API passed native, source, image,
 real signature, and private TLS registry checks. The complete live Hypershell
 browser workflow also passed with seven signed images in run `35512430605`.
-Production trust selection and complete offline inputs remain open, as does C3. See the
+Offline module inputs are implemented and checked in CI. `stego build download`
+produces a module download cache for one source revision. The cache holds
+only `cache/download` zips and a canonical record. `stego build
+--module-cache` builds offline from it: each build round extracts the zips
+again under `go.sum` enforcement, so a changed zip member fails module
+content verification even when the cache record is forged, and a missing
+module fails the offline download check. The build record then carries
+`dependency_proxy: "off"` and the cache inventory. Production trust
+selection remains open, as does the rest of C3. See the
 [current delivery evidence](application-delivery-evidence.json).
 
 `stego build` selects one Git commit, module, and entry point. It checks the
