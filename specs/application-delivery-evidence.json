@@ -1,5 +1,5 @@
 {
-  "recorded_at": "2026-09-20T13:25:33.511223+00:00",
+  "recorded_at": "2026-09-24T20:45:43.908542+00:00",
   "backup_restore_contract": {
     "implemented_by": "434a5e98",
     "pr": 5,
@@ -442,5 +442,27 @@
     ],
     "contract_doc": "specs/schema-migrations.md",
     "security_model": "The ledger has no public grants and read/insert-only application-role grants. A tampered or missing ledger fails closed: the next migration run refuses to continue rather than trust a history that does not match the code."
+  },
+  "outbox_telemetry": {
+    "implemented_by": "67768b1d",
+    "pr": 9,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/36055511743/job/107821307701",
+    "mechanism": "With an otel-tracing peer, the generated kafka-producer runtime constructor takes the tracing runtime and registers one worker stats snapshot. The OutboxTelemetry facility aggregates at most 64 registrations per process into six Int64ObservableGauges stego.outbox.{delivered,retried,delivery_failures,database_failures,lost_leases,unknown_destinations}, unit {message}, scope stego/outbox, no attributes. The callback sums all registrations before each collection so each gauge reports one process total. Detach runs from the worker OnClose hook when Run returns. Without the peer the constructor is unchanged and counters remain available through Runtime.Stats(). Readiness stays with the process health model: worker task failure stops the process through the standard background task path, and the gauges serve operator alerting.",
+    "tests": [
+      "TestOutboxMetricsAggregation",
+      "TestOutboxMetricsLimitAndRelease",
+      "TestOutboxMetricsDisabled"
+    ],
+    "checks": [
+      "two registrations sum into one unattributed process total per gauge",
+      "resource identity, scope stego/outbox, and unit {message} verified on export",
+      "64-registration cap, double-release safety, nil rejection, empty map after detach",
+      "disabled metrics exporter leaves OutboxTelemetry usable without a callback",
+      "kafka wiring test covers plain, fenced, traced, and fenced+traced constructor forms",
+      "full local gate green (postgresadapter, compiler, registry, outbox, kafkaproducer, controller, oteltracing) against Postgres 16 with race detector",
+      "CI green on PR 9 head 3b09c7db: 21 checks passed; provenance skipping by design"
+    ],
+    "component_version": "otel-tracing/kafka-producer/outbox templates at main 67768b1d",
+    "security_model": "Gauges carry counter totals only. No payload, destination, topic, provider, or error text enters a sample."
   }
 }

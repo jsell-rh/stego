@@ -31,3 +31,9 @@ runner. They must retain callback contexts, bounded export and shutdown,
 checkpoint commits, retry rules, and failure priority. They must also prevent
 duplicate owners or operation records caused by calls between helpers.
 These requirements remain open; this audit does not add runtime behavior.
+
+Audit closure, recorded after the three gap changes merged: standalone helper
+operation records landed in PR #8 (`d40cfa5d`) with the keyed notice whitelist
+extension, and outbox worker counter gauges landed in PR #9 (`67768b1d`).
+The C6 helper telemetry requirement is closed except for the browser
+initialization failure cause, which stays open in the goal tracker.
