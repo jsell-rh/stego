@@ -58,7 +58,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 			t.Fatal("unselected schema policy changed")
 		}
 	}
-	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration"} {
+	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced"} {
 		ctx := basicContext()
 		ctx.Entities = []types.Entity{{Name: name}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
@@ -69,7 +69,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 
 func TestGeneratedSchemaGeneration(t *testing.T) {
 	project := t.TempDir()
-	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
+	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
 	for _, packageName := range []string{"storage", "legacy", "future", "changed"} {
 		c := ctx
 		c.OutputNamespace = packageName
@@ -81,7 +81,7 @@ func TestGeneratedSchemaGeneration(t *testing.T) {
 			c.ComponentConfig["schema_generation"] = "fresh-v2"
 		}
 		if packageName == "changed" {
-			c.Entities = []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "extra", Type: types.FieldTypeString}}}}
+			c.Entities = []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "extra", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}}}}
 		}
 		files, _, err := new(Generator).Generate(c)
 		if err != nil {

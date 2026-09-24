@@ -439,6 +439,140 @@ func TestReplacedDatabaseIdentityIsRejected(t *testing.T) {
 	}
 }
 
+func TestWriterLeaseTakeoverFencesStaleStore(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	first, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A second process starts and writes: it takes the lease unconditionally.
+	second, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The first store lost the lease: a transactional write fails closed.
+	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "three"})
+	}); !errors.Is(err, storage.ErrWriterFenced) {
+		t.Fatal("stale writer was not fenced", err)
+	}
+	// The latch stays closed: a later write and a lease check both fail.
+	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "four"})
+	}); !errors.Is(err, storage.ErrWriterFenced) {
+		t.Fatal("fenced store served a later write", err)
+	}
+	if err := first.WriterLeaseCheck(context.Background()); !errors.Is(err, storage.ErrWriterFenced) {
+		t.Fatal("fenced store passed a lease check", err)
+	}
+	// The successor keeps writing.
+	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "five"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWriterLeaseFencesDirectWrites(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	first, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO versioneds(id,name,stego_revision) VALUES('one','kept',1)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 1, map[string]any{"name": "renamed"}); err != nil {
+		t.Fatal("first direct write failed", err)
+	}
+	second, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.ReplaceIfVersion(context.Background(), "Versioned", "one", 2, map[string]any{"name": "taken"}); err != nil {
+		t.Fatal("successor direct write failed", err)
+	}
+	// The stale store fails closed on a direct write outside transactions.
+	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 3, map[string]any{"name": "stale"}); !errors.Is(err, storage.ErrWriterFenced) {
+		t.Fatal("stale direct write was accepted", err)
+	}
+	// The latch stays closed on repeated direct writes.
+	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 3, map[string]any{"name": "stale"}); !errors.Is(err, storage.ErrWriterFenced) {
+		t.Fatal("fenced store served a later direct write", err)
+	}
+}
+
+func TestWriterLeaseCheckBeforeFirstWrite(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A store that never wrote holds no lease: the check passes.
+	if err := store.WriterLeaseCheck(context.Background()); err != nil {
+		t.Fatal("never-written store failed its lease check", err)
+	}
+	// After another process writes, this store never held the lease; the
+	// check still passes because it never asserted one. Its writes fence it.
+	other, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriterLeaseCheck(context.Background()); err != nil {
+		t.Fatal("lease check wrote or asserted a lease", err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
+	}); err != nil {
+		t.Fatal("newest writer was not allowed to take over", err)
+	}
+	// The check reflects the taken lease after a write.
+	if err := store.WriterLeaseCheck(context.Background()); err != nil {
+		t.Fatal("writer failed its own lease check", err)
+	}
+}
+
+func TestWriterLeaseFailsClosedWhenAbsent(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	// A database without a lease table fails closed on the write path.
+	if err := db.Exec("DROP TABLE stego_schema.writer_lease").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.VerifySchema(db); !errors.Is(err, storage.ErrSchemaGeneration) {
+		t.Fatal("missing lease table was accepted", err)
+	}
+	if _, err := storage.NewStore(db); err == nil {
+		t.Fatal("missing lease table was accepted by the store")
+	}
+}
+
 func TestFreshStoreRejectsReplacedIdentity(t *testing.T) {
 	db := schemaDB(t)
 	if err := storage.Migrate(db); err != nil {

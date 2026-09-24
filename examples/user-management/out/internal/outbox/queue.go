@@ -41,13 +41,30 @@ type Delivery struct {
 	LeaseUntil time.Time
 }
 
-type Queue struct{ db *sql.DB }
+type Queue struct {
+	db *sql.DB
+	// fence, when set, is checked before new work is claimed. A fenced store
+	// has lost the single-writer lease and must stop claiming messages.
+	fence func(context.Context) error
+}
 
 func New(db *sql.DB) (*Queue, error) {
 	if db == nil {
 		return nil, errors.New("outbox requires a database")
 	}
 	return &Queue{db: db}, nil
+}
+
+// NewWithFence builds a queue that refuses to claim work while the fence
+// check fails. The check must not write; it reports lease ownership only.
+func NewWithFence(db *sql.DB, check func(context.Context) error) (*Queue, error) {
+	if db == nil {
+		return nil, errors.New("outbox requires a database")
+	}
+	if check == nil {
+		return nil, errors.New("fenced outbox requires a lease check")
+	}
+	return &Queue{db: db, fence: check}, nil
 }
 
 // Check verifies that the required queue columns and delivery permissions
@@ -143,6 +160,11 @@ func Enqueue(ctx context.Context, tx *sql.Tx, messages ...Message) error {
 func (q *Queue) Claim(ctx context.Context, limit int, lease time.Duration) ([]Delivery, error) {
 	if limit < 1 || limit > MaxBatchSize || lease < time.Second || lease > 5*time.Minute {
 		return nil, errors.New("invalid outbox claim limits")
+	}
+	if q != nil && q.fence != nil {
+		if err := q.fence(ctx); err != nil {
+			return nil, err
+		}
 	}
 	token, err := uuid.NewRandom()
 	if err != nil {

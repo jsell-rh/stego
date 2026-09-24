@@ -56,7 +56,14 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
 	}}
 	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		data := struct{ Package, OutboxImport string }{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox)}
+		fence := ctx.PeerNamespaces["postgres-adapter"] != "" && ctx.PeerConfigs["postgres-adapter"]["schema_generation"] != nil
+		data := struct {
+			Package, OutboxImport, StorageImport string
+			Fence                                bool
+		}{path.Base(ns), path.Join(ctx.ModuleName, ctx.OutDirName, outbox), "", fence}
+		if fence {
+			data.StorageImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["postgres-adapter"])
+		}
 		tmpl, err := template.New("runtime").Parse(runtimeSource)
 		if err != nil {
 			return nil, nil, err
@@ -71,7 +78,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		}
 		files = append(files, gen.File{Path: path.Join(ns, "runtime.go"), Content: source})
 		wiring.Imports = []string{ns}
-		wiring.Constructors = []string{path.Base(ns) + ".NewRuntime()"}
+		if fence {
+			wiring.Constructors = []string{path.Base(ns) + ".NewRuntime(store)"}
+			wiring.ConstructorDeps = map[int][]string{0: {"store"}}
+		} else {
+			wiring.Constructors = []string{path.Base(ns) + ".NewRuntime()"}
+		}
 		wiring.ConstructorResources = map[int][]gen.Resource{0: {gen.ServiceContext, gen.SQLDatabase}}
 		wiring.ConstructorReturnsError = map[int]bool{0: true}
 		wiring.ConstructorDeferCalls = map[int]string{0: "Close()"}
