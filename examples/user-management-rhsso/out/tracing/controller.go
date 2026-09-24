@@ -209,6 +209,19 @@ func (c *ControllerTelemetry) Event(ctx context.Context, phase string) {
 	case "metrics_failed":
 		name = "controller.cleanup.sample_failed"
 		message = "Controller cleanup summary is unavailable"
+	case "scan_failed":
+		name = "controller.scan.failed"
+		message = "Controller scan pass failed"
+	case "scan_completed":
+		name = "controller.scan.completed"
+		message = "Controller scan pass completed"
+		severity = otellog.SeverityInfo
+	case "reconcile_failed":
+		name = "controller.reconcile.failed"
+		message = "Controller reconcile failed"
+	case "reconcile_pending":
+		name = "controller.reconcile.pending"
+		message = "Controller reconcile is pending"
 	default:
 		return
 	}

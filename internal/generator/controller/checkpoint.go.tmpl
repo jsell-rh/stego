@@ -24,6 +24,15 @@ type CheckpointAccess struct {
 // no write. Errors from work and save are preserved; there is no automatic retry.
 func ScanCheckpointed[T any](ctx context.Context,access CheckpointAccess,source CursorSource[T],emit func(context.Context,T)error,scan ScanOptions,budget ObservationOptions)(ScanProgress,error){
  var progress ScanProgress
+ err:=controllerHelperWork(ctx,"scan",func(ctx context.Context)error{
+  var err error
+  progress,err=scanCheckpointedBody(ctx,access,source,emit,scan,budget)
+  return err
+ })
+ return progress,err
+}
+func scanCheckpointedBody[T any](ctx context.Context,access CheckpointAccess,source CursorSource[T],emit func(context.Context,T)error,scan ScanOptions,budget ObservationOptions)(ScanProgress,error){
+ var progress ScanProgress
  if access.Load==nil||access.Save==nil||source==nil||emit==nil{return progress,ErrScanContract}
  var checkpoint Checkpoint
  loaded:=false

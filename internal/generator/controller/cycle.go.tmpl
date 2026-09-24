@@ -125,6 +125,15 @@ func ScanCycle[T any](ctx context.Context,sourceVersion string,access Checkpoint
  return scanCycle(ctx,sourceVersion,access,source,emit,continueOnError,scan,budget,CycleOptions{},nil)
 }
 func scanCycle[T any](ctx context.Context,sourceVersion string,access CheckpointAccess,source CursorSource[T],emit func(context.Context,T)error,continueOnError func(error)bool,scan ScanOptions,budget ObservationOptions,options CycleOptions,parallel *ParallelCycleOptions[T])(CycleState,error){
+ var result CycleState
+ err:=controllerHelperWork(ctx,"scan",func(ctx context.Context)error{
+  var err error
+  result,err=scanCycleBody(ctx,sourceVersion,access,source,emit,continueOnError,scan,budget,options,parallel)
+  return err
+ })
+ return result,err
+}
+func scanCycleBody[T any](ctx context.Context,sourceVersion string,access CheckpointAccess,source CursorSource[T],emit func(context.Context,T)error,continueOnError func(error)bool,scan ScanOptions,budget ObservationOptions,options CycleOptions,parallel *ParallelCycleOptions[T])(CycleState,error){
  result:=CycleState{Source:sourceVersion}
  if _,err:=EncodeCycle(result);err!=nil||access.Load==nil||access.Save==nil||source==nil||emit==nil{return result,ErrScanContract}
  var checkpoint Checkpoint
