@@ -338,5 +338,24 @@
       "local rejection of a tampered zip with the original record, a tampered zip member with a forged record, and a missing module with a forged record"
     ],
     "security_model": "The cache holds only cache/download zips. Each offline build round extracts them again under go.sum enforcement. The cache inventory is evidence, not a trust anchor."
+  },
+  "whole_database_rollback_detection": {
+    "implemented_by": "2f0806202a701f48d626907b9ab45f9baa86b43a",
+    "pr": 3,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/35960948506/job/107509196422",
+    "mechanism": "Generated stores track database_id in stego_schema.identity and a write epoch from stego_schema.epoch_seq (nextval is non-transactional). Each write transaction reads both; a restored backup (epoch lower than the process high-water mark) or a replaced database (identity change) fails with ErrDatabaseRollback and latches.",
+    "tests": [
+      "TestDatabaseEpochAdvancesOnWrite",
+      "TestRestoredDatabaseIsRejected",
+      "TestReplacedDatabaseIdentityIsRejected",
+      "TestFreshStoreRejectsReplacedIdentity"
+    ],
+    "checks": [
+      "four new cases in TestGeneratedSchemaGeneration against live PostgreSQL",
+      "full internal/generator/postgresadapter, internal/compiler, and internal/registry suites green locally and in CI",
+      "example projects regenerate byte-identical output without schema_generation"
+    ],
+    "component_version": "4.11.0",
+    "security_model": "The identity table and epoch sequence get the same marker-shape hardening as stego_schema.generation: owner equals the schema owner, no RLS, inheritance, or partitioning, and grants limited to SELECT and USAGE. Existing databases fail closed on the identity-shape check; adoption requires a schema_generation name bump."
   }
 }
