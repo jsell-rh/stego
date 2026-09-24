@@ -23,7 +23,7 @@ work. A failed or incomplete check cannot qualify a revision.
 | --- | --- | --- | --- |
 | C1 | Strict input and one semantic validation stage | Invalid fields, constraints, duplicates, capabilities, and paths fail before writes | [Verified at b0bd9a4](compiler-input-workflow-audit-20260915.md); retain regression coverage |
 | C2 | Complete project and fill workflow | Fresh init, apply, fill creation, test, build, repeated apply, and drift | [Verified at b0bd9a4](compiler-input-workflow-audit-20260915.md); retain regression coverage |
-| C3 | Reproducible and recoverable generation | Compiler and input identity, dependencies, state format, interrupted writes, concurrent apply | Active; [recovery evidence and remaining gaps](compiler-recovery-audit-20260917.md) |
+| C3 | Reproducible and recoverable generation | Compiler and input identity, dependencies, state format, interrupted writes, concurrent apply | Active; offline module inputs closed at `d43e696d` (PR #2, run `35950507614`; see [application-delivery-evidence.json](application-delivery-evidence.json)); [remaining recovery gaps](compiler-recovery-audit-20260917.md) |
 | C4 | Secure authentication and authorization | Signature, issuer, audience, expiry, rotation, isolation, denied requests | Active |
 | C5 | Correct storage and events | Migrations, concurrent transactions, durable events, recovery, failure tests | Active |
 | C6 | Production runtime | Health, readiness, logs, metrics, traces, deadlines, shutdown, resource limits | Active |
@@ -475,7 +475,7 @@ a narrower passing check cannot close a broader requirement.
 
 | Area | Required next evidence or implementation |
 | --- | --- |
-| C3: generation and delivery | Complete application build input identity, controlled offline inputs, supported installation targets, and durable release qualification. Retain interruption, conflicting-edit, and concurrent-apply tests. Signed Linux amd64 artifacts and repeated output hashes alone do not close C3. |
+| C3: generation and delivery | Controlled offline inputs are implemented and checked: `stego build download` produces a zips-only module cache, and `stego build --module-cache` builds offline under `go.sum` enforcement with `dependency_proxy: "off"` records ([delivery evidence](application-delivery-evidence.json)). Remaining: supported installation targets, production CA profile, and durable release qualification. Retain interruption, conflicting-edit, and concurrent-apply tests. |
 | C4: authentication and isolation | Current-source audit complete at Hypershell `7f0bd9f` and STEGO `4d0ce01a`; see [auth-isolation-audit-20260923.md](auth-isolation-audit-20260923.md). Signature, issuer, audience, expiry, rotation, browser sessions, grants, and denied cross-tenant operations audited with focused passing checks. DNS-aware enforcement and endpoint failure behavior qualified at the supported public Gateway TLS path. New live denial evidence from the current source can extend this; no open defect found. |
 | C5: storage and events | Complete transaction, migration, durable delivery, recovery, backup, and restore coverage. Preserve the one-writer requirement until cross-process fencing is implemented and verified. Whole-database rollback detection remains open. |
 | C6: runtime | Complete health, readiness, timeout, shutdown, resource-limit, and all-signal telemetry coverage. Direct finite controller helpers need explicit operation and parent contracts without duplicate telemetry owners. The earlier recovered browser initialization failure still lacks a proved cause. |

@@ -187,7 +187,6 @@
   "scope": "Published compiler, common source, image, signature, registry checks, complete live Hypershell browser adoption, and separate service Deployment adoption. Results are limited to the recorded sources and environments.",
   "not_proved": [
     "Production application CA profile",
-    "Complete offline builds",
     "Other installation platforms",
     "Automatic release qualification",
     "Full C3 or enterprise readiness",
@@ -323,5 +322,21 @@
     },
     "previous_failures_preserved": true,
     "scope": "Separate service Deployment adoption of the common publisher. The browser result keeps its own recorded source. This result does not complete C3 through C7 or H1 through H3."
+  },
+  "offline_module_inputs": {
+    "implemented_by": "d43e696d13f4479414f414bbcbf10b88be75d0b3",
+    "pr": 2,
+    "run": 35950507614,
+    "jobs": [
+      "application",
+      "hypershell-api"
+    ],
+    "checks": [
+      "download of the module cache for the example and the Hypershell API",
+      "offline build from the downloaded cache with dependency_proxy 'off'",
+      "record pairing of the proxy value with the cache inventory",
+      "local rejection of a tampered zip with the original record, a tampered zip member with a forged record, and a missing module with a forged record"
+    ],
+    "security_model": "The cache holds only cache/download zips. Each offline build round extracts them again under go.sum enforcement. The cache inventory is evidence, not a trust anchor."
   }
 }
