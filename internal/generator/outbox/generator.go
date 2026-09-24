@@ -92,6 +92,10 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		// Identity inserts do not need direct sequence access.
 		{Schema: "stego_outbox", Name: "messages_sequence_seq", Kind: "sequence", Privileges: []string{}},
 	}
+	wiring.BackupObjects = []gen.BackupObject{
+		{Schema: "stego_outbox", Name: "messages", Kind: "table"},
+		{Schema: "stego_outbox", Name: "messages_sequence_seq", Kind: "sequence"},
+	}
 	if ctx.StorageContract != "" {
 		wiring.Contracts = []gen.Contract{gen.StorageV1}
 	}

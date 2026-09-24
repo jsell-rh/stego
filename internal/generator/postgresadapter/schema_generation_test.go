@@ -58,7 +58,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 			t.Fatal("unselected schema policy changed")
 		}
 	}
-	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced"} {
+	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced", "RestoreRecord", "ReadRestoreRecord", "ReadRestoreRecordDB", "VerifyRestore", "VerifyRestoreDB", "ErrRestore"} {
 		ctx := basicContext()
 		ctx.Entities = []types.Entity{{Name: name}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {

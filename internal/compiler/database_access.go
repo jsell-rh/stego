@@ -105,6 +105,50 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 	}, nil
 }
 
+// generateBackupContract merges the backup object declarations of all
+// components into one operator manifest. A backup that skips any listed
+// object leaves the restored database unusable or unverifiable.
+func generateBackupContract(wirings []ComponentWiring) ([]gen.File, error) {
+	type backupEntry struct {
+		Component string           `json:"component"`
+		Object    gen.BackupObject `json:"object"`
+	}
+	var entries []backupEntry
+	seen := map[string]bool{}
+	for _, component := range wirings {
+		if component.Wiring == nil {
+			continue
+		}
+		for _, object := range component.Wiring.BackupObjects {
+			key := object.Schema + "." + object.Name
+			if component.Name == "" || !databaseIdentifier.MatchString(object.Schema) || !databaseIdentifier.MatchString(object.Name) || strings.HasPrefix(object.Schema, "pg_") || object.Schema == "information_schema" || seen[key] || len(entries) >= 4096 {
+				return nil, fmt.Errorf("component %q has an invalid or duplicate backup object", component.Name)
+			}
+			if object.Kind != "table" && object.Kind != "sequence" && object.Kind != "function" && object.Kind != "trigger" {
+				return nil, fmt.Errorf("component %q has an unsupported backup object kind", component.Name)
+			}
+			seen[key] = true
+			entries = append(entries, backupEntry{Component: component.Name, Object: object})
+		}
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Object.Schema+"."+entries[i].Object.Name < entries[j].Object.Schema+"."+entries[j].Object.Name
+	})
+	manifest, err := json.MarshalIndent(struct {
+		Format  int           `json:"format"`
+		Objects []backupEntry `json:"objects"`
+	}{1, entries}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return []gen.File{
+		{Path: gen.BackupContractNamespace + "/backup.json", Content: append(manifest, '\n')},
+	}, nil
+}
+
 func needsDatabaseAccessCheck(input AssemblerInput, consumed map[int]bool) bool {
 	for i, component := range input.Wirings {
 		if consumed[i] && component.Wiring != nil && component.Wiring.VerifyDatabaseAccess {

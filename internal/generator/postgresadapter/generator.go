@@ -275,6 +275,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			Schema: "public", Name: tableName(entity.Name), Kind: "table",
 			Privileges: []string{"SELECT", "INSERT", "UPDATE", "DELETE"},
 		})
+		wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
+			Schema: "public", Name: tableName(entity.Name), Kind: "table",
+		})
 	}
 	if ctx.StorageContract != "" {
 		for _, name := range []string{"stego_scan_checkpoints", "stego_effect_bindings", "stego_resource_state", "stego_resource_state_scopes"} {
@@ -282,7 +285,31 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 				Schema: "public", Name: name, Kind: "table",
 				Privileges: []string{"SELECT", "INSERT", "UPDATE"},
 			})
+			wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{
+				Schema: "public", Name: name, Kind: "table",
+			})
 		}
+		wiring.BackupObjects = append(wiring.BackupObjects,
+			gen.BackupObject{Schema: "public", Name: "stego_guard_effect_binding", Kind: "function"},
+			gen.BackupObject{Schema: "public", Name: "stego_guard_resource_state", Kind: "function"},
+			gen.BackupObject{Schema: "public", Name: "stego_guard_resource_state_scope", Kind: "function"},
+			gen.BackupObject{Schema: "public", Name: "stego_track_resource_state_keys", Kind: "function"},
+			gen.BackupObject{Schema: "public", Name: "stego_effect_binding_guard", Kind: "trigger"},
+			gen.BackupObject{Schema: "public", Name: "stego_resource_state_guard", Kind: "trigger"},
+			gen.BackupObject{Schema: "public", Name: "stego_resource_state_scope_guard", Kind: "trigger"},
+			gen.BackupObject{Schema: "public", Name: "stego_resource_state_key_guard", Kind: "trigger"},
+		)
+	}
+	for _, entity := range ctx.Entities {
+		if !entity.Versioned {
+			continue
+		}
+		table := tableName(entity.Name)
+		hash := sha256.Sum256([]byte(table))
+		wiring.BackupObjects = append(wiring.BackupObjects,
+			gen.BackupObject{Schema: "public", Name: fmt.Sprintf("stego_revision_%x", hash[:12]), Kind: "function"},
+			gen.BackupObject{Schema: "public", Name: "stego_resource_revision", Kind: "trigger"},
+		)
 	}
 	if ctx.ComponentConfig["schema_generation"] != nil {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
@@ -297,6 +324,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
 		})
+		wiring.BackupObjects = append(wiring.BackupObjects,
+			gen.BackupObject{Schema: "stego_schema", Name: "generation", Kind: "table"},
+			gen.BackupObject{Schema: "stego_schema", Name: "identity", Kind: "table"},
+			gen.BackupObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence"},
+			gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"},
+		)
 	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
@@ -342,6 +375,7 @@ var reservedTypeNames = map[string]bool{
 	"SchemaGeneration":   true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
 	"ErrDatabaseRollback": true, "databaseIdentity": true, "databaseUUID": true, "DatabaseIdentity": true, "DatabaseEpoch": true, "DatabaseIdentityEpoch": true, "RememberDatabaseIdentity": true,
 	"ErrWriterFenced": true, "writerFence": true, "WriterLeaseCheck": true, "fenceAutocommit": true,
+	"RestoreRecord": true, "ReadRestoreRecord": true, "ReadRestoreRecordDB": true, "VerifyRestore": true, "VerifyRestoreDB": true, "ErrRestore": true,
 	"conditioncontract":        true,
 	"ResourceCondition":        true,
 	"ConditionUpdate":          true,

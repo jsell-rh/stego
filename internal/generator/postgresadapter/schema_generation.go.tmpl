@@ -145,6 +145,51 @@ func (i *databaseIdentity) observe(epoch int64, identity string) error {
  return ErrDatabaseRollback
 }
 
+// RestoreRecord names the state a restore must preserve together with the
+// database objects in the generated backup manifest. The schema generation
+// and definition identify the schema release; the database identity and
+// epoch identify the exact data generation. A backup without these values
+// cannot be verified after restore.
+type RestoreRecord struct {
+ SchemaGeneration string
+ SchemaDefinition string
+ DatabaseIdentity string
+ DatabaseEpoch     int64
+}
+
+// ErrRestore is returned when the database does not match a recorded restore
+// point. The store stays usable; verification is read-only.
+var ErrRestore = errors.New("database does not match the recorded restore point")
+
+// ReadRestoreRecord reads the restore record from the live database. Record
+// it together with the backup so the restore can be verified.
+func (s *Store) ReadRestoreRecord(ctx context.Context) (RestoreRecord, error) {
+ if s == nil || s.db == nil { return RestoreRecord{}, ErrRestore }
+ record := RestoreRecord{SchemaGeneration: SchemaGeneration, SchemaDefinition: SchemaDefinition}
+ db := s.db.WithContext(ctx)
+ if err := db.Raw("SELECT database_id FROM stego_schema.identity WHERE singleton").Scan(&record.DatabaseIdentity).Error; err != nil || record.DatabaseIdentity == "" { return RestoreRecord{}, ErrRestore }
+ var row struct{ Last int64; Called bool }
+ if err := db.Raw("SELECT last_value AS last, is_called AS called FROM stego_schema.epoch_seq").Scan(&row).Error; err != nil { return RestoreRecord{}, ErrRestore }
+ record.DatabaseEpoch = row.Last
+ return record, nil
+}
+
+// VerifyRestore checks a restored database against a record taken with the
+// backup. It runs the schema verification and the epoch check first: a
+// restored backup fails there. It then requires the recorded identity and
+// epoch to match the database exactly, so a partial restore that mixes
+// objects from different points in time is rejected. It reads only.
+func (s *Store) VerifyRestore(ctx context.Context, record RestoreRecord) error {
+ if s == nil || s.db == nil { return ErrRestore }
+ if record.SchemaGeneration != SchemaGeneration || record.SchemaDefinition != SchemaDefinition { return ErrRestore }
+ db := s.db.WithContext(ctx)
+ if err := VerifySchema(db); err != nil { return err }
+ current, err := s.ReadRestoreRecord(ctx)
+ if err != nil { return err }
+ if current.DatabaseIdentity != record.DatabaseIdentity || current.DatabaseEpoch != record.DatabaseEpoch { return ErrRestore }
+ return nil
+}
+
 // VerifySchema reads the release marker before storage can serve requests.
 // The application role needs SELECT, but must not have schema or table DDL rights.
 func VerifySchema(db *gorm.DB) error {
@@ -155,6 +200,16 @@ func VerifySchema(db *gorm.DB) error {
   if err!=nil || !found {return ErrSchemaGeneration}
   return nil
  },&sql.TxOptions{ReadOnly:true,Isolation:sql.LevelReadCommitted})
+}
+// ReadRestoreRecordDB and VerifyRestoreDB are the package-level forms used
+// before a Store exists. They share the Store methods' checks.
+func ReadRestoreRecordDB(db *gorm.DB) (RestoreRecord, error) {
+ s := &Store{db: db}
+ return s.ReadRestoreRecord(db.Statement.Context)
+}
+func VerifyRestoreDB(db *gorm.DB, record RestoreRecord) error {
+ s := &Store{db: db}
+ return s.VerifyRestore(db.Statement.Context, record)
 }
 
 // BootstrapSchema initializes only an empty database. All callback statements
