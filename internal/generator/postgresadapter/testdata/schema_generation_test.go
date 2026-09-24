@@ -573,6 +573,83 @@ func TestWriterLeaseFailsClosedWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestRestoreRecordRoundTripAndVerification(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := storage.ReadRestoreRecordDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.SchemaGeneration != storage.SchemaGeneration || record.SchemaDefinition != storage.SchemaDefinition || record.DatabaseIdentity == "" || record.DatabaseEpoch < 1 {
+		t.Fatal("restore record is incomplete", record)
+	}
+	if err := store.VerifyRestore(context.Background(), record); err != nil {
+		t.Fatal("a current database failed its own restore record", err)
+	}
+}
+
+func TestVerifyRestoreRejectsStaleAndForeignRecords(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Advance the epoch so a restart to the beginning is a real mismatch.
+	// A fresh sequence reports epoch 1 before the first write, so two
+	// writes are needed for a record above the restart value.
+	for _, name := range []string{"one", "two"} {
+		if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+			return tx.Create(ctx, "Record", map[string]any{"name": name})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record, err := store.ReadRestoreRecord(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.DatabaseEpoch < 2 {
+		t.Fatal("epoch did not advance over a write", record)
+	}
+	// A backup taken before further writes carries a lower epoch.
+	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1").Error; err != nil {
+		t.Fatal(err)
+	}
+	// Note: the epoch check inside VerifyRestore runs first; a store that
+	// already observed the higher epoch fails closed there.
+	fresh, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.VerifyRestore(context.Background(), record); !errors.Is(err, storage.ErrRestore) {
+		t.Fatal("a stale restore record was accepted", err)
+	}
+	// A record from a different database is rejected on identity.
+	if err := db.Exec("UPDATE stego_schema.identity SET database_id='foreign' WHERE singleton").Error; err != nil {
+		t.Fatal(err)
+	}
+	foreign := record
+	foreign.DatabaseIdentity = "foreign"
+	if err := storage.VerifyRestoreDB(db, foreign); !errors.Is(err, storage.ErrRestore) {
+		t.Fatal("a foreign restore record was accepted", err)
+	}
+	// A record from a different schema release is rejected up front.
+	other := record
+	other.SchemaGeneration = "other-release"
+	if err := storage.VerifyRestoreDB(db, other); !errors.Is(err, storage.ErrRestore) {
+		t.Fatal("a foreign schema release was accepted", err)
+	}
+}
+
 func TestFreshStoreRejectsReplacedIdentity(t *testing.T) {
 	db := schemaDB(t)
 	if err := storage.Migrate(db); err != nil {

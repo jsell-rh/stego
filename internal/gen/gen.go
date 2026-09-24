@@ -227,6 +227,12 @@ type Wiring struct {
 	// The compiler rejects duplicate ownership and unsafe permission sets.
 	DatabaseAccess []DatabaseObject
 
+	// BackupObjects names database objects that a backup of the application
+	// database must include so a restore stays usable. The compiler merges
+	// these into one operator manifest next to the access manifest. The
+	// empty set means the component has no database objects of its own.
+	BackupObjects []BackupObject
+
 	// VerifyDatabaseAccess requires a separate runtime role before startup.
 	// The component must also declare its database objects and database use.
 	VerifyDatabaseAccess bool

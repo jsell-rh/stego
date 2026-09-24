@@ -65,5 +65,13 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := gen.ValidateNamespace(ctx.OutputNamespace, files); err != nil {
 		return nil, nil, err
 	}
-	return files, &gen.Wiring{GoModRequires: map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}}, nil
+	wiring := &gen.Wiring{GoModRequires: map[string]string{"github.com/jackc/pgx/v5": "v5.11.0"}}
+	// The provisioning ledger and server identity move with the database
+	// they describe. A backup that skips them loses the provisioned
+	// resource records and the marker that detects a replaced server.
+	wiring.BackupObjects = []gen.BackupObject{
+		{Schema: "stego_provisioning", Name: "resources", Kind: "table"},
+		{Schema: "stego_provisioning", Name: "server_identity", Kind: "table"},
+	}
+	return files, wiring, nil
 }

@@ -1,0 +1,149 @@
+{
+  "format": 1,
+  "objects": [
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "audit_events",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "org_settings",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "organizations",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_effect_binding_guard",
+        "kind": "trigger"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_effect_bindings",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_guard_effect_binding",
+        "kind": "function"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_guard_resource_state",
+        "kind": "function"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_guard_resource_state_scope",
+        "kind": "function"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_resource_state",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_resource_state_guard",
+        "kind": "trigger"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_resource_state_key_guard",
+        "kind": "trigger"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_resource_state_scope_guard",
+        "kind": "trigger"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_resource_state_scopes",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_scan_checkpoints",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "stego_track_resource_state_keys",
+        "kind": "function"
+      }
+    },
+    {
+      "component": "postgres-adapter",
+      "object": {
+        "schema": "public",
+        "name": "users",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "outbox",
+      "object": {
+        "schema": "stego_outbox",
+        "name": "messages",
+        "kind": "table"
+      }
+    },
+    {
+      "component": "outbox",
+      "object": {
+        "schema": "stego_outbox",
+        "name": "messages_sequence_seq",
+        "kind": "sequence"
+      }
+    }
+  ]
+}

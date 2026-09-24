@@ -75,6 +75,10 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	backupFiles, err := generateBackupContract(input.Wirings)
+	if err != nil {
+		return nil, err
+	}
 	mainGo, err := generateMainGo(input)
 	if err != nil {
 		return nil, fmt.Errorf("generating main.go: %w", err)
@@ -87,6 +91,7 @@ func Assemble(input AssemblerInput) ([]gen.File, error) {
 
 	files := []gen.File{mainGo, goMod}
 	files = append(files, accessFiles...)
+	files = append(files, backupFiles...)
 	if hasAnyRoutes(input) {
 		files = append(files, httpTLSFiles()...)
 	}

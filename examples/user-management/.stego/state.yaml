@@ -29,9 +29,9 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260924084721-d11cd4ea761e
+        module_version: v0.0.0-20260924101307-af3350b52cdf
         vcs: git
-        revision: d11cd4ea761ed9e718924b5a99c4f8948f522b9a
+        revision: af3350b52cdf41c03e8048db6652cea97348160d
         source_state: clean
     service_hash: df9112176f2dcaf28257689abc0fedd964b29998195268acc4804137c064b9b1
     registry_sha: env-override
@@ -112,6 +112,7 @@ last_applied:
               type: jsonb
               hash: 7010470968f065336b064ccdff88745bce15c1ba5deaf386e3c39d08ec627970
     files:
+        contracts/backup/backup.json: 6f9d9d35e66ee060fa00bf3996c1db862edb5d1f32f911691c6af01fa8aa6db7
         contracts/databaseaccess/access.go: 7f4164bd49ccdb206f242d13ad2863d7ee5740b427184c0b46facf0835f2fe0f
         contracts/databaseaccess/access.json: 4920206b53724446970e4b45af4e168f37cf0ac19b44dc4a1388922046795a29
         contracts/events/events.go: db027ed6920450da2cfd51e0145f394eb82e248fa418f33efe9f6f41edce6d97

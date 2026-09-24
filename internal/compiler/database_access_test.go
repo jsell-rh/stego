@@ -82,6 +82,81 @@ func TestDatabaseAccessDeclaration(t *testing.T) {
 	}
 }
 
+func TestBackupContractManifest(t *testing.T) {
+	table := gen.BackupObject{Schema: "public", Name: "records", Kind: "table"}
+	trigger := gen.BackupObject{Schema: "public", Name: "stego_resource_revision", Kind: "trigger"}
+	first := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{BackupObjects: []gen.BackupObject{table, trigger}}}}
+	a, err := generateBackupContract(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a) != 1 || a[0].Path != gen.BackupContractNamespace+"/backup.json" {
+		t.Fatal("missing backup manifest artifact")
+	}
+	var manifest struct {
+		Format  int `json:"format"`
+		Objects []struct {
+			Component string           `json:"component"`
+			Object    gen.BackupObject `json:"object"`
+		} `json:"objects"`
+	}
+	if json.Unmarshal(a[0].Bytes(), &manifest) != nil || manifest.Format != 1 || len(manifest.Objects) != 2 {
+		t.Fatal("invalid backup manifest")
+	}
+	if manifest.Objects[0].Object.Name != "records" || manifest.Objects[0].Component != "records" {
+		t.Fatal("backup manifest is not ordered or attributed", manifest.Objects)
+	}
+	second := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{BackupObjects: []gen.BackupObject{trigger, table}}}}
+	b, err := generateBackupContract(second)
+	if err != nil || !reflect.DeepEqual(a, b) {
+		t.Fatal("backup manifest differs by declaration order", err)
+	}
+	for _, mode := range []string{"duplicate", "invalid-kind", "system-schema", "bad-name"} {
+		item := table
+		switch mode {
+		case "duplicate":
+			item = table
+		case "invalid-kind":
+			item = gen.BackupObject{Schema: "public", Name: "records", Kind: "database"}
+		case "system-schema":
+			item = gen.BackupObject{Schema: "pg_catalog", Name: "records", Kind: "table"}
+		case "bad-name":
+			item = gen.BackupObject{Schema: "public", Name: "records\"", Kind: "table"}
+		}
+		wirings := []ComponentWiring{{Name: "other", Wiring: &gen.Wiring{BackupObjects: []gen.BackupObject{item}}}}
+		if mode == "duplicate" {
+			wirings = append(wirings, ComponentWiring{Name: "records", Wiring: &gen.Wiring{BackupObjects: []gen.BackupObject{table}}})
+		}
+		other := wirings
+		if _, err := generateBackupContract(other); err == nil {
+			t.Fatal("unsafe backup declaration was accepted", mode)
+		}
+	}
+	empty, err := generateBackupContract(nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatal("service without backup objects changed")
+	}
+	// The assembler emits the manifest next to the access artifacts.
+	w := databaseOpenerFixture()
+	w.NeedsDB = true
+	w.DBBackend = "gorm"
+	w.BackupObjects = []gen.BackupObject{table}
+	w.DatabaseAccess = []gen.DatabaseObject{{Schema: "public", Name: "records", Kind: "table", Privileges: []string{"SELECT"}}}
+	files, err := Assemble(AssemblerInput{ModuleName: "example.com/access", GoVersion: "1.26.8", OutDirName: "out", Wirings: []ComponentWiring{{Name: "store", Wiring: w}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, file := range files {
+		if file.Path == gen.BackupContractNamespace+"/backup.json" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("assembler did not emit the backup manifest")
+	}
+}
+
 func TestDatabaseAccessStartup(t *testing.T) {
 	for _, backend := range []string{"", "gorm"} {
 		for _, used := range []bool{false, true} {
