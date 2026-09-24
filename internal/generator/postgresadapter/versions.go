@@ -78,9 +78,10 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		HasObservations                   bool
 		HasCleanup                        bool
 		HasCleanupTargets                 bool
+		Fence                             bool
 		Entities                          []entity
 		Statements                        []string
-	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Fence: ctx.ComponentConfig["schema_generation"] != nil}
 	if ctx.StorageContract == "" && ctx.ModuleName != "" && ctx.PeerNamespaces["rest-api"] != "" {
 		data.NotFoundImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["rest-api"])
 	}

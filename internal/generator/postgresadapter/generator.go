@@ -294,6 +294,9 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"USAGE"},
 		})
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
+		})
 	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
@@ -338,6 +341,7 @@ var reservedTypeNames = map[string]bool{
 	"StegoEffectBinding": true,
 	"SchemaGeneration":   true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
 	"ErrDatabaseRollback": true, "databaseIdentity": true, "databaseUUID": true, "DatabaseIdentity": true, "DatabaseEpoch": true, "DatabaseIdentityEpoch": true, "RememberDatabaseIdentity": true,
+	"ErrWriterFenced": true, "writerFence": true, "WriterLeaseCheck": true, "fenceAutocommit": true,
 	"conditioncontract":        true,
 	"ResourceCondition":        true,
 	"ConditionUpdate":          true,
@@ -827,6 +831,7 @@ func filterKeys[V any](values map[string]V) []string {
 	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
 	if ctx.ComponentConfig["schema_generation"] != nil {
 		fmt.Fprintf(&buf, "\tidentity *databaseIdentity\n")
+		fmt.Fprintf(&buf, "\tfence *writerFence\n")
 	}
 	fmt.Fprintf(&buf, "}\n\n")
 
@@ -860,7 +865,7 @@ func filterKeys[V any](values map[string]V) []string {
 		fmt.Fprintln(&buf, "if err := verifyResourceStateScopes(db); err != nil { return nil, err }")
 	}
 	if ctx.ComponentConfig["schema_generation"] != nil {
-		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}}, nil\n")
+		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}, fence: &writerFence{}}, nil\n")
 	} else {
 		fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	}

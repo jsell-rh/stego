@@ -9,7 +9,8 @@ import (
  "sync"
 
  stegooutbox {{printf "%q" .OutboxImport}}
-)
+ {{if .Fence}}stegostorage {{printf "%q" .StorageImport}}
+{{end}})
 
 // Runtime owns the Kafka publisher and the outbox delivery worker.
 // Run can be called once. Close cancels Run and waits for worker cleanup.
@@ -24,11 +25,17 @@ type Runtime struct {
 }
 
 // NewRuntime reads deployment settings. Secret values come from files.
-func NewRuntime(ctx context.Context, db *sql.DB) (*Runtime, error) {
+{{if .Fence}}// The storage store supplies the writer-lease check: this runtime stops
+// claiming outbox work when its process loses the database writer lease.
+func NewRuntime(store *stegostorage.Store, ctx context.Context, db *sql.DB) (*Runtime, error) {
+ config, err := ConfigFromEnvironment()
+ if err != nil { return nil, err }
+ return NewRuntimeWithConfig(store, ctx, db, config)
+}{{else}}func NewRuntime(ctx context.Context, db *sql.DB) (*Runtime, error) {
  config, err := ConfigFromEnvironment()
  if err != nil { return nil, err }
  return NewRuntimeWithConfig(ctx, db, config)
-}
+}{{end}}
 
 func ConfigFromEnvironment() (Config, error) {
  read := func(name string) (string, error) {
@@ -49,10 +56,14 @@ func ConfigFromEnvironment() (Config, error) {
  }, nil
 }
 
-func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+{{if .Fence}}func NewRuntimeWithConfig(store *stegostorage.Store, ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
+ if ctx == nil { return nil, errors.New("Kafka runtime requires a context") }
+ if store == nil { return nil, errors.New("Kafka runtime requires a storage store") }
+ queue, err := stegooutbox.NewWithFence(db, store.WriterLeaseCheck)
+ if err != nil { return nil, err }{{else}}func NewRuntimeWithConfig(ctx context.Context, db *sql.DB, config Config) (*Runtime, error) {
  if ctx == nil { return nil, errors.New("Kafka runtime requires a context") }
  queue, err := stegooutbox.New(db)
- if err != nil { return nil, err }
+ if err != nil { return nil, err }{{end}}
  if err := queue.Check(ctx); err != nil { return nil, err }
  publisher, err := New(ctx, config)
  if err != nil { return nil, err }

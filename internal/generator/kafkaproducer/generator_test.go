@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jsell-rh/stego/internal/gen"
@@ -16,6 +17,69 @@ var publisherTests []byte
 
 //go:embed testdata/integration_test.go
 var integrationTests []byte
+
+func TestKafkaRuntimeFenceWiring(t *testing.T) {
+	base := gen.Context{OutputNamespace: "publisher", ModuleName: "example.com/kafka-test"}
+	// Without a fenced postgres-adapter peer the runtime keeps the plain
+	// constructor and no store dependency.
+	plain, plainWiring, err := new(Generator).Generate(gen.Context{OutputNamespace: "publisher", ModuleName: "example.com/kafka-test", PeerNamespaces: map[string]string{"outbox": "queue"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainSource := findGeneratedSource(t, plain, "publisher/runtime.go")
+	if strings.Contains(plainSource, "NewWithFence") || strings.Contains(plainSource, "stegostorage") {
+		t.Fatal("unfenced runtime references the fence")
+	}
+	if len(plainWiring.ConstructorDeps) != 0 {
+		t.Fatal("unfenced runtime declares constructor dependencies")
+	}
+	// With a fenced postgres-adapter peer the runtime claims work only while
+	// its process holds the database writer lease.
+	fenced, fencedWiring, err := new(Generator).Generate(gen.Context{
+		OutputNamespace: "publisher", ModuleName: "example.com/kafka-test",
+		PeerNamespaces: map[string]string{"outbox": "queue", "postgres-adapter": "storage"},
+		PeerConfigs:    map[string]map[string]any{"postgres-adapter": {"schema_generation": "fresh-v1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fencedSource := findGeneratedSource(t, fenced, "publisher/runtime.go")
+	for _, required := range []string{"NewWithFence(db, store.WriterLeaseCheck)", "store *stegostorage.Store", `"example.com/kafka-test/storage"`} {
+		if !strings.Contains(fencedSource, required) {
+			t.Fatalf("fenced runtime missing %q", required)
+		}
+	}
+	if len(fencedWiring.Constructors) != 1 || fencedWiring.Constructors[0] != "publisher.NewRuntime(store)" {
+		t.Fatal("fenced runtime constructor is wrong", fencedWiring.Constructors)
+	}
+	if !slicesEqual(fencedWiring.ConstructorDeps[0], []string{"store"}) {
+		t.Fatal("fenced runtime constructor dependencies are wrong", fencedWiring.ConstructorDeps)
+	}
+	_ = base
+}
+
+func findGeneratedSource(t *testing.T, files []gen.File, name string) string {
+	t.Helper()
+	for _, file := range files {
+		if file.Path == name {
+			return string(file.Content)
+		}
+	}
+	t.Fatalf("generated file %q is missing", name)
+	return ""
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func TestGeneratedKafkaPublisher(t *testing.T) {
 	postgresDSN := os.Getenv("STEGO_TEST_POSTGRES_DSN")
