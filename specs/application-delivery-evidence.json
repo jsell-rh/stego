@@ -357,5 +357,26 @@
     ],
     "component_version": "4.11.0",
     "security_model": "The identity table and epoch sequence get the same marker-shape hardening as stego_schema.generation: owner equals the schema owner, no RLS, inheritance, or partitioning, and grants limited to SELECT and USAGE. Existing databases fail closed on the identity-shape check; adoption requires a schema_generation name bump."
+  },
+  "writer_fencing": {
+    "implemented_by": "1c1a1c1d",
+    "pr": 4,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/35979520990/job/107567816501",
+    "mechanism": "A schema_generation store takes the stego_schema.writer_lease row on its first write (newest writer wins, unconditionally) and re-asserts it inside every write transaction and every direct versioned autocommit write. A store that lost the lease latches ErrWriterFenced and fails closed permanently. WriterLeaseCheck reports lease ownership without writing so background workers (outbox Claim through NewWithFence, kafka-producer NewRuntime) stop claiming work after a takeover.",
+    "tests": [
+      "TestWriterLeaseTakeoverFencesStaleStore",
+      "TestWriterLeaseFencesDirectWrites",
+      "TestWriterLeaseCheckBeforeFirstWrite",
+      "TestWriterLeaseFailsClosedWhenAbsent",
+      "TestKafkaRuntimeFenceWiring"
+    ],
+    "checks": [
+      "takeover, direct-write, pre-take, and absent-lease cases in the generated test module against live PostgreSQL",
+      "compiler database-access integration grants SELECT and UPDATE on writer_lease and fails closed on altered shapes",
+      "full internal/generator/postgresadapter, internal/compiler, internal/generator/outbox, internal/generator/kafkaproducer, and internal/registry suites green locally and in CI",
+      "example projects regenerated with the fence and CI-recorded state committed"
+    ],
+    "component_version": "postgres-adapter 4.12.0, outbox 1.3.0, kafka-producer 1.1.0",
+    "security_model": "The lease table is created by the bootstrap DDL with REVOKE from PUBLIC and a seeded empty holder row; readSchemaGeneration verifies its two-column shape from the catalogs and fails closed when absent or altered. The runtime role holds SELECT and UPDATE on writer_lease only; the lease is asserted and read, never anything else. Fencing rides the existing opt-in schema_generation gate, so stores without it are unchanged."
   }
 }
