@@ -29,9 +29,9 @@ last_applied:
         go_version: go1.26.8
         goos: linux
         goarch: amd64
-        module_version: v0.0.0-20260924134419-053113c16bf2
+        module_version: v0.0.0-20260924163037-1358832c01bc
         vcs: git
-        revision: 053113c16bf213a47a53d3b303e4f2f8ec0ea97c
+        revision: 1358832c01bc4af852c7a1dbd908083b5ec17985
         source_state: clean
     service_hash: 40aa411da16d99a025ea81b2c13702b86cacd06678d0825757c4865830bee705
     registry_sha: env-override
@@ -139,7 +139,7 @@ last_applied:
         internal/storage/database.go: 2969e645f09850b504ad2725978a15d1ccad3147efb4a450d7360be23ffef627
         internal/storage/effects.go: 9254b7a8f403f94c59505f739a49f0ddd7cab75bfddfe8ea4b2060807af1edc4
         internal/storage/generic_dao.go: c578166d1b47439fb19fcdd817315f5d5b2818dd798b90734a91a12f2dab8b8c
-        internal/storage/migrate.go: a9ef01422cf6183974e3f93db4241d2ac01a9d384feaeecbf8fa6355d2aaea67
+        internal/storage/migrate.go: 437ef79ba7309ba3090dfc7bbc1421f25a03df0e03c54213bdaf399b2bd6e634
         internal/storage/migrations/000006_scan_checkpoints.sql: 148a9b3aa6ac989ce458b5d878e6f5b250ecc1f10762331dd1df0adcc82e9f95
         internal/storage/migrations/000008_effect_bindings.sql: aa6ed402091e352159c9cf88401d7287ba9ebd18236ff11eb0ac7721a8191564
         internal/storage/migrations/000009_resource_state.sql: 8a44cde312e27bafcfc1fd3cc074d75a335458d72215086100504be231c7a67d

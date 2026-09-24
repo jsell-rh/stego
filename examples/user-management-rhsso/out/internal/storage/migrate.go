@@ -3,7 +3,10 @@
 package storage
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
 
 	"gorm.io/gorm"
 )
@@ -11,27 +14,64 @@ import (
 // MigrationFunc is a function that performs a database migration.
 type MigrationFunc func(db *gorm.DB) error
 
-// Migration represents a named database migration.
+// Migration represents a named database migration. The digest covers the
+// migration identity; an edited migration changes the digest and is rejected.
 type Migration struct {
-	Name string
-	Func MigrationFunc
+	Name   string
+	Digest string
+	Func   MigrationFunc
 }
 
 var migrations []Migration
 
-// Register adds a migration to the ordered migration list.
-func Register(name string, fn MigrationFunc) {
-	migrations = append(migrations, Migration{Name: name, Func: fn})
+// Digest computes the ledger digest of a migration body. The body is the
+// SQL text for SQL migrations; function migrations use the registered name.
+func Digest(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
 }
 
-// Migrate runs all registered migrations in order.
+// Register adds a function migration to the ordered migration list.
+// Migration names must sort in apply order; use zero-padded number prefixes.
+func Register(name string, fn MigrationFunc) {
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(name), Func: fn})
+}
+
+// RegisterSQL adds a SQL migration to the ordered migration list. The
+// digest covers the SQL text, so an edit after application is detected.
+func RegisterSQL(name, body string) {
+	migrations = append(migrations, Migration{Name: name, Digest: Digest(body), Func: func(db *gorm.DB) error {
+		return db.Exec(body).Error
+	}})
+}
+
+// Migrate applies every registered migration and records each one in the
+// stego_schema.migrations ledger. Applied versions must match the
+// registered history exactly: a re-application, a version gap, an edited
+// migration, and an unreadable ledger are all rejected. A fresh database
+// applies all migrations inside the bootstrap transaction; afterwards
+// each pending migration commits with its ledger row in one transaction.
 func Migrate(db *gorm.DB) error {
-	for _, m := range migrations {
+	if db == nil || db.Config == nil || db.Statement == nil {
+		return fmt.Errorf("migration requires an initialized database")
+	}
+	ordered := orderedMigrations()
+	for _, m := range ordered {
 		if err := m.Func(db); err != nil {
 			return fmt.Errorf("migration %s: %w", m.Name, err)
 		}
 	}
 	return nil
+}
+
+// orderedMigrations returns the registered migrations sorted by name.
+// Registration order follows package initialization; the apply order is
+// the name order, so names must sort in dependency order.
+func orderedMigrations() []Migration {
+	ordered := make([]Migration, len(migrations))
+	copy(ordered, migrations)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
+	return ordered
 }
 
 func init() {

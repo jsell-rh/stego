@@ -678,3 +678,124 @@ func TestFreshStoreRejectsReplacedIdentity(t *testing.T) {
 		t.Fatal("identity change after restart was accepted", err)
 	}
 }
+
+func ledgerApplied(t *testing.T, db *gorm.DB) []string {
+	t.Helper()
+	versions, err := storage.AppliedMigrations(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return versions
+}
+
+func TestMigrationLedgerRecordsBootstrapAndRestart(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	applied := ledgerApplied(t, db)
+	if len(applied) == 0 {
+		t.Fatal("bootstrap recorded no migrations")
+	}
+	want := "001_initial"
+	if applied[0] != want {
+		t.Fatal("initial migration is not recorded first", applied)
+	}
+	// A restart with the same registrations applies nothing new.
+	before := ledgerApplied(t, db)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	after := ledgerApplied(t, db)
+	if len(before) != len(after) {
+		t.Fatal("restart applied migrations again", before, after)
+	}
+}
+
+func TestMigrationLedgerAppliesNewRegistrations(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	storage.Register("900_ledger_test", func(db *gorm.DB) error {
+		return db.Exec("CREATE TABLE ledger_probe (id boolean PRIMARY KEY)").Error
+	})
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, version := range ledgerApplied(t, db) {
+		if version == "900_ledger_test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("new registration was not applied")
+	}
+	// A second run does not re-apply it.
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	// Re-application is rejected even through the SQL entry point.
+	if err := storage.ApplyMigration(db, "900_ledger_test", "CREATE TABLE ledger_probe (id boolean PRIMARY KEY)"); err == nil {
+		t.Fatal("re-application was accepted")
+	}
+}
+
+func TestMigrationLedgerRejectsGapsAndDrift(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	applied := ledgerApplied(t, db)
+	// An edited migration changes its digest; the ledger row no longer
+	// matches the registered history and the next run refuses to continue.
+	if err := db.Exec("UPDATE stego_schema.migrations SET digest='tampered' WHERE version=?", applied[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+		t.Fatal("digest drift was accepted", err)
+	}
+	// A ledger row for a version the code never registered is a foreign
+	// history; it is rejected rather than trusted.
+	if err := db.Exec("UPDATE stego_schema.migrations SET digest=(SELECT digest FROM stego_schema.migrations LIMIT 1) WHERE version=?", applied[0]).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO stego_schema.migrations(version,digest) VALUES('zzz_foreign','x')").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Migrate(db); !errors.Is(err, storage.ErrMigrationLedger) {
+		t.Fatal("a foreign ledger row was accepted", err)
+	}
+}
+
+func TestApplyMigrationRecordsAndValidates(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	body := "CREATE TABLE ledger_external (id boolean PRIMARY KEY)"
+	if err := storage.ApplyMigration(db, "902_ledger_external", body); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.ApplyMigration(db, "902_ledger_external", body); err == nil {
+		t.Fatal("external re-application was accepted")
+	}
+	// An edited body on the same version is drift.
+	if err := storage.ApplyMigration(db, "902_ledger_external", "CREATE TABLE ledger_external2 (id boolean PRIMARY KEY)"); err == nil {
+		t.Fatal("digest drift was accepted")
+	}
+	// A version before the recorded history is a rollback.
+	if err := storage.ApplyMigration(db, "000_ledger_rollback", "CREATE TABLE ledger_rollback (id boolean PRIMARY KEY)"); err == nil {
+		t.Fatal("a rolled-back version was accepted")
+	}
+	found := false
+	for _, version := range ledgerApplied(t, db) {
+		if version == "902_ledger_external" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("external migration was not recorded")
+	}
+}
