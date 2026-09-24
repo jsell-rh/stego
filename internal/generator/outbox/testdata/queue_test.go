@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -88,6 +89,149 @@ func count(t *testing.T, db *sql.DB, table string) int {
 		t.Fatal(err)
 	}
 	return count
+}
+
+func TestBlockedListsEachStuckKeyOnce(t *testing.T) {
+	db := testDatabase(t)
+	q, _ := New(db)
+	enqueue(t, db, message("stuck"), message("stuck"), message("moving"), message("other"))
+	deliveries, err := q.Claim(context.Background(), 2, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deliveries) != 2 {
+		t.Fatal("claim did not lease the two oldest keys", len(deliveries))
+	}
+	blocked, err := q.Blocked(context.Background(), MaxBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A key blocks while its oldest message is inside a delivery attempt.
+	// The unclaimed key is ready, not blocked: it can progress.
+	if len(blocked) != 2 {
+		t.Fatal("blocked view does not show the in-flight keys", blocked)
+	}
+	var keys []string
+	for _, item := range blocked {
+		if item.Destination != "audit" || item.BlockedSince.IsZero() || item.AvailableAt.IsZero() {
+			t.Fatal("blocked view is incomplete", item)
+		}
+		keys = append(keys, item.ResourceKey)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, ",") != "moving,stuck" {
+		t.Fatal("blocked view is not one entry per in-flight key", keys)
+	}
+	// A retry with a failure code keeps the key blocked for its delay, with
+	// the reason visible.
+	if _, err := q.Retry(context.Background(), deliveries[0].Receipt, time.Minute, "delivery-failed"); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err = q.Blocked(context.Background(), MaxBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blocked) != 2 {
+		t.Fatal("retrying a key did not keep it blocked", blocked)
+	}
+	found := ""
+	for _, item := range blocked {
+		if item.ResourceKey == deliveries[0].ResourceKey {
+			found = item.FailureCode
+		}
+	}
+	if found != "delivery-failed" {
+		t.Fatal("blocked view lost the failure code", blocked)
+	}
+	// Once the retry delay passes and no lease is held, the key is ready
+	// again: the operator view no longer lists it as blocked.
+	if _, err := db.Exec("UPDATE stego_outbox.messages SET available_at = clock_timestamp() WHERE failure_code <> ''"); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err = q.Blocked(context.Background(), MaxBatchSize)
+	if err != nil || len(blocked) != 1 || blocked[0].ResourceKey != "moving" {
+		t.Fatal("a ready key stayed blocked", blocked, err)
+	}
+	for _, limit := range []int{0, MaxBatchSize + 1} {
+		if _, err := q.Blocked(context.Background(), limit); err == nil {
+			t.Fatal("invalid blocked limit was accepted")
+		}
+	}
+}
+
+func TestDeadLettersAndPurgeRemoveOnlyExhaustedMessages(t *testing.T) {
+	db := testDatabase(t)
+	q, _ := New(db)
+	enqueue(t, db, message("doomed"), message("doomed"), message("fresh"))
+	// Exhaust the doomed key: claim and retry it three times.
+	for i := 0; i < 3; i++ {
+		deliveries, err := q.Claim(context.Background(), 1, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(deliveries) != 1 || deliveries[0].ResourceKey != "doomed" {
+			t.Fatal("claim did not select the oldest key", deliveries)
+		}
+		if _, err := q.Retry(context.Background(), deliveries[0].Receipt, 0, "delivery-failed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dead, err := q.DeadLetters(context.Background(), MaxBatchSize, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the first doomed message is claimed per retry round; the second
+	// waits behind it. One exhausted message is enough to list the key.
+	if len(dead) != 1 {
+		t.Fatal("dead letters did not list the exhausted message", dead)
+	}
+	for _, item := range dead {
+		if item.ResourceKey != "doomed" || item.FailureCode != "delivery-failed" || item.Attempts < 3 || item.ID == uuid.Nil {
+			t.Fatal("dead letter view is incomplete", item)
+		}
+	}
+	// The fresh message stays below the threshold.
+	if dead, err := q.DeadLetters(context.Background(), MaxBatchSize, 4); err != nil || len(dead) != 0 {
+		t.Fatal("dead letters reported a message below the threshold", dead, err)
+	}
+	// Retention has not passed: nothing is removed.
+	removed, err := q.Purge(context.Background(), MaxBatchSize, 3, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 || count(t, db, "stego_outbox.messages") != 3 {
+		t.Fatal("purge removed messages before the retention period", removed)
+	}
+	// After retention passes, only the exhausted message is removed.
+	if _, err := db.Exec("UPDATE stego_outbox.messages SET available_at = clock_timestamp() - interval '2 hours' WHERE attempts >= 3"); err != nil {
+		t.Fatal(err)
+	}
+	removed, err = q.Purge(context.Background(), MaxBatchSize, 3, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 || count(t, db, "stego_outbox.messages") != 2 {
+		t.Fatal("purge did not remove exactly the dead letter", removed)
+	}
+	remaining, err := q.DeadLetters(context.Background(), MaxBatchSize, 1)
+	if err != nil || len(remaining) != 0 {
+		t.Fatal("dead letters remain after purge", remaining, err)
+	}
+	if count(t, db, "records") != 0 {
+		t.Fatal("purge changed application data")
+	}
+	for _, args := range []struct {
+		limit     int
+		attempts  int64
+		olderThan time.Duration
+	}{{0, 1, time.Hour}, {MaxBatchSize + 1, 1, time.Hour}, {1, 0, time.Hour}, {1, 1, 0}, {1, 1, 31 * 24 * time.Hour}} {
+		if _, err := q.Purge(context.Background(), args.limit, args.attempts, args.olderThan); err == nil {
+			t.Fatal("invalid purge limits were accepted")
+		}
+	}
+	if _, err := q.DeadLetters(context.Background(), 0, 1); err == nil {
+		t.Fatal("invalid dead-letter limit was accepted")
+	}
 }
 
 func TestWriteAndEventCommitTogether(t *testing.T) {

@@ -194,6 +194,106 @@ func (q *Queue) Retry(ctx context.Context, receipt Receipt, delay time.Duration,
     return changed(result, err)
 }
 
+// BlockedMessage reports one delivery key whose oldest message cannot be
+// delivered. Attempts and failure code show why delivery stopped. Operators
+// poll this set to find keys that need attention; it contains no payloads.
+type BlockedMessage struct {
+    Destination string
+    ResourceKey string
+    Attempts int64
+    FailureCode string
+    AvailableAt time.Time
+    BlockedSince time.Time
+}
+
+// Blocked lists the delivery keys that cannot progress right now, oldest
+// first. A key blocks when its earliest message is inside a delivery
+// attempt or waiting out a retry delay after a failure. Ready keys are
+// not blocked. Limit bounds the result; it must stay within one batch.
+func (q *Queue) Blocked(ctx context.Context, limit int) ([]BlockedMessage, error) {
+    if limit < 1 || limit > MaxBatchSize { return nil, errors.New("invalid outbox blocked limit") }
+    if q == nil || q.db == nil { return nil, errors.New("outbox requires a database") }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    rows, err := q.db.QueryContext(ctx, `SELECT m.destination, m.resource_key, m.attempts,
+        m.failure_code, m.available_at, m.created_at
+        FROM stego_outbox.messages AS m
+        WHERE NOT EXISTS (SELECT 1 FROM stego_outbox.messages AS earlier
+            WHERE earlier.destination = m.destination AND earlier.resource_key = m.resource_key
+              AND earlier.sequence < m.sequence)
+          AND (m.lease_until IS NOT NULL AND m.lease_until > clock_timestamp()
+               OR (m.failure_code <> '' AND m.available_at > clock_timestamp()))
+        ORDER BY m.sequence LIMIT $1`, limit)
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var blocked []BlockedMessage
+    for rows.Next() {
+        var item BlockedMessage
+        if err := rows.Scan(&item.Destination, &item.ResourceKey, &item.Attempts,
+            &item.FailureCode, &item.AvailableAt, &item.BlockedSince); err != nil { return nil, err }
+        blocked = append(blocked, item)
+    }
+    return blocked, rows.Err()
+}
+
+// DeadLetter reports one message that exhausted its delivery attempts and
+// waits for operator action. It contains no payload.
+type DeadLetter struct {
+    ID uuid.UUID
+    Destination string
+    ResourceKey string
+    Kind string
+    Attempts int64
+    FailureCode string
+    CreatedAt time.Time
+    AvailableAt time.Time
+}
+
+// DeadLetters lists messages whose attempt count reached the threshold,
+// oldest first. The worker retries forever by design; this view makes the
+// messages that never succeed visible before an operator acts on them.
+func (q *Queue) DeadLetters(ctx context.Context, limit int, attempts int64) ([]DeadLetter, error) {
+    if limit < 1 || limit > MaxBatchSize || attempts < 1 { return nil, errors.New("invalid outbox dead-letter limits") }
+    if q == nil || q.db == nil { return nil, errors.New("outbox requires a database") }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    rows, err := q.db.QueryContext(ctx, `SELECT id, destination, resource_key, kind, attempts,
+        failure_code, created_at, available_at
+        FROM stego_outbox.messages WHERE attempts >= $2
+        ORDER BY sequence LIMIT $1`, limit, attempts)
+    if err != nil { return nil, err }
+    defer rows.Close()
+    var dead []DeadLetter
+    for rows.Next() {
+        var item DeadLetter
+        if err := rows.Scan(&item.ID, &item.Destination, &item.ResourceKey, &item.Kind,
+            &item.Attempts, &item.FailureCode, &item.CreatedAt, &item.AvailableAt); err != nil { return nil, err }
+        dead = append(dead, item)
+    }
+    return dead, rows.Err()
+}
+
+// Purge removes dead letters older than the retention period. A message is
+// only removed when its attempts reached the threshold and its last retry
+// fell due before the cutoff; messages still scheduled or below the
+// threshold are never discarded. The limit bounds one call; repeat calls
+// remove the remainder. It returns the number of removed messages.
+func (q *Queue) Purge(ctx context.Context, limit int, attempts int64, olderThan time.Duration) (int64, error) {
+    if limit < 1 || limit > MaxBatchSize || attempts < 1 || olderThan <= 0 || olderThan > 30*24*time.Hour {
+        return 0, errors.New("invalid outbox purge limits")
+    }
+    if q == nil || q.db == nil { return 0, errors.New("outbox requires a database") }
+    ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+    defer cancel()
+    result, err := q.db.ExecContext(ctx, `DELETE FROM stego_outbox.messages
+        WHERE id IN (SELECT id FROM stego_outbox.messages
+            WHERE attempts >= $2 AND available_at <= clock_timestamp() - $3 * interval '1 millisecond'
+            ORDER BY sequence LIMIT $1)`, limit, attempts, olderThan.Milliseconds())
+    if err != nil { return 0, err }
+    count, err := result.RowsAffected()
+    return count, err
+}
+
 func changed(result sql.Result, err error) (bool, error) {
     if err != nil { return false, err }
     count, err := result.RowsAffected()

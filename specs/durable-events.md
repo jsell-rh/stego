@@ -29,8 +29,13 @@ The queue has these rules:
 - Workers claim pending messages with row locks and `SKIP LOCKED`. Each claim has
   a random lease token. Acknowledge and retry require the current, unexpired token.
 - A failed message remains stored. Its retry delay blocks later messages for that
-  destination and resource key. Other keys can progress. Operator tools must make
-  blocked messages visible before this feature is ready for production.
+  destination and resource key. Other keys can progress. The queue provides the
+  operator views: `Blocked` lists each delivery key that cannot progress right
+  now (its oldest message is inside a delivery attempt or waiting out a retry
+  delay) with its attempt count, failure code, and timing; `DeadLetters` lists
+  messages whose attempts reached a threshold; `Purge` removes dead letters
+  past a retention period only, in bounded batches, and never discards messages
+  below the threshold or still scheduled for retry.
 - Delivery is at least once. A worker can send a message and stop before it saves
   the acknowledgement. Consumers must use the stable ID to prevent duplicate
   effects. The queue does not claim exactly-once delivery to an external service.
