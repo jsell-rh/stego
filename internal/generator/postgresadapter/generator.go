@@ -288,6 +288,12 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"},
 		})
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "stego_schema", Name: "identity", Kind: "table", Privileges: []string{"SELECT"},
+		})
+		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"USAGE"},
+		})
 	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
@@ -331,6 +337,7 @@ var reservedTypeNames = map[string]bool{
 	"validEffectKey": true, "validEffectDigest": true, "readEffectBinding": true,
 	"StegoEffectBinding": true,
 	"SchemaGeneration":   true, "SchemaDefinition": true, "ErrSchemaGeneration": true, "VerifySchema": true, "BootstrapSchema": true, "readSchemaGeneration": true,
+	"ErrDatabaseRollback": true, "databaseIdentity": true, "databaseUUID": true, "DatabaseIdentity": true, "DatabaseEpoch": true, "DatabaseIdentityEpoch": true, "RememberDatabaseIdentity": true,
 	"conditioncontract":        true,
 	"ResourceCondition":        true,
 	"ConditionUpdate":          true,
@@ -818,6 +825,9 @@ func filterKeys[V any](values map[string]V) []string {
 	fmt.Fprintf(&buf, "// Store provides GORM-backed storage for all entities.\n")
 	fmt.Fprintf(&buf, "type Store struct {\n")
 	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
+	if ctx.ComponentConfig["schema_generation"] != nil {
+		fmt.Fprintf(&buf, "\tidentity *databaseIdentity\n")
+	}
 	fmt.Fprintf(&buf, "}\n\n")
 
 	fmt.Fprintln(&buf, "var schemaInitialization sync.Mutex")
@@ -849,7 +859,11 @@ func filterKeys[V any](values map[string]V) []string {
 		fmt.Fprintln(&buf, "if err := verifyResourceStates(db); err != nil { return nil, err }")
 		fmt.Fprintln(&buf, "if err := verifyResourceStateScopes(db); err != nil { return nil, err }")
 	}
-	fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
+	if ctx.ComponentConfig["schema_generation"] != nil {
+		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}}, nil\n")
+	} else {
+		fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
+	}
 	fmt.Fprintf(&buf, "}\n\n")
 
 	emitCreateMethod(&buf, entities, apiAlias)
