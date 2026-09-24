@@ -398,5 +398,25 @@
     ],
     "component_version": "postgres-adapter 4.12.0, outbox 1.3.0, kafka-producer 1.1.0",
     "security_model": "The lease table is created by the bootstrap DDL with REVOKE from PUBLIC and a seeded empty holder row; readSchemaGeneration verifies its two-column shape from the catalogs and fails closed when absent or altered. The runtime role holds SELECT and UPDATE on writer_lease only; the lease is asserted and read, never anything else. Fencing rides the existing opt-in schema_generation gate, so stores without it are unchanged."
+  },
+  "outbox_operability": {
+    "implemented_by": "f45e8cc9",
+    "pr": 6,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/36009250856/job/107665367719",
+    "mechanism": "The generated outbox queue gains three operator views over stego_outbox.messages. Blocked lists each delivery key whose oldest message is inside a delivery attempt (active lease) or waiting out a retry delay after a failure; ready keys are excluded, and each entry carries the attempt count, failure code, available_at, and blocked_since, with no payloads. DeadLetters lists messages whose attempt count reached a caller-chosen threshold, oldest first; the worker retries forever by design, so this view makes messages that never succeed visible before an operator acts. Purge removes dead letters past a retention period only, in bounded batches of at most MaxBatchSize; messages below the threshold or still scheduled for retry are never discarded. All three enforce the same five-second operation deadline and limit validation as the rest of the queue.",
+    "tests": [
+      "TestBlockedListsEachStuckKeyOnce",
+      "TestDeadLettersAndPurgeRemoveOnlyExhaustedMessages"
+    ],
+    "checks": [
+      "blocked view across in-flight leases, retry delays, and return to ready",
+      "dead-letter thresholding and view completeness",
+      "purge batch limit, retention window, and application-data safety",
+      "invalid-limit rejection for Blocked, DeadLetters, and Purge",
+      "full local gate green (outbox, kafkaproducer, compiler) against Postgres 16",
+      "CI green on PR 6 head 12e179c0: compiler, database-access, examples x2, keycloak-provider, postgres-provisioning, postgres-recovery, resource-state-storage, linux-amd64; provenance skipping by design"
+    ],
+    "component_version": "outbox 1.4.0",
+    "security_model": "Operator views expose no payloads or raw error text, only bounded failure codes and timing. Purge deletes only dead letters past retention; the at-least-once delivery contract is unchanged for every message below the threshold."
   }
 }
