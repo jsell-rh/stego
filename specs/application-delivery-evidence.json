@@ -418,5 +418,29 @@
     ],
     "component_version": "outbox 1.4.0",
     "security_model": "Operator views expose no payloads or raw error text, only bounded failure codes and timing. Purge deletes only dead letters past retention; the at-least-once delivery contract is unchanged for every message below the threshold."
+  },
+  "migration_ledger": {
+    "implemented_by": "3e3c0936",
+    "pr": 7,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/36029396304/job/107734018098",
+    "mechanism": "Generated schema_generation stores keep an applied-migrations ledger in stego_schema.migrations(version, digest, applied_at), created inside the bootstrap transaction and covered by the fail-closed shape checks. The application role holds SELECT and INSERT only, so history cannot be rewritten by application code. RegisterSQL digests SQL bodies; Register digests function migrations by name (recorded limitation). Migrate applies the registered list, with fresh databases applying everything inside the bootstrap transaction and post-bootstrap migrations each committing with their ledger row in one transaction. The runner rejects re-application, foreign rows, gaps, digest drift, and rolled-back versions with ErrMigrationLedger. ApplyMigration applies one SQL migration by body for externally managed databases under the same rules, and AppliedMigrations exposes the read-only view. The ledger table joins the backup manifest, so restores carry the migration history with the data.",
+    "decision": "STEGO generates the ledger rather than adopting golang-migrate: the correctness requirements are digest drift detection and gap rejection, which golang-migrate does not provide, and the ledger must commit inside the single-transaction bootstrap and participate in the epoch, identity, and restore-verification contract. No new dependency.",
+    "tests": [
+      "TestMigrationLedgerRecordsBootstrapAndRestart",
+      "TestMigrationLedgerAppliesNewRegistrations",
+      "TestMigrationLedgerRejectsGapsAndDrift",
+      "TestApplyMigrationRecordsAndValidates"
+    ],
+    "checks": [
+      "bootstrap recording and restart no-op",
+      "new registrations applied exactly once",
+      "digest drift and foreign-history rejection",
+      "ApplyMigration record, re-application, drift, and rollback rejection",
+      "reserved-name rejection for all new exported symbols",
+      "full local gate green (postgresadapter, compiler, registry, outbox, kafkaproducer) against Postgres 16",
+      "CI green on PR 7 head b010c0eb: all 14 checks including compiler, database-access, examples x2, postgres-provisioning, resource-state-storage, linux-amd64; provenance skipping by design"
+    ],
+    "contract_doc": "specs/schema-migrations.md",
+    "security_model": "The ledger has no public grants and read/insert-only application-role grants. A tampered or missing ledger fails closed: the next migration run refuses to continue rather than trust a history that does not match the code."
   }
 }
