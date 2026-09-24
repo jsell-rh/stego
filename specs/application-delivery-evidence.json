@@ -1,51 +1,24 @@
 {
   "recorded_at": "2026-09-20T13:25:33.511223+00:00",
-  "compiler_release": {
-    "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
-    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
-    "id": 392428375,
-    "immutable": true,
-    "tag": "compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
-    "tag_commit": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
-    "binary": {
-      "name": "stego-linux-amd64",
-      "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21",
-      "size": 41636320
-    },
-    "build_record_sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a",
-    "assets": [
-      {
-        "name": "build.json",
-        "id": 576799203,
-        "size": 10250,
-        "sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a"
-      },
-      {
-        "name": "provenance.jsonl",
-        "id": 576799218,
-        "size": 10833,
-        "sha256": "e7b8d51a1a21afe467776fc0bee61fee5a8283a3d9b58e29c7f4719bae6a35e8"
-      },
-      {
-        "name": "SHA256SUMS",
-        "id": 576799205,
-        "size": 161,
-        "sha256": "7016d81363682e6f714fcd00bb28f7a887b5853a0fed52f69d45d34b181b6b00"
-      },
-      {
-        "name": "stego-linux-amd64",
-        "id": 576799208,
-        "size": 41636320,
-        "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21"
-      }
+  "backup_restore_contract": {
+    "implemented_by": "434a5e98",
+    "pr": 5,
+    "ci_url": "https://github.com/jsell-rh/stego/actions/runs/35987171492/job/107592465549",
+    "mechanism": "The compiler merges the BackupObjects declared by component wirings into one operator manifest, contracts/backup/backup.json, next to the database access manifest: postgres-adapter declares application tables, storage-contract tables and guard functions/triggers, stego_schema objects (generation, identity, epoch_seq, writer_lease) when schema generation is on, and the versioned-entity revision functions and trigger; outbox declares stego_outbox.messages and messages_sequence_seq; postgres-client declares stego_provisioning.resources and server_identity. A backup that skips any listed object leaves the restored database unusable or unverifiable. Generated stores gain RestoreRecord, ReadRestoreRecord, ReadRestoreRecordDB, VerifyRestore, and VerifyRestoreDB: the operator records them with the backup and runs VerifyRestore after restore. Verification runs VerifySchema first (which enforces the epoch and identity shape), then requires the recorded database identity and epoch to match exactly, so both a restored backup (older epoch) and a partial restore mixing objects from different points in time (mismatched identity or epoch) are rejected with ErrRestore. Verification reads only and does not touch store identity or fence state.",
+    "tests": [
+      "TestBackupContractManifest",
+      "TestRestoreRecordRoundTripAndVerification",
+      "TestVerifyRestoreRejectsStaleAndForeignRecords"
     ],
-    "main_full_run": 35510989841,
-    "main_application_run": 35510989870,
-    "main_artifact_run": 35510989889,
-    "main_installation_run": 35510989964,
-    "candidate_and_main_bytes_identical": true,
-    "common_release_installer_result_matches_local_package": true,
-    "compiler_executed_locally": false
+    "checks": [
+      "compiler manifest merge, dedupe, order, and validation including duplicate, invalid-kind, system-schema, and bad-name rejection",
+      "assembler emission of contracts/backup/backup.json",
+      "generated harness restore record round trip, stale-epoch rejection, foreign identity rejection, and foreign schema release rejection",
+      "full local gate green (compiler, postgresadapter, registry, outbox, kafkaproducer) against Postgres 16",
+      "CI green on PR 5 head 6340f797: compiler, database-access, examples x2, keycloak-provider, postgres-provisioning, postgres-recovery, resource-state-storage, linux-amd64; provenance skipping by design"
+    ],
+    "component_version": "component registry unchanged; contract artifact added to the emitted set",
+    "security_model": "The manifest names only objects the components already own; identifiers are validated against the same pattern as database access, system schemas and oversized sets are rejected, and duplicates across components are errors. Restore verification is read-only, so it cannot advance the epoch or take the writer lease."
   },
   "common_delivery": {
     "source": "a82691b1a1c0076212309db4084de8fdb0ea5300",
@@ -138,6 +111,53 @@
       }
     ]
   },
+  "compiler_release": {
+    "source": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "url": "https://github.com/jsell-rh/stego/releases/tag/compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "id": 392428375,
+    "immutable": true,
+    "tag": "compiler-c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "tag_commit": "c92f591b10797845bd240eb0ddd1eddd08ee53c3",
+    "binary": {
+      "name": "stego-linux-amd64",
+      "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21",
+      "size": 41636320
+    },
+    "build_record_sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a",
+    "assets": [
+      {
+        "name": "build.json",
+        "id": 576799203,
+        "size": 10250,
+        "sha256": "22855792acc3b625c36627677d4d21f2c4eecc9e9cb5be4f62a539b689601b2a"
+      },
+      {
+        "name": "provenance.jsonl",
+        "id": 576799218,
+        "size": 10833,
+        "sha256": "e7b8d51a1a21afe467776fc0bee61fee5a8283a3d9b58e29c7f4719bae6a35e8"
+      },
+      {
+        "name": "SHA256SUMS",
+        "id": 576799205,
+        "size": 161,
+        "sha256": "7016d81363682e6f714fcd00bb28f7a887b5853a0fed52f69d45d34b181b6b00"
+      },
+      {
+        "name": "stego-linux-amd64",
+        "id": 576799208,
+        "size": 41636320,
+        "sha256": "fe53e7b22db3699a67abd55d366c11f929665cd9c2509699ff91348f03220d21"
+      }
+    ],
+    "main_full_run": 35510989841,
+    "main_application_run": 35510989870,
+    "main_artifact_run": 35510989889,
+    "main_installation_run": 35510989964,
+    "candidate_and_main_bytes_identical": true,
+    "common_release_installer_result_matches_local_package": true,
+    "compiler_executed_locally": false
+  },
   "evidence_files": {
     "image-stage-main/ci-qualification.json": {
       "sha256": "1311d2f4dac3a8e1c76deeb4556f61e2c6b52f4e1d1e36d407fa100972456f9b",
@@ -184,15 +204,6 @@
       "source": "a82691b1a1c0076212309db4084de8fdb0ea5300"
     }
   },
-  "scope": "Published compiler, common source, image, signature, registry checks, complete live Hypershell browser adoption, and separate service Deployment adoption. Results are limited to the recorded sources and environments.",
-  "not_proved": [
-    "Production application CA profile",
-    "Other installation platforms",
-    "Automatic release qualification",
-    "Full C3 or enterprise readiness",
-    "The 30-second cleanup target and full production capacity",
-    "Live Kata isolation and OpenShell Sandbox execution"
-  ],
   "live_hypershell": {
     "qualified": true,
     "evidence_url": "https://github.com/jsell-rh/hypershell-stego/blob/1c64ca664654f6d5c2f1797c8ebb108557224b47/acceptance/common-image-publication-live-evidence.json",
@@ -323,6 +334,14 @@
     "previous_failures_preserved": true,
     "scope": "Separate service Deployment adoption of the common publisher. The browser result keeps its own recorded source. This result does not complete C3 through C7 or H1 through H3."
   },
+  "not_proved": [
+    "Production application CA profile",
+    "Other installation platforms",
+    "Automatic release qualification",
+    "Full C3 or enterprise readiness",
+    "The 30-second cleanup target and full production capacity",
+    "Live Kata isolation and OpenShell Sandbox execution"
+  ],
   "offline_module_inputs": {
     "implemented_by": "d43e696d13f4479414f414bbcbf10b88be75d0b3",
     "pr": 2,
@@ -339,6 +358,7 @@
     ],
     "security_model": "The cache holds only cache/download zips. Each offline build round extracts them again under go.sum enforcement. The cache inventory is evidence, not a trust anchor."
   },
+  "scope": "Published compiler, common source, image, signature, registry checks, complete live Hypershell browser adoption, and separate service Deployment adoption. Results are limited to the recorded sources and environments.",
   "whole_database_rollback_detection": {
     "implemented_by": "2f0806202a701f48d626907b9ab45f9baa86b43a",
     "pr": 3,
