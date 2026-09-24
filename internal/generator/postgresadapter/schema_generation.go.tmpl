@@ -212,6 +212,23 @@ func VerifyRestoreDB(db *gorm.DB, record RestoreRecord) error {
  return s.VerifyRestore(db.Statement.Context, record)
 }
 
+// ErrMigrationLedger reports a migration ledger that does not match the
+// registered migrations: a re-application, a version gap, an edited
+// migration, or a ledger that is missing or unreadable.
+var ErrMigrationLedger = errors.New("migration ledger mismatch")
+
+// AppliedMigrations returns the recorded migration versions in apply order.
+// It reads only and fails closed when the ledger is absent.
+func AppliedMigrations(db *gorm.DB) ([]string, error) {
+ if db==nil || db.Config==nil || db.Statement==nil || db.Statement.Context==nil || db.Error!=nil {return nil,ErrMigrationLedger}
+ ctx,cancel:=context.WithTimeout(db.Statement.Context,5*time.Second);defer cancel()
+ var rows []struct{Version string}
+ if err:=db.WithContext(ctx).Raw("SELECT version FROM stego_schema.migrations ORDER BY version").Scan(&rows).Error;err!=nil{return nil,ErrMigrationLedger}
+ versions:=make([]string,0,len(rows))
+ for _,row:=range rows {versions=append(versions,row.Version)}
+ return versions,nil
+}
+
 // BootstrapSchema initializes only an empty database. All callback statements
 // must use the supplied transaction and must not commit it. A complete marker
 // and the schema commit together. A retry does not repeat a completed callback.
@@ -239,7 +256,9 @@ func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
    CREATE SEQUENCE stego_schema.epoch_seq AS bigint MAXVALUE 9223372036854775807;
    REVOKE ALL ON SEQUENCE stego_schema.epoch_seq FROM PUBLIC;
    CREATE TABLE stego_schema.writer_lease(singleton boolean PRIMARY KEY CHECK(singleton),holder text NOT NULL);
-   REVOKE ALL ON TABLE stego_schema.writer_lease FROM PUBLIC`,).Error!=nil{return ErrSchemaGeneration}
+   REVOKE ALL ON TABLE stego_schema.writer_lease FROM PUBLIC;
+   CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());
+   REVOKE ALL ON TABLE stego_schema.migrations FROM PUBLIC`,).Error!=nil{return ErrSchemaGeneration}
   if tx.Exec("INSERT INTO stego_schema.identity(singleton,database_id) VALUES(true,?)",databaseUUID()).Error!=nil{return ErrSchemaGeneration}
   if tx.Exec("INSERT INTO stego_schema.writer_lease(singleton,holder) VALUES(true,'')").Error!=nil{return ErrSchemaGeneration}
   if err:=initialize(tx);err!=nil{return err}
@@ -291,6 +310,23 @@ func readSchemaGeneration(db *gorm.DB) (bool,error) {
    AND ((a.attname='singleton' AND a.atttypid='pg_catalog.bool'::pg_catalog.regtype)
     OR (a.attname='holder' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)))=2
  )`).Scan(&leaseShape).Error; err != nil || !leaseShape {return false,ErrSchemaGeneration}
+ // A migration ledger is required; a database without one cannot check
+ // applied schema changes and fails closed. Its only permitted non-owner
+ // grants are SELECT and INSERT: the runner records, never edits.
+ var ledgerShape bool
+ if err := db.Raw(`SELECT EXISTS(
+  SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='stego_schema' AND c.relname='migrations' AND c.relkind='r' AND c.relpersistence='p'
+  AND NOT c.relrowsecurity AND NOT c.relforcerowsecurity AND NOT c.relispartition
+  AND c.relowner=n.nspowner
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhparent=c.oid OR i.inhrelid=c.oid)
+  AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(c.relacl,pg_catalog.acldefault('r',c.relowner))) a WHERE a.grantee<>c.relowner AND a.privilege_type<>'SELECT' AND a.privilege_type<>'INSERT')
+  AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped)=3
+  AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull
+   AND ((a.attname='version' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
+    OR (a.attname='digest' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)
+    OR (a.attname='applied_at' AND a.atttypid='pg_catalog.timestamptz'::pg_catalog.regtype)))=3
+ )`).Scan(&ledgerShape).Error; err != nil || !ledgerShape {return false,ErrSchemaGeneration}
  if db.Exec("LOCK TABLE stego_schema.generation IN ACCESS SHARE MODE; LOCK TABLE stego_schema.identity IN ACCESS SHARE MODE").Error!=nil{return false,ErrSchemaGeneration}
  var safe bool
  err:=db.Raw(`SELECT EXISTS(

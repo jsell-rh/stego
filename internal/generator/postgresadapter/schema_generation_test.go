@@ -30,7 +30,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(findFileContent(t, files, "internal/storage/migrate.go"), "return BootstrapSchema(db,") {
+		if !strings.Contains(findFileContent(t, files, "internal/storage/migrate.go"), "BootstrapSchema(db, func(tx *gorm.DB) error {") {
 			t.Fatal("migration has no schema gate")
 		}
 		if !strings.Contains(findFileContent(t, files, "internal/storage/store.go"), "VerifySchema(db)") {
@@ -58,7 +58,7 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 			t.Fatal("unselected schema policy changed")
 		}
 	}
-	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced", "RestoreRecord", "ReadRestoreRecord", "ReadRestoreRecordDB", "VerifyRestore", "VerifyRestoreDB", "ErrRestore"} {
+	for _, name := range []string{"SchemaGeneration", "SchemaDefinition", "BootstrapSchema", "VerifySchema", "readSchemaGeneration", "ErrSchemaGeneration", "WriterLeaseCheck", "ErrWriterFenced", "RestoreRecord", "ReadRestoreRecord", "ReadRestoreRecordDB", "VerifyRestore", "VerifyRestoreDB", "ErrRestore", "ErrMigrationLedger", "AppliedMigrations", "ApplyMigration", "RegisterSQL"} {
 		ctx := basicContext()
 		ctx.Entities = []types.Entity{{Name: name}}
 		if _, _, err := new(Generator).Generate(ctx); err == nil {
