@@ -262,7 +262,7 @@ func TestSchemaMarkerShapeAndPrivileges(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		for _, query := range []string{"REVOKE USAGE ON SCHEMA stego_schema FROM " + quoted, "REVOKE SELECT ON stego_schema.generation FROM " + quoted, "DROP ROLE " + quoted} {
+		for _, query := range []string{"REVOKE USAGE ON SCHEMA stego_schema FROM " + quoted, "REVOKE SELECT ON stego_schema.generation FROM " + quoted, "REVOKE SELECT ON stego_schema.identity FROM " + quoted, "DROP ROLE " + quoted} {
 			if err := db.Exec(query).Error; err != nil {
 				t.Error(err)
 			}
@@ -287,7 +287,7 @@ func TestSchemaMarkerShapeAndPrivileges(t *testing.T) {
 		}
 	}
 	checkRole(false)
-	if err := db.Exec("GRANT USAGE ON SCHEMA stego_schema TO " + quoted + "; GRANT SELECT ON stego_schema.generation TO " + quoted).Error; err != nil {
+	if err := db.Exec("GRANT USAGE ON SCHEMA stego_schema TO " + quoted + "; GRANT SELECT ON stego_schema.generation TO " + quoted + "; GRANT SELECT ON stego_schema.identity TO " + quoted).Error; err != nil {
 		t.Fatal(err)
 	}
 	checkRole(true)
@@ -333,5 +333,137 @@ func TestSchemaBootstrapHonorsShortDeadline(t *testing.T) {
 	noMarker(t, db)
 	if err := storage.Migrate(db); err != nil {
 		t.Fatal("retry after canceled lock failed", err)
+	}
+}
+
+func TestDatabaseEpochAdvancesOnWrite(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, before, err := store.DatabaseIdentityEpoch()
+	if err != nil || before != 0 {
+		t.Fatal("epoch did not start at zero", before, err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, after, err := store.DatabaseIdentityEpoch()
+	if err != nil || after < 1 {
+		t.Fatal("write did not advance the epoch", before, after, err)
+	}
+	id, err := store.DatabaseIdentity()
+	if err != nil || id == "" {
+		t.Fatal("identity read failed", err)
+	}
+}
+
+func TestRestoredDatabaseIsRejected(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "two"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, high, err := store.DatabaseIdentityEpoch()
+	if err != nil || high < 2 {
+		t.Fatal("epoch did not advance over two writes", high, err)
+	}
+	// Simulate a restore of an earlier backup: reset the epoch sequence to a
+	// lower value while keeping the marker and identity intact.
+	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "two"})
+	}); !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("write to a restored database was accepted", err)
+	}
+	// The latch stays closed after the first detection.
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "three"})
+	}); !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("store served a later write after rollback detection", err)
+	}
+	if _, err := store.DatabaseIdentity(); !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("identity read after rollback detection", err)
+	}
+	if _, err := store.DatabaseEpoch(); !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("epoch read after rollback detection", err)
+	}
+}
+
+func TestReplacedDatabaseIdentityIsRejected(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DatabaseIdentity(); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a restore of a different backup: the epoch sequence is higher
+	// but the identity belongs to another database.
+	if err := db.Exec("ALTER SEQUENCE stego_schema.epoch_seq RESTART WITH 1000").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE stego_schema.identity SET database_id='replaced' WHERE singleton").Error; err != nil {
+		t.Fatal(err)
+	}
+	err = store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+		return tx.Create(ctx, "Record", map[string]any{"name": "one"})
+	})
+	if !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("write to a replaced database was accepted", err)
+	}
+}
+
+func TestFreshStoreRejectsReplacedIdentity(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	first, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := first.DatabaseIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second process holds the identifier the first process recorded.
+	second, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.RememberDatabaseIdentity(known); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE stego_schema.identity SET database_id='other' WHERE singleton").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.DatabaseIdentity(); !errors.Is(err, storage.ErrDatabaseRollback) {
+		t.Fatal("identity change after restart was accepted", err)
 	}
 }

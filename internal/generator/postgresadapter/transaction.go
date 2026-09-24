@@ -22,8 +22,9 @@ func generateTransaction(ctx gen.Context) (gen.File, error) {
 	}
 	data := struct {
 		Package, OutboxImport, StorageImport, LookupImport string
+		Epoch                                              bool
 		Entities                                           []lookup
-	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract}
+	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Epoch: ctx.ComponentConfig["schema_generation"] != nil}
 	if ctx.StorageContract == "" && ctx.ModuleName != "" && ctx.PeerNamespaces["rest-api"] != "" {
 		data.LookupImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["rest-api"])
 	}
