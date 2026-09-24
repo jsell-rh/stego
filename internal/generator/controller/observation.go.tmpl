@@ -27,6 +27,11 @@ type ObservationOptions struct {
 // atomic events. Read the revision before work; do not fetch a newer revision
 // to commit an older result. A successful commit does not imply successful work.
 func RunObservation(ctx context.Context,work func(context.Context)error,commit func(context.Context,error)error,options ObservationOptions)error{
+ return controllerHelperWork(ctx,"reconcile",func(ctx context.Context)error{
+  return runObservationUnchecked(ctx,work,commit,options)
+ })
+}
+func runObservationUnchecked(ctx context.Context,work func(context.Context)error,commit func(context.Context,error)error,options ObservationOptions)error{
  if ctx==nil||work==nil||commit==nil||options.WorkTimeout<time.Millisecond||options.WorkTimeout>time.Minute||options.CommitTimeout<time.Millisecond||options.CommitTimeout>time.Minute{return ErrObservationContract}
  if err:=observationContextError(ctx);err!=nil{return err}
  workEnd:=time.Now().Add(options.WorkTimeout)

@@ -71,6 +71,9 @@ var cycleRetryTests []byte
 //go:embed testdata/telemetry_test.go
 var telemetryTests []byte
 
+//go:embed testdata/helper_telemetry_test.go
+var helperTelemetryTests []byte
+
 //go:embed testdata/run_telemetry_test.go
 var runTelemetryTests []byte
 
@@ -115,6 +118,14 @@ func TestGeneratedRunTelemetry(t *testing.T) {
 
 func TestGeneratedControllerTraceBoundaries(t *testing.T) {
 	testGeneratedController(t, true, "^TestControllerCleanupWorkTelemetry$")
+}
+
+func TestGeneratedHelperTelemetry(t *testing.T) {
+	for _, telemetry := range []bool{false, true} {
+		t.Run(fmt.Sprint(telemetry), func(t *testing.T) {
+			testGeneratedController(t, telemetry, "^TestHelperTelemetry")
+		})
+	}
 }
 
 func TestGeneratedPendingResult(t *testing.T) {
@@ -192,6 +203,7 @@ func testGeneratedController(t *testing.T, telemetry bool, patterns ...string) {
 		}
 		files = append(files, generated...)
 		files = append(files, gen.File{Path: "controller/telemetry_test.go", Content: telemetryTests}, gen.File{Path: "controller/run_telemetry_test.go", Content: runTelemetryTests})
+		files = append(files, gen.File{Path: "controller/helper_telemetry_test.go", Content: helperTelemetryTests})
 		var names []string
 		for name := range wiring.GoModRequires {
 			names = append(names, name)

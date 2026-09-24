@@ -51,6 +51,15 @@ type ScanProgress struct { After string; Complete bool }
 // checks, repeat-safe effects, and later full scans remain required. This
 // function creates no durable acknowledgment and starts no background work.
 func ScanFrom[T any](ctx context.Context, after string, source CursorSource[T], emit func(T) error, options ScanOptions) (ScanProgress,error) {
+ var progress ScanProgress
+ err:=controllerHelperWork(ctx,"scan",func(ctx context.Context)error{
+  var err error
+  progress,err=scanFromUnchecked(ctx,after,source,emit,options)
+  return err
+ })
+ return progress,err
+}
+func scanFromUnchecked[T any](ctx context.Context, after string, source CursorSource[T], emit func(T) error, options ScanOptions) (ScanProgress,error) {
  if emit==nil{return ScanProgress{After:after},scanError("context, source, and emitter are required")}
  return scanFromPages(ctx,after,source,func(ctx context.Context,items []CursorItem[T])(int,error){
   for i,item:=range items{
