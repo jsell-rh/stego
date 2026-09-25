@@ -108,7 +108,7 @@ func (s *Store) withTransaction(ctx context.Context,isolation sql.IsolationLevel
  if err != nil { return err }
  state := &transactionState{}
  defer func() { state.mu.Lock(); state.closed = true; state.mu.Unlock() }()
- scope := &Store{db: db, transaction: state{{if .Fence}}, identity: s.identity, fence: s.fence{{end}}}
+ scope := &Store{db: db, transaction: state{{if .Epoch}}, identity: s.identity{{end}}{{if .Fence}}, fence: s.fence{{end}}}
  callbackErr := fn(ctx, scope)
  state.mu.Lock()
  state.closed = true
