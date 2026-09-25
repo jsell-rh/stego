@@ -8,7 +8,6 @@ config:
     type: string
   writer_lease:
     type: string
-    default: single
     enum: [single, off]
   migrations:
     type: string

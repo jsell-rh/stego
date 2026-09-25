@@ -19,8 +19,8 @@ with the same name is also rejected. This is not a general upgrade framework.
 ## Writer lease
 
 `postgres-adapter` adds the optional `writer_lease` setting. It requires the
-`schema_generation` setting and accepts `single` or `off`; the default is
-`single`. In `single` mode every write takes or re-asserts a database-wide
+`schema_generation` setting and accepts `single` or `off`; an unset value
+behaves as `single`. In `single` mode every write takes or re-asserts a database-wide
 single-writer lease, and a store that lost the lease to a newer process fails
 closed with `ErrWriterFenced`. Use `off` when several live processes write the
 same database on purpose, for example a runtime plus independent tooling or a
