@@ -74,7 +74,9 @@ values through a view. See the [relation catalog](https://www.postgresql.org/doc
 
 Use a separate installation role for DDL. The application role needs USAGE on
 `stego_schema` and SELECT on `stego_schema.generation`, plus its normal data
-permissions. Do not give it marker writes or DDL rights. The marker is not a
+permissions. Reading the epoch high-water mark with `DatabaseEpoch`,
+`DatabaseIdentityEpoch`, `ReadRestoreRecord`, or `VerifyRestore` also needs
+SELECT on `stego_schema.epoch_seq`; `nextval` on the write path needs USAGE. Do not give it marker writes or DDL rights. The marker is not a
 boundary against the database owner, who can replace schema objects. It does
 not audit all later operator changes to application tables.
 
