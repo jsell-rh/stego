@@ -17,6 +17,17 @@ Active work uses isolated worktrees. Keep the working branches and verified
 default branches on remote. User approval is not required to merge qualified
 work. A failed or incomplete check cannot qualify a revision.
 
+Known local-worktree test failures are environmental, not defects. Do not
+chase them. `TestGeneratedCLIVersion` requires VCS stamping, which a linked
+worktree cannot supply (`vcs:unknown revision`); use a plain clone for it.
+`TestGatewayDatabaseSecretFileAndCredentialRotation` and
+`TestGatewayDatabaseTLSAndListenerAcrossRestart` require the Keycloak fixture
+and the test CA file environment supplied by CI. The four REST mapping tests
+require the same fixture setup. All of them pass in the hosted core job
+(run `36151056060`, 1,538 cases, zero failures). Treat these failures as
+evidence of a missing local fixture, never as a regression, and confirm any
+suspected real failure in CI before investigation.
+
 ## Completion requirements
 
 | ID | Requirement | Required evidence | State |
