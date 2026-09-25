@@ -1606,9 +1606,11 @@ func generateMigrate(ns string, entities []types.Entity, guarded bool) (gen.File
 		fmt.Fprintf(&buf, "// appliedMigrations reads the ledger in apply order. It fails closed when\n")
 		fmt.Fprintf(&buf, "// the ledger is missing or unreadable.\n")
 		fmt.Fprintf(&buf, "func appliedMigrations(db *gorm.DB) ([]Migration, error) {\n")
-		fmt.Fprintf(&buf, "\tvar rows []Migration\n")
+		fmt.Fprintf(&buf, "\tvar rows []struct{ Name string; Digest string }\n")
 		fmt.Fprintf(&buf, "\tif err := db.Raw(\"SELECT version AS name, digest FROM stego_schema.migrations ORDER BY version\").Scan(&rows).Error; err != nil {return nil,ErrMigrationLedger}\n")
-		fmt.Fprintf(&buf, "\treturn rows,nil\n")
+		fmt.Fprintf(&buf, "\tapplied := make([]Migration, len(rows))\n")
+		fmt.Fprintf(&buf, "\tfor i, row := range rows { applied[i] = Migration{Name: row.Name, Digest: row.Digest} }\n")
+		fmt.Fprintf(&buf, "\treturn applied,nil\n")
 		fmt.Fprintf(&buf, "}\n\n")
 
 		fmt.Fprintf(&buf, "// checkLedger rejects any mismatch between the applied versions and the\n")

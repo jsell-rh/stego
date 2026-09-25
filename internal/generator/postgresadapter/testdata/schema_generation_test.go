@@ -3,6 +3,7 @@ package storage_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -515,6 +516,96 @@ func TestWriterLeaseFencesDirectWrites(t *testing.T) {
 	// The latch stays closed on repeated direct writes.
 	if err := first.ReplaceIfVersion(context.Background(), "Versioned", "one", 3, map[string]any{"name": "stale"}); !errors.Is(err, storage.ErrWriterFenced) {
 		t.Fatal("fenced store served a later direct write", err)
+	}
+}
+
+func TestWriterLeaseSurvivesConcurrentWriters(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Concurrent transactions through one store re-assert the lease by
+	// reading it. A write re-assertion would serialize every write on the
+	// lease row and turn serializable conflicts into abort storms.
+	const writers = 8
+	var wg sync.WaitGroup
+	errs := make([]error, writers)
+	start := make(chan struct{})
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+				return tx.Create(ctx, "Versioned", map[string]any{"name": fmt.Sprintf("writer-%d", i)})
+			})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("writer %d failed: %v", i, err)
+		}
+	}
+	if err := store.WriterLeaseCheck(context.Background()); err != nil {
+		t.Fatal("concurrent writers fenced the store", err)
+	}
+}
+
+func TestWriterLeaseToleratesOwnInFlightTakeover(t *testing.T) {
+	db := schemaDB(t)
+	if err := storage.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Hold the first write transaction open after its lease takeover. The
+	// takeover is not committed yet, so a concurrent re-assertion from the
+	// same store reads the last committed holder: empty. An empty holder
+	// is this store's own in-flight takeover, not a foreign writer.
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	heldDone := make(chan error, 1)
+	go func() {
+		heldDone <- store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+			close(ready)
+			<-release
+			return tx.Create(ctx, "Versioned", map[string]any{"name": "held"})
+		})
+	}()
+	<-ready
+	// A concurrent write through the same store must not fence itself on
+	// the uncommitted takeover. It may commit before or after the held
+	// transaction; either order keeps the lease inside this store.
+	done := make(chan error, 1)
+	go func() {
+		done <- store.WithTransaction(context.Background(), func(ctx context.Context, tx *storage.Store) error {
+			return tx.Create(ctx, "Versioned", map[string]any{"name": "concurrent"})
+		})
+	}()
+	var concurrent error
+	select {
+	case concurrent = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent write deadlocked on the lease row")
+	}
+	close(release)
+	held := <-heldDone
+	if held != nil {
+		t.Fatal("held transaction failed", held)
+	}
+	if concurrent != nil {
+		t.Fatal("concurrent write during own in-flight takeover was rejected", concurrent)
+	}
+	if err := store.WriterLeaseCheck(context.Background()); err != nil {
+		t.Fatal("store fenced itself on its own takeover", err)
 	}
 }
 
