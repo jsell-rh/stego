@@ -14,6 +14,11 @@ DELETE permission. Their existing structure and state checks remain required.
 Application entity tables receive the permissions needed by generated storage.
 Application request authorization stays in the application.
 
+A sequence accepts only USAGE and SELECT. USAGE permits nextval, which a write
+path uses to advance an identity or epoch sequence. SELECT permits reading
+last_value and is_called without advancing the sequence, which the generated
+epoch and restore-report APIs need. Other sequence privileges stop generation.
+
 An empty sequence privilege set means inspection without direct runtime access.
 The outbox uses this form: inserts use its identity column, and the runtime
 cannot call sequence functions or read sequence state directly. The database
