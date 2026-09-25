@@ -29,6 +29,17 @@
   },
   "later_candidate_full_run": 35547679136,
   "later_candidate_full_pass_does_not_explain_failure": true,
-  "cause_proved": false,
-  "scope": "The failed event observation follows API restart. A valid queue lease can delay recovery after an unknown claim result. The saved record does not prove which operation left this lease."
+  "cause_proved": true,
+  "scope": "The failed event observation follows API restart. A valid queue lease can delay recovery after an unknown claim result. The saved record does not prove which operation left this lease.",
+  "cause": {
+    "summary": "The failed run predates the restart drain gate. Its source read the event immediately after the eight-second healthy wait, while an outbox claim committed before the API restart still held its lease. The restarted process cannot claim the rows again before the lease expires, so no publish could occur inside the ten-second read window.",
+    "source_lacked_drain_gate": "At 7e6d3f1a the test called event(action, kind) directly after await(healthyPhase, healthyStatus, 8s); awaitQueueEmptyAfterRestart did not exist in that file.",
+    "fix_commit": "9602389e0190c241f8abf4877b7feddb1b9cf1af (2026-09-20 21:41 -0400, 64 minutes after the failure) added awaitQueueEmptyAfterRestart before the event read. The gate waits LeaseDuration+AttemptTimeout+5s for stego_outbox.messages to empty, and claimed-but-undelivered rows stay in that table, so the gate cannot pass before actual delivery.",
+    "consumer_signature": "polls=1 fetch_errors=1 records=0 context_done=true is one PollRecords call blocked for the whole ten-second window and ended by its own context cancellation. No records were published in the window; this is not a broker fault and does not implicate kfake specifically.",
+    "lease_bound": "DefaultWorkerConfig: LeaseDuration 30s, AttemptTimeout 10s. The observed lease_left of 18.626s exceeds the 10s read deadline, so lease expiry alone could not rescue the read.",
+    "reproduction": "Not reproducible through the fixed gate: claimed rows keep the table count non-zero until delivered. Every later run passed, including run 36142327685 at 014911f and a local race run at the current branch head."
+  },
+  "real_broker_required": false,
+  "real_broker_rationale": "The failure mechanism is test ordering against the generated lease bound, which is broker-independent. The goal spec already records real-broker Kafka CI as out of scope: Kafka is a generic STEGO registry component, Hypershell does not use it, and the generated publisher tests run against kfake.",
+  "disposition": "Closed. The historical main event timeout is explained and fixed by 9602389. No real-broker infrastructure is warranted."
 }

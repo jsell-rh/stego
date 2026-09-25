@@ -252,8 +252,15 @@ and [main API result](https://github.com/jsell-rh/hypershell-stego/blob/6c5fc1a7
 
 An earlier main check at `7e6d3f1` failed to receive one event within ten seconds
 after API restart. Two queued rows still had leases when the test failed.
-The later candidate check passed, but it does not explain that failure. Keep
-this recovery issue open. See the
+The cause is now proved and closed. That source read the event directly after
+the eight-second healthy wait. An outbox claim committed before the API
+restart still held its lease, so the restarted process could not claim the
+rows again inside the ten-second read window. The consumer signature of one
+blocked poll ended by its own context is not a broker fault. Commit `9602389`
+added the generated lease recovery bound before the event read sixty-four
+minutes after the failure, and every later run passed. The mechanism is
+broker-independent, so no real-broker Kafka check is warranted; that check
+stays out of scope as recorded below. See the closed
 [failure evidence](event-restart-failure-evidence-20260921.json).
 These results do not close the remaining enterprise requirements.
 
