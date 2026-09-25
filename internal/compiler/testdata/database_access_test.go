@@ -196,6 +196,11 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 	if err = f.runtime.QueryRow("SELECT name FROM public.records WHERE id='first'").Scan(&name); err != nil || name != "updated" {
 		t.Fatal("repeated installation changed data", err)
 	}
+	var epoch int64
+	var called bool
+	if err = f.runtime.QueryRow("SELECT last_value, is_called FROM stego_schema.epoch_seq").Scan(&epoch, &called); err != nil {
+		t.Fatal("runtime cannot read the epoch sequence", err)
+	}
 	var retained bool
 	if err = f.pool.QueryRow("SELECT has_table_privilege($1,'public.unrelated','SELECT')", f.auditor).Scan(&retained); err != nil || !retained {
 		t.Fatal("operator grant changed", err)
@@ -212,6 +217,7 @@ func TestDatabaseAccessCompleteAndRepeat(t *testing.T) {
 		"SELECT nextval('stego_outbox.messages_sequence_seq')",
 		"SELECT last_value FROM stego_outbox.messages_sequence_seq",
 		"SELECT setval('stego_outbox.messages_sequence_seq',1)",
+		"SELECT setval('stego_schema.epoch_seq',1)",
 	} {
 		denied(t, f.runtime, statement)
 	}

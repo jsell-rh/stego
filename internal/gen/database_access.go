@@ -3,6 +3,8 @@ package gen
 // DatabaseObject declares the access needed by one generated component.
 // Names identify existing objects. This declaration does not authorize DDL.
 // An empty sequence privilege set requires the absence of direct access.
+// On a sequence, USAGE permits nextval while SELECT permits reading
+// last_value and is_called without advancing the sequence.
 type DatabaseObject struct {
 	Schema     string   `json:"schema"`
 	Name       string   `json:"name"`

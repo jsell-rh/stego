@@ -324,7 +324,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 			Schema: "stego_schema", Name: "identity", Kind: "table", Privileges: []string{"SELECT"},
 		})
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"USAGE"},
+			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"},
 		})
 		if LeaseEnabled(ctx.ComponentConfig) {
 			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{

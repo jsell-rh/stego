@@ -53,7 +53,7 @@ func generateDatabaseAccess(wirings []ComponentWiring) ([]gen.File, error) {
 				return nil, fmt.Errorf("component %q requires SELECT for table inspection", component.Name)
 			}
 			for i, privilege := range object.Privileges {
-				valid := privilege == "USAGE" && object.Kind == "sequence"
+				valid := (privilege == "USAGE" || privilege == "SELECT") && object.Kind == "sequence"
 				if object.Kind == "table" {
 					valid = privilege == "SELECT" || privilege == "INSERT" || privilege == "UPDATE" || privilege == "DELETE"
 				}

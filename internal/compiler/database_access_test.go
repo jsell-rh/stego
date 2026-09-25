@@ -49,13 +49,14 @@ func TestDatabaseAccessDeclaration(t *testing.T) {
 		})
 	}
 	marker := gen.DatabaseObject{Schema: "stego_schema", Name: "generation", Kind: "table", Privileges: []string{"SELECT"}}
-	first := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{DatabaseAccess: []gen.DatabaseObject{good, marker}}}}
+	sequence := gen.DatabaseObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"SELECT", "USAGE"}}
+	first := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{DatabaseAccess: []gen.DatabaseObject{good, marker, sequence}}}}
 	snapshot := append([]string(nil), good.Privileges...)
 	a, err := generateDatabaseAccess(first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{DatabaseAccess: []gen.DatabaseObject{marker, good}}}}
+	second := []ComponentWiring{{Name: "records", Wiring: &gen.Wiring{DatabaseAccess: []gen.DatabaseObject{sequence, marker, good}}}}
 	b, err := generateDatabaseAccess(second)
 	if err != nil || !reflect.DeepEqual(a, b) {
 		t.Fatal("database access generation differs by declaration order", err)
@@ -70,7 +71,7 @@ func TestDatabaseAccessDeclaration(t *testing.T) {
 		Format  int
 		Objects []databaseAccessObject
 	}
-	if json.Unmarshal(a[1].Bytes(), &manifest) != nil || manifest.Format != 1 || len(manifest.Objects) != 2 {
+	if json.Unmarshal(a[1].Bytes(), &manifest) != nil || manifest.Format != 1 || len(manifest.Objects) != 3 {
 		t.Fatal("invalid database access manifest")
 	}
 	if !bytes.Contains(a[0].Bytes(), []byte("func GrantRuntime(")) || !bytes.Contains(a[0].Bytes(), []byte("func VerifyRuntime(")) {
