@@ -67,10 +67,86 @@ func TestSchemaGenerationValidationAndWiring(t *testing.T) {
 	}
 }
 
+func TestWriterLeaseModeValidation(t *testing.T) {
+	base := func() gen.Context {
+		return gen.Context{OutputNamespace: "storage", ComponentConfig: map[string]any{"schema_generation": "fresh-v1"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
+	}
+	cases := []struct {
+		name    string
+		mutate  func(*gen.Context)
+		wantErr string
+	}{
+		{"default is single", func(c *gen.Context) {}, ""},
+		{"single accepted", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "single" }, ""},
+		{"off accepted", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "off" }, ""},
+		{"invalid value rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "shared" }, "writer_lease must be single or off"},
+		{"non-string rejected", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = 3 }, "writer_lease must be single or off"},
+		{"requires schema_generation", func(c *gen.Context) { c.ComponentConfig["writer_lease"] = "off"; delete(c.ComponentConfig, "schema_generation") }, "writer_lease requires schema_generation"},
+	}
+	for _, tc := range cases {
+		ctx := base()
+		tc.mutate(&ctx)
+		_, _, err := new(Generator).Generate(ctx)
+		if tc.wantErr == "" {
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Fatalf("%s: got %v, want %q", tc.name, err, tc.wantErr)
+		}
+	}
+}
+
+func TestWriterLeaseOffOmitsFence(t *testing.T) {
+	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "writer_lease": "off", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
+	files, wiring, err := new(Generator).Generate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schemaFile, transactionFile, versionsFile string
+	for _, file := range files {
+		switch filepath.Base(file.Path) {
+		case "schema_generation.go":
+			schemaFile = string(file.Bytes())
+		case "transaction.go":
+			transactionFile = string(file.Bytes())
+		case "versions.go":
+			versionsFile = string(file.Bytes())
+		}
+	}
+	if schemaFile == "" || transactionFile == "" || versionsFile == "" {
+		t.Fatal("missing generated files")
+	}
+	for _, banned := range []string{"writerFence", "WriterLeaseCheck", "ErrWriterFenced", "fenceAutocommit", "writer_lease"} {
+		for _, source := range []string{schemaFile, transactionFile, versionsFile} {
+			if strings.Contains(source, banned) {
+				t.Fatalf("lease-off output contains %q", banned)
+			}
+		}
+	}
+	for _, required := range []string{"epoch_seq", "databaseIdentity", "ErrDatabaseRollback"} {
+		if !strings.Contains(schemaFile, required) {
+			t.Fatalf("lease-off output lost epoch support %q", required)
+		}
+	}
+	for _, object := range wiring.DatabaseAccess {
+		if object.Name == "writer_lease" {
+			t.Fatal("lease-off wiring grants access to writer_lease")
+		}
+	}
+	for _, object := range wiring.BackupObjects {
+		if object.Name == "writer_lease" {
+			t.Fatal("lease-off backup manifest includes writer_lease")
+		}
+	}
+}
+
 func TestGeneratedSchemaGeneration(t *testing.T) {
 	project := t.TempDir()
 	ctx := gen.Context{OutputNamespace: "storage", ModuleName: "example.com/schema-gate", ComponentConfig: map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}, Entities: []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}}}}}
-	for _, packageName := range []string{"storage", "legacy", "future", "changed"} {
+	for _, packageName := range []string{"storage", "legacy", "future", "changed", "unfenced"} {
 		c := ctx
 		c.OutputNamespace = packageName
 		c.ComponentConfig = map[string]any{"schema_generation": "fresh-v1", "migrations": "external"}
@@ -79,6 +155,9 @@ func TestGeneratedSchemaGeneration(t *testing.T) {
 		}
 		if packageName == "future" {
 			c.ComponentConfig["schema_generation"] = "fresh-v2"
+		}
+		if packageName == "unfenced" {
+			c.ComponentConfig["writer_lease"] = "off"
 		}
 		if packageName == "changed" {
 			c.Entities = []types.Entity{{Name: "Record", Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "extra", Type: types.FieldTypeString}}}, {Name: "Versioned", Versioned: true, Fields: []types.Field{{Name: "name", Type: types.FieldTypeString}, {Name: "note", Type: types.FieldTypeString}}}}

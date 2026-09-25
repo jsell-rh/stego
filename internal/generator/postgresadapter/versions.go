@@ -81,7 +81,7 @@ func generateVersions(ctx gen.Context) ([]gen.File, error) {
 		Fence                             bool
 		Entities                          []entity
 		Statements                        []string
-	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Fence: ctx.ComponentConfig["schema_generation"] != nil}
+	}{Package: path.Base(ctx.OutputNamespace), StorageImport: ctx.StorageContract, Fence: LeaseEnabled(ctx.ComponentConfig)}
 	if ctx.StorageContract == "" && ctx.ModuleName != "" && ctx.PeerNamespaces["rest-api"] != "" {
 		data.NotFoundImport = path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["rest-api"])
 	}

@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/jsell-rh/stego/internal/gen"
+	"github.com/jsell-rh/stego/internal/generator/postgresadapter"
 )
 
 //go:embed publisher.go.tmpl
@@ -56,7 +57,7 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		"github.com/twmb/franz-go": "v1.21.6", "github.com/google/uuid": "v1.6.0",
 	}}
 	if outbox := ctx.PeerNamespaces["outbox"]; outbox != "" {
-		fence := ctx.PeerNamespaces["postgres-adapter"] != "" && ctx.PeerConfigs["postgres-adapter"]["schema_generation"] != nil
+		fence := ctx.PeerNamespaces["postgres-adapter"] != "" && postgresadapter.LeaseEnabled(ctx.PeerConfigs["postgres-adapter"])
 		tracing := ctx.PeerNamespaces["otel-tracing"]
 		if tracing != "" && ctx.ModuleName == "" {
 			return nil, nil, fmt.Errorf("Kafka telemetry runtime requires a module name")
