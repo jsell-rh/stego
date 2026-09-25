@@ -51,3 +51,28 @@ normal deletion. It must keep the current source, permissions, and cleanup
 barriers. Use those results to select a change and its fault tests. Live Kata
 and OpenShell Sandbox execution remain deferred; empty Sandbox namespace
 cleanup does not establish the behavior of running Sandbox workloads.
+
+## Diagnostic observation 2026-09-25
+
+A fourth workflow ([run 36196581322](https://github.com/jsell-rh/hypershell-stego/actions/runs/36196581322),
+100 live accounts) completed the required observation. A fixed operator
+collector took 353 bounded read-only samples; 347 completed and 6 are retained
+as gaps. The record captures the owned Pod UIDs, termination states,
+namespace deletion requests, and finalizer conditions during the same normal
+deletion. The whole-cleanup upper bound was 30.77 seconds. See the
+[observation evidence](cleanup-latency-observation-20260925.json).
+
+The observation shows no stuck finalizer, remaining content, discovery
+failure, or long application retry interval. The owned Pods exit with code 0
+within about 5 seconds. The delay is the sum of three sequential Kubernetes
+namespace termination cycles: the gateway namespace (about 13 seconds), the
+sandbox namespace (about 8 seconds after its request), and the two state
+namespaces in parallel (about 8 seconds after their requests). The application
+requests each later deletion only after the earlier namespace is absent, so
+the cycles compound.
+
+The candidate change is in the application deletion order, not in STEGO
+mechanisms. Any change still requires fault tests before adoption. The
+30-second target remains open. Live Kata and OpenShell Sandbox execution
+remain deferred; empty Sandbox namespace cleanup does not establish the
+behavior of running Sandbox workloads.

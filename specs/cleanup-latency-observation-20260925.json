@@ -1,0 +1,134 @@
+{
+ "observation": "Gateway cleanup latency diagnostic observation",
+ "date": "2026-09-25",
+ "run": 36196581322,
+ "run_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/36196581322",
+ "workflow": "jshell-browser.yml",
+ "dispatch_ref": "feat/stego-67768b1d-adoption-20260924",
+ "dispatch_revision": "22d7298",
+ "fixture_revision": "eb7be18e680ff1372f40a2007e5cdbbda2c9b7b2",
+ "image_run": 35592854743,
+ "test_job": {
+  "name": "service-check",
+  "namespace": "stego-service-ci",
+  "uid": "daf9d183-f39d-4c0d-a52b-bfe487b75bf7"
+ },
+ "measured_gateway": "3Jq5JUZ6kU2dmQgrlim7MKtexCx",
+ "live_accounts": 100,
+ "accepted_response_observed_at": "2026-09-25T22:41:15.850761064Z",
+ "whole_cleanup_observed_upper_bound_seconds": 30.766155792,
+ "within_30_second_target": false,
+ "observer": {
+  "collector": "scripts/collect-gateway-cleanup.py",
+  "collector_revision": "22d7298",
+  "collector_defect_history": "The 2026-09-23 samples failed in the deletion window because the collector rejected list items without a per-item kind field. Commit 22d7298 removed those checks; the label marker and the namespace-scoped Pod read remain fail-closed.",
+  "operator_context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+  "fixture_namespace": "stego-service-ci",
+  "sample_count": 353,
+  "complete_samples": 347,
+  "incomplete_samples_retained_as_gaps": 6,
+  "sampling_method": "Read-only local loop started before the deletion request and continued past completion. The run was the normal browser workflow; no workflow was started to obtain a sample.",
+  "sample_directory": "stego-cleanup-observation-20260925 (persistent operator storage)"
+ },
+ "deletion_request_observations": {
+  "gateway_namespace_deletion_timestamp": "2026-09-25T22:41:16Z",
+  "sandbox_namespace_deletion_timestamp": "2026-09-25T22:41:30Z",
+  "gateway_state_namespace_deletion_timestamp": "2026-09-25T22:41:38Z",
+  "console_state_namespace_deletion_timestamp": "2026-09-25T22:41:38Z"
+ },
+ "operator_window_bounds_seconds_after_accept": {
+  "gateway_namespace": {
+   "last_present": 12.053,
+   "first_absent": 14.363
+  },
+  "sandbox_namespace": {
+   "last_present": 19.1,
+   "first_absent": 21.274
+  },
+  "gateway_state_namespace": {
+   "last_present": 27.676,
+   "first_absent": 29.318
+  },
+  "console_state_namespace": {
+   "last_present": 27.676,
+   "first_absent": 29.318
+  }
+ },
+ "workflow_completion_observations_seconds": {
+  "account_cleanup_recorded": {
+   "last_pending": 4.229348415,
+   "first_complete_after_last_pending": 5.251988149
+  },
+  "workload_cleanup_recorded": {
+   "last_pending": 21.091984099,
+   "first_complete_after_last_pending": 22.146666677
+  },
+  "sql_cleanup_recorded": {
+   "last_pending": 21.091984476,
+   "first_complete_after_last_pending": 22.146667234
+  },
+  "gateway_namespace_absent": {
+   "last_pending": 12.561347753,
+   "first_complete_after_last_pending": 13.583344147
+  },
+  "sandbox_namespace_absent": {
+   "last_pending": 19.918188824,
+   "first_complete_after_last_pending": 21.091541223
+  },
+  "gateway_state_namespace_absent": {
+   "last_pending": 28.550222842,
+   "first_complete_after_last_pending": 29.650811672
+  },
+  "console_state_namespace_absent": {
+   "last_pending": 28.581541542,
+   "first_complete_after_last_pending": 29.658994662
+  },
+  "allocation_cleanup_recorded": {
+   "last_pending": 28.591979468,
+   "first_complete_after_last_pending": 29.688803705
+  },
+  "gateway_finalized": {
+   "last_pending": 28.591980066,
+   "first_complete_after_last_pending": 29.688804184
+  },
+  "all_cleanup_recorded": {
+   "last_pending": 28.591980603,
+   "first_complete_after_last_pending": 29.688804627
+  }
+ },
+ "pod_observations": {
+  "gateway_namespace_pods": [
+   {
+    "uid": "33393c5b-900a-4a29-aa39-364ea22f6906",
+    "name": "openshell-gateway-698c466f8c-c4lt5",
+    "owner_kind": "ReplicaSet",
+    "termination_grace_period_seconds": 30,
+    "phase_at_last_observation": "Succeeded",
+    "exit_code": 0,
+    "finished_at": "2026-09-25T22:41:21Z"
+   },
+   {
+    "name": "hypershell-gateway-console-5585c4b59c-mkznn",
+    "owner_kind": "ReplicaSet",
+    "note": "Deleted by its ReplicaSet between two dense samples; no termination record was observed."
+   }
+  ],
+  "other_allocated_namespaces_pods": "The sandbox, gateway-state, and console-state namespaces held no Pods in any sample."
+ },
+ "finalizer_observations": {
+  "namespace_finalizers_on_all_owned_namespaces": ["kubernetes"],
+  "metadata_finalizers": "None on any owned namespace or observed Pod.",
+  "namespace_deletion_conditions": "The gateway namespace showed NamespaceDeletionDiscoveryFailure=False, NamespaceDeletionGroupVersionParsingFailure=False, NamespaceDeletionContentFailure=False (ContentDeleted), NamespaceContentRemaining=False (ContentRemoved), and NamespaceFinalizersRemaining=False (ContentHasNoFinalizers). No stuck condition or finalizer was observed in any owned namespace."
+ },
+ "diagnostic_conclusion": "The delay is not caused by a stuck finalizer, remaining content, failed discovery, or a long application retry interval. The owned Pods terminate with exit code 0 within about 5 seconds. The whole cleanup time is the sum of three sequential Kubernetes namespace termination cycles: the gateway namespace (about 13 seconds), then the sandbox namespace (about 8 seconds after its deletion request, which the application issues only after the gateway namespace is absent), then the two state namespaces in parallel (about 8 seconds after their deletion requests, which the application issues only after the sandbox namespace is absent). The application's sequential wait policy compounds these cycles.",
+ "change_evaluation": "Per the review requirements, a latency change needs fault tests. The observation supports a candidate change in the application's deletion order (requesting the sandbox and state namespace deletions earlier, or waiting in parallel), which is Hypershell domain policy and not a STEGO mechanism change. The 30-second target remains open: the fourth complete 100-account sample has an observed upper bound of 30.77 seconds.",
+ "limitations": [
+  "One workflow observation; not a latency distribution.",
+  "Completion checks and observer samples bound the transitions; they are not exact transition times.",
+  "Sequential observations read resource state at different times within one sample.",
+  "The deleted console Pod was removed between two dense samples; its own termination record was not captured.",
+  "Empty Sandbox namespaces do not establish the behavior of running Sandbox workloads.",
+  "The collector fix (commit 22d7298) is an observation-tool change; cleanup source, permissions, and barriers are unchanged."
+ ],
+ "scope": "Observation only. No runtime behavior changed."
+}
