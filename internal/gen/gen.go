@@ -36,6 +36,15 @@ type GoVersionRequirement interface {
 	MinimumGoVersion() string
 }
 
+// SlotConsumer declares the slot names a generator's output actually
+// invokes. The compiler rejects slot bindings that no resolved generator
+// consumes: generated code would wire the operator into a constructor but
+// never call it, so the bound fills would be silent dead code. A generator
+// that consumes no slots must return an empty list.
+type SlotConsumer interface {
+	ConsumedSlots() []string
+}
+
 // InputProvider declares source files before generation. The compiler reads
 // each file once and checks its snapshot again before it applies output.
 type InputProvider interface {

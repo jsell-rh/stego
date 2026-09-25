@@ -22,6 +22,26 @@ type Generator struct{}
 // MinimumGoVersion includes the request validator's supported Go target.
 func (*Generator) MinimumGoVersion() string { return "1.25.0" }
 
+// consumedSlots are the slot names the generated handlers invoke. A binding
+// to any other slot is rejected: the operator would be wired but never run.
+var consumedSlots = []string{
+	"before_create",
+	"before_upsert",
+	"before_patch",
+	"before_delete",
+	"validate",
+	"on_entity_changed",
+	"after_create",
+	"after_upsert",
+	"after_patch",
+	"after_delete",
+}
+
+// ConsumedSlots implements gen.SlotConsumer.
+func (*Generator) ConsumedSlots() []string {
+	return append([]string(nil), consumedSlots...)
+}
+
 // ValidateContext checks collection capabilities, fields, names, and routes.
 func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateHTTPBasePath(ctx.BasePath); err != nil {

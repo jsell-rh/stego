@@ -1088,7 +1088,7 @@ slots:
 	input := ReconcilerInput{
 		ProjectDir:  projectDir,
 		RegistryDir: registryDir,
-		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+		Generators:  map[string]gen.Generator{"stub-api": &slotConsumingStub{slots: []string{"on_entity_changed"}}, "stub-store": &stubGenerator{}},
 		GoVersion:   "1.22",
 		ModuleName:  "github.com/test/svc",
 	}
@@ -4156,4 +4156,89 @@ func TestVersionedEntityRequiresStorageSupport(t *testing.T) {
 		}
 	}
 	t.Fatal("unsupported storage silently accepted resource revisions")
+}
+
+// slotConsumingStub declares slot consumption for tests.
+type slotConsumingStub struct {
+	stubGenerator
+	slots []string
+}
+
+func (g *slotConsumingStub) ConsumedSlots() []string {
+	return append([]string(nil), g.slots...)
+}
+
+// A slot binding no generator consumes must fail validation. Generated code
+// would wire the operator but never call it, so the bound fills would be
+// silent dead code.
+func TestValidate_UnconsumedSlotIsRejected(t *testing.T) {
+	projectDir, registryDir, _ := setupValidateProject(t)
+
+	fillDir := filepath.Join(projectDir, "fills", "probe")
+	mkdirAll(t, fillDir)
+	writeFile(t, filepath.Join(fillDir, "fill.yaml"), `kind: fill
+name: probe
+implements: test-arch.resolve_field
+collection: widgets
+qualified_by: tester
+qualified_at: 2026-09-25
+`)
+
+	writeFile(t, filepath.Join(projectDir, "service.yaml"), `kind: service
+name: test-service
+archetype: test-arch
+language: go
+entities:
+  - name: Widget
+    fields:
+      - { name: label, type: string }
+collections:
+  widgets:
+    entity: Widget
+    operations: [create, read]
+slots:
+  - slot: resolve_field
+    collection: widgets
+    gate:
+      - probe
+`)
+
+	// The archetype supplies a slot that no registered generator consumes.
+	slotDir := filepath.Join(registryDir, "components", "slot-owner")
+	mkdirAll(t, filepath.Join(slotDir, "slots"))
+	writeFile(t, filepath.Join(slotDir, "component.yaml"), `kind: component
+name: slot-owner
+version: 1.0.0
+slots:
+  - name: resolve_field
+    proto: stego.components.slot_owner.slots.ResolveField
+    default: noop
+`)
+	writeFile(t, filepath.Join(slotDir, "slots", "resolve_field.proto"), `syntax = "proto3";
+package stego.components.slot_owner.slots;
+service ResolveField { rpc Resolve(ResolveFieldRequest) returns (SlotResult); }
+message ResolveFieldRequest { string input = 1; }
+message SlotResult { bool ok = 1; }
+`)
+
+	input := ReconcilerInput{
+		ProjectDir:  projectDir,
+		RegistryDir: registryDir,
+		Generators:  map[string]gen.Generator{"stub-api": &stubGenerator{}, "stub-store": &stubGenerator{}},
+		GoVersion:   "1.22",
+		ModuleName:  "github.com/test/svc",
+	}
+	result, err := Validate(input)
+	if err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	found := false
+	for _, e := range result.Errors {
+		if e.Category == "slot" && strings.Contains(e.Message, "no resolved generator consumes") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unconsumed slot binding did not fail validation: %v", result.Errors)
+	}
 }

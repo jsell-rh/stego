@@ -8,8 +8,3 @@ requires:
 
 provides:
   - search-engine
-
-slots:
-  - name: resolve_field
-    proto: stego.components.tsl_search.slots.ResolveField
-    default: column-name-lookup

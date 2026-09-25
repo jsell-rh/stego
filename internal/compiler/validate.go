@@ -189,6 +189,7 @@ func validateSource(input ReconcilerInput, source *compilationSource) (*Validati
 			}
 		}
 		result.Errors = append(result.Errors, validateSlotNames(svcDecl.Slots, components, mixinSlots)...)
+		result.Errors = append(result.Errors, validateSlotConsumption(svcDecl.Slots, input.Generators)...)
 	}
 
 	// Validate slot binding collections reference existing collection names.
@@ -856,6 +857,44 @@ func validateSlotNames(slots []types.SlotDeclaration, components map[string]*typ
 				Message:  fmt.Sprintf("slot binding references slot %q which is not defined by any component (available slots: %v)", sb.Slot, names),
 			})
 		}
+	}
+	return errs
+}
+
+// validateSlotConsumption checks that every bound slot is consumed by at
+// least one resolved generator. A binding to an unconsumed slot wires an
+// operator that no generated code ever calls, so the bound fills would be
+// silent dead code.
+func validateSlotConsumption(slots []types.SlotDeclaration, generators map[string]gen.Generator) []ValidationError {
+	if len(slots) == 0 || len(generators) == 0 {
+		return nil
+	}
+	consumed := make(map[string]bool)
+	for _, generator := range generators {
+		consumer, ok := generator.(gen.SlotConsumer)
+		if !ok || !generatorAvailable(generator) {
+			// An unavailable generator already errors elsewhere. A generator
+			// that does not implement SlotConsumer consumes no slots.
+			continue
+		}
+		for _, slot := range consumer.ConsumedSlots() {
+			consumed[slot] = true
+		}
+	}
+	var errs []ValidationError
+	for _, sb := range slots {
+		if consumed[sb.Slot] {
+			continue
+		}
+		var available []string
+		for name := range consumed {
+			available = append(available, name)
+		}
+		sort.Strings(available)
+		errs = append(errs, ValidationError{
+			Category: "slot",
+			Message: fmt.Sprintf("slot binding references slot %q which no resolved generator consumes (consumed slots: %v)", sb.Slot, available),
+		})
 	}
 	return errs
 }
