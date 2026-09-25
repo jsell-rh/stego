@@ -157,6 +157,11 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if value, present := ctx.ComponentConfig["migrations"]; present {
 		migrations = value.(string)
 	}
+	// Parse the lease mode even without schema_generation so an application
+	// cannot set writer_lease on a component that ignores it.
+	if _, err := writerLeaseMode(ctx); err != nil {
+		return nil, nil, err
+	}
 	if len(ctx.Entities) == 0 {
 		file, err := generateDatabaseOpener(ctx)
 		if err != nil {
@@ -321,16 +326,20 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
 			Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence", Privileges: []string{"USAGE"},
 		})
-		wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
-			Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
-		})
+		if LeaseEnabled(ctx.ComponentConfig) {
+			wiring.DatabaseAccess = append(wiring.DatabaseAccess, gen.DatabaseObject{
+				Schema: "stego_schema", Name: "writer_lease", Kind: "table", Privileges: []string{"UPDATE", "SELECT"},
+			})
+		}
 		wiring.BackupObjects = append(wiring.BackupObjects,
 			gen.BackupObject{Schema: "stego_schema", Name: "generation", Kind: "table"},
 			gen.BackupObject{Schema: "stego_schema", Name: "identity", Kind: "table"},
 			gen.BackupObject{Schema: "stego_schema", Name: "epoch_seq", Kind: "sequence"},
-			gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"},
 			gen.BackupObject{Schema: "stego_schema", Name: "migrations", Kind: "table"},
 		)
+		if LeaseEnabled(ctx.ComponentConfig) {
+			wiring.BackupObjects = append(wiring.BackupObjects, gen.BackupObject{Schema: "stego_schema", Name: "writer_lease", Kind: "table"})
+		}
 	}
 	file, err := generateDatabaseOpener(ctx)
 	if err != nil {
@@ -867,6 +876,8 @@ func filterKeys[V any](values map[string]V) []string {
 	fmt.Fprintf(&buf, "\tdb *gorm.DB\n\ttransaction *transactionState\n")
 	if ctx.ComponentConfig["schema_generation"] != nil {
 		fmt.Fprintf(&buf, "\tidentity *databaseIdentity\n")
+	}
+	if LeaseEnabled(ctx.ComponentConfig) {
 		fmt.Fprintf(&buf, "\tfence *writerFence\n")
 	}
 	fmt.Fprintf(&buf, "}\n\n")
@@ -900,9 +911,12 @@ func filterKeys[V any](values map[string]V) []string {
 		fmt.Fprintln(&buf, "if err := verifyResourceStates(db); err != nil { return nil, err }")
 		fmt.Fprintln(&buf, "if err := verifyResourceStateScopes(db); err != nil { return nil, err }")
 	}
-	if ctx.ComponentConfig["schema_generation"] != nil {
+	switch {
+	case LeaseEnabled(ctx.ComponentConfig):
 		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}, fence: &writerFence{}}, nil\n")
-	} else {
+	case ctx.ComponentConfig["schema_generation"] != nil:
+		fmt.Fprintf(&buf, "\treturn &Store{db: db, identity: &databaseIdentity{}}, nil\n")
+	default:
 		fmt.Fprintf(&buf, "\treturn &Store{db: db}, nil\n")
 	}
 	fmt.Fprintf(&buf, "}\n\n")

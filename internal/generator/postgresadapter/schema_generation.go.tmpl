@@ -15,8 +15,8 @@ const SchemaGeneration = {{printf "%q" .Generation}}
 const SchemaDefinition = {{printf "%q" .Definition}}
 var ErrSchemaGeneration = errors.New("database schema generation is not supported")
 var ErrDatabaseRollback = errors.New("database was restored to an earlier state")
-var ErrWriterFenced = errors.New("store lost the writer lease to a newer process")
-
+{{if eq .Lease "single"}}var ErrWriterFenced = errors.New("store lost the writer lease to a newer process")
+{{end}}
 // databaseIdentity holds the unique identifier minted at bootstrap and the
 // in-process high-water mark of the monotonic write epoch. A restored backup
 // replays an old identifier or a lower epoch; either fails closed.
@@ -80,7 +80,7 @@ func (i *databaseIdentity) current(db *gorm.DB) (int64, error) {
  if row.Called && row.Last > i.epoch { i.epoch = row.Last }
  return i.epoch, nil
 }
-// writerFence holds the single-writer lease this process asserts on the write
+{{if eq .Lease "single"}}// writerFence holds the single-writer lease this process asserts on the write
 // path. The first write takes the lease unconditionally: the newest writer
 // wins. Every later write re-asserts it. A store that lost the lease fails
 // closed permanently.
@@ -133,6 +133,7 @@ func (s *Store) WriterLeaseCheck(ctx context.Context) error {
  if s == nil || s.db == nil || s.fence == nil { return ErrWriterFenced }
  return s.fence.check(s.db.WithContext(ctx))
 }
+{{end}}
 
 // advance reads the next epoch and the database identity inside each write
 // transaction and records both. The read and the record happen under one lock:
@@ -262,13 +263,13 @@ func BootstrapSchema(db *gorm.DB, initialize func(*gorm.DB) error) error {
    REVOKE ALL ON TABLE stego_schema.identity FROM PUBLIC;
    CREATE SEQUENCE stego_schema.epoch_seq AS bigint MAXVALUE 9223372036854775807;
    REVOKE ALL ON SEQUENCE stego_schema.epoch_seq FROM PUBLIC;
-   CREATE TABLE stego_schema.writer_lease(singleton boolean PRIMARY KEY CHECK(singleton),holder text NOT NULL);
+{{if eq .Lease "single"}}   CREATE TABLE stego_schema.writer_lease(singleton boolean PRIMARY KEY CHECK(singleton),holder text NOT NULL);
    REVOKE ALL ON TABLE stego_schema.writer_lease FROM PUBLIC;
-   CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());
+{{end}}   CREATE TABLE stego_schema.migrations(version text PRIMARY KEY,digest text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now());
    REVOKE ALL ON TABLE stego_schema.migrations FROM PUBLIC`,).Error!=nil{return ErrSchemaGeneration}
   if tx.Exec("INSERT INTO stego_schema.identity(singleton,database_id) VALUES(true,?)",databaseUUID()).Error!=nil{return ErrSchemaGeneration}
-  if tx.Exec("INSERT INTO stego_schema.writer_lease(singleton,holder) VALUES(true,'')").Error!=nil{return ErrSchemaGeneration}
-  if err:=initialize(tx);err!=nil{return err}
+{{if eq .Lease "single"}}  if tx.Exec("INSERT INTO stego_schema.writer_lease(singleton,holder) VALUES(true,'')").Error!=nil{return ErrSchemaGeneration}
+{{end}}  if err:=initialize(tx);err!=nil{return err}
   if tx.Exec("INSERT INTO stego_schema.generation(singleton,generation,definition) VALUES(true,?,?)",SchemaGeneration,SchemaDefinition).Error!=nil{return ErrSchemaGeneration}
   return nil
  },&sql.TxOptions{Isolation:sql.LevelReadCommitted})
@@ -301,7 +302,7 @@ func readSchemaGeneration(db *gorm.DB) (bool,error) {
   AND EXISTS(SELECT 1 FROM pg_catalog.pg_class s JOIN pg_catalog.pg_namespace sn ON sn.oid=s.relnamespace
    WHERE sn.nspname='stego_schema' AND s.relname='epoch_seq' AND s.relkind='S' AND s.relpersistence='p')
  )`).Scan(&identityShape).Error; err != nil || !identityShape {return false,ErrSchemaGeneration}
- // A writer lease table is required; a database without one cannot fence a
+{{if eq .Lease "single"}} // A writer lease table is required; a database without one cannot fence a
  // stale writer and fails closed. Its only permitted non-owner grants are
  // SELECT and UPDATE: the lease is asserted and read, never anything else.
  var leaseShape bool
@@ -316,7 +317,7 @@ func readSchemaGeneration(db *gorm.DB) (bool,error) {
   AND (SELECT count(*) FROM pg_catalog.pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped AND a.attnotnull
    AND ((a.attname='singleton' AND a.atttypid='pg_catalog.bool'::pg_catalog.regtype)
     OR (a.attname='holder' AND a.atttypid='pg_catalog.text'::pg_catalog.regtype)))=2
- )`).Scan(&leaseShape).Error; err != nil || !leaseShape {return false,ErrSchemaGeneration}
+ )`).Scan(&leaseShape).Error; err != nil || !leaseShape {return false,ErrSchemaGeneration}{{end}}
  // A migration ledger is required; a database without one cannot check
  // applied schema changes and fails closed. Its only permitted non-owner
  // grants are SELECT and INSERT: the runner records, never edits.

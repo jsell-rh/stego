@@ -14,6 +14,7 @@ import (
 	"example.com/schema-gate/changed"
 	"example.com/schema-gate/future"
 	"example.com/schema-gate/legacy"
+	"example.com/schema-gate/unfenced"
 	"example.com/schema-gate/storage"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -437,6 +438,75 @@ func TestReplacedDatabaseIdentityIsRejected(t *testing.T) {
 	})
 	if !errors.Is(err, storage.ErrDatabaseRollback) {
 		t.Fatal("write to a replaced database was accepted", err)
+	}
+}
+
+func TestUnfencedModeAllowsIndependentWriters(t *testing.T) {
+	db := schemaDB(t)
+	if err := unfenced.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	// The lease is off: bootstrap must not create the writer_lease table.
+	var leaseTable bool
+	if err := db.Raw("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname='stego_schema' AND tablename='writer_lease')").Scan(&leaseTable).Error; err != nil || leaseTable {
+		t.Fatal("writer_lease table exists with the lease off", err)
+	}
+	first, err := unfenced.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// An independent store writes while the first one stays live: no fencing.
+	second, err := unfenced.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "three"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Epoch and identity checks still guard the write path: a restored
+	// database is rejected in unfenced mode too.
+	if err := unfenced.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnfencedModeStillDetectsRestoredDatabase(t *testing.T) {
+	db := schemaDB(t)
+	if err := unfenced.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	store, err := unfenced.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "one"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec("UPDATE stego_schema.identity SET database_id='replaced' WHERE singleton"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WithTransaction(context.Background(), func(ctx context.Context, tx *unfenced.Store) error {
+		return tx.Create(ctx, "Versioned", map[string]any{"name": "two"})
+	}); !errors.Is(err, unfenced.ErrDatabaseRollback) {
+		t.Fatal("replaced identity accepted with the lease off", err)
 	}
 }
 
