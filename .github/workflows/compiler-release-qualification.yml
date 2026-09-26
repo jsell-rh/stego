@@ -1,0 +1,67 @@
+name: Compiler release qualification
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/compiler-release-qualification.yml'
+      - 'scripts/qualify-compiler-release.py'
+      - 'scripts/test_compiler_release_qualification.py'
+      - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/install-compiler.py'
+  pull_request:
+    paths:
+      - '.github/workflows/compiler-release-qualification.yml'
+      - 'scripts/qualify-compiler-release.py'
+      - 'scripts/test_compiler_release_qualification.py'
+      - 'scripts/verify-compiler-artifact.py'
+      - 'scripts/install-compiler.py'
+
+permissions:
+  contents: read
+  attestations: read
+
+concurrency:
+  group: compiler-release-qualification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Check qualification rejection paths
+        run: timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_compiler_release_qualification.py
+      - name: Qualify the published compiler release
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          revision=94d285d7a13466d4bb53a3ddf8737888f29fea5a
+          python3 -B scripts/qualify-compiler-release.py --revision "$revision" \
+            --output "$RUNNER_TEMP/qualification" --gh "$(command -v gh)" --verify-release
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          result = json.loads((Path(os.environ['RUNNER_TEMP']) / 'qualification'
+                               / 'qualification.json').read_text())
+          expected = '94d285d7a13466d4bb53a3ddf8737888f29fea5a'
+          if result['source_revision'] != expected:
+              raise SystemExit('The qualification record names the wrong revision')
+          if result['downloaded_compiler_executed']:
+              raise SystemExit('The qualification must not execute the compiler')
+          if result['release'] is None or not result['release']['immutable']:
+              raise SystemExit('The qualification must verify the published release')
+          if (result['release']['assets']['stego-linux-amd64']
+                  != 'sha256:1f4e53d27f30b57e93b21701ab11a09765ff4d859cf149ef0679b8a274ee746e'):
+              raise SystemExit('The qualified compiler digest changed')
+          print(json.dumps({'source_revision': result['source_revision'],
+                            'mode': result['mode'],
+                            'downloaded_compiler_executed': False}))
+          PY
