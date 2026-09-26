@@ -76,3 +76,37 @@ mechanisms. Any change still requires fault tests before adoption. The
 30-second target remains open. Live Kata and OpenShell Sandbox execution
 remain deferred; empty Sandbox namespace cleanup does not establish the
 behavior of running Sandbox workloads.
+
+## Parallel sandbox deletion 2026-09-26
+
+The application adopted the candidate change with fault tests first. Hypershell
+commit `def8881` (`feat(cleanup): request Sandbox deletion with Gateway
+deletion`) issues both namespace deletion requests in the same reconcile pass
+before either absence wait. Five new fault tests in
+`internal/namespaceallocation/deletion_order_test.go` hold the barriers: the
+sandbox request is sent with the gateway request, each single deletion failure
+still requests the other namespace, no completion observation is recorded on
+failure, and the state namespaces still require completed workload and SQL
+cleanup. The overlap is safe because a namespace with a `deletionTimestamp`
+rejects new object creation, so a still-running Gateway cannot create content
+in a terminating Sandbox namespace, and both deletions are owner-checked. The
+order remains application policy; no STEGO mechanism changed.
+
+A fifth workflow ([run 36208130589](https://github.com/jsell-rh/hypershell-stego/actions/runs/36208130589),
+100 live accounts) ran the change through the frozen fixture `21b5315` and
+image run `36206201551`. The whole-cleanup upper bound was 28.19 seconds,
+inside the 30-second target. The operator collector took 616 bounded read-only
+samples; 602 completed and 14 are retained as gaps. The sandbox namespace
+received its `deletionTimestamp` within 0.03 seconds of the REST deletion
+acceptance and its termination cycle overlapped the gateway namespace cycle;
+in the prior observation the sandbox request followed gateway namespace
+absence by about 14 seconds. The remaining bound is the gateway namespace
+cycle plus the state namespace cycle after workload and SQL completion. All
+100 accounts closed with verified token issuance and cleanup success audits,
+and installation data was preserved. See the
+[evidence](cleanup-latency-evidence-20260926.json).
+
+The 30-second target is met for the normal empty-sandbox deletion path with
+100 live accounts. Live Kata and OpenShell Sandbox execution remain deferred;
+empty Sandbox namespace cleanup does not establish the behavior of running
+Sandbox workloads.

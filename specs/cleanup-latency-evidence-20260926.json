@@ -1,0 +1,117 @@
+{
+ "observation": "Gateway cleanup latency after the parallel sandbox deletion request",
+ "date": "2026-09-26",
+ "run": 36208130589,
+ "run_url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/36208130589",
+ "workflow": "jshell-browser.yml",
+ "dispatch_ref": "feat/stego-67768b1d-adoption-20260924",
+ "dispatch_revision": "def8881cfe57eb92df6a419299f9fbc49b568e7f",
+ "fixture_revision": "21b5315fe41d16749a83e5c400abecdf172f2df1",
+ "image_run": 36206201551,
+ "test_job": {
+  "name": "service-check",
+  "namespace": "stego-service-ci",
+  "uid": "e23e5ce3-cb30-4b7a-a583-c279067581f4"
+ },
+ "measured_gateway": "3JqQlsEnLFQ7eA9jLbT3L2xkZmg",
+ "live_accounts": 100,
+ "accepted_response_observed_at": "2026-09-26T01:37:35.47157734Z",
+ "whole_cleanup_observed_upper_bound_seconds": 28.187478396,
+ "within_30_second_target": true,
+ "change_under_test": {
+  "repository": "hypershell-stego",
+  "commit": "def8881cfe57eb92df6a419299f9fbc49b568e7f",
+  "subject": "Request Sandbox namespace deletion together with Gateway namespace deletion",
+  "location": "internal/namespaceallocation/controller.go",
+  "policy": "Both namespace deletion requests are issued in the same reconcile pass before either absence wait. The sandbox request no longer waits for gateway namespace absence. State namespaces still delete only after workload and SQL cleanup records complete. Either deletion failure still leaves both requests issued and records no completion observation.",
+  "fault_tests": "internal/namespaceallocation/deletion_order_test.go: sandbox request is sent with the gateway request, each single deletion failure still requests the other namespace, and state namespaces still require completed cleanup. Local suites passed with -race on both affected packages.",
+  "mechanism_boundary": "The order is application policy. STEGO supplies the bounded client, owned resource deletion, pending result handling, observation commit, and controller runtime; none changed."
+ },
+ "observer": {
+  "collector": "scripts/collect-gateway-cleanup.py",
+  "collector_revision": "def8881",
+  "operator_context": "default/api-jshell-8u58-p3-openshiftapps-com:443/johnsell",
+  "fixture_namespace": "stego-service-ci",
+  "sample_count": 616,
+  "complete_samples": 602,
+  "incomplete_samples_retained_as_gaps": 14,
+  "sampling_method": "Read-only local loop started before the deletion request and continued past completion. The run was the normal browser workflow; no workflow was started to obtain a sample.",
+  "sample_directory": "stego-cleanup-observation-20260925-run2 (persistent operator storage)"
+ },
+ "deletion_request_observations": {
+  "gateway_namespace_deletion_timestamp": "2026-09-26T01:37:36Z",
+  "sandbox_namespace_deletion_timestamp": "2026-09-26T01:37:35Z",
+  "gateway_state_namespace_deletion_timestamp": "2026-09-26T01:37:53Z",
+  "console_state_namespace_deletion_timestamp": "2026-09-26T01:37:53Z"
+ },
+ "sandbox_deletion_overlap_evidence": {
+  "sandbox_deletion_timestamp_observed": "2026-09-26T01:37:35.495686+00:00",
+  "gateway_deletion_timestamp_observed": "2026-09-26T01:37:36.670016+00:00",
+  "interpretation": "The sandbox namespace received its deletionTimestamp within 0.03 seconds of the REST deletion acceptance, before the gateway namespace deletionTimestamp appeared in the observer window. In the 2026-09-25 observation the sandbox deletionTimestamp appeared about 14 seconds after acceptance, after gateway namespace absence."
+ },
+ "operator_window_bounds_seconds_after_accept": {
+  "gateway_namespace": {
+   "last_present": null,
+   "first_absent": "See workflow completion observations; the gateway namespace ran to absence while the sandbox termination overlapped it."
+  },
+  "sandbox_namespace": {
+   "last_present": 2.34,
+   "first_absent": "The sandbox namespace left the observer window about 2.3 seconds after its deletionTimestamp; its termination cycle fully overlapped the gateway namespace cycle."
+  },
+  "gateway_state_namespace": {
+   "last_present": null,
+   "first_absent": "The state namespaces deleted after workload and SQL cleanup records completed, as before."
+  },
+  "console_state_namespace": {
+   "last_present": null,
+   "first_absent": "The state namespaces deleted after workload and SQL cleanup records completed, as before."
+  }
+ },
+ "workflow_completion_observations_seconds": {
+  "account_cleanup_recorded": {
+   "last_pending": 5.193381567,
+   "first_complete_after_last_pending": 6.219085506
+  },
+  "workload_cleanup_recorded": {
+   "last_pending": 15.608552014,
+   "first_complete_after_last_pending": 16.641276613
+  },
+  "sql_cleanup_recorded": {
+   "last_pending": 15.60855262,
+   "first_complete_after_last_pending": 16.641282844
+  },
+  "gateway_namespace_absent": {
+   "first_complete_after_last_pending": 16.618747893
+  },
+  "sandbox_namespace_absent": {
+   "last_pending": 8.311879173,
+   "first_complete_after_last_pending": 9.343537604
+  },
+  "console_state_namespace_absent": {
+   "last_pending": 25.006835049,
+   "first_complete_after_last_pending": 26.064798051
+  },
+  "gateway_state_namespace_absent": {
+   "last_pending": 26.034710429,
+   "first_complete_after_last_pending": 27.101631713
+  },
+  "all_cleanup_recorded": {
+   "last_pending": 26.088214927,
+   "first_complete_after_last_pending": 27.123113048
+  },
+  "owner_http_404": {
+   "first_complete_after_last_pending": 27.236247518
+  },
+  "sql_objects_absent": {
+   "first_complete_after_last_pending": 27.200699701
+  },
+  "allocation_bindings_absent": {
+   "first_complete_after_last_pending": 27.149645924
+  },
+  "account_proof_complete": {
+   "first_complete_after_last_pending": 28.187472584
+  }
+ },
+ "result": "The whole-cleanup upper bound fell from 30.77 seconds to 28.19 seconds. The sandbox termination cycle now overlaps the gateway namespace cycle instead of following it. The remaining bound is the gateway namespace cycle plus the state namespace cycle after workload and SQL completion. All 100 accounts closed with verified token issuance, journals closed, provider clients and users absent, cleanup success audits recorded, and installation data preserved.",
+ "target_status": "The 30-second cleanup target is met for the normal empty-sandbox deletion path with 100 live accounts. Live Kata and OpenShell Sandbox execution remain deferred; empty Sandbox namespace cleanup does not establish the behavior of running Sandbox workloads."
+}
