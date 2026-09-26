@@ -225,7 +225,11 @@ The same run captured the existing publisher CA bundle: 224,449 bytes, 150 CA
 certificates, digest `714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5`.
 Independent inspection confirmed all certificate digests and CA constraints.
 The bundle contains the Baltimore CyberTrust Root, which expired on 2025-05-12.
-This is evidence about the current publisher input, not approval of that bundle
+Run `36233627201` at `ba59dd71` recorded the same bundle and reported it as the
+single expired root automatically: 150 certificates, one expired digest at
+capture time `2026-09-26T09:43:39Z` with `notAfter=2025-05-12T23:59:00Z`. The
+expiry evidence is now part of every capture, not a manual inspection. This is
+evidence about the current publisher input, not approval of that bundle
 as the new production trust profile. Selection and update of the production root
 set, its source notices, and live adoption remain open.
 
