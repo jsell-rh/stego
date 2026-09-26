@@ -61,9 +61,23 @@ an existing release or tag. A missing release is an error, not permission to
 select a different compiler. GitHub documents the
 [immutable release behavior](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
-Automatic release qualification is not yet implemented. Hypershell script
-integration is committed on its work branch and awaits application CI checks. The installer does not establish source correctness, a trusted
-builder operating system, or an independent toolchain build.
+Automatic release qualification is implemented in
+`scripts/qualify-compiler-release.py`. The script selects the completed
+successful compiler checks run and the signed artifact run at the exact source
+commit, verifies every required job conclusion, checks the three signed
+artifacts, and refuses to replace an existing tag. Because the provenance job
+signs only on main-branch events that are not pull requests, the signed
+artifact run must come from the main branch and job conclusions are checked
+instead of run conclusions alone; the checks run may come from the release tag
+because a tag push triggers the full checks suite at the exact commit. With
+`--verify-release` the script also verifies that the tag points at the source
+commit, authenticates the published release through the consumer installation
+path, and cross-checks the release asset digests and evidence notes against
+the verified bytes. The script never executes the downloaded compiler. The
+[qualification of `94d285d7`](compiler-release-qualification-evidence.json)
+and workflow run `36229617576` are evidence. The installer does not
+establish source correctness, a trusted builder operating system, or an
+independent toolchain build.
 
 
 ## First published package

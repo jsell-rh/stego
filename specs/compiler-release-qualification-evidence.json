@@ -1,0 +1,115 @@
+{
+  "qualification": {
+    "format": 1,
+    "mode": "verify-release",
+    "repository": "jsell-rh/stego",
+    "source_revision": "94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+    "compiler_checks": {
+      "run_id": 36129433143,
+      "event": "push",
+      "head_branch": "compiler-94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "examples (user-management-rhsso)",
+          "conclusion": "success"
+        },
+        {
+          "name": "compiler",
+          "conclusion": "success"
+        },
+        {
+          "name": "resource-state-storage",
+          "conclusion": "success"
+        },
+        {
+          "name": "postgres-provisioning",
+          "conclusion": "success"
+        },
+        {
+          "name": "examples (user-management)",
+          "conclusion": "success"
+        },
+        {
+          "name": "keycloak-provider",
+          "conclusion": "success"
+        }
+      ]
+    },
+    "signed_artifact": {
+      "run_id": 36128796855,
+      "event": "workflow_dispatch",
+      "head_branch": "main",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "linux-amd64",
+          "conclusion": "success"
+        },
+        {
+          "name": "provenance",
+          "conclusion": "success"
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "compiler-linux-amd64-94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+          "digest": "sha256:deee76227478bdc455b56a10da4ab2fe774474f2958841db2a14e2f14156ad61",
+          "size_in_bytes": 20133554,
+          "expired": false
+        },
+        {
+          "name": "compiler-attestation-94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+          "digest": "sha256:487209d7e83712454d50e1b8ce78ddf1ea25f1f0cc3957b96eddd21db7093d4c",
+          "size_in_bytes": 6893,
+          "expired": false
+        },
+        {
+          "name": "compiler-provenance-94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+          "digest": "sha256:60dc9f422f9e4d62b5799ff36595868caf86a09686f5b19988440b0845de0b3b",
+          "size_in_bytes": 20141390,
+          "expired": false
+        }
+      ]
+    },
+    "release": {
+      "id": 396546971,
+      "tag_name": "compiler-94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+      "immutable": true,
+      "assets": {
+        "build.json": "sha256:0ab2f11bfa34cc3bc7daac0a361e00fe804838ab5ca5092b631ab43eab574788",
+        "provenance.jsonl": "sha256:f92b0899f40b661be14fc6cbbcf6726f0d2b5f42cccba2e97e9503c72089aa2f",
+        "SHA256SUMS": "sha256:194eb873157573a96ff377aa91af0deca2b0e53d1f54e97eb9aa07cb5dbe8d34",
+        "stego-linux-amd64": "sha256:1f4e53d27f30b57e93b21701ab11a09765ff4d859cf149ef0679b8a274ee746e"
+      },
+      "notes_retain_signed_artifact_run": true,
+      "notes_retain_compiler_sha256": true,
+      "verified": {
+        "format": 1,
+        "repository": "jsell-rh/stego",
+        "workflow": "jsell-rh/stego/.github/workflows/compiler-artifact.yml",
+        "reference": "refs/heads/main",
+        "source_revision": "94d285d7a13466d4bb53a3ddf8737888f29fea5a",
+        "predicate_type": "https://slsa.dev/provenance/v1",
+        "self_hosted_runners_allowed": false,
+        "artifact": {
+          "name": "stego-linux-amd64",
+          "sha256": "1f4e53d27f30b57e93b21701ab11a09765ff4d859cf149ef0679b8a274ee746e",
+          "size": 42046207
+        },
+        "build_record_sha256": "0ab2f11bfa34cc3bc7daac0a361e00fe804838ab5ca5092b631ab43eab574788",
+        "bundle_sha256": "f92b0899f40b661be14fc6cbbcf6726f0d2b5f42cccba2e97e9503c72089aa2f"
+      }
+    },
+    "downloaded_compiler_executed": false
+  },
+  "runs": {
+    "compiler_checks": 36129433143,
+    "signed_artifact": 36128796855,
+    "qualification_workflow": 36229617576
+  },
+  "qualification_json_sha256": "a491f4d4c42b0a293b4e34f33d08436179d0718a51a5f56719e65326a5ae670d",
+  "checked_at": "2026-09-26T08:26:39+00:00",
+  "scope": "Automatic release qualification of the published compiler release for 94d285d7. Source correctness, trusted builder operating system, and independent toolchain build remain outside the installer scope.",
+  "downloaded_compiler_executed": false
+}
