@@ -284,6 +284,17 @@ the ksuid format check. The generated TypeScript SDK change required the
 management console asset rebuild at `44d05bb`; its bounded CI asset build,
 UI package tests, and full generation check passed. CI runs
 `36221263862` (acceptance core, after one unrelated outbox-drain flake
-rerun) and `36221262874` (application images) are green. The
-service-account credential envelope and the remaining nullable object
+rerun) and `36221262874` (application images) are green. The remaining nullable object
 states remain outside the generated conversion.
+
+The service-account credential envelope is hand-built by recorded decision.
+The `Connection` object is domain-computed from Gateway observations and
+parsed OIDC configuration: the domain derives the token endpoint from the
+issuer, rewrites `grpcs://` endpoints, and rejects issuers and endpoints that
+are not https URLs of the required shape before construction. The generated
+mapping grammar converts storage-model fields and prepared scalar inputs; it
+cannot express these computed validations, and the constructed values are
+already enum constants and bounded integers fixed at the construction site.
+The one-time `client_secret` is a plain string. The schemas stay declared in
+`openapi.serviceAccounts.yaml` with the `x-sensitive` marker, and the
+envelope stays in Hypershell `internal/httpapi/service_accounts.go`.
