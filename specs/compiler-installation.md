@@ -80,6 +80,17 @@ establish source correctness, a trusted builder operating system, or an
 independent toolchain build.
 
 
+## Supported installation targets
+
+Linux on amd64 is the qualified installation target. The compiler artifact
+workflow builds one `stego-linux-amd64` binary from the pinned official
+`go1.26.8.linux-amd64` SDK on an amd64 runner, all checks run on amd64
+runners, and the verified release assets cover that platform only. Other
+operating systems and architectures have no qualified binary, toolchain
+pin, or checks; an installation there has no basis in this repository.
+Extending the target set requires a new artifact job with its own pinned
+official SDK for that platform, full checks for it, and a new release.
+
 ## First published package
 
 The [immutable release for `00573709fb15a2a54de4242aa8fdbabee325179a`](https://github.com/jsell-rh/stego/releases/tag/compiler-00573709fb15a2a54de4242aa8fdbabee325179a)
