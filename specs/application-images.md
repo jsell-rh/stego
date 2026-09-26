@@ -209,6 +209,9 @@ A separate bounded CI job captured the public CA file from the same pinned
 SDK image used by the existing publisher. It created a restricted container to
 copy the file and never started that container. It recorded the source image,
 image configuration, bundle digest, certificate digests, and cleanup result.
+The capture now also records every certificate's `notAfter` date, the capture
+time, and the expired roots at capture time, with the parsing and selection
+logic covered by `scripts/test_capture_image_ca.py` in the same workflow.
 Production adoption of that CA bundle remains open.
 
 [Registry candidate run 35508605666](https://github.com/jsell-rh/stego/actions/runs/35508605666)

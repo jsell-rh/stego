@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/application-image.yml
       - scripts/capture-image-ca.py
+      - scripts/test_capture_image_ca.py
       - internal/appbuild/image*.go
       - cmd/stego/image.go
       - go.mod
@@ -71,6 +72,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+      - name: Check the CA capture expiry logic
+        run: timeout --signal=TERM --kill-after=5s 20s python3 -B scripts/test_capture_image_ca.py
       - name: Capture and inspect the CA bundle from the current pinned SDK image
         timeout-minutes: 6
         run: python3 -B scripts/capture-image-ca.py --output "$RUNNER_TEMP/publisher-ca"

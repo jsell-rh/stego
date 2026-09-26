@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Capture the existing publisher CA bundle from its pinned SDK image in CI."""
+"""Capture the existing publisher CA bundle from its pinned SDK image in CI.
+
+The record includes every certificate's notAfter date and the expired roots
+at capture time, so production trust-profile review does not depend on
+manual inspection."""
 import argparse
 import base64
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -20,6 +25,24 @@ spec.loader.exec_module(control)
 
 def command(args, timeout=60):
     return control.command(args, Path.cwd(), dict(os.environ, LC_ALL='C'), timeout=timeout, limit=1 << 20)
+
+
+NOT_AFTER = rb'notAfter=([A-Z][a-z]{2} [ 0-9]{2} [0-9:]{8} [0-9]{4} GMT)\n'
+
+
+def parse_not_after(output):
+    """Convert one openssl enddate line into an aware UTC datetime."""
+    parsed = re.fullmatch(NOT_AFTER, output)
+    if not parsed:
+        raise ValueError('unexpected notAfter output')
+    return datetime.datetime.strptime(parsed.group(1).decode('ascii'), '%b %d %H:%M:%S %Y GMT').replace(tzinfo=datetime.timezone.utc)
+
+
+def expired_certificates(certificates, expiries, captured):
+    """Return the digests of roots whose notAfter is not after capture time."""
+    if len(certificates) != len(expiries):
+        raise ValueError('certificate and expiry lists differ')
+    return [certificates[index] for index in range(len(certificates)) if expiries[index] <= captured]
 
 
 def main():
@@ -51,19 +74,27 @@ def main():
         matches = list(re.finditer(pattern, data))
         assert 1 <= len(matches) <= 512 and not re.sub(pattern, b'', data).strip()
         certificates = []
+        expiries = []
         for index, match in enumerate(matches):
             der = base64.b64decode(re.sub(rb'\s+', b'', match.group(1)), validate=True)
             certificate = args.output / ('certificate-' + str(index) + '.pem')
             certificate.write_bytes(match.group(0) + b'\n')
             text = command(['openssl', 'x509', '-in', str(certificate), '-noout', '-text'])
             assert re.search(rb'X509v3 Basic Constraints:[^\n]*\n\s+CA:TRUE', text)
+            expires = parse_not_after(command(['openssl', 'x509', '-in', str(certificate), '-noout', '-enddate']))
             certificates.append(hashlib.sha256(der).hexdigest())
+            expiries.append(expires)
             certificate.unlink()
+        captured = datetime.datetime.now(datetime.timezone.utc)
+        expired = expired_certificates(certificates, expiries, captured)
         record = {'format': 1, 'compiler_source': os.environ['GITHUB_SHA'], 'source_image': IMAGE,
                   'image_id': inspected[0]['Id'], 'platform': 'linux/amd64',
                   'path': '/etc/ssl/certs/ca-certificates.crt',
                   'bundle': {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)},
                   'CA_certificates': certificates,
+                  'CA_not_after': [moment.strftime('%Y-%m-%dT%H:%M:%SZ') for moment in expiries],
+                  'capture_time': captured.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                  'expired_CA_certificates': expired,
                   'source_notice': {'sha256': hashlib.sha256(notice_data).hexdigest(), 'size': len(notice_data)},
                   'container_started': False,
                   'production_adoption_checked': False}
