@@ -733,3 +733,38 @@ application and live workflow checks are still pending. Compiler acceptance
 does not establish application acceptance. Nullable and schema-constrained
 object conversions remain unsupported. C3 through C7 and H1 through H3 remain
 open.
+
+## Upstream parity assessment (2026-09-26)
+
+The user asked for feature parity with upstream `openshift-online/hypershell`
+and suspected structural changes since the fork snapshot. The snapshot in
+`contracts/upstream.json` is commit `14256be2` (2026-09-04). Upstream `main`
+was checked at `a9f5e84` (2026-09-26): 106 commits, 804 files,
++78,588/-19,820 lines. Read-only classification covered every commit and
+every OpenAPI and proto contract delta.
+
+Structural changes confirmed the suspicion. The CLI moved wholesale from
+`components/cli/cmd/hypershell/` to `cmd/hsctl/`. Deploy split into
+`applications/` and `platform-resources/` GitOps packages. Static control-plane
+gateway manifests were deleted in favor of the upstream OpenShell Helm chart.
+
+Contract deltas against the fork snapshots, with fork adoption status:
+
+| Upstream change | Fork status |
+| --- | --- |
+| ManagedDatabase resource removed end-to-end; `database_id` dropped and reserved from Gateway REST and proto (PR #325, 2026-09-23) | Adopted: the fork follows upstream PR #300 and reserves `database_id`; generated `gateways.pb.go` contains no `DatabaseID` field. The retained `contracts/reference` snapshots predate this and are stale, not a gap. |
+| `provisioning_conditions`, `gateway_version`, `observed_release_id` on Gateway; `ProvisioningCondition` message and `SetGatewayVersion` RPC (PRs #269, #276, #210) | Gap: not present in the fork runtime or contract snapshots. Requires a contract snapshot refresh and domain adoption. |
+| `POST /managed_clusters/registration` self-registration with `managed-cluster-registrar` role, `oidc_subject`, `last_seen_at` (PR #265); `cluster_id` filters on Gateway List/Watch (PR #242) | Gap: not present in the fork. |
+| `ObjectReference.traceparent/tracestate` (PR #207) | Gap: not present in the fork. |
+| `openapi.users.yaml` read-only Users API (PRs #303, #279) | Gap: not present in the fork. |
+| `gateway:creator` assigned by default on user provisioning (PR #263) | Check required: the fork has `gateway:creator` grants; default-on provisioning is unverified. |
+| Helm-chart gateway deployment rendering; external-DB-only provisioning from an admin Secret; reconcile concurrency; hardening fixes (DB probe, config validation, orphan recording, console Route cert) | Mixed: external-DB-only is adopted; the others need assessment against the fork's STEGO-generated deployment rendering. |
+| CLI rename to `hsctl`, proxy env support, sandbox-connect instructions | Gap for CLI surface parity; low priority. |
+| `packages/operational-dashboard-ui` plus 20 dashboard commits | Gap for dashboard parity; separate surface from the fork's generated console. |
+
+The 47 CI/deploy commits, 6 docs commits, and dependency bumps have no fork
+domain impact. The full classification table is retained in the session
+records. This assessment does not by itself close any requirement; it defines
+the upstream parity work items above. H1 covered parity against the snapshot
+contracts, which remain the fork's declared baseline. The contract snapshots
+in `contracts/reference/` are now 22 days stale and record pre-#325 state.
