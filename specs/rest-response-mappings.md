@@ -287,6 +287,14 @@ UI package tests, and full generation check passed. CI runs
 rerun) and `36221262874` (application images) are green. The remaining nullable object
 states remain outside the generated conversion.
 
+The remaining nullable gaps have no current Hypershell consumer. Every
+nullable property in the Hypershell contracts is a nullable string or
+timestamp covered by the released nullable scalar policy; no nullable
+object, array, or enum property exists in any Hypershell contract. The
+only prepared-input use passes always-present identity values, so
+three-state nullable inputs have no consumer. The gaps stay recorded as
+unsupported compiler features, not as open adoption work.
+
 The service-account credential envelope is hand-built by recorded decision.
 The `Connection` object is domain-computed from Gateway observations and
 parsed OIDC configuration: the domain derives the token endpoint from the
