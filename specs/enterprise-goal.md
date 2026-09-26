@@ -79,8 +79,22 @@ evidence.
 The measured Gateway had 100 accounts with verified token issuance. The
 observed cleanup upper bound was 36.01 seconds against the 30-second target.
 The target and 100-Gateway capacity remain unproved. RDS failover, live Kata,
-and upstream OpenShell Sandbox execution remain outside this proof. C3
-through C7 and H1 through H3 remain open.
+and upstream OpenShell Sandbox execution remain outside this proof.
+
+## Delivery of the merged application
+
+[Hypershell PR #1](https://github.com/jsell-rh/hypershell-stego/pull/1)
+merged the adoption branch `feat/stego-67768b1d-adoption-20260924`
+(15 commits, head `44d05bb`) into `hypershell-stego` main as `47aa9ed`
+on 2026-09-26. All checks on the pull request passed, and the merge
+commit completed all 17 workflows green, including the acceptance core
+job and the regenerated-compiler check. The merge-push Gateway API gate
+first failed on an expired operator-issued one-hour CI credential; the
+operator renewed the `jshell-ci` environment secret and dispatch run
+`36235544438` on the same commit passed with the Lease released. The
+remaining open items are recorded in the requirements table: C3
+production root-set selection and live adoption by the operator, and the
+H3 capacity and live Kata constraints.
 
 ## Accepted gRPC grant baseline
 
