@@ -199,3 +199,26 @@ performed its own deliberate database replacement. This result does not prove
 fixture placement without intervention. Hypershell revision `9dabb6c` retains
 the complete main CNPG record and this limit. The compiler pin is still
 `83592be`. Production capacity, live Kata isolation, and the full goal remain open.
+
+## Closed initial incident review
+
+The recovered browser initialization failure from
+[run 35176586562](https://github.com/jsell-rh/hypershell-stego/actions/runs/35176586562)
+(three restarts, exit code 1, stage `component[3].constructor[0]`,
+`browser.NewBrowserBackend`) is closed as not reproducible with proved cause.
+The incident predates the staged startup events, so its saved error named only
+the constructor. The run artifacts have expired, and the private log is
+retained only as a SHA-256 digest under the private-data-exclusion policy, so
+no retroactive cause can be established from the record.
+
+The staged `startup.step.completed` diagnostics built in response are
+deployed in both console modules at the current compiler pin. The three latest
+live browser runs on current source,
+[35921996477](https://github.com/jsell-rh/hypershell-stego/actions/runs/35921996477),
+[36196581322](https://github.com/jsell-rh/hypershell-stego/actions/runs/36196581322),
+and [36208130589](https://github.com/jsell-rh/hypershell-stego/actions/runs/36208130589),
+each recorded exactly six browser-backend instances (three management console
+and three Gateway console, matching the deliberate initial, restart, and key
+rotation phases) with all eight stages `success` for every instance and no
+failed startup pair. Any recurrence would now identify the failed stage
+through these events. The C6 runtime row records no open item.
