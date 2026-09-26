@@ -271,7 +271,19 @@ Hypershell main `7f0bd9f` accepted the Role response adoption. Runtime source
 `b5ee359` maps the Role fields through this conversion with the declared
 bounds. API run `35884290611` passed all 59 required roots. Browser run
 `35894616139` passed the complete Gateway workflow in 571.58 seconds with
-fixture `eb7be18e`. The `users/me` response, the service-account credential
-envelope, and the remaining nullable object states remain outside the generated
-conversion. See the
+fixture `eb7be18e`. See the
 [workflow evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/role-workflow-evidence.json).
+
+Hypershell `780c9ab` accepted the current user response adoption. The
+`users/me` presenter returns the generated `contract.CurrentUser` through
+`responses.CurrentUser` with prepared identity inputs (issuer, subject,
+expiry). The mapping covers 11 fields with enum-checked kind and href
+constants and checked timestamps. The `pattern` schema keyword is not used
+because the TypeScript SDK generator rejects it; the acceptance test keeps
+the ksuid format check. The generated TypeScript SDK change required the
+management console asset rebuild at `44d05bb`; its bounded CI asset build,
+UI package tests, and full generation check passed. CI runs
+`36221263862` (acceptance core, after one unrelated outbox-drain flake
+rerun) and `36221262874` (application images) are green. The
+service-account credential envelope and the remaining nullable object
+states remain outside the generated conversion.
