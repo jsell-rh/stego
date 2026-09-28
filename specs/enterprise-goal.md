@@ -540,7 +540,10 @@ adjustable from the CI identity. Run
 [36420431666](https://github.com/jsell-rh/hypershell-stego/actions/runs/36420431666)
 then passed the bounded live acceptance at 45 Gateways: all 45 converged, the
 slowest in 81.5 seconds, with the shared live-test Lease held and released and
-the fixture namespace fully cleaned. The measured ceiling, the run record, and
+the fixture namespace fully cleaned.
+PR [4](https://github.com/jsell-rh/hypershell-stego/pull/4) merged the
+capacity identity chain, the measured request change, the capacity acceptance
+test, and the bounded evidence record at Hypershell main `8c1c65d`. The measured ceiling, the run record, and
 the resource change evidence are in
 `acceptance/jshell-gateway-capacity-evidence-20260928.json`. The 100-Gateway
 target stays open as not proved on jshell. The user selected the bounded
