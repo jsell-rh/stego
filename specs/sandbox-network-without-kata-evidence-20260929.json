@@ -1,0 +1,60 @@
+{
+ "run": {
+  "url": "https://github.com/jsell-rh/hypershell-stego/actions/runs/36584427824",
+  "id": 36584427824,
+  "attempt": 1,
+  "conclusion": "success",
+  "workflow_sha": "03563a3bcfda5283731c4b80398c3a8a75f87f54",
+  "fixture_revision": "0d5ac07759f6c18fc916b939eb9287162329dfb8",
+  "fixture_branch": "fixture/browser-sandbox-network-20260929",
+  "created_at": "2026-09-29T14:40:30Z",
+  "updated_at": "2026-09-29T15:02:20Z"
+ },
+ "profile": {
+  "sandbox_network": true,
+  "source_classless": true,
+  "admission_guard": "stego-ci-sandbox-network",
+  "runtime_class_handler": "crun",
+  "image_run": 36572487587,
+  "image_attempt": 1,
+  "image_policy_binary_compiler": "ff0f902e258e6e85ed253daefc6767bf33c2f54d",
+  "image_policy_binary_compiler_sha256": "58c3cdb26c9b0a781e46e6ef5ae3483dc390d9956cdc2765a62493d1f4ffb07f",
+  "generation_compiler": "cd2ea83799fca078a7d6655167e741ecca43758b",
+  "policy_plan_run": 36574593043,
+  "policy_plan_sha256": "e0b57c529a7c58fae3c29a9b3cfe8ff880d9063fb7e6c47c270cc60cbdaa34a1"
+ },
+ "isolation_probes": {
+  "gateways": 2,
+  "fresh_connections": true,
+  "assigned_sandbox_ingress": "connected",
+  "denied": ["other-sandbox", "unapproved-port", "other-gateway", "control-api", "postgres", "kubernetes"],
+  "all_passed": true
+ },
+ "cleanup": {
+  "lease_holder": "",
+  "runtime": [],
+  "fixtures": [],
+  "allocations": [],
+  "ci_jobs": [],
+  "installation_uid": "dab8b131-bb01-40fc-8522-bc13e0e1ca22",
+  "installed_resources_unchanged": 32,
+  "standing_vap_restored": "kata guard, 22 validations",
+  "test_runtime_class_absent": true,
+  "empty": true
+ },
+ "operator_journal": {
+  "holder": "sandbox-network-20260929",
+  "lease_uid": "473d5b75-ff67-413c-8ae7-b22f70770c59",
+  "phase": "complete",
+  "class_uid": "5a8472f2-6917-43e1-ac5b-79727aa83299",
+  "native_config_uid": "7f03ea54-67e5-408e-9114-3b8ac388a8a1",
+  "restored_config_uid": "dab8b131-bb01-40fc-8522-bc13e0e1ca22"
+ },
+ "retained_records": "~/.local/state/stego/runs/sandbox-network-20260929/",
+ "notes": [
+  "The dispatch policy must declare the application binary compiler (ff0f902e), not the STEGO generation compiler; the first dispatch 36578485913 failed the signed-compiler-source check otherwise.",
+  "The second dispatch 36583713831 failed the CI credential lifetime gate before any cluster mutation; tokens were re-minted and no re-prepare was needed.",
+  "Restore to the exact standing kata-guard installation is intentional; the standing installation remains an older render than current main (known staleness, not introduced by this test)."
+ ],
+ "collected_at": "2026-09-29"
+}
