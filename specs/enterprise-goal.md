@@ -788,3 +788,32 @@ records. This assessment does not by itself close any requirement; it defines
 the upstream parity work items above. H1 covered parity against the snapshot
 contracts, which remain the fork's declared baseline. The contract snapshots
 in `contracts/reference/` are now 22 days stale and record pre-#325 state.
+
+## Upstream parity delivery scope (2026-09-28)
+
+The user selected the delivery scope from the 2026-09-26 assessment and the
+fresh upstream review at `f99d5b6` (2026-09-28). Deliver these upstream
+behaviors in the STEGO-based runtime:
+
+1. Mandatory control-plane cluster identity, hub gRPC TLS, and cluster-scoped
+   watch streams (upstream `95c90d2`, HYPERSHELL-333).
+2. Tenant database connection verification before a Gateway is marked ready,
+   and Gateway database creation from `template0` (upstream `e7f4568`,
+   `c2fb25a`).
+3. External databases as the only supported provisioning method, recorded as
+   an alignment confirmation (upstream `0ed01c6`).
+4. GatewayNetwork reconciliation, gateway console Route certificate,
+   orphaned-resource recording during deletion, generated-config validation
+   before rollout, and ingress-mode exposure selection (upstream `0037848`,
+   `289c9c5`, `6d7db36`, `d8adbbd`, `0a97b4b`). Behaviors already proved in
+   the fork need only a coverage record.
+
+Deliver the dashboard and web-console surfaces: sandbox attention counts, API
+reliability metrics, provisioning reliability and adoption metrics,
+reconciliation metrics, the sortable sandbox column, the GitHub broker 403
+handling, and the Keycloak username/password login restore.
+
+The safe gateway release rollout (upstream `2325a02`) stays out of scope by
+user choice. CI, e2e, docs, and dependency commits stay out of scope. Each
+delivered behavior needs target-behavior specification, fork gap check, live
+or acceptance evidence, and a coverage record here.
