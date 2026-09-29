@@ -1031,3 +1031,94 @@ Record-only A4 rows from the gap assessment (2026-09-29), for completeness:
   input-validation and digest-gated rollout gates.
 - Ingress-mode selection (0a97b4b): not applicable — the fork has a single
   Route-only exposure path, so emit/observe divergence cannot occur.
+
+## Parity delivery record: A1 cluster identity (upstream 95c90d2)
+
+Delivered on fork branch `parity/cluster-identity`, commit `0f54409`
+(branch point `f5ca4cd`). This delivery is fork-native, not a port.
+
+Target behavior: upstream gives a registered ManagedCluster caller a scoped
+gateway identity. The fork has no cluster registration surface and no RBAC
+interceptor, so the fork applies the same protection to a different caller
+class: a control-plane subject that holds a Gateway controller-write grant
+with a non-empty target is cluster-bound.
+
+Binding rule: a bound caller must send a cluster_id on `ListGateways`,
+`WatchGateways`, and `ListGatewayReconcileIDs`; a missing cluster_id is
+rejected as invalid, and a cluster outside the bound set is rejected as
+forbidden. Unbound callers (users, `hsctl`, `platform:admin`, and
+control-plane subjects with no Gateway grant or with an empty target) keep
+the cluster_id as an optional visibility narrowing filter. Enforcement
+lives in the service method `AuthorizeCluster`; the handlers stay thin and
+the existing error mapping turns the domain errors into the correct gRPC
+codes.
+
+Worker plumbing: the workload, namespace allocation, and sandbox count
+controllers now watch, seed, and list with their own cluster id. The
+identity worker stays fleet-wide because its reconciler, cleanup owner, and
+user scan are not cluster resources; it holds an empty-target grant, so the
+binding rule does not apply to it.
+
+Contract surface: `ListGatewaysRequest` gained `optional string cluster_id
+= 3` and `WatchGatewaysRequest` gained `optional string cluster_id = 1`;
+`ListGatewayReconcileIDsRequest` already carried `cluster_id = 2`. The
+descriptor contract test mirrors these fork fields onto the captured
+upstream reference before the wire comparison, in the same style as the
+existing `database_id` retirement transform, so the shared surface stays
+verified.
+
+TLS: the new `internal/grpctls` package serves application-owned listeners
+with certificate reloading. It loads the pair at construction, rechecks
+the file stats at each handshake, and keeps the previous certificate when
+a reload fails. Deviations from upstream: TLS 1.3 minimum (the fork
+generated runtime pins 1.3; upstream allowed 1.2) and `log/slog` instead
+of glog. ALPN `h2` and the load/reload semantics match. The generated
+`out/grpcapi/transport/runtime.go` listener is unchanged.
+
+Evidence: new
+`TestClusterIdentityScopesClusterBoundReads` proves the rule through the
+generated runtime — missing and foreign cluster denials on list, watch,
+and reconcile; a filtered bound-cluster page on all three paths; a
+cluster-scoped watch that skips a foreign-cluster create and delivers the
+bound-cluster create; and an unbound user whose cluster_id narrows only
+its own visible rows. Affected suites rerun with PostgreSQL: watch,
+reconcile ids and cursor, recovery pages, gRPC workflows and descriptors,
+network reconciliation, sandbox counts (grants, namespace runtime,
+transport), backlog, scheduling, cleanup (identity, workload, SQL),
+observability, and deadline observation — all pass. `go build ./...`,
+`go vet ./...`, `go test ./internal/... ./contracts/`, and `stego drift`
+with the verified release compiler are clean.
+
+## Final parity coverage record (2026-09-29)
+
+Scope: fork upstream commit `9b8efa56` delivery items A1 and the
+coverage-record-only rows from the 2026-09-29 gap assessment. All records
+below are grounded in the assessment files under
+`~/.local/state/stego/runs/parity-20260929/` and the delivery commits on
+the fork.
+
+Delivered items:
+
+- A1 cluster identity (95c90d2): delivered fork-native, commit `0f54409`
+  (record above).
+- A5 sortable sandbox column (0740ec0): delivered, commit recorded earlier
+  in this file.
+- A5 gateway phase metrics endpoint (2284231): delivered, commit recorded
+  earlier in this file.
+- A4 GatewayNetwork reconciliation (0037848): delivered, commit recorded
+  earlier in this file.
+- B gateway:creator default (#263): delivered, commit recorded earlier in
+  this file.
+
+Coverage-record-only rows: A2 tenant DB probe (present, stronger), A3
+external-DB-only (aligned), A4 route cert (present), A4 ingress-mode
+selection and orphan recording (not applicable by design), A4
+generated-config validation (structurally mitigated), A5 GitHub broker
+403, Keycloak login restore (not applicable), B provisioning conditions
+and trace-context and Users API (recorded in the gap table; #276 and the
+CLI surface stay out of scope by user choice).
+
+Verification summary: every delivered branch carries its runtime
+acceptance evidence in its record above; `stego drift` is clean at each
+branch tip; the verified release compiler produced all generated state.
+No open parity item remains inside the agreed scope.
