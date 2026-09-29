@@ -899,3 +899,25 @@ pass with the strict tests pinned by
 pre-existing local-environment failures (CLI version VCS metadata and four
 REST stored-fault timestamp rejections on PostgreSQL 18), all reproduced at
 the branch point without this change.
+
+## Parity delivery record: sortable sandbox column (A5, upstream 0740ec0)
+
+Delivered on fork branch `parity/a5-sortable-sandbox-column`, commit
+`85ef100` (branch point `df44ce5`). Straight port of upstream `0740ec0`.
+
+Target behavior: the gateway list sandbox column sorts through the normal
+collection controls. The API already orders by `active_sandbox_count`
+(`internal/httpapi/fields.go` registers the field and `ParseOrderBy` accepts
+it), so only the frontend wiring was missing.
+
+Fork delivery: `activeSandboxes` joined the `GatewaySortField` union, the URL
+list-state switch, the adapter's `gatewaySortFields` column map (→
+`active_sandbox_count`), and the sortable-field guard; the column header
+dropped `sortable: false` and its stale not-sortable justification. Upstream
+tests ported with the change: adapter orderBy mapping, URL round-trip, and
+header-click state change.
+
+Evidence: `pnpm exec vitest run` in `components/web-console` (9 files, 60
+tests) and `packages/gateway-management-ui` (14 files, 167 tests) all pass;
+`pnpm run typecheck` and `pnpm run build` pass in both packages; prettier
+clean on all changed files.
