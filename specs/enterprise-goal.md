@@ -824,3 +824,37 @@ The safe gateway release rollout (upstream `2325a02`) stays out of scope by
 user choice. CI, e2e, docs, and dependency commits stay out of scope. Each
 delivered behavior needs target-behavior specification, fork gap check, live
 or acceptance evidence, and a coverage record here.
+
+## Upstream parity gap assessments (2026-09-29)
+
+All assessments against fork `03563a3` (origin/main tree). Full records:
+`~/.local/state/stego/runs/parity-20260929/{a1,a2,a3,a4,a5,group-b}-*.json`.
+
+| Item | Verdict | Delivery need |
+| --- | --- | --- |
+| A1 cluster identity (95c90d2) | Not ported; substantial adaptation, not a straight port | Deliver: registration/identity surface, `cluster_id` on gateway watch/list/reconcile contracts + server-side enforcement, optional cert-reloading TLS (fork TLS 1.3-only is already stronger than upstream's 1.2 floor) |
+| A2 tenant DB probe + template0 (e7f4568, c2fb25a) | Present, stronger, different mechanism | Coverage record only |
+| A3 external-DB-only (0ed01c6) | Confirmed aligned by design and enforcement | Coverage record only |
+| A4 console Route cert (289c9c5) | Present+proved (passthrough Route + per-host cert-manager Certificate, verified before publish) | Coverage record only |
+| A4 ingress-mode selection (0a97b4b) | N/A by design: single Route-only exposure path; emit/observe divergence structurally impossible | Coverage record only |
+| A4 generated-config validation (d8adbbd) | Partial: input validation + digest-gated rollout present; rendered-artifact TOML/OIDC re-validation absent (structurally mitigated: fixed-structure renderer, `allow_unauthenticated_users = false` hard-coded) | Coverage record; rendered-artifact gate optional hardening |
+| A4 GatewayNetwork reconciliation (0037848) | Partial: CRUD/watch present; topology vocabulary, hub coherence/existence, status write-back absent | Deliver if selected |
+| A4 orphan recording (6d7db36) | Absent but N/A: fork deletion fails closed and retries — no best-effort branch can declare complete with leaked resources | Coverage record stating the divergence |
+| A5 sortable sandbox column (0740ec0) | Absent: backend already capable (`active_sandbox_count` registered + ParseOrderBy); four frontend wiring points missing | Deliver (small) |
+| A5 sandbox attention counts (c05eb79) | Partial: count primitive present+proved; attention taxonomy and dashboard absent | Deliver if selected |
+| A5 API reliability metrics (129349d) | Absent: fork phase-cards UI fetches `/api/hypershell/v1/metrics/gateways` but no backend serves it | Deliver or record the dead endpoint decision |
+| A5 provisioning/adoption metrics (85927b3, 718b69b) | Absent (generic outcome counters exist as different surface) | Deliver if selected |
+| A5 reconciliation metrics (f99d5b6) | Partial: generic outcome/duration/retry metrics present+proved at loopback `/metrics`; named per-reconciler series and dashboard absent | Deliver if selected |
+| A5 GitHub broker 403 (d1e641b) | N/A: fork has no GitHub org gate or broker probing; failure mode cannot occur | Coverage record |
+| A5 Keycloak login restore (f4e7520) | N/A: fork login is username/password-only; form never hidden, no guessable seeds | Coverage record |
+| B: provisioning_conditions/gateway_version/observed_release_id (#269/#276/#210) | Absent as contract fields; coarse phase/status + digest-pinned releases present | Coverage record; #276 out of scope by user choice |
+| B: ObjectReference.traceparent/tracestate (#207) | Present-different-mechanism: W3C wire propagation exists; no persisted trace columns or reconcile span links | Coverage record |
+| B: read-only Users API (#303/#279) | Absent: only `/users/me`; no fork consumer | Coverage record |
+| B: gateway:creator default (#263) | Absent — verified: binding created only when the JWT carries the role; role-less first-login users cannot create gateways | Deliver (small, user-visible) or record explicit operator choice |
+| B: CLI surface (#206/#329/#326/#208) | Partial/deliberately different; proxy env explicitly disabled | Out of scope by user choice |
+
+Notable corrections to the 2026-09-26 table: `gateway:creator` default-on is
+now verified absent (was "unverified"); the Users REST endpoints predate the
+dashboard PRs (introduced by #241); the fork Gateway proto field 23 is free,
+matching upstream's `provisioning_conditions` slot if that parity is ever
+delivered.
