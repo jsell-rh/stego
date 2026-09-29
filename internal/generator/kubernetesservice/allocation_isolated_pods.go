@@ -20,8 +20,10 @@ func allocationIsolatedPodConfig(values object, p *allocationProfile) error {
 			p.PodSecurity = mode
 		}
 	}
-	if p.PodSecurity == "isolated-runtime" && (p.PodRuntimeClass == "" || p.PodServiceAccount == "" || values["network_isolation"] != true) {
-		return fmt.Errorf("isolated-runtime requires pod_runtime_class, pod_service_account, and network_isolation")
+	// A runtime class is optional: clusters without an isolated runtime
+	// handler still use the namespace, account, and network boundary.
+	if p.PodSecurity == "isolated-runtime" && (p.PodServiceAccount == "" || values["network_isolation"] != true) {
+		return fmt.Errorf("isolated-runtime requires pod_service_account and network_isolation")
 	}
 	if raw, exists := values["pod_network_provider"]; exists {
 		provider, ok := raw.(string)

@@ -7,9 +7,13 @@ allocation path is verified.
 An allocation profile defaults to `pod_security: restricted`. An explicit
 `pod_security: isolated-runtime` requires all of these settings:
 
-- An exact `pod_runtime_class` name.
 - A `pod_service_account` alias from the profile's declared accounts.
 - `network_isolation: true`.
+
+An exact `pod_runtime_class` name is optional. Declare it only when the cluster
+has a verified isolated runtime handler. Without a declared class, the generated
+admission policy sets no expectation on `runtimeClassName`, so pods run under
+the cluster default runtime.
 
 The operator must install and verify the runtime handler. A RuntimeClass name
 alone does not prove VM isolation. The generated declaration does not install a

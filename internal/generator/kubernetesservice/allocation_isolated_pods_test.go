@@ -29,7 +29,6 @@ func TestAllocationIsolatedValidation(t *testing.T) {
 		"null mode":                  func(p object) { p["pod_security"] = nil },
 		"empty mode":                 func(p object) { p["pod_security"] = "" },
 		"boolean mode":               func(p object) { p["pod_security"] = true },
-		"missing runtime":            func(p object) { delete(p, "pod_runtime_class") },
 		"missing account":            func(p object) { delete(p, "pod_service_account") },
 		"missing network isolation":  func(p object) { delete(p, "network_isolation") },
 		"disabled network isolation": func(p object) { p["network_isolation"] = false },
@@ -125,6 +124,40 @@ func TestAllocationIsolatedPolicy(t *testing.T) {
 	}
 	if !strings.Contains(string(encoded), `"PodSecurity":"isolated-runtime"`) || strings.Contains(string(encoded), "NET_ADMIN") {
 		t.Fatal("worker must receive the security mode but cannot interpret capability grants")
+	}
+}
+
+func TestAllocationIsolatedWithoutRuntimeClass(t *testing.T) {
+	c := isolatedAllocationContext()
+	p := c.ComponentConfig["allocation_profiles"].([]any)[0].(object)
+	delete(p, "pod_runtime_class")
+	config, err := allocationConfig(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Profiles[0].PodRuntimeClass != "" || config.Profiles[0].PodSecurity != "isolated-runtime" {
+		t.Fatal("classless isolated profile must keep the security mode without a runtime class")
+	}
+	items, err := allocationObjects(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policies := 0
+	for _, raw := range items {
+		item := raw.(object)
+		if item["kind"] == "ValidatingAdmissionPolicy" {
+			policies++
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "runtimeClassName") {
+				t.Fatal("classless isolated profile must not emit a runtime-class admission rule")
+			}
+		}
+	}
+	if policies != 8 {
+		t.Fatal("classless isolated profile changed the guard count", policies)
 	}
 }
 
