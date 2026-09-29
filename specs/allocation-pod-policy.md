@@ -1,7 +1,9 @@
 # Pod restrictions for allocated namespaces
 
-An allocation profile can require `pod_runtime_class`, `pod_service_account`, or
-both. The runtime value is an exact RuntimeClass name. The account value is a
+An allocation profile can require `pod_service_account`, `pod_runtime_class`,
+or both. The runtime value is an exact RuntimeClass name; when absent, the
+generated policy sets no expectation on `runtimeClassName`. The account value
+is a
 local alias from that profile's `service_accounts`. It cannot select a literal
 account name, the default account, or an account imported from another profile.
 The normal requirement for a declared account binding still applies.
@@ -25,6 +27,11 @@ Keep its policy and binding outside worker write access. A policy update applies
 to subsequent admission requests; it does not stop existing Pods. Plan runtime
 changes with that limit. The declaration does not install a RuntimeClass or
 prove the isolation of its handler. The operator must verify that runtime.
+
+A profile without `pod_runtime_class` omits the runtime rule completely. The
+policy still enforces the account, identity, and host-access rules. An absent
+runtime class is not the same as a declared class: the generated policy makes
+no claim about runtime isolation, so the cluster default runtime applies.
 
 The fields add no permissions and do not relax the immutable restricted Pod
 security level. Profiles without the fields retain their existing output. The
