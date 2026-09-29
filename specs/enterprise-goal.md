@@ -858,3 +858,44 @@ now verified absent (was "unverified"); the Users REST endpoints predate the
 dashboard PRs (introduced by #241); the fork Gateway proto field 23 is free,
 matching upstream's `provisioning_conditions` slot if that parity is ever
 delivered.
+
+## Parity delivery record: gateway:creator default (B, upstream #263/4e349e1)
+
+Delivered on fork branch `parity/gateway-creator-default`, commit `df44ce5`
+(branch point `03563a3`).
+
+Target behavior: upstream merges `RBAC_DEFAULT_ROLES` (unset →
+`["gateway:creator"]`, empty → disabled, else a role list) so a first-login
+user without JWT roles still receives a stored global `gateway:creator`
+binding; gateway creation is then authorized from the stored binding, and
+defaults are never revoked by later role-less tokens.
+
+Fork delivery: `OptionsFromEnvironment` parses the tri-state
+`HYPERSHELL_DEFAULT_GATEWAY_CREATOR` (unset → on, empty → off, else strict
+`strconv.ParseBool`; invalid input fails startup). `PrepareRequest` forces
+the `gateway:creator` binding wanted when the default is on, so projection
+creates and keeps the stored binding. The `Create` gate accepts role-less
+principals when the default is on — the fork gate is claim-driven, so
+without this change a defaulted binding would carry no create right; the
+combination matches upstream's stored-binding authorization. `platform:admin`
+stays claim-driven. The default lives only in environment options; the ~21
+direct in-process `gateways.New` sites keep claim-driven semantics.
+
+Gap check before delivery: verified absent at `03563a3` (binding only when
+the JWT carries the role); catalog, network, read, and grant surfaces stay
+claim-driven, so the default widens only creation and the stored binding.
+
+Evidence: `go test ./internal/gateways/... -count=1` (ok). Runtime
+acceptance with local PostgreSQL: new
+`TestDefaultGatewayCreatorRoleThroughGeneratedRuntime` (role-less 201 create,
+one global binding, survival through role-less renewal and claim-driven
+admin removal, gRPC projection, disable-restart → 403 and zero bindings)
+passed; `TestGlobalRolesThroughGeneratedRuntime`,
+`TestRoleDiscoveryThroughGeneratedRuntime`, grant discovery/transport, CLI
+grant/apply/catalog/observability workflows, gateway REST/gRPC workflows,
+count transport, provider state, current-user and concurrency tests all
+pass with the strict tests pinned by
+`HYPERSHELL_DEFAULT_GATEWAY_CREATOR=false`. Full-suite run shows only
+pre-existing local-environment failures (CLI version VCS metadata and four
+REST stored-fault timestamp rejections on PostgreSQL 18), all reproduced at
+the branch point without this change.
