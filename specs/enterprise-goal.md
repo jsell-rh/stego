@@ -921,3 +921,44 @@ Evidence: `pnpm exec vitest run` in `components/web-console` (9 files, 60
 tests) and `packages/gateway-management-ui` (14 files, 167 tests) all pass;
 `pnpm run typecheck` and `pnpm run build` pass in both packages; prettier
 clean on all changed files.
+
+## Parity delivery record: gateway phase metrics endpoint (upstream 2284231)
+
+Delivered on fork branch `parity/gateway-metrics-endpoint`, commit `c397297`
+(branch point `85ef100`). Fork-native surface: upstream serves
+`/api/metrics/gateways` from the console backend as a Prometheus proxy with
+its own dashboard aggregation; the fork dashboard
+(`packages/gateway-management-ui/src/metrics/gateway-metrics-data.ts`)
+expects a REST resource `{counts:{Running,Provisioning,Degraded,Failed}}`,
+so the fork serves the route from the API server mux instead. The console
+backend proxies the `/api/hypershell/v1/` prefix to the API server with the
+session bearer token, so the browser path needs no console change.
+
+Fork delivery: `contracts/extensions/gateway-metrics.openapi.yaml` declares
+the route (query and body rejected, like `/users/me`); the extension index
+and `contracts/active.go` embed the file, `service.yaml` declares it as an
+input for the http-application, go-sdk, and typescript-sdk, and the verified
+release compiler regenerated the contract types, both SDKs, and the state
+manifest (`stego apply`; drift check clean). `Service.PhaseCounts` in
+`internal/gateways` counts within one transaction, applying the same
+visibility rule as the gateway list: control-plane subjects and
+`platform:admin` count the fleet, other users count gateways with a live
+owner or viewer grant. Phase and status stay controller-owned; a gateway
+with no observed workload phase counts in no bucket, and the `Failed` key
+stays present with value zero because no fork writer produces it yet. The
+handler in `internal/httpapi/metrics.go` answers through the standard
+endpoint wrapper with the generated `contract.GatewayPhaseCounts` type.
+
+Evidence: new
+`TestGatewayPhaseCountsThroughGeneratedRuntime` passed (schema validation
+against the active contract, 401 for missing or forged bearers, 400 for
+query and body, empty-state shape with all four keys, fleet counts after
+controller phase writes through conditional gRPC updates, visibility-filtered
+owner counts, zero counts for a stranger, 403-equivalent PermissionDenied for
+a user phase write). `go build ./...`, `go vet` on the changed packages, and
+`go test ./internal/... ./contracts/ ./out/...` pass; neighboring acceptance
+tests pass, with only the pre-existing `TestGeneratedCLIVersion` VCS-metadata
+failure. `stego drift` reports no drift. Frontend suites stay green
+(web-console 60 tests, gateway-management-ui 167 tests, typecheck and build
+in both packages; prettier warnings on two files are pre-existing at the
+branch point).
