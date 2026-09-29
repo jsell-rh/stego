@@ -962,3 +962,72 @@ failure. `stego drift` reports no drift. Frontend suites stay green
 (web-console 60 tests, gateway-management-ui 167 tests, typecheck and build
 in both packages; prettier warnings on two files are pre-existing at the
 branch point).
+
+## Parity delivery record: GatewayNetwork reconciliation (A4, upstream 0037848)
+
+Delivered on fork branch `parity/gateway-network-reconciliation`, commit
+`f5ca4cd` (branch point `c397297`). Upstream's reconciler validates network
+topology references and writes the verdict into the network's status field.
+The fork stores networks in the STEGO catalog under `gateway_networks`, which
+has no per-row resource revision column, so the fork uses the row's
+`updated_time` as the observed revision: `ObserveGatewayNetworkStatus`
+(new RPC on `GatewayIdentityService`, `contracts/controlplane/gateway_identity.proto`,
+regenerated with the verified release compiler; drift check clean) requires an
+`if-resource-version` header that must match the row's current `updated_time`
+inside one transaction — a stale observation aborts with `Aborted` so the
+controller retries from current state. Idempotency rests on that
+transactional compare plus the same skip-when-equal rule as
+`SetObservedSandboxCount`: an unchanged status writes no row and emits no
+event. This closes the same stale-write window upstream closes with its
+revision gate; the mechanism differs because the fork's storage model has no
+independent revision counter.
+
+Fork delivery: `internal/gatewaynetwork/controller.go` runs a keyed watch over
+`WatchGatewayNetworks` with a paged `ListGatewayNetworks` seed, reconciling
+each network by porting upstream's `validate()`: empty topology →
+`Invalid: topology is required`; unrecognized topology → `Invalid:
+unrecognized topology "<value>"`; `hub-spoke` without `hub_gateway_id` →
+`Invalid: hub-spoke network requires a hub_gateway_id`; a dangling hub
+reference → `Invalid: hub gateway "<id>" does not exist` (deterministic
+Invalid, not a retry); other lookup errors retry. Deletion events are terminal
+no-ops because a network owns no cluster resources. The write path is the new
+observation RPC, not `UpdateGatewayNetwork`: the catalog rejects control-plane
+subjects on resource mutations, and `acceptance/network_test.go` pins that
+contract. `ObserveNetworkStatus` in `internal/gateways/network_status.go`
+requires a controller-write grant for `GatewayNetwork`/`observe.network`
+(fails closed without a policy), requires the control-plane subject list to
+admit the caller, validates the status text (non-empty, ≤255 bytes, UTF-8, no
+NUL), and notifies `gatewaynetwork.updated` through the outbox. The
+`gateway-network` worker (`internal/gatewaynetworkapp`) wires the controller
+to the control API with certificate and token-file credentials;
+`service.yaml` declares it with egress to the API and a matching ingress peer.
+
+Evidence: new
+`TestGatewayNetworkReconciliationThroughGeneratedRuntime` passed — mesh and
+hub-spoke-with-live-hub settle to `Valid`; empty, unrecognized, hubless
+hub-spoke, and dangling-hub networks settle to the exact deterministic
+`Invalid` strings; a topology repair converges back to `Valid`; after the
+queue drains, a full resync cycle plus margin leaves the outbox count
+unchanged (no redundant write or event) and the status persisted in
+`gateway_networks`; a control-plane subject without the exact grant, a
+non-control-plane admin on the observation path, and a controller on the
+public catalog path all receive `PermissionDenied`.
+`TestGatewayNetworkWorkflowThroughGeneratedRuntime` still passes;
+`TestGeneratedWorkloadWorkerStartupPrivacy` passes with `gateway-network`
+added to the generated-worker list. `go build ./...`, `go vet ./...`,
+`go test ./internal/gateways/ ./internal/grpcapi/ ./contracts/`, and
+`stego drift` are clean.
+
+Record-only A4 rows from the gap assessment (2026-09-29), for completeness:
+
+- Route cert (289c9c5): present and proved in the fork — passthrough Route
+  with a per-host cert-manager Certificate verified before publish.
+- Orphan recording (6d7db36): not applicable — fork deletion fails closed and
+  retries; no best-effort branch can declare completion with leaked cluster
+  resources, so there is no orphan state to record.
+- Generated-config validation (d8adbbd): structurally mitigated — the fork's
+  fixed-structure renderer and hard-coded `allow_unauthenticated_users =
+  false` make rendered-artifact re-validation redundant with the existing
+  input-validation and digest-gated rollout gates.
+- Ingress-mode selection (0a97b4b): not applicable — the fork has a single
+  Route-only exposure path, so emit/observe divergence cannot occur.
