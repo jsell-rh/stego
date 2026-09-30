@@ -75,6 +75,9 @@ config:
         type: string
       import_path:
         type: string
+      reference:
+        type: string
+        optional: true
 requires:
   - storage-adapter
   - auth-provider

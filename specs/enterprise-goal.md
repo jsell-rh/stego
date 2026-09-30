@@ -1122,3 +1122,36 @@ Verification summary: every delivered branch carries its runtime
 acceptance evidence in its record above; `stego drift` is clean at each
 branch tip; the verified release compiler produced all generated state.
 No open parity item remains inside the agreed scope.
+
+## Compiler audit and fork-adoption mechanisms (2026-09-30)
+
+The user audited the hypershell fork for accidental complexity and asked for
+the recurring taxes to move into the compiler. Two mechanisms followed.
+
+First, `stego drift` now detects input drift. The command hashes every
+declared input file and compares the stored hash manifest before it compares
+generated output. A changed contract that was not fed through `stego apply`
+now fails the drift check instead of passing silently. Commit `b1aa7e08`.
+
+Second, `proto_files` entries can declare a `reference`: a frozen contract
+the entry file must conservatively extend. The compiler checks that reference
+messages, enums, services, and fields stay unchanged, that a removed field
+moves into a declared retirement (number and name reserved), and that a new
+field never uses a number the reference owns or reserves. For each entry with
+a reference, the compiler writes a test beside the generated protobuf code
+that compares the generated descriptor against the validated contract. This
+retires the fork's hand-mirrored descriptor test
+(`TestGeneratedGatewayDescriptorsMatchReleaseContract` in
+`acceptance/grpc_test.go`): the fork declares the upstream gateways proto as
+the reference, the compiler validates the fork delta, and the generated test
+pins the contract.
+
+Audit candidates rejected with reasons: the three embedded snapshot loaders
+(consumer-side and small, no compiler value); the `reference_test.go`
+inventory and wire-ownership assertions (semantic policy, not mechanical
+validation, so they stay hand-written).
+
+Fork adoption gate: the fork moves to the new compiler only after
+`scripts/qualify-compiler-release.py` passes against a release that contains
+both mechanisms. Until then the fork keeps its hand-mirrored test and the
+verified release compiler `cd2ea837`.
