@@ -437,7 +437,7 @@ func runDrift(args []string) error {
 
 	fmt.Print(compiler.FormatDrift(result))
 	if result.HasDrift() {
-		return fmt.Errorf("drift detected in %d file(s)", len(result.Modified)+len(result.Deleted))
+		return fmt.Errorf("drift detected in %d file(s) and %d input(s)", len(result.Modified)+len(result.Deleted), len(result.Inputs))
 	}
 	return nil
 }

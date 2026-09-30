@@ -9,6 +9,18 @@ apply. Imports resolve from this list or the protobuf standard descriptors. They
 cannot read other files or fetch remote schemas. Invalid contracts fail before
 output changes. Recovery completes saved output and preserves later source edits.
 
+An entry can set `reference` to a project-relative frozen contract file. The
+entry file must be a conservative extension of that reference. Reference
+messages, enums, services, and fields stay unchanged, or a removed field moves
+into a declared retirement: its number and its name reserved. A new field must
+not use a number that the reference field owns or reserves. The same rules
+apply to enum values and service methods. The compiler rejects other changes
+before output changes. For each entry with `reference`, the compiler writes a
+test beside the generated protobuf code. This test compares the generated
+descriptor against the validated contract. It fails when the generated code
+stops matching the reference contract. The reference must be a declared input
+file and must differ from the entry path and every declared import path.
+
 The current compiler accepts proto3 contracts. It uses protocompile v0.14.1,
 the protobuf Go generator v1.36.11, and the gRPC Go generator v1.6.1. The gRPC
 generator source is included with its license and source revision. These versions

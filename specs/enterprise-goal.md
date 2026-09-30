@@ -514,7 +514,7 @@ a narrower passing check cannot close a broader requirement.
 | C7: compiler contracts | Audit complete at STEGO `7349c3ce` against the original assessment. Closed since the assessment: strict YAML decoding rejects unknown keys; `validate` errors on components with no generator in the build; per-generator Go version gates; versioned shared contracts (`gen.StorageV1`, `gen.EventsV1` via `ResolveContract`); state format versioning (`StateFormatVersion = 1`, legacy read, unknown versions rejected); compiler build identity recorded and validated in state; scaffold workflow has an end-to-end build test (`TestFillWorkflowBuild`); `Reconcile` runs the same `validateSource` as `validate` and hard-fails on errors, so the two commands cannot diverge. New contract this cycle: generators declare the slot names their output invokes through `gen.SlotConsumer`; validation rejects any binding to a slot no registered generator consumes, before any file is written (STEGO main `7349c3ce`, covered by `TestValidate_UnconsumedSlotIsRejected`). The defect class was proved live: the tsl-search `resolve_field` slot bound, wired, and compiled without ever being invoked; the dead declaration is removed. Hypershell regeneration is unaffected: both modules pin the registry by immutable commit (`94d285d7`, and `52306a6b` for the console), the slot removal is a descendant change under `registry/components/tsl-search/`, and Hypershell binds no slots, so no compiler re-release or re-adoption is required before further Hypershell runs. Runtime failure behavior: generated `main.go` wraps component construction and startup in `stegoServiceFailure` with stage and aborted-task records, the server has `ReadHeaderTimeout` and drained `Shutdown`, slot evaluation errors fail the HTTP request, and durable events go through the transactional outbox (`Enqueue` in the same transaction as the write). Typed wiring, capability validation, extension points, and compatibility all have current evidence. |
 | H1: application contracts | Parity evidence complete; closed at Hypershell `43baa19` and STEGO `ae28efe0`. Core contract areas run on exact current source: the acceptance (core) job of [CI run 36151056060](https://github.com/jsell-rh/hypershell-stego/actions/runs/36151056060) passed 1,538 cases with zero failures, covering REST (`http_test`, `rest_*`), gRPC (including tracing and benchmark roots), RBAC (grants, global roles, roles, service accounts), watches, both SDKs (Go and TypeScript, with `sdk_workflow` and `tssdk` roots), CLI (`cli_*`, catalog, grant, and service-account CLI roots), and deployment behavior across restarts. UI and deployment behavior beyond the core job are proved by [browser run 35921996477](https://github.com/jsell-rh/hypershell-stego/actions/runs/35921996477) at head `b5ee359` with `STEGO_TEST_BROWSER_WORKLOAD=1` and `STEGO_TEST_REQUIRE_PUBLIC_GATEWAY=1`: the run artifacts record the rendered dashboard session (`dashboard-create`), the full Monaco editor contract (three separated line positions, at least two syntax colors, keyboard focus, visible Ctrl+A selection, invalid-JSON rejection with a disabled confirm button, same-origin JSON worker, error marker, and zero editor content-policy violations), a session-preserving reload after Gateway Pod replacement (`dashboard-reload` retained the same session and workspace), verified sign-out through the identity provider, and the rendered account lifecycle (creation, masked one-time secret handoff, verified token issuance, revoke, delete). Currency: `b5ee359..43baa19` changes only generated tracing additions, compiler pins, additive epoch and restore acceptance tests, evidence documents, and one migration; no browser, console, sandbox, or dashboard surface changed, so the run remains exact evidence for those surfaces. The upstream dashboard terminal contract is closed by transport-contract evidence: the STEGO-generated browser backend socket relay is covered by ten generated socket tests (`TestApplicationSocketDelivery/Denied/Admission/SessionEnd`, `TestSocketTransportIsolationAndClose`, redirect and invalid-request rejection, control-traffic limit, data budget, message limit, close-cancels-read), green under the compiler job on STEGO main `7349c3ce`; the dashboard frontend opens the documented WebSocket to `/v1/workspaces/{w}/sandboxes/{s}/terminal` with binary stdout and JSON resize messages, confirmed in the built bundle; the gateway-side `ExecSandbox` RPC stream is exercised by `gateway_sandbox_workload_test.go` with exit-status enforcement. Interactive terminal use through the rendered dashboard is not directly asserted; the Sandbox execution gate remains deferred by the recorded user decision (no Kata cluster), and `ExecSandboxInteractive` is covered through the same generated gRPC transport, method routing, and the proved `ExecSandbox` stream contract. No live terminal interaction defect is known. |
 | H2: common mechanisms | The declared response mapping is adopted for all proved workflows: at Hypershell `43baa19` every REST presenter (Gateway, RoleBinding, Role, ServiceAccount, ManagedCluster, GatewayRelease, GatewayNetwork) calls the generated `application/responses` conversion, and every gRPC presenter (Gateway, RoleBinding with prepared inputs, ManagedCluster, GatewayRelease, GatewayNetwork) calls the generated `grpcapi/mapping` conversion. The transport audit's unchecked catalog timestamp conversion is closed: catalog mappers use checked timestamps, with invalid-record rejection covered by `TestTimestampPresentersRejectInvalidRecords` and `TestCatalogMappingsRejectInvalidTextPrivately`. Clean generation without rh-trex-ai holds: the module, workflows, and source carry no trex dependency. Ownership, grants, placement, release selection, OpenShell configuration, UI policy, the three public error contracts, page-size behavior, and watch access checks stay in Hypershell per the audit boundary. The `users/me` response now uses generated conversion: Hypershell `780c9ab` maps the current user through `responses.CurrentUser` with prepared identity inputs, 11 covered fields, enum-checked kind and href constants, and checked timestamps; CI runs `36221263862` (acceptance core; one unrelated outbox-drain flake passed on rerun) and `36221262874` (application images) are green, and the required management console asset rebuild at `44d05bb` passed its bounded CI asset build and UI package tests. The service-account credential envelope stays hand-built by recorded decision (see [rest-response-mappings.md](rest-response-mappings.md)): the domain computes and validates the connection object from Gateway observations and parsed OIDC configuration, which the mapping grammar cannot express. Three-state nullable inputs and nullable object and array conversions remain unsupported compiler features with no current Hypershell consumer: every nullable property in the Hypershell contracts is a nullable string or timestamp covered by the released nullable scalar policy, and the only prepared-input use passes always-present identity values (see [rest-response-mappings.md](rest-response-mappings.md)). |
-| H3: system behavior | Cluster qualification is current at PR head `43baa19`: [Gateway API run 36186254175](https://github.com/jsell-rh/hypershell-stego/actions/runs/36186254175) on the jshell cluster passed the frozen-source gate, covering durable deletion through generated transports, account and journal cleanup recovery across restarts and page checkpoints, inventory recovery across read failure and page shift, deleting-phase search agreement, REST mapping faults across restart, role discovery through the generated runtime, and the grant workflow across transports and restart. The run held and released the shared live-test Lease and left the `stego-ci` namespace empty. This run is 11 commits past the prior green cluster run at `7f0bd9f7` and includes the compiler `94d285d7` adoption. Two earlier dispatches of the same gate failed at the CI credential check because the environment-scoped `JSHELL_CI_KUBECONFIG` secret held an expired token; both failed before any cluster mutation. The live lock needs only get, update, and patch on the pre-existing Lease, which the CI Role grants. Restore and epoch behavior are covered by local acceptance tests and PR core CI; retained-history costs are measured. The cleanup-latency diagnostic observation is complete: [browser run 36196581322](https://github.com/jsell-rh/hypershell-stego/actions/runs/36196581322) with 100 live accounts produced a 30.77-second whole-cleanup upper bound plus 353 read-only operator samples (347 complete, 6 gaps retained); the [observation](cleanup-latency-observation-20260925.json) shows no stuck finalizer or remaining content and attributes the delay to three sequential Kubernetes namespace termination cycles under the application deletion order; see the [cleanup timing review](cleanup-latency-review-20260921.md). The 30-second cleanup target is now met: Hypershell `def8881` requests Sandbox namespace deletion together with Gateway namespace deletion after fault tests (`internal/namespaceallocation/deletion_order_test.go`), and [browser run 36208130589](https://github.com/jsell-rh/hypershell-stego/actions/runs/36208130589) through frozen fixture `21b5315` measured a whole-cleanup upper bound of 28.19 seconds with 100 live accounts, all accounts closed, and installation data preserved; see the [cleanup timing review](cleanup-latency-review-20260921.md) and [evidence](cleanup-latency-evidence-20260926.json). Open items: 100-Gateway capacity (the jshell cluster has no spare capacity; a read-only recheck on 2026-09-26 at merged main `47aa9ed` found the same five nodes and 7,500 millicores, with unchanged 100m/256Mi server requests — see the [recheck evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/jshell-capacity-recheck-evidence-20260926.json); do not reduce requests) and live Kata and OpenShell Sandbox execution (deferred; empty-sandbox cleanup does not prove running Sandbox workloads).  Capacity is measured with direct live evidence: run 36408534388 proved the jshell node-group wall (47 of 100 Gateways converged, 53 Pods Unschedulable, autoscaler at the node-group maximum), and run 36420431666 passed the bounded 45-Gateway live acceptance with all 45 Gateways converged in 81.5 seconds. The bounded record is `acceptance/jshell-gateway-capacity-evidence-20260928.json`; the 100-Gateway target stays open as not proved on jshell. |
+| H3: system behavior | Cluster qualification is current at PR head `43baa19`: [Gateway API run 36186254175](https://github.com/jsell-rh/hypershell-stego/actions/runs/36186254175) on the jshell cluster passed the frozen-source gate, covering durable deletion through generated transports, account and journal cleanup recovery across restarts and page checkpoints, inventory recovery across read failure and page shift, deleting-phase search agreement, REST mapping faults across restart, role discovery through the generated runtime, and the grant workflow across transports and restart. The run held and released the shared live-test Lease and left the `stego-ci` namespace empty. This run is 11 commits past the prior green cluster run at `7f0bd9f7` and includes the compiler `94d285d7` adoption. Two earlier dispatches of the same gate failed at the CI credential check because the environment-scoped `JSHELL_CI_KUBECONFIG` secret held an expired token; both failed before any cluster mutation. The live lock needs only get, update, and patch on the pre-existing Lease, which the CI Role grants. Restore and epoch behavior are covered by local acceptance tests and PR core CI; retained-history costs are measured. The cleanup-latency diagnostic observation is complete: [browser run 36196581322](https://github.com/jsell-rh/hypershell-stego/actions/runs/36196581322) with 100 live accounts produced a 30.77-second whole-cleanup upper bound plus 353 read-only operator samples (347 complete, 6 gaps retained); the [observation](cleanup-latency-observation-20260925.json) shows no stuck finalizer or remaining content and attributes the delay to three sequential Kubernetes namespace termination cycles under the application deletion order; see the [cleanup timing review](cleanup-latency-review-20260921.md). The 30-second cleanup target is now met: Hypershell `def8881` requests Sandbox namespace deletion together with Gateway namespace deletion after fault tests (`internal/namespaceallocation/deletion_order_test.go`), and [browser run 36208130589](https://github.com/jsell-rh/hypershell-stego/actions/runs/36208130589) through frozen fixture `21b5315` measured a whole-cleanup upper bound of 28.19 seconds with 100 live accounts, all accounts closed, and installation data preserved; see the [cleanup timing review](cleanup-latency-review-20260921.md) and [evidence](cleanup-latency-evidence-20260926.json). Open items: 100-Gateway capacity (the jshell cluster has no spare capacity; a read-only recheck on 2026-09-26 at merged main `47aa9ed` found the same five nodes and 7,500 millicores, with unchanged 100m/256Mi server requests — see the [recheck evidence](https://github.com/jsell-rh/hypershell-stego/blob/main/acceptance/jshell-capacity-recheck-evidence-20260926.json); do not reduce requests). Sandbox isolation without Kata is now proved live: [browser run 36584427824](https://github.com/jsell-rh/hypershell-stego/actions/runs/36584427824) executed the complete browser workflow on the classless main source at `03563a3` through frozen fixture `0d5ac07` with `sandbox_network=true` — a native `crun` RuntimeClass replaced the Kata guard in the admission policy, and the live network probes verified per-sandbox isolation on both Gateways: assigned-sandbox ingress connected while other-sandbox, unapproved-port, other-gateway, control-api, postgres, and kubernetes egress all timed out. The run used the signed application-image set from run 36572487587 with the binary-compiler policy (`ff0f902e`), held and released the shared live-test Lease, and an independent cleanup audit confirmed all 32 standing installation resources unchanged, the standing kata-guard admission policy restored, the test RuntimeClass absent, and both namespaces empty; see the [evidence](sandbox-network-without-kata-evidence-20260929.json). Live Kata VM isolation remains unproved (no suitable cluster); native packet evidence above proves the namespace-network isolation boundary without Kata. Capacity is measured with direct live evidence: run 36408534388 proved the jshell node-group wall (47 of 100 Gateways converged, 53 Pods Unschedulable, autoscaler at the node-group maximum), and run 36420431666 passed the bounded 45-Gateway live acceptance with all 45 Gateways converged in 81.5 seconds. The bounded record is `acceptance/jshell-gateway-capacity-evidence-20260928.json`; the 100-Gateway target stays open as not proved on jshell. |
 
 The initial capacity targets are 100 Gateways per instance, 100 service accounts
 per Gateway, and complete Gateway cleanup within 30 seconds after HTTP 202 with
@@ -551,8 +551,15 @@ target stays open as not proved on jshell. The user selected the bounded
 36408534388 is closed by tolerant diagnostics that record fixture service Pod
 termination at the capacity deadline.
 
-Live Kata isolation is deferred because no suitable cluster is available.
-Native packet tests do not prove VM isolation or live OpenShell Sandbox execution.
+Live Kata isolation remains deferred because no suitable cluster is available.
+Sandbox network isolation without Kata is now proved live ([browser run
+36584427824](https://github.com/jsell-rh/hypershell-stego/actions/runs/36584427824),
+2026-09-29): the complete browser workflow ran on the classless main source
+through a native `crun` RuntimeClass fixture, and live probes verified
+per-sandbox network isolation — assigned-sandbox ingress connected while
+cross-sandbox, cross-gateway, control-plane, database, and Kubernetes API
+egress were all denied. This proves the namespace-network boundary without a
+Kata VM; it does not prove VM-level isolation or interactive terminal use.
 Keep the unchanged upstream Agent Sandbox controller as trusted, operator-managed
 cluster infrastructure, as selected by the user. Do not introduce a controller
 fork or admission mutation service for the current upstream setup.
@@ -817,3 +824,334 @@ The safe gateway release rollout (upstream `2325a02`) stays out of scope by
 user choice. CI, e2e, docs, and dependency commits stay out of scope. Each
 delivered behavior needs target-behavior specification, fork gap check, live
 or acceptance evidence, and a coverage record here.
+
+## Upstream parity gap assessments (2026-09-29)
+
+All assessments against fork `03563a3` (origin/main tree). Full records:
+`~/.local/state/stego/runs/parity-20260929/{a1,a2,a3,a4,a5,group-b}-*.json`.
+
+| Item | Verdict | Delivery need |
+| --- | --- | --- |
+| A1 cluster identity (95c90d2) | Not ported; substantial adaptation, not a straight port | Deliver: registration/identity surface, `cluster_id` on gateway watch/list/reconcile contracts + server-side enforcement, optional cert-reloading TLS (fork TLS 1.3-only is already stronger than upstream's 1.2 floor) |
+| A2 tenant DB probe + template0 (e7f4568, c2fb25a) | Present, stronger, different mechanism | Coverage record only |
+| A3 external-DB-only (0ed01c6) | Confirmed aligned by design and enforcement | Coverage record only |
+| A4 console Route cert (289c9c5) | Present+proved (passthrough Route + per-host cert-manager Certificate, verified before publish) | Coverage record only |
+| A4 ingress-mode selection (0a97b4b) | N/A by design: single Route-only exposure path; emit/observe divergence structurally impossible | Coverage record only |
+| A4 generated-config validation (d8adbbd) | Partial: input validation + digest-gated rollout present; rendered-artifact TOML/OIDC re-validation absent (structurally mitigated: fixed-structure renderer, `allow_unauthenticated_users = false` hard-coded) | Coverage record; rendered-artifact gate optional hardening |
+| A4 GatewayNetwork reconciliation (0037848) | Partial: CRUD/watch present; topology vocabulary, hub coherence/existence, status write-back absent | Deliver if selected |
+| A4 orphan recording (6d7db36) | Absent but N/A: fork deletion fails closed and retries — no best-effort branch can declare complete with leaked resources | Coverage record stating the divergence |
+| A5 sortable sandbox column (0740ec0) | Absent: backend already capable (`active_sandbox_count` registered + ParseOrderBy); four frontend wiring points missing | Deliver (small) |
+| A5 sandbox attention counts (c05eb79) | Partial: count primitive present+proved; attention taxonomy and dashboard absent | Deliver if selected |
+| A5 API reliability metrics (129349d) | Absent: fork phase-cards UI fetches `/api/hypershell/v1/metrics/gateways` but no backend serves it | Deliver or record the dead endpoint decision |
+| A5 provisioning/adoption metrics (85927b3, 718b69b) | Absent (generic outcome counters exist as different surface) | Deliver if selected |
+| A5 reconciliation metrics (f99d5b6) | Partial: generic outcome/duration/retry metrics present+proved at loopback `/metrics`; named per-reconciler series and dashboard absent | Deliver if selected |
+| A5 GitHub broker 403 (d1e641b) | N/A: fork has no GitHub org gate or broker probing; failure mode cannot occur | Coverage record |
+| A5 Keycloak login restore (f4e7520) | N/A: fork login is username/password-only; form never hidden, no guessable seeds | Coverage record |
+| B: provisioning_conditions/gateway_version/observed_release_id (#269/#276/#210) | Absent as contract fields; coarse phase/status + digest-pinned releases present | Coverage record; #276 out of scope by user choice |
+| B: ObjectReference.traceparent/tracestate (#207) | Present-different-mechanism: W3C wire propagation exists; no persisted trace columns or reconcile span links | Coverage record |
+| B: read-only Users API (#303/#279) | Absent: only `/users/me`; no fork consumer | Coverage record |
+| B: gateway:creator default (#263) | Absent — verified: binding created only when the JWT carries the role; role-less first-login users cannot create gateways | Deliver (small, user-visible) or record explicit operator choice |
+| B: CLI surface (#206/#329/#326/#208) | Partial/deliberately different; proxy env explicitly disabled | Out of scope by user choice |
+
+Notable corrections to the 2026-09-26 table: `gateway:creator` default-on is
+now verified absent (was "unverified"); the Users REST endpoints predate the
+dashboard PRs (introduced by #241); the fork Gateway proto field 23 is free,
+matching upstream's `provisioning_conditions` slot if that parity is ever
+delivered.
+
+## Parity delivery record: gateway:creator default (B, upstream #263/4e349e1)
+
+Delivered on fork branch `parity/gateway-creator-default`, commit `df44ce5`
+(branch point `03563a3`).
+
+Target behavior: upstream merges `RBAC_DEFAULT_ROLES` (unset →
+`["gateway:creator"]`, empty → disabled, else a role list) so a first-login
+user without JWT roles still receives a stored global `gateway:creator`
+binding; gateway creation is then authorized from the stored binding, and
+defaults are never revoked by later role-less tokens.
+
+Fork delivery: `OptionsFromEnvironment` parses the tri-state
+`HYPERSHELL_DEFAULT_GATEWAY_CREATOR` (unset → on, empty → off, else strict
+`strconv.ParseBool`; invalid input fails startup). `PrepareRequest` forces
+the `gateway:creator` binding wanted when the default is on, so projection
+creates and keeps the stored binding. The `Create` gate accepts role-less
+principals when the default is on — the fork gate is claim-driven, so
+without this change a defaulted binding would carry no create right; the
+combination matches upstream's stored-binding authorization. `platform:admin`
+stays claim-driven. The default lives only in environment options; the ~21
+direct in-process `gateways.New` sites keep claim-driven semantics.
+
+Gap check before delivery: verified absent at `03563a3` (binding only when
+the JWT carries the role); catalog, network, read, and grant surfaces stay
+claim-driven, so the default widens only creation and the stored binding.
+
+Evidence: `go test ./internal/gateways/... -count=1` (ok). Runtime
+acceptance with local PostgreSQL: new
+`TestDefaultGatewayCreatorRoleThroughGeneratedRuntime` (role-less 201 create,
+one global binding, survival through role-less renewal and claim-driven
+admin removal, gRPC projection, disable-restart → 403 and zero bindings)
+passed; `TestGlobalRolesThroughGeneratedRuntime`,
+`TestRoleDiscoveryThroughGeneratedRuntime`, grant discovery/transport, CLI
+grant/apply/catalog/observability workflows, gateway REST/gRPC workflows,
+count transport, provider state, current-user and concurrency tests all
+pass with the strict tests pinned by
+`HYPERSHELL_DEFAULT_GATEWAY_CREATOR=false`. Full-suite run shows only
+pre-existing local-environment failures (CLI version VCS metadata and four
+REST stored-fault timestamp rejections on PostgreSQL 18), all reproduced at
+the branch point without this change.
+
+## Parity delivery record: sortable sandbox column (A5, upstream 0740ec0)
+
+Delivered on fork branch `parity/a5-sortable-sandbox-column`, commit
+`85ef100` (branch point `df44ce5`). Straight port of upstream `0740ec0`.
+
+Target behavior: the gateway list sandbox column sorts through the normal
+collection controls. The API already orders by `active_sandbox_count`
+(`internal/httpapi/fields.go` registers the field and `ParseOrderBy` accepts
+it), so only the frontend wiring was missing.
+
+Fork delivery: `activeSandboxes` joined the `GatewaySortField` union, the URL
+list-state switch, the adapter's `gatewaySortFields` column map (→
+`active_sandbox_count`), and the sortable-field guard; the column header
+dropped `sortable: false` and its stale not-sortable justification. Upstream
+tests ported with the change: adapter orderBy mapping, URL round-trip, and
+header-click state change.
+
+Evidence: `pnpm exec vitest run` in `components/web-console` (9 files, 60
+tests) and `packages/gateway-management-ui` (14 files, 167 tests) all pass;
+`pnpm run typecheck` and `pnpm run build` pass in both packages; prettier
+clean on all changed files.
+
+## Parity delivery record: gateway phase metrics endpoint (upstream 2284231)
+
+Delivered on fork branch `parity/gateway-metrics-endpoint`, commit `c397297`
+(branch point `85ef100`). Fork-native surface: upstream serves
+`/api/metrics/gateways` from the console backend as a Prometheus proxy with
+its own dashboard aggregation; the fork dashboard
+(`packages/gateway-management-ui/src/metrics/gateway-metrics-data.ts`)
+expects a REST resource `{counts:{Running,Provisioning,Degraded,Failed}}`,
+so the fork serves the route from the API server mux instead. The console
+backend proxies the `/api/hypershell/v1/` prefix to the API server with the
+session bearer token, so the browser path needs no console change.
+
+Fork delivery: `contracts/extensions/gateway-metrics.openapi.yaml` declares
+the route (query and body rejected, like `/users/me`); the extension index
+and `contracts/active.go` embed the file, `service.yaml` declares it as an
+input for the http-application, go-sdk, and typescript-sdk, and the verified
+release compiler regenerated the contract types, both SDKs, and the state
+manifest (`stego apply`; drift check clean). `Service.PhaseCounts` in
+`internal/gateways` counts within one transaction, applying the same
+visibility rule as the gateway list: control-plane subjects and
+`platform:admin` count the fleet, other users count gateways with a live
+owner or viewer grant. Phase and status stay controller-owned; a gateway
+with no observed workload phase counts in no bucket, and the `Failed` key
+stays present with value zero because no fork writer produces it yet. The
+handler in `internal/httpapi/metrics.go` answers through the standard
+endpoint wrapper with the generated `contract.GatewayPhaseCounts` type.
+
+Evidence: new
+`TestGatewayPhaseCountsThroughGeneratedRuntime` passed (schema validation
+against the active contract, 401 for missing or forged bearers, 400 for
+query and body, empty-state shape with all four keys, fleet counts after
+controller phase writes through conditional gRPC updates, visibility-filtered
+owner counts, zero counts for a stranger, 403-equivalent PermissionDenied for
+a user phase write). `go build ./...`, `go vet` on the changed packages, and
+`go test ./internal/... ./contracts/ ./out/...` pass; neighboring acceptance
+tests pass, with only the pre-existing `TestGeneratedCLIVersion` VCS-metadata
+failure. `stego drift` reports no drift. Frontend suites stay green
+(web-console 60 tests, gateway-management-ui 167 tests, typecheck and build
+in both packages; prettier warnings on two files are pre-existing at the
+branch point).
+
+## Parity delivery record: GatewayNetwork reconciliation (A4, upstream 0037848)
+
+Delivered on fork branch `parity/gateway-network-reconciliation`, commit
+`f5ca4cd` (branch point `c397297`). Upstream's reconciler validates network
+topology references and writes the verdict into the network's status field.
+The fork stores networks in the STEGO catalog under `gateway_networks`, which
+has no per-row resource revision column, so the fork uses the row's
+`updated_time` as the observed revision: `ObserveGatewayNetworkStatus`
+(new RPC on `GatewayIdentityService`, `contracts/controlplane/gateway_identity.proto`,
+regenerated with the verified release compiler; drift check clean) requires an
+`if-resource-version` header that must match the row's current `updated_time`
+inside one transaction — a stale observation aborts with `Aborted` so the
+controller retries from current state. Idempotency rests on that
+transactional compare plus the same skip-when-equal rule as
+`SetObservedSandboxCount`: an unchanged status writes no row and emits no
+event. This closes the same stale-write window upstream closes with its
+revision gate; the mechanism differs because the fork's storage model has no
+independent revision counter.
+
+Fork delivery: `internal/gatewaynetwork/controller.go` runs a keyed watch over
+`WatchGatewayNetworks` with a paged `ListGatewayNetworks` seed, reconciling
+each network by porting upstream's `validate()`: empty topology →
+`Invalid: topology is required`; unrecognized topology → `Invalid:
+unrecognized topology "<value>"`; `hub-spoke` without `hub_gateway_id` →
+`Invalid: hub-spoke network requires a hub_gateway_id`; a dangling hub
+reference → `Invalid: hub gateway "<id>" does not exist` (deterministic
+Invalid, not a retry); other lookup errors retry. Deletion events are terminal
+no-ops because a network owns no cluster resources. The write path is the new
+observation RPC, not `UpdateGatewayNetwork`: the catalog rejects control-plane
+subjects on resource mutations, and `acceptance/network_test.go` pins that
+contract. `ObserveNetworkStatus` in `internal/gateways/network_status.go`
+requires a controller-write grant for `GatewayNetwork`/`observe.network`
+(fails closed without a policy), requires the control-plane subject list to
+admit the caller, validates the status text (non-empty, ≤255 bytes, UTF-8, no
+NUL), and notifies `gatewaynetwork.updated` through the outbox. The
+`gateway-network` worker (`internal/gatewaynetworkapp`) wires the controller
+to the control API with certificate and token-file credentials;
+`service.yaml` declares it with egress to the API and a matching ingress peer.
+
+Evidence: new
+`TestGatewayNetworkReconciliationThroughGeneratedRuntime` passed — mesh and
+hub-spoke-with-live-hub settle to `Valid`; empty, unrecognized, hubless
+hub-spoke, and dangling-hub networks settle to the exact deterministic
+`Invalid` strings; a topology repair converges back to `Valid`; after the
+queue drains, a full resync cycle plus margin leaves the outbox count
+unchanged (no redundant write or event) and the status persisted in
+`gateway_networks`; a control-plane subject without the exact grant, a
+non-control-plane admin on the observation path, and a controller on the
+public catalog path all receive `PermissionDenied`.
+`TestGatewayNetworkWorkflowThroughGeneratedRuntime` still passes;
+`TestGeneratedWorkloadWorkerStartupPrivacy` passes with `gateway-network`
+added to the generated-worker list. `go build ./...`, `go vet ./...`,
+`go test ./internal/gateways/ ./internal/grpcapi/ ./contracts/`, and
+`stego drift` are clean.
+
+Record-only A4 rows from the gap assessment (2026-09-29), for completeness:
+
+- Route cert (289c9c5): present and proved in the fork — passthrough Route
+  with a per-host cert-manager Certificate verified before publish.
+- Orphan recording (6d7db36): not applicable — fork deletion fails closed and
+  retries; no best-effort branch can declare completion with leaked cluster
+  resources, so there is no orphan state to record.
+- Generated-config validation (d8adbbd): structurally mitigated — the fork's
+  fixed-structure renderer and hard-coded `allow_unauthenticated_users =
+  false` make rendered-artifact re-validation redundant with the existing
+  input-validation and digest-gated rollout gates.
+- Ingress-mode selection (0a97b4b): not applicable — the fork has a single
+  Route-only exposure path, so emit/observe divergence cannot occur.
+
+## Parity delivery record: A1 cluster identity (upstream 95c90d2)
+
+Delivered on fork branch `parity/cluster-identity`, commit `0f54409`
+(branch point `f5ca4cd`). This delivery is fork-native, not a port.
+
+Target behavior: upstream gives a registered ManagedCluster caller a scoped
+gateway identity. The fork has no cluster registration surface and no RBAC
+interceptor, so the fork applies the same protection to a different caller
+class: a control-plane subject that holds a Gateway controller-write grant
+with a non-empty target is cluster-bound.
+
+Binding rule: a bound caller must send a cluster_id on `ListGateways`,
+`WatchGateways`, and `ListGatewayReconcileIDs`; a missing cluster_id is
+rejected as invalid, and a cluster outside the bound set is rejected as
+forbidden. Unbound callers (users, `hsctl`, `platform:admin`, and
+control-plane subjects with no Gateway grant or with an empty target) keep
+the cluster_id as an optional visibility narrowing filter. Enforcement
+lives in the service method `AuthorizeCluster`; the handlers stay thin and
+the existing error mapping turns the domain errors into the correct gRPC
+codes.
+
+Worker plumbing: the workload, namespace allocation, and sandbox count
+controllers now watch, seed, and list with their own cluster id. The
+identity worker stays fleet-wide because its reconciler, cleanup owner, and
+user scan are not cluster resources; it holds an empty-target grant, so the
+binding rule does not apply to it.
+
+Contract surface: `ListGatewaysRequest` gained `optional string cluster_id
+= 3` and `WatchGatewaysRequest` gained `optional string cluster_id = 1`;
+`ListGatewayReconcileIDsRequest` already carried `cluster_id = 2`. The
+descriptor contract test mirrors these fork fields onto the captured
+upstream reference before the wire comparison, in the same style as the
+existing `database_id` retirement transform, so the shared surface stays
+verified.
+
+TLS: the new `internal/grpctls` package serves application-owned listeners
+with certificate reloading. It loads the pair at construction, rechecks
+the file stats at each handshake, and keeps the previous certificate when
+a reload fails. Deviations from upstream: TLS 1.3 minimum (the fork
+generated runtime pins 1.3; upstream allowed 1.2) and `log/slog` instead
+of glog. ALPN `h2` and the load/reload semantics match. The generated
+`out/grpcapi/transport/runtime.go` listener is unchanged.
+
+Evidence: new
+`TestClusterIdentityScopesClusterBoundReads` proves the rule through the
+generated runtime — missing and foreign cluster denials on list, watch,
+and reconcile; a filtered bound-cluster page on all three paths; a
+cluster-scoped watch that skips a foreign-cluster create and delivers the
+bound-cluster create; and an unbound user whose cluster_id narrows only
+its own visible rows. Affected suites rerun with PostgreSQL: watch,
+reconcile ids and cursor, recovery pages, gRPC workflows and descriptors,
+network reconciliation, sandbox counts (grants, namespace runtime,
+transport), backlog, scheduling, cleanup (identity, workload, SQL),
+observability, and deadline observation — all pass. `go build ./...`,
+`go vet ./...`, `go test ./internal/... ./contracts/`, and `stego drift`
+with the verified release compiler are clean.
+
+## Final parity coverage record (2026-09-29)
+
+Scope: fork upstream commit `9b8efa56` delivery items A1 and the
+coverage-record-only rows from the 2026-09-29 gap assessment. All records
+below are grounded in the assessment files under
+`~/.local/state/stego/runs/parity-20260929/` and the delivery commits on
+the fork.
+
+Delivered items:
+
+- A1 cluster identity (95c90d2): delivered fork-native, commit `0f54409`
+  (record above).
+- A5 sortable sandbox column (0740ec0): delivered, commit recorded earlier
+  in this file.
+- A5 gateway phase metrics endpoint (2284231): delivered, commit recorded
+  earlier in this file.
+- A4 GatewayNetwork reconciliation (0037848): delivered, commit recorded
+  earlier in this file.
+- B gateway:creator default (#263): delivered, commit recorded earlier in
+  this file.
+
+Coverage-record-only rows: A2 tenant DB probe (present, stronger), A3
+external-DB-only (aligned), A4 route cert (present), A4 ingress-mode
+selection and orphan recording (not applicable by design), A4
+generated-config validation (structurally mitigated), A5 GitHub broker
+403, Keycloak login restore (not applicable), B provisioning conditions
+and trace-context and Users API (recorded in the gap table; #276 and the
+CLI surface stay out of scope by user choice).
+
+Verification summary: every delivered branch carries its runtime
+acceptance evidence in its record above; `stego drift` is clean at each
+branch tip; the verified release compiler produced all generated state.
+No open parity item remains inside the agreed scope.
+
+## Compiler audit and fork-adoption mechanisms (2026-09-30)
+
+The user audited the hypershell fork for accidental complexity and asked for
+the recurring taxes to move into the compiler. Two mechanisms followed.
+
+First, `stego drift` now detects input drift. The command hashes every
+declared input file and compares the stored hash manifest before it compares
+generated output. A changed contract that was not fed through `stego apply`
+now fails the drift check instead of passing silently. Commit `b1aa7e08`.
+
+Second, `proto_files` entries can declare a `reference`: a frozen contract
+the entry file must conservatively extend. The compiler checks that reference
+messages, enums, services, and fields stay unchanged, that a removed field
+moves into a declared retirement (number and name reserved), and that a new
+field never uses a number the reference owns or reserves. For each entry with
+a reference, the compiler writes a test beside the generated protobuf code
+that compares the generated descriptor against the validated contract. This
+retires the fork's hand-mirrored descriptor test
+(`TestGeneratedGatewayDescriptorsMatchReleaseContract` in
+`acceptance/grpc_test.go`): the fork declares the upstream gateways proto as
+the reference, the compiler validates the fork delta, and the generated test
+pins the contract.
+
+Audit candidates rejected with reasons: the three embedded snapshot loaders
+(consumer-side and small, no compiler value); the `reference_test.go`
+inventory and wire-ownership assertions (semantic policy, not mechanical
+validation, so they stay hand-written).
+
+Fork adoption gate: the fork moves to the new compiler only after
+`scripts/qualify-compiler-release.py` passes against a release that contains
+both mechanisms. Until then the fork keeps its hand-mirrored test and the
+verified release compiler `cd2ea837`.

@@ -21,7 +21,11 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-type source struct{ File, Import string }
+type source struct {
+	File      string
+	Import    string
+	Reference string
+}
 
 func sources(config map[string]any) ([]source, error) {
 	values, ok := config["proto_files"].([]any)
@@ -32,7 +36,7 @@ func sources(config map[string]any) ([]source, error) {
 	seen := map[string]bool{}
 	for _, value := range values {
 		item, ok := value.(map[string]any)
-		if !ok || len(item) != 2 {
+		if !ok || len(item) < 2 || len(item) > 3 {
 			return nil, fmt.Errorf("proto_files requires path and import_path")
 		}
 		file, ok1 := item["path"].(string)
@@ -40,8 +44,15 @@ func sources(config map[string]any) ([]source, error) {
 		if !ok1 || !ok2 || gen.ValidatePath(file) != nil || gen.ValidatePath(name) != nil || !strings.HasSuffix(file, ".proto") || !strings.HasSuffix(name, ".proto") || strings.HasPrefix(name, "google/protobuf/") || seen[name] {
 			return nil, fmt.Errorf("invalid or duplicate protobuf source")
 		}
+		reference := ""
+		if len(item) == 3 {
+			reference, ok = item["reference"].(string)
+			if !ok || gen.ValidatePath(reference) != nil || !strings.HasSuffix(reference, ".proto") {
+				return nil, fmt.Errorf("proto_files reference must be a project-relative .proto path")
+			}
+		}
 		seen[name] = true
-		result = append(result, source{file, name})
+		result = append(result, source{file, name, reference})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Import < result[j].Import })
 	return result, nil
@@ -52,17 +63,21 @@ func (*Generator) InputFiles(config map[string]any) ([]gen.InputFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]string, len(items))
-	for i, item := range items {
-		result[i] = item.File
+	result := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		if !seen[item.File] {
+			result = append(result, item.File)
+			seen[item.File] = true
+		}
+		if item.Reference != "" && !seen[item.Reference] {
+			result = append(result, item.Reference)
+			seen[item.Reference] = true
+		}
 	}
 	declared, err := processes(config)
 	if err != nil {
 		return nil, err
-	}
-	seen := map[string]bool{}
-	for _, name := range result {
-		seen[name] = true
 	}
 	for _, p := range declared {
 		name := path.Join(p.Factory, "rpc.go")
@@ -95,6 +110,9 @@ func prepareProto(ctx gen.Context) (*protogen.Plugin, error) {
 	defer cancel()
 	linked, err := compiler.Compile(compileContext, names...)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkOverlays(ctx, items, linked); err != nil {
 		return nil, err
 	}
 	request := &pluginpb.CodeGeneratorRequest{FileToGenerate: names, Parameter: proto.String("paths=source_relative")}
@@ -178,6 +196,29 @@ func generateProto(ctx gen.Context) ([]gen.File, []string, error) {
 	result := make([]gen.File, 0, len(response.File))
 	for _, file := range response.File {
 		result = append(result, gen.File{Path: path.Join(ctx.OutputNamespace, "pb", file.GetName()), Content: []byte(file.GetContent())})
+	}
+	items, err := sources(ctx.ComponentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	refs, err := overlays(ctx, items)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, file := range plugin.Files {
+		if !file.Generate {
+			continue
+		}
+		for _, overlay := range refs {
+			if overlay.Import != file.Desc.Path() {
+				continue
+			}
+			test, err := overlayTestFile(ctx, overlay, file)
+			if err != nil {
+				return nil, nil, err
+			}
+			result = append(result, *test)
+		}
 	}
 	if mappingFile != nil {
 		result = append(result, *mappingFile)
