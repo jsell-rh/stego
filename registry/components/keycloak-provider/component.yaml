@@ -1,7 +1,24 @@
 kind: component
 name: keycloak-provider
-version: 0.18.1
+version: 0.19.0
 output_namespace: keycloak
+config:
+  managed_clients:
+    type: list
+    optional: true
+    items:
+      kind: {type: string}
+      client_id: {type: string}
+      ids:
+        type: list
+        items: {type: string}
+      attributes:
+        type: list
+        items:
+          key: {type: string}
+          value: {type: string}
+      legacy: {type: bool, optional: true}
+      legacy_client_id: {type: bool, optional: true}
 requires:
   - application-http
   - auth-provider

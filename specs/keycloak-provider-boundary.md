@@ -677,3 +677,30 @@ Full compiler race checks, required PostgreSQL checks, and both examples passed.
 The [qualification record](browser-client-evidence.json) retains source IDs,
 package times, and log hashes. This result permits application adoption; it
 does not prove a live per-Gateway dashboard or its complete lifecycle.
+
+## Managed client kinds
+
+Version 0.19 adds optional `managed_clients` settings. Each kind declares a
+`kind` name, a `client_id` name template, an `ids` parameter list, and
+`attributes`. Attribute values and the client-name template can carry `{id}`
+placeholders that refer to the declared ids. Optional `legacy` and
+`legacy_client_id` flags cover kinds with a not-yet-migrated stored form.
+Unknown settings and malformed declarations fail before generation.
+
+When kinds are declared, the generator writes `managed_clients.go`. Each kind
+gets an exported identity helper that composes the client name and the
+ownership attributes from trusted application values, and an exported binding
+helper that checks a full provider read against those values. Ownership
+attributes gain the reserved `stego.owner.` prefix. When `legacy` is set, the
+plain attributes also form the legacy form, and the renames map each legacy
+key to its ownership key, so a saved migration plan can rename them. A kind
+with `legacy_client_id` also gets an audience binding helper. It accepts a
+caller-known stored client name for legacy audiences; current ownership
+always requires the generated name.
+
+The binding helpers reject a nil client, a foreign client name, mixed legacy
+and current attributes, partial ownership keys, and foreign reserved keys
+with `ErrOwnership`. Reads of a not-yet-migrated client accept the complete
+legacy form. Kinds without legacy attributes must show their ownership keys,
+or the binding rejects the client. The helpers compose values only; id
+validation such as KSUID checks stays in the application.
