@@ -1155,3 +1155,40 @@ Fork adoption gate: the fork moves to the new compiler only after
 `scripts/qualify-compiler-release.py` passes against a release that contains
 both mechanisms. Until then the fork keeps its hand-mirrored test and the
 verified release compiler `cd2ea837`.
+
+## Compiler audit round 2 (2026-10-01)
+
+The user named the next two accidental-complexity candidates. Both passed the
+flywheel test: the rules are mechanical, they repeat across entities, and the
+compiler can derive them from declarations it already reads.
+
+First, a `proto_files` reference can equal the entry path. The entry then pins
+itself as its own frozen contract. The rule stays: a reference must differ
+from every declared import path. This form retires hand-mirrored descriptor
+tests for contracts that the application owns directly. The fork uses frozen
+`contracts/reference/proto` copies as self-references.
+
+Second, the `keycloak-provider` component accepts `managed_clients` settings.
+Each kind declares a `kind` name, a `client_id` template with `{id}`
+placeholders, the `ids` parameter list, `attributes` with `{id}` placeholders,
+and optional `legacy` and `legacy_client_id` flags. The generator writes
+`managed_clients.go` when kinds are declared. Each kind gets an identity
+helper that composes the client name and the ownership attributes, and a
+binding helper that checks a provider read against trusted application
+values. Ownership attributes gain the reserved `stego.owner.` prefix. When
+`legacy` is set, the same attributes also form the legacy form, and the
+renames map each legacy key to its ownership key. A kind with
+`legacy_client_id` also gets an audience binding that accepts a caller-known
+stored client name for not-yet-migrated audiences; current ownership always
+requires the generated name. This retires the fork's per-entity identity and
+binding scaffolding in `internal/serviceaccountkeycloak` (three kinds, about
+117 lines).
+
+Kind and id names, client-name templates, placeholders, attribute keys and
+values, and the legacy flags are validated before generation. Unknown
+settings fail. Kinds without legacy attributes must show their ownership keys
+in the provider read, or the binding rejects the client.
+
+Fork adoption gate: the fork moves to the new compiler only after
+`scripts/qualify-compiler-release.py` passes against a release that contains
+both mechanisms.

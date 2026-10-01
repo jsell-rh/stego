@@ -24,6 +24,29 @@ func fixture() gen.Context {
 	return gen.Context{ModuleName: "example.com/provider", OutDirName: "out", OutputNamespace: "keycloak", AuthPackage: "example.com/provider/out/auth", PeerNamespaces: map[string]string{"http-application": "application", "jwt-auth": "auth"}}
 }
 
+func managedFixture() gen.Context {
+	c := fixture()
+	c.ComponentConfig = map[string]any{"managed_clients": []any{
+		map[string]any{"kind": "service-account", "client_id": "hs-sa-{gateway}-{account}", "ids": []any{"gateway", "account"},
+			"attributes": []any{
+				map[string]any{"key": "hypershell.service-account", "value": "true"},
+				map[string]any{"key": "hypershell.gateway-id", "value": "{gateway}"},
+				map[string]any{"key": "hypershell.service-account-id", "value": "{account}"},
+			}, "legacy": true, "legacy_client_id": true},
+		map[string]any{"kind": "gateway", "client_id": "hs-gateway-{gateway}", "ids": []any{"gateway"},
+			"attributes": []any{
+				map[string]any{"key": "hypershell.gateway", "value": "true"},
+				map[string]any{"key": "hypershell.gateway-id", "value": "{gateway}"},
+			}, "legacy": true, "legacy_client_id": true},
+		map[string]any{"kind": "console", "client_id": "hs-console-{gateway}", "ids": []any{"gateway"},
+			"attributes": []any{
+				map[string]any{"key": "hypershell.console", "value": "true"},
+				map[string]any{"key": "hypershell.gateway-id", "value": "{gateway}"},
+			}},
+	}}
+	return c
+}
+
 func TestProviderValidation(t *testing.T) {
 	for _, change := range []func(*gen.Context){
 		func(c *gen.Context) { c.AuthPackage = "" },
@@ -34,6 +57,13 @@ func TestProviderValidation(t *testing.T) {
 		func(c *gen.Context) { c.ModuleName = "" },
 		func(c *gen.Context) { c.PeerNamespaces["controller"] = "../outside" },
 		func(c *gen.Context) { c.ComponentConfig = map[string]any{"gateway_role": "admin"} },
+		func(c *gen.Context) {
+			c.ComponentConfig = map[string]any{"managed_clients": []any{map[string]any{"kind": "gateway", "client_id": "{gateway}", "ids": []any{"gateway"}, "attributes": []any{map[string]any{"key": "hypershell.gateway", "value": "{missing}"}}}}}
+		},
+		func(c *gen.Context) {
+			c.ComponentConfig = map[string]any{"managed_clients": []any{map[string]any{"kind": "Gateway", "client_id": "gw-{gateway}", "ids": []any{"gateway"}, "attributes": []any{map[string]any{"key": "k", "value": "v"}}}}}
+		},
+		func(c *gen.Context) { c.ComponentConfig = map[string]any{"managed_clients": "gateway"} },
 	} {
 		c := fixture()
 		change(&c)
@@ -78,8 +108,10 @@ func TestGeneratedClientCursor(t *testing.T) {
 func TestGeneratedClientNameSearch(t *testing.T) {
 	testGeneratedProvider(t, false, false, "^Test(BoundedClientNameSearch|ClientNameSearchDoesNotExpandFailedQueries)$")
 }
-func TestGeneratedKeycloakProvider(t *testing.T)          { testGeneratedProvider(t, false, false) }
-func TestGeneratedKeycloakProviderTelemetry(t *testing.T) { testGeneratedProvider(t, true, false) }
+func TestGeneratedManagedClients(t *testing.T) {
+	testGeneratedProviderWith(t, managedFixture, false, false, "^TestManaged")
+}
+
 func TestGeneratedKeycloakProviderLive(t *testing.T) {
 	if os.Getenv("STEGO_REQUIRE_KEYCLOAK_PROVIDER") != "1" {
 		t.Skip("real Keycloak provider gate requires CI")
@@ -90,8 +122,11 @@ func TestGeneratedKeycloakProviderLive(t *testing.T) {
 	testGeneratedProvider(t, true, true)
 }
 func testGeneratedProvider(t *testing.T, telemetry, live bool, patterns ...string) {
+	testGeneratedProviderWith(t, fixture, telemetry, live, patterns...)
+}
+func testGeneratedProviderWith(t *testing.T, supply func() gen.Context, telemetry, live bool, patterns ...string) {
 	g := new(Generator)
-	c := fixture()
+	c := supply()
 	withLifecycle := telemetry || live || len(patterns) != 0
 	if withLifecycle {
 		c.PeerNamespaces["controller"] = "controller"
@@ -107,6 +142,7 @@ func testGeneratedProvider(t *testing.T, telemetry, live bool, patterns ...strin
 	if withLifecycle {
 		peer := c
 		peer.OutputNamespace = "controller"
+		peer.ComponentConfig = nil
 		generated, _, err := new(controller.Generator).Generate(peer)
 		if err != nil {
 			t.Fatal(err)
@@ -171,6 +207,9 @@ func ProviderTestRuntime()(*Runtime,*tracetest.SpanRecorder){
 	}
 	for _, entry := range entries {
 		if !withLifecycle && (strings.HasPrefix(entry.Name(), "client_cursor") || strings.HasPrefix(entry.Name(), "native_lifecycle") || strings.HasPrefix(entry.Name(), "browser_lifecycle") || strings.HasPrefix(entry.Name(), "service_account_lifecycle")) {
+			continue
+		}
+		if c.ComponentConfig == nil && strings.HasPrefix(entry.Name(), "managed_clients") {
 			continue
 		}
 		if !telemetry && (entry.Name() == "trace_test.go" || entry.Name() == "live_test.go" || strings.HasSuffix(entry.Name(), "_live_test.go")) {

@@ -21,8 +21,9 @@ func (*Generator) ValidateContext(ctx gen.Context) error {
 	if err := gen.ValidateGoPackageNamespace(ctx.OutputNamespace); err != nil {
 		return err
 	}
-	if len(ctx.ComponentConfig) != 0 {
-		return fmt.Errorf("keycloak-provider accepts no component settings")
+	_, err := parseManagedKinds(ctx)
+	if err != nil {
+		return err
 	}
 	peer := ctx.PeerNamespaces["http-application"]
 	if ctx.ModuleName == "" || peer == "" || gen.ValidateGoPackageNamespace(peer) != nil {
@@ -49,9 +50,25 @@ func (g *Generator) Generate(ctx gen.Context) ([]gen.File, *gen.Wiring, error) {
 	if err := g.ValidateContext(ctx); err != nil {
 		return nil, nil, err
 	}
-	data := struct{ Package, Transport, UnicodeValidation, Auth, Controller string }{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation, ctx.AuthPackage, ""}
+	kinds, err := parseManagedKinds(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	data := struct {
+		Package, Transport, UnicodeValidation, Auth, Controller string
+		Managed                                                 []managedKind
+		LegacyKinds                                             bool
+	}{path.Base(ctx.OutputNamespace), path.Join(ctx.ModuleName, ctx.OutDirName, ctx.PeerNamespaces["http-application"], "client"), gen.UnicodeEscapeValidation, ctx.AuthPackage, "", kinds, false}
+	for _, kind := range kinds {
+		if kind.LegacyClientID {
+			data.LegacyKinds = true
+		}
+	}
 	var files []gen.File
 	names := []string{"client.go", "models.go", "clients.go", "service_accounts.go", "roles.go", "scopes.go", "mappers.go", "client_configuration.go", "native_clients.go", "native_access.go", "browser_clients.go", "browser_access.go", "service_account_tokens.go", "access_lifecycle.go", "service_account_access.go", "ownership_migration.go"}
+	if len(kinds) != 0 {
+		names = append(names, "managed_clients.go")
+	}
 	if ns := ctx.PeerNamespaces["controller"]; ns != "" {
 		data.Controller = path.Join(ctx.ModuleName, ctx.OutDirName, ns)
 		names = append(names, "client_cursor.go", "client_lifecycle.go", "lifecycle_gate.go", "native_lifecycle.go", "browser_lifecycle.go", "service_account_lifecycle.go")

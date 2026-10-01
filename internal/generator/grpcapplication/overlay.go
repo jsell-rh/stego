@@ -36,8 +36,8 @@ func overlays(ctx gen.Context, items []source) ([]source, error) {
 		if _, ok := ctx.Inputs[item.Reference]; !ok {
 			return nil, fmt.Errorf("missing reference input %q", item.Reference)
 		}
-		if imports[item.Reference] || item.Reference == item.File {
-			return nil, fmt.Errorf("reference %q must not equal a declared file or import_path", item.Reference)
+		if imports[item.Reference] {
+			return nil, fmt.Errorf("reference %q must not equal a declared import_path", item.Reference)
 		}
 		result = append(result, item)
 	}
