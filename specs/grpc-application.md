@@ -19,7 +19,8 @@ before output changes. For each entry with `reference`, the compiler writes a
 test beside the generated protobuf code. This test compares the generated
 descriptor against the validated contract. It fails when the generated code
 stops matching the reference contract. The reference must be a declared input
-file and must differ from the entry path and every declared import path.
+file. It must differ from every declared import path. The reference can equal
+the entry path: the entry then pins itself as its own frozen contract.
 
 The current compiler accepts proto3 contracts. It uses protocompile v0.14.1,
 the protobuf Go generator v1.36.11, and the gRPC Go generator v1.6.1. The gRPC
