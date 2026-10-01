@@ -54,11 +54,18 @@ the signed artifact checks. Check both completed runs. Signing alone does not
 establish a passing compiler suite. Retain the source, run IDs, and artifact
 hashes with the release record.
 
-Enable repository release immutability before publication. Create a draft at the
-full commit, attach the four already authenticated files, verify each uploaded
-asset, then publish without making it the default latest release. Never replace
-an existing release or tag. A missing release is an error, not permission to
-select a different compiler. GitHub documents the
+Enable repository release immutability before publication. Create a draft at
+the full commit, attach the four already authenticated files, verify each
+uploaded asset, then publish without making it the default latest release.
+Set the draft `target_commitish` to the full commit hash, not a branch name.
+The installer rejects a release whose tag or target differs from the pinned
+revision. Publishing at a branch target records the branch name instead of
+the commit and fails qualification. Deleting a published immutable release
+does not free its tag name: GitHub refuses to create the tag again, and the
+commit becomes unreleasable. A commit whose tag was burned needs a new merge
+commit and a new qualification before publication. Never replace an existing
+release or tag. A missing release is an error, not permission to select a
+different compiler. GitHub documents the
 [immutable release behavior](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
 Automatic release qualification is implemented in
