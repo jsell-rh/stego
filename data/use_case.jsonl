@@ -1,0 +1,9 @@
+{"id":"ST-DIS-UC01","title":"Record what a service was built from","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP01","goal":"The service's repo holds a record of every input its generated code came from."}
+{"id":"ST-DIS-UC02","title":"Find every service built from a component","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP01","goal":"A platform engineer names every service that was built from a given component digest."}
+{"id":"ST-DIS-UC03","title":"Trust that a record matches its code","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP01","goal":"A reader can trust that a service's record describes the generated code beside it."}
+{"id":"ST-DIS-UC04","title":"Ship a component fix without a compiler release","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP02","goal":"A fixed component reaches consumers without a new compiler version."}
+{"id":"ST-DIS-UC05","title":"Learn that a pinned component is superseded","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP02","goal":"A service author finds out, while working, that a component the service pins has been superseded."}
+{"id":"ST-DIS-UC06","title":"Take a component fix into a service","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP02","goal":"The service carries the fixed component, and the change is a diff a reviewer can read."}
+{"id":"ST-DIS-UC07","title":"Withdraw a component digest","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP02","goal":"A component digest that must not be used any more stops being usable, and every affected service is named first."}
+{"id":"ST-DIS-UC08","title":"Qualify a compiler release","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP03","goal":"A release is qualified at an exact commit before anyone can install it."}
+{"id":"ST-DIS-UC09","title":"Install a qualified compiler","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP03","goal":"The operator installs a compiler whose identity and platform they can verify."}

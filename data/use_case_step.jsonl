@@ -1,0 +1,27 @@
+{"use_case_id":"ST-DIS-UC01","position":1,"description":"The service author runs apply."}
+{"use_case_id":"ST-DIS-UC01","position":2,"description":"STEGO writes the record beside the generated output."}
+{"use_case_id":"ST-DIS-UC01","position":3,"description":"The service author commits the record together with the generated code."}
+{"use_case_id":"ST-DIS-UC02","position":1,"description":"The platform engineer names the component digest and the checkouts to search."}
+{"use_case_id":"ST-DIS-UC02","position":2,"description":"STEGO reads the record in each checkout."}
+{"use_case_id":"ST-DIS-UC02","position":3,"description":"STEGO reports every service that used that digest, and every checkout it could not read."}
+{"use_case_id":"ST-DIS-UC03","position":1,"description":"The platform engineer checks a service's record against its generated files."}
+{"use_case_id":"ST-DIS-UC03","position":2,"description":"STEGO compares each recorded file hash with the file in the repo."}
+{"use_case_id":"ST-DIS-UC03","position":3,"description":"STEGO reports every file that no longer matches, and every input the record names that the state does not hold."}
+{"use_case_id":"ST-DIS-UC04","position":1,"description":"The platform engineer changes one component and publishes its new digest."}
+{"use_case_id":"ST-DIS-UC04","position":2,"description":"The platform engineer records the new digest as the successor of the old one, with the date the old one stops working."}
+{"use_case_id":"ST-DIS-UC04","position":3,"description":"A consumer takes the fix by moving that component's pin."}
+{"use_case_id":"ST-DIS-UC05","position":1,"description":"The service author runs validate or plan."}
+{"use_case_id":"ST-DIS-UC05","position":2,"description":"STEGO compares each pinned digest against the registry's supersession records."}
+{"use_case_id":"ST-DIS-UC05","position":3,"description":"STEGO reports each superseded pin with its successor and its date."}
+{"use_case_id":"ST-DIS-UC06","position":1,"description":"The service author moves the component's pin to the successor digest."}
+{"use_case_id":"ST-DIS-UC06","position":2,"description":"The service author runs apply."}
+{"use_case_id":"ST-DIS-UC06","position":3,"description":"The service author reads the diff and commits the generated change with its record."}
+{"use_case_id":"ST-DIS-UC07","position":1,"description":"The platform engineer records the digest as withdrawn, with the date it stops working."}
+{"use_case_id":"ST-DIS-UC07","position":2,"description":"STEGO reports every recorded service that pins it."}
+{"use_case_id":"ST-DIS-UC07","position":3,"description":"After the date, validate fails for every service that still pins it."}
+{"use_case_id":"ST-DIS-UC08","position":1,"description":"The platform engineer names the commit to qualify."}
+{"use_case_id":"ST-DIS-UC08","position":2,"description":"STEGO verifies the compiler checks and the signed artifact runs at that commit."}
+{"use_case_id":"ST-DIS-UC08","position":3,"description":"STEGO authenticates the published release through the consumer path and cross-checks each asset digest."}
+{"use_case_id":"ST-DIS-UC09","position":1,"description":"The operator asks for a named release."}
+{"use_case_id":"ST-DIS-UC09","position":2,"description":"The installer verifies the artifact signature and digest."}
+{"use_case_id":"ST-DIS-UC09","position":3,"description":"The installer puts the binary in place and reports the build identity it installed."}

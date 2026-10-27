@@ -1,0 +1,4 @@
+{"product_id":"ST","name":"Agent","description":"A language model that writes a service declaration. It is a role of its own because STEGO's premise is that an agent's output must be constrained more tightly than a person's."}
+{"product_id":"ST","name":"Operator","description":"Installs the compiler, deploys the generated service, supplies the trust roots and runs the cluster checks."}
+{"product_id":"ST","name":"Platform engineer","description":"Writes and versions the archetypes, components and mixins. Makes every accidental decision once, so no service author has to make it."}
+{"product_id":"ST","name":"Service author","description":"Writes the service declaration and the fills for one service, and qualifies each fill with tests."}
