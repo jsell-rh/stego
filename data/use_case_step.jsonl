@@ -1,3 +1,15 @@
+{"use_case_id":"ST-DECL-UC01","position":1,"description":"The author names the archetype for the new service."}
+{"use_case_id":"ST-DECL-UC01","position":2,"description":"STEGO writes a declaration scaffold and a folder for fills."}
+{"use_case_id":"ST-DECL-UC01","position":3,"description":"The author checks the scaffold and starts editing it."}
+{"use_case_id":"ST-DECL-UC02","position":1,"description":"The agent names the archetype it is writing for."}
+{"use_case_id":"ST-DECL-UC02","position":2,"description":"STEGO reports that archetype's components, the settings each one declares, and the slots each one declares."}
+{"use_case_id":"ST-DECL-UC02","position":3,"description":"The agent writes only what that report allows."}
+{"use_case_id":"ST-DECL-UC03","position":1,"description":"The author asks STEGO to check the declaration."}
+{"use_case_id":"ST-DECL-UC03","position":2,"description":"STEGO decodes the declaration strictly and checks every invariant against the registry."}
+{"use_case_id":"ST-DECL-UC03","position":3,"description":"STEGO reports every fault it found, or reports that the declaration is acceptable."}
+{"use_case_id":"ST-DECL-UC04","position":1,"description":"The agent reads the refusal."}
+{"use_case_id":"ST-DECL-UC04","position":2,"description":"The agent changes the declaration at the place each fault names."}
+{"use_case_id":"ST-DECL-UC04","position":3,"description":"The agent asks STEGO to check the declaration again."}
 {"use_case_id":"ST-DIS-UC01","position":1,"description":"The service author runs apply."}
 {"use_case_id":"ST-DIS-UC01","position":2,"description":"STEGO writes the record beside the generated output."}
 {"use_case_id":"ST-DIS-UC01","position":3,"description":"The service author commits the record together with the generated code."}

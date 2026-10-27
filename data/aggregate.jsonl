@@ -1,0 +1,1 @@
+{"id":"ST-DECL-A1","title":"Declaration","domain_id":"ST-DECL","description":"One service declaration, with everything it states: the archetype it selects, its entities and their fields, its collections, its slot bindings and its component settings. All of it is written, reviewed and refused as one unit, so the declaration is the only root here.","identity":"The service name"}

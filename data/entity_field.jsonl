@@ -1,0 +1,21 @@
+{"entity_id":"ST-DECL-EN01","position":1,"name":"Service name","meaning":"The service the declaration describes.","type":"Text","example":"my-service"}
+{"entity_id":"ST-DECL-EN01","position":2,"name":"Archetype","meaning":"The curated component set the service is built from. Exactly one.","type":"Archetype name","example":"rest-crud"}
+{"entity_id":"ST-DECL-EN01","position":3,"name":"Language","meaning":"The language the output is generated in.","type":"One of a list","example":"go"}
+{"entity_id":"ST-DECL-EN01","position":4,"name":"Base path","meaning":"The prefix every generated route sits under.","type":"Text","example":"/api/my-svc/v1"}
+{"entity_id":"ST-DECL-EN01","position":5,"name":"Error type base","meaning":"The base address the generated error types are named from.","type":"Text","example":"https://api.example.com/errors/"}
+{"entity_id":"ST-DECL-EN02","position":1,"name":"Entity name","meaning":"The shape's name, unique in the declaration.","type":"Text","example":"Todo"}
+{"entity_id":"ST-DECL-EN03","position":1,"name":"Field name","meaning":"The field's name, unique in its entity.","type":"Text","example":"title"}
+{"entity_id":"ST-DECL-EN03","position":2,"name":"Type","meaning":"The kind of value the field holds.","type":"One of a list","example":"string"}
+{"entity_id":"ST-DECL-EN03","position":3,"name":"Constraints","meaning":"The limits the generated code checks, which must suit the type.","type":"Named limits","example":"min_length 1, max_length 255"}
+{"entity_id":"ST-DECL-EN03","position":4,"name":"Default","meaning":"The value used when the field is absent.","type":"A value of the field type","example":"false"}
+{"entity_id":"ST-DECL-EN04","position":1,"name":"Collection name","meaning":"The access pattern's name, unique in the declaration.","type":"Text","example":"todos"}
+{"entity_id":"ST-DECL-EN04","position":2,"name":"Entity name","meaning":"The entity the collection reads, which the same declaration must declare.","type":"Entity reference","example":"Todo"}
+{"entity_id":"ST-DECL-EN04","position":3,"name":"Operations","meaning":"What the collection allows. Each one generates its own handler and route.","type":"List of operation names","example":"create, read, update, delete, list"}
+{"entity_id":"ST-DECL-EN04","position":4,"name":"Path prefix","meaning":"The path the collection is served at, when it is not derived from the entity name and the scope.","type":"Text","example":"/orgs/{orgId}/users"}
+{"entity_id":"ST-DECL-EN05","position":1,"name":"Collection name","meaning":"The collection the binding applies to. A binding names a collection, never an entity.","type":"Collection reference","example":"todos"}
+{"entity_id":"ST-DECL-EN05","position":2,"name":"Slot","meaning":"The extension point, which a component of the selected archetype must declare.","type":"Slot name","example":"before_create"}
+{"entity_id":"ST-DECL-EN05","position":3,"name":"Operator","meaning":"How the fills compose. Exactly one of gate, chain or fan-out.","type":"One of a list","example":"gate"}
+{"entity_id":"ST-DECL-EN05","position":4,"name":"Fills","meaning":"The fills the operator composes, in order.","type":"List of fill names","example":"admin-policy"}
+{"entity_id":"ST-DECL-EN06","position":1,"name":"Component name","meaning":"The component the setting is for, which must be in the active component set.","type":"Component reference","example":"postgres-adapter"}
+{"entity_id":"ST-DECL-EN06","position":2,"name":"Setting name","meaning":"The setting, which the component's schema must declare.","type":"Text","example":"writer_lease"}
+{"entity_id":"ST-DECL-EN06","position":3,"name":"Value","meaning":"The value, which must suit the type the component's schema states.","type":"A value of the declared type","example":"off"}
