@@ -28,3 +28,6 @@ Thumbs.db
 
 # Locked compiler test dependencies
 /internal/generator/typescriptsdk/testdata/node_modules/
+
+# Lathe spec toolchain
+/node_modules/

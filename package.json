@@ -1,0 +1,12 @@
+{
+  "name": "stego",
+  "private": true,
+  "description": "Lathe tooling for STEGO's specification data in data/. The compiler itself is Go; this package carries only the spec toolchain.",
+  "scripts": {
+    "check": "lathe check",
+    "serve": "lathe serve"
+  },
+  "devDependencies": {
+    "@jaredrob/lathe": "file:../lathe/lathe"
+  }
+}
