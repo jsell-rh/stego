@@ -255,6 +255,7 @@ func BenchmarkProjectInputManifest(b *testing.B) {
 	}
 }
 
+// Proves ST-DIS-UC03-R02.
 func TestInputManifestMustMatchAppliedState(t *testing.T) {
 	m := manifestFixture()
 	for _, state := range []*AppliedState{

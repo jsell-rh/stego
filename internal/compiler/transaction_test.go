@@ -84,6 +84,7 @@ func checkRecovered(t *testing.T, input ReconcilerInput) {
 	}
 }
 
+// Proves ST-DIS-UC01-R02.
 func TestRecoverCompletesEveryInterruptedPhase(t *testing.T) {
 	for _, point := range []string{"prepared", "after_operation_0", "after_operation_1", "after_operation_2", "after_operation_3", "before_complete"} {
 		t.Run(point, func(t *testing.T) {

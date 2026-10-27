@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// Proves ST-DECL-UC03-R01.
 func TestCommandsRejectInvalidConstraintsBeforeWriting(t *testing.T) {
 	registry, err := filepath.Abs("../../registry")
 	if err != nil {

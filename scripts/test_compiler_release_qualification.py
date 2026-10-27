@@ -148,6 +148,7 @@ class QualificationChecks(unittest.TestCase):
         self.assertIsNone(result["release"])
         self.assertTrue((self.output / "qualification.json").exists())
 
+    # Proves ST-DIS-UC08-R03.
     def test_release_verification_cross_checks_assets_and_notes(self):
         def with_tag(gh, path, directory, **keyword):
             if path.endswith("matching-refs/tags/" + self.tag):
@@ -177,6 +178,7 @@ class QualificationChecks(unittest.TestCase):
             with self.assertRaises(CheckError):
                 self.qualify()
 
+    # Proves ST-DIS-UC08-R02.
     def test_incomplete_checks_job_set_fails(self):
         self.jobs["checks"] = self.jobs["checks"][:-1]
         with patch.object(qualification, "api", self.api):
@@ -222,6 +224,7 @@ class QualificationChecks(unittest.TestCase):
             with self.assertRaises(CheckError):
                 self.qualify()
 
+    # Proves ST-DIS-UC08-R01.
     def test_tag_pointing_elsewhere_fails_release_verification(self):
         def with_other_tag(gh, path, directory, **keyword):
             if path.endswith("matching-refs/tags/" + self.tag):

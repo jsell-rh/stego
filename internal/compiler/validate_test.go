@@ -158,6 +158,7 @@ func TestValidate_AllValid(t *testing.T) {
 	}
 }
 
+// Proves ST-DECL-DR01.
 func TestValidate_MissingArchetype(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -516,6 +517,7 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "fill", "nonexistent-collection")
 }
 
+// Proves ST-DECL-DR09.
 func TestValidate_CollectionBadEntity(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -617,6 +619,7 @@ collections:
 	assertHasError(t, result, "operation", "explode")
 }
 
+// Proves ST-DECL-DR10.
 func TestValidate_UnknownSlot(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -664,6 +667,7 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "nonexistent_slot")
 }
 
+// Proves ST-DECL-DR10.
 func TestValidate_SlotCollectionNotDefined(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -713,6 +717,7 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "gadgets")
 }
 
+// Proves ST-DECL-UC03-R02.
 func TestValidate_MultipleErrors(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -782,6 +787,7 @@ func TestFormatValidation_WithErrors(t *testing.T) {
 	}
 }
 
+// Proves ST-DECL-DR07.
 func TestValidate_ConstraintTypeApplicability(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -1447,6 +1453,7 @@ collections:
 	}
 }
 
+// Proves ST-DECL-DR05.
 func TestValidate_DuplicateEntityName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -1481,6 +1488,7 @@ collections:
 	assertHasError(t, result, "entity", "entity \"Widget\" is defined more than once")
 }
 
+// Proves ST-DECL-DR06.
 func TestValidate_DuplicateFieldName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -1807,6 +1815,7 @@ collections:
 	}
 }
 
+// Proves ST-DECL-DR08.
 func TestValidate_DuplicateCollectionName(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -2424,6 +2433,7 @@ collections:
 	}
 }
 
+// Proves ST-DECL-DR11.
 func TestValidate_SlotBindingWithoutOperator(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -3025,6 +3035,7 @@ qualified_at: 2026-04-01
 	assertHasError(t, result, "slot", "has multiple operators (chain, fan-out)")
 }
 
+// Proves ST-DECL-DR11.
 func TestValidate_SlotBindingMultipleOperators_AllThree(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 
@@ -4171,6 +4182,7 @@ func (g *slotConsumingStub) ConsumedSlots() []string {
 // A slot binding no generator consumes must fail validation. Generated code
 // would wire the operator but never call it, so the bound fills would be
 // silent dead code.
+// Proves ST-DECL-DR12.
 func TestValidate_UnconsumedSlotIsRejected(t *testing.T) {
 	projectDir, registryDir, _ := setupValidateProject(t)
 

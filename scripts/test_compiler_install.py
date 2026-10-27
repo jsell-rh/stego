@@ -62,6 +62,7 @@ class InstallationChecks(unittest.TestCase):
     def install(self):
         return installer.install(self.revision, self.output, self.gh)
 
+    # Proves ST-DIS-UC09-R02.
     def test_release_requires_both_signatures_and_publishes_captured_bytes(self):
         signed = []
         def authenticate(gh, path, bundle, revision, environment):
@@ -118,6 +119,7 @@ class InstallationChecks(unittest.TestCase):
         api.assert_not_called()
         self.assertEqual(authenticate.call_count, 2)
 
+    # Proves ST-DIS-UC09-R01.
     def test_existing_output_bad_revision_and_platform_fail_before_download(self):
         with patch.object(installer, "api") as api:
             with self.assertRaises(installer.CheckError):

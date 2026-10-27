@@ -330,6 +330,7 @@ func TestReconcile_SubsequentPlanNoChanges(t *testing.T) {
 	}
 }
 
+// Proves ST-DIS-UC06-R01.
 func TestReconcile_PlanShowsUpdateOnChange(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
 

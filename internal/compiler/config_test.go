@@ -9,6 +9,7 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
+// Proves ST-DECL-DR13.
 func TestComponentConfigValues(t *testing.T) {
 	stringList := types.ConfigField{Type: "list", Items: &types.ConfigFieldItems{Inline: &types.ConfigField{Type: "string"}}}
 	objectList := types.ConfigField{Type: "list", Items: &types.ConfigFieldItems{Fields: map[string]types.ConfigField{
@@ -50,6 +51,7 @@ func TestComponentConfigValues(t *testing.T) {
 	}
 }
 
+// Proves ST-DECL-DR02, ST-DECL-DR13.
 func TestInvalidComponentOverridesGateCompilation(t *testing.T) {
 	for _, override := range []string{
 		"stub-api: {heder: Authorization}",

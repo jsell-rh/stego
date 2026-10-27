@@ -75,6 +75,7 @@ func (g rejectedInputGenerator) Generate(gen.Context) ([]gen.File, *gen.Wiring, 
 	return nil, nil, nil
 }
 
+// Proves ST-DECL-UC03-R03.
 func TestSemanticValidationGatesGeneration(t *testing.T) {
 	tests := []struct {
 		name, field, collection, want string

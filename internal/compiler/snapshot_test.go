@@ -33,6 +33,7 @@ func applyInitialSnapshot(t *testing.T, input ReconcilerInput) {
 	}
 }
 
+// Proves ST-DIS-UC06-R01.
 func TestPlanReportsModifiedOutputWhenStateStillMatches(t *testing.T) {
 	input := snapshotTestInput(t)
 	applyInitialSnapshot(t, input)

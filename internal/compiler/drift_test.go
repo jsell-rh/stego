@@ -64,6 +64,7 @@ func TestDetectDrift_NoDrift(t *testing.T) {
 	}
 }
 
+// Proves ST-DIS-UC03-R01.
 func TestDetectDrift_ModifiedFile(t *testing.T) {
 	projectDir, registryDir := setupTestProject(t)
 	outDir := filepath.Join(projectDir, "out")

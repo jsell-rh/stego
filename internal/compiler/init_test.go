@@ -139,6 +139,7 @@ func TestInitializeRejectsRegistryReplacement(t *testing.T) {
 	}
 }
 
+// Proves ST-DECL-UC01-R02.
 func TestInitializeRejectsExistingPaths(t *testing.T) {
 	t.Setenv("STEGO_REGISTRY", "")
 	for _, name := range []string{"service.yaml", ".stego/config.yaml", ".stego", "fills"} {

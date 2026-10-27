@@ -62,6 +62,7 @@ func TestReconcileRejectsRegistryChangeDuringGeneration(t *testing.T) {
 	}
 }
 
+// Proves ST-DIS-UC06-R02.
 func TestRegistryContentChangeUpdatesOnlyState(t *testing.T) {
 	input := snapshotTestInput(t)
 	applyInitialSnapshot(t, input)
@@ -203,6 +204,7 @@ func TestSlotGenerationUsesCapturedRegistryFiles(t *testing.T) {
 	}
 }
 
+// Proves ST-DIS-UC03-R02.
 func TestApplyRejectsChangedRegistryIdentityInPlan(t *testing.T) {
 	input := snapshotTestInput(t)
 	plan, err := Reconcile(input)

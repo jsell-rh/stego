@@ -12,6 +12,8 @@ import (
 type failedVersionWriter struct{}
 
 func (failedVersionWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
+
+// Proves ST-DIS-UC09-R03.
 func TestVersion(t *testing.T) {
 	var out bytes.Buffer
 	if err := runVersion(nil, &out); err != nil || out.String() != "stego "+version+"\n" {

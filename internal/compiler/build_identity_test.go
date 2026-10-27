@@ -10,6 +10,7 @@ import (
 	"github.com/jsell-rh/stego/internal/buildidentity"
 )
 
+// Proves ST-DIS-UC09-R03.
 func TestCompilerBuildState(t *testing.T) {
 	input := snapshotTestInput(t)
 	applyInitialSnapshot(t, input)

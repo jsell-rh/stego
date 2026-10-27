@@ -10,6 +10,7 @@ import (
 	"github.com/jsell-rh/stego/internal/types"
 )
 
+// Proves ST-DECL-DR02, ST-DECL-DR03, ST-DECL-DR08.
 func TestStrictServiceInput(t *testing.T) {
 	const base = "kind: service\nname: test\narchetype: rest-crud\nlanguage: go\n"
 	tests := []struct {
@@ -64,6 +65,7 @@ func TestStrictOtherDeclarations(t *testing.T) {
 	}
 }
 
+// Proves ST-DECL-DR04.
 func TestStrictLimits(t *testing.T) {
 	var service types.ServiceDeclaration
 	if err := DecodeStrict([]byte(strings.Repeat(" ", MaxDocumentBytes+1)), "large.yaml", &service); err == nil {
