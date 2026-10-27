@@ -1,4 +1,5 @@
 {"use_case_id":"ST-DECL-UC01","position":1,"role_name":"Service author"}
+{"use_case_id":"ST-DECL-UC01","position":2,"role_name":"Agent"}
 {"use_case_id":"ST-DECL-UC02","position":1,"role_name":"Agent"}
 {"use_case_id":"ST-DECL-UC02","position":2,"role_name":"Service author"}
 {"use_case_id":"ST-DECL-UC03","position":1,"role_name":"Service author"}
