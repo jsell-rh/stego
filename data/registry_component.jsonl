@@ -1,0 +1,1 @@
+{"id":"ST-SUP-RC01","title":"PostgreSQL adapter","domain_id":"ST-SUP","name":"postgres-adapter","version":"4.13.0","stage":"ga","declaration_path":"registry/components/postgres-adapter","generator_package":"internal/generator/postgresadapter"}

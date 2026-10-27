@@ -34,3 +34,7 @@
 {"source_id":"ST-DIS-T12","target_id":"ST-DIS-UC09-R02"}
 {"source_id":"ST-DIS-T13","target_id":"ST-DIS-UC09-R03"}
 {"source_id":"ST-DIS-T14","target_id":"ST-DIS-UC09-R03"}
+{"source_id":"ST-SUP-T01","target_id":"ST-SUP-RC01-OC01"}
+{"source_id":"ST-SUP-T01","target_id":"ST-SUP-RC01-OC02"}
+{"source_id":"ST-SUP-T01","target_id":"ST-SUP-RC01-OC03"}
+{"source_id":"ST-SUP-T02","target_id":"ST-SUP-RC01-OC04"}

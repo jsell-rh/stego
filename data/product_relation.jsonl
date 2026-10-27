@@ -1,0 +1,2 @@
+{"name":"proves","source_kind":"test","target_kind":"output_contract","product_id":"ST","role":"proof","forward_label":"Proves","reverse_label":"Proved by","description":"The test proves the output contract."}
+{"name":"satisfies","source_kind":"component","target_kind":"output_contract","product_id":"ST","role":"design","forward_label":"Satisfies","reverse_label":"Designed by","description":"The generator code implements the output contract."}

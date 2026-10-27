@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Proves ST-SUP-RC01-OC01, ST-SUP-RC01-OC02, ST-SUP-RC01-OC03.
 func TestDatabaseTransportPolicy(t *testing.T) {
 	t.Setenv("STEGO_DATABASE_ALLOW_INSECURE_LOOPBACK", "0")
 	for _, mode := range []string{"disable", "prefer", "allow", "require", "verify-ca"} {
@@ -82,6 +83,7 @@ func databaseTestCertificate(t *testing.T) (tls.Certificate, string) {
 	return pair, name
 }
 
+// Proves ST-SUP-RC01-OC04.
 func TestDatabaseVerifiedTLSConnection(t *testing.T) {
 	cfg, err := pgx.ParseConfig(poolTestDSN(t))
 	if err != nil {
