@@ -1,0 +1,8 @@
+{"id":"ST-SUP-LAY01","title":"REST and HTTP","domain_id":"ST-SUP","position":1,"description":"The generators that emit HTTP routes, handlers, responses and the bounded HTTPS client."}
+{"id":"ST-SUP-LAY02","title":"gRPC","domain_id":"ST-SUP","position":2,"description":"The generators that emit gRPC services, their transports and their process runtime."}
+{"id":"ST-SUP-LAY03","title":"Storage and events","domain_id":"ST-SUP","position":3,"description":"The generators that emit the store, its provisioning, the durable queue, the publisher and the search translation."}
+{"id":"ST-SUP-LAY04","title":"Identity","domain_id":"ST-SUP","position":4,"description":"The generators that emit token verification, single sign-on and managed client declarations."}
+{"id":"ST-SUP-LAY05","title":"Observability","domain_id":"ST-SUP","position":5,"description":"The generators that emit traces, metrics, health endpoints and the browser telemetry runtime."}
+{"id":"ST-SUP-LAY06","title":"Software development kits","domain_id":"ST-SUP","position":6,"description":"The generators that emit typed clients for other programs to call the service with."}
+{"id":"ST-SUP-LAY07","title":"Command line and browser","domain_id":"ST-SUP","position":7,"description":"The generators that emit the executable and the browser session service that people use directly."}
+{"id":"ST-SUP-LAY08","title":"Kubernetes and runtime","domain_id":"ST-SUP","position":8,"description":"The generators that emit deployment manifests, the reconciliation runtime, typed configuration and the release scripts."}

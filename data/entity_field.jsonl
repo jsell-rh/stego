@@ -19,6 +19,9 @@
 {"entity_id":"ST-DECL-EN06","position":1,"name":"Component name","meaning":"The component the setting is for, which must be in the active component set.","type":"Component reference","example":"postgres-adapter"}
 {"entity_id":"ST-DECL-EN06","position":2,"name":"Setting name","meaning":"The setting, which the component's schema must declare.","type":"Text","example":"writer_lease"}
 {"entity_id":"ST-DECL-EN06","position":3,"name":"Value","meaning":"The value, which must suit the type the component's schema states.","type":"A value of the declared type","example":"off"}
+{"entity_id":"ST-DECL-EN07","position":1,"name":"Component name","meaning":"The component the service accepts, whose stage is not ga.","type":"Component reference","example":"rh-sso-auth"}
+{"entity_id":"ST-DECL-EN07","position":2,"name":"Accepted until","meaning":"The date the acceptance runs out, which may not be later than the component's own sunset.","type":"Date","example":"2027-03-01"}
+{"entity_id":"ST-DECL-EN07","position":3,"name":"Reason","meaning":"Why the service accepts it, so a reader can judge the risk.","type":"Text","example":"SSO migration pilot, ticket PLAT-1234"}
 {"entity_id":"ST-SUP-EN01","position":1,"name":"Reference","meaning":"What pins the registry's content.","type":"Digest","example":"94d285d7"}
 {"entity_id":"ST-SUP-EN01","position":2,"name":"Trust","meaning":"Whether the registry is the reviewed common one or a local extension.","type":"One of a list: common, local","example":"common"}
 {"entity_id":"ST-SUP-EN02","position":1,"name":"Path","meaning":"The output path, from the generated project root.","type":"Text","example":"internal/storage"}

@@ -37,3 +37,18 @@
 {"use_case_id":"ST-DIS-UC09","position":1,"description":"The operator asks for a named release."}
 {"use_case_id":"ST-DIS-UC09","position":2,"description":"The installer verifies the artifact signature and digest."}
 {"use_case_id":"ST-DIS-UC09","position":3,"description":"The installer puts the binary in place and reports the build identity it installed."}
+{"use_case_id":"ST-SUP-UC01","position":1,"description":"The platform engineer declares the component's config schema, its ports and its slots."}
+{"use_case_id":"ST-SUP-UC01","position":2,"description":"The platform engineer writes the generator that emits the component's code, and states what that code must always do."}
+{"use_case_id":"ST-SUP-UC01","position":3,"description":"The platform engineer writes a test for each thing the emitted code must do."}
+{"use_case_id":"ST-SUP-UC02","position":1,"description":"The platform engineer pins the common registry at one reference."}
+{"use_case_id":"ST-SUP-UC02","position":2,"description":"The platform engineer names a local registry that adds the team's own parts."}
+{"use_case_id":"ST-SUP-UC02","position":3,"description":"STEGO resolves the two into one active set, and refuses any local part that would replace a common one."}
+{"use_case_id":"ST-SUP-UC03","position":1,"description":"The platform engineer chooses the components the archetype includes."}
+{"use_case_id":"ST-SUP-UC03","position":2,"description":"The platform engineer names the component that answers each port by default."}
+{"use_case_id":"ST-SUP-UC03","position":3,"description":"STEGO checks that every required port has exactly one provider, and that every component is ga."}
+{"use_case_id":"ST-SUP-UC04","position":1,"description":"The platform engineer adds the component with stage alpha and the date it stops working."}
+{"use_case_id":"ST-SUP-UC04","position":2,"description":"The platform engineer gives it a port name of its own, which no ga component provides."}
+{"use_case_id":"ST-SUP-UC04","position":3,"description":"A service that wants it accepts it by name, with a date of its own."}
+{"use_case_id":"ST-SUP-UC05","position":1,"description":"The platform engineer reads which services accepted the component."}
+{"use_case_id":"ST-SUP-UC05","position":2,"description":"The platform engineer moves its stage up, which lets it take over the real port name, or withdraws it."}
+{"use_case_id":"ST-SUP-UC05","position":3,"description":"STEGO reports every service that still accepts a component past its date."}

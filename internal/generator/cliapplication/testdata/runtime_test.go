@@ -176,6 +176,18 @@ func TestCommandWorkflowAndBoundaries(t *testing.T) {
 	if _, err := run("create", "record", "--body", body); err != nil {
 		t.Fatal(err)
 	}
+	// The same valid body behind a leaf symbolic link must not be read.
+	bodyLink := filepath.Join(directory, "body-link.json")
+	if err := os.Symlink(body, bodyLink); err != nil {
+		t.Fatal(err)
+	}
+	before = calls.Load()
+	if _, err := run("create", "record", "--body", bodyLink); err == nil {
+		t.Fatal("body symlink accepted")
+	}
+	if calls.Load() != before {
+		t.Fatal("symlink body reached server")
+	}
 	for _, value := range []int32{2, 3, 4} {
 		mode.Store(value)
 		before = calls.Load()

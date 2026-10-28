@@ -11,3 +11,8 @@
 {"id":"ST-DIS-UC07","title":"Withdraw a component digest","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP02","goal":"A component digest that must not be used any more stops being usable, and every affected service is named first."}
 {"id":"ST-DIS-UC08","title":"Qualify a compiler release","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP03","goal":"A release is qualified at an exact commit before anyone can install it."}
 {"id":"ST-DIS-UC09","title":"Install a qualified compiler","domain_id":"ST-DIS","capability_id":"ST-DIS-CAP03","goal":"The operator installs a compiler whose identity and platform they can verify."}
+{"id":"ST-SUP-UC01","title":"Write a component","domain_id":"ST-SUP","capability_id":"ST-SUP-CAP01","goal":"The platform engineer adds a part that every service can build from, and makes each accidental decision once."}
+{"id":"ST-SUP-UC02","title":"Compose a registry for a team","domain_id":"ST-SUP","capability_id":"ST-SUP-CAP02","goal":"A team may add parts of its own without weakening the parts everyone shares."}
+{"id":"ST-SUP-UC03","title":"Curate an archetype","domain_id":"ST-SUP","capability_id":"ST-SUP-CAP02","goal":"A service author selects one archetype and gets a shape that works, with every port answered."}
+{"id":"ST-SUP-UC04","title":"Introduce an experimental component","domain_id":"ST-SUP","capability_id":"ST-SUP-CAP03","goal":"A team may run ahead of the platform team, visibly and for a stated time, without reaching a golden path."}
+{"id":"ST-SUP-UC05","title":"Graduate or retire a component","domain_id":"ST-SUP","capability_id":"ST-SUP-CAP03","goal":"An experiment either becomes a part everyone can rely on, or it goes, and nobody is surprised either way."}

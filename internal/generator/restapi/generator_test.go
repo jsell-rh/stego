@@ -8683,6 +8683,127 @@ func TestGenerate_CreateHandlerPopulatesServerManagedFields(t *testing.T) {
 	}
 }
 
+// Proves ST-SUP-RC20-OC16.
+func TestGenerate_PatchHandlerRecordsAuditFields(t *testing.T) {
+	g := &Generator{}
+	defaultVal := 1
+	ctx := gen.Context{
+		Conventions: types.Convention{Layout: "flat"},
+		Entities: []types.Entity{
+			{Name: "Cluster", Fields: []types.Field{
+				{Name: "name", Type: types.FieldTypeString},
+				{Name: "spec", Type: types.FieldTypeJsonb},
+				{Name: "generation", Type: types.FieldTypeInt32, Default: defaultVal},
+				{Name: "created_by", Type: types.FieldTypeString},
+				{Name: "updated_by", Type: types.FieldTypeString},
+				{Name: "created_time", Type: types.FieldTypeTimestamp},
+				{Name: "updated_time", Type: types.FieldTypeTimestamp},
+			}},
+		},
+		Collections: []types.Collection{
+			{
+				Name:       "clusters",
+				Entity:     "Cluster",
+				Operations: []types.Operation{types.OpRead, types.OpPatch},
+				Patchable:  []string{"spec"},
+			},
+		},
+		OutputNamespace: "internal/api",
+		AuthPackage:     "github.com/example/svc/internal/auth",
+		ModuleName:      "github.com/example/svc",
+	}
+
+	files, _, err := g.Generate(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	handler := findFileContent(t, files, "internal/api/handler_clusters.go")
+	patchStart := strings.Index(handler, "func (h *ClustersHandler) Patch(")
+	if patchStart == -1 {
+		t.Fatal("Patch method not found")
+	}
+	patchSection := handler[patchStart:]
+
+	// The patch handler must record who changed the record and when.
+	if !strings.Contains(patchSection, `authID.Attributes["email"]`) {
+		t.Error("patch handler must check Attributes[\"email\"] for updated_by")
+	}
+	if !strings.Contains(patchSection, "cluster.UpdatedBy = email") {
+		t.Error("patch handler must set updated_by from email attribute")
+	}
+	if !strings.Contains(patchSection, "cluster.UpdatedBy = authID.UserID") {
+		t.Error("patch handler must fall back to UserID for updated_by")
+	}
+	if !strings.Contains(patchSection, "cluster.UpdatedTime = time.Now()") {
+		t.Error("patch handler must set updated_time to time.Now()")
+	}
+
+	// The audit fields must be set after the merge, so a client value in the
+	// patch request cannot win.
+	applyIndex := strings.Index(patchSection, "if patch.Spec != nil")
+	auditIndex := strings.Index(patchSection, "cluster.UpdatedTime = time.Now()")
+	if applyIndex == -1 || auditIndex < applyIndex {
+		t.Error("patch handler must set the audit fields after it applies the patch")
+	}
+
+	// A database trigger raises generation. The handler must not raise it, and
+	// must not rewrite the create-only fields it already holds.
+	if strings.Contains(patchSection, "cluster.Generation =") {
+		t.Error("patch handler must leave generation to the database trigger")
+	}
+	if strings.Contains(patchSection, "cluster.CreatedBy =") || strings.Contains(patchSection, "cluster.CreatedTime =") {
+		t.Error("patch handler must not rewrite create-only fields")
+	}
+
+	// Compile the generated package to prove the time and auth imports are right.
+	tmpDir := t.TempDir()
+	authDir := filepath.Join(tmpDir, "internal", "auth")
+	if err := os.MkdirAll(authDir, 0o755); err != nil {
+		t.Fatalf("mkdir auth: %v", err)
+	}
+	authStub := `package auth
+
+import "context"
+
+type Identity struct {
+	UserID     string
+	Role       string
+	Attributes map[string]string
+}
+
+type contextKey struct{}
+
+func IdentityFromContext(ctx context.Context) Identity {
+	if id, ok := ctx.Value(contextKey{}).(Identity); ok {
+		return id
+	}
+	return Identity{}
+}
+`
+	if err := os.WriteFile(filepath.Join(authDir, "auth.go"), []byte(authStub), 0o644); err != nil {
+		t.Fatalf("write auth stub: %v", err)
+	}
+	for _, f := range files {
+		fp := filepath.Join(tmpDir, f.Path)
+		if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(fp, f.Bytes(), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	goMod := "module github.com/example/svc\n\ngo 1.23\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generated patch handler does not compile:\n%s", out)
+	}
+}
+
 // Proves ST-SUP-RC20-OC19.
 func TestGenerate_KindFieldValidation(t *testing.T) {
 	g := &Generator{}

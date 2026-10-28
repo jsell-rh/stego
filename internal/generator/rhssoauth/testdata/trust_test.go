@@ -181,7 +181,7 @@ func TestSSOPayloadMapping(t *testing.T) {
 			if p.Username != username || p.FirstName != first || p.LastName != last || p.Email != "person@example.com" || p.ClientID != "service-client" || p.Issuer != "https://issuer.example/realm" {
 				t.Fatal("SSO mapping changed", mode)
 			}
-			if id.UserID != username || id.Role != "" || id.ExpiresAt.IsZero() || id.Attributes["client_id"] != p.ClientID || GetUsernameFromContext(r.Context()) != username || !TokenFromContext(r.Context()).Valid {
+			if id.UserID != "caller" || id.Username != username || id.Role != "" || id.ExpiresAt.IsZero() || id.Attributes["client_id"] != p.ClientID || GetUsernameFromContext(r.Context()) != username || !TokenFromContext(r.Context()).Valid {
 				t.Fatal("verified context mapping changed")
 			}
 			w.WriteHeader(204)
@@ -192,6 +192,41 @@ func TestSSOPayloadMapping(t *testing.T) {
 		if !called {
 			t.Fatal("valid payload rejected")
 		}
+	}
+}
+
+// Proves ST-SUP-RC21-OC08.
+func TestSSOIdentitySubject(t *testing.T) {
+	key := ssoFixture(t)
+	h, err := NewJWTHandler()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Stop()
+	// The username differs from the subject. Authorization keys on the subject,
+	// so the identity must carry the subject, not the username.
+	claims := ssoClaims()
+	claims["username"] = "account"
+	called := false
+	next := h.Build()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		id := IdentityFromContext(r.Context())
+		if id.UserID != "caller" {
+			t.Fatal("identity does not hold the verified subject")
+		}
+		if id.Issuer != "https://issuer.example/realm" {
+			t.Fatal("identity does not hold the verified issuer")
+		}
+		if id.Username != "account" {
+			t.Fatal("identity lost the username")
+		}
+		w.WriteHeader(204)
+	}))
+	r := httptest.NewRequest("GET", "/private", nil)
+	r.Header.Set("Authorization", "Bearer "+ssoToken(t, key, claims, jwt.SigningMethodRS256))
+	next.ServeHTTP(httptest.NewRecorder(), r)
+	if !called {
+		t.Fatal("valid token rejected")
 	}
 }
 

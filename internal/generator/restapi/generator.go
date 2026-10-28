@@ -544,6 +544,15 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 			}
 		}
 	}
+	// The patch handler sets updated_time, so it needs time as well.
+	if !needTime && hasPatch {
+		for _, f := range entity.Fields {
+			if f.Name == "updated_time" && f.Type == types.FieldTypeTimestamp {
+				needTime = true
+				break
+			}
+		}
+	}
 
 	// Derive the slots import alias from the package path.
 	slotsAlias := ""
@@ -593,6 +602,16 @@ func generateHandler(ns string, entity types.Entity, eb types.Collection, collec
 	if !needAuth && authImportPath != "" && hasWriteOp {
 		for _, f := range entity.Fields {
 			if f.Name == "created_by" || f.Name == "updated_by" {
+				needAuth = true
+				break
+			}
+		}
+	}
+	// The patch handler sets updated_by from the authenticated identity, so it
+	// needs the auth package too.
+	if !needAuth && authImportPath != "" && hasPatch {
+		for _, f := range entity.Fields {
+			if f.Name == "updated_by" {
 				needAuth = true
 				break
 			}
@@ -1522,7 +1541,14 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 		fmt.Fprintf(buf, "\t}\n")
 	}
 
-	// Step 5: Save via Replace (full entity save after merge).
+	// Step 5: Record the change. The patch handler sets updated_by from the
+	// verified identity and updated_time to the time of the change. This runs
+	// after the merge, so a client value cannot win. Create-only fields need no
+	// restore: the entity variable starts as the stored record, and a patch only
+	// writes the fields the request supplies.
+	emitPopulateServerManagedFieldsUpdate(buf, lower, entity, authAlias)
+
+	// Step 6: Save via Replace (full entity save after merge).
 	fmt.Fprintf(buf, "\tif err := h.store.Replace(r.Context(), %q, id, %s); err != nil {\n", entity.Name, lower)
 	fmt.Fprintf(buf, "\t\tif errors.Is(err, ErrNotFound) {\n")
 	fmt.Fprintf(buf, "\t\t\thandleError(w, r, NotFound(%q, id))\n", entity.Name)
@@ -1534,7 +1560,7 @@ func generatePatchMethod(buf *bytes.Buffer, entity types.Entity, eb types.Collec
 	fmt.Fprintf(buf, "\t\treturn\n")
 	fmt.Fprintf(buf, "\t}\n")
 
-	// Step 6: Invoke after-slots (e.g., on_entity_changed fan-out, after_patch).
+	// Step 7: Invoke after-slots (e.g., on_entity_changed fan-out, after_patch).
 	for _, sp := range after {
 		dispatchAfterSlot(buf, slotsAlias, authAlias, sp, lower, entity, types.OpPatch, patchFields)
 	}
