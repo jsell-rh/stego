@@ -1,2 +1,0 @@
-{"id":"ST-STD-TRUST-R01","title":"One signed compiler holds every generator","standard_id":"ST-STD-TRUST","statement":"STEGO MUST ship as one signed artifact that contains every generator it can run."}
-{"id":"ST-STD-TRUST-R02","title":"The compiler runs no generator code it does not contain","standard_id":"ST-STD-TRUST","statement":"The compiler MUST NOT load, download or execute generator code that its signed artifact does not already contain."}
